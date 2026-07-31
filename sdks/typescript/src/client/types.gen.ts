@@ -5869,6 +5869,10 @@ export type MapVisibility = 'private' | 'internal' | 'public';
  */
 export type MercatorClipDetail = {
     /**
+     * Clip Skipped
+     */
+    clip_skipped?: boolean;
+    /**
      * Clipped Features
      */
     clipped_features: number;

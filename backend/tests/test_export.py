@@ -751,6 +751,148 @@ class TestExportFeatureCap:
         )
         assert resp.status_code == 200
 
+    @pytest.fixture
+    async def capped_pacific_dataset(self, test_db_session, monkeypatch):
+        """fix(#905): 3-row table straddling the antimeridian, cap lowered to 2.
+
+        Points at lon 179.5, -179.5 and 150 — a narrow crossing bbox selects
+        the first two, a wide one selects all three.
+        """
+        from sqlalchemy import text
+
+        from app.processing.export import router as export_router
+
+        monkeypatch.setattr(export_router, "_MAX_EXPORT_FEATURES", 2)
+
+        table_name = f"exp_cap_am_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table_name} "
+                "(gid serial PRIMARY KEY, pop integer, "
+                "geom geometry(Point, 4326), geom_4326 geometry(Point, 4326))"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table_name} (pop, geom, geom_4326) VALUES "
+                "(10, ST_SetSRID(ST_MakePoint(179.5, -17), 4326), "
+                " ST_SetSRID(ST_MakePoint(179.5, -17), 4326)), "
+                "(20, ST_SetSRID(ST_MakePoint(-179.5, -17), 4326), "
+                " ST_SetSRID(ST_MakePoint(-179.5, -17), 4326)), "
+                "(30, ST_SetSRID(ST_MakePoint(150, -17), 4326), "
+                " ST_SetSRID(ST_MakePoint(150, -17), 4326))"
+            )
+        )
+        await test_db_session.commit()
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="CappedPacificDS",
+            table_name=table_name,
+            geometry_type="Point",
+            feature_count=3,
+            column_info=[
+                {"name": "gid", "type": "integer"},
+                {"name": "pop", "type": "integer"},
+            ],
+        )
+        yield ds
+        await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{table_name}"))
+        await test_db_session.commit()
+
+    @pytest.mark.anyio
+    async def test_crossing_bbox_under_cap_passes(
+        self, client: AsyncClient, admin_auth_header: dict, capped_pacific_dataset
+    ):
+        """fix(#905): a west>east bbox used to skip the count filter entirely,
+        so this narrow Fiji-style AOI (2 of 3 rows, cap 2) falsely 413'd on the
+        unfiltered count of 3."""
+        resp = await client.get(
+            f"/datasets/{capped_pacific_dataset.id}/export",
+            params={"bbox": "179,-20,-179,-15", "format": "geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+
+    @pytest.mark.anyio
+    async def test_crossing_bbox_over_cap_still_413(
+        self, client: AsyncClient, admin_auth_header: dict, capped_pacific_dataset
+    ):
+        """A crossing bbox that genuinely selects over the cap (all 3 rows,
+        cap 2) must still 413."""
+        resp = await client.get(
+            f"/datasets/{capped_pacific_dataset.id}/export",
+            params={"bbox": "140,-20,-179,-15"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 413
+        assert "still selects" in resp.json()["detail"]
+
+    @pytest.mark.anyio
+    async def test_ordinary_bbox_count_stays_envelope_conservative(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+    ):
+        """fix(#905 codex r1): the non-crossing branch must keep counting with
+        `&&` (envelope overlap), not exact ST_Intersects — the export runs
+        ogr2ogr -spat, whose GDAL contract permits envelope false positives,
+        so an exact count could pass the cap while -spat exports more. Three
+        diagonal lines have envelopes overlapping a corner bbox that none of
+        them actually intersects: the envelope count is 3 > cap 2 → 413."""
+        from sqlalchemy import text
+
+        from app.processing.export import router as export_router
+
+        monkeypatch.setattr(export_router, "_MAX_EXPORT_FEATURES", 2)
+
+        table_name = f"exp_cap_env_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table_name} "
+                "(gid serial PRIMARY KEY, pop integer, "
+                "geom geometry(LineString, 4326), "
+                "geom_4326 geometry(LineString, 4326))"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table_name} (pop, geom, geom_4326) "
+                "SELECT 1, g, g FROM (VALUES "
+                "(ST_GeomFromText('LINESTRING(0 0, 2 2)', 4326)), "
+                "(ST_GeomFromText('LINESTRING(0 0.1, 2 2.1)', 4326)), "
+                "(ST_GeomFromText('LINESTRING(0 0.2, 2 2.2)', 4326))"
+                ") v(g)"
+            )
+        )
+        await test_db_session.commit()
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="EnvelopeConservativeDS",
+            table_name=table_name,
+            geometry_type="LineString",
+            feature_count=3,
+            column_info=[
+                {"name": "gid", "type": "integer"},
+                {"name": "pop", "type": "integer"},
+            ],
+        )
+        try:
+            # Bottom-right corner: inside every line's envelope, touching none.
+            resp = await client.get(
+                f"/datasets/{ds.id}/export",
+                params={"bbox": "1.5,0,2,0.4"},
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 413
+        finally:
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table_name}")
+            )
+            await test_db_session.commit()
+
     @pytest.mark.anyio
     async def test_oversized_invalid_where_400(
         self, client: AsyncClient, admin_auth_header: dict, capped_dataset

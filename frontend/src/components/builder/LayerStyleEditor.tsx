@@ -20,7 +20,6 @@ import { stripLegacyBuilderPaint } from '@/lib/normalize-style-config';
 import { GeometrySwatch } from '@/components/map/LegendEntries';
 import { getLayerColors } from '@/components/map/layer-icons';
 import { MAP_COLORS } from '@/lib/map-colors';
-import { getRenderAsOptions } from './renderAs';
 import type { BuilderStyleConfig, MapLayerResponse, StyleConfig, SymbolStyleConfig } from '@/types/api';
 
 const DataDrivenStyleEditor = lazy(() => import('./DataDrivenStyleEditor').then(m => ({ default: m.DataDrivenStyleEditor })));
@@ -41,6 +40,13 @@ interface LayerStyleEditorProps {
   onOpacityChange?: (layerId: string, opacity: number) => void;
   onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>, opts?: { replace?: boolean }) => void;
   onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
+  /**
+   * fix(#913): banner Revert restores the baseline through the ordinary mutation
+   * handlers, each of which marks the map dirty — so the revert re-dirtied the
+   * map and the header kept claiming unsaved work. The owner of the baseline
+   * re-derives cleanliness here; it only clears when the WHOLE map is clean.
+   */
+  onRevertToSaved?: () => void;
 }
 
 // Re-export hasUnsavedStyleChanges so existing callers (tests etc.) can still
@@ -129,6 +135,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
   onOpacityChange,
   onStyleConfigChange,
   onLayoutChange,
+  onRevertToSaved,
 }: LayerStyleEditorProps) {
   const { t } = useTranslation('builder');
   const geomType = getLayerType(layer.dataset_geometry_type);
@@ -206,11 +213,6 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     [layer.dataset_column_info],
   );
   const currentHeightCol = builderConfig.heightColumn ?? (layer.paint?.['_height_column'] as string) ?? '';
-  const clusterAvailable = useMemo(
-    () => renderMode === 'cluster' || getRenderAsOptions(layer).some((option) => option.id === 'cluster'),
-    [layer, renderMode],
-  );
-
   // Phase 20260526-builder-audit #338 BLD-20260526-11: 100ms debounce for master opacity slider.
   // Local state holds the slider's displayed value so drags feel instant,
   // while the debounced effect coalesces rapid changes into a single
@@ -421,7 +423,9 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     // Remount DataDrivenStyleEditor so its local ramp/mode/column re-seed from the
     // restored config instead of re-applying the just-discarded selection.
     setRevertNonce((n) => n + 1);
-  }, [savedLayer, layer.id, onStyleConfigChange, onLayoutChange, onOpacityChange, handleResetStyle]);
+    // The handlers above mark the map dirty; ask the baseline owner to recheck.
+    onRevertToSaved?.();
+  }, [savedLayer, layer.id, onStyleConfigChange, onLayoutChange, onOpacityChange, handleResetStyle, onRevertToSaved]);
 
   // fix(#916 review): symbol mode keeps circle paint on the layer, and the
   // switch back to Point restores style_config.savedCirclePaint, not
@@ -462,16 +466,13 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     builderConfig,
     styleConfig: layer.style_config ?? null,
     symbolConfig,
-    renderMode,
     isPolygon,
     numericColumns,
     currentHeightCol,
     strokeEnabled,
     fillEnabled,
-    clusterAvailable,
     onPaintChange,
     onLayoutChange,
-    onStyleConfigChange,
     onPaintProp: handlePaintProp,
     onToggleFill: handleToggleFill,
     onToggleStroke: handleToggleStroke,
@@ -481,9 +482,9 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     onFillPatternChange: handleFillPatternChange,
     t,
   }), [
-    layer, controlPaint, isDataDriven, builderConfig, symbolConfig, renderMode,
+    layer, controlPaint, isDataDriven, builderConfig, symbolConfig,
     isPolygon, numericColumns, currentHeightCol, strokeEnabled, fillEnabled,
-    clusterAvailable, onPaintChange, onLayoutChange, onStyleConfigChange,
+    onPaintChange, onLayoutChange,
     handlePaintProp, handleToggleFill, handleToggleStroke,
     handleHeatmapPaintChange, handleSymbolConfigChange, updateBuilderConfig,
     handleFillPatternChange, t,

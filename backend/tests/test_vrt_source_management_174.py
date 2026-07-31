@@ -638,7 +638,8 @@ class TestRegenerateVrtTask:
 
             with (
                 patch(
-                    "app.processing.ingest.tasks_vrt.async_session"
+                    # fix(#909): tasks_vrt late-binds; patch the origin
+                    "app.core.db.async_session"
                 ) as mock_async_session,
                 patch(
                     "app.processing.ingest.tasks_vrt.build_vrt",
@@ -703,7 +704,8 @@ class TestRegenerateVrtTask:
 
             with (
                 patch(
-                    "app.processing.ingest.tasks_vrt.async_session"
+                    # fix(#909): tasks_vrt late-binds; patch the origin
+                    "app.core.db.async_session"
                 ) as mock_async_session,
                 patch(
                     "app.processing.ingest.tasks_vrt.build_vrt",
@@ -819,7 +821,8 @@ class TestRegenerateVrtTask:
 
             with (
                 patch(
-                    "app.processing.ingest.tasks_vrt.async_session"
+                    # fix(#909): tasks_vrt late-binds; patch the origin
+                    "app.core.db.async_session"
                 ) as mock_async_session,
                 patch(
                     "app.processing.ingest.tasks_vrt.build_vrt",
@@ -981,7 +984,8 @@ class TestRegenerateVrtTask:
 
             with (
                 patch(
-                    "app.processing.ingest.tasks_vrt.async_session"
+                    # fix(#909): tasks_vrt late-binds; patch the origin
+                    "app.core.db.async_session"
                 ) as mock_async_session,
                 patch(
                     "app.processing.ingest.tasks_vrt.build_vrt",

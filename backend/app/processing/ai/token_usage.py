@@ -11,7 +11,7 @@ from sqlalchemy import DateTime, ForeignKey, Index, Integer, Text, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.core.db import Base, async_session
+from app.core.db import Base
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -69,6 +69,11 @@ async def record_token_usage(
     of the request lifecycle and is semantically correct — the tokens were
     already spent, so the record must survive even a later request rollback.
     """
+    # fix(#909): late-bind so the test fixture's rebinding of
+    # app.core.db.async_session is honored; a module-scope import snapshots
+    # the dev-DB factory.
+    from app.core.db import async_session
+
     try:
         async with async_session() as session:
             session.add(

@@ -318,7 +318,10 @@ async def apply_tenancy_rls_from_engine(*, verify_runtime_role: bool = True) -> 
         may pass ``verify_runtime_role=False`` while preparing the schema; API
         and worker bootstrap always use the default verification.
     """
-    from app.core.db.session import engine
+    # fix(#909): via the app.core.db façade, not app.core.db.session — the test
+    # fixture reassigns the façade attribute, so importing from the origin
+    # module resolves the un-patched dev-database engine even when late-bound.
+    from app.core.db import engine
 
     async with engine.connect() as conn:
         # Use AUTOCOMMIT so each ALTER TABLE is its own implicit transaction

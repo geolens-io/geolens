@@ -210,8 +210,6 @@
     "resetTitle": "Restablecer estilo de esta capa",
     "unsupportedBuilderState": "Este estilo importado usa ajustes que el editor visual no puede cambiar con seguridad. Los ajustes válidos se conservan; use JSON avanzado para las partes no compatibles.",
     "sections": {
-      "render": "Renderizar como",
-      "renderDescription": "Elija cómo se dibuja esta capa de puntos.",
       "dataDriven": "Estilo basado en datos",
       "dataDrivenDescription": "Coloree o dimensione entidades por atributo.",
       "appearance": "Color, forma y visibilidad",
@@ -286,11 +284,6 @@
     "zoomRange": "Rango de zoom",
     "minZoom": "Zoom mínimo",
     "maxZoom": "Zoom máximo",
-    "renderAs": "Renderizar como",
-    "renderPoints": "Puntos",
-    "renderSymbol": "Símbolos",
-    "renderHeatmap": "Mapa de calor",
-    "renderCluster": "Agrupación",
     "none": "Ninguno",
     "symbol": {
       "title": "Símbolo",
@@ -302,7 +295,20 @@
       "offsetX": "Desplazamiento X",
       "offsetY": "Desplazamiento Y",
       "categoryMapping": "Iconos por valor",
-      "categoryIcon": "Icono para {{value}}"
+      "categoryIcon": "Icono para {{value}}",
+      "anchorOption": {
+        "center": "Centro",
+        "top": "Arriba",
+        "bottom": "Abajo",
+        "left": "Izquierda",
+        "right": "Derecha",
+        "top-left": "Arriba a la izquierda",
+        "top-right": "Arriba a la derecha",
+        "bottom-left": "Abajo a la izquierda",
+        "bottom-right": "Abajo a la derecha"
+      },
+      "sampledValues": "Una muestra de los valores de esta columna, no todos los valores del conjunto de datos.",
+      "unknownIcon": "No existe ningún icono llamado «{{icon}}»: este valor no dibujará nada."
     },
     "arrow": {
       "title": "Dirección de flecha",
@@ -345,7 +351,6 @@
       "resampling": "Remuestreo",
       "resamplingLinear": "Lineal",
       "resamplingNearest": "Vecino más cercano",
-      "renderMode": "Renderizar",
       "renderRaster": "Ráster",
       "renderHillshade": "Sombreado",
       "reset": "Restablecer",

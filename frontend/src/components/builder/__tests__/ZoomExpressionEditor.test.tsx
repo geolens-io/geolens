@@ -74,6 +74,62 @@ describe('ZoomExpressionEditor', () => {
     expect(onChange).toHaveBeenCalledWith(['interpolate', ['linear'], ['zoom'], 4, 3, 12, 12]);
   });
 
+  // fix(#922): a re-hydration that replaces the paint array with an equal one
+  // (save, render-mode switch, style paste) used to revert a half-typed stop,
+  // because the sync effect keyed on object identity.
+  it('keeps an in-progress edit when the value is replaced by an equal array', () => {
+    const onChange = vi.fn();
+    const expr = () => ['interpolate', ['linear'], ['zoom'], 4, 0.4, 12, 1];
+    const { rerender } = render(
+      <ZoomExpressionEditor
+        label="Opacity"
+        value={expr()}
+        defaultValue={1}
+        min={0}
+        max={1}
+        step={0.05}
+        format="percent"
+        onChange={onChange}
+      />,
+    );
+
+    // Empty a stop's value so the draft is invalid and therefore never emitted.
+    fireEvent.change(screen.getByLabelText('Opacity Stop 2 value'), { target: { value: '' } });
+    expect(screen.getByLabelText('Opacity Stop 2 value')).toHaveValue(null);
+
+    // A fresh-but-equal array arrives (no user edit behind it).
+    rerender(
+      <ZoomExpressionEditor
+        label="Opacity"
+        value={expr()}
+        defaultValue={1}
+        min={0}
+        max={1}
+        step={0.05}
+        format="percent"
+        onChange={onChange}
+      />,
+    );
+
+    expect(screen.getByLabelText('Opacity Stop 2 value')).toHaveValue(null);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('still re-seeds when the value genuinely changes', () => {
+    const onChange = vi.fn();
+    const props = {
+      label: 'Opacity', defaultValue: 1, min: 0, max: 1, step: 0.05,
+      format: 'percent' as const, onChange,
+    };
+    const { rerender } = render(
+      <ZoomExpressionEditor {...props} value={['interpolate', ['linear'], ['zoom'], 4, 0.4, 12, 1]} />,
+    );
+    rerender(
+      <ZoomExpressionEditor {...props} value={['interpolate', ['linear'], ['zoom'], 4, 0.4, 12, 0.5]} />,
+    );
+    expect(screen.getByLabelText('Opacity Stop 2 value')).toHaveValue(0.5);
+  });
+
   it('shows validation errors and does not emit malformed stop lists', () => {
     const onChange = vi.fn();
     render(

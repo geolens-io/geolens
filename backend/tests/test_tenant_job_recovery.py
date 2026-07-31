@@ -49,7 +49,8 @@ async def test_api_sweeper_scopes_each_tenant_and_continues_after_failure():
     with (
         patch.object(main_module, "is_multi_tenant", return_value=True),
         patch("app.core.tenancy.is_multi_tenant", return_value=True),
-        patch.object(main_module, "async_session", session_factory),
+        # fix(#909): sweep_stale_jobs_once late-binds from app.core.db
+        patch("app.core.db.async_session", session_factory),
         patch(
             "app.platform.jobs.router.fail_stale_jobs",
             side_effect=fake_fail_stale_jobs,
@@ -109,7 +110,8 @@ async def test_api_sweeper_aggregates_detailed_tenant_outcomes():
 
     with (
         patch.object(main_module, "is_multi_tenant", return_value=True),
-        patch.object(main_module, "async_session", session_factory),
+        # fix(#909): sweep_stale_jobs_once late-binds from app.core.db
+        patch("app.core.db.async_session", session_factory),
         patch("app.platform.jobs.router.fail_stale_jobs", cleanup),
     ):
         details = await main_module.sweep_stale_jobs_once(detailed=True)
@@ -136,7 +138,8 @@ async def test_api_sweeper_preserves_single_tenant_one_shot():
 
     with (
         patch.object(main_module, "is_multi_tenant", return_value=False),
-        patch.object(main_module, "async_session", session_factory),
+        # fix(#909): sweep_stale_jobs_once late-binds from app.core.db
+        patch("app.core.db.async_session", session_factory),
         patch("app.platform.jobs.router.fail_stale_jobs", fail_stale_jobs),
     ):
         assert await main_module.sweep_stale_jobs_once() == (4, 5)

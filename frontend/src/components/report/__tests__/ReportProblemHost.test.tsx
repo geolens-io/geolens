@@ -34,6 +34,29 @@ describe('ReportProblemHost', () => {
     expect(screen.getByText('1')).toBeInTheDocument();
   });
 
+  // fix(#908): the badge counts distinct failures. An unrecovered tile error
+  // writes both a `maplibre` row (which carries the sourceId) and a `console`
+  // row from logUnhandledMapError, and it used to read "2" for one failure.
+  it('counts one failure for the maplibre + console pair a 5xx tile writes', async () => {
+    signIn();
+    render(<ReportProblemHost />);
+    pushReportEntry({
+      severity: 'error',
+      source: 'maplibre',
+      message: 'AJAXError: Internal Server Error (500)',
+      detail: 'source: dataset-abc',
+    });
+    pushReportEntry({
+      severity: 'error',
+      source: 'console',
+      message: 'AJAXError: Internal Server Error (500)',
+    });
+
+    const button = await screen.findByRole('button', { name: /report a problem/i });
+    expect(button).toBeInTheDocument();
+    expect(screen.getByText('1')).toBeInTheDocument();
+  });
+
   it('opens the wizard from the floating button', async () => {
     signIn();
     render(<ReportProblemHost />);

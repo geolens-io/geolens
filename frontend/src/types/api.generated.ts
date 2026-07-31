@@ -9261,6 +9261,11 @@ export interface components {
          *     reduced form.
          */
         MercatorClipDetail: {
+            /**
+             * Clip Skipped
+             * @default false
+             */
+            clip_skipped: boolean;
             /** Clipped Features */
             clipped_features: number;
             /** Dropped Features */

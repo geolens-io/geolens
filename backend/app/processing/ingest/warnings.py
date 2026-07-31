@@ -13,7 +13,7 @@ validates through them before returning ``JobStatusResponse`` so the
 backend-frontend contract is closed at both ends.
 """
 
-from typing import Literal, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 
 class ReservedRenameDetail(TypedDict):
@@ -39,6 +39,12 @@ class DbfTruncationCollisionWarning(TypedDict):
 class MercatorClipDetail(TypedDict):
     dropped_features: int
     clipped_features: int
+    # fix(#906): True when the clip was skipped because the safe envelope
+    # degenerates under ST_Transform into the source CRS (narrow-validity
+    # CRSs — EPSG:4807 collapses it to a line and the intersection would
+    # have emptied the table). Counts are 0/0 in that case; the warning
+    # exists so the skip is not silent.
+    clip_skipped: NotRequired[bool]
 
 
 class MercatorClipWarning(TypedDict):
@@ -51,12 +57,15 @@ class MercatorClipCounts(TypedDict):
 
     ``shifted_longitudes`` records whether the source was recognised as
     0..360 and translated into -180..180 before the clip ran; the two counts
-    describe what the clip itself destroyed.
+    describe what the clip itself destroyed. ``clip_skipped`` (fix(#906))
+    records that the clip did not run because the safe envelope degenerated
+    in the source CRS; the 0..360 shift has still been applied.
     """
 
     shifted_longitudes: bool
     dropped_features: int
     clipped_features: int
+    clip_skipped: NotRequired[bool]
 
 
 IngestJobWarning = (
@@ -124,12 +133,15 @@ def make_mercator_clip_warning(
     clipped = clip.get("clipped_features")
     if not isinstance(dropped, int) or not isinstance(clipped, int):
         return None
-    if dropped <= 0 and clipped <= 0:
+    # fix(#906): a skipped clip lost no data but must not be silent either —
+    # the dataset now carries geometry the Mercator clamp never inspected.
+    skipped = clip.get("clip_skipped") is True
+    if dropped <= 0 and clipped <= 0 and not skipped:
         return None
-    return MercatorClipWarning(
-        kind="mercator_clip",
-        details=MercatorClipDetail(
-            dropped_features=dropped,
-            clipped_features=clipped,
-        ),
+    details = MercatorClipDetail(
+        dropped_features=max(dropped, 0),
+        clipped_features=max(clipped, 0),
     )
+    if skipped:
+        details["clip_skipped"] = True
+    return MercatorClipWarning(kind="mercator_clip", details=details)

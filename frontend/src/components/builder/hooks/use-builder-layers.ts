@@ -11,6 +11,7 @@ import {
   type BuilderLayerAction,
 } from '@/components/builder/builder-action-contract';
 import { resolveBasemapId } from '@/lib/basemap-utils';
+import { deepEqual } from '@/components/builder/LayerStyleEditor/utils';
 import type { MapBasemapConfig, MapLayerResponse, MapResponse, MapTerrainConfig, StyleConfig } from '@/types/api';
 import type { useAddLayer, useRemoveLayer } from '@/hooks/use-maps';
 import { useEphemeralLayers } from '@/components/builder/hooks/use-ephemeral-layers';
@@ -39,6 +40,34 @@ import { useRenderModeLayers } from '@/components/builder/hooks/use-render-mode-
 import { useLayerStyleClipboard } from '@/components/builder/hooks/use-layer-style-clipboard';
 import { useTileConfig } from '@/hooks/use-settings';
 export { buildDuplicateRenderingInput } from '@/components/builder/hooks/builder-layer-mutations';
+
+// True when a local text field and its saved value would persist identically.
+// The save payload is `value.trim() || null`, and the field hydrates raw.
+function sameSavedText(local: string | null | undefined, saved: string | null | undefined): boolean {
+  const l = local ?? '';
+  const r = saved ?? '';
+  if (l === r) return true;
+  return l.trim() === '' && r.trim() === '';
+}
+
+// fix(#913 review): the hydrated shape of mapData's folder-expansion state,
+// mirroring the load path below (hydrated markers overlaid with group_meta).
+function savedGroupMeta(mapData: MapResponse): Record<string, { expanded: boolean }> {
+  return {
+    ...hydrateFolderGroupLayers(mapData.layers ?? []).groupMeta,
+    ...((mapData as { group_meta?: Record<string, { expanded: boolean }> }).group_meta ?? {}),
+  };
+}
+
+// fix(#913): the hydrated shape of mapData.terrain_config, shared by the load
+// path and the clean-state recheck so the two cannot drift.
+function savedTerrainConfig(mapData: { terrain_config?: MapTerrainConfig | null }): MapTerrainConfig | null {
+  if (!mapData.terrain_config) return null;
+  return {
+    ...mapData.terrain_config,
+    exaggeration: normalizeTerrainExaggeration(mapData.terrain_config.exaggeration),
+  };
+}
 
 export function useBuilderLayers(
   mapData: MapResponse | undefined,
@@ -72,6 +101,18 @@ export function useBuilderLayers(
   const layersMapIdRef = useRef<string | null>(null);
   const [localBasemap, setLocalBasemap] = useState<string>('openfreemap-positron');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  // fix(#913): dirt this hook cannot re-derive from server state — plugin
+  // toggles and other page-owned edits that go through markDirty. recheckClean
+  // refuses to clear the flag while it is set; every reset back to "saved"
+  // clears it.
+  const opaqueDirtyRef = useRef(false);
+  const setHasUnsavedChangesTracked = useCallback(
+    (next: React.SetStateAction<boolean>) => {
+      if (next === false) opaqueDirtyRef.current = false;
+      setHasUnsavedChanges(next);
+    },
+    [],
+  );
   const [expandedLayerId, setExpandedLayerId] = useState<string | null>(null);
   const [activeEditorTab, setActiveEditorTab] = useState<'style' | 'filter' | 'labels' | 'popup' | null>(null);
   const [showBasemapLabels, setShowBasemapLabels] = useState(true);
@@ -234,6 +275,7 @@ export function useBuilderLayers(
       mapData.id !== layersMapIdRef.current
     ) {
       initializedRef.current = false;
+      opaqueDirtyRef.current = false;
       setHasUnsavedChanges(false);
     }
   }, [mapData]);
@@ -248,12 +290,7 @@ export function useBuilderLayers(
       setLocalBasemap(resolveBasemapId(mapData.basemap_style || 'positron'));
       setShowBasemapLabels(mapData.show_basemap_labels ?? true);
       _setBasemapConfigRaw(mapData.basemap_config ?? null);
-      setLocalTerrainConfig(mapData.terrain_config
-        ? {
-            ...mapData.terrain_config,
-            exaggeration: normalizeTerrainExaggeration(mapData.terrain_config.exaggeration),
-          }
-        : null);
+      setLocalTerrainConfig(savedTerrainConfig(mapData));
       setGroupMeta({
         ...hydrated.groupMeta,
         ...((mapData as { group_meta?: Record<string, { expanded: boolean }> }).group_meta ?? {}),
@@ -831,6 +868,93 @@ export function useBuilderLayers(
 
   const markDirty = useCallback(() => setHasUnsavedChanges(true), []);
 
+  // fix(#913 review): the opaque flag is only for state this hook CANNOT compare
+  // against server data — dock notes and plugin toggles live outside it. Marking
+  // re-derivable edits (map name, description, basemap) opaque made the unsaved
+  // indicator unclearable for the rest of the session once any of them was
+  // touched, even after the value was put back.
+  const markOpaqueDirty = useCallback(() => {
+    opaqueDirtyRef.current = true;
+    setHasUnsavedChanges(true);
+  }, []);
+
+  // fix(#913): a banner Revert restores the saved layer through the ordinary
+  // mutation handlers, and every one of those marks the map dirty — so the
+  // revert itself re-dirtied the map and nothing ever cleared the flag. Rather
+  // than special-casing the revert path, recompute: clear the flag only when
+  // every layer matches the saved baseline AND no map-level field diverges from
+  // server state. Comparing the full layer objects (not just paint/layout/
+  // style_config, which is all hasUnsavedStyleChanges covers) is what keeps an
+  // outstanding opacity change, reorder, rename, visibility toggle, or layer
+  // add/remove from reading as clean.
+  const computeMapIsClean = useCallback((): boolean => {
+    if (!mapData || opaqueDirtyRef.current) return false;
+
+    const baseline = savedLayerBaselineRef.current;
+    const current = layersRef.current;
+    if (current.length !== baseline.length) return false;
+    const savedById = new Map(baseline.map((l) => [l.id, l]));
+    for (let i = 0; i < current.length; i += 1) {
+      const saved = savedById.get(current[i].id);
+      // Order matters (sort_order is persisted), so compare position too.
+      if (!saved || saved.id !== baseline[i].id || !deepEqual(current[i], saved)) return false;
+    }
+
+    // fix(#913 review): compare the SAVE payload's normalization, not the raw
+    // local strings — handleSave persists `localName || undefined`,
+    // `localDescription.trim() || null`, and a trimmed-or-null legend title, so
+    // an untrimmed local value would otherwise read as permanently dirty.
+    if (localName && localName !== mapData.name) return false;
+    // Text fields hydrate RAW but save trimmed-or-null, so neither a raw compare
+    // nor a trimmed one is right on its own: a raw compare calls an untouched
+    // server value with surrounding whitespace dirty forever, while a trimmed
+    // compare calls a real user edit (removing that whitespace) clean. Dirty
+    // means "saving would change the stored value": identical text is clean, and
+    // so is any pair that both persist as null.
+    if (!sameSavedText(localDescription, mapData.description)) return false;
+    if (!sameSavedText(localLegendTitle, mapData.legend_title)) return false;
+    if (localBasemap !== resolveBasemapId(mapData.basemap_style || 'positron')) return false;
+    if (showBasemapLabels !== (mapData.show_basemap_labels ?? true)) return false;
+    if (!deepEqual(basemapConfig, mapData.basemap_config ?? null)) return false;
+    if (!deepEqual(localTerrainConfig, savedTerrainConfig(mapData))) return false;
+    // fix(#913 review): folder expansion is persisted (prepareLayersForPersistence
+    // reads groupMeta), and handleToggleGroupExpand marks the map dirty — without
+    // this an expand-then-revert reported clean and the expansion was lost.
+    // Compare ONLY persisted folder rows: the basemap row also writes a groupMeta
+    // entry, deliberately without dirtying (it has no persisted carrier), so a
+    // whole-object compare could never match and would pin the flag on.
+    const savedMeta = savedGroupMeta(mapData);
+    for (const layer of current) {
+      if (!isFolderGroupLayer(layer)) continue;
+      if ((groupMeta[layer.id]?.expanded ?? false) !== (savedMeta[layer.id]?.expanded ?? false)) return false;
+    }
+
+    return true;
+  }, [
+    mapData, localName, localDescription, localLegendTitle, localBasemap,
+    showBasemapLabels, basemapConfig, localTerrainConfig, groupMeta,
+  ]);
+
+  // The recheck must observe the reverted layers, so it runs in an effect after
+  // commit rather than inline in the revert handler. The nonce and the layer
+  // updates batch into the same render, so one request costs one pass.
+  const [recheckNonce, setRecheckNonce] = useState(0);
+  const recheckPendingRef = useRef(false);
+  const requestCleanRecheck = useCallback(() => {
+    recheckPendingRef.current = true;
+    setRecheckNonce((n) => n + 1);
+  }, []);
+  // fix(#913 review): a request stays pending until it actually finds the map
+  // clean, and re-runs whenever the saved baselines it compares against change.
+  // A save invalidates the map-detail query, so a revert racing the refetch used
+  // to compare against stale server data, fail once, and never retry.
+  useEffect(() => {
+    if (recheckNonce === 0 || !recheckPendingRef.current) return;
+    if (!computeMapIsClean()) return;
+    recheckPendingRef.current = false;
+    setHasUnsavedChanges(false);
+  }, [recheckNonce, computeMapIsClean]);
+
   // fix(v1.6.0 audit D7): identity-stable "is this row a folder group?" lookup.
   // Reads through layersRef so callers (MapBuilderPage's memoized
   // onToggleVisibility) do not have to depend on localLayers — a naive
@@ -959,7 +1083,8 @@ export function useBuilderLayers(
     freshLayerId,
     savedLayerBaseline: savedLayerBaselineRef.current,
     localBasemap, setLocalBasemap,
-    hasUnsavedChanges, setHasUnsavedChanges,
+    hasUnsavedChanges, setHasUnsavedChanges: setHasUnsavedChangesTracked,
+    requestCleanRecheck,
     expandedLayerId,
     activeEditorTab,
     showBasemapLabels, setShowBasemapLabels,
@@ -1009,6 +1134,7 @@ export function useBuilderLayers(
     handleToggleLegend,
     handleDismissEphemeral,
     markDirty,
+    markOpaqueDirty,
     chatLayerActions,
     // Bulk operation handlers (Phase 1041 Plan 03)
     handleBulkVisibility,

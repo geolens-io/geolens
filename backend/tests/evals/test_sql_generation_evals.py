@@ -29,6 +29,7 @@ exact SQL shape). A failure here is a signal about prompt/model drift, not
 ordinary test flake — investigate before rerunning.
 """
 
+import json
 import os
 import re
 import uuid
@@ -383,3 +384,228 @@ async def test_locations_reach_geojson_deterministically(
         f"expected {len(_STATIONS)} features, got {len(fc['features'])}\nSQL: {sql}"
     )
     assert len(bbox) == 4
+
+
+# ---------------------------------------------------------------------------
+# fix(#935): metric buffers must come from the geodesic expression the prompt
+# now embeds from render_geodesic_buffer, not a bare ST_Buffer(::geography)
+# ---------------------------------------------------------------------------
+
+# fix(#935 codex r3): the fixtures must actually reach the branches under
+# test. The two seam stations sit ~5.5 km from ±180, so a 10 km buffer
+# genuinely crosses the antimeridian (a ±179.5 station's buffer stops ~0.4°
+# short); the wide-region row is ONE MULTIPOINT spanning 20° across the seam,
+# so its buffer trips the >= 6° span gate and the sliced branch, not just the
+# per-point path.
+_PACIFIC_STATIONS = [
+    ("Taveuni Station", (179.95, -17.0)),
+    ("Vanua Levu East", (-179.95, -17.0)),
+    ("Rarotonga Station", (-159.8, -21.2)),
+]
+_PACIFIC_REGION_WKT = "MULTIPOINT((170 -17),(-170 -17))"
+
+
+@pytest.fixture
+async def pacific_dataset(test_db_session):
+    """Seed a Pacific station table whose buffers cross the antimeridian."""
+    session = test_db_session
+    table = f"eval_pacific_{uuid.uuid4().hex[:8]}"
+    await session.execute(
+        text(
+            f"CREATE TABLE data.{table} ("
+            "gid serial PRIMARY KEY, name text, geom_4326 geometry(Point, 4326))"
+        )
+    )
+    for name, (lon, lat) in _PACIFIC_STATIONS:
+        await session.execute(
+            text(
+                f"INSERT INTO data.{table} (name, geom_4326) VALUES "
+                f"(:name, ST_SetSRID(ST_MakePoint({lon}, {lat}), 4326))"
+            ),
+            {"name": name},
+        )
+    regions_table = f"eval_pacific_rgn_{uuid.uuid4().hex[:8]}"
+    await session.execute(
+        text(
+            f"CREATE TABLE data.{regions_table} ("
+            "gid serial PRIMARY KEY, name text, "
+            "geom_4326 geometry(MultiPoint, 4326))"
+        )
+    )
+    await session.execute(
+        text(
+            f"INSERT INTO data.{regions_table} (name, geom_4326) VALUES "
+            f"('Fiji Basin Network', "
+            f"ST_SetSRID(ST_GeomFromText('{_PACIFIC_REGION_WKT}'), 4326))"
+        )
+    )
+    await session.commit()
+
+    result = await session.execute(
+        select(User).where(User.username == settings.geolens_admin_username)
+    )
+    admin = result.scalar_one()
+
+    dataset = await create_dataset(
+        session,
+        created_by=admin.id,
+        name="Eval Pacific Stations",
+        table_name=table,
+        geometry_type="Point",
+        feature_count=len(_PACIFIC_STATIONS),
+        column_info=[
+            {"name": "gid", "type": "integer"},
+            {"name": "name", "type": "text"},
+        ],
+    )
+    regions_dataset = await create_dataset(
+        session,
+        created_by=admin.id,
+        name="Eval Pacific Regions",
+        table_name=regions_table,
+        geometry_type="MultiPoint",
+        feature_count=1,
+        column_info=[
+            {"name": "gid", "type": "integer"},
+            {"name": "name", "type": "text"},
+        ],
+    )
+    layer = ChatMapLayer(
+        id="eval-pacific-layer",
+        name="Eval Pacific Stations",
+        dataset_id=str(dataset.id),
+        dataset_table_name=table,
+        geometry_type="Point",
+        column_info=dataset.column_info,
+        dataset_title="Eval Pacific Stations",
+        feature_count=len(_PACIFIC_STATIONS),
+    )
+    regions_layer = ChatMapLayer(
+        id="eval-pacific-regions-layer",
+        name="Eval Pacific Regions",
+        dataset_id=str(regions_dataset.id),
+        dataset_table_name=regions_table,
+        geometry_type="MultiPoint",
+        column_info=regions_dataset.column_info,
+        dataset_title="Eval Pacific Regions",
+        feature_count=1,
+    )
+    yield {
+        "admin": admin,
+        "schema_context": build_sql_schema_context([layer, regions_layer]),
+        "table": table,
+        "regions_table": regions_table,
+    }
+    for ds in (dataset, regions_dataset):
+        await session.execute(
+            text("DELETE FROM catalog.datasets WHERE id = :id"), {"id": ds.id}
+        )
+        await session.execute(
+            text("DELETE FROM catalog.records WHERE id = :id"), {"id": ds.record_id}
+        )
+    await session.execute(text(f"DROP TABLE IF EXISTS data.{table}"))
+    await session.execute(text(f"DROP TABLE IF EXISTS data.{regions_table}"))
+    await session.commit()
+
+
+def _geojson_component_stats(result: SandboxResult) -> tuple[list[float], list[float]]:
+    """(per-COMPONENT longitude widths, all longitudes) across GeoJSON cells.
+
+    fix(#935 codex r3): a correctly seam-split buffer is a MULTIPOLYGON with
+    lobes at BOTH edges, so its whole-feature width is ~360 by construction —
+    the honest metric is per polygon component: every component of a correct
+    output is narrow and inside ±180, while the corrupt un-split output is a
+    single component ~359.9 degrees wide.
+    """
+
+    def _lons(coords):
+        if isinstance(coords[0], (int, float)):
+            yield coords[0]
+            return
+        for c in coords:
+            yield from _lons(c)
+
+    widths: list[float] = []
+    lons_all: list[float] = []
+    for cell in _cells(result):
+        if not isinstance(cell, str) or not cell.lstrip().startswith("{"):
+            continue
+        try:
+            gj = json.loads(cell)
+        except ValueError:
+            continue
+        gtype = gj.get("type")
+        coords = gj.get("coordinates")
+        if coords is None:
+            continue
+        if gtype == "MultiPolygon":
+            components = coords
+        elif gtype == "Polygon":
+            components = [coords]
+        else:
+            components = [coords]
+        for comp in components:
+            lons = list(_lons(comp))
+            if lons:
+                widths.append(max(lons) - min(lons))
+                lons_all.extend(lons)
+    return widths, lons_all
+
+
+async def test_seam_crossing_buffer_uses_the_geodesic_expression(
+    client, test_db_session, pacific_dataset
+):
+    """fix(#935): a metric-buffer question over stations ~5.5 km from ±180
+    must reproduce the prompt's geodesic buffer expression, and the executed
+    output must stay coherent at the seam.
+
+    SQL predicate: the distinctive machinery of render_geodesic_buffer
+    (span-gated CASE + dissolve) is present. Result assertion: every output
+    COMPONENT is narrow and inside ±180 — the corrupt un-split output of a
+    bare ``ST_Buffer(::geography)`` is a single component ~359.9 degrees
+    wide, which is exactly what drew a band across the map and fit-bounds'd
+    the chat overlay to the whole world (#935's user-visible symptom).
+    """
+    sql, result = await _ask(
+        test_db_session,
+        pacific_dataset,
+        "Return each station's name and a 10 kilometer buffer around it "
+        "as GeoJSON geometry.",
+    )
+    assert "ST_UnaryUnion" in sql, f"geodesic buffer expression not used:\n{sql}"
+    assert re.search(r"ST_XMax\(\w+\.g\)\s*-\s*ST_XMin\(\w+\.g\)", sql), (
+        f"span-gated buffer CASE missing:\n{sql}"
+    )
+    widths, lons = _geojson_component_stats(result)
+    assert widths, f"no GeoJSON geometry in result columns {result.columns}\nSQL: {sql}"
+    assert all(-180.0 <= lon <= 180.0 for lon in lons), (
+        f"coordinates escaped ±180\nSQL: {sql}"
+    )
+    assert max(widths) < 180, (
+        f"a buffer spans {max(widths):.1f} degrees — seam output is corrupt\nSQL: {sql}"
+    )
+
+
+async def test_wide_multipart_buffer_stays_component_narrow(
+    client, test_db_session, pacific_dataset
+):
+    """fix(#935 codex r3): the regions row is ONE MULTIPOINT spanning 20°
+    across the seam, so its buffer trips the >= 6° span gate — the branch the
+    per-point question cannot reach. Every output component must stay narrow
+    and inside ±180; the unfixed whole-input projection produced either a
+    world-spanning component or geometry escaping the range."""
+    sql, result = await _ask(
+        test_db_session,
+        pacific_dataset,
+        "Buffer the Fiji Basin Network region by 10 kilometers and return "
+        "its name and the buffer as GeoJSON geometry.",
+    )
+    assert "ST_UnaryUnion" in sql, f"geodesic buffer expression not used:\n{sql}"
+    widths, lons = _geojson_component_stats(result)
+    assert widths, f"no GeoJSON geometry in result columns {result.columns}\nSQL: {sql}"
+    assert all(-180.0 <= lon <= 180.0 for lon in lons), (
+        f"coordinates escaped ±180\nSQL: {sql}"
+    )
+    assert max(widths) < 180, (
+        f"a buffer component spans {max(widths):.1f} degrees\nSQL: {sql}"
+    )

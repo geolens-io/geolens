@@ -5,6 +5,8 @@ from typing import Any, TypeVar
 
 from attrs import define as _attrs_define
 
+from ..types import UNSET, Unset
+
 
 T = TypeVar("T", bound="MercatorClipDetail")
 
@@ -25,15 +27,19 @@ class MercatorClipDetail:
         Attributes:
             clipped_features (int):
             dropped_features (int):
+            clip_skipped (bool | Unset):  Default: False.
     """
 
     clipped_features: int
     dropped_features: int
+    clip_skipped: bool | Unset = False
 
     def to_dict(self) -> dict[str, Any]:
         clipped_features = self.clipped_features
 
         dropped_features = self.dropped_features
+
+        clip_skipped = self.clip_skipped
 
         field_dict: dict[str, Any] = {}
 
@@ -43,6 +49,8 @@ class MercatorClipDetail:
                 "dropped_features": dropped_features,
             }
         )
+        if clip_skipped is not UNSET:
+            field_dict["clip_skipped"] = clip_skipped
 
         return field_dict
 
@@ -53,9 +61,12 @@ class MercatorClipDetail:
 
         dropped_features = d.pop("dropped_features")
 
+        clip_skipped = d.pop("clip_skipped", UNSET)
+
         mercator_clip_detail = cls(
             clipped_features=clipped_features,
             dropped_features=dropped_features,
+            clip_skipped=clip_skipped,
         )
 
         return mercator_clip_detail

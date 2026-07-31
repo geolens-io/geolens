@@ -230,7 +230,8 @@ async def apply_tenant_data_schema_from_engine(tenant_id: str) -> None:
     The SECURITY DEFINER function runs in one ordinary transaction.  Tenant
     creation paths must instead pass their existing session directly.
     """
-    from app.core.db.session import engine
+    # fix(#909): façade import — see the note in rls.py.
+    from app.core.db import engine
 
     async with engine.begin() as conn:
         await apply_tenant_data_schema(conn, tenant_id)
@@ -238,7 +239,8 @@ async def apply_tenant_data_schema_from_engine(tenant_id: str) -> None:
 
 async def deprovision_tenant_data_schema_from_engine(tenant_id: str) -> None:
     """Deprovision an already-deleted tenant using the global engine."""
-    from app.core.db.session import engine
+    # fix(#909): façade import — see the note in rls.py.
+    from app.core.db import engine
 
     async with engine.begin() as conn:
         await deprovision_tenant_data_schema(conn, tenant_id)
@@ -274,7 +276,8 @@ def tenant_shard_id(tenant_id: str | None) -> str | None:
     from sqlalchemy import text as sa_text
     from sqlalchemy.pool import NullPool
 
-    from app.core.db.session import engine as _engine
+    # fix(#909): façade import — see the note in rls.py.
+    from app.core.db import engine as _engine
 
     async def _fetch() -> str:
         from sqlalchemy.ext.asyncio import create_async_engine

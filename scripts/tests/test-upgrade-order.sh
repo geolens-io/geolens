@@ -79,11 +79,20 @@ if [ "$1" = "compose" ]; then
     stop)    echo "stop_app" >> "$LOG"; [ "$STOP_MODE" = "fail" ] && exit 1; exit 0 ;;
     pull)    echo "pull" >> "$LOG"; exit 0 ;;
     exec)
-      # Three distinct in-container calls share `compose exec -T db`:
+      # Four distinct in-container calls share `compose exec -T db`:
       #   psql       -> the PG-major probe (Step 2.5); answer server_version_num.
       #   pg_dump    -> the backup path; emit non-empty dump bytes to stdout.
       #   pg_restore -> the end-to-end read-back of that dump (fix(#714)).
+      #   cat        -> the LIVE postgresql.conf the container is serving
+      #                 (fix(#959)); DOCKER_DB_RUNNING_CONF models a container
+      #                 still holding the pre-upgrade inode. Empty output
+      #                 models an external/managed DB with no `db` service.
       for a in "$@"; do
+        if [ "$a" = "cat" ]; then
+          [ -n "${DOCKER_DB_RUNNING_CONF:-}" ] \
+            && printf '%s\n' "$DOCKER_DB_RUNNING_CONF"
+          exit 0
+        fi
         if [ "$a" = "psql" ]; then
           echo "probe_pg" >> "$LOG"
           # "none" models a probe that answers nothing (external/managed
@@ -102,10 +111,16 @@ if [ "$1" = "compose" ]; then
       printf 'PGDMP-fake-custom-format-dump-bytes\n'
       exit 0 ;;
     up)
-      # detect the migrate one-shot vs the full app up
+      # detect the migrate one-shot vs the db-only config recreate vs the app up
       for a in "$@"; do
         if [ "$a" = "migrate" ]; then echo "migrate_up" >> "$LOG"; exit 0; fi
       done
+      # fix(#959): `up -d --force-recreate --no-deps --wait db` applies a synced
+      # db/postgresql.conf. It is NOT an app up — logging it as one would make
+      # the ordering assertions read a config bounce as bringing the app back.
+      case "$*" in
+        *--no-deps*\ db|*--no-deps*\ db\ *) echo "db_recreate" >> "$LOG"; exit 0 ;;
+      esac
       echo "app_up" >> "$LOG"; exit 0 ;;
     ps)
       # `ps -aq migrate` -> a fake container id. `ps --format ...` (the
@@ -175,16 +190,39 @@ DOCKER
   # (the UPG release-file sync) record to $GIT_LOG so the sync can be asserted
   # WITHOUT polluting the docker call-order log. rev-parse --git-dir succeeds so
   # upgrade.sh treats the fake tree as a git checkout. Everything else is a no-op.
+  #
+  # fix(#959): `show <tag>:db/postgresql.conf` answers per tag, so the config
+  # sync can be exercised for real — v1.2.3 is what the install is running,
+  # v1.2.4 is what the release ships. `checkout ... db/postgresql.conf` writes
+  # the target content, matching what real git does to the worktree.
   cat > "$SHIM/git" <<'GIT'
 #!/bin/sh
 GLOG="${GIT_LOG:-/dev/null}"
+DB_CONF_INSTALLED='temp_file_limit = 0
+'
+DB_CONF_TARGET='temp_file_limit = 4GB
+'
 case "$1" in
   ls-remote) printf 'deadbeef\trefs/tags/v1.2.4\n' ;;
   fetch)     echo "fetch" >> "$GLOG" ;;
-  checkout)  echo "checkout" >> "$GLOG" ;;
+  checkout)
+    echo "checkout" >> "$GLOG"
+    for a in "$@"; do
+      if [ "$a" = "db/postgresql.conf" ]; then
+        printf '%s' "$DB_CONF_TARGET" > db/postgresql.conf
+      fi
+    done ;;
   # `git show <tag>:db/Dockerfile` -> the target release's bundled db base
   # image, which the Step 2.5 PG-major guard parses.
-  show)      printf 'FROM --platform=linux/amd64 postgis/postgis:%s-3.6\n' "${GIT_TARGET_PG:-17}" ;;
+  show)
+    case "$2" in
+      *:db/postgresql.conf)
+        case "$2" in
+          v1.2.4:*) printf '%s' "$DB_CONF_TARGET" ;;
+          *)        printf '%s' "$DB_CONF_INSTALLED" ;;
+        esac ;;
+      *) printf 'FROM --platform=linux/amd64 postgis/postgis:%s-3.6\n' "${GIT_TARGET_PG:-17}" ;;
+    esac ;;
   *)         exit 0 ;;
 esac
 GIT
@@ -202,6 +240,12 @@ ENV
   # compose files referenced by name only (stub never reads them) but keep real.
   printf 'services: {}\n' > "$FAKE/docker-compose.prod.yml"
   printf 'services: {}\n' > "$FAKE/docker-compose.yml"
+  # fix(#959): the bind-mounted Postgres config, seeded to the INSTALLED
+  # release's content ($DB_CONF_INSTALLED in the git stub) so the default case
+  # is an untouched file the upgrade may sync. Pass $1 to seed something else
+  # and model an operator who tuned it.
+  mkdir -p "$FAKE/db"
+  printf '%s\n' "${1:-temp_file_limit = 0}" > "$FAKE/db/postgresql.conf"
 }
 
 run_upgrade() {  # $1=migrate mode, rest=args to upgrade.sh
@@ -218,6 +262,7 @@ run_upgrade() {  # $1=migrate mode, rest=args to upgrade.sh
       DOCKER_STARTED_api="${STARTED_API:-}" \
       DOCKER_STARTED_frontend="${STARTED_FRONTEND:-}" \
       DOCKER_PG_NUM="${PG_NUM:-170005}" GIT_TARGET_PG="${TARGET_PG:-17}" \
+      DOCKER_DB_RUNNING_CONF="${DB_RUNNING_CONF-temp_file_limit = 0}" \
       sh "$FAKE/scripts/upgrade.sh" "$@" </dev/null > "$WORK/out.txt" 2>&1 )
   echo $? > "$WORK/code.txt"
 }
@@ -270,13 +315,25 @@ else
 fi
 
 # Full expected order: probe_pg, stop_app, backup, verify_backup, pull,
-# migrate_up, app_up. The PG-major probe runs first — it must decide before
-# anything is changed.
+# db_recreate, migrate_up, app_up. The PG-major probe runs first — it must
+# decide before anything is changed. db_recreate appears because the git stub
+# reports a db/postgresql.conf that differs from the target tag (fix(#959));
+# it lands after the pull and before migrate, so migrations already run under
+# the release's Postgres settings.
 order="$(tr '\n' ',' < "$WORK/calls.log")"
-if [ "$order" = "probe_pg,stop_app,backup,verify_backup,pull,migrate_up,app_up," ]; then
-  ok "full call order is probe pg major -> stop api/worker -> backup -> verify -> pull -> migrate -> app_up"
+expected="probe_pg,stop_app,backup,verify_backup,pull,db_recreate,migrate_up,app_up,"
+if [ "$order" = "$expected" ]; then
+  ok "full call order is probe pg major -> stop api/worker -> backup -> verify -> pull -> db conf recreate -> migrate -> app_up"
 else
   bad "unexpected call order: $order"
+fi
+
+# fix(#959): the config bounce must not straddle the migrate step or the app up.
+d="$(pos_of db_recreate)"
+if [ -n "$d" ] && [ -n "$p" ] && [ -n "$m" ] && [ "$p" -lt "$d" ] && [ "$d" -lt "$m" ]; then
+  ok "synced db/postgresql.conf is applied between the pull and migrate ($p < $d < $m)"
+else
+  bad "db config recreate out of place (pull=$p db_recreate=$d migrate=$m)"
 fi
 
 # fix(#714): the rollback dump is read back end-to-end BEFORE the first
@@ -343,6 +400,69 @@ if [ -n "$(pos_of backup)" ] && [ -z "$(pos_of app_up)" ]; then
 else
   bad "backup ordering wrong on the failure path"
 fi
+
+# ============================================================================
+# CASE 2b — fix(#959): a tuned db/postgresql.conf survives the upgrade.
+# The customization test is CONTENT-based (worktree vs the installed release's
+# blob), not `git diff`-based, so it holds whether or not the operator staged
+# or committed their tuning — an operator who version-controls production
+# tuning would otherwise look clean to git and get silently overwritten
+# (codex review on #959's PR).
+# ============================================================================
+seed_prod_env 'temp_file_limit = 64GB   # tuned by the operator'
+run_upgrade ok 1.2.4
+
+if grep -q '64GB' "$FAKE/db/postgresql.conf"; then
+  ok "customized db/postgresql.conf is NOT overwritten by the upgrade"
+else
+  bad "upgrade clobbered a customized db/postgresql.conf: $(cat "$FAKE/db/postgresql.conf")"
+fi
+if [ -z "$(pos_of db_recreate)" ]; then
+  ok "no db container bounce when the config was left alone"
+else
+  bad "db was recreated even though the config was not synced"
+fi
+if grep -q 'keeping your version' "$WORK/out.txt"; then
+  ok "upgrade warns that it kept the operator's config"
+else
+  bad "upgrade did not warn about the retained config"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+
+# An unmodified config IS synced, and the sync is what triggers the bounce.
+seed_prod_env
+run_upgrade ok 1.2.4
+if grep -q '4GB' "$FAKE/db/postgresql.conf" && [ -n "$(pos_of db_recreate)" ]; then
+  ok "unmodified db/postgresql.conf is synced to the target release and applied"
+else
+  bad "unmodified config was not synced/applied (conf=$(cat "$FAKE/db/postgresql.conf"), calls=$(tr '\n' ',' < "$WORK/calls.log"))"
+fi
+
+# ============================================================================
+# CASE 2c — fix(#959): a retry after an interrupted upgrade still bounces the
+# db. The earlier attempt already wrote the release's config to disk, so git
+# sees nothing to do; only the RUNNING container knows it is still serving the
+# pre-upgrade inode (codex review on #959's PR).
+# ============================================================================
+seed_prod_env 'temp_file_limit = 4GB'          # synced by the failed attempt
+DB_RUNNING_CONF='temp_file_limit = 0'          # container still on the old file
+run_upgrade ok 1.2.4
+if [ -n "$(pos_of db_recreate)" ]; then
+  ok "retry after an interrupted upgrade still recreates db (config on disk, not live)"
+else
+  bad "retry skipped the db recreate: calls=$(tr '\n' ',' < "$WORK/calls.log")"
+fi
+
+# ...and once it IS live, the upgrade does not bounce the database for nothing.
+seed_prod_env 'temp_file_limit = 4GB'
+DB_RUNNING_CONF='temp_file_limit = 4GB'
+run_upgrade ok 1.2.4
+if [ -z "$(pos_of db_recreate)" ]; then
+  ok "no db bounce when the running container already serves the release config"
+else
+  bad "db was recreated despite already serving the release config"
+fi
+unset DB_RUNNING_CONF
 
 # ============================================================================
 # CASE 3 — source-build install: instructions + exit 0, NO compose/backup calls.
