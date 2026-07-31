@@ -53,6 +53,10 @@ def _sanitize_layer_name(name: str | None) -> str:
 ERROR_MESSAGES = {
     "query_timeout": "Query took too long. Try narrowing your question to fewer features or a smaller area.",
     "query_busy": "Another data query is already running. Wait for it to finish and try again.",
+    # fix(#1014): the server-at-capacity refusal is a DIFFERENT condition from
+    # the per-user lock above. Folding it into query_busy told a user their own
+    # query was already running when it was not.
+    "query_at_capacity": "The server is running its maximum number of analysis previews. Try again in a moment.",
     "table_not_accessible": "You don't have access to one of the referenced datasets.",
     "invalid_query": "I couldn't generate a valid query for that. Try rephrasing your question.",
     "query_failed": "Something went wrong. Try rephrasing your question.",

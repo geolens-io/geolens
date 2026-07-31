@@ -99,6 +99,9 @@ ANALYSIS_JOB_PRIORITY = -10
 # failures, which are server faults, not bad requests.
 _SANDBOX_STATUS = {
     "query_busy": status.HTTP_429_TOO_MANY_REQUESTS,
+    # fix(#1014): server-at-capacity is also a 429, but a distinct category so
+    # the message is not relabelled as the per-user one.
+    "query_at_capacity": status.HTTP_429_TOO_MANY_REQUESTS,
     "query_timeout": status.HTTP_422_UNPROCESSABLE_CONTENT,
     "query_data_error": status.HTTP_422_UNPROCESSABLE_CONTENT,
 }

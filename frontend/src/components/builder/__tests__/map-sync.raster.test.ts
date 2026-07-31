@@ -80,6 +80,10 @@ function makeRasterToken(overrides: Partial<RasterTileToken> = {}): RasterTileTo
   return {
     kind: 'raster',
     tile_url: '/tiles/raster/{z}/{x}/{y}.png',
+    sig: 'sig-fixture',
+    exp: 2000000000,
+    scope: 'scope-fixture',
+    expires_in: 900,
     bounds: null,
     minzoom: 0,
     maxzoom: 18,

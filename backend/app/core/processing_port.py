@@ -239,6 +239,11 @@ class ProcessingPort(Protocol):
         user_id: uuid.UUID,
         distance_meters: float | None = None,
         mask: dict[str, Any] | None = None,
+        # feat(#683): the clip mask can come from another DATASET, not just a
+        # drawn polygon. Passed as the loaded object rather than an id because
+        # the caller owns its visibility check, exactly as it owns the source
+        # dataset's — see the default implementation's contract.
+        mask_dataset: Any | None = None,
     ) -> Any: ...  # -> AnalysisPreviewResponse
 
     async def get_column_stats(

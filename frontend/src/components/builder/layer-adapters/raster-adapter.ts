@@ -107,7 +107,14 @@ export function buildColormapTileUrl(
     }
   }
   const qs = params.toString();
-  return qs ? `${baseUrl}?${qs}` : baseUrl;
+  if (!qs) return baseUrl;
+  // fix(#688): the raster template arrives signed, so it already carries
+  // `?sig=&exp=&scope=`. A blind `?` folded these params into the `scope` VALUE
+  // — a "Scope mismatch" 403 on a private raster, and silently dropped styling
+  // on a public one. `new URL()` is not usable here: the base still holds the
+  // `{z}/{x}/{y}` placeholders.
+  const separator = baseUrl.includes('?') ? '&' : '?';
+  return `${baseUrl}${separator}${qs}`;
 }
 
 function buildRasterPaint(input: AdapterLayerInput): Record<string, number | string> {

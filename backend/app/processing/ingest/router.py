@@ -42,6 +42,7 @@ from app.processing.ingest.layer_guard import (
     validate_commit_layer_name,
 )
 from app.processing.ingest.ogr import (
+    IngestBudgetExceededError,
     IngestionError,
     detect_geometry_columns,
     run_ogrinfo_preview,
@@ -699,6 +700,16 @@ async def preview_file(
 
     try:
         info = await run_ogrinfo_preview(file_path, layer_name=layer_name)
+    except IngestBudgetExceededError as exc:
+        # fix(#948): the ceiling message is server-authored and actionable —
+        # it names the limit, the observed value, and what to do. Falling
+        # through to the generic handler below would tell the user their file
+        # "may be malformed or unsupported" when it is merely too large, and
+        # preview runs before commit, so that is the moment they can act on it.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        )
     except Exception as exc:  # broad: GDAL subprocess can raise various errors on unsupported/malformed files
         logger.exception("ogrinfo_preview failed", job_id=str(job_id), error=str(exc))
         raise HTTPException(

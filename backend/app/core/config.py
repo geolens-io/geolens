@@ -226,6 +226,37 @@ class Settings(BaseSettings):
     # Set INGEST_HTTP_TIMEOUT_SECONDS in the api service env to override.
     ingest_http_timeout_seconds: int = Field(default=300, gt=0)
 
+    # fix(#1013): the materialize CTAS budget, applied as SET LOCAL
+    # statement_timeout before the CREATE TABLE AS. It was a module constant
+    # carrying a comment that already said "promote to persistent-config if
+    # operators hit it" — 300 seconds covers roughly 150k to 600k buffered
+    # polygon rows, so an ordinary one-million-parcel buffer fails and the only
+    # recourse was editing Python and rebuilding the image.
+    #
+    # gt=0 is load-bearing rather than tidiness: PostgreSQL reads
+    # statement_timeout = '0' as "no timeout at all", so a zero here would
+    # silently produce the unbounded statement the budget exists to prevent.
+    # Rejecting it at boot is the difference between a startup failure and an
+    # ingest queue held open indefinitely.
+    #
+    # Worth being clear about what raising it buys: without an admission gate a
+    # longer budget just holds the job slot longer. The work still runs, it
+    # fails later. It pairs with #691's heartbeat lease and #701's pre-flight
+    # gates; on its own it converts "fails at 5 minutes" into "occupies the
+    # worker slot for 20 minutes and then maybe fails". Per-operation budgets
+    # are the natural follow-up — a centroid needs seconds and a dissolve far
+    # more, so one scalar for all operations is a deliberate compromise.
+    analysis_materialize_timeout_seconds: int = Field(default=300, gt=0)
+
+    # fix(#1013): promoted alongside the CTAS budget rather than left as the odd
+    # one out. It exists because the commit that makes the output durable ends
+    # the transaction and its SET LOCAL with it, so registration needs its own
+    # budget (#692) for the full-scan metadata extraction. An operator who
+    # raises the CTAS ceiling for a large dataset needs to raise this too;
+    # promoting one and not the other is the kind of inconsistency that costs
+    # someone an afternoon.
+    analysis_registration_timeout_seconds: int = Field(default=600, gt=0)
+
     # fix(#434): finished ingest_jobs rows previously lived forever, so the
     # admin Jobs page accumulated stale test junk with no cleanup affordance.
     # Terminal jobs (complete/failed/cancelled/fanned_out) older than this many
