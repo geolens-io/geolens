@@ -1390,3 +1390,67 @@ describe('useLayerMapSync — a CHANGED fill key counts as intent, not just a ne
     expect('fill-color' in (updated.paint ?? {})).toBe(false);
   });
 });
+
+// fix(#910, codex P2): the displacement is a TRANSITION to a pattern-owned fill, not
+// necessarily a collision. Advanced JSON replacing paint wholesale, or an AI set_style
+// with replace_paint, hands over a pattern-only object that already dropped the colour —
+// so nothing collided, nothing was stashed, and None fell back to default blue.
+describe('useLayerMapSync — a replacement paint still stashes the colour it displaced', () => {
+  const LID = 'layer-uuid-123';
+  const RAMP_SEQ = ['match', ['get', 'era'], 'pre-war', '#ff0000', '#00ff00'];
+
+  function renderPrev(paint: Record<string, unknown>, styleConfig: MapLayerResponse['style_config'] = null) {
+    const initialLayer = makeLayer({ dataset_geometry_type: 'Polygon', paint, style_config: styleConfig });
+    let finalLayers: MapLayerResponse[] = [initialLayer];
+    const { result } = renderHook(() => {
+      const [layers, setLayers] = React.useState([initialLayer]);
+      finalLayers = layers;
+      return useLayerMapSync(
+        layers,
+        setLayers as React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
+        vi.fn(),
+        { current: makeMapStub([`layer-${LID}`]) } as unknown as React.RefObject<import('maplibre-gl').Map | null>,
+      );
+    });
+    return { result, layers: () => finalLayers };
+  }
+
+  const builderOf = (l: MapLayerResponse) =>
+    (l.style_config as { builder?: Record<string, unknown> } | null)?.builder;
+
+  it('stashes the previous colour when the replacement dropped it', () => {
+    const { result, layers } = renderPrev({ 'fill-color': '#ff0000', 'fill-opacity': 0.4 });
+
+    act(() => {
+      // Wholesale replacement: no fill-color at all, so nothing collides.
+      result.current.handlePaintChange(LID, { 'fill-pattern': 'geolens-fill-hatch' });
+    });
+
+    const updated = layers().find((l) => l.id === LID)!;
+    expect(updated.paint?.['fill-pattern']).toBe('geolens-fill-hatch');
+    expect(builderOf(updated)?.fillColorSaved).toBe('#ff0000');
+  });
+
+  it('does not stash a previous expression colour, which has no solid form', () => {
+    const { result, layers } = renderPrev({ 'fill-color': RAMP_SEQ });
+
+    act(() => {
+      result.current.handlePaintChange(LID, { 'fill-pattern': 'geolens-fill-hatch' });
+    });
+
+    expect(builderOf(layers().find((l) => l.id === LID)!)?.fillColorSaved).toBeUndefined();
+  });
+
+  it('leaves an existing stash alone when the replacement had no colour to displace', () => {
+    const { result, layers } = renderPrev(
+      { 'fill-pattern': 'geolens-fill-hatch' },
+      { builder: { fillColorSaved: '#0000ff' } } as MapLayerResponse['style_config'],
+    );
+
+    act(() => {
+      result.current.handlePaintChange(LID, { 'fill-pattern': 'geolens-fill-dots' });
+    });
+
+    expect(builderOf(layers().find((l) => l.id === LID)!)?.fillColorSaved).toBe('#0000ff');
+  });
+});

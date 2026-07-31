@@ -250,6 +250,16 @@ export function resolveFillExclusions(
     const { 'fill-color': _droppedColor, ...rest } = effectivePaint;
     strandedFillColor = fillColor;
     effectivePaint = rest;
+  } else if ('fill-pattern' in effectivePaint && !('fill-color' in effectivePaint)) {
+    // fix(#910, codex P2): the displacement does not always arrive as a collision.
+    // Advanced JSON replacing paint wholesale, or an AI `set_style` with
+    // `replace_paint`, hands over a pattern-only object that already dropped the
+    // colour — nothing collides, so the previous colour was never recorded and None
+    // fell back to default blue. What matters is the TRANSITION to a
+    // pattern-owned fill, so the displaced colour is read from the previous paint
+    // when the incoming write no longer carries it. Strings only, as everywhere else.
+    const previousFillColor = previousPaint?.['fill-color'];
+    if (typeof previousFillColor === 'string') strandedFillColor = previousFillColor;
   }
   return { paint: effectivePaint, isDataDrivenColor, dropsFillPattern, patternOwnsFill, strandedFillColor };
 }
@@ -270,11 +280,7 @@ export function resolveFillExclusions(
  */
 export function stashExcludedFillColor(
   config: StyleConfig | null,
-  flags: {
-    paint: Record<string, unknown>;
-    patternOwnsFill: boolean;
-    strandedFillColor: string | undefined;
-  },
+  flags: { paint: Record<string, unknown>; strandedFillColor: string | undefined },
 ): StyleConfig | null {
   let next = config;
   // fix(#910, codex P2): the stash is stale the moment a pattern stops owning the fill,
@@ -287,11 +293,10 @@ export function stashExcludedFillColor(
     const { fillColorSaved: _dropped, ...restBuilder } = next.builder;
     next = { ...next, builder: Object.keys(restBuilder).length > 0 ? restBuilder : undefined };
   }
-  if (
-    flags.patternOwnsFill &&
-    typeof flags.strandedFillColor === 'string' &&
-    next?.builder?.fillColorSaved === undefined
-  ) {
+  // Keyed on there BEING a displaced colour, not on a second flag that has to agree
+  // with it: `strandedFillColor` is set only where a pattern took the fill, so the
+  // extra condition was redundant at best and a way for the two to diverge at worst.
+  if (typeof flags.strandedFillColor === 'string' && next?.builder?.fillColorSaved === undefined) {
     next = {
       ...(next ?? {}),
       builder: { ...(next?.builder ?? {}), fillColorSaved: flags.strandedFillColor },
