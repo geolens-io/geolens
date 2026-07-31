@@ -2098,3 +2098,108 @@ def test_symbol_export_icon_allow_overlap_follows_label_toggle():
     exported_default = style_json._style_layer_for_map_layer(default, "src-1")
     primary_default = next(e for e in exported_default if e["type"] == "symbol")
     assert primary_default["layout"]["icon-allow-overlap"] is True
+
+
+# ---------------------------------------------------------------------------
+# fix(#917): builtin fill patterns are not in the served sprite
+# ---------------------------------------------------------------------------
+
+
+def _polygon_layer_with_pattern(pattern, **paint_extras):
+    return _layer(
+        dataset_geometry_type="POLYGON",
+        paint={"fill-pattern": pattern, **paint_extras},
+        label_config=None,
+        style_config=None,
+    )
+
+
+def _fill_paint(style):
+    return next(e for e in style["layers"] if e["type"] == "fill")["paint"]
+
+
+def test_builtin_fill_pattern_is_exported_as_a_solid_fill():
+    """The sprite is indexed from `map_icons` alone, so `geolens-fill-*` is not
+    in it — an external MapLibre client got a missing-image warning and rendered
+    no fill at all. In-app surfaces only work because the client-side adapter
+    registry generates the images in the browser.
+    """
+    style = build_maplibre_style(
+        _map(), [_polygon_layer_with_pattern("geolens-fill-hatch")]
+    )
+
+    paint = _fill_paint(style)
+    assert "fill-pattern" not in paint
+    assert paint["fill-color"] == style_json.DEFAULT_FILL_COLOR
+
+
+def test_stripping_a_builtin_pattern_keeps_an_authored_fill_color():
+    """The fallback colour is a default, not an override."""
+    style = build_maplibre_style(
+        _map(),
+        [_polygon_layer_with_pattern("geolens-fill-dots", **{"fill-color": "#94a3b8"})],
+    )
+
+    paint = _fill_paint(style)
+    assert "fill-pattern" not in paint
+    assert paint["fill-color"] == "#94a3b8"
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        "some-uploaded-icon",
+        # fix(#917 codex r1): `create_icon_asset` derives a sprite slug from the
+        # uploaded filename, so `geolens-fill-logo.png` becomes a real map_icons
+        # entry whose slug carries the builtin prefix. Reserving the prefix
+        # would strip a working pattern from every exported style.
+        "geolens-fill-logo-a1b2c3d4",
+    ],
+)
+def test_a_non_builtin_fill_pattern_is_left_alone(pattern):
+    """Only the five builtin ids are known to be absent from the sprite. Any
+    other value may name a real `map_icons` entry, and dropping it would break a
+    style that works.
+    """
+    style = build_maplibre_style(_map(), [_polygon_layer_with_pattern(pattern)])
+
+    assert _fill_paint(style)["fill-pattern"] == pattern
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        ["case", ["==", ["get", "kind"], "a"], "geolens-fill-grid", "up-b"],
+        ["match", ["get", "kind"], "x", "geolens-fill-hatch", "up-b"],
+        ["coalesce", ["image", "geolens-fill-grid"], ["image", "up-a"]],
+        ["let", "p", "geolens-fill-grid", ["var", "p"]],
+        ["image", "geolens-fill-grid"],
+        {"type": "categorical", "stops": [["x", "geolens-fill-grid"]], "default": "up"},
+        # Malformed shapes the open-dict `paint` API accepts today, since
+        # `_validate_style_dict` bounds only serialized size (#1069).
+        {"stops": 1},
+        {"stops": "geolens-fill-grid"},
+    ],
+)
+def test_a_composite_fill_pattern_is_left_exactly_as_authored(pattern):
+    """fix(#917): composites are deliberately untouched, not an unfinished case.
+
+    MapLibre SKIPS a missing pattern and fires `styleimagemissing`, documented
+    as the hook for supplying the image at runtime, so an export naming a
+    builtin degrades and stays repairable by the consumer. Stripping a working
+    expression removes authored content no downstream hook can recover — and
+    `["coalesce", ["image", builtin], ["image", other]]` is MapLibre's own
+    documented way to author a fallback, so it is working input.
+
+    One failure is recoverable by design and the other is permanent, which is
+    why the narrow rule is the safe one. The builder only ever writes a plain
+    string, so this costs nothing against the bug #917 reports; every value here
+    arrives through style import or the open-dict API. A correct reader is an
+    expression evaluator, tracked separately.
+
+    Iterating a malformed `stops` also cannot raise from the shared style
+    endpoint now that nothing descends into it (#1069).
+    """
+    style = build_maplibre_style(_map(), [_polygon_layer_with_pattern(pattern)])
+
+    assert _fill_paint(style)["fill-pattern"] == pattern
