@@ -1220,7 +1220,15 @@ async def add_layer_endpoint(
         target_id=layer.id,
         target_name=target_name,
         action="layer.add",
-        summary=f"Added {target_name} layer",
+        # fix(#941): this endpoint creates the layer row immediately, unlike
+        # style/filter/label/reorder edits, which are held locally and flushed
+        # on save. Discarding the builder edit does not roll the row back, so
+        # "Added ... layer" read as a claim about the user's saved map that the
+        # map then contradicted. Say what was created, and why it survived.
+        # The PATCH path at the save-diff flush keeps "Added ...": there the
+        # claim is true. `action` stays "layer.add" on both — it is a machine
+        # key the admin audit viewer filters on.
+        summary=f"Created {target_name} layer (saved immediately)",
         details={
             "dataset_id": str(body.dataset_id),
             "sort_order": layer.sort_order,

@@ -1148,6 +1148,57 @@ class TestMapHistory:
         )
         assert remove_event["target_name"] == "History Layer B"
 
+    async def test_the_two_layer_add_paths_keep_distinct_summaries(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """fix(#941): POST /layers and the PATCH save-diff both write
+        ``layer.add``, and their summaries must not be collapsed into one.
+
+        POST creates the row immediately, so its entry outlives a discarded
+        builder edit and must not claim the map was saved. The PATCH entry only
+        ever describes rows that reached the save diff, so "Added ..." is
+        accurate there and stays. ``action`` is a machine key the admin audit
+        viewer filters on and is identical on both paths.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds_post = await create_dataset(
+            test_db_session, created_by=admin_id, name="Immediate Layer"
+        )
+        ds_patch = await create_dataset(
+            test_db_session, created_by=admin_id, name="Save Diff Layer"
+        )
+        created = await _create_map(client, admin_auth_header, "Add Path Summary Map")
+
+        post_resp = await client.post(
+            f"/maps/{created['id']}/layers",
+            json={"dataset_id": str(ds_post.id)},
+            headers=admin_auth_header,
+        )
+        assert post_resp.status_code == 201, post_resp.text
+
+        patch_resp = await client.patch(
+            f"/maps/{created['id']}/layers",
+            json={"added": [{"dataset_id": str(ds_patch.id)}]},
+            headers=admin_auth_header,
+        )
+        assert patch_resp.status_code == 200, patch_resp.text
+
+        history_resp = await client.get(
+            f"/maps/{created['id']}/history", headers=admin_auth_header
+        )
+        assert history_resp.status_code == 200
+        adds = [e for e in history_resp.json()["events"] if e["action"] == "layer.add"]
+        summaries = {e["target_name"]: e["summary"] for e in adds}
+
+        assert (
+            summaries["Immediate Layer"]
+            == "Created Immediate Layer layer (saved immediately)"
+        )
+        assert summaries["Save Diff Layer"] == "Added Save Diff Layer layer"
+
     async def test_history_requires_builder_access(
         self,
         client: AsyncClient,
