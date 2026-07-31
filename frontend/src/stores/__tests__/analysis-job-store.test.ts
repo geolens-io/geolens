@@ -36,7 +36,12 @@ describe('analysis-job-store', () => {
   describe('persistence', () => {
     it('writes the tracked job to storage', () => {
       useAnalysisJobStore.getState().setJob(job);
-      expect(persisted()?.job).toEqual(job);
+      // toMatchObject, not toEqual: setJob also stamps the owning identity
+      // (feat(#1008)), and these tests are about the job round-tripping, not
+      // about who owns it — the ownership stamp has its own tests in
+      // analysis-job-store.cross-tab.test.ts. Pinning the exact shape here
+      // would make every future field addition fail three unrelated tests.
+      expect(persisted()?.job).toMatchObject(job);
     });
 
     it('writes the cleared job through, rather than leaving a stale one behind', () => {
@@ -100,7 +105,7 @@ describe('analysis-job-store', () => {
       // guard keys on identity, not the token, so a long run survives it.
       useAuthStore.getState().setTokens('t2', 'r2', 900);
 
-      expect(useAnalysisJobStore.getState().job).toEqual(job);
+      expect(useAnalysisJobStore.getState().job).toMatchObject(job);
     });
   });
 });
