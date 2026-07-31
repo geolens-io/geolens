@@ -58,11 +58,16 @@ MAX_MASK_LAYER_FEATURES = 1_000
 # its ceiling is the most generous. It exists at all because the router reads
 # this dict with .get() and skips the gate when a key is absent, which would
 # leave the operation with NO ceiling rather than a default one.
+# fix(#955): select_by_location has spatial_join's cost shape — one GIST probe
+# into a second layer per source row — so it takes the same 250k. Note clip is
+# deliberately absent and therefore uncapped: its mask layer is what is bounded
+# (MAX_MASK_LAYER_FEATURES), not its source.
 MAX_SOURCE_FEATURES = {
     "dissolve": 250_000,
     "buffer": 500_000,
     "spatial_join": 250_000,
     "measure": 1_000_000,
+    "select_by_location": 250_000,
 }
 
 _CLIP_MASK_TYPES = ("Polygon", "MultiPolygon")
@@ -589,6 +594,85 @@ def render_clip_layer_join(mask_table_ref: str, *, src: str) -> tuple[str, str, 
     return cte, lateral, where
 
 
+def render_select_by_location_where(mask_table_ref: str, *, src: str) -> str:
+    """Row filter for select-by-location against a mask LAYER (fix(#955)).
+
+    A selection keeps whole source geometries, so unlike ``render_clip_layer_join``
+    there is no intersection lateral downstream. That makes this EXISTS the
+    ENTIRE operation, and it has to be exact on its own.
+
+    Clip's row filter is ``&&`` alone, which admits any source row whose
+    ENVELOPE overlaps a mask envelope. Clip survives that because rows missing
+    the true predicate intersect to NULL/EMPTY and the not-empty filter drops
+    them. Copy it verbatim into a selection and an L-shaped or concave mask
+    selects the features sitting in its notch, which is this operation's
+    signature bug. So ``&&`` stays as the index-drivable prefilter and a real
+    ``ST_Intersects`` is added beside it.
+
+    Both operands are RAW columns. ``ST_Intersects`` accepts invalid geometry
+    (unlike ``ST_Intersection``, which raises) and agrees with the repaired
+    answer, so no ``ST_MakeValid`` is needed — and adding one would be actively
+    harmful here rather than merely wasteful: inside a correlated subquery it
+    re-evaluates per CANDIDATE PAIR instead of per row, which measured 28.4s
+    against 0.2s on #953's join before the ``OFFSET 0`` hoist. Nothing to hoist
+    in this shape, because there is no expression left to evaluate.
+
+    Like clip, the probe targets the RAW mask table rather than a subdivided
+    CTE: it keeps real join statistics in both directions, where the CTE costs
+    a linear piece scan per source row (2.4s vs 0.25s when the mask sits at the
+    high end of the gid order).
+
+    ``ST_Dimension(...) = 2`` keeps the mask polygonal per ROW.
+    ``_load_mask_dataset`` already rejects a non-polygonal mask DATASET, but the
+    catalog classifies ``geometry_type`` from the FIRST feature (fix(#682)), so
+    a "POLYGON" layer can still hold point and line rows — and clip drops those
+    in ``_mask_pieces``. Without this term, selecting and clipping against one
+    layer would disagree about what the mask is. It does NOT chase the narrower
+    case of a degenerate polygon that ``ST_MakeValid`` would shed to a line;
+    that needs the per-row repair ruled out above.
+
+    NULL geometry on either side falls out of ``&&`` by three-valued logic
+    rather than by an explicit guard.
+    """
+    return (
+        f" WHERE EXISTS (SELECT 1 FROM {mask_table_ref} AS _sel"
+        f" WHERE _sel.geom_4326 && {src}.geom_4326"
+        f" AND ST_Intersects(_sel.geom_4326, {src}.geom_4326)"
+        f" AND ST_Dimension(_sel.geom_4326) = 2)"
+    )
+
+
+def render_select_by_location_count(
+    src_table_ref: str, *, mask_table_ref: str | None, mask: dict[str, Any] | None
+) -> str:
+    """Exact selected-record total, uncapped by the preview limit (fix(#955)).
+
+    The record list is this operation's deliverable, so its SIZE cannot be the
+    500 the geometry preview stops at. This is the second, uncapped statement
+    that answers it.
+
+    Rebuilds the row filter by calling the SAME renderer the preview calls for
+    whichever mask path is in play, rather than restating the predicate, so the
+    number under the map and the features on it cannot describe different sets.
+    That is #953's lesson, where a separately written count statement drifted
+    from the per-row one.
+
+    The trailing not-NULL/not-empty pair is what ``NOT_EMPTY_PREDICATE`` does
+    for the preview, restated against the source column because a selection's
+    lateral is the identity. A test pins the total against the feature list
+    rather than leaving the agreement to this paragraph.
+    """
+    if mask_table_ref is not None:
+        where = render_select_by_location_where(mask_table_ref, src="_src")
+    else:
+        _, where = render_geometry_expr("select_by_location", mask=mask)
+    return (
+        f"SELECT count(*)::bigint AS match_count"
+        f" FROM {src_table_ref} AS _src{where}"
+        f" AND _src.geom_4326 IS NOT NULL AND NOT ST_IsEmpty(_src.geom_4326)"
+    )
+
+
 # fix(#954): the columns a measure adds to the source row. Metres on the wire,
 # matching the buffer distance convention the panel's unit picker converts for
 # (AnalysisPanel's BUFFER_UNIT_METERS). ST_Area(geography) returns square
@@ -879,6 +963,26 @@ def render_geometry_expr(
         # actually matters, inside the join predicate (render_spatial_join).
         # The join columns themselves come from render_spatial_join.
         return "geom_4326", ""
+    if operation == "select_by_location":
+        # fix(#955): the drawn-mask half of select-by-location. The geometry is
+        # the source feature verbatim (like spatial_join/measure above, and NOT
+        # ST_MakeValid'd for the same reason), so the operation is entirely its
+        # WHERE.
+        #
+        # Unlike clip's inline predicate below, ST_MakeValid is left off the
+        # source side. Clip repairs there because its geometry expression feeds
+        # ST_Intersection, which RAISES on invalid input, and the filter has to
+        # agree with what the expression will compute; a selection computes
+        # nothing, and ST_Intersects accepts invalid geometry directly. Leaving
+        # it off is also what keeps this path's row set identical to the mask-
+        # LAYER path, where the repair is unaffordable (see
+        # render_select_by_location_where).
+        mask_expr = render_mask_expr(mask or {})
+        return (
+            "geom_4326",
+            f" WHERE geom_4326 && {mask_expr}"
+            f" AND ST_Intersects(geom_4326, {mask_expr})",
+        )
     if operation == "clip":
         mask_expr = render_mask_expr(mask or {})
         # A clip that only grazes a boundary intersects at a lower dimension

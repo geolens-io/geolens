@@ -976,6 +976,7 @@
     "opClip": "Clip",
     "opSpatialJoin": "Spatial join",
     "opMeasure": "Measure",
+    "opSelectByLocation": "Select by location",
     "distanceLabel": "Distance",
     "distanceOutOfRange": "Enter a distance greater than 0 and no more than {{max}} {{unit}}.",
     "drawMask": "Draw clip area",
@@ -1032,7 +1033,12 @@
     "spatialJoinHint": "Each feature gains a join_count of the features it intersects. Overlaps count every match but still produce one row.",
     "joinFieldLabel": "Copy a field across (optional)",
     "joinFieldNone": "Count only",
-    "measureHint": "Adds area_sqm and length_m to every feature, measured on the globe. Polygons get an area and lines a length; the other reads 0."
+    "measureHint": "Adds area_sqm and length_m to every feature, measured on the globe. Polygons get an area and lines a length; the other reads 0.",
+    "selectByLocationHint": "Keeps the features that touch the area, whole and unchanged. Use Create dataset to save the list, then export it.",
+    "drawSelectionArea": "Draw selection area",
+    "selectionAreaSet": "Selection area set",
+    "selectLayerLabel": "Or select against a layer",
+    "drawSelectionPointerHint": "Drawing needs a pointer. To select without one, pick a polygon layer below."
   },
   "attributeForm": {
     "titleEdit": "Edit Feature Attributes",

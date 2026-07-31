@@ -976,6 +976,7 @@
     "opClip": "Recortar",
     "opSpatialJoin": "Unión espacial",
     "opMeasure": "Medir",
+    "opSelectByLocation": "Seleccionar por ubicación",
     "distanceLabel": "Distancia",
     "distanceOutOfRange": "Introduce una distancia mayor que 0 y no superior a {{max}} {{unit}}.",
     "drawMask": "Dibujar área de recorte",
@@ -1032,7 +1033,12 @@
     "spatialJoinHint": "Cada entidad recibe un join_count de las entidades que interseca. Los solapamientos cuentan todas las coincidencias, pero aun así producen una sola fila.",
     "joinFieldLabel": "Copiar un campo (opcional)",
     "joinFieldNone": "Solo contar",
-    "measureHint": "Añade area_sqm y length_m a cada entidad, medidas sobre el globo. Los polígonos obtienen un área y las líneas una longitud; la otra queda en 0."
+    "measureHint": "Añade area_sqm y length_m a cada entidad, medidas sobre el globo. Los polígonos obtienen un área y las líneas una longitud; la otra queda en 0.",
+    "selectByLocationHint": "Conserva las entidades que tocan el área, completas y sin cambios. Usa Crear conjunto de datos para guardar la lista y luego expórtala.",
+    "drawSelectionArea": "Dibujar área de selección",
+    "selectionAreaSet": "Área de selección definida",
+    "selectLayerLabel": "O seleccionar con una capa",
+    "drawSelectionPointerHint": "Dibujar requiere un puntero. Para seleccionar sin él, elige una capa de polígonos abajo."
   },
   "attributeForm": {
     "titleEdit": "Editar atributos de la entidad",

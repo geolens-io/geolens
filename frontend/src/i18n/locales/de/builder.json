@@ -976,6 +976,7 @@
     "opClip": "Zuschneiden",
     "opSpatialJoin": "Räumliche Verknüpfung",
     "opMeasure": "Messen",
+    "opSelectByLocation": "Nach Lage auswählen",
     "distanceLabel": "Entfernung",
     "distanceOutOfRange": "Geben Sie eine Entfernung größer als 0 und höchstens {{max}} {{unit}} ein.",
     "drawMask": "Zuschneidebereich zeichnen",
@@ -1032,7 +1033,12 @@
     "spatialJoinHint": "Jedes Feature erhält einen join_count der Features, die es schneidet. Überlappungen zählen jede Übereinstimmung, ergeben aber trotzdem nur eine Zeile.",
     "joinFieldLabel": "Ein Feld übernehmen (optional)",
     "joinFieldNone": "Nur zählen",
-    "measureHint": "Fügt jedem Feature area_sqm und length_m hinzu, auf dem Globus gemessen. Polygone erhalten eine Fläche und Linien eine Länge; der andere Wert ist 0."
+    "measureHint": "Fügt jedem Feature area_sqm und length_m hinzu, auf dem Globus gemessen. Polygone erhalten eine Fläche und Linien eine Länge; der andere Wert ist 0.",
+    "selectByLocationHint": "Behält die Objekte, die den Bereich berühren, vollständig und unverändert. Mit Datensatz erstellen die Liste speichern und anschließend exportieren.",
+    "drawSelectionArea": "Auswahlbereich zeichnen",
+    "selectionAreaSet": "Auswahlbereich festgelegt",
+    "selectLayerLabel": "Oder anhand einer Ebene auswählen",
+    "drawSelectionPointerHint": "Zum Zeichnen wird ein Zeigegerät benötigt. Ohne Zeigegerät unten eine Polygon-Ebene wählen."
   },
   "attributeForm": {
     "titleEdit": "Feature-Attribute bearbeiten",

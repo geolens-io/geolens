@@ -2156,3 +2156,126 @@ describe('AnalysisPanel spatial join (feat(#953))', () => {
     ]);
   });
 });
+
+describe('AnalysisPanel select by location (feat(#955))', () => {
+  beforeEach(() => {
+    useAnalysisJobStore.setState({ job: null });
+    useAnalysisAddedStore.setState({ addedDatasetIds: [], pendingAddIds: [] });
+    useAnalysisFormStore.setState({ forms: {} });
+    vi.clearAllMocks();
+  });
+
+  async function pickOperation(
+    user: ReturnType<typeof userEvent.setup>,
+    name: string,
+  ) {
+    await user.click(screen.getAllByRole('combobox')[1]);
+    await user.click(await screen.findByRole('option', { name }));
+  }
+
+  function previewRequest() {
+    return vi.mocked(previewAnalysis).mock.calls[0].slice(0, 2);
+  }
+
+  it('names the selection, not the clip, in the shared mask controls', async () => {
+    const user = userEvent.setup();
+    renderPanel([datasetLayer, datasetLayer2]);
+    await pickOperation(user, 'Select by location');
+
+    // The controls are clip's; the wording must not be.
+    expect(screen.getByRole('button', { name: 'Draw selection area' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Draw clip area' })).toBeNull();
+    expect(screen.getByLabelText('Or select against a layer')).toBeInTheDocument();
+  });
+
+  it('offers only polygon layers to select against', async () => {
+    const user = userEvent.setup();
+    // The selection geometry has to be an area, so this keeps clip's ux(#698)
+    // filter rather than spatial_join's any-direction rule.
+    renderPanel([datasetLayer, datasetLayer2, pointLayer]);
+    await pickOperation(user, 'Select by location');
+
+    await user.click(screen.getByLabelText('Or select against a layer'));
+    expect(await screen.findByRole('option', { name: 'Roads' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Bus stops' })).toBeNull();
+  });
+
+  it('cannot preview until an area is drawn or a layer is picked', async () => {
+    const user = userEvent.setup();
+    renderPanel([datasetLayer, datasetLayer2]);
+    await pickOperation(user, 'Select by location');
+
+    expect(screen.getByRole('button', { name: 'Preview' })).toBeDisabled();
+
+    await user.click(screen.getByLabelText('Or select against a layer'));
+    await user.click(await screen.findByRole('option', { name: 'Roads' }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Preview' })).toBeEnabled(),
+    );
+  });
+
+  it('sends mask_dataset_id on the same two fields clip uses', async () => {
+    const user = userEvent.setup();
+    renderPanel([datasetLayer, datasetLayer2]);
+    await pickOperation(user, 'Select by location');
+
+    await user.click(screen.getByLabelText('Or select against a layer'));
+    await user.click(await screen.findByRole('option', { name: 'Roads' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+
+    await waitFor(() => expect(previewAnalysis).toHaveBeenCalled());
+    expect(previewRequest()).toEqual([
+      'ds1',
+      { operation: 'select_by_location', mask_dataset_id: 'ds2' },
+    ]);
+  });
+
+  // The DRAWN mask, not the layer picker: only the drawn one is cleared by the
+  // operation switch, so it is the only one these two tests can tell apart.
+  const drawnMask = {
+    type: 'Polygon' as const,
+    coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]],
+  };
+  function seedDrawnClipMask() {
+    useAnalysisFormStore.getState().save('m1', {
+      layerId: 'l1', operation: 'clip', distance: '500', distanceUnit: 'm',
+      mask: drawnMask,
+      maskLayerId: '__none__', byField: '__none__', outputTitle: '',
+    });
+  }
+
+  it('keeps a drawn area when switching between clip and select', async () => {
+    const user = userEvent.setup();
+    seedDrawnClipMask();
+    // mapId is what keys the saved form; without it there is nothing to restore.
+    renderPanel([datasetLayer, datasetLayer2], { mapId: 'm1' });
+
+    // Both operations take the same geometry, so switching must not make the
+    // user redraw the polygon they already have.
+    await pickOperation(user, 'Select by location');
+    expect(screen.getByText('Selection area set')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+
+    await waitFor(() => expect(previewAnalysis).toHaveBeenCalled());
+    expect(previewRequest()).toEqual([
+      'ds1',
+      { operation: 'select_by_location', mask: drawnMask },
+    ]);
+  });
+
+  it('still drops a drawn area when leaving for an operation that ignores it', async () => {
+    const user = userEvent.setup();
+    seedDrawnClipMask();
+    // mapId is what keys the saved form; without it there is nothing to restore.
+    renderPanel([datasetLayer, datasetLayer2], { mapId: 'm1' });
+
+    // fix(#680)'s rule survives the widening: the retained mask must go when
+    // the next operation has no use for it, or its map layers linger.
+    await pickOperation(user, 'Centroids');
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+
+    await waitFor(() => expect(previewAnalysis).toHaveBeenCalled());
+    expect(previewRequest()).toEqual(['ds1', { operation: 'centroid' }]);
+  });
+});

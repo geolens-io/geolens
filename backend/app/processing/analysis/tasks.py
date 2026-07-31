@@ -38,6 +38,7 @@ from app.platform.analysis_sql import (
     render_clip_layer_join,
     render_geometry_expr,
     render_measure_columns,
+    render_select_by_location_where,
     render_spatial_join,
     spatial_join_output_columns,
 )
@@ -746,6 +747,21 @@ def _build_materialize_select(
         return _wrap_not_empty(
             f"SELECT 1 AS gid, COUNT(*)::integer AS source_count, "
             f"{union_expr} AS geom FROM {src_ref}"
+        )
+    if operation == "select_by_location" and mask_table_ref is not None:
+        # fix(#955): whole source rows, filtered. No lateral and no CTE, so
+        # unlike the clip branch below there is nothing for the not-empty
+        # filter to catch downstream — _wrap_not_empty applies it to the source
+        # geometry directly, which is what the output geometry IS.
+        #
+        # The DRAWN-mask half needs no branch at all: render_geometry_expr
+        # returns ("geom_4326", <where>) and the generic tail below is already
+        # the right shape.
+        where = render_select_by_location_where(mask_table_ref, src="_src")
+        cols = "".join(f"_src.{_sql_quote_ident(c)}, " for c in carry_cols)
+        return _wrap_not_empty(
+            f"SELECT _src.gid, {cols}_src.geom_4326 AS geom"
+            f" FROM {src_ref} AS _src{where}"
         )
     if operation == "clip" and mask_table_ref is not None:
         # fix(#719): the same subdivided-mask join the preview uses. This used

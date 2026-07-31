@@ -976,6 +976,7 @@
     "opClip": "Découper",
     "opSpatialJoin": "Jointure spatiale",
     "opMeasure": "Mesurer",
+    "opSelectByLocation": "Sélectionner par emplacement",
     "distanceLabel": "Distance",
     "distanceOutOfRange": "Saisissez une distance supérieure à 0 et d’au plus {{max}} {{unit}}.",
     "drawMask": "Dessiner la zone de découpe",
@@ -1032,7 +1033,12 @@
     "spatialJoinHint": "Chaque entité reçoit un join_count des entités qu'elle intersecte. Les chevauchements comptent toutes les correspondances mais ne produisent qu'une seule ligne.",
     "joinFieldLabel": "Copier un champ (facultatif)",
     "joinFieldNone": "Compter uniquement",
-    "measureHint": "Ajoute area_sqm et length_m à chaque entité, mesurées sur le globe. Les polygones reçoivent une aire et les lignes une longueur ; l'autre vaut 0."
+    "measureHint": "Ajoute area_sqm et length_m à chaque entité, mesurées sur le globe. Les polygones reçoivent une aire et les lignes une longueur ; l'autre vaut 0.",
+    "selectByLocationHint": "Conserve les entités qui touchent la zone, entières et inchangées. Utilisez Créer un jeu de données pour enregistrer la liste, puis exportez-la.",
+    "drawSelectionArea": "Dessiner la zone de sélection",
+    "selectionAreaSet": "Zone de sélection définie",
+    "selectLayerLabel": "Ou sélectionner avec une couche",
+    "drawSelectionPointerHint": "Le dessin nécessite un pointeur. Pour sélectionner sans pointeur, choisissez une couche de polygones ci-dessous."
   },
   "attributeForm": {
     "titleEdit": "Modifier les attributs de l'entité",

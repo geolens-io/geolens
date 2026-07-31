@@ -36,6 +36,8 @@ from app.platform.analysis_sql import (
     render_clip_layer_join,
     render_geometry_expr,
     render_measure_columns,
+    render_select_by_location_count,
+    render_select_by_location_where,
     render_spatial_join,
     render_spatial_join_match_count,
     spatial_join_output_columns,
@@ -173,7 +175,15 @@ def build_preview_sql(
         # property or show the user their own layer back.
         cols, extra_joins = render_measure_columns(src="_src")
         extra_cols = f", {cols}"
-    if mask_table_ref is not None:
+    if mask_table_ref is not None and request.operation == "select_by_location":
+        # fix(#955): a selection keeps whole geometries, so there is no
+        # intersection to render and the row filter IS the operation. The
+        # identity lateral keeps the query shape (and NOT_EMPTY_PREDICATE)
+        # common with every other branch.
+        cte = ""
+        lateral = "(SELECT geom_4326 AS geom_out OFFSET 0)"
+        where = render_select_by_location_where(mask_table_ref, src="_src")
+    elif mask_table_ref is not None:
         # fix(#693): layer-sourced clip previews subdivide the mask once and
         # join it per row instead of unioning the whole layer per request;
         # the union CTE remains the materialize shape (see
@@ -293,6 +303,16 @@ async def run_analysis_preview(
         _safe_table_ref(join_dataset.table_name) if join_dataset is not None else None
     )
     sql = build_preview_sql(table_ref, request, mask_table_ref, join_table_ref)
+    # The uncapped total that goes beside the capped preview, or None when the
+    # operation has no such number. Rendered here, with the table refs already
+    # in hand, and run after the geometry query below.
+    count_sql: str | None = None
+    if join_table_ref is not None:
+        count_sql = render_spatial_join_match_count(table_ref, join_table_ref)
+    elif request.operation == "select_by_location":
+        count_sql = render_select_by_location_count(
+            table_ref, mask_table_ref=mask_table_ref, mask=request.mask
+        )
     # Names of the properties this operation adds, in the order the SELECT
     # emits them (immediately after gid and the geometry). Must stay in step
     # with build_preview_sql's extra_cols above — the rows come back positional.
@@ -362,26 +382,38 @@ async def run_analysis_preview(
         # buffer/centroid are 1:1 per feature, so the source count IS the
         # output total and lets clients render "500 of N" on truncation.
         # spatial_join is 1:1 too — it adds columns and keeps every row.
-        # clip filters rows, so its total is unknowable without a second scan.
+        # clip and select_by_location filter rows, so their totals are
+        # unknowable from the source count. select_by_location answers the same
+        # question exactly, through match_count below.
         source_feature_count=(
-            source_feature_count if request.operation != "clip" else None
+            source_feature_count
+            if request.operation not in _ROW_FILTERING_OPERATIONS
+            else None
         ),
         match_count=(
-            await _resolve_match_count(db, table_ref, join_table_ref, user_id)
-            if join_table_ref is not None
+            await _resolve_match_count(db, count_sql, user_id)
+            if count_sql is not None
             else None
         ),
     )
 
 
+# Operations that drop source rows, so the source's own feature count says
+# nothing about how many features the result has.
+_ROW_FILTERING_OPERATIONS = ("clip", "select_by_location")
+
+
 async def _resolve_match_count(
-    db: AsyncSession, table_ref: str, join_table_ref: str, user_id: uuid.UUID
+    db: AsyncSession, count_sql: str, user_id: uuid.UUID
 ) -> int | None:
-    """Exact matched-pair total for a spatial join, or None when unavailable.
+    """Exact total for an operation whose result the preview cap would mislead
+    about, or None when it could not be computed.
 
     Its own statement, because the preview's row cap would otherwise make the
     number a lie: summing per-row counts across 500 of 12,000 polygons answers
     a question nobody asked, and nothing on the map says so (fix(#953)).
+    fix(#955) reuses it for the selected-record total, which has the same
+    shape — one uncapped aggregate beside a capped geometry preview.
 
     Degrades to None rather than failing the preview. It runs second, so it can
     lose the sandbox's per-user lock to another request that arrived in between,
@@ -394,7 +426,7 @@ async def _resolve_match_count(
     try:
         result = await execute_safe(
             db,
-            render_spatial_join_match_count(table_ref, join_table_ref),
+            count_sql,
             row_limit=1,
             concurrency_key=str(user_id),
         )

@@ -16,6 +16,7 @@ from app.core.tenancy import is_multi_tenant
 from app.modules.auth.dependencies import get_current_active_user, require_permission
 from app.modules.catalog.authorization import check_dataset_access
 from app.modules.catalog.datasets.domain.schemas import (
+    MASK_OPERATIONS,
     AnalysisMaterializeRequest,
     AnalysisMaterializeResponse,
     AnalysisPreviewRequest,
@@ -139,9 +140,16 @@ _POLYGONAL_TYPES = {"POLYGON", "MULTIPOLYGON"}
 async def _load_mask_dataset(
     db: AsyncSession, mask_dataset_id: uuid.UUID, user: Identity
 ):
-    """Fetch + visibility-check a clip-mask dataset (Rule 1 applies to BOTH
+    """Fetch + visibility-check a mask dataset (Rule 1 applies to BOTH
     datasets of a two-layer operation) and require it to be polygonal —
-    unioning points/lines produces a mask that clips nothing meaningful."""
+    unioning points/lines produces a mask that clips nothing meaningful.
+
+    fix(#955): shared with select_by_location, which takes its selection
+    geometry from the same mask pair. Both ceilings apply there unchanged; the
+    over-limit message still says "to clip with", which reads slightly off for
+    a selection but is wired through error-map.ts and four locales, so it is
+    left alone rather than half-changed.
+    """
     dataset = await _load_vector_dataset(db, mask_dataset_id, user)
     if (dataset.geometry_type or "").upper() not in _POLYGONAL_TYPES:
         raise HTTPException(
@@ -302,11 +310,13 @@ async def _validate_materialize_params(
     Each check has a second, run-time half in the worker, because the queue
     wait sits between the two and the world can move underneath it.
     """
-    if body.operation == "clip" and body.mask_dataset_id is not None:
+    # fix(#955): select_by_location takes the same mask pair clip does, so it
+    # takes the same two checks. Rule 1 applies to BOTH datasets either way.
+    if body.operation in MASK_OPERATIONS and body.mask_dataset_id is not None:
         # Access + polygon checks happen here at enqueue time; the worker
         # re-resolves the table name and re-validates it against _SAFE_TABLE.
         await _load_mask_dataset(db, body.mask_dataset_id, user)
-    elif body.operation == "clip":
+    elif body.operation in MASK_OPERATIONS:
         try:
             render_mask_expr(body.mask or {})
         except ValueError as exc:

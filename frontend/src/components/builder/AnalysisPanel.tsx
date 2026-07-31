@@ -269,6 +269,9 @@ export function AnalysisPanel({
       dissolve: t('analysisTools.opDissolve', { defaultValue: 'Dissolve' }),
       spatial_join: t('analysisTools.opSpatialJoin', { defaultValue: 'Spatial join' }),
       measure: t('analysisTools.opMeasure', { defaultValue: 'Measure' }),
+      select_by_location: t('analysisTools.opSelectByLocation', {
+        defaultValue: 'Select by location',
+      }),
     };
     return [base, opLabel[prefill.operation]].filter(Boolean).join(' — ');
   });
@@ -546,6 +549,40 @@ export function AnalysisPanel({
     maskLayerId !== MASK_LAYER_NONE
       ? maskLayerOptions.find((l) => l.id === maskLayerId)
       : undefined;
+  // feat(#955): select_by_location takes its geometry from the same drawn-or-
+  // layer pair clip does, and the API takes it in the same two fields, so the
+  // panel shares the controls rather than growing a second spelling of them.
+  const usesMask = operation === 'clip' || operation === 'select_by_location';
+  // The controls are shared; the words cannot be. "Draw clip area" under a
+  // selection names an operation the user did not pick.
+  const maskCopy =
+    operation === 'select_by_location'
+      ? {
+          draw: t('analysisTools.drawSelectionArea', {
+            defaultValue: 'Draw selection area',
+          }),
+          areaSet: t('analysisTools.selectionAreaSet', {
+            defaultValue: 'Selection area set',
+          }),
+          layerLabel: t('analysisTools.selectLayerLabel', {
+            defaultValue: 'Or select against a layer',
+          }),
+          pointerHint: t('analysisTools.drawSelectionPointerHint', {
+            defaultValue:
+              'Drawing needs a pointer. To select without one, pick a polygon layer below.',
+          }),
+        }
+      : {
+          draw: t('analysisTools.drawMask', { defaultValue: 'Draw clip area' }),
+          areaSet: t('analysisTools.maskSet', { defaultValue: 'Clip area set' }),
+          layerLabel: t('analysisTools.clipLayerLabel', {
+            defaultValue: 'Or clip to a layer',
+          }),
+          pointerHint: t('analysisTools.drawMaskPointerHint', {
+            defaultValue:
+              'Drawing needs a pointer. To clip without one, pick a polygon layer below.',
+          }),
+        };
   // feat(#953): a join works in every direction — points in polygons, polygons
   // over polygons, lines crossing polygons — so unlike the clip mask above
   // there is no geometry-type filter, only "not the source layer".
@@ -786,8 +823,8 @@ export function AnalysisPanel({
           // canRun blocks dissolve from the preview path.
           operation: operation as Exclude<AnalysisOperation, 'dissolve'>,
           ...(operation === 'buffer' ? { distance_meters: distanceValue } : {}),
-          ...(operation === 'clip' && mask ? { mask } : {}),
-          ...(operation === 'clip' && !mask && maskLayer?.dataset_id
+          ...(usesMask && mask ? { mask } : {}),
+          ...(usesMask && !mask && maskLayer?.dataset_id
             ? { mask_dataset_id: maskLayer.dataset_id }
             : {}),
           ...(operation === 'spatial_join' && joinLayer?.dataset_id
@@ -897,8 +934,8 @@ export function AnalysisPanel({
         operation,
         title,
         ...(operation === 'buffer' ? { distance_meters: distanceValue } : {}),
-        ...(operation === 'clip' && mask ? { mask } : {}),
-        ...(operation === 'clip' && !mask && maskLayer?.dataset_id
+        ...(usesMask && mask ? { mask } : {}),
+        ...(usesMask && !mask && maskLayer?.dataset_id
           ? { mask_dataset_id: maskLayer.dataset_id }
           : {}),
         ...(operation === 'dissolve' && byField !== BY_FIELD_NONE
@@ -943,7 +980,7 @@ export function AnalysisPanel({
 
   const paramsValid =
     (operation !== 'buffer' || distanceValid) &&
-    (operation !== 'clip' || !!mask || !!maskLayer) &&
+    (!usesMask || !!mask || !!maskLayer) &&
     // feat(#953): a join with nothing to join against is not a runnable form —
     // reflect it here rather than letting the click earn a 422.
     (operation !== 'spatial_join' || !!joinLayer);
@@ -1049,10 +1086,13 @@ export function AnalysisPanel({
           onValueChange={(v) => {
             handleInputsChanged();
             const next = v as AnalysisOperation;
-            if (next !== 'clip') {
+            if (next !== 'clip' && next !== 'select_by_location') {
               // fix(#680): leaving clip mode must drop the retained mask —
               // the static-mode TerraDraw layers otherwise stay visible on
-              // the map under operations that ignore them.
+              // the map under operations that ignore them. feat(#955): clip
+              // and select_by_location both use the mask, so switching
+              // BETWEEN them keeps the drawn area instead of making the user
+              // redraw the same polygon.
               setMask(null);
               stopDrawing();
             }
@@ -1078,6 +1118,11 @@ export function AnalysisPanel({
             <SelectItem value="measure">
               {t('analysisTools.opMeasure', { defaultValue: 'Measure' })}
             </SelectItem>
+            <SelectItem value="select_by_location">
+              {t('analysisTools.opSelectByLocation', {
+                defaultValue: 'Select by location',
+              })}
+            </SelectItem>
             {/* fix(#779): dissolve has no preview by design, and the whole
                 materialize block is hidden without the upload permission — a
                 viewer picking it got a form with no actions and a hint
@@ -1098,6 +1143,15 @@ export function AnalysisPanel({
           </p>
         )}
       </div>
+
+      {operation === 'select_by_location' && (
+        <p className="text-xs text-muted-foreground">
+          {t('analysisTools.selectByLocationHint', {
+            defaultValue:
+              'Keeps the features that touch the area, whole and unchanged. Use Create dataset to save the list, then export it.',
+          })}
+        </p>
+      )}
 
       {operation === 'measure' && (
         <p className="text-xs text-muted-foreground">
@@ -1301,15 +1355,13 @@ export function AnalysisPanel({
         </div>
       )}
 
-      {operation === 'clip' && maskLayer == null && (
+      {usesMask && maskLayer == null && (
         <div className="space-y-1.5">
           {/* fix(#754): no htmlFor here — a <label for> pointed at a button
               OVERRIDES the button's own text in the accessible-name
               computation, so Cancel and Clear were both announced as "Draw
               clip area". The buttons below are self-labeling. */}
-          <Label className="text-xs">
-            {t('analysisTools.drawMask', { defaultValue: 'Draw clip area' })}
-          </Label>
+          <Label className="text-xs">{maskCopy.draw}</Label>
           {isDrawing ? (
             <div className="space-y-1.5">
               <p className="text-xs text-muted-foreground">
@@ -1330,7 +1382,7 @@ export function AnalysisPanel({
           ) : mask ? (
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs text-muted-foreground">
-                {t('analysisTools.maskSet', { defaultValue: 'Clip area set' })}
+                {maskCopy.areaSet}
               </span>
               <Button
                 ref={clearMaskButtonRef}
@@ -1358,27 +1410,22 @@ export function AnalysisPanel({
                 onClick={startDrawing}
                 disabled={!mapInstance}
               >
-                {t('analysisTools.drawMask', { defaultValue: 'Draw clip area' })}
+                {maskCopy.draw}
               </Button>
               {/* ux(#686): drawing is pointer-only. Name the keyboard-reachable
                   alternative instead of leaving it to be discovered. */}
               <p className="text-xs text-muted-foreground">
-                {t('analysisTools.drawMaskPointerHint', {
-                  defaultValue:
-                    'Drawing needs a pointer. To clip without one, pick a polygon layer below.',
-                })}
+                {maskCopy.pointerHint}
               </p>
             </div>
           )}
         </div>
       )}
 
-      {operation === 'clip' && (
+      {usesMask && (
         <div className="space-y-1.5">
           <Label className="text-xs" htmlFor="analysis-mask-layer">
-            {t('analysisTools.clipLayerLabel', {
-              defaultValue: 'Or clip to a layer',
-            })}
+            {maskCopy.layerLabel}
           </Label>
           <Select
             value={maskLayerId}

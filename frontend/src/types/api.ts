@@ -1920,15 +1920,17 @@ export type AnalysisOperation =
   | 'clip'
   | 'dissolve'
   | 'spatial_join'
-  | 'measure';
+  | 'measure'
+  | 'select_by_location';
 
 export interface AnalysisPreviewRequest {
   operation: Exclude<AnalysisOperation, 'dissolve'>;
   /** Buffer distance in meters (buffer only). */
   distance_meters?: number;
-  /** GeoJSON Polygon/MultiPolygon mask in EPSG:4326 (clip only). */
+  /** GeoJSON Polygon/MultiPolygon mask in EPSG:4326 (clip and select_by_location). */
   mask?: GeoJSON.Polygon | GeoJSON.MultiPolygon;
-  /** Polygon dataset whose unioned features form the clip mask (clip only; alternative to mask). */
+  /** Polygon dataset supplying the mask geometry: the area clipped to, or
+   * selected against (clip and select_by_location; alternative to mask). */
   mask_dataset_id?: string;
   /** Layer to join against; each source feature gains a join_count (spatial_join only). */
   join_dataset_id?: string;
@@ -1944,9 +1946,10 @@ export interface AnalysisPreviewResponse {
   /** Source dataset total (1:1 ops only; null when the op filters rows, e.g. clip). */
   source_feature_count?: number | null;
   /**
-   * spatial_join only: intersecting source/join PAIRS across the whole source,
-   * not just the previewed features. Null for other operations, and when the
-   * count could not be computed within the query budget.
+   * Exact total across the WHOLE source, not just the previewed features:
+   * intersecting source/join PAIRS for spatial_join, selected source features
+   * for select_by_location. Null for other operations, and when the count
+   * could not be computed within the query budget.
    */
   match_count?: number | null;
 }
@@ -1955,8 +1958,10 @@ export interface AnalysisMaterializeRequest {
   operation: AnalysisOperation;
   title: string;
   distance_meters?: number;
+  /** GeoJSON Polygon/MultiPolygon mask in EPSG:4326 (clip and select_by_location). */
   mask?: GeoJSON.Polygon | GeoJSON.MultiPolygon;
-  /** Polygon dataset whose unioned features form the clip mask (clip only; alternative to mask). */
+  /** Polygon dataset supplying the mask geometry: the area clipped to, or
+   * selected against (clip and select_by_location; alternative to mask). */
   mask_dataset_id?: string;
   by_field?: string;
   /** Layer to join against; each source feature gains a join_count (spatial_join only). */
