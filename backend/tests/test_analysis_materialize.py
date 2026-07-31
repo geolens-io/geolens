@@ -27,6 +27,7 @@ from app.platform.jobs.models import IngestJob
 from app.processing.analysis.tasks import (
     materialize_timeout,
     _complete_job_for_attempt,
+    _materialize_work_mem,
     _enforce_output_size,
     _fail_cancelled_job,
     _mark_job_failed,
@@ -2611,6 +2612,71 @@ class TestMaterializeWorker:
         monkeypatch.setattr(settings, "analysis_registration_timeout_seconds", 1800)
         assert materialize_timeout() == "1200s"
         assert registration_timeout() == "1800s"
+
+    async def test_ctas_scopes_work_mem_to_its_transaction(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#1012): the CTAS gets a raised work_mem, SET LOCAL so it reverts
+        with the transaction and the other connections keep the 8MB default.
+
+        Paired with the dissolve case below, which is the shape that most needs
+        it: #694's `enable_hashagg = off` forces sorted aggregation, and sorting
+        is exactly what work_mem governs.
+        """
+        executed: list[str] = []
+        from sqlalchemy.ext.asyncio import AsyncSession as _AS
+
+        real_execute = _AS.execute
+
+        async def spying_execute(self, statement, *args, **kwargs):
+            executed.append(str(statement))
+            return await real_execute(self, statement, *args, **kwargs)
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        job = await _create_job(test_db_session, admin_id)
+
+        with patch.object(_AS, "execute", spying_execute):
+            await _materialize(
+                job_id=str(job.id),
+                dataset_id=str(ds.id),
+                user_id=str(admin_id),
+                operation="dissolve",
+                title=f"WorkMem {uuid.uuid4().hex[:6]}",
+            )
+
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+
+        work_mems = [s for s in executed if "work_mem" in s]
+        assert len(work_mems) == 1, f"expected one work_mem statement, got {work_mems}"
+        # SET LOCAL, never a plain SET: a session-level bump would outlive the
+        # transaction and follow the pooled connection to unrelated queries.
+        assert work_mems[0].startswith("SET LOCAL work_mem"), work_mems[0]
+        assert _materialize_work_mem() in work_mems[0]
+
+        ctas = [s for s in executed if s.startswith("CREATE TABLE")]
+        hashaggs = [s for s in executed if "enable_hashagg" in s]
+        # Ahead of the CTAS it is meant to serve, and in the same transaction as
+        # the hashagg flip whose sort it pays for.
+        assert executed.index(work_mems[0]) < executed.index(ctas[0])
+        assert executed.index(hashaggs[0]) < executed.index(ctas[0])
+
+    def test_work_mem_is_divided_across_worker_slots(self, monkeypatch):
+        """fix(#1012): the budget is per worker PROCESS, so parallel job slots
+        share it — otherwise raising WORKER_CONCURRENCY silently multiplies the
+        db container's exposure."""
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "worker_concurrency", 1)
+        assert _materialize_work_mem() == "128MB"
+        monkeypatch.setattr(settings, "worker_concurrency", 4)
+        assert _materialize_work_mem() == "32MB"
+        # Never below the cluster default — a division that landed under 8MB
+        # would make analysis slower than leaving work_mem alone.
+        monkeypatch.setattr(settings, "worker_concurrency", 64)
+        assert _materialize_work_mem() == "8MB"
 
     async def test_worker_rechecks_size_caps_before_ctas(
         self,

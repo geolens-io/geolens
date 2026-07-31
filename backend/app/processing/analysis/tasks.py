@@ -81,6 +81,60 @@ def registration_timeout() -> str:
     return f"{settings.analysis_registration_timeout_seconds}s"
 
 
+# fix(#1012): per-statement work_mem for the materialize CTAS.
+#
+# The cluster-wide default is 8MB (db/postgresql.conf:93) — right for eighty
+# concurrent connections doing ordinary catalog queries, far too small for one
+# buffer or dissolve over hundreds of thousands of geometries, which spills to
+# pgsql_tmp long before it needs to. Dissolve wants it most: #694 turned off
+# hash aggregation there (it holds every group's union state in memory at once
+# and could OOM the shared db container), and the sorted aggregation that
+# replaces it is precisely what work_mem governs. Turning off hashagg without
+# raising work_mem trades an OOM risk for a guaranteed spill.
+#
+# WHICH BUDGET THIS COMES OUT OF. work_mem is allocated by the PostgreSQL
+# backend serving the session, so the memory lands in the `db` service, capped
+# by DB_MEM_LIMIT (default 2g). That 2 GB also holds shared_buffers (512MB),
+# maintenance_work_mem (128MB), and up to max_connections = 80 other backends
+# each entitled to their own work_mem. The worker's own WORKER_MEM_LIMIT is not
+# what constrains this; the Python side of materialize lives there, the sort
+# does not.
+#
+# work_mem is per OPERATION and per BACKEND, not per statement, so one plan can
+# allocate several multiples of it. Two multipliers apply here. The shapes carry
+# at most a couple of memory-hungry nodes (dissolve is one Sort feeding a
+# GroupAggregate, buffer and centroid have none, clip has a join), and
+# max_parallel_workers_per_gather = 1 (db/postgresql.conf:73) means a parallel
+# plan runs the leader plus one worker, each with its own allocation. Worst case
+# is therefore 128MB x 2 nodes x 2 backends = 512MB, which with shared_buffers
+# and maintenance_work_mem leaves roughly 900MB of the 2 GB for the remaining
+# backends. Measured on a 60k-polygon grouped dissolve the leader's sort took
+# 96MB and the parallel worker's 25kB, well inside that.
+#
+# WHAT BOUNDS THE CONCURRENT COUNT. Not the admission cap — that is per user
+# (router_analysis.py) and gates entry to the QUEUE, not execution. Execution
+# is bounded by Procrastinate: a worker process runs at most
+# WORKER_CONCURRENCY jobs at once (default 1), so the budget below is split
+# across that worker's slots and concurrent materializes in one worker cannot
+# stack past it. What this does NOT bound is a deployment running a second
+# worker service; that is the open question in #695, and until it is answered
+# the ceiling assumes one worker service.
+#
+# The floor is the cluster default: at a high WORKER_CONCURRENCY the division
+# must never land BELOW 8MB, which would make analysis slower than leaving it
+# alone.
+_MATERIALIZE_WORK_MEM_MB = 128
+_CLUSTER_DEFAULT_WORK_MEM_MB = 8
+
+
+def _materialize_work_mem() -> str:
+    """Per-slot work_mem for the CTAS, as a PostgreSQL size literal."""
+    from app.core.config import settings
+
+    per_slot = _MATERIALIZE_WORK_MEM_MB // max(1, settings.worker_concurrency)
+    return f"{max(_CLUSTER_DEFAULT_WORK_MEM_MB, per_slot)}MB"
+
+
 # fix(#694): post-CTAS backstop on the built output's on-disk size. The
 # enqueue gates read the cached feature_count snapshot, which can be stale;
 # this is the enforcement that can't be. Buffer is the motivating case: it
@@ -724,6 +778,12 @@ async def _materialize(
             )
             await session.execute(
                 text(f"SET LOCAL statement_timeout = '{materialize_timeout()}'")
+            )
+            # fix(#1012): SET LOCAL, so it applies to this statement and reverts
+            # with the transaction — the other seventy-nine connections keep the
+            # 8MB default. A global bump would not be safe in the same way.
+            await session.execute(
+                text(f"SET LOCAL work_mem = '{_materialize_work_mem()}'")
             )
             if operation == "dissolve":
                 # fix(#694): hash aggregation holds every group's union state
