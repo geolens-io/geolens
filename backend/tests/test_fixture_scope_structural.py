@@ -1,6 +1,6 @@
 """Structural gate: no sync test may depend on an async fixture.
 
-fix(#1030/#1057): a sync test that reaches an async fixture does not merely
+fix(#1082): a sync test that reaches an async fixture does not merely
 fail itself. It poisons that fixture's FixtureDef for the rest of the xdist
 worker's session, and every later test that touches the fixture errors at
 setup with a bare `AssertionError`. One such test produced 951 errors in a
@@ -36,6 +36,11 @@ existed on its branch. #1057 then added two sync tests to a different class in
 the same module. Both PRs were green alone. The remedy was a per-class
 enumeration that was complete when written and silently incomplete a week
 later, so the thing worth checking in is the rule, not another entry.
+
+Sibling gates in the same neighbourhood, same idea: `test_rule1_structural.py`
+(visibility filters) and `test_rule2_structural.py` (GDAL/rasterio safe envs).
+This file deliberately fixes nothing it finds -- the first violation belongs
+to #1030.
 
 Known gap: this reads the AST, so it sees fixtures requested by parameter name
 and nothing else. A fixture pulled at runtime through
@@ -80,9 +85,22 @@ class _Scopes:
     """Fixtures, autouse names, and sync tests, keyed by scope.
 
     Scope is `_MODULE_SCOPE` or a class name. A class-level definition shadows
-    a module-level one of the same name, which shadows conftest -- getting this
-    wrong pools every class's fixtures together and reports sync tests as
-    exposed to autouse fixtures that never applied to them.
+    a module-level one of the same name, which shadows conftest.
+
+    fix(#1082): keying by scope is the load-bearing part of this file and it
+    reads like ceremony, so it is worth saying what happens without it. The
+    first version of this gate pooled every fixture in a file into one dict and
+    every sync test into one list. That is smaller and it is wrong: it reported
+    16 sync tests in `test_geometry_detection.py`, whose `_skip_no_db` autouse
+    fixture is class-level in `TestConstructPointGeometry` and
+    `TestConstructWktGeometry` while those tests live in
+    `TestDetectGeometryColumns` and never see it. Two false positives on a
+    clean main, which is how a gate gets switched off.
+
+    The same pooling also hid a true positive: two fixtures in one file can
+    share a name (a class-level sync override of a module-level async fixture
+    is exactly the remedy this gate recommends), and a flat dict keeps only the
+    last one.
     """
 
     def __init__(self, tree: ast.Module) -> None:
