@@ -151,13 +151,36 @@ Known limits (accepted trade-offs, same posture as the Rule-1 guard):
   ``functools.partial(gdal_safe_env)`` needs no rule at all: it is a call to
   ``partial``, and ``_is_canonical_helper_call`` resolves the Call's OWN
   ``func``, so it never credits. Do not add one.
-- What credit does NOT model is CONDITIONALITY. A call under ``if False:``,
-  in an untaken ternary arm, or in an unreached ``match`` case still credits
-  the scope. That is the #974 boundary — credit asks whether the canonical
-  helper is called in this scope, not whether that line executes — and it is
-  the open half of this design. The bounded alternative is to invert the
-  default: allowlist the shapes that may grant credit and report everything
-  else. Tracked in #1077 rather than patched shape by shape here.
+- CREDIT HAS THREE KNOWN GAP CLASSES. Naming them is the point: a gate whose
+  limits are documented is usable, one whose limits are silent is not. All
+  three are closed at once by the allowlist inversion in #1077, which is why
+  they are tracked there rather than patched shape by shape here.
+
+  1. DEFERRAL — closed, but the rule must be applied at EVERY level. The
+     deferred-body set has three members and that is the whole of it. What is
+     not closed is the implementation: a genexp's outermost iterable is eager
+     and is therefore scanned, but if that iterable is *itself* a generator
+     expression, the scan re-enters and must re-apply the rule.
+     ``(x for x in (gdal_safe_env() for _ in ()))`` credits today and should
+     not. An enumeration being finite does not make an implementation of it
+     complete.
+  2. CONDITIONALITY — open. A call under ``if False:``, in an untaken ternary
+     arm, or in an unreached ``match`` case still credits the scope. That is
+     the #974 boundary: credit asks whether the helper is called in this
+     scope, not whether that line executes. There is no finite enumeration —
+     every conditional structure is another instance.
+  3. REACHABILITY — open, and the widest. How a value gets to the call is not
+     modelled beyond the paths this file names. ``commands = (["gdalinfo",
+     path],)`` then ``for cmd in commands: subprocess.run(cmd)`` reports zero
+     sites, because extraction follows subscript and attribute loads and not
+     ``For.iter``. Named container, dict value, function return, class
+     attribute, module global, unpacking, ``itertools`` — this class has as
+     many members as the language has expressions.
+
+  Two of the three are unbounded, and patching them individually is what
+  #1077 exists to stop. An allowlist does not need to know how a value
+  reaches a call, or which shapes defer: anything it cannot positively
+  recognise reports. That is bounded by construction; this is not.
 - Remote-source detection is LITERAL only (codex round 7): an open or argv
   whose argument is, or obviously leads with, a remote-prefixed string
   literal (http/https, ``/vsicurl*``, hardcoded ``/vsis3``/``/vsiaz``/
