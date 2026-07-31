@@ -1079,7 +1079,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/api/main.py": 1292,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
-    "backend/app/modules/catalog/maps/schemas.py": 1316,
+    # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative
+    # builder camelCase->snake_case table.
+    "backend/app/modules/catalog/maps/schemas.py": 1317,
     # fix(#888): +117. `clip_to_mercator_bounds` used to lose data twice over
     # in silence — it clipped away everything east of lon 180 in a 0..360
     # source, and it reduced valid polar geometry to EMPTY without telling
