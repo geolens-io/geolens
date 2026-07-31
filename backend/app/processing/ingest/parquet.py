@@ -66,17 +66,17 @@ def _check_ingest_budget(num_rows: int, num_columns: int) -> None:
     fix(#948). Raises ``IngestionError`` naming the limit and the observed
     value, the same way the geometry-only guard fails.
     """
-    from app.processing.ingest.ogr import IngestionError
+    from app.processing.ingest.ogr import IngestBudgetExceededError
 
     if num_rows > _MAX_TOTAL_ROWS:
-        raise IngestionError(
+        raise IngestBudgetExceededError(
             f"Parquet file has {num_rows:,} rows, above the "
             f"{_MAX_TOTAL_ROWS:,}-row ingest limit. Split the file or load a "
             "subset."
         )
     cells = num_rows * num_columns
     if cells > _MAX_TOTAL_CELLS:
-        raise IngestionError(
+        raise IngestBudgetExceededError(
             f"Parquet file has {cells:,} cells ({num_rows:,} rows x "
             f"{num_columns:,} columns), above the {_MAX_TOTAL_CELLS:,}-cell "
             "ingest limit. Split the file or drop columns you do not need."

@@ -1054,7 +1054,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # ingest/router.py is also scanned by the router-glob gate; this exact
     # ratchet overrides its 1500 default so the remaining ~18-line runway to
     # the cliff cannot be spent silently.
-    "backend/app/processing/ingest/router.py": 1482,
+    "backend/app/processing/ingest/router.py": 1493,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901

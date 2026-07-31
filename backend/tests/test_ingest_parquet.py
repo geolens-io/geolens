@@ -20,6 +20,7 @@ from sqlalchemy import text
 
 from app.processing.export.parquet import build_geoparquet_table, export_parquet
 from app.processing.ingest.ogr import (
+    IngestBudgetExceededError,
     IngestionError,
     run_ogrinfo,
     run_ogrinfo_preview,
@@ -35,6 +36,7 @@ from app.processing.ingest.validation import (
     validate_file_size,
     validate_parquet_file,
 )
+from tests.factories import get_user_id
 
 
 def _write_geoparquet(path, *, crs: dict | None = None) -> None:
@@ -103,7 +105,7 @@ class TestParquetIngestBudget:
         self._write(p, rows=6, columns=1)
 
         table_name = f"t_rowcap_{uuid.uuid4().hex[:8]}"
-        with pytest.raises(IngestionError, match=r"6 rows, above the 5-row"):
+        with pytest.raises(IngestBudgetExceededError, match=r"6 rows, above the 5-row"):
             await load_parquet_to_postgis(
                 str(p), table_name, schema="data", srid=4326, include_geometry=False
             )
@@ -122,7 +124,9 @@ class TestParquetIngestBudget:
         self._write(p, rows=4, columns=5)
 
         table_name = f"t_cellcap_{uuid.uuid4().hex[:8]}"
-        with pytest.raises(IngestionError, match=r"20 cells \(4 rows x 5 columns\)"):
+        with pytest.raises(
+            IngestBudgetExceededError, match=r"20 cells \(4 rows x 5 columns\)"
+        ):
             await load_parquet_to_postgis(
                 str(p), table_name, schema="data", srid=4326, include_geometry=False
             )
@@ -152,7 +156,9 @@ class TestParquetIngestBudget:
         table_name = f"t_geomcell_{uuid.uuid4().hex[:8]}"
         # 2 attributes + geometry = 3 columns, so 6 cells. Counting only the
         # attributes would give 4 and let this through.
-        with pytest.raises(IngestionError, match=r"6 cells \(2 rows x 3 columns\)"):
+        with pytest.raises(
+            IngestBudgetExceededError, match=r"6 cells \(2 rows x 3 columns\)"
+        ):
             await load_parquet_to_postgis(
                 str(p), table_name, schema="data", srid=4326, include_geometry=True
             )
@@ -187,7 +193,7 @@ class TestParquetIngestBudget:
             ),
             p,
         )
-        with pytest.raises(IngestionError, match="2 rows, above the 1-row"):
+        with pytest.raises(IngestBudgetExceededError, match="2 rows, above the 1-row"):
             await load_parquet_to_postgis(
                 str(p),
                 f"t_scanfirst_{uuid.uuid4().hex[:8]}",
@@ -220,8 +226,45 @@ class TestParquetIngestBudget:
             ),
             p,
         )
-        with pytest.raises(IngestionError, match="3 rows, above the 2-row"):
+        with pytest.raises(IngestBudgetExceededError, match="3 rows, above the 2-row"):
             await parquet_info(str(p))
+
+    @pytest.mark.anyio
+    async def test_preview_endpoint_surfaces_the_limit(
+        self, tmp_path, monkeypatch, client, admin_auth_header, test_db_session
+    ):
+        """The ceiling message has to survive the route, not just the call.
+
+        The preview handler's broad `except Exception` reports "The file may be
+        malformed or unsupported", which is actively misleading for a file that
+        is merely too large — and preview runs BEFORE commit, so this is the
+        moment the user can act on it. IngestBudgetExceededError is a subclass
+        so the route can surface this text without also widening the handler to
+        GDAL subprocess output.
+        """
+        from app.platform.jobs.models import IngestJob
+
+        monkeypatch.setattr(parquet_module, "_MAX_TOTAL_ROWS", 1)
+        p = tmp_path / "route_over.parquet"
+        _write_plain_parquet(p)  # 2 rows, over the patched cap of 1
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = IngestJob(
+            source_filename="route_over.parquet",
+            file_path=str(p),
+            status="pending",
+            created_by=admin_id,
+            user_metadata={"file_type": "vector"},
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+        await test_db_session.refresh(job)
+
+        resp = await client.post(f"/ingest/preview/{job.id}", headers=admin_auth_header)
+        assert resp.status_code == 422, resp.text
+        detail = resp.json()["detail"]
+        assert "2 rows, above the 1-row ingest limit" in detail, detail
+        assert "may be malformed or unsupported" not in detail, detail
 
     @pytest.mark.anyio
     async def test_just_under_both_caps_still_loads(
