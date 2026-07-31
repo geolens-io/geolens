@@ -15,6 +15,7 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useLayerMapSync, clearExcludedPaintOnMap } from '../use-layer-map-sync';
+import { fillPatternTint } from '@/lib/fill-pattern-preview';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 
@@ -1008,6 +1009,32 @@ describe('useLayerMapSync — handleStyleConfigChange fill-pattern cleanup (#918
     expect(updated.paint?.['fill-pattern']).toBe('geolens-fill-hatch');
     const builder = (updated.style_config as { builder?: Record<string, unknown> } | null)?.builder;
     expect(builder?.fillColorSaved).toBeUndefined();
+  });
+
+  // fix(#914): the drop above is what makes the tint correct, so pin the two
+  // together. `fillPatternTint` prefers a string `fill-color` in paint over the
+  // stash, so leaving the target's colour there — which is what MapLibre would
+  // tolerate, since the pattern wins visually either way — tints the pasted
+  // pattern the TARGET's blue on the map and all three legend surfaces instead of
+  // the red the user copied. Nothing else would catch that: both halves pass
+  // their own tests, and only the composition is wrong.
+  it('leaves a pasted pattern tinting the copied colour, not the target one', () => {
+    const { result, layers } = renderWith(
+      makeLayer({ dataset_geometry_type: 'Polygon', paint: { 'fill-color': '#0000ff' } }),
+    );
+
+    act(() => {
+      result.current.handleStyleConfigChange(
+        LAYER_ID,
+        { builder: { fillColorSaved: '#ff0000' } } as StyleConfig,
+        { 'fill-color': '#0000ff', 'fill-pattern': 'geolens-fill-hatch' },
+      );
+    });
+
+    const updated = layers().find((l) => l.id === LAYER_ID)!;
+    const builder = (updated.style_config as { builder?: { fillColorSaved?: string } } | null)
+      ?.builder;
+    expect(fillPatternTint(updated.paint, builder)).toBe('#ff0000');
   });
 });
 

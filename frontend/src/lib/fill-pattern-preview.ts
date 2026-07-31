@@ -63,3 +63,32 @@ export function fillPatternFromPaint(paint: Record<string, unknown> | undefined)
     ? value
     : undefined;
 }
+
+/**
+ * fix(#914): the colour a built-in fill pattern draws in — the layer's own fill
+ * colour, wherever it currently lives.
+ *
+ * A pattern deletes `fill-color` from paint (EDIT-05), so for any layer patterned
+ * through the picker the colour is in the `fillColorSaved` stash (#910). `paint`
+ * still wins when it holds a string, which covers maps saved by older clients that
+ * carry both keys. Returns undefined when there is nothing to tint with, and every
+ * consumer then falls back to the fixed grey — map and previews alike.
+ *
+ * The map adapter and the three preview surfaces all resolve the tint through this
+ * one function; a surface left reading its own colour would disagree with the map,
+ * which is the #951 class of bug this enhancement could otherwise reintroduce.
+ */
+export function fillPatternTint(
+  paint: Record<string, unknown> | undefined,
+  builder: { fillColorSaved?: string } | undefined,
+): string | undefined {
+  const painted = paint?.['fill-color'];
+  if (typeof painted === 'string') return painted;
+  // fix(#910, codex P2): the stash is DECLARED string but arrives from an open
+  // `style_config` that gets serialized-size validation only, so an API-authored or
+  // imported layer can hold a number or object here. Returning that fed a junk tint
+  // into `ensureTintedFillPatternImage`, whose throw is swallowed by `addLayers`' catch
+  // — so the whole layer silently failed to build, not just the tint. Every other
+  // reader of this stash applies the same check.
+  return typeof builder?.fillColorSaved === 'string' ? builder.fillColorSaved : undefined;
+}

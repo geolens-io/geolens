@@ -1540,10 +1540,72 @@ describe('fillAdapter', () => {
     const input = makeInput({
       id: 'fp4',
       layerId: 'layer-fp4',
-      paint: { 'fill-color': '#3b82f6', 'fill-pattern': 'geolens-fill-hatch' },
+      paint: { 'fill-pattern': 'geolens-fill-hatch' },
     });
     fillAdapter.syncPaint(map, input);
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-fp4', 'fill-pattern', 'geolens-fill-hatch');
+  });
+
+  // ── fix(#914): the tint swap happens on the way into MapLibre only ──────────
+  it('syncPaint writes the TINTED pattern id when a fill colour is resolvable', () => {
+    (map.getLayer as ReturnType<typeof vi.fn>).mockImplementation((id: string) => {
+      if (id === 'layer-fp4t' || id === 'layer-fp4t-outline') return { id };
+      return null;
+    });
+    (map.getPaintProperty as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
+    const paint = { 'fill-pattern': 'geolens-fill-hatch' };
+    const input = makeInput({
+      id: 'fp4t',
+      layerId: 'layer-fp4t',
+      paint,
+      style_config: { builder: { fillColorSaved: '#ff0000' } },
+    } as Partial<AdapterLayerInput> & { style_config: { builder: Record<string, unknown> } });
+    fillAdapter.syncPaint(map, input);
+
+    expect(map.setPaintProperty).toHaveBeenCalledWith(
+      'layer-fp4t', 'fill-pattern', 'geolens-fill-hatch#ff0000',
+    );
+    expect(map.addImage).toHaveBeenCalledWith('geolens-fill-hatch#ff0000', expect.anything());
+    // INVARIANT: the tinted id is a runtime registry key. The layer's own paint —
+    // what gets saved, sent over the wire and exported to style.json — is untouched.
+    expect(paint['fill-pattern']).toBe('geolens-fill-hatch');
+    expect(input.paint['fill-pattern']).toBe('geolens-fill-hatch');
+  });
+
+  it('addLayers keeps the plain id in the input paint while adding the tinted layer', () => {
+    const paint = { 'fill-pattern': 'geolens-fill-dots', 'fill-opacity': 0.3 };
+    const input = makeInput({
+      id: 'fp4a',
+      layerId: 'layer-fp4a',
+      sourceId: 'source-fp4a',
+      sourceLayer: 'data.test_table',
+      paint,
+      style_config: { builder: { fillColorSaved: '#00ff00' } },
+    } as Partial<AdapterLayerInput> & { style_config: { builder: Record<string, unknown> } });
+    fillAdapter.addLayers(map, input);
+
+    const fillCall = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls
+      .find((c: unknown[]) => (c[0] as { type: string }).type === 'fill');
+    expect((fillCall![0] as { paint: Record<string, unknown> }).paint['fill-pattern'])
+      .toBe('geolens-fill-dots#00ff00');
+    expect(paint['fill-pattern']).toBe('geolens-fill-dots');
+  });
+
+  it('leaves the pattern untinted when no fill colour is resolvable', () => {
+    (map.getLayer as ReturnType<typeof vi.fn>).mockImplementation((id: string) => {
+      if (id === 'layer-fp4n' || id === 'layer-fp4n-outline') return { id };
+      return null;
+    });
+    (map.getPaintProperty as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
+    const input = makeInput({
+      id: 'fp4n',
+      layerId: 'layer-fp4n',
+      paint: { 'fill-pattern': 'geolens-fill-grid' },
+    });
+    fillAdapter.syncPaint(map, input);
+    expect(map.setPaintProperty).toHaveBeenCalledWith(
+      'layer-fp4n', 'fill-pattern', 'geolens-fill-grid',
+    );
   });
 
   it('syncPaint clears fill-pattern (sets undefined) when fill-pattern key is absent (restores solid fill)', () => {

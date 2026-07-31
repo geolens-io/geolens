@@ -3,7 +3,7 @@ import { Circle, Pentagon, Grid3x3, Layers } from 'lucide-react';
 import { getColorProperty, getRampColors } from '@/lib/color-ramps';
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
 import { MAP_COLORS } from '@/lib/map-colors';
-import { fillPatternFromPaint, patternPreviewStyle } from '@/lib/fill-pattern-preview';
+import { fillPatternFromPaint, fillPatternTint, patternPreviewStyle } from '@/lib/fill-pattern-preview';
 import type { MapLayerResponse } from '@/types/api';
 
 /** Darken a hex color by reducing each channel by ~30% for outline contrast */
@@ -24,6 +24,7 @@ export interface StyleHints {
   radius?: number;           // circle-radius raw value — map to SVG size hint
   isHeatmap?: boolean;       // render_mode === 'heatmap' — triggers radial gradient icon
   fillPattern?: string;      // fix(#951): paint['fill-pattern'] — the swatch draws the pattern
+  fillPatternColor?: string; // fix(#914): the colour the MAP tints that pattern with
 }
 
 /**
@@ -35,7 +36,8 @@ export function extractStyleHints(
   layout: Record<string, unknown>,
   geometryType: string | null,
   opacity?: number,
-  styleConfig?: { render_mode?: string } | null,
+  // fix(#914): `builder` is read for the fill-pattern tint stash.
+  styleConfig?: { render_mode?: string; builder?: { fillColorSaved?: string } } | null,
 ): StyleHints {
   const gt = (geometryType ?? '').toUpperCase();
   const hints: StyleHints = {};
@@ -74,6 +76,9 @@ export function extractStyleHints(
   // above — a GEOMETRY / GEOMETRYCOLLECTION layer renders a fill sublayer via
   // the mixed adapter and gets the shape icon, but matches neither branch.
   hints.fillPattern = fillPatternFromPaint(paint);
+  // fix(#914): a pattern deletes fill-color, so `colors[0]` below falls back to a
+  // default while the map tints from the stash — resolve the map's colour here.
+  hints.fillPatternColor = fillPatternTint(paint, styleConfig?.builder);
 
   if (gt.includes('POINT')) {
     if (!paint['_stroke-disabled']) {
@@ -194,7 +199,7 @@ function ShapeIcon({ colors, layerId, opacityStyle, styleHints, isPoint, discret
       <span
         className="inline-block h-3.5 w-3.5 shrink-0 rounded-sm border"
         style={{
-          color: colors[0] ?? MAP_COLORS.icon.fallback,
+          color: styleHints.fillPatternColor ?? colors[0] ?? MAP_COLORS.icon.fallback,
           borderColor: showOutline ? (styleHints.strokeColor ?? MAP_COLORS.icon.outline) : 'transparent',
           ...patternPreviewStyle(styleHints.fillPattern),
           ...opacityStyle,

@@ -10,7 +10,7 @@ import {
   HeatmapLegend,
 } from '@/components/map/LegendEntries';
 import type { SwatchStyle } from '@/components/map/LegendEntries';
-import { fillPatternFromPaint } from '@/lib/fill-pattern-preview';
+import { fillPatternFromPaint, fillPatternTint } from '@/lib/fill-pattern-preview';
 import { Eye, EyeOff, Layers, X } from 'lucide-react';
 import { parseStepOrInterpolate } from '@/lib/normalize-style-config';
 import { MAP_COLORS } from '@/lib/map-colors';
@@ -61,7 +61,14 @@ function viewerSwatchStyle(layer: SharedLayerResponse): SwatchStyle {
     ? layer.paint?.['circle-opacity']
     : gt.includes('LINE') ? layer.paint?.['line-opacity'] : layer.paint?.['fill-opacity'];
   const fillOpacity = typeof rawFillOp === 'number' ? rawFillOp : undefined;
-  return { outlineColor, opacity: layer.opacity ?? 1, fillOpacity, strokeWidth, fillPattern: fillPatternFromPaint(layer.paint ?? undefined) };
+  return {
+    outlineColor,
+    opacity: layer.opacity ?? 1,
+    fillOpacity,
+    strokeWidth,
+    fillPattern: fillPatternFromPaint(layer.paint ?? undefined),
+    fillPatternColor: fillPatternTint(layer.paint ?? undefined, layer.style_config?.builder),
+  };
 }
 
 function parsePaintColors(paintColorValue: unknown): { colors: string[]; breaks: number[] } | null {

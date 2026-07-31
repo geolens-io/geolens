@@ -5,6 +5,7 @@ import type { AdapterLayerInput, LayerAdapter } from './types';
 import {
   filterPaintForLayerType,
   finalizeLayer,
+  getBuilderStyleConfig,
   getExpressionSafeOpacity,
   syncOwnedLayoutProperties,
   syncOwnedPaintProperties,
@@ -13,7 +14,11 @@ import {
 // builder-audit #338 ADAPT-03 precedent (cluster-adapter): sibling sublayers reuse
 // the standalone adapters' owned-property sets and defaults instead of duplicating them.
 import { CIRCLE_OWNED_PAINT_PROPERTIES } from './circle-adapter';
-import { FILL_OWNED_PAINT_PROPERTIES, OUTLINE_OWNED_PAINT_PROPERTIES } from './fill-adapter';
+import {
+  FILL_OWNED_PAINT_PROPERTIES,
+  OUTLINE_OWNED_PAINT_PROPERTIES,
+  withTintedFillPattern,
+} from './fill-adapter';
 import { ensureFillPatternImages } from './fill-pattern-images';
 import { LINE_OWNED_LAYOUT_PROPERTIES, LINE_OWNED_PAINT_PROPERTIES } from './line-adapter';
 import { DEFAULT_CIRCLE_PAINT, DEFAULT_FILL_PAINT } from './builder-defaults';
@@ -92,9 +97,12 @@ const DEFAULT_MIXED_LINE_PAINT = {
 // both the add-time and sync-time paths. The layer's stored paint typically only
 // carries fill-* keys (GEOMETRY seeds as the polygon family), so the line/point
 // sublayers fall back to defaults until family-specific keys are authored.
-function mixedFillPaint(input: AdapterLayerInput): Record<string, unknown> {
+function mixedFillPaint(map: MaplibreMap, input: AdapterLayerInput): Record<string, unknown> {
   const paint = filterPaintForLayerType(input.paint, 'fill');
-  return Object.keys(paint).length > 0 ? paint : { ...DEFAULT_FILL_PAINT };
+  const effective = Object.keys(paint).length > 0 ? paint : { ...DEFAULT_FILL_PAINT };
+  // fix(#914): the same tint swap the fill adapter makes. A patterned mixed layer
+  // would otherwise be the one surface still drawing the fixed grey.
+  return withTintedFillPattern(map, input.paint, getBuilderStyleConfig(input), effective);
 }
 
 function mixedLinePaint(input: AdapterLayerInput): Record<string, unknown> {
@@ -155,7 +163,7 @@ function addFillLayer(map: MaplibreMap, input: AdapterLayerInput) {
     source: input.sourceId,
     ...sourceLayerSpec(input),
     filter,
-    paint: mixedFillPaint(input),
+    paint: mixedFillPaint(map, input),
     layout: initialLayout(input),
   });
   finalizeLayer(map, input.layerId, input.paint, 'fill', input.opacity ?? 1, filter, hasExpressions);
@@ -211,7 +219,7 @@ function addPointsLayer(map: MaplibreMap, input: AdapterLayerInput) {
 
 function syncFillLayer(map: MaplibreMap, input: AdapterLayerInput) {
   if (!map.getLayer(input.layerId)) return;
-  syncOwnedPaintProperties(map, input.layerId, mixedFillPaint(input), {
+  syncOwnedPaintProperties(map, input.layerId, mixedFillPaint(map, input), {
     geomType: 'fill',
     ownedProperties: FILL_OWNED_PAINT_PROPERTIES,
   });
