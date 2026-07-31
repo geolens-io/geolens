@@ -252,6 +252,63 @@ class TestDerivedFromVisibility:
         assert other.json()["derived_from"] is None
 
 
+class TestDerivedFromParamsVisibility:
+    async def test_a_private_mask_id_is_dropped_from_visible_params(
+        self, test_db_session: AsyncSession
+    ):
+        """fix(#765 review): a clip carries a SECOND dataset id in its params.
+
+        Source public, mask private: a requester who passes the source check
+        would otherwise be handed the private mask's UUID, and with it the
+        fact that it exists.
+        """
+        from app.modules.catalog.authorization import visible_derived_from
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        source = await _create_polygon_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+        mask = await _create_polygon_dataset(
+            test_db_session, created_by=admin_id, visibility="private"
+        )
+        reference = {
+            "dataset_id": str(source.id),
+            "operation": "clip",
+            "params": {"mask_source": "layer", "mask_dataset_id": str(mask.id)},
+            "created_at": "2026-07-31T00:00:00+00:00",
+        }
+
+        anonymous = await visible_derived_from(test_db_session, reference, None, set())
+        assert anonymous is not None
+        assert anonymous["dataset_id"] == str(source.id)
+        assert "mask_dataset_id" not in anonymous["params"]
+        # The rest of the reference survives; only the id it may not see goes.
+        assert anonymous["params"]["mask_source"] == "layer"
+        # ...and the record's own JSONB is untouched by the redaction.
+        assert reference["params"]["mask_dataset_id"] == str(mask.id)
+
+    async def test_a_visible_mask_id_is_kept(self, test_db_session: AsyncSession):
+        from app.modules.catalog.authorization import visible_derived_from
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        source = await _create_polygon_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+        mask = await _create_polygon_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+        reference = {
+            "dataset_id": str(source.id),
+            "operation": "clip",
+            "params": {"mask_source": "layer", "mask_dataset_id": str(mask.id)},
+            "created_at": "2026-07-31T00:00:00+00:00",
+        }
+
+        visible = await visible_derived_from(test_db_session, reference, None, set())
+        assert visible is not None
+        assert visible["params"]["mask_dataset_id"] == str(mask.id)
+
+
 class TestStacDerivedFromLink:
     """The STAC half.
 

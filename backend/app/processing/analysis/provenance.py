@@ -174,11 +174,21 @@ async def apply_analysis_provenance(
     session, so the provenance commits with the dataset rather than in a second
     transaction that could fail on its own.
 
-    Keywords are inherited even from a restricted source: the caller
-    necessarily has read access (Rule 1 gates the analysis), and a keyword
-    discloses nothing the derived geometry does not already embody. Read paths
-    gate the derived_from REFERENCE on access to the source; the keywords are
-    plain values on the new record and are not gated.
+    Two things here are copied VALUES rather than gated references, and that
+    is deliberate (#765):
+
+    * Inherited keywords. The caller necessarily has read access (Rule 1 gates
+      the analysis), and a keyword discloses nothing the derived geometry does
+      not already embody.
+    * The source (and mask) title inside the lineage sentence. The output is
+      registered private and owned by that same caller, so the title only
+      reaches anyone else if its owner publishes or shares the dataset —
+      a deliberate act, on prose they can read and edit, exactly like typing
+      the source's name into the summary field.
+
+    Read paths gate the derived_from REFERENCE, where the disclosure would be
+    a dataset id the requester could act on rather than words in a sentence:
+    see visible_derived_from, which checks the source AND the mask id.
     """
     params = params or {}
     now = datetime.now(timezone.utc)
