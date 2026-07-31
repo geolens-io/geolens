@@ -23,7 +23,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from app.core.geo import rollup_bbox_columns, rollup_span_bbox
+from app.core.geo import rollup_bbox, rollup_bbox_columns
 from app.core.identity import Identity
 from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
 from app.modules.catalog.collections.models import Collection, CollectionDataset
@@ -313,12 +313,17 @@ async def batch_collection_extents(
     extents: dict[uuid.UUID, dict] = {}
     for row in rows:
         extents[row.collection_id] = {
-            # fix(#886): span form, not the spec west > east form -- the only
-            # consumer is CollectionCard's BBoxPreview, which derives its SVG
-            # width from maxx - minx and has no crossing guard yet (#903). This
-            # matches the sibling per-dataset extent_bbox (datasets/domain/
-            # helpers.py), so both fields keep one contract.
-            "extent_bbox": rollup_span_bbox(row[1:7]),
+            # fix(#1006): the RFC 7946 §5.2 spec form, west > east on a
+            # crossing. This was the span form under #886, when BBoxPreview had
+            # no crossing guard; #903 added one (`crossesAntimeridian` at :75,
+            # `splitBbox` at :133) and the span form then defeated it, because
+            # rollup_span_bbox collapses a crossing rollup to
+            # [-180, s, 180, n] -- monotonic by the time it reaches the guard,
+            # and bit-identical to a genuinely global collection. Both consumers
+            # (CollectionCard, CollectionDetailPage) feed BBoxPreview and
+            # nothing here does span arithmetic. Follows the sibling per-dataset
+            # extent_bbox, flipped in #1004, so both fields keep one contract.
+            "extent_bbox": rollup_bbox(row[1:7]),
             "temporal_start": row.temporal_start,
             "temporal_end": row.temporal_end,
         }
