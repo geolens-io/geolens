@@ -255,8 +255,12 @@ async def run_analysis_preview(
     # check-then-act: there is no await between them, and acquiring a semaphore
     # with a free slot does not yield to the loop.
     if _preview_slots.locked():
+        # Its own category, not query_busy: every consumer that maps a category
+        # to wording — the REST 429 detail and the AI chat ERROR_MESSAGES table
+        # — would otherwise relabel this as "your query is already running",
+        # which is false for a user whose first preview is being refused.
         raise SandboxError(
-            "query_busy",
+            "query_at_capacity",
             "The server is running its maximum number of analysis previews. "
             "Try again in a moment.",
         )
