@@ -6,7 +6,7 @@ import { formatDate } from '@/lib/format';
 // and in settings/MyApiKeySection.tsx).
 import { formatLastUsedRelativeTime } from '@/lib/relative-time';
 import { activeDotColor } from '@/lib/status-colors';
-import type { ApiKeyResponse, ApiKeyCreateResponse } from '@/types/api';
+import type { ApiKeyResponse, ApiKeyCreateResponse, ApiKeyScope } from '@/types/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -21,6 +21,8 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Loader2, Trash } from 'lucide-react';
 import { ApiKeyRevealDialog } from './ApiKeyRevealDialog';
+import { ApiKeyScopeSelect } from './ApiKeyScopeSelect';
+import { Badge } from '@/components/ui/badge';
 
 interface ApiKeySectionProps {
   userId: string;
@@ -35,6 +37,7 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
 
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [keyName, setKeyName] = useState('');
+  const [keyScope, setKeyScope] = useState<ApiKeyScope>('full');
   const [revealKey, setRevealKey] = useState<ApiKeyCreateResponse | null>(null);
   const [revokingKey, setRevokingKey] = useState<ApiKeyResponse | null>(null);
 
@@ -43,8 +46,13 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
     if (!keyName.trim()) return;
 
     try {
-      const result = await createApiKey.mutateAsync({ userId, name: keyName.trim() });
+      const result = await createApiKey.mutateAsync({
+        userId,
+        name: keyName.trim(),
+        scope: keyScope,
+      });
       setKeyName('');
+      setKeyScope('full');
       setShowCreateForm(false);
       setRevealKey(result);
     } catch {
@@ -88,6 +96,11 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
             // eslint-disable-next-line jsx-a11y/no-autofocus -- intentional: user just clicked "create" to open this form
             autoFocus
           />
+          <ApiKeyScopeSelect
+            value={keyScope}
+            onChange={setKeyScope}
+            disabled={createApiKey.isPending}
+          />
           <Button type="submit" size="sm" disabled={createApiKey.isPending || !keyName.trim()}>
             {createApiKey.isPending && <Loader2 className="size-4 animate-spin" />}
             {createApiKey.isPending ? t('apiKeys.creating') : t('common:create')}
@@ -99,6 +112,7 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
             onClick={() => {
               setShowCreateForm(false);
               setKeyName('');
+              setKeyScope('full');
             }}
           >
             {t('common:cancel')}
@@ -144,6 +158,13 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
                   <span className="sr-only">
                     {key.is_active ? t('apiKeys.active') : t('apiKeys.revoked')}
                   </span>
+                  {/* fix(#875): an admin auditing another user's keys needs to
+                      see which of them can write. */}
+                  {key.scope === 'read_only' && (
+                    <Badge variant="secondary" className="px-1.5">
+                      {t('apiKeys.scopeReadOnly')}
+                    </Badge>
+                  )}
                 </div>
                 <div className="text-xs text-muted-foreground">
                   {t('apiKeys.created', { date: formatDate(key.created_at) })} · {t('apiKeys.lastUsed')} {formatLastUsedRelativeTime(key.last_used_at, t)}

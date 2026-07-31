@@ -7,7 +7,7 @@ import { formatDate } from '@/lib/format';
 import { formatLastUsedRelativeTime } from '@/lib/relative-time';
 import { activeDotColor, semanticBadgeColors } from '@/lib/status-colors';
 import { cn } from '@/lib/utils';
-import type { MyApiKeyResponse, ApiKeyCreateResponse } from '@/types/api';
+import type { MyApiKeyResponse, ApiKeyCreateResponse, ApiKeyScope } from '@/types/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Loader2, Trash } from 'lucide-react';
 import { ApiKeyRevealDialog } from '@/components/admin/ApiKeyRevealDialog';
+import { ApiKeyScopeSelect } from '@/components/admin/ApiKeyScopeSelect';
 
 
 export function MyApiKeySection() {
@@ -34,6 +35,7 @@ export function MyApiKeySection() {
 
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [keyName, setKeyName] = useState('');
+  const [keyScope, setKeyScope] = useState<ApiKeyScope>('full');
   const [revealKey, setRevealKey] = useState<ApiKeyCreateResponse | null>(null);
   const [revokingKey, setRevokingKey] = useState<MyApiKeyResponse | null>(null);
 
@@ -42,8 +44,9 @@ export function MyApiKeySection() {
     if (!keyName.trim()) return;
 
     try {
-      const result = await createApiKey.mutateAsync(keyName.trim());
+      const result = await createApiKey.mutateAsync({ name: keyName.trim(), scope: keyScope });
       setKeyName('');
+      setKeyScope('full');
       setShowCreateForm(false);
       setRevealKey(result);
     } catch {
@@ -89,6 +92,11 @@ export function MyApiKeySection() {
             // eslint-disable-next-line jsx-a11y/no-autofocus -- intentional: user just clicked "create" to open this form
             autoFocus
           />
+          <ApiKeyScopeSelect
+            value={keyScope}
+            onChange={setKeyScope}
+            disabled={createApiKey.isPending}
+          />
           <Button type="submit" size="sm" disabled={createApiKey.isPending || !keyName.trim()}>
             {createApiKey.isPending && <Loader2 className="size-4 animate-spin" />}
             {createApiKey.isPending ? t('admin:apiKeys.creating') : t('create')}
@@ -100,6 +108,7 @@ export function MyApiKeySection() {
             onClick={() => {
               setShowCreateForm(false);
               setKeyName('');
+              setKeyScope('full');
             }}
           >
             {t('cancel')}
@@ -150,6 +159,13 @@ export function MyApiKeySection() {
                   >
                     {key.is_active ? t('admin:apiKeys.active') : t('admin:apiKeys.revoked')}
                   </Badge>
+                  {/* fix(#875): a read-only key is a different credential in
+                      practice; the list has to say which one you are holding. */}
+                  {key.scope === 'read_only' && (
+                    <Badge variant="secondary" className="px-1.5">
+                      {t('admin:apiKeys.scopeReadOnly')}
+                    </Badge>
+                  )}
                 </div>
                 <div className="text-xs text-muted-foreground">
                   {t('admin:apiKeys.created', { date: formatDate(key.created_at) })} · {t('admin:apiKeys.lastUsed')} {formatLastUsedRelativeTime(key.last_used_at, t)}

@@ -57,6 +57,7 @@ function makeKey(overrides: Partial<MyApiKeyResponse> = {}): MyApiKeyResponse {
     fingerprint: 'abcd1234…wxyz',
     is_active: true,
     expires_at: null,
+    scope: 'full',
     created_at: '2026-01-01T00:00:00Z',
     last_used_at: null,
     ...overrides,
@@ -171,5 +172,72 @@ describe('GLUX-002 / GLUX-014: MyApiKeySection control semantics', () => {
     const alert = screen.getByRole('alert');
     expect(alert).toBeInTheDocument();
     expect(alert).toHaveTextContent('Failed to revoke key');
+  });
+});
+
+// fix(#875): per-key scopes. A read-only key is a different credential in
+// practice, so the list has to say which one you are holding, and the mint
+// form has to be able to ask for one.
+describe('#875: API key scope', () => {
+  beforeEach(() => {
+    vi.mocked(useMyApiKeys).mockReturnValue({
+      data: [],
+      isLoading: false,
+    } as unknown as ReturnType<typeof useMyApiKeys>);
+
+    vi.mocked(useCreateMyApiKey).mockReturnValue(
+      defaultCreateMutation as unknown as ReturnType<typeof useCreateMyApiKey>,
+    );
+
+    vi.mocked(useRevokeMyApiKey).mockReturnValue(
+      defaultRevokeMutation as unknown as ReturnType<typeof useRevokeMyApiKey>,
+    );
+  });
+
+  it('offers a scope control on the create form', async () => {
+    const user = userEvent.setup();
+    render(<MyApiKeySection />);
+
+    await user.click(screen.getByRole('button', { name: 'admin:apiKeys.createKey' }));
+
+    // The react-i18next mock drops the namespace, so ApiKeyScopeSelect's
+    // useTranslation('admin') + t('apiKeys.scope') renders the bare key.
+    expect(screen.getByRole('combobox', { name: 'apiKeys.scope' })).toBeInTheDocument();
+  });
+
+  it('submits the selected scope with the name', async () => {
+    const user = userEvent.setup();
+    render(<MyApiKeySection />);
+
+    await user.click(screen.getByRole('button', { name: 'admin:apiKeys.createKey' }));
+    await user.type(screen.getByLabelText('admin:apiKeys.keyName'), 'CI pipeline');
+    await user.click(screen.getByRole('button', { name: 'create' }));
+
+    expect(defaultCreateMutation.mutateAsync).toHaveBeenCalledWith({
+      name: 'CI pipeline',
+      scope: 'full',
+    });
+  });
+
+  it('badges a read_only key in the list', () => {
+    vi.mocked(useMyApiKeys).mockReturnValue({
+      data: [makeKey({ scope: 'read_only' })],
+      isLoading: false,
+    } as unknown as ReturnType<typeof useMyApiKeys>);
+
+    render(<MyApiKeySection />);
+
+    expect(screen.getByText('admin:apiKeys.scopeReadOnly')).toBeInTheDocument();
+  });
+
+  it('does not badge a full key', () => {
+    vi.mocked(useMyApiKeys).mockReturnValue({
+      data: [makeKey({ scope: 'full' })],
+      isLoading: false,
+    } as unknown as ReturnType<typeof useMyApiKeys>);
+
+    render(<MyApiKeySection />);
+
+    expect(screen.queryByText('admin:apiKeys.scopeReadOnly')).not.toBeInTheDocument();
   });
 });

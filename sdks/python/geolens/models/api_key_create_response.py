@@ -26,6 +26,7 @@ class ApiKeyCreateResponse:
         id (UUID):
         key (str): The API key secret (shown only once)
         name (str):
+        scope (str): Privilege scope: 'full' or 'read_only' (#875)
         expires_at (datetime.datetime | None | Unset): Expiry timestamp; null means the key does not expire
     """
 
@@ -34,6 +35,7 @@ class ApiKeyCreateResponse:
     id: UUID
     key: str
     name: str
+    scope: str
     expires_at: datetime.datetime | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -47,6 +49,8 @@ class ApiKeyCreateResponse:
         key = self.key
 
         name = self.name
+
+        scope = self.scope
 
         expires_at: None | str | Unset
         if isinstance(self.expires_at, Unset):
@@ -65,6 +69,7 @@ class ApiKeyCreateResponse:
                 "id": id,
                 "key": key,
                 "name": name,
+                "scope": scope,
             }
         )
         if expires_at is not UNSET:
@@ -84,6 +89,8 @@ class ApiKeyCreateResponse:
         key = d.pop("key")
 
         name = d.pop("name")
+
+        scope = d.pop("scope")
 
         def _parse_expires_at(data: object) -> datetime.datetime | None | Unset:
             if data is None:
@@ -108,6 +115,7 @@ class ApiKeyCreateResponse:
             id=id,
             key=key,
             name=name,
+            scope=scope,
             expires_at=expires_at,
         )
 

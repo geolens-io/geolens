@@ -1191,7 +1191,9 @@ def test_open_core_decomposition_boundaries_stay_clean() -> None:
         "backend/app/modules/catalog/search/router_saved.py": 100,
         # fix(#821): +14 lines — admin key mint accepts expires_at (audit
         # detail + response) and maps the inactive-owner mint refusal to 409.
-        "backend/app/modules/admin/router_operations.py": 289,
+        # fix(#875): +7 lines — admin key mint accepts scope, and surfaces it
+        # in the audit detail, the create response, and the list item.
+        "backend/app/modules/admin/router_operations.py": 296,
         "backend/app/modules/settings/router_public.py": 150,
     }
     oversized = []
