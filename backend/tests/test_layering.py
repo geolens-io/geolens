@@ -1159,6 +1159,19 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_vector.py": 1058,
     "backend/app/modules/auth/oauth/service.py": 1031,
     "backend/app/processing/ingest/service.py": 1017,
+    # --- entered by the inclusion rule, feat(#765) -------------------------
+    # First time this module crosses 1000. main sat at 994, six lines under the
+    # gate, so it was going to fire on whoever added next; it fired here.
+    # +38 — DerivedFromResponse. The provenance reference was typed
+    # dict[str, Any], which OpenAPI renders as additionalProperties: true, and
+    # both SDKs then generate an untyped map — the shape is exactly what a
+    # durable reference exists to carry, so leaving it untyped defeated the
+    # feature (#1045 review). The model's own docstring holds the part worth
+    # keeping: `params` stays untyped deliberately, because it is the
+    # operation's parameter dict AND it is redacted per requester, so a union
+    # of per-operation models would describe a shape visible_derived_from is
+    # free to punch holes in. Ratchet exact at 1032.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1032,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.
