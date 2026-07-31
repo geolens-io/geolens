@@ -699,6 +699,61 @@ class TestRunAnalysisClipByLayer:
         assert "error" in result, result
         assert "too many features" in result["error"]
 
+    async def test_a_legacy_port_still_serves_buffer_and_centroid(
+        self, test_db_session: AsyncSession
+    ):
+        """fix(#683 codex P1): a separately distributed overlay implementing the
+        PRE-clip ProcessingPort rejects an unknown `mask_dataset` keyword. If
+        the caller passed it unconditionally, every chat analysis against such
+        an overlay would break rather than only the new operation — so it rides
+        along only when set, the same shape router_analysis._defer uses for the
+        materialize task. An overlay that declares its version fails loudly at
+        load instead; this is for the legacy undeclared ones, which only warn.
+        """
+
+        class LegacyPort:
+            """The port as it was before this change: no mask_dataset."""
+
+            def __init__(self, inner):
+                self._inner = inner
+
+            def __getattr__(self, name):
+                return getattr(self._inner, name)
+
+            async def run_analysis_preview(
+                self,
+                session,
+                dataset,
+                operation,
+                *,
+                user_id,
+                distance_meters=None,
+                mask=None,
+            ):
+                return await self._inner.run_analysis_preview(
+                    session,
+                    dataset,
+                    operation,
+                    user_id=user_id,
+                    distance_meters=distance_meters,
+                    mask=mask,
+                )
+
+        admin = await _get_admin(test_db_session)
+        source = await _create_polygon_dataset(test_db_session, created_by=admin.id)
+        legacy = LegacyPort(_default_port)
+
+        result = await _handle_run_analysis(
+            {"layer_id": "layer-1", "operation": "centroid"},
+            test_db_session,
+            admin,
+            await _default_port.get_user_roles(test_db_session, admin),
+            [_layer_for(source)],
+            port=legacy,
+        )
+        assert "error" not in result, result
+        assert result["geojson"]["features"][0]["geometry"]["type"] == "Point"
+
     async def test_user_id_is_still_readable_after_the_tool_returns(
         self, test_db_session: AsyncSession
     ):

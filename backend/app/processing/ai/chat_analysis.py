@@ -156,6 +156,16 @@ async def _run_analysis(
         if isinstance(mask_dataset, dict):
             return mask_dataset
 
+    # fix(#683 codex P1): mask_dataset rides along only when set. A separately
+    # distributed overlay that implements the pre-clip ProcessingPort rejects
+    # the unknown keyword, and passing an unconditional None would break EVERY
+    # chat analysis against such an overlay rather than only the new operation.
+    # Same reasoning, same shape as the materialize defer in
+    # router_analysis._defer. EXTENSION_API_VERSION is bumped alongside this,
+    # so an overlay that DECLARES its version fails loudly at load instead;
+    # this guard is for the legacy undeclared ones, which only warn.
+    mask_kwargs = {"mask_dataset": mask_dataset} if mask_dataset is not None else {}
+
     try:
         result = await port.run_analysis_preview(
             session,
@@ -163,7 +173,7 @@ async def _run_analysis(
             operation,
             user_id=user.id,
             distance_meters=distance_meters,
-            mask_dataset=mask_dataset,
+            **mask_kwargs,
             # fix(#716): release_session is deliberately NOT passed. The
             # rollback that returns the pooled connection expires every ORM
             # instance on the session, the authenticated User included, and
