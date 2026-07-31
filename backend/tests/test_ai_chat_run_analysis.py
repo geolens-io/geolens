@@ -14,6 +14,7 @@ Requirements:
 """
 
 import uuid
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import select, text
@@ -35,6 +36,8 @@ from app.platform.extensions.defaults import DefaultProcessingPort
 from tests.factories import create_dataset
 
 SQUARE = "POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))"
+# Overlaps SQUARE's lower-left quarter only.
+MASK_QUARTER = "POLYGON((-0.5 -0.5, -0.5 0.5, 0.5 0.5, 0.5 -0.5, -0.5 -0.5))"
 
 _default_port = DefaultProcessingPort()
 
@@ -95,6 +98,45 @@ async def _create_polygon_dataset(
     )
 
 
+async def _create_mask_dataset(
+    session: AsyncSession,
+    *,
+    created_by: uuid.UUID,
+    visibility: str = "public",
+):
+    """feat(#683): a polygon layer usable as a clip mask.
+
+    Covers SQUARE's lower-left quarter, so a clip against it survives with a
+    genuinely smaller geometry rather than passing the whole input through.
+    """
+    table_name = f"ds_{uuid.uuid4().hex[:12]}"
+    await session.execute(
+        text(
+            f"CREATE TABLE data.{table_name} ("
+            f"  gid SERIAL PRIMARY KEY,"
+            f"  geom geometry(Polygon, 4326),"
+            f"  geom_4326 geometry(Polygon, 4326)"
+            f")"
+        )
+    )
+    await session.execute(
+        text(
+            f"INSERT INTO data.{table_name} (geom, geom_4326) VALUES "
+            f"(ST_GeomFromText('{MASK_QUARTER}', 4326),"
+            f" ST_GeomFromText('{MASK_QUARTER}', 4326))"
+        )
+    )
+    await session.commit()
+    return await create_dataset(
+        session,
+        created_by=created_by,
+        table_name=table_name,
+        geometry_type="POLYGON",
+        feature_count=1,
+        visibility=visibility,
+    )
+
+
 def _layer_for(dataset, layer_id: str = "layer-1") -> ChatMapLayer:
     return ChatMapLayer(
         id=layer_id,
@@ -129,12 +171,19 @@ class TestRunAnalysisToolSelection:
         assert "run_analysis" not in edit_names
         assert "set_style" in edit_names
 
-    def test_clip_and_dissolve_are_not_offered(self) -> None:
-        """clip needs a drawn mask and dissolve is materialize-only; neither
-        can be driven from chat, so the enum must not tempt the model."""
+    def test_clip_is_offered_and_dissolve_is_not(self) -> None:
+        """feat(#683): clip joined the enum once #682 shipped the layer mask.
+        dissolve stays out on its own merits — materialize-only, an aggregate
+        with no preview shape — so the enum must not tempt the model with it."""
         tool = next(t for t in CHAT_TOOLS_ANTHROPIC if t["name"] == "run_analysis")
-        ops = tool["input_schema"]["properties"]["operation"]["enum"]
-        assert sorted(ops) == ["buffer", "centroid"]
+        props = tool["input_schema"]["properties"]
+        assert sorted(props["operation"]["enum"]) == ["buffer", "centroid", "clip"]
+        # The mask is a LAYER, never a drawn polygon: the chat surface has no
+        # way to draw one, and the schema must not suggest otherwise.
+        assert "mask_layer_id" in props
+        assert "mask" not in props
+        # Optional, because the other two operations do not take one.
+        assert sorted(tool["input_schema"]["required"]) == ["layer_id", "operation"]
 
 
 # ---------------------------------------------------------------------------
@@ -207,8 +256,14 @@ class TestRunAnalysisActionCollection:
         assert "truncated" not in action
         assert "row_count" not in action
 
-    def test_truncated_with_unknown_total_omits_the_pair(self) -> None:
-        """A dataset with no feature_count must not yield "500 of None"."""
+    def test_truncated_with_unknown_total_omits_the_count_not_the_flag(self) -> None:
+        """A result with no known total must not yield "500 of None".
+
+        fix(#683 codex P2): it must still say it was capped, though. This used
+        to drop the flag along with the count, which reads as a complete result
+        — fine while every chat operation reported a total, wrong the moment
+        clip (which filters rows, so it reports none) joined them.
+        """
         action = _collect_chat_action(
             "run_analysis",
             {"layer_id": "l1"},
@@ -221,8 +276,31 @@ class TestRunAnalysisActionCollection:
             },
         )
         assert action is not None
-        assert "truncated" not in action
+        assert action["truncated"] is True
         assert "row_count" not in action
+
+    def test_truncated_clip_discloses_the_cap_without_a_total(self) -> None:
+        """fix(#683 codex P2): clip filters rows, so the preview returns no
+        source_feature_count — the clipped total is genuinely unknown. Requiring
+        one dropped the disclosure entirely, presenting a capped clip preview as
+        the whole result. The flag rides alone; row_count stays absent."""
+        action = _collect_chat_action(
+            "run_analysis",
+            {"layer_id": "l1"},
+            {
+                "operation": "clip",
+                "layer_id": "l1",
+                "feature_count": 500,
+                "truncated": True,
+                "source_feature_count": None,
+                "geojson": {"type": "FeatureCollection", "features": []},
+                "bbox": [0, 0, 1, 1],
+            },
+        )
+        assert action is not None
+        assert action["truncated"] is True
+        assert "row_count" not in action
+        ChatAction(**action)
 
     def test_error_result_emits_no_action(self) -> None:
         action = _collect_chat_action(
@@ -432,6 +510,331 @@ class TestRunAnalysisHandler:
         )
         assert "error" in result, result
         assert "geojson" not in result
+
+
+class TestRunAnalysisClipByLayer:
+    """feat(#683): the two-layer operation. What matters is that the SECOND
+    dataset gets its own Rule-1 check — seeing the source buys no claim on the
+    mask — and that a mask that cannot clip is refused with something the model
+    can act on rather than an empty result reported as an answer."""
+
+    async def test_clip_by_layer_preview(self, test_db_session: AsyncSession):
+        admin = await _get_admin(test_db_session)
+        source = await _create_polygon_dataset(test_db_session, created_by=admin.id)
+        mask = await _create_mask_dataset(test_db_session, created_by=admin.id)
+        result = await _handle_run_analysis(
+            {
+                "layer_id": "layer-1",
+                "operation": "clip",
+                "mask_layer_id": "layer-2",
+            },
+            test_db_session,
+            admin,
+            await _default_port.get_user_roles(test_db_session, admin),
+            [_layer_for(source), _layer_for(mask, "layer-2")],
+            port=_default_port,
+        )
+        assert "error" not in result, result
+        assert result["operation"] == "clip"
+        # The mask covers the source square's lower-left quarter, so the
+        # survivor is a real clipped polygon rather than the whole input.
+        assert result["feature_count"] == 1
+        geometry = result["geojson"]["features"][0]["geometry"]
+        assert geometry["type"] in ("Polygon", "MultiPolygon")
+        assert len(result["bbox"]) == 4
+        assert result["bbox"][2] < 1.0
+
+    async def test_mask_layer_not_on_the_map_is_rejected(
+        self, test_db_session: AsyncSession
+    ):
+        admin = await _get_admin(test_db_session)
+        source = await _create_polygon_dataset(test_db_session, created_by=admin.id)
+        result = await _handle_run_analysis(
+            {
+                "layer_id": "layer-1",
+                "operation": "clip",
+                "mask_layer_id": "not-on-this-map",
+            },
+            test_db_session,
+            admin,
+            await _default_port.get_user_roles(test_db_session, admin),
+            [_layer_for(source)],
+            port=_default_port,
+        )
+        assert "error" in result, result
+        assert "mask_layer_id" in result["error"]
+        assert "geojson" not in result
+
+    async def test_clip_without_a_mask_layer_is_rejected(
+        self, test_db_session: AsyncSession
+    ):
+        """The schema marks mask_layer_id optional (the other operations do not
+        take one), so a model can omit it. That must read as a fixable mistake,
+        not as an empty result."""
+        admin = await _get_admin(test_db_session)
+        source = await _create_polygon_dataset(test_db_session, created_by=admin.id)
+        result = await _handle_run_analysis(
+            {"layer_id": "layer-1", "operation": "clip"},
+            test_db_session,
+            admin,
+            await _default_port.get_user_roles(test_db_session, admin),
+            [_layer_for(source)],
+            port=_default_port,
+        )
+        assert "error" in result, result
+        assert "mask_layer_id" in result["error"]
+
+    async def test_clipping_a_layer_by_itself_is_rejected(
+        self, test_db_session: AsyncSession
+    ):
+        admin = await _get_admin(test_db_session)
+        source = await _create_polygon_dataset(test_db_session, created_by=admin.id)
+        result = await _handle_run_analysis(
+            {
+                "layer_id": "layer-1",
+                "operation": "clip",
+                "mask_layer_id": "layer-1",
+            },
+            test_db_session,
+            admin,
+            await _default_port.get_user_roles(test_db_session, admin),
+            [_layer_for(source)],
+            port=_default_port,
+        )
+        assert "error" in result, result
+        assert "different layer" in result["error"]
+
+    async def test_two_layers_over_one_dataset_are_refused(
+        self, test_db_session: AsyncSession
+    ):
+        """fix(#683 codex P2): a duplicated rendering is two layer ids over one
+        dataset, so comparing layer ids alone lets that pair through — and
+        clipping a table by itself is an expensive way to return the input."""
+        admin = await _get_admin(test_db_session)
+        source = await _create_polygon_dataset(test_db_session, created_by=admin.id)
+        result = await _handle_run_analysis(
+            {
+                "layer_id": "layer-1",
+                "operation": "clip",
+                "mask_layer_id": "layer-2",
+            },
+            test_db_session,
+            admin,
+            await _default_port.get_user_roles(test_db_session, admin),
+            # Same dataset, two renderings — distinct ids, identical data.
+            [_layer_for(source), _layer_for(source, "layer-2")],
+            port=_default_port,
+        )
+        assert "error" in result, result
+        assert "same dataset" in result["error"]
+        assert "geojson" not in result
+
+    async def test_mask_layer_is_access_checked_independently(
+        self, test_db_session: AsyncSession
+    ):
+        """AGENTS.md Rule 1 applies to BOTH datasets. A caller who can read the
+        source but not the mask gets a refusal, not a preview — the layer list
+        is client-supplied, so naming a private dataset as the mask must not
+        read it."""
+        admin = await _get_admin(test_db_session)
+        other = await _create_other_user(test_db_session)
+        source = await _create_polygon_dataset(
+            test_db_session, created_by=admin.id, visibility="public"
+        )
+        private_mask = await _create_mask_dataset(
+            test_db_session, created_by=admin.id, visibility="private"
+        )
+        result = await _handle_run_analysis(
+            {
+                "layer_id": "layer-1",
+                "operation": "clip",
+                "mask_layer_id": "layer-2",
+            },
+            test_db_session,
+            other,
+            await _default_port.get_user_roles(test_db_session, other),
+            [_layer_for(source), _layer_for(private_mask, "layer-2")],
+            port=_default_port,
+        )
+        assert "error" in result, result
+        assert "access" in result["error"].lower()
+        assert "mask" in result["error"].lower()
+        assert "geojson" not in result
+
+    async def test_non_polygonal_mask_layer_is_refused(
+        self, test_db_session: AsyncSession
+    ):
+        """Unioning points or lines yields a mask that clips nothing
+        meaningful. Refused with the shape named, matching what the REST route
+        does in _load_mask_dataset — otherwise the model reports an empty
+        result as a real answer."""
+        admin = await _get_admin(test_db_session)
+        source = await _create_polygon_dataset(test_db_session, created_by=admin.id)
+        # No physical table needed: the shape check refuses it before any SQL
+        # is built, which is the point — a bad mask must cost nothing.
+        point_mask = await create_dataset(
+            test_db_session,
+            created_by=admin.id,
+            geometry_type="POINT",
+        )
+        result = await _handle_run_analysis(
+            {
+                "layer_id": "layer-1",
+                "operation": "clip",
+                "mask_layer_id": "layer-2",
+            },
+            test_db_session,
+            admin,
+            await _default_port.get_user_roles(test_db_session, admin),
+            [_layer_for(source), _layer_for(point_mask, "layer-2")],
+            port=_default_port,
+        )
+        assert "error" in result, result
+        assert "polygon" in result["error"].lower()
+        assert "POINT" in result["error"]
+
+    async def test_oversized_mask_layer_is_refused(self, test_db_session: AsyncSession):
+        """fix(#683 codex P1): a resource rail, not a correctness one. The
+        preview's _mask_pieces CTE materializes and subdivides every mask row
+        before the row cap can bite, so the work scales with the whole mask
+        however small the source is. The REST route rejects this in
+        _load_mask_dataset; exposing clip through chat without the same gate
+        would let one sentence tie up the shared database until timeout."""
+        admin = await _get_admin(test_db_session)
+        source = await _create_polygon_dataset(test_db_session, created_by=admin.id)
+        mask = await _create_mask_dataset(test_db_session, created_by=admin.id)
+        mask.feature_count = 1_001
+        await test_db_session.commit()
+
+        result = await _handle_run_analysis(
+            {
+                "layer_id": "layer-1",
+                "operation": "clip",
+                "mask_layer_id": "layer-2",
+            },
+            test_db_session,
+            admin,
+            await _default_port.get_user_roles(test_db_session, admin),
+            [_layer_for(source), _layer_for(mask, "layer-2")],
+            port=_default_port,
+        )
+        assert "error" in result, result
+        assert "too many features" in result["error"]
+        assert "geojson" not in result
+
+    async def test_unknown_mask_size_is_counted_live(
+        self, test_db_session: AsyncSession
+    ):
+        """fix(#701 review) parity: a NULL feature_count must not read as zero,
+        or the gate admits exactly the unknown-size layers it exists for. The
+        one-row mask table is counted live against a patched cap."""
+        admin = await _get_admin(test_db_session)
+        source = await _create_polygon_dataset(test_db_session, created_by=admin.id)
+        mask = await _create_mask_dataset(test_db_session, created_by=admin.id)
+        mask.feature_count = None
+        await test_db_session.commit()
+
+        with patch(
+            "app.platform.analysis_sql.MAX_MASK_LAYER_FEATURES",
+            0,
+        ):
+            result = await _handle_run_analysis(
+                {
+                    "layer_id": "layer-1",
+                    "operation": "clip",
+                    "mask_layer_id": "layer-2",
+                },
+                test_db_session,
+                admin,
+                await _default_port.get_user_roles(test_db_session, admin),
+                [_layer_for(source), _layer_for(mask, "layer-2")],
+                port=_default_port,
+            )
+        assert "error" in result, result
+        assert "too many features" in result["error"]
+
+    async def test_a_legacy_port_still_serves_buffer_and_centroid(
+        self, test_db_session: AsyncSession
+    ):
+        """fix(#683 codex P1): a separately distributed overlay implementing the
+        PRE-clip ProcessingPort rejects an unknown `mask_dataset` keyword. If
+        the caller passed it unconditionally, every chat analysis against such
+        an overlay would break rather than only the new operation — so it rides
+        along only when set, the same shape router_analysis._defer uses for the
+        materialize task. An overlay that declares its version fails loudly at
+        load instead; this is for the legacy undeclared ones, which only warn.
+        """
+
+        class LegacyPort:
+            """The port as it was before this change: no mask_dataset."""
+
+            def __init__(self, inner):
+                self._inner = inner
+
+            def __getattr__(self, name):
+                return getattr(self._inner, name)
+
+            async def run_analysis_preview(
+                self,
+                session,
+                dataset,
+                operation,
+                *,
+                user_id,
+                distance_meters=None,
+                mask=None,
+            ):
+                return await self._inner.run_analysis_preview(
+                    session,
+                    dataset,
+                    operation,
+                    user_id=user_id,
+                    distance_meters=distance_meters,
+                    mask=mask,
+                )
+
+        admin = await _get_admin(test_db_session)
+        source = await _create_polygon_dataset(test_db_session, created_by=admin.id)
+        legacy = LegacyPort(_default_port)
+
+        result = await _handle_run_analysis(
+            {"layer_id": "layer-1", "operation": "centroid"},
+            test_db_session,
+            admin,
+            await _default_port.get_user_roles(test_db_session, admin),
+            [_layer_for(source)],
+            port=legacy,
+        )
+        assert "error" not in result, result
+        assert result["geojson"]["features"][0]["geometry"]["type"] == "Point"
+
+    async def test_user_id_is_still_readable_after_the_tool_returns(
+        self, test_db_session: AsyncSession
+    ):
+        """fix(#716): chat must NOT pass release_session=True. The rollback
+        that returns the pooled connection expires every ORM instance on the
+        session, the authenticated User included, so the next `user.id` read
+        would raise MissingGreenlet. Both chat paths do exactly that read after
+        the tool returns, which is why this is a test and not a comment."""
+        admin = await _get_admin(test_db_session)
+        source = await _create_polygon_dataset(test_db_session, created_by=admin.id)
+        mask = await _create_mask_dataset(test_db_session, created_by=admin.id)
+        result = await _handle_run_analysis(
+            {
+                "layer_id": "layer-1",
+                "operation": "clip",
+                "mask_layer_id": "layer-2",
+            },
+            test_db_session,
+            admin,
+            await _default_port.get_user_roles(test_db_session, admin),
+            [_layer_for(source), _layer_for(mask, "layer-2")],
+            port=_default_port,
+        )
+        assert "error" not in result, result
+        # Would raise MissingGreenlet on an expired instance.
+        assert admin.id is not None
+        assert admin.username is not None
 
 
 # ---------------------------------------------------------------------------
