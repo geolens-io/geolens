@@ -574,6 +574,11 @@ export function AnalysisPanel({
   // fix(#787 item 3): closing the panel mid-preview suppressed the result
   // callbacks but left the request running. The controller for the preview in
   // flight, aborted on unmount and when a newer preview supersedes it.
+  // Scope: this cancels the CLIENT half. The preview endpoint does not watch
+  // Request.is_disconnected(), so the sandbox statement behind an abandoned
+  // request still runs to its own timeout, holding the per-user advisory lock
+  // until then. Server-side cancellation on disconnect is a backend change,
+  // not this batch's.
   const previewAbortRef = useRef<AbortController | null>(null);
   useEffect(() => () => previewAbortRef.current?.abort(), []);
   const jobIdRef = useRef(jobId);
@@ -592,10 +597,10 @@ export function AnalysisPanel({
   const handleInputsChanged = useCallback(() => {
     previewSeqRef.current += 1;
     // fix(#787 item 3): the sequence bump only makes the response ineligible
-    // to be drawn. Abort here too, or the abandoned request keeps its sandbox
-    // query running to the request timeout — and because canRun gates on
-    // isPending, that also blocks the replacement preview the user is trying
-    // to run, so the abort at the head of the next mutation can never fire.
+    // to be drawn; the mutation stays pending until the abandoned request
+    // settles. canRun gates on isPending, so without this abort the user
+    // cannot start the replacement preview they just changed the inputs for,
+    // and the abort at the head of the next mutation therefore never fires.
     previewAbortRef.current?.abort();
     formEditedRef.current = true;
     if (ownsPreviewRef.current) onClearPreview?.();
@@ -728,8 +733,9 @@ export function AnalysisPanel({
         throw new Error(
           t('analysisTools.noLayerSelected', { defaultValue: 'No layer selected' }),
         );
-      // The seq guard already drops a superseded response; aborting stops the
-      // abandoned request from finishing its sandbox query as well.
+      // Belt and braces: handleInputsChanged already aborted whatever this
+      // preview supersedes, but a caller that reaches here without one (a
+      // resubmit on unchanged inputs) must not leave the old fetch pending.
       previewAbortRef.current?.abort();
       const controller = new AbortController();
       previewAbortRef.current = controller;
