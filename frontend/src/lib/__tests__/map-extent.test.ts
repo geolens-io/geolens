@@ -64,3 +64,29 @@ describe('computeLargeExtentView', () => {
     expect(Number.isFinite(zoom)).toBe(true);
   });
 });
+
+// fix(#903): before the seam-aware helpers, `maxx - minx` went negative for a
+// crossing bbox — isLargeExtent said "small" and computeLargeExtentView flew to
+// the antipode of the data at a world-wide zoom.
+describe('antimeridian-crossing extents (fix #903)', () => {
+  const FIJI: [number, number, number, number] = [178.5, -20, -178.5, -15];
+
+  it('classifies a Fiji-shaped extent by the 3 degrees it covers, not -357', () => {
+    expect(isLargeExtent(FIJI)).toBe(false);
+  });
+
+  it('still classifies a genuinely wide crossing extent as large', () => {
+    expect(isLargeExtent([100, -20, -100, -15])).toBe(true);
+  });
+
+  it('centers on the data rather than its antipode', () => {
+    const { center } = computeLargeExtentView(FIJI);
+    expect(center[0]).toBeCloseTo(180, 10);
+  });
+
+  it('zooms for the real longitude span', () => {
+    const crossing = computeLargeExtentView([170, 0, -170, 10]);
+    const equivalent = computeLargeExtentView([-10, 0, 10, 10]);
+    expect(crossing.zoom).toBe(equivalent.zoom);
+  });
+});

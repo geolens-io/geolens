@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import type { Map as MaplibreMap } from 'maplibre-gl';
+import { toFitBounds } from '@/lib/bbox';
 import { normalizeTerrainExaggeration, reorderDataLayers } from '@/components/builder/map-sync';
 import type { LayerActions } from '@/components/builder/ChatPanel';
 import {
@@ -467,17 +468,22 @@ export function useBuilderLayers(
     const layer = layersRef.current.find((l) => l.id === layerId);
     if (!layer?.dataset_extent_bbox) return;
     const bbox = layer.dataset_extent_bbox;
-    // Validate bbox: must be 4 finite numbers with non-inverted ranges
-    // Note: equal min/max (point geometries) is valid — fitBounds zooms to maxZoom at that point
+    // Validate bbox: must be 4 finite numbers with a non-inverted LATITUDE
+    // range. Note: equal min/max (point geometries) is valid — fitBounds zooms
+    // to maxZoom at that point.
+    // fix(#903): `bbox[0] > bbox[2]` is no longer a rejection. That pair is the
+    // RFC 7946 §5.2 spec form for an antimeridian-crossing extent, and
+    // rejecting it made Zoom to Layer a silent no-op for exactly the layers a
+    // user most needs it for. `toFitBounds` lets east run past 180, which
+    // MapLibre normalizes.
     if (
       bbox.length !== 4 ||
       bbox.some((v) => !Number.isFinite(v)) ||
-      bbox[0] > bbox[2] ||
       bbox[1] > bbox[3]
     ) return;
     try {
       map.fitBounds(
-        [[bbox[0], bbox[1]], [bbox[2], bbox[3]]],
+        toFitBounds([bbox[0], bbox[1], bbox[2], bbox[3]]),
         { padding: 40, maxZoom: 18 },
       );
     } catch {

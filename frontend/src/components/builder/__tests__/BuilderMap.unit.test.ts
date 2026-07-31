@@ -9,7 +9,8 @@ import {
   simplifyPaint,
   TERRAIN_SOURCE_ID,
 } from '../map-sync';
-import { shouldSuppressBuilderMapError } from '../BuilderMap';
+import { getVisibleLayerBounds, shouldSuppressBuilderMapError } from '../BuilderMap';
+import type { MapLayerResponse } from '@/types/api';
 import { applyBasemapConfigToStyle, normalizeBasemapConfig } from '@/lib/basemap-utils';
 import type { StyleSpecification } from 'maplibre-gl';
 
@@ -281,5 +282,87 @@ describe('basemap appearance helpers', () => {
       'basemap labels',
       'user data labels',
     ]);
+  });
+});
+
+// fix(#903): a crossing bbox used to be dropped outright, so both fit paths and
+// Zoom to Layer were silent no-ops for a seam-crossing layer.
+describe('getVisibleLayerBounds across the antimeridian (fix #903)', () => {
+  function layer(bbox: number[] | null, visible = true): MapLayerResponse {
+    return {
+      id: `l-${bbox?.join('_') ?? 'none'}`,
+      visible,
+      dataset_extent_bbox: bbox,
+    } as unknown as MapLayerResponse;
+  }
+
+  it('fits a crossing layer to the few degrees it occupies', () => {
+    expect(getVisibleLayerBounds([layer([178.5, -20, -178.5, -15])])).toEqual([
+      [178.5, -20],
+      [181.5, -15],
+    ]);
+  });
+
+  it('merges a crossing layer with a neighbour on the far side of the seam', () => {
+    // codex on #903: unwrapping only the crossing layer gave [-179, 182] — a
+    // 361 degree span for a union that occupies about 5.
+    const bounds = getVisibleLayerBounds([
+      layer([178, -20, -178, -15]),
+      layer([-179, -18, -177, -14]),
+    ]);
+
+    expect(bounds).toEqual([
+      [178, -20],
+      [183, -14],
+    ]);
+  });
+
+  // codex round 2 on #903: shifting on the west edge alone pushed a contained
+  // layer a whole turn away from a world-wide one, fitting a 530 degree span.
+  it('leaves a contained layer inside a world-wide one', () => {
+    expect(getVisibleLayerBounds([layer([-180, -85, 180, 85]), layer([10, 0, 20, 5])])).toEqual([
+      [-180, -85],
+      [180, 85],
+    ]);
+  });
+
+  it('picks the turn that minimizes the merged span, whichever way it lies', () => {
+    // Same two layers, opposite order: the answer must not depend on which one
+    // happened to be seen first.
+    expect(getVisibleLayerBounds([layer([-179, -18, -177, -14]), layer([178, -20, -178, -15])]))
+      .toEqual([[-182, -20], [-177, -14]]);
+  });
+
+  // codex round 3 on #903: no planar placement expresses "already contained"
+  // for a crossing layer inside a world-spanning one, so the search returned a
+  // span WIDER than the world it started from.
+  it('leaves world bounds alone when a crossing layer is added inside them', () => {
+    expect(getVisibleLayerBounds([layer([-180, -85, 180, 85]), layer([178, -20, -178, -15])]))
+      .toEqual([[-180, -85], [180, 85]]);
+  });
+
+  it('clamps any union that would exceed the full circle', () => {
+    const bounds = getVisibleLayerBounds([
+      layer([-180, -85, 180, 85]),
+      layer([178, -20, -178, -15]),
+      layer([-179, -18, -177, -14]),
+    ]);
+    expect(bounds![1][0] - bounds![0][0]).toBeLessThanOrEqual(360);
+  });
+
+  it('leaves two ordinary layers exactly where they were', () => {
+    expect(
+      getVisibleLayerBounds([layer([-74.5, 40.5, -73.5, 41.5]), layer([-75, 40, -74, 41])]),
+    ).toEqual([
+      [-75, 40],
+      [-73.5, 41.5],
+    ]);
+  });
+
+  it('skips hidden layers, malformed bboxes, and inverted latitudes', () => {
+    expect(getVisibleLayerBounds([layer([178, -20, -178, -15], false)])).toBeNull();
+    expect(getVisibleLayerBounds([layer([1, 2, 3])])).toBeNull();
+    expect(getVisibleLayerBounds([layer([0, 10, 1, 5])])).toBeNull();
+    expect(getVisibleLayerBounds([layer(null)])).toBeNull();
   });
 });

@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { MAP_COLORS } from '@/lib/map-colors';
+import { crossesAntimeridian, splitBbox } from '@/lib/bbox';
 
 /**
  * Convert a hex color string to an rgba() string with the given opacity.
@@ -71,7 +72,7 @@ export function BBoxPreview({ bbox, className }: BBoxPreviewProps) {
   const height = maxy - miny;
 
   // Detect dateline-crossing or compute coverage ratio
-  const crossesDateline = minx > maxx;
+  const crossesDateline = crossesAntimeridian(bbox);
   const bboxArea = Math.abs(width) * Math.abs(height);
   const worldArea = 360 * 180;
   const coverage = bboxArea / worldArea;
@@ -123,17 +124,25 @@ export function BBoxPreview({ bbox, className }: BBoxPreviewProps) {
           stroke="none"
         />
       ))}
-      {/* BBox rectangle */}
-      <rect
-        x={x}
-        y={y}
-        width={Math.max(width, 2)}
-        height={Math.max(height, 2)}
-        fill={hexToRgba(MAP_COLORS.default.fill, 0.25)}
-        stroke={MAP_COLORS.default.fill}
-        strokeWidth={strokeWidth}
-        rx="0.5"
-      />
+      {/* BBox rectangle(s).
+          fix(#903): this file already detected a crossing extent for the
+          viewBox, but still drew one rect from `maxx - minx` — negative, so
+          `Math.max(width, 2)` collapsed it into a 2°-wide sliver pinned at the
+          east edge. Draw the two seam halves instead; a non-crossing extent
+          still yields exactly one rect. */}
+      {splitBbox(bbox).map(([w, s, e, n], i) => (
+        <rect
+          key={i}
+          x={w + 180}
+          y={90 - n}
+          width={Math.max(e - w, 2)}
+          height={Math.max(n - s, 2)}
+          fill={hexToRgba(MAP_COLORS.default.fill, 0.25)}
+          stroke={MAP_COLORS.default.fill}
+          strokeWidth={strokeWidth}
+          rx="0.5"
+        />
+      ))}
     </svg>
   );
 }

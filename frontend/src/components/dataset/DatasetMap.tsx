@@ -14,6 +14,7 @@ import { useTileToken, useInvalidateTileTokens } from '@/hooks/use-tile-token';
 import { isSessionRenewalPending, useTileAuthRecovery, useVisibleTileTokenRefresh } from '@/hooks/use-tile-auth-recovery';
 import { useMapLayers, getSourceLayerName } from '@/components/maps/hooks/use-map-layers';
 import { computeLargeExtentView, isLargeExtent } from '@/lib/map-extent';
+import { splitBbox, toFitBounds } from '@/lib/bbox';
 import { findElevationColumn } from '@/lib/geo-utils';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import { MAP_COLORS } from '@/lib/map-colors';
@@ -508,7 +509,10 @@ export const DatasetMap = memo(function DatasetMap({
       // fix(#438): A11Y-08 — instant under prefers-reduced-motion.
       map.flyTo({ center, zoom, duration: motionDuration(1000) });
     } else {
-      map.fitBounds(bbox!, { padding: 60, duration: motionDuration(1000) });
+      // fix(#903): an antimeridian-crossing extent is expressed by letting east
+      // run past 180 — MapLibre normalizes it, and the alternative is fitting
+      // the complementary 340° of the world.
+      map.fitBounds(toFitBounds(bbox!), { padding: 60, duration: motionDuration(1000) });
     }
   }, [hasBbox, bbox]);
 
@@ -570,6 +574,10 @@ export const DatasetMap = memo(function DatasetMap({
 
   const [minx, miny, maxx, maxy] = hasBbox ? bbox : [0, 0, 0, 0];
 
+  // fix(#903): a planar ring built straight from a `west > east` pair draws the
+  // complementary 340° rectangle over the map. Split the extent at the seam and
+  // draw the halves as a MultiPolygon — one ring for everything that does not
+  // cross, so non-crossing extents render byte-identically to before.
   const bboxGeojson = useMemo(
     () =>
       hasBbox
@@ -580,16 +588,16 @@ export const DatasetMap = memo(function DatasetMap({
                 type: 'Feature' as const,
                 properties: {},
                 geometry: {
-                  type: 'Polygon' as const,
-                  coordinates: [
+                  type: 'MultiPolygon' as const,
+                  coordinates: splitBbox([minx, miny, maxx, maxy]).map(([w, s, e, n]) => [
                     [
-                      [minx, miny],
-                      [maxx, miny],
-                      [maxx, maxy],
-                      [minx, maxy],
-                      [minx, miny],
+                      [w, s],
+                      [e, s],
+                      [e, n],
+                      [w, n],
+                      [w, s],
                     ],
-                  ],
+                  ]),
                 },
               },
             ],
@@ -870,8 +878,9 @@ export const DatasetMap = memo(function DatasetMap({
     );
   }
 
+  // fix(#903): same seam handling as the zoom-to-extent path above.
   const bounds: LngLatBoundsLike | undefined = hasBbox
-    ? [minx, miny, maxx, maxy]
+    ? toFitBounds([minx, miny, maxx, maxy])
     : undefined;
 
   let initialViewState;
