@@ -1914,7 +1914,7 @@ export interface MapLayerBulkDeleteResponse {
 }
 
 /** M4 analysis tools: parameterized PostGIS operations. */
-export type AnalysisOperation = 'buffer' | 'centroid' | 'clip' | 'dissolve';
+export type AnalysisOperation = 'buffer' | 'centroid' | 'clip' | 'dissolve' | 'spatial_join';
 
 export interface AnalysisPreviewRequest {
   operation: Exclude<AnalysisOperation, 'dissolve'>;
@@ -1924,6 +1924,10 @@ export interface AnalysisPreviewRequest {
   mask?: GeoJSON.Polygon | GeoJSON.MultiPolygon;
   /** Polygon dataset whose unioned features form the clip mask (clip only; alternative to mask). */
   mask_dataset_id?: string;
+  /** Layer to join against; each source feature gains a join_count (spatial_join only). */
+  join_dataset_id?: string;
+  /** Columns copied from the intersecting join feature, prefixed 'join_' (spatial_join only). */
+  join_fields?: string[];
 }
 
 export interface AnalysisPreviewResponse {
@@ -1933,6 +1937,12 @@ export interface AnalysisPreviewResponse {
   bbox: number[] | null;
   /** Source dataset total (1:1 ops only; null when the op filters rows, e.g. clip). */
   source_feature_count?: number | null;
+  /**
+   * spatial_join only: intersecting source/join PAIRS across the whole source,
+   * not just the previewed features. Null for other operations, and when the
+   * count could not be computed within the query budget.
+   */
+  match_count?: number | null;
 }
 
 export interface AnalysisMaterializeRequest {
@@ -1943,6 +1953,10 @@ export interface AnalysisMaterializeRequest {
   /** Polygon dataset whose unioned features form the clip mask (clip only; alternative to mask). */
   mask_dataset_id?: string;
   by_field?: string;
+  /** Layer to join against; each source feature gains a join_count (spatial_join only). */
+  join_dataset_id?: string;
+  /** Columns copied from the intersecting join feature, prefixed 'join_' (spatial_join only). */
+  join_fields?: string[];
 }
 
 export interface AnalysisMaterializeResponse {

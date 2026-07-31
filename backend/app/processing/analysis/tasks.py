@@ -36,6 +36,8 @@ from app.platform.analysis_sql import (
     NOT_EMPTY_PREDICATE,
     render_clip_layer_join,
     render_geometry_expr,
+    render_spatial_join,
+    spatial_join_output_columns,
 )
 from app.processing.analysis.provenance import apply_analysis_provenance
 from app.platform.jobs.heartbeat import (
@@ -356,6 +358,36 @@ async def _count_features_bounded(
     return int(result.scalar_one())
 
 
+async def _resolve_layer_table_ref(
+    session: AsyncSession,
+    dataset_cls: Any,
+    dataset_id: str,
+    schema: str,
+    *,
+    label: str,
+) -> str:
+    """Re-resolve a secondary layer's table ref at run time (fix(#953)).
+
+    Both two-layer operations need this — clip against a mask layer, and
+    spatial_join against a join layer — with the same trust model: access was
+    checked at enqueue by the router, and the table name is re-matched against
+    ``_SAFE_TABLE`` here because the queue wait sits between the two.
+
+    ``dataset_cls`` is passed in rather than imported: ``processing/`` must not
+    import from ``app.modules.catalog.*`` (PROCESS-02), so the caller hands
+    over what it got from ``ProcessingPort.get_dataset_orm_class()``.
+    """
+    result = await session.execute(
+        select(dataset_cls).where(dataset_cls.id == uuid.UUID(dataset_id))
+    )
+    layer = result.scalar_one_or_none()
+    if layer is None or not layer.table_name:
+        raise ValueError(f"{label.capitalize()} dataset not found")
+    if not _SAFE_TABLE.match(layer.table_name):
+        raise ValueError(f"Invalid {label} table name")
+    return f'"{schema}"."{layer.table_name}"'
+
+
 async def _recheck_size_caps(
     session: AsyncSession,
     *,
@@ -634,8 +666,23 @@ def _build_materialize_select(
     by_field: str | None,
     carry_cols: list[str],
     mask_table_ref: str | None = None,
+    join_table_ref: str | None = None,
+    join_fields: list[str] | None = None,
 ) -> str:
     """Render the SELECT that produces the output table's rows."""
+    if operation == "spatial_join" and join_table_ref is not None:
+        # fix(#953): the same two laterals the preview uses, so the saved
+        # dataset and the approved preview agree row for row — including the
+        # tie-break, which is the difference between one output row per source
+        # feature and a duplicate-gid CTAS that dies on ADD PRIMARY KEY below.
+        join_cols, joins = render_spatial_join(
+            join_table_ref, src="_src", join_fields=join_fields
+        )
+        cols = "".join(f"_src.{_sql_quote_ident(c)}, " for c in carry_cols)
+        return _wrap_not_empty(
+            f"SELECT _src.gid, {cols}_src.geom_4326 AS geom, {join_cols}"
+            f" FROM {src_ref} AS _src{joins}"
+        )
     if operation == "dissolve":
         # ST_MakeValid: one invalid ring would abort the whole union.
         # ST_CollectionExtract: a union over mixed geometry types returns a
@@ -700,6 +747,8 @@ async def _materialize(
     mask: dict[str, Any] | None = None,
     mask_dataset_id: str | None = None,
     by_field: str | None = None,
+    join_dataset_id: str | None = None,
+    join_fields: list[str] | None = None,
 ) -> None:
     """Core materialize logic; separated from the task wrapper for tests."""
     from app.core.db import async_session
@@ -787,17 +836,20 @@ async def _materialize(
             # Layer-sourced clip mask: re-resolve the table name at run time
             # (access was checked at enqueue by the router, same trust model
             # as the source dataset).
-            mask_table_ref: str | None = None
-            if mask_dataset_id is not None:
-                mask_result = await session.execute(
-                    select(Dataset).where(Dataset.id == uuid.UUID(mask_dataset_id))
+            mask_table_ref = (
+                await _resolve_layer_table_ref(
+                    session, Dataset, mask_dataset_id, _schema, label="mask"
                 )
-                mask_ds = mask_result.scalar_one_or_none()
-                if mask_ds is None or not mask_ds.table_name:
-                    raise ValueError("Mask dataset not found")
-                if not _SAFE_TABLE.match(mask_ds.table_name):
-                    raise ValueError("Invalid mask table name")
-                mask_table_ref = f'"{_schema}"."{mask_ds.table_name}"'
+                if mask_dataset_id is not None
+                else None
+            )
+            join_table_ref = (
+                await _resolve_layer_table_ref(
+                    session, Dataset, join_dataset_id, _schema, label="join"
+                )
+                if join_dataset_id is not None
+                else None
+            )
 
             await _recheck_size_caps(
                 session,
@@ -832,6 +884,21 @@ async def _materialize(
                 if operation != "dissolve"
                 else []
             )
+            if operation == "spatial_join":
+                # The router 422s this at enqueue; repeating it here is the
+                # same defense-in-depth as re-matching _SAFE_IDENT above, and
+                # this is the one place holding the live column list. Without
+                # it the CTAS fails on "column specified more than once" after
+                # the whole queue wait (fix(#953)).
+                clashes = sorted(
+                    set(carry_cols) & set(spatial_join_output_columns(join_fields))
+                )
+                if clashes:
+                    raise ValueError(
+                        "The source dataset already has a column named "
+                        f"{clashes[0]!r}, which this join would overwrite. "
+                        "Rename it, or drop that field from the join."
+                    )
             select_sql = _build_materialize_select(
                 src_ref,
                 operation,
@@ -840,6 +907,8 @@ async def _materialize(
                 by_field=by_field,
                 carry_cols=carry_cols,
                 mask_table_ref=mask_table_ref,
+                join_table_ref=join_table_ref,
+                join_fields=join_fields,
             )
             await session.execute(
                 text(f"SET LOCAL statement_timeout = '{materialize_timeout()}'")
@@ -938,6 +1007,8 @@ async def _materialize(
                         else None
                     ),
                     "mask_dataset_id": mask_dataset_id,
+                    "join_dataset_id": join_dataset_id,
+                    "join_fields": join_fields or None,
                 },
             )
             await _complete_job_for_attempt(
@@ -1016,6 +1087,8 @@ async def materialize_analysis(
     mask: dict[str, Any] | None = None,
     mask_dataset_id: str | None = None,
     by_field: str | None = None,
+    join_dataset_id: str | None = None,
+    join_fields: list[str] | None = None,
 ) -> None:
     """Procrastinate entry point for async analysis materialization."""
     await _materialize(
@@ -1028,4 +1101,6 @@ async def materialize_analysis(
         mask=mask,
         mask_dataset_id=mask_dataset_id,
         by_field=by_field,
+        join_dataset_id=join_dataset_id,
+        join_fields=join_fields,
     )

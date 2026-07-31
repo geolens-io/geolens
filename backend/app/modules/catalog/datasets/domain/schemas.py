@@ -14,6 +14,7 @@ from pydantic import (
 
 from app.core.url_redaction import has_url_credentials
 from app.core.text import normalize_nfc as _nfc
+from app.platform.analysis_sql import MAX_SPATIAL_JOIN_FIELDS
 
 
 _COLUMN_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -907,6 +908,8 @@ _ANALYSIS_PARAM_OWNERS = {
     "mask": "clip",
     "mask_dataset_id": "clip",
     "by_field": "dissolve",
+    "join_dataset_id": "spatial_join",
+    "join_fields": "spatial_join",
 }
 
 
@@ -919,6 +922,28 @@ def _drop_params_for_other_operations(data: Any) -> Any:
     return data
 
 
+def _require_analysis_params(request: Any) -> None:
+    """Per-operation requiredness, shared by preview and materialize.
+
+    The two request models carry the same rules for every operation they have
+    in common, and drifting them apart is how a param ends up required on one
+    endpoint and optional on the other. ``dissolve``'s ``by_field`` is
+    genuinely optional and materialize-only, so it has nothing here.
+    """
+    if request.operation == "buffer" and request.distance_meters is None:
+        raise ValueError("buffer requires distance_meters")
+    if request.operation == "clip" and (request.mask is None) == (
+        request.mask_dataset_id is None
+    ):
+        raise ValueError("clip requires exactly one of mask or mask_dataset_id")
+    if request.operation == "spatial_join":
+        if request.join_dataset_id is None:
+            raise ValueError("spatial_join requires join_dataset_id")
+        fields = request.join_fields or []
+        if len(fields) != len(set(fields)):
+            raise ValueError("join_fields must not repeat a column")
+
+
 class AnalysisPreviewRequest(BaseModel):
     """Parameters for a synchronous analysis preview.
 
@@ -926,7 +951,7 @@ class AnalysisPreviewRequest(BaseModel):
     endpoint; per-operation requiredness is enforced by the validator.
     """
 
-    operation: Literal["buffer", "centroid", "clip"]
+    operation: Literal["buffer", "centroid", "clip", "spatial_join"]
     distance_meters: float | None = Field(
         default=None,
         gt=0,
@@ -946,6 +971,22 @@ class AnalysisPreviewRequest(BaseModel):
             "(clip only; alternative to mask)"
         ),
     )
+    join_dataset_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "Dataset to join against; each source feature gains a count of the "
+            "features from it that intersect (spatial_join only)"
+        ),
+    )
+    join_fields: list[str] | None = Field(
+        default=None,
+        max_length=MAX_SPATIAL_JOIN_FIELDS,
+        description=(
+            "Columns to copy from the intersecting join feature, prefixed "
+            "'join_' in the output. Ties break on the lowest join-layer gid "
+            "(spatial_join only)"
+        ),
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -954,12 +995,7 @@ class AnalysisPreviewRequest(BaseModel):
 
     @model_validator(mode="after")
     def _require_operation_params(self) -> "AnalysisPreviewRequest":
-        if self.operation == "buffer" and self.distance_meters is None:
-            raise ValueError("buffer requires distance_meters")
-        if self.operation == "clip" and (self.mask is None) == (
-            self.mask_dataset_id is None
-        ):
-            raise ValueError("clip requires exactly one of mask or mask_dataset_id")
+        _require_analysis_params(self)
         return self
 
 
@@ -977,12 +1013,21 @@ class AnalysisPreviewResponse(BaseModel):
             "null when the operation filters rows, e.g. clip)"
         ),
     )
+    match_count: int | None = Field(
+        default=None,
+        description=(
+            "spatial_join only: total intersecting source/join feature PAIRS "
+            "across the whole source, not just the previewed features. Null "
+            "for other operations, and when the count could not be computed "
+            "within the query budget"
+        ),
+    )
 
 
 class AnalysisMaterializeRequest(BaseModel):
     """Parameters for materializing an analysis result as a new dataset."""
 
-    operation: Literal["buffer", "centroid", "clip", "dissolve"]
+    operation: Literal["buffer", "centroid", "clip", "dissolve", "spatial_join"]
     title: str = Field(min_length=1, max_length=500)
     distance_meters: float | None = Field(
         default=None,
@@ -1008,6 +1053,22 @@ class AnalysisMaterializeRequest(BaseModel):
         max_length=63,
         description="Optional group-by column for dissolve",
     )
+    join_dataset_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "Dataset to join against; each source feature gains a count of the "
+            "features from it that intersect (spatial_join only)"
+        ),
+    )
+    join_fields: list[str] | None = Field(
+        default=None,
+        max_length=MAX_SPATIAL_JOIN_FIELDS,
+        description=(
+            "Columns to copy from the intersecting join feature, prefixed "
+            "'join_' in the output. Ties break on the lowest join-layer gid "
+            "(spatial_join only)"
+        ),
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -1016,12 +1077,7 @@ class AnalysisMaterializeRequest(BaseModel):
 
     @model_validator(mode="after")
     def _require_operation_params(self) -> "AnalysisMaterializeRequest":
-        if self.operation == "buffer" and self.distance_meters is None:
-            raise ValueError("buffer requires distance_meters")
-        if self.operation == "clip" and (self.mask is None) == (
-            self.mask_dataset_id is None
-        ):
-            raise ValueError("clip requires exactly one of mask or mask_dataset_id")
+        _require_analysis_params(self)
         return self
 
 

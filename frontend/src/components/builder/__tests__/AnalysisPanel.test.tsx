@@ -2038,3 +2038,121 @@ describe('AnalysisPanel — audit remediation (v1.6.0)', () => {
     expect(mockTerraDraw.instance.setMode).toHaveBeenLastCalledWith('static');
   });
 });
+
+describe('AnalysisPanel spatial join (feat(#953))', () => {
+  beforeEach(() => {
+    useAnalysisJobStore.setState({ job: null });
+    useAnalysisAddedStore.setState({ addedDatasetIds: [], pendingAddIds: [] });
+    useAnalysisFormStore.setState({ forms: {} });
+    vi.clearAllMocks();
+  });
+
+  async function pickSpatialJoin(user: ReturnType<typeof userEvent.setup>) {
+    // Combobox order: layer, operation.
+    await user.click(screen.getAllByRole('combobox')[1]);
+    await user.click(await screen.findByRole('option', { name: 'Spatial join' }));
+  }
+
+  /** The (datasetId, body) of the first preview call.
+   *
+   * Deliberately the first TWO arguments rather than toHaveBeenCalledWith:
+   * #787 item 3 adds a third AbortSignal argument on a separate branch, and
+   * these tests are about the request body, which is the same either way.
+   */
+  function previewRequest() {
+    return vi.mocked(previewAnalysis).mock.calls[0].slice(0, 2);
+  }
+
+  it('offers every other layer as a join target, not only polygons', async () => {
+    const user = userEvent.setup();
+    // pointLayer is excluded from the CLIP mask picker by the ux(#698) filter;
+    // a join counts in any direction, so it must be offered here.
+    renderPanel([datasetLayer, datasetLayer2, pointLayer]);
+    await pickSpatialJoin(user);
+
+    await user.click(screen.getAllByRole('combobox')[2]);
+    expect(await screen.findByRole('option', { name: 'Bus stops' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Roads' })).toBeInTheDocument();
+    // The source layer cannot join against itself.
+    expect(screen.queryByRole('option', { name: 'Parcels' })).toBeNull();
+  });
+
+  it('cannot preview until a join layer is picked', async () => {
+    const user = userEvent.setup();
+    renderPanel([datasetLayer, datasetLayer2]);
+    await pickSpatialJoin(user);
+
+    expect(screen.getByRole('button', { name: 'Preview' })).toBeDisabled();
+
+    await user.click(screen.getAllByRole('combobox')[2]);
+    await user.click(await screen.findByRole('option', { name: 'Roads' }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Preview' })).toBeEnabled(),
+    );
+  });
+
+  it('sends join_dataset_id alone when no field is transferred', async () => {
+    const user = userEvent.setup();
+    renderPanel([datasetLayer, datasetLayer2]);
+    await pickSpatialJoin(user);
+
+    await user.click(screen.getAllByRole('combobox')[2]);
+    await user.click(await screen.findByRole('option', { name: 'Roads' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+
+    await waitFor(() => expect(previewAnalysis).toHaveBeenCalled());
+    expect(previewRequest()).toEqual([
+      'ds1',
+      { operation: 'spatial_join', join_dataset_id: 'ds2' },
+    ]);
+  });
+
+  it('sends join_fields when a column is chosen', async () => {
+    const user = userEvent.setup();
+    renderPanel([datasetLayer, datasetLayer2]);
+    await pickSpatialJoin(user);
+
+    await user.click(screen.getAllByRole('combobox')[2]);
+    await user.click(await screen.findByRole('option', { name: 'Roads' }));
+    // Third combobox is the field picker, populated from the JOIN layer.
+    await user.click(screen.getAllByRole('combobox')[3]);
+    await user.click(await screen.findByRole('option', { name: 'name' }));
+
+    fireEvent.change(screen.getByLabelText('New dataset name'), {
+      target: { value: 'Parcels with road names' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create dataset' }));
+
+    await waitFor(() =>
+      expect(materializeAnalysis).toHaveBeenCalledWith('ds1', {
+        operation: 'spatial_join',
+        title: 'Parcels with road names',
+        join_dataset_id: 'ds2',
+        join_fields: ['name'],
+      }),
+    );
+  });
+
+  it('drops the chosen field when the join layer changes', async () => {
+    const user = userEvent.setup();
+    renderPanel([datasetLayer, datasetLayer2, pointLayer]);
+    await pickSpatialJoin(user);
+
+    await user.click(screen.getAllByRole('combobox')[2]);
+    await user.click(await screen.findByRole('option', { name: 'Roads' }));
+    await user.click(screen.getAllByRole('combobox')[3]);
+    await user.click(await screen.findByRole('option', { name: 'name' }));
+
+    // Switching layers must not carry a column that belonged to the old one.
+    await user.click(screen.getAllByRole('combobox')[2]);
+    await user.click(await screen.findByRole('option', { name: 'Bus stops' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() => expect(previewAnalysis).toHaveBeenCalled());
+    expect(previewRequest()).toEqual([
+      'ds1',
+      { operation: 'spatial_join', join_dataset_id: 'ds4' },
+    ]);
+  });
+});

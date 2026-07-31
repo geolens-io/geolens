@@ -974,6 +974,7 @@
     "opBuffer": "Buffer",
     "opCentroid": "Centroids",
     "opClip": "Clip",
+    "opSpatialJoin": "Spatial join",
     "distanceLabel": "Distance",
     "distanceOutOfRange": "Enter a distance greater than 0 and no more than {{max}} {{unit}}.",
     "drawMask": "Draw clip area",
@@ -1024,7 +1025,12 @@
     "saveHintNeedsName": "Enter a name for the new dataset to enable Create dataset.",
     "saveHintNeedsParams": "Complete the operation settings above to enable Create dataset.",
     "addedToMap": "Added to map",
-    "openMap": "Open map"
+    "openMap": "Open map",
+    "joinLayerLabel": "Join with layer",
+    "joinLayerPlaceholder": "Choose a layer",
+    "spatialJoinHint": "Each feature gains a join_count of the features it intersects. Overlaps count every match but still produce one row.",
+    "joinFieldLabel": "Copy a field across (optional)",
+    "joinFieldNone": "Count only"
   },
   "attributeForm": {
     "titleEdit": "Edit Feature Attributes",

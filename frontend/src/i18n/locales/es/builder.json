@@ -974,6 +974,7 @@
     "opBuffer": "Zona de influencia",
     "opCentroid": "Centroides",
     "opClip": "Recortar",
+    "opSpatialJoin": "Unión espacial",
     "distanceLabel": "Distancia",
     "distanceOutOfRange": "Introduce una distancia mayor que 0 y no superior a {{max}} {{unit}}.",
     "drawMask": "Dibujar área de recorte",
@@ -1024,7 +1025,12 @@
     "saveHintNeedsName": "Introduce un nombre para el nuevo conjunto de datos para activar Crear conjunto de datos.",
     "saveHintNeedsParams": "Completa los ajustes de la operación de arriba para activar Crear conjunto de datos.",
     "addedToMap": "Añadido al mapa",
-    "openMap": "Abrir mapa"
+    "openMap": "Abrir mapa",
+    "joinLayerLabel": "Unir con la capa",
+    "joinLayerPlaceholder": "Elige una capa",
+    "spatialJoinHint": "Cada entidad recibe un join_count de las entidades que interseca. Los solapamientos cuentan todas las coincidencias, pero aun así producen una sola fila.",
+    "joinFieldLabel": "Copiar un campo (opcional)",
+    "joinFieldNone": "Solo contar"
   },
   "attributeForm": {
     "titleEdit": "Editar atributos de la entidad",

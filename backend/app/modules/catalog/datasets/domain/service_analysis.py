@@ -34,7 +34,11 @@ from app.platform.analysis_sql import (
     NOT_EMPTY_PREDICATE,
     render_clip_layer_join,
     render_geometry_expr,
+    render_spatial_join,
+    render_spatial_join_match_count,
+    spatial_join_output_columns,
 )
+from app.platform.sandbox.schemas import SandboxError
 from app.platform.sandbox.executor import execute_safe
 from app.platform.sandbox.schemas import SandboxError
 
@@ -140,13 +144,27 @@ def build_preview_sql(
     table_ref: str,
     request: AnalysisPreviewRequest,
     mask_table_ref: str | None = None,
+    join_table_ref: str | None = None,
 ) -> str:
     """Render the preview SELECT for one operation. Pure; unit-testable.
 
-    ``table_ref`` (and ``mask_table_ref`` for layer-sourced clip masks) must
-    come from ``_safe_table_ref`` (logical ``data`` schema; the sandbox
-    executor rewrites it to the tenant schema in multi-tenant).
+    ``table_ref`` (and ``mask_table_ref`` for layer-sourced clip masks,
+    ``join_table_ref`` for spatial joins) must come from ``_safe_table_ref``
+    (logical ``data`` schema; the sandbox executor rewrites it to the tenant
+    schema in multi-tenant).
     """
+    extra_cols = ""
+    extra_joins = ""
+    if join_table_ref is not None:
+        # fix(#953): the join's whole result is columns, so unlike every other
+        # operation the preview MUST carry properties — the geometry it returns
+        # is the source layer unchanged, and without join_count on each feature
+        # the preview would render pixel-identical to the layer already on the
+        # map and show the user nothing.
+        cols, extra_joins = render_spatial_join(
+            join_table_ref, src="_src", join_fields=request.join_fields
+        )
+        extra_cols = f", {cols}"
     if mask_table_ref is not None:
         # fix(#693): layer-sourced clip previews subdivide the mask once and
         # join it per row instead of unioning the whole layer per request;
@@ -182,8 +200,10 @@ def build_preview_sql(
     return (
         f"{cte}SELECT gid,"
         f" ST_AsGeoJSON(_op.geom_out, {_GEOJSON_PRECISION}) AS geometry_json"
+        f"{extra_cols}"
         f" FROM {table_ref} AS _src"
         f" CROSS JOIN LATERAL {lateral} AS _op"
+        f"{extra_joins}"
         f"{filters}"
         f" ORDER BY gid"
     )
@@ -214,6 +234,7 @@ async def run_analysis_preview(
     user_id: uuid.UUID,
     *,
     mask_dataset: Dataset | None = None,
+    join_dataset: Dataset | None = None,
     release_session: bool = False,
 ) -> AnalysisPreviewResponse:
     """Execute a preview operation and assemble a GeoJSON FeatureCollection.
@@ -224,7 +245,9 @@ async def run_analysis_preview(
 
     ``mask_dataset`` (clip only) sources the mask from another dataset's
     unioned geometries; the CALLER owns its visibility check, exactly as it
-    owns the source dataset's.
+    owns the source dataset's. ``join_dataset`` (spatial_join only) is the same
+    contract for the layer being joined against — Rule 1 applies to BOTH
+    datasets of a two-layer operation.
 
     ``release_session`` returns the caller's pooled connection before the
     sandbox query (see below). OPT-IN, because the rollback that releases it
@@ -241,7 +264,17 @@ async def run_analysis_preview(
     mask_table_ref = (
         _safe_table_ref(mask_dataset.table_name) if mask_dataset is not None else None
     )
-    sql = build_preview_sql(table_ref, request, mask_table_ref)
+    join_table_ref = (
+        _safe_table_ref(join_dataset.table_name) if join_dataset is not None else None
+    )
+    sql = build_preview_sql(table_ref, request, mask_table_ref, join_table_ref)
+    # Column names for the properties the join adds, in the order the SELECT
+    # emits them (immediately after gid and the geometry).
+    join_columns = (
+        spatial_join_output_columns(request.join_fields)
+        if join_table_ref is not None
+        else []
+    )
     # fix(#716): read everything off the ORM objects BEFORE releasing the
     # session, then release it. `execute_safe` opens its own connection from the
     # same engine (it needs READ ONLY + SET LOCAL ROLE, which it cannot get on
@@ -285,7 +318,8 @@ async def run_analysis_preview(
         )
     features: list[dict[str, Any]] = []
     bbox: list[float] | None = None
-    for gid, geometry_json in result.rows:
+    for row in result.rows:
+        gid, geometry_json = row[0], row[1]
         if geometry_json is None:
             continue
         geometry = json.loads(geometry_json)
@@ -293,8 +327,10 @@ async def run_analysis_preview(
             # Empty results (e.g. a clip that only grazes a boundary).
             continue
         bbox = _extend_bbox(bbox, geometry.get("coordinates"))
+        properties: dict[str, Any] = {"gid": gid}
+        properties.update(zip(join_columns, row[2:]))
         features.append(
-            {"type": "Feature", "geometry": geometry, "properties": {"gid": gid}}
+            {"type": "Feature", "geometry": geometry, "properties": properties}
         )
     return AnalysisPreviewResponse(
         geojson={"type": "FeatureCollection", "features": features},
@@ -303,8 +339,43 @@ async def run_analysis_preview(
         bbox=bbox,
         # buffer/centroid are 1:1 per feature, so the source count IS the
         # output total and lets clients render "500 of N" on truncation.
+        # spatial_join is 1:1 too — it adds columns and keeps every row.
         # clip filters rows, so its total is unknowable without a second scan.
         source_feature_count=(
             source_feature_count if request.operation != "clip" else None
         ),
+        match_count=(
+            await _resolve_match_count(db, table_ref, join_table_ref, user_id)
+            if join_table_ref is not None
+            else None
+        ),
     )
+
+
+async def _resolve_match_count(
+    db: AsyncSession, table_ref: str, join_table_ref: str, user_id: uuid.UUID
+) -> int | None:
+    """Exact matched-pair total for a spatial join, or None when unavailable.
+
+    Its own statement, because the preview's row cap would otherwise make the
+    number a lie: summing per-row counts across 500 of 12,000 polygons answers
+    a question nobody asked, and nothing on the map says so (fix(#953)).
+
+    Degrades to None rather than failing the preview. It runs second, so it can
+    lose the sandbox's per-user lock to another request that arrived in between,
+    and it scans both layers so it can outrun the statement timeout on inputs
+    the capped geometry preview handles fine. Neither is a reason to throw away
+    a preview that already succeeded — and None is a value this response
+    already uses to mean "not computable", as source_feature_count does for
+    clip.
+    """
+    try:
+        result = await execute_safe(
+            db,
+            render_spatial_join_match_count(table_ref, join_table_ref),
+            row_limit=1,
+            concurrency_key=str(user_id),
+        )
+    except SandboxError:
+        return None
+    return int(result.rows[0][0]) if result.rows else None

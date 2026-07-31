@@ -30,6 +30,7 @@ from app.platform.analysis_sql import (
     MAX_MASK_LAYER_FEATURES,
     MAX_SOURCE_FEATURES,
     render_mask_expr,
+    spatial_join_output_columns,
 )
 from app.platform.extensions import get_catalog_port
 from app.platform.jobs.defer_guard import (
@@ -160,6 +161,49 @@ async def _load_mask_dataset(
     return dataset
 
 
+async def _load_join_dataset(
+    db: AsyncSession, join_dataset_id: uuid.UUID, user: Identity
+):
+    """Fetch + visibility-check a spatial-join layer (fix(#953)).
+
+    Rule 1 applies to BOTH datasets of a two-layer operation, so this is the
+    same treatment ``_load_mask_dataset`` gives the clip mask. No geometry-type
+    requirement, unlike the mask: a join is meaningful in every direction —
+    points in polygons, polygons touching lines, polygons overlapping polygons
+    — and the count means the same thing in all of them. No size ceiling of its
+    own either: the join layer is probed through its GIST index once per source
+    row, so it is the SOURCE row count that drives the cost, and that is what
+    MAX_SOURCE_FEATURES['spatial_join'] bounds.
+    """
+    return await _load_vector_dataset(db, join_dataset_id, user)
+
+
+def _validate_join_fields(source, join_dataset, join_fields: list[str]) -> None:
+    """422 on unknown join columns, or ones that would collide on output."""
+    known = {col.get("name") for col in (join_dataset.column_info or []) if col}
+    for name in join_fields:
+        if not _SAFE_COLUMN_RE.match(name) or name not in known:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"Unknown join column: {name!r}",
+            )
+    # The output carries the source's own columns verbatim beside the generated
+    # ones, so a source column named join_count (or join_<field>) would reach
+    # the CTAS twice and fail it with "column specified more than once" after
+    # the queue wait. Same trap dissolve's by_field hits on source_count.
+    source_columns = {col.get("name") for col in (source.column_info or []) if col}
+    clashes = sorted(source_columns & set(spatial_join_output_columns(join_fields)))
+    if clashes:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"The source dataset already has a column named {clashes[0]!r}, "
+                "which this join would overwrite. Rename it, or drop that "
+                "field from the join."
+            ),
+        )
+
+
 @router.post("/{dataset_id}/analysis/preview/", response_model=AnalysisPreviewResponse)
 async def analysis_preview_endpoint(
     dataset_id: uuid.UUID,
@@ -178,6 +222,11 @@ async def analysis_preview_endpoint(
         if body.mask_dataset_id is not None
         else None
     )
+    join_dataset = None
+    if body.join_dataset_id is not None:
+        join_dataset = await _load_join_dataset(db, body.join_dataset_id, user)
+        if body.join_fields:
+            _validate_join_fields(dataset, join_dataset, body.join_fields)
     try:
         return await run_analysis_preview(
             db,
@@ -185,6 +234,7 @@ async def analysis_preview_endpoint(
             body,
             user.id,
             mask_dataset=mask_dataset,
+            join_dataset=join_dataset,
             # fix(#716): safe here — `user.id` is evaluated above, and neither
             # this handler nor any middleware reads ORM state afterwards.
             release_session=True,
@@ -230,6 +280,36 @@ def _validate_dissolve_by_field(dataset, by_field: str) -> None:
         )
 
 
+async def _validate_materialize_params(
+    db: AsyncSession, dataset, body: AnalysisMaterializeRequest, user: Identity
+) -> None:
+    """Per-operation enqueue-time validation, so a bad request 422s fast.
+
+    Everything here fails BEFORE a job row exists — the alternative is a job
+    the user has to watch fail minutes later with an opaque database error.
+    Each check has a second, run-time half in the worker, because the queue
+    wait sits between the two and the world can move underneath it.
+    """
+    if body.operation == "clip" and body.mask_dataset_id is not None:
+        # Access + polygon checks happen here at enqueue time; the worker
+        # re-resolves the table name and re-validates it against _SAFE_TABLE.
+        await _load_mask_dataset(db, body.mask_dataset_id, user)
+    elif body.operation == "clip":
+        try:
+            render_mask_expr(body.mask or {})
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+            ) from exc
+    if body.operation == "dissolve" and body.by_field is not None:
+        _validate_dissolve_by_field(dataset, body.by_field)
+    if body.operation == "spatial_join":
+        # Access + column checks, same as the clip mask; the worker re-resolves
+        # the table name and re-checks the collision against the live columns.
+        join_dataset = await _load_join_dataset(db, body.join_dataset_id, user)
+        _validate_join_fields(dataset, join_dataset, body.join_fields or [])
+
+
 @router.post(
     "/{dataset_id}/analysis/materialize/",
     response_model=AnalysisMaterializeResponse,
@@ -273,20 +353,7 @@ async def analysis_materialize_endpoint(
                 ),
             )
 
-    # Fail fast on invalid params before creating a job.
-    if body.operation == "clip" and body.mask_dataset_id is not None:
-        # Access + polygon checks happen here at enqueue time; the worker
-        # re-resolves the table name and re-validates it against _SAFE_TABLE.
-        await _load_mask_dataset(db, body.mask_dataset_id, user)
-    elif body.operation == "clip":
-        try:
-            render_mask_expr(body.mask or {})
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
-            ) from exc
-    if body.operation == "dissolve" and body.by_field is not None:
-        _validate_dissolve_by_field(dataset, body.by_field)
+    await _validate_materialize_params(db, dataset, body, user)
 
     # Best-effort dataset-count pre-check; the authoritative atomic
     # reservation happens at registration time in the worker.
@@ -414,6 +481,10 @@ async def analysis_materialize_endpoint(
         analysis_meta["mask_source"] = "layer" if body.mask_dataset_id else "drawn"
         if body.mask_dataset_id is not None:
             analysis_meta["mask_dataset_id"] = str(body.mask_dataset_id)
+    if body.operation == "spatial_join":
+        analysis_meta["join_dataset_id"] = str(body.join_dataset_id)
+        if body.join_fields:
+            analysis_meta["join_fields"] = list(body.join_fields)
     job.user_metadata = {"analysis": analysis_meta}
     # ux(#698): stamp a step so a pending job reads as "queued" rather than
     # being indistinguishable from a broken one. This matters more since #703
@@ -432,11 +503,16 @@ async def analysis_materialize_endpoint(
         # the pre-clip-by-layer code rejects unknown kwargs, and an
         # unconditional None would break EVERY materialize during a rolling
         # deploy instead of only the new feature.
-        extra_kwargs = (
-            {"mask_dataset_id": str(body.mask_dataset_id)}
-            if body.mask_dataset_id is not None
-            else {}
-        )
+        extra_kwargs: dict[str, object] = {}
+        if body.mask_dataset_id is not None:
+            extra_kwargs["mask_dataset_id"] = str(body.mask_dataset_id)
+        # Same rolling-deploy rule for the join params (fix(#953)): a worker
+        # still running pre-spatial-join code rejects unknown kwargs, so they
+        # ride along only when the operation actually uses them.
+        if body.join_dataset_id is not None:
+            extra_kwargs["join_dataset_id"] = str(body.join_dataset_id)
+            if body.join_fields:
+                extra_kwargs["join_fields"] = list(body.join_fields)
         await defer_async_with_tenant(
             get_catalog_port()
             .materialize_analysis_task()

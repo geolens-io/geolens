@@ -974,6 +974,7 @@
     "opBuffer": "Puffer",
     "opCentroid": "Zentroide",
     "opClip": "Zuschneiden",
+    "opSpatialJoin": "Räumliche Verknüpfung",
     "distanceLabel": "Entfernung",
     "distanceOutOfRange": "Geben Sie eine Entfernung größer als 0 und höchstens {{max}} {{unit}} ein.",
     "drawMask": "Zuschneidebereich zeichnen",
@@ -1024,7 +1025,12 @@
     "saveHintNeedsName": "Geben Sie einen Namen für den neuen Datensatz ein, um „Datensatz erstellen“ zu aktivieren.",
     "saveHintNeedsParams": "Vervollständigen Sie die Einstellungen der Operation oben, um „Datensatz erstellen“ zu aktivieren.",
     "addedToMap": "Zur Karte hinzugefügt",
-    "openMap": "Karte öffnen"
+    "openMap": "Karte öffnen",
+    "joinLayerLabel": "Mit Ebene verknüpfen",
+    "joinLayerPlaceholder": "Ebene auswählen",
+    "spatialJoinHint": "Jedes Feature erhält einen join_count der Features, die es schneidet. Überlappungen zählen jede Übereinstimmung, ergeben aber trotzdem nur eine Zeile.",
+    "joinFieldLabel": "Ein Feld übernehmen (optional)",
+    "joinFieldNone": "Nur zählen"
   },
   "attributeForm": {
     "titleEdit": "Feature-Attribute bearbeiten",

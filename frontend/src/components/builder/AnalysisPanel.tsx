@@ -239,6 +239,15 @@ export function AnalysisPanel({
       ? savedForm.maskLayerId
       : MASK_LAYER_NONE,
   );
+  // feat(#953): the layer a spatial join counts against. MASK_LAYER_NONE is
+  // reused as the shared "no layer picked" sentinel rather than a second
+  // identically-valued constant.
+  const [joinLayerId, setJoinLayerId] = useState(MASK_LAYER_NONE);
+  // One transferable column, or none. The API takes a list and the backend
+  // handles up to MAX_SPATIAL_JOIN_FIELDS; the panel offers a single Select
+  // because that is the "which district is this point in" case, and it needs
+  // no multi-select primitive that does not exist here yet.
+  const [joinField, setJoinField] = useState(BY_FIELD_NONE);
   const [byField, setByField] = useState(
     // ux(#772)/fix(#680) parity: a remembered group-by column belongs to the
     // remembered layer — it must not carry to a stack-selected one.
@@ -250,15 +259,17 @@ export function AnalysisPanel({
     if (!prefill) return savedForm?.outputTitle ?? '';
     const layer = layers.find((l) => l.id === prefill.layerId);
     const base = layer?.display_name ?? layer?.dataset_name ?? '';
-    const opLabel =
-      prefill.operation === 'buffer'
-        ? t('analysisTools.opBuffer', { defaultValue: 'Buffer' })
-        : prefill.operation === 'centroid'
-          ? t('analysisTools.opCentroid', { defaultValue: 'Centroids' })
-          : prefill.operation === 'clip'
-            ? t('analysisTools.opClip', { defaultValue: 'Clip' })
-            : t('analysisTools.opDissolve', { defaultValue: 'Dissolve' });
-    return [base, opLabel].filter(Boolean).join(' — ');
+    // feat(#953): a lookup, not a ternary chain. The chain's final else read
+    // "Dissolve", so every operation added after it was silently labelled
+    // Dissolve in the suggested title until someone extended the chain too.
+    const opLabel: Record<AnalysisOperation, string> = {
+      buffer: t('analysisTools.opBuffer', { defaultValue: 'Buffer' }),
+      centroid: t('analysisTools.opCentroid', { defaultValue: 'Centroids' }),
+      clip: t('analysisTools.opClip', { defaultValue: 'Clip' }),
+      dissolve: t('analysisTools.opDissolve', { defaultValue: 'Dissolve' }),
+      spatial_join: t('analysisTools.opSpatialJoin', { defaultValue: 'Spatial join' }),
+    };
+    return [base, opLabel[prefill.operation]].filter(Boolean).join(' — ');
   });
   // fix(#760): rehydrate a still-tracked materialize for THIS map so a
   // reopened (or reloaded) panel shows the status line and completion
@@ -534,6 +545,14 @@ export function AnalysisPanel({
     maskLayerId !== MASK_LAYER_NONE
       ? maskLayerOptions.find((l) => l.id === maskLayerId)
       : undefined;
+  // feat(#953): a join works in every direction — points in polygons, polygons
+  // over polygons, lines crossing polygons — so unlike the clip mask above
+  // there is no geometry-type filter, only "not the source layer".
+  const joinLayerOptions = datasetLayers.filter((l) => l.id !== layerId);
+  const joinLayer =
+    joinLayerId !== MASK_LAYER_NONE
+      ? joinLayerOptions.find((l) => l.id === joinLayerId)
+      : undefined;
   // Only fetched while dissolve is selected (enabled gates on a non-empty id).
   const datasetDetail = useDataset(
     operation === 'dissolve' ? (selectedLayer?.dataset_id ?? '') : '',
@@ -542,6 +561,12 @@ export function AnalysisPanel({
     .map((c) => c.name)
     // The dissolve output already emits a generated source_count column.
     .filter((name) => name !== 'source_count');
+  // Columns of the JOIN layer, not the source — these are what gets copied
+  // across. Fetched only while a join layer is actually selected.
+  const joinDatasetDetail = useDataset(
+    operation === 'spatial_join' ? (joinLayer?.dataset_id ?? '') : '',
+  );
+  const joinFieldColumns = (joinDatasetDetail.data?.column_info ?? []).map((c) => c.name);
 
   const stopDrawing = useCallback(() => {
     drawRef.current?.stop();
@@ -632,12 +657,27 @@ export function AnalysisPanel({
   const maskLayerGone =
     maskLayerId !== MASK_LAYER_NONE &&
     !maskLayerOptions.some((l) => l.id === maskLayerId);
+  // feat(#953): a vanished join layer is an input change on the same terms.
+  const joinLayerGone =
+    joinLayerId !== MASK_LAYER_NONE &&
+    !joinLayerOptions.some((l) => l.id === joinLayerId);
   useEffect(() => {
-    if (!selectedLayerGone && !maskLayerGone) return;
+    if (!selectedLayerGone && !maskLayerGone && !joinLayerGone) return;
     handleInputsChanged();
     if (selectedLayerGone) setLayerId(firstEligibleId);
     if (maskLayerGone) setMaskLayerId(MASK_LAYER_NONE);
-  }, [selectedLayerGone, maskLayerGone, firstEligibleId, handleInputsChanged]);
+    if (joinLayerGone) {
+      setJoinLayerId(MASK_LAYER_NONE);
+      // The field list belonged to the layer that just went away.
+      setJoinField(BY_FIELD_NONE);
+    }
+  }, [
+    selectedLayerGone,
+    maskLayerGone,
+    joinLayerGone,
+    firstEligibleId,
+    handleInputsChanged,
+  ]);
 
   // Stop any active draw when the panel unmounts.
   useEffect(() => stopDrawing, [stopDrawing]);
@@ -749,6 +789,14 @@ export function AnalysisPanel({
           ...(operation === 'clip' && !mask && maskLayer?.dataset_id
             ? { mask_dataset_id: maskLayer.dataset_id }
             : {}),
+          ...(operation === 'spatial_join' && joinLayer?.dataset_id
+            ? {
+                join_dataset_id: joinLayer.dataset_id,
+                ...(joinField !== BY_FIELD_NONE
+                  ? { join_fields: [joinField.replace(/^col:/, '')] }
+                  : {}),
+              }
+            : {}),
         },
         controller.signal,
       );
@@ -855,6 +903,14 @@ export function AnalysisPanel({
         ...(operation === 'dissolve' && byField !== BY_FIELD_NONE
           ? { by_field: byField.replace(/^col:/, '') }
           : {}),
+        ...(operation === 'spatial_join' && joinLayer?.dataset_id
+          ? {
+              join_dataset_id: joinLayer.dataset_id,
+              ...(joinField !== BY_FIELD_NONE
+                ? { join_fields: [joinField.replace(/^col:/, '')] }
+                : {}),
+            }
+          : {}),
       });
       // fix(#793 review): mark the job as this instance's own BEFORE the
       // store learns about it — the adoption effect must not treat it as a
@@ -886,7 +942,10 @@ export function AnalysisPanel({
 
   const paramsValid =
     (operation !== 'buffer' || distanceValid) &&
-    (operation !== 'clip' || !!mask || !!maskLayer);
+    (operation !== 'clip' || !!mask || !!maskLayer) &&
+    // feat(#953): a join with nothing to join against is not a runnable form —
+    // reflect it here rather than letting the click earn a 422.
+    (operation !== 'spatial_join' || !!joinLayer);
   const canRun =
     !!selectedLayer?.dataset_id &&
     !previewMutation.isPending &&
@@ -1012,6 +1071,9 @@ export function AnalysisPanel({
             <SelectItem value="clip">
               {t('analysisTools.opClip', { defaultValue: 'Clip' })}
             </SelectItem>
+            <SelectItem value="spatial_join">
+              {t('analysisTools.opSpatialJoin', { defaultValue: 'Spatial join' })}
+            </SelectItem>
             {/* fix(#779): dissolve has no preview by design, and the whole
                 materialize block is hidden without the upload permission — a
                 viewer picking it got a form with no actions and a hint
@@ -1032,6 +1094,82 @@ export function AnalysisPanel({
           </p>
         )}
       </div>
+
+      {operation === 'spatial_join' && (
+        <>
+          <div className="space-y-1.5">
+            <Label className="text-xs" htmlFor="analysis-join-layer">
+              {t('analysisTools.joinLayerLabel', { defaultValue: 'Join with layer' })}
+            </Label>
+            <Select
+              value={joinLayerId}
+              onValueChange={(v) => {
+                handleInputsChanged();
+                setJoinLayerId(v);
+                // The column list comes from the join layer, so a remembered
+                // field cannot survive changing which layer that is.
+                setJoinField(BY_FIELD_NONE);
+              }}
+            >
+              <SelectTrigger id="analysis-join-layer" className="w-full">
+                <SelectValue
+                  placeholder={t('analysisTools.joinLayerPlaceholder', {
+                    defaultValue: 'Choose a layer',
+                  })}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {joinLayerOptions.map((l) => (
+                  <SelectItem key={l.id} value={l.id}>
+                    {l.display_name ?? l.dataset_name ?? l.id}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {t('analysisTools.spatialJoinHint', {
+                defaultValue:
+                  'Each feature gains a join_count of the features it intersects. Overlaps count every match but still produce one row.',
+              })}
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs" htmlFor="analysis-join-field">
+              {t('analysisTools.joinFieldLabel', {
+                defaultValue: 'Copy a field across (optional)',
+              })}
+            </Label>
+            <Select
+              value={joinField}
+              onValueChange={(v) => {
+                handleInputsChanged();
+                setJoinField(v);
+              }}
+              disabled={!joinLayer}
+            >
+              <SelectTrigger id="analysis-join-field" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={BY_FIELD_NONE}>
+                  {t('analysisTools.joinFieldNone', {
+                    defaultValue: 'Count only',
+                  })}
+                </SelectItem>
+                {joinFieldColumns.map((name) => (
+                  // Same 'col:' prefix as the dissolve picker, for the same
+                  // reason: a real column named '__none__' must not collide
+                  // with the sentinel.
+                  <SelectItem key={name} value={`col:${name}`}>
+                    {name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </>
+      )}
 
       {operation === 'dissolve' && (
         <div className="space-y-1.5">

@@ -974,6 +974,7 @@
     "opBuffer": "Zone tampon",
     "opCentroid": "Centroïdes",
     "opClip": "Découper",
+    "opSpatialJoin": "Jointure spatiale",
     "distanceLabel": "Distance",
     "distanceOutOfRange": "Saisissez une distance supérieure à 0 et d’au plus {{max}} {{unit}}.",
     "drawMask": "Dessiner la zone de découpe",
@@ -1024,7 +1025,12 @@
     "saveHintNeedsName": "Saisissez un nom pour le nouveau jeu de données pour activer Créer un jeu de données.",
     "saveHintNeedsParams": "Renseignez les paramètres de l’opération ci-dessus pour activer Créer un jeu de données.",
     "addedToMap": "Ajouté à la carte",
-    "openMap": "Ouvrir la carte"
+    "openMap": "Ouvrir la carte",
+    "joinLayerLabel": "Joindre à la couche",
+    "joinLayerPlaceholder": "Choisissez une couche",
+    "spatialJoinHint": "Chaque entité reçoit un join_count des entités qu'elle intersecte. Les chevauchements comptent toutes les correspondances mais ne produisent qu'une seule ligne.",
+    "joinFieldLabel": "Copier un champ (facultatif)",
+    "joinFieldNone": "Compter uniquement"
   },
   "attributeForm": {
     "titleEdit": "Modifier les attributs de l'entité",
