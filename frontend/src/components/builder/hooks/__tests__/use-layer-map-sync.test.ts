@@ -892,6 +892,47 @@ describe('useLayerMapSync — handleStyleConfigChange fill-pattern cleanup (#918
 
     expect('fill-pattern' in (layers().find((l) => l.id === LAYER_ID)!.paint ?? {})).toBe(true);
   });
+
+  // fix(#910, codex P2): the funnel half of the stash clear. A config that collapsed
+  // to null because fillColorSaved was its only field hits the "keep the existing
+  // builder" branch, which resurrects the stash — `replace` is what makes it stick.
+  it('wipes the builder when a replace write clears its last field', () => {
+    const { result, layers } = renderWith(
+      makeLayer({
+        dataset_geometry_type: 'Polygon',
+        paint: { 'fill-pattern': 'geolens-fill-hatch' },
+        style_config: { builder: { fillColorSaved: '#ff0000' } } as MapLayerResponse['style_config'],
+      }),
+    );
+
+    act(() => {
+      result.current.handleStyleConfigChange(
+        LAYER_ID,
+        null,
+        { 'fill-color': '#ff0000' },
+        { replace: true },
+      );
+    });
+
+    expect(layers().find((l) => l.id === LAYER_ID)!.style_config).toBeNull();
+  });
+
+  it('without replace, a null config still preserves the builder (revert contract)', () => {
+    const { result, layers } = renderWith(
+      makeLayer({
+        dataset_geometry_type: 'Polygon',
+        style_config: { builder: { outlineWidth: 3 } } as MapLayerResponse['style_config'],
+      }),
+    );
+
+    act(() => {
+      result.current.handleStyleConfigChange(LAYER_ID, null, { 'fill-color': '#ff0000' });
+    });
+
+    const builder = (layers().find((l) => l.id === LAYER_ID)!.style_config as
+      { builder?: Record<string, unknown> } | null)?.builder;
+    expect(builder?.outlineWidth).toBe(3);
+  });
 });
 
 // fix(#461, codex P2): Revert-to-saved passes { replace: true } so the saved

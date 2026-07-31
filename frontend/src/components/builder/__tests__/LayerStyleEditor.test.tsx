@@ -1445,11 +1445,13 @@ describe('LayerStyleEditor — EDIT-05 fill-color / fill-pattern mutual exclusio
   // so it emits through onStyleConfigChange (config, paint) rather than
   // onPaintChange. The both-keys-never invariant is asserted on that paint.
   function lastStyleConfigCall(fn: ReturnType<typeof vi.fn>) {
-    const calls = fn.mock.calls as Array<[string, StyleConfig | null, Record<string, unknown>]>;
+    const calls = fn.mock.calls as Array<
+      [string, StyleConfig | null, Record<string, unknown>, { replace?: boolean } | undefined]
+    >;
     expect(calls.length).toBeGreaterThan(0);
-    const [, config, paint] = calls[calls.length - 1];
+    const [, config, paint, opts] = calls[calls.length - 1];
     expect(Object.values(paint).filter((v) => v === undefined)).toHaveLength(0);
-    return { config, paint };
+    return { config, paint, opts };
   }
 
   it('switching to a pattern emits paint that has fill-pattern but NOT fill-color, and stashes the color', () => {
@@ -1526,10 +1528,16 @@ describe('LayerStyleEditor — EDIT-05 fill-color / fill-pattern mutual exclusio
 
     fireEvent.click(screen.getAllByRole('button', { name: 'None' })[0]);
 
-    const { config, paint } = lastStyleConfigCall(onStyleConfigChange);
+    const { config, paint, opts } = lastStyleConfigCall(onStyleConfigChange);
     expect(paint['fill-color']).toBe('#ff0000');
     expect('fill-pattern' in paint).toBe(false);
     expect(config?.builder?.fillColorSaved).toBeUndefined();
+    // fix(#910, codex P2): with fillColorSaved the only builder field, the emitted
+    // config collapses to null — and a null config means "keep the existing builder"
+    // in handleStyleConfigChange, which would resurrect the stash. `replace` is what
+    // makes the clear stick; the funnel side is pinned in use-layer-map-sync.test.ts.
+    expect(config).toBeNull();
+    expect(opts?.replace).toBe(true);
   });
 
   // fix(#910, codex P2): pattern-to-pattern finds no fill-color to stash, so the

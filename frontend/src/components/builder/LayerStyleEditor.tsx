@@ -374,8 +374,20 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
       }
       fillColorSaved = undefined;
     }
-    updateBuilderConfig({ fillColorSaved }, next);
-  }, [paint, builderConfig.fillColorSaved, updateBuilderConfig]);
+    // Not updateBuilderConfig: this one needs `replace`. withBuilderConfig collapses
+    // to null once fillColorSaved was the only builder field, and
+    // handleStyleConfigChange reads a null config as "keep the existing builder",
+    // which resurrects the very stash this clears. The config built here is already
+    // complete, so replacing it verbatim is also the honest signal. (The same
+    // collapse-to-null hazard exists on the fill/stroke toggles; they predate this
+    // and are left alone.)
+    onStyleConfigChange(
+      layer.id,
+      withBuilderConfig(layer.style_config, { fillColorSaved }),
+      stripLegacyBuilderPaint(next),
+      { replace: true },
+    );
+  }, [layer.id, layer.style_config, paint, builderConfig.fillColorSaved, onStyleConfigChange]);
 
   const handleResetStyle = useCallback(() => {
     // Every branch clears the zoom clamp — previously only the line branch
