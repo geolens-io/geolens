@@ -8,7 +8,8 @@ reaching stdout / log aggregators.
 import pytest
 import structlog
 
-from app.core.logging_config import _redact_sensitive_fields, setup_logging
+from app.core.logging_config import _redact_sensitive_fields
+from tests._logging_state import configured_logging
 
 
 # ---------------------------------------------------------------------------
@@ -96,14 +97,34 @@ def test_processor_handles_empty_dict():
 
 def test_integration_token_redacted_in_log_output(capsys):
     """End-to-end: configure structlog via setup_logging, log a token,
-    verify the raw token does NOT appear and [REDACTED] DOES."""
-    setup_logging(json_logs=True, log_level="INFO")
+    verify the raw token does NOT appear and [REDACTED] DOES.
 
-    logger = structlog.stdlib.get_logger("test.redaction")
-    logger.info("auth_attempt", token="my-supersecret-jwt-token-value", user_id="alice")
+    fix(#1064): `setup_logging()` replaces the root handlers and sets
+    `cache_logger_on_first_use=True`, and nothing here put either back — so
+    every test after this one in the same worker inherited both. That is the
+    leaked-global class this file's own subject matter is about, and the
+    caching half is what makes a later `capture_logs()` see nothing.
 
-    captured = capsys.readouterr()
-    out = captured.out + captured.err  # log destination depends on handler config
+    fix(#1064 codex r4): `configured_logging()` replaces a fixture that only
+    saved and restored. Restoring was never sufficient on its own — while
+    caching is on, any module-level proxy emitting inside the window freezes
+    permanently, and a proxy-local bind survives every restore. The helper
+    disables caching after `setup_logging()`, which is the only order that
+    works, and this file was one `logger.info` away from being the test that
+    demonstrated it.
+
+    It stays a context manager in the body rather than a fixture: pytest swaps
+    `sys.stdout`/`stderr` for the call phase only, so a handler created during
+    fixture setup binds to a stream capsys is not capturing.
+    """
+    with configured_logging(log_level="INFO"):
+        logger = structlog.stdlib.get_logger("test.redaction")
+        logger.info(
+            "auth_attempt", token="my-supersecret-jwt-token-value", user_id="alice"
+        )
+
+        captured = capsys.readouterr()
+        out = captured.out + captured.err  # destination depends on handler config
 
     # The raw token must NOT appear
     assert "my-supersecret-jwt-token-value" not in out, (
