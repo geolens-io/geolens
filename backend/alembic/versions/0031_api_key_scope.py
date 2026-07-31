@@ -52,16 +52,25 @@ def downgrade() -> None:
     # it is not something to do silently. An operator who genuinely wants the
     # old schema deactivates or deletes the restricted keys first.
     bind = op.get_bind()
+    # fix(#875 codex r1): counts only ACTIVE restricted keys, so the
+    # remediation the message advertises actually clears the block. Counting
+    # every row made deactivation a no-op and left rollback impossible short
+    # of deleting the credentials, which the message never asked for.
+    # An inactive key cannot authenticate at all, so widening its scope back
+    # to 'full' grants nothing.
     restricted = bind.execute(
-        sa.text("SELECT count(*) FROM catalog.api_keys WHERE scope = 'read_only'")
+        sa.text(
+            "SELECT count(*) FROM catalog.api_keys "
+            "WHERE scope = 'read_only' AND is_active"
+        )
     ).scalar_one()
     if restricted:
         raise RuntimeError(
-            f"{restricted} catalog.api_keys row(s) are scoped 'read_only'. "
-            "Dropping the scope column would silently restore full owner "
-            "privileges to every one of them. Inspect them with:\n"
+            f"{restricted} ACTIVE catalog.api_keys row(s) are scoped "
+            "'read_only'. Dropping the scope column would silently restore "
+            "full owner privileges to every one of them. Inspect them with:\n"
             "  SELECT id, user_id, name, fingerprint FROM catalog.api_keys "
-            "WHERE scope = 'read_only';\n"
+            "WHERE scope = 'read_only' AND is_active;\n"
             "Deactivate or delete them first, then re-run the downgrade:\n"
             "  UPDATE catalog.api_keys SET is_active = false "
             "WHERE scope = 'read_only';"

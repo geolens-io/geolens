@@ -24,9 +24,14 @@ from app.modules.auth.dependencies import (
     _read_only_key_may_call,
 )
 from tests.conftest import get_auth_header
+from tests.factories import create_dataset
 
 ADMIN_USER = settings.geolens_admin_username
 ADMIN_PASS = settings.geolens_admin_password.get_secret_value()
+
+
+async def _get_admin(client: AsyncClient, headers: dict) -> uuid.UUID:
+    return uuid.UUID((await client.get("/auth/me/", headers=headers)).json()["id"])
 
 
 async def _mint(client: AsyncClient, headers: dict, **body) -> dict:
@@ -334,7 +339,11 @@ def test_the_carve_out_is_a_named_method_and_route():
     sandbox endpoint, because it is a read. The exemption is an exact
     (method, route template) pair so nothing inherits it by resembling one."""
     assert _READ_ONLY_KEY_EXEMPT_ROUTES == frozenset(
-        {("POST", "/api/query/"), ("POST", "/api/query")}
+        {
+            ("POST", "/api/query/"),
+            ("POST", "/api/query"),
+            ("POST", "/stac/search"),
+        }
     )
     assert _read_only_key_may_call("POST", "/api/query/") is True
     # ROUTE-01's dual-shape decorator registers both spellings of the same
@@ -377,3 +386,167 @@ def test_565_route_is_not_mounted_yet():
         "assertions: a read_only key succeeds on it, and still gets 403 on "
         "another POST."
     )
+
+
+# ---------------------------------------------------------------------------
+# fix(#875 codex r1): "safe method" is not the same as "no side effect"
+# ---------------------------------------------------------------------------
+
+# GET handlers that touch a write marker but are NOT writes a read_only key
+# should be refused, each with the reason. Asserted exact in both directions
+# below, so a new one has to be classified rather than silently inherited.
+_BENIGN_WRITING_GET_ROUTES: dict[str, str] = {
+    # Owner-gated READS. They call check_dataset_write_access to decide who may
+    # see the answer; neither writes anything.
+    "/audit/datasets/{dataset_id}/column-ddl": "owner-gated read, no write",
+    "/layers/{dataset_id}/columns/{column_name}/references": (
+        "owner-gated read, no write"
+    ),
+    # Reads that commit an AUDIT row for having been read. The commit records
+    # the read; it does not change the resource, and refusing them would refuse
+    # the reads this feature exists to serve.
+    "/admin/audit-logs/export/{format}": "commits an audit row for the export",
+    "/admin/users/export.csv": "commits an audit row for the export",
+    "/config-ops/export": "commits an audit row for the export",
+    "/config-ops/export/": "commits an audit row for the export",
+    "/datasets/{dataset_id}": "commits an audit row for the read",
+    "/datasets/{dataset_id}/download/cog": "commits an audit row for the read",
+    "/datasets/{dataset_id}/export": "commits an audit row for the read",
+    "/jobs/{job_id}": "commits an audit row for the read",
+    # Browser OAuth redirect legs. An API key never drives these: they are
+    # entered from a browser and carry no X-Api-Key.
+    "/auth/oauth/{provider_slug}/login": "browser OAuth leg, not an API-key path",
+    "/auth/oauth/{provider_slug}/callback": "browser OAuth leg, not an API-key path",
+}
+
+
+def _get_routes_with_write_markers() -> dict[str, set[str]]:
+    """GET routes whose handler source shows a write guard or a commit.
+
+    Source inspection, one level deep, same shape and same limits as
+    test_rule1_structural.py: a write reached through a service helper is
+    invisible here. It is a tripwire for the obvious cases, not a proof.
+    """
+    import inspect
+
+    from fastapi.routing import APIRoute, iter_route_contexts
+
+    from app.api.main import app
+
+    found: dict[str, set[str]] = {}
+    for ctx in iter_route_contexts(app.routes):
+        route = ctx.route
+        if not isinstance(route, APIRoute) or "GET" not in (route.methods or set()):
+            continue
+        fn = route.endpoint
+        while hasattr(fn, "__wrapped__"):
+            fn = fn.__wrapped__
+        try:
+            source = inspect.getsource(fn)
+        except (OSError, TypeError):  # pragma: no cover - defensive
+            continue
+        markers = set()
+        if "check_dataset_write_access" in source:
+            markers.add("write_guard")
+        if "db.commit(" in source or "session.commit(" in source:
+            markers.add("commit")
+        if markers:
+            found.setdefault(ctx.path, set()).update(markers)
+    return found
+
+
+def test_every_writing_get_route_is_classified():
+    """A GET that writes has to be named, in one bucket or the other.
+
+    The whole method rule rests on GET being safe. It mostly is, and where it
+    is not — `?refresh=true` on the validate route recomputes the quality score
+    with a full table scan and persists it — the method check is the only place
+    that can refuse it, because `check_dataset_write_access` sees the owner
+    identity the key resolved to and cannot tell a read_only key apart.
+    """
+    from app.modules.auth.dependencies import _READ_ONLY_KEY_WRITING_GET_ROUTES
+
+    found = set(_get_routes_with_write_markers())
+    classified = set(_READ_ONLY_KEY_WRITING_GET_ROUTES) | set(
+        _BENIGN_WRITING_GET_ROUTES
+    )
+
+    unclassified = found - classified
+    assert not unclassified, (
+        "these GET routes write or gate on write access and are classified "
+        "neither as read-only-refused nor as benign; decide which, in "
+        f"_READ_ONLY_KEY_WRITING_GET_ROUTES or _BENIGN_WRITING_GET_ROUTES: "
+        f"{sorted(unclassified)}"
+    )
+
+    stale = classified - found
+    assert not stale, (
+        f"classified GET routes that no longer write; drop them: {sorted(stale)}"
+    )
+
+
+@pytest.mark.anyio
+async def test_read_only_key_is_refused_on_the_writing_get_variant(
+    client: AsyncClient, test_db_session
+):
+    """?refresh=true persists a recomputed quality score."""
+    headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+    raw_key = (await _mint(client, headers, scope="read_only"))["key"]
+    admin = await _get_admin(client, headers)
+    dataset = await create_dataset(
+        test_db_session, created_by=admin, name="Scope Validate"
+    )
+
+    resp = await client.get(
+        f"/datasets/{dataset.id}/validate/",
+        params={"refresh": "true"},
+        headers={"X-Api-Key": raw_key},
+    )
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "This API key is read-only"
+
+
+@pytest.mark.anyio
+async def test_read_only_key_still_reads_the_cached_validation(
+    client: AsyncClient, test_db_session
+):
+    """The paired control: only the write variant is refused, so the ordinary
+    read of the same route is untouched."""
+    headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+    raw_key = (await _mint(client, headers, scope="read_only"))["key"]
+    admin = await _get_admin(client, headers)
+    dataset = await create_dataset(
+        test_db_session, created_by=admin, name="Scope Validate Cached"
+    )
+
+    resp = await client.get(
+        f"/datasets/{dataset.id}/validate/", headers={"X-Api-Key": raw_key}
+    )
+    assert resp.status_code == 200
+
+
+@pytest.mark.parametrize("value", ["true", "1", "yes", "on", "", "maybe"])
+def test_a_write_triggering_query_value_fails_closed(value):
+    assert (
+        _read_only_key_may_call(
+            "GET", "/datasets/{dataset_id}/validate/", {"refresh": value}
+        )
+        is False
+    )
+
+
+@pytest.mark.parametrize("value", ["false", "0", "off", "no", "F", " False "])
+def test_an_explicitly_false_query_value_still_reads(value):
+    assert (
+        _read_only_key_may_call(
+            "GET", "/datasets/{dataset_id}/validate/", {"refresh": value}
+        )
+        is True
+    )
+
+
+def test_the_stac_search_carve_out_is_required_by_the_acceptance_criteria():
+    """ "That key can ... hit OGC/STAC endpoints" is an acceptance criterion,
+    and POST /stac/search is the standard's JSON-body search surface."""
+    assert _read_only_key_may_call("POST", "/stac/search") is True
+    assert _read_only_key_may_call("DELETE", "/stac/search") is False

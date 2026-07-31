@@ -3,6 +3,7 @@
 import hashlib
 import uuid
 from datetime import datetime, timedelta, timezone
+from collections.abc import Mapping
 from typing import Annotated
 
 import jwt
@@ -32,6 +33,27 @@ log = structlog.get_logger()
 # write is a much larger change that is easy to get subtly wrong.
 _READ_ONLY_SAFE_METHODS: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
 
+# fix(#875 codex r1): "safe method" is not the same as "no side effect" here.
+# `GET /datasets/{dataset_id}/validate/?refresh=true` recomputes the quality
+# score with a full table scan and PERSISTS it. It is gated on
+# `check_dataset_write_access`, but that gate sees the owner identity the key
+# resolved to and cannot tell a read_only key from the owner's own session, so
+# the method check is the only place that can refuse it.
+#
+# Keyed by route template, valued by the QUERY PARAMETER that turns the read
+# into a write, so the ordinary cached read of the same route keeps working.
+# `backend/tests/test_api_key_scope_875.py` walks the route table and fails if
+# any GET handler gains a write guard or a commit without being classified
+# here or in that test's allowlist.
+_READ_ONLY_KEY_WRITING_GET_ROUTES: dict[str, str] = {
+    "/datasets/{dataset_id}/validate/": "refresh",
+    "/datasets/{dataset_id}/validate": "refresh",
+}
+
+# Values FastAPI's bool parser reads as false. Anything else present — including
+# an empty value — counts as triggering the write, so the check fails closed.
+_FALSEY_QUERY_VALUES: frozenset[str] = frozenset({"false", "0", "off", "no", "f", "n"})
+
 # fix(#875): the ONE carve-out, as exact (METHOD, route template) pairs.
 #
 # #565 adds POST /api/query/, a SELECT-only sandbox endpoint that is a pure
@@ -55,8 +77,18 @@ _READ_ONLY_SAFE_METHODS: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
 # the same endpoint for no reason anyone could find.
 #
 # The route is not mounted yet. Whoever lands #565 owns re-reading this.
+# fix(#875 codex r1): STAC Item Search is the second entry, and it is required
+# rather than a widening. The issue's acceptance criteria say a read_only key
+# must be able to hit OGC/STAC endpoints, and `POST /stac/search` IS the
+# standard's JSON-body search surface — `search_post` delegates to the same
+# `_execute_search` the GET form uses and writes nothing. Refusing it would
+# have shipped a comment claiming STAC works next to code that broke it.
 _READ_ONLY_KEY_EXEMPT_ROUTES: frozenset[tuple[str, str]] = frozenset(
-    {("POST", "/api/query/"), ("POST", "/api/query")}
+    {
+        ("POST", "/api/query/"),
+        ("POST", "/api/query"),
+        ("POST", "/stac/search"),
+    }
 )
 
 
@@ -75,11 +107,21 @@ def _route_template(request: Request) -> str:
     return route_template
 
 
-def _read_only_key_may_call(method: str, route_template: str) -> bool:
+def _read_only_key_may_call(
+    method: str,
+    route_template: str,
+    query_params: Mapping[str, str] | None = None,
+) -> bool:
     """Whether a ``read_only`` API key may authenticate this request (#875)."""
-    if method in _READ_ONLY_SAFE_METHODS:
+    if method not in _READ_ONLY_SAFE_METHODS:
+        return (method, route_template) in _READ_ONLY_KEY_EXEMPT_ROUTES
+    trigger = _READ_ONLY_KEY_WRITING_GET_ROUTES.get(route_template)
+    if trigger is None:
         return True
-    return (method, route_template) in _READ_ONLY_KEY_EXEMPT_ROUTES
+    value = (query_params or {}).get(trigger)
+    if value is None:
+        return True
+    return value.strip().lower() in _FALSEY_QUERY_VALUES
 
 
 def log_permission_denial(
@@ -184,7 +226,7 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
     # key still shows a moving last_used_at instead of looking dormant.
     route_template = _route_template(request)
     if api_key_obj.scope == "read_only" and not _read_only_key_may_call(
-        request.method, route_template
+        request.method, route_template, request.query_params
     ):
         log.warning(
             "api_key_scope_denied",
