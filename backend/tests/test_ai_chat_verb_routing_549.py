@@ -86,6 +86,16 @@ def test_prompt_reads_the_object_before_the_verb():
     assert "search_datasets" in prompt
 
 
+def test_prompt_separates_label_visibility_from_layer_visibility():
+    """fix(#549 codex r2): toggle_visibility's schema only shows or hides the
+    whole layer, so routing "hide the labels" there removes the features too.
+    Labels are turned off with set_label(column: null)."""
+    prompt = _prompt()
+    assert "The object is a layer's LABELS" in prompt
+    assert "column null to turn" in prompt
+    assert "would hide the layer's features too" in prompt
+
+
 def test_prompt_keeps_layer_narrowing_on_the_visibility_tool():
     """fix(#549 codex r1): "show only @Parks" among several layers means hide
     the others. set_filter cannot do that — it only filters features inside
