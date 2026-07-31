@@ -15,6 +15,24 @@ instead of silently reopening the hole after the queue is switched on.
 
 Deliberately NOT asserted: that the queue is enabled. That is a
 repository-admin setting, not a file in this repo.
+
+Two GitHub behaviours this file depends on, both of which read the opposite
+way at a glance:
+
+- ``always()`` is a STATUS check, not an event gate. It means "run even if
+  the jobs I need failed or were cancelled" and says nothing about which
+  event triggered the run. ``always() && <clause>`` still evaluates
+  ``<clause>``, so ``e2e-test`` and ``accessibility`` — both written that
+  way with allowlists excluding ``merge_group`` — really do skip in the
+  queue.
+- ``if: ""`` is FALSY, and is not the same as omitting ``if:``. An empty or
+  whitespace-only condition evaluates false and the job skips, where a
+  missing ``if:`` key means no gate at all and the job runs. The natural
+  reading is that both mean "no condition"; only one does.
+
+Both were false all-clears in this file's own predicate before they were
+written down (fix(#1074 review)), which is the argument for recording them
+here rather than in a commit message.
 """
 
 import pathlib
