@@ -270,7 +270,7 @@ class TestAnalysisMaterializeCli:
         assert result.exit_code == 0, result.output
         assert "job-1" in result.output
 
-    def test_a_job_that_produces_no_dataset_exits_non_zero(
+    def test_a_failed_job_exits_non_zero_and_says_so(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
         """fix(#685 review): resolve_dataset_id returns None for a FAILED job
@@ -285,6 +285,7 @@ class TestAnalysisMaterializeCli:
         monkeypatch.setattr(
             "geolens_cli.publish.resolve_dataset_id", lambda c, j, **kw: None
         )
+        monkeypatch.setattr("geolens_cli.analysis.job_status", lambda c, j: "failed")
 
         result = runner.invoke(
             app,
@@ -299,7 +300,77 @@ class TestAnalysisMaterializeCli:
             ],
         )
         assert result.exit_code == 1, result.output
+        assert "failed" in result.output
         assert "job-1" in result.output
+
+    def test_a_still_running_job_is_not_reported_as_failed(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """fix(#685 review): a materialize gets 300s of processing server-side
+        and queues below uploads, so outliving the poll is not the same as
+        failing. Still exit non-zero (no dataset), but do not call it failed."""
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com/api", mock_keyring)
+        monkeypatch.setattr(
+            "geolens_cli.analysis.run_materialize", lambda c, d, r: _FakeJob()
+        )
+        monkeypatch.setattr(
+            "geolens_cli.publish.resolve_dataset_id", lambda c, j, **kw: None
+        )
+        monkeypatch.setattr("geolens_cli.analysis.job_status", lambda c, j: "running")
+
+        result = runner.invoke(
+            app,
+            [
+                "analysis",
+                "materialize",
+                "ds-1",
+                "--operation",
+                "centroid",
+                "--title",
+                "Centroids",
+            ],
+        )
+        assert result.exit_code == 1, result.output
+        assert "may still be running" in result.output
+        assert "failed" not in result.output
+
+    def test_the_poll_waits_longer_than_the_server_side_budget(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """publish's 120s default is shorter than MATERIALIZE_TIMEOUT (300s)."""
+        from geolens_cli.analysis import POLL_TIMEOUT_SECONDS
+        from geolens_cli.main import app
+
+        assert POLL_TIMEOUT_SECONDS > 300
+
+        seen: dict = {}
+
+        def _capture(client, job_id, **kwargs):
+            seen.update(kwargs)
+            return "ds-new"
+
+        _seed_login("https://x.example.com/api", mock_keyring)
+        monkeypatch.setattr(
+            "geolens_cli.analysis.run_materialize", lambda c, d, r: _FakeJob()
+        )
+        monkeypatch.setattr("geolens_cli.publish.resolve_dataset_id", _capture)
+
+        result = runner.invoke(
+            app,
+            [
+                "analysis",
+                "materialize",
+                "ds-1",
+                "--operation",
+                "centroid",
+                "--title",
+                "Centroids",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert seen["timeout"] == POLL_TIMEOUT_SECONDS
 
     def test_json_mode_emits_the_job_and_dataset_ids(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch

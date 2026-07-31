@@ -24,6 +24,16 @@ from ._sdk_helpers import call_sdk, unwrap
 #: unit picker (AnalysisPanel converts feet/miles before it POSTs).
 DISTANCE_UNIT = "metres"
 
+#: fix(#685 review): publish's 120s poll default is far too short here. The
+#: server gives a materialize 300s of processing on its own
+#: (MATERIALIZE_TIMEOUT, backend/app/processing/analysis/tasks.py), and #703
+#: deliberately queues analysis BELOW uploads, so a legitimate run can sit
+#: waiting for minutes before it starts. Ten minutes covers both with room.
+#: A constant rather than a --timeout option on purpose: the flag is worth
+#: adding when someone has a job that legitimately outlives this, and not
+#: before.
+POLL_TIMEOUT_SECONDS: float = 600.0
+
 
 def _mask_dataset_arg(mask_dataset_id: Optional[str]) -> Any:
     """Coerce a mask dataset id to the UUID the SDK models declare."""
@@ -108,6 +118,29 @@ def run_materialize(client: Any, dataset_id: str, request: Any) -> Any:
         body=request,
     )
     return unwrap(resp, expected=200)
+
+
+def job_status(client: Any, job_id: str) -> Optional[str]:
+    """The job's current status, or None when it cannot be read.
+
+    Used only to word the failure: ``resolve_dataset_id`` collapses "the job
+    failed" and "the poll ran out" into the same ``None``, and those two
+    deserve different sentences even though both mean "no dataset".
+    """
+    from geolens.api.admin import get_job_status_jobs_job_id_get
+
+    try:
+        job_uuid = UUID(str(job_id))
+    except ValueError:
+        return None
+    resp = call_sdk(
+        get_job_status_jobs_job_id_get.sync_detailed,
+        job_id=job_uuid,
+        client=client,
+    )
+    if int(resp.status_code) != 200:
+        return None
+    return getattr(resp.parsed, "status", None)
 
 
 def preview_geojson(response: Any) -> dict:
