@@ -208,6 +208,103 @@ def _preview_url(dataset_id) -> str:
 # ---------------------------------------------------------------------------
 
 
+class TestPreviewGlobalBound:
+    """fix(#1014): previews are bounded globally, not only per user."""
+
+    async def test_previews_never_exceed_the_global_bound(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """More concurrent previews than slots must fail cleanly, not pile onto
+        the pool.
+
+        Asserts the PEAK number of previews simultaneously inside execute_safe,
+        not pool checkout counts: the test engine uses NullPool, so checkout
+        numbers here say nothing about the production QueuePool (the same
+        reason test_preview_releases_request_session_before_sandbox_query
+        asserts on in_transaction()). The peak is the pool-independent form of
+        the same invariant — it is exactly what determines how many pool slots
+        previews can hold at once.
+
+        execute_safe is replaced, so its per-user advisory lock never runs and
+        one user can stand in for many. That is the point: the per-user lock is
+        not what is under test.
+        """
+        import asyncio
+
+        from app.modules.catalog.datasets.domain import service_analysis
+
+        bound = service_analysis._MAX_CONCURRENT_PREVIEWS
+        gate = asyncio.Event()
+        inside = 0
+        peak = 0
+        real = service_analysis.execute_safe
+
+        async def _parked_execute_safe(db, sql, **kwargs):
+            nonlocal inside, peak
+            inside += 1
+            peak = max(peak, inside)
+            try:
+                await gate.wait()
+                return await real(db, sql, **kwargs)
+            finally:
+                inside -= 1
+
+        monkeypatch.setattr(service_analysis, "execute_safe", _parked_execute_safe)
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+
+        tasks = [
+            asyncio.create_task(
+                client.post(
+                    _preview_url(ds.id),
+                    json={"operation": "buffer", "distance_meters": 1000},
+                    headers=admin_auth_header,
+                )
+            )
+            for _ in range(bound * 2)
+        ]
+        # Wait until the bound is saturated, then let the loop run a few more
+        # turns so the tasks that will be refused reach their check. Nothing
+        # can drain a slot before the gate opens, so this cannot race.
+        for _ in range(500):
+            if inside >= bound:
+                break
+            await asyncio.sleep(0.01)
+        assert inside == bound, f"only {inside} previews reached the sandbox"
+        for _ in range(10):
+            await asyncio.sleep(0)
+        gate.set()
+        responses = await asyncio.gather(*tasks)
+
+        assert peak <= bound, (
+            f"{peak} previews were inside the sandbox at once against a bound of "
+            f"{bound} — previews can still exhaust the connection pool"
+        )
+        details = [r.json()["detail"] for r in responses if r.status_code == 429]
+        # The refusals split by CAUSE, and the split is the point. Half never
+        # got a slot and were refused by the global bound; the rest are the
+        # per-user advisory lock inside the real execute_safe, which the gate
+        # releases them into all at once — an artifact of one user standing in
+        # for many, and proof the two refusals are distinguishable rather than
+        # one message doing double duty. Telling a user "you already have one
+        # running" when this is their first request would be a misleading
+        # explanation, which is why the bound has its own message.
+        at_capacity = [d for d in details if "maximum number of analysis previews" in d]
+        assert len(at_capacity) == bound, (
+            f"expected {bound} previews refused by the global bound, got "
+            f"{len(at_capacity)} of {len(details)} refusals: {details}"
+        )
+        assert all("already running for this user" not in d for d in at_capacity)
+        assert all(r.status_code in (200, 429) for r in responses), [
+            r.status_code for r in responses
+        ]
+
+
 class TestAnalysisPreviewEndpoint:
     async def test_preview_releases_request_session_before_sandbox_query(
         self,
