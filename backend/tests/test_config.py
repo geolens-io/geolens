@@ -410,6 +410,16 @@ class TestSettingsConstraints:
             ("tile_pool_min_size", 0),
             ("tile_pool_max_size", 0),
             ("ingest_http_timeout_seconds", 0),
+            # fix(#1013): zero is the dangerous one for these two —
+            # statement_timeout = '0' disables the timeout entirely rather than
+            # erroring, so a zero accepted here would silently produce the
+            # unbounded statement the budget exists to prevent.
+            ("analysis_materialize_timeout_seconds", 0),
+            ("analysis_materialize_timeout_seconds", -1),
+            ("analysis_materialize_timeout_seconds", "not-a-number"),
+            ("analysis_registration_timeout_seconds", 0),
+            ("analysis_registration_timeout_seconds", -1),
+            ("analysis_registration_timeout_seconds", "not-a-number"),
             ("ingest_jobs_retention_days", -1),
             ("smtp_port", 0),
             ("smtp_port", 65536),
