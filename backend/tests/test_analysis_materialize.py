@@ -2268,6 +2268,13 @@ class TestMaterializeWorker:
 
         from app.processing.analysis.tasks import registration_timeout
 
+        # Set the baseline rather than asserting the shipped defaults: settings
+        # is a module-level singleton, so an ANALYSIS_*_TIMEOUT_SECONDS in the
+        # environment or the root .env would already have overridden them and
+        # the "before" assertions would fail for a reason unrelated to the
+        # behaviour under test.
+        monkeypatch.setattr(settings, "analysis_materialize_timeout_seconds", 300)
+        monkeypatch.setattr(settings, "analysis_registration_timeout_seconds", 600)
         assert materialize_timeout() == "300s"
         assert registration_timeout() == "600s"
         monkeypatch.setattr(settings, "analysis_materialize_timeout_seconds", 1200)
