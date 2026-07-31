@@ -946,11 +946,18 @@ def analysis_materialize(
                 f"Analysis job {job_id} failed. Its error is on the job record: "
                 f"GET /jobs/{job_id}."
             )
+        elif status is None:
+            # The status endpoint would not answer (auth, 404, 5xx), so the
+            # job's fate is unknown — do not assert a timeout it may not have
+            # hit (fix(#685 review)).
+            state.output.error(
+                f"Analysis job {job_id} could not be read back, so its outcome "
+                f"is unknown. Check GET /jobs/{job_id}."
+            )
         else:
             state.output.error(
-                f"Analysis job {job_id} did not finish within "
-                f"{int(_analysis.POLL_TIMEOUT_SECONDS)}s and may still be running. "
-                f"Check GET /jobs/{job_id}."
+                f"Analysis job {job_id} was still {status} after "
+                f"{int(_analysis.POLL_TIMEOUT_SECONDS)}s. Check GET /jobs/{job_id}."
             )
         raise typer.Exit(EXIT_GENERIC)
 

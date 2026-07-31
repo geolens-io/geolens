@@ -24,15 +24,19 @@ from ._sdk_helpers import call_sdk, unwrap
 #: unit picker (AnalysisPanel converts feet/miles before it POSTs).
 DISTANCE_UNIT = "metres"
 
-#: fix(#685 review): publish's 120s poll default is far too short here. The
-#: server gives a materialize 300s of processing on its own
-#: (MATERIALIZE_TIMEOUT, backend/app/processing/analysis/tasks.py), and #703
-#: deliberately queues analysis BELOW uploads, so a legitimate run can sit
-#: waiting for minutes before it starts. Ten minutes covers both with room.
-#: A constant rather than a --timeout option on purpose: the flag is worth
-#: adding when someone has a job that legitimately outlives this, and not
-#: before.
-POLL_TIMEOUT_SECONDS: float = 600.0
+#: fix(#685 review): publish's 120s poll default is far too short here, and so
+#: was the 600s that replaced it. The queue is the reason: #703 deliberately
+#: ranks analysis BELOW uploads, so on a busy instance a perfectly healthy job
+#: can sit pending for as long as the upload backlog lasts, and any fixed
+#: wall-clock guess turns that into a false failure for automation.
+#:
+#: So the ceiling is not a guess about how long work takes — it is the point
+#: past which waiting cannot help. The server's own stale-job sweep fails a
+#: job whose lease has expired after an hour (see the sweep notes in
+#: backend/app/processing/analysis/tasks.py), so an hour is the longest a job
+#: can be alive-but-unresolved. Ctrl+C remains the way out of a wait the user
+#: no longer wants.
+POLL_TIMEOUT_SECONDS: float = 3600.0
 
 
 def _mask_dataset_arg(mask_dataset_id: Optional[str]) -> Any:
@@ -121,11 +125,14 @@ def run_materialize(client: Any, dataset_id: str, request: Any) -> Any:
 
 
 def job_status(client: Any, job_id: str) -> Optional[str]:
-    """The job's current status, or None when it cannot be read.
+    """The job's current status, or None when the status could not be READ.
 
     Used only to word the failure: ``resolve_dataset_id`` collapses "the job
-    failed" and "the poll ran out" into the same ``None``, and those two
-    deserve different sentences even though both mean "no dataset".
+    failed", "the poll ran out" and "the job endpoint would not answer" into
+    the same ``None``, and those deserve different sentences even though all
+    three mean "no dataset". None here is specifically the third case — an
+    unreadable status, not a healthy job — so the caller must not report it as
+    a timeout (fix(#685 review)).
     """
     from geolens.api.admin import get_job_status_jobs_job_id_get
 

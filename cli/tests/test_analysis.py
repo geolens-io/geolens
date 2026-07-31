@@ -333,17 +333,50 @@ class TestAnalysisMaterializeCli:
             ],
         )
         assert result.exit_code == 1, result.output
-        assert "may still be running" in result.output
+        assert "still running" in result.output
         assert "failed" not in result.output
+
+    def test_an_unreadable_status_is_not_reported_as_a_timeout(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """fix(#685 review): a 401/404/5xx on GET /jobs/{id} also yields None
+        from the poll. Claiming the job outlived the wait asserts something
+        that was never established."""
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com/api", mock_keyring)
+        monkeypatch.setattr(
+            "geolens_cli.analysis.run_materialize", lambda c, d, r: _FakeJob()
+        )
+        monkeypatch.setattr(
+            "geolens_cli.publish.resolve_dataset_id", lambda c, j, **kw: None
+        )
+        monkeypatch.setattr("geolens_cli.analysis.job_status", lambda c, j: None)
+
+        result = runner.invoke(
+            app,
+            [
+                "analysis",
+                "materialize",
+                "ds-1",
+                "--operation",
+                "centroid",
+                "--title",
+                "Centroids",
+            ],
+        )
+        assert result.exit_code == 1, result.output
+        assert "outcome is unknown" in result.output
 
     def test_the_poll_waits_longer_than_the_server_side_budget(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
-        """publish's 120s default is shorter than MATERIALIZE_TIMEOUT (300s)."""
+        """The wait is bounded by the server's stale-job sweep, not by a guess
+        at how long the work takes: the queue #703 imposes is unbounded."""
         from geolens_cli.analysis import POLL_TIMEOUT_SECONDS
         from geolens_cli.main import app
 
-        assert POLL_TIMEOUT_SECONDS > 300
+        assert POLL_TIMEOUT_SECONDS >= 3600
 
         seen: dict = {}
 
