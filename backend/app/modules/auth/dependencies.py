@@ -3,6 +3,7 @@
 import hashlib
 import uuid
 from datetime import datetime, timedelta, timezone
+from collections.abc import Mapping
 from typing import Annotated
 
 import jwt
@@ -24,6 +25,119 @@ oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error
 log = structlog.get_logger()
 
 
+# fix(#875): HTTP methods a read_only API key may authenticate. Enforcement is
+# method-based rather than capability-based on purpose: every read surface an
+# API-key client actually uses (OGC Features, STAC, tiles, search, dataset and
+# map reads) is a GET here, the STAC and OGC routers define no write routes at
+# all, and classifying every capability in the permission matrix as read or
+# write is a much larger change that is easy to get subtly wrong.
+_READ_ONLY_SAFE_METHODS: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
+
+# fix(#875 codex r1): "safe method" is not the same as "no side effect" here.
+# `GET /datasets/{dataset_id}/validate/?refresh=true` recomputes the quality
+# score with a full table scan and PERSISTS it. It is gated on
+# `check_dataset_write_access`, but that gate sees the owner identity the key
+# resolved to and cannot tell a read_only key from the owner's own session, so
+# the method check is the only place that can refuse it.
+#
+# Keyed by route template, valued by the QUERY PARAMETER that turns the read
+# into a write, so the ordinary cached read of the same route keeps working.
+# `backend/tests/test_api_key_scope_875.py` walks the route table and fails if
+# any GET handler gains a write guard or a commit without being classified
+# here or in that test's allowlist.
+_READ_ONLY_KEY_WRITING_GET_ROUTES: dict[str, str] = {
+    "/datasets/{dataset_id}/validate/": "refresh",
+    "/datasets/{dataset_id}/validate": "refresh",
+}
+
+# Values FastAPI's bool parser reads as false. Anything else present — including
+# an empty value — counts as triggering the write, so the check fails closed.
+_FALSEY_QUERY_VALUES: frozenset[str] = frozenset({"false", "0", "off", "no", "f", "n"})
+
+# fix(#875): the ONE carve-out, as exact (METHOD, route template) pairs.
+#
+# #565 adds POST /api/query/, a SELECT-only sandbox endpoint that is a pure
+# read semantically and a POST only mechanically. A read_only key may call it,
+# because it is a read — the maintainer decision is recorded in both #875 and
+# #565. The general rule ("POST endpoints that are reads in spirit can trigger
+# jobs and writes") holds for AI chat and analysis previews and does not hold
+# for a raw SELECT through the sandbox rails.
+#
+# Pairs, not bare templates: exempting the PATH would also exempt a future
+# DELETE /api/query/{id}. And an exact list rather than a "POST that looks
+# like a read" category, so a future POST cannot inherit the exemption by
+# resembling one. Matching is on the template Starlette resolved, never on the
+# concrete path, so a caller-supplied path that merely spells the same
+# characters cannot reach it; an unresolvable template is
+# ``<unmatched-route>``, which is in no pair and so is refused.
+#
+# Spelled WITHOUT the `/api` prefix. The app is constructed with
+# `root_path="/api"` (`api/main.py`), and an ASGI root_path never appears in a
+# route template — starlette strips it before matching, and `api/main.py` says
+# so where it mirrors that behaviour. Nothing in the route table starts with
+# `/api/`, which is why the already-mounted `/stac/search` entry below is
+# spelled that way too. An `/api/query/` entry would simply never match, and
+# because the check fails closed that would silently defeat the maintainer
+# decision rather than break loudly (fix(#875 codex r2)).
+#
+# Both spellings, because ROUTE-01's dual-shape decorator registers the
+# trailing-slash form and a hidden bare form for the same handler, and
+# redirect_slashes is off — exempting only one would 403 half the callers of
+# the same endpoint for no reason anyone could find.
+#
+# NOT VERIFIABLE YET: the route does not exist, so the exact template is
+# whatever router #565 mounts it on. `/query/` assumes a bare `api_router`
+# path or a `prefix="/query"` router, matching every other entry here.
+# Whoever lands #565 must confirm the real `route.path` and move the entry
+# out of the pending list in `backend/tests/test_api_key_scope_875.py`, which
+# then asserts it resolves.
+# fix(#875 codex r1): STAC Item Search is the second entry, and it is required
+# rather than a widening. The issue's acceptance criteria say a read_only key
+# must be able to hit OGC/STAC endpoints, and `POST /stac/search` IS the
+# standard's JSON-body search surface — `search_post` delegates to the same
+# `_execute_search` the GET form uses and writes nothing. Refusing it would
+# have shipped a comment claiming STAC works next to code that broke it.
+_READ_ONLY_KEY_EXEMPT_ROUTES: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("POST", "/query/"),
+        ("POST", "/query"),
+        ("POST", "/stac/search"),
+    }
+)
+
+
+def _route_template(request: Request) -> str:
+    """The matched route's path template, or a generic placeholder.
+
+    Never falls back to ``request.url.path``: concrete paths can contain UUIDs,
+    tokens, or other tenant-controlled identifiers, and this value is both
+    logged and compared against an exemption list.
+    """
+    scope = getattr(request, "scope", None)
+    route = scope.get("route") if isinstance(scope, dict) else None
+    route_template = getattr(route, "path", None)
+    if not isinstance(route_template, str) or not route_template.startswith("/"):
+        return "<unmatched-route>"
+    return route_template
+
+
+def _read_only_key_may_call(
+    method: str,
+    route_template: str,
+    query_params: Mapping[str, str] | None = None,
+) -> bool:
+    """Whether a ``read_only`` API key may authenticate this request (#875)."""
+    if method not in _READ_ONLY_SAFE_METHODS:
+        return (method, route_template) in _READ_ONLY_KEY_EXEMPT_ROUTES
+    trigger = _READ_ONLY_KEY_WRITING_GET_ROUTES.get(route_template)
+    if trigger is None:
+        return True
+    value = (query_params or {}).get(trigger)
+    if value is None:
+        return True
+    return value.strip().lower() in _FALSEY_QUERY_VALUES
+
+
 def log_permission_denial(
     request: Request,
     user: Identity,
@@ -39,14 +153,7 @@ def log_permission_denial(
     strings, bodies, resource identifiers, or resource objects here: those can
     contain credentials or tenant data.
     """
-    scope = getattr(request, "scope", None)
-    route = scope.get("route") if isinstance(scope, dict) else None
-    route_template = getattr(route, "path", None)
-    if not isinstance(route_template, str) or not route_template.startswith("/"):
-        # Never fall back to request.url.path: concrete paths can contain UUIDs,
-        # tokens, or other tenant-controlled identifiers. This generic value is
-        # intentionally less informative when routing metadata is unavailable.
-        route_template = "<unmatched-route>"
+    route_template = _route_template(request)
     fields: dict[str, object] = {
         "user_id": str(user.id),
         "capability": capability,
@@ -119,6 +226,32 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
             )
             await side_session.commit()
         api_key_obj.last_used_at = now
+    # fix(#875): least-privilege scope, enforced HERE rather than in
+    # require_permission or middleware, because this is the one chokepoint
+    # every API-key lane passes through — header, deprecated ?api_key=, and
+    # every router that resolves an optional user.
+    #
+    # It must RAISE, not return None: returning None falls through to the
+    # anonymous/JWT path and turns a scope violation into a confusing 401.
+    #
+    # It sits AFTER the last_used_at bump on purpose. The key did
+    # authenticate; the request is refused on what it asked to do, and usage
+    # is recorded either way, so a client hammering writes with a read-only
+    # key still shows a moving last_used_at instead of looking dormant.
+    route_template = _route_template(request)
+    if api_key_obj.scope == "read_only" and not _read_only_key_may_call(
+        request.method, route_template, request.query_params
+    ):
+        log.warning(
+            "api_key_scope_denied",
+            user_id=str(user.id),
+            method=request.method,
+            path=route_template,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This API key is read-only",
+        )
     return user
 
 

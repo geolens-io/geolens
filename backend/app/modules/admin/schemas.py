@@ -369,6 +369,16 @@ class AdminApiKeyCreateRequest(BaseModel):
             "for a non-expiring key; expired keys stop authenticating."
         ),
     )
+    scope: Literal["full", "read_only"] = Field(
+        default="full",
+        description=(
+            "Privilege scope (#875). 'full' impersonates the owner completely, "
+            "the pre-existing behavior. 'read_only' authenticates GET, HEAD and "
+            "OPTIONS requests only; any other method is refused with 403. A "
+            "service-account key minted for an application is the usual case "
+            "for 'read_only'."
+        ),
+    )
 
     _expires_at_future = field_validator("expires_at")(validate_future_expiry)
 
@@ -387,6 +397,7 @@ class AdminApiKeyListItem(BaseModel):
         default=None,
         description="Expiry timestamp; null means the key does not expire.",
     )
+    scope: str = Field(description="Privilege scope: 'full' or 'read_only' (#875).")
     created_at: datetime = Field(description="Timestamp when the key was created.")
     last_used_at: datetime | None = Field(
         description="Timestamp of the most recent successful authentication using this key."

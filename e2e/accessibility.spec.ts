@@ -280,6 +280,59 @@ test.describe('Accessibility - WCAG 2AA', () => {
     expect(results.violations, formatViolations(results.violations)).toEqual([]);
   });
 
+  // fix(#806 item 2): the builder-page test above scans the builder with the editor
+  // closed, so neither the analysis panel nor any layer-editor tab was ever covered
+  // — including the live-region work #784/#782/#804 added. Both surfaces are reached
+  // by interaction rather than by URL, so they follow the Add Dataset dialog's shape
+  // and scope with .include() to keep them off what the page test already owns.
+  test('analysis panel has no accessibility violations', async ({ page }) => {
+    await page.goto(`/maps/${builderMapId}`);
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByTestId('builder-sidebar')).toBeVisible({ timeout: 15_000 });
+
+    await page.getByRole('button', { name: 'Analysis', exact: true }).click();
+    await expect(page.getByTestId('analysis-panel')).toBeVisible({ timeout: 15_000 });
+
+    // Scope to the rail panel, not the inner form: BuilderRail renders the panel
+    // title and close control as siblings of AnalysisPanel, and since the
+    // builder-page scan runs with the panel closed, that chrome would otherwise
+    // be covered nowhere.
+    const results = await new AxeBuilder({ page })
+      .withTags(wcagTags)
+      .include('[data-rail-panel]')
+      .analyze();
+
+    expect(results.violations, formatViolations(results.violations)).toEqual([]);
+  });
+
+  // The seeded layer is vector, so LayerEditorPanel resolves all four tabs and one
+  // layer exposes the whole surface. Each tab renders its own panel body and only
+  // the active one is in the DOM, so every tab needs its own scan.
+  for (const tab of ['Style', 'Filter', 'Labels', 'Popup'] as const) {
+    test(`layer editor ${tab} tab has no accessibility violations`, async ({ page }) => {
+      await page.goto(`/maps/${builderMapId}`);
+      await page.waitForLoadState('networkidle');
+      await expect(page.getByTestId('builder-sidebar')).toBeVisible({ timeout: 15_000 });
+
+      await page
+        .locator('[id^="stack-row-"]:not([id="stack-row-basemap-group"])')
+        .first()
+        .click();
+      const editor = page.getByTestId('builder-layer-editor');
+      await expect(editor).toBeVisible({ timeout: 15_000 });
+
+      await editor.getByRole('tab', { name: tab }).click();
+      await expect(editor.getByRole('tab', { name: tab })).toHaveAttribute('aria-selected', 'true');
+
+      const results = await new AxeBuilder({ page })
+        .withTags(wcagTags)
+        .include('[data-testid="builder-layer-editor"]')
+        .analyze();
+
+      expect(results.violations, formatViolations(results.violations)).toEqual([]);
+    });
+  }
+
   test('admin overview page has no accessibility violations', async ({ page }) => {
     await page.goto('/admin');
     await expect(

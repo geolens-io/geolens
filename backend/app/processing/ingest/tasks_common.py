@@ -656,8 +656,14 @@ async def _run_staging_pipeline(
 ) -> StagingResult:
     """Run the post-ogr2ogr staging pipeline on a table.
 
-    Shared by ``_ingest_vector_into_staging`` (new ingests) and
-    ``reupload_file`` (re-uploads). Performs: ensure_geom_column,
+    fix(#1018 review): the only production caller is ``reupload_file``
+    (``tasks_reupload.py:337``). ``_ingest_vector_into_staging`` also calls it
+    but is test-only, and NEW vector ingest does not: ``_finalize_ingest``
+    (:1069) reruns these same steps inline at :1114-1177. This docstring used
+    to read "shared by _ingest_vector_into_staging (new ingests)", which named
+    the wrong path for the wrong reason.
+
+    Performs: ensure_geom_column,
     clip_to_mercator_bounds, add_4326_column, grant_reader_access,
     extract_metadata, detect_3d_metadata, promote_z_to_elev, and
     get_sample_values. Does not commit.
@@ -824,8 +830,42 @@ async def _ingest_vector_into_staging(
 ) -> StagingResult:
     """Load a vector source into staging and return extracted staging metadata.
 
-    This helper preserves the staging-pipeline unit-test boundary while the
-    production ingest path continues to inline the broader job lifecycle.
+    TEST-ONLY (#1018). Nothing in ``app/`` calls this. Every caller is a test:
+    ``tests/test_staging_pipeline.py`` and
+    ``tests/test_staging_pipeline_integration.py``. It exists to give those
+    tests a callable seam over vector ingest's pre-staging half, which
+    production runs inline inside its own job lifecycle.
+
+    What it mirrors, and what it shares (fix(#1018 review)). Deliberately no
+    line numbers: this docstring's own growth moved them twice while it was
+    being written, so it names FUNCTIONS, which do not drift.
+
+    - Pre-staging. ``run_ogr2ogr``, ``rename_reserved_columns``, the
+      DBF-truncation check, then ``_detect_and_override_geometry`` under
+      ``user_wants_geom``. ``tasks_vector.ingest_file`` runs the same four —
+      it is the only production path with the override, so this helper's
+      ``user_wants_geom`` branch has exactly one counterpart.
+      ``tasks_reupload.reupload_file`` runs the first three and passes its
+      detected geometry type straight to ``run_ogr2ogr`` instead
+      (fix(#1018 review): an earlier draft claimed all four).
+    - Staging. This helper calls the real ``_run_staging_pipeline``, so it does
+      not fork those steps — but little else calls it either. The sequence
+      exists in three independent places:
+
+        1. ``_run_staging_pipeline`` — the full eight steps
+           (ensure_geom_column, clip_to_mercator_bounds, add_4326_column,
+           grant_reader_access, extract_metadata, detect_3d_metadata,
+           promote_z_to_elev, get_sample_values). Reached in production only by
+           ``tasks_reupload.reupload_file``, and by this helper.
+        2. ``_finalize_ingest`` in this module — the same eight, inlined. New
+           vector ingest, via ``tasks_vector.ingest_file``.
+        3. ``tasks_reupload.reupload_service`` — a SHORTER copy: no 3D
+           detection and no elevation promotion. Do not "fix" that by symmetry
+           with the other two; find out why first.
+
+      So a change to the shared six has three sites, and the tests here cover
+      the one production reaches least.
+
     It intentionally performs no commits.
     """
     from app.processing.ingest.metadata import rename_reserved_columns

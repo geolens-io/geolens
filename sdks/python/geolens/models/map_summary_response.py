@@ -31,6 +31,7 @@ class MapSummaryResponse:
         updated_at (datetime.datetime):
         visibility (MapVisibility):
         created_by_username (None | str | Unset):
+        thumbnail_updated_at (datetime.datetime | None | Unset):
         thumbnail_url (None | str | Unset):
     """
 
@@ -42,6 +43,7 @@ class MapSummaryResponse:
     updated_at: datetime.datetime
     visibility: MapVisibility
     created_by_username: None | str | Unset = UNSET
+    thumbnail_updated_at: datetime.datetime | None | Unset = UNSET
     thumbnail_url: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -67,6 +69,14 @@ class MapSummaryResponse:
         else:
             created_by_username = self.created_by_username
 
+        thumbnail_updated_at: None | str | Unset
+        if isinstance(self.thumbnail_updated_at, Unset):
+            thumbnail_updated_at = UNSET
+        elif isinstance(self.thumbnail_updated_at, datetime.datetime):
+            thumbnail_updated_at = self.thumbnail_updated_at.isoformat()
+        else:
+            thumbnail_updated_at = self.thumbnail_updated_at
+
         thumbnail_url: None | str | Unset
         if isinstance(self.thumbnail_url, Unset):
             thumbnail_url = UNSET
@@ -88,6 +98,8 @@ class MapSummaryResponse:
         )
         if created_by_username is not UNSET:
             field_dict["created_by_username"] = created_by_username
+        if thumbnail_updated_at is not UNSET:
+            field_dict["thumbnail_updated_at"] = thumbnail_updated_at
         if thumbnail_url is not UNSET:
             field_dict["thumbnail_url"] = thumbnail_url
 
@@ -126,6 +138,27 @@ class MapSummaryResponse:
             d.pop("created_by_username", UNSET)
         )
 
+        def _parse_thumbnail_updated_at(
+            data: object,
+        ) -> datetime.datetime | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                thumbnail_updated_at_type_0 = isoparse(data)
+
+                return thumbnail_updated_at_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(datetime.datetime | None | Unset, data)
+
+        thumbnail_updated_at = _parse_thumbnail_updated_at(
+            d.pop("thumbnail_updated_at", UNSET)
+        )
+
         def _parse_thumbnail_url(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -144,6 +177,7 @@ class MapSummaryResponse:
             updated_at=updated_at,
             visibility=visibility,
             created_by_username=created_by_username,
+            thumbnail_updated_at=thumbnail_updated_at,
             thumbnail_url=thumbnail_url,
         )
 

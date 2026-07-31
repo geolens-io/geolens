@@ -100,6 +100,186 @@ class TestListDatasets:
 
 
 # ---------------------------------------------------------------------------
+# Internal visibility tests (#930)
+# ---------------------------------------------------------------------------
+
+
+class TestInternalVisibility:
+    """fix(#930): `internal` = any signed-in user, on a published record.
+
+    The two write paths produce different states — ``PATCH /datasets/{id}``
+    leaves ``record_status`` at ``published``, while the CLI manifest intent
+    writes ``record_status='internal'`` — so both are pinned here, along with
+    the two draft cases that separate "hidden from the team" from "hidden from
+    its own owner".
+    """
+
+    @staticmethod
+    async def _own_user_id(client: AsyncClient, headers: dict) -> uuid.UUID:
+        """Resolve the caller's own user id.
+
+        ``viewer_auth_header`` mints a fresh ``viewer_<hex>`` account per test,
+        so the username is not knowable up front and ``get_user_id`` cannot be
+        used to find a non-admin owner.
+        """
+        resp = await client.get("/auth/me/", headers=headers)
+        assert resp.status_code == 200
+        return uuid.UUID(resp.json()["id"])
+
+    async def test_internal_published_visible_to_signed_in_non_owner(
+        self,
+        client: AsyncClient,
+        viewer_auth_header: dict,
+        test_db_session,
+    ):
+        """(internal, published) appears in a signed-in non-owner's list."""
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="internal",
+            record_status="published",
+            name="Internal Published DS",
+        )
+
+        resp = await client.get("/datasets/", headers=viewer_auth_header)
+        assert resp.status_code == 200
+        assert str(ds.id) in [d["id"] for d in resp.json()["datasets"]]
+
+        resp = await client.get(f"/datasets/{ds.id}", headers=viewer_auth_header)
+        assert resp.status_code == 200
+        assert resp.json()["visibility"] == "internal"
+
+    async def test_internal_published_visible_to_owner(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        viewer_auth_header: dict,
+        test_db_session,
+    ):
+        """A non-admin owner keeps their own internal dataset in their list.
+
+        Before #930 the ``filter_visible`` conditions matched no internal
+        branch at all, so an internal dataset vanished from every non-admin
+        list including its owner's.
+        """
+        viewer_id = await self._own_user_id(client, viewer_auth_header)
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=viewer_id,
+            visibility="internal",
+            record_status="published",
+            name="Internal Owned By Viewer DS",
+        )
+
+        resp = await client.get("/datasets/", headers=viewer_auth_header)
+        assert resp.status_code == 200
+        assert str(ds.id) in [d["id"] for d in resp.json()["datasets"]]
+
+        resp = await client.get(f"/datasets/{ds.id}", headers=viewer_auth_header)
+        assert resp.status_code == 200
+
+    async def test_internal_record_status_hidden_from_non_owner(
+        self,
+        client: AsyncClient,
+        viewer_auth_header: dict,
+        test_db_session,
+    ):
+        """(internal, internal) — the `geolens apply` state — stays owner-only.
+
+        ``record_status='internal'`` is not published, so the status gate keeps
+        the record away from a signed-in non-owner on both surfaces.
+        """
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="internal",
+            record_status="internal",
+            name="Internal Unpublished DS",
+        )
+
+        resp = await client.get("/datasets/", headers=viewer_auth_header)
+        assert resp.status_code == 200
+        assert str(ds.id) not in [d["id"] for d in resp.json()["datasets"]]
+
+        resp = await client.get(f"/datasets/{ds.id}", headers=viewer_auth_header)
+        assert resp.status_code == 404
+
+    async def test_internal_draft_hidden_from_non_owner(
+        self,
+        client: AsyncClient,
+        viewer_auth_header: dict,
+        test_db_session,
+    ):
+        """An owner's (internal, draft) dataset does not leak to the team."""
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="internal",
+            record_status="draft",
+            name="Internal Draft DS",
+        )
+
+        resp = await client.get("/datasets/", headers=viewer_auth_header)
+        assert resp.status_code == 200
+        assert str(ds.id) not in [d["id"] for d in resp.json()["datasets"]]
+
+        resp = await client.get(f"/datasets/{ds.id}", headers=viewer_auth_header)
+        assert resp.status_code == 404
+
+    async def test_internal_draft_still_visible_to_its_own_owner(
+        self,
+        client: AsyncClient,
+        viewer_auth_header: dict,
+        test_db_session,
+    ):
+        """A non-admin owner keeps their own *unpublished* internal dataset.
+
+        ``status_filter`` is ``published OR created_by == <caller>``, so it
+        already hides another user's draft from the team. Gating the internal
+        branch on ``published`` as well would additionally hide the owner's own
+        draft from the owner — the list/detail split #930 exists to close, and
+        a repeat of the #929 creator-exemption bug. Private and public drafts
+        stay visible to their owner, and internal must match.
+        """
+        viewer_id = await self._own_user_id(client, viewer_auth_header)
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=viewer_id,
+            visibility="internal",
+            record_status="draft",
+            name="Internal Draft Owned By Viewer DS",
+        )
+
+        resp = await client.get("/datasets/", headers=viewer_auth_header)
+        assert resp.status_code == 200
+        assert str(ds.id) in [d["id"] for d in resp.json()["datasets"]]
+
+        resp = await client.get(f"/datasets/{ds.id}", headers=viewer_auth_header)
+        assert resp.status_code == 200
+
+    async def test_internal_published_hidden_from_anonymous(
+        self,
+        client: AsyncClient,
+        test_db_session,
+    ):
+        """Internal never reaches a signed-out visitor."""
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="internal",
+            record_status="published",
+            name="Internal Anon DS",
+        )
+
+        resp = await client.get(f"/datasets/{ds.id}")
+        assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
 # Get single dataset tests
 # ---------------------------------------------------------------------------
 

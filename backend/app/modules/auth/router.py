@@ -827,6 +827,7 @@ async def list_my_api_keys(
                 fingerprint=k.fingerprint,
                 is_active=k.is_active,
                 expires_at=k.expires_at,
+                scope=k.scope,
                 created_at=k.created_at,
                 last_used_at=k.last_used_at,
             )
@@ -865,7 +866,7 @@ async def create_my_api_key(
     from app.modules.auth.service import create_api_key_for_user
 
     api_key, raw_key = await create_api_key_for_user(
-        db, current_user.id, body.name, expires_at=body.expires_at
+        db, current_user.id, body.name, expires_at=body.expires_at, scope=body.scope
     )
 
     ip = get_client_ip(request)
@@ -882,6 +883,7 @@ async def create_my_api_key(
                 "expires_at": (
                     api_key.expires_at.isoformat() if api_key.expires_at else None
                 ),
+                "scope": api_key.scope,
             },
             ip_address=ip,
         ),
@@ -895,6 +897,7 @@ async def create_my_api_key(
         fingerprint=api_key.fingerprint,
         name=api_key.name,
         expires_at=api_key.expires_at,
+        scope=api_key.scope,
         created_at=api_key.created_at,
     )
 

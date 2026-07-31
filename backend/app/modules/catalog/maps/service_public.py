@@ -693,6 +693,7 @@ async def get_maps_for_dataset(
                 "thumbnail_url": f"/maps/{map_obj.id}/thumbnail/"
                 if map_obj.thumbnail_uri
                 else None,
+                "thumbnail_updated_at": map_obj.thumbnail_updated_at,
                 "layer_count": row[1],
                 "created_by_username": row[2],
                 "created_at": map_obj.created_at,

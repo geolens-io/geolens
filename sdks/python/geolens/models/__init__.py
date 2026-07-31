@@ -3,6 +3,7 @@
 from .add_column_request import AddColumnRequest
 from .add_datasets_response import AddDatasetsResponse
 from .admin_api_key_create_request import AdminApiKeyCreateRequest
+from .admin_api_key_create_request_scope import AdminApiKeyCreateRequestScope
 from .admin_api_key_list_item import AdminApiKeyListItem
 from .admin_api_key_list_response import AdminApiKeyListResponse
 from .admin_embed_token_list_response import AdminEmbedTokenListResponse
@@ -32,6 +33,7 @@ from .analysis_preview_request_operation import AnalysisPreviewRequestOperation
 from .analysis_preview_response import AnalysisPreviewResponse
 from .analysis_preview_response_geojson import AnalysisPreviewResponseGeojson
 from .api_key_create_request import ApiKeyCreateRequest
+from .api_key_create_request_scope import ApiKeyCreateRequestScope
 from .api_key_create_response import ApiKeyCreateResponse
 from .api_key_list_item import ApiKeyListItem
 from .api_key_list_response import ApiKeyListResponse
@@ -718,6 +720,7 @@ __all__ = (
     "AddColumnRequest",
     "AddDatasetsResponse",
     "AdminApiKeyCreateRequest",
+    "AdminApiKeyCreateRequestScope",
     "AdminApiKeyListItem",
     "AdminApiKeyListResponse",
     "AdminEmbedTokenListResponse",
@@ -745,6 +748,7 @@ __all__ = (
     "AnalysisPreviewResponse",
     "AnalysisPreviewResponseGeojson",
     "ApiKeyCreateRequest",
+    "ApiKeyCreateRequestScope",
     "ApiKeyCreateResponse",
     "ApiKeyListItem",
     "ApiKeyListResponse",

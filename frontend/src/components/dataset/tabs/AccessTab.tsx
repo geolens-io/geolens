@@ -42,13 +42,14 @@ interface AccessTabProps {
   canEdit?: boolean;
 }
 
-/** fix(#927): the visibility values this control can move a dataset TO.
- * `restricted` is not one: a non-admin owner who picked it lost access to
- * their own dataset, and grants have no write path (#929). `internal` arrives
- * with #930, once its backend branches exist. A dataset already stored as
- * either still displays its own value (see below) — a one-way exit, never a
- * silent coercion to something the user did not pick. */
-const SELECTABLE_VISIBILITIES = ['private', 'public'] as const;
+/** fix(#927): the visibility values this control can move a dataset TO, in
+ * ladder order. `restricted` is not one: a non-admin owner who picked it lost
+ * access to their own dataset, and grants have no write path (#929). A dataset
+ * already stored as `restricted` still displays its own value (see below) — a
+ * one-way exit, never a silent coercion to something the user did not pick.
+ * fix(#930): `internal` joined the ladder once its permission branches landed;
+ * the import pickers deliberately stay at private/public. */
+const SELECTABLE_VISIBILITIES = ['private', 'internal', 'public'] as const;
 
 /** Copy text to clipboard with textarea fallback for non-HTTPS contexts. */
 async function copyText(value: string): Promise<void> {
@@ -329,9 +330,9 @@ export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {/* fix(#927): a stored `restricted` (or, until #930, `internal`)
-                      dataset keeps showing what it actually is — offered as the
-                      current value only, never as a move. */}
+                  {/* fix(#927): a stored `restricted` dataset keeps showing what
+                      it actually is — offered as the current value only, never
+                      as a move. */}
                   {isLegacyVisibility && (
                     <SelectItem value={dataset.visibility} disabled>
                       {getVisibilityLabel(t, dataset.visibility)}

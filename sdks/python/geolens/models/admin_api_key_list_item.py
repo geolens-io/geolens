@@ -27,6 +27,7 @@ class AdminApiKeyListItem:
         is_active (bool): Whether the key is active. Inactive keys cannot authenticate.
         last_used_at (datetime.datetime | None): Timestamp of the most recent successful authentication using this key.
         name (str): Human-readable label.
+        scope (str): Privilege scope: 'full' or 'read_only' (#875).
         user_id (UUID): Owning user's ID.
         expires_at (datetime.datetime | None | Unset): Expiry timestamp; null means the key does not expire.
     """
@@ -37,6 +38,7 @@ class AdminApiKeyListItem:
     is_active: bool
     last_used_at: datetime.datetime | None
     name: str
+    scope: str
     user_id: UUID
     expires_at: datetime.datetime | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -59,6 +61,8 @@ class AdminApiKeyListItem:
 
         name = self.name
 
+        scope = self.scope
+
         user_id = str(self.user_id)
 
         expires_at: None | str | Unset
@@ -79,6 +83,7 @@ class AdminApiKeyListItem:
                 "is_active": is_active,
                 "last_used_at": last_used_at,
                 "name": name,
+                "scope": scope,
                 "user_id": user_id,
             }
         )
@@ -120,6 +125,8 @@ class AdminApiKeyListItem:
 
         name = d.pop("name")
 
+        scope = d.pop("scope")
+
         user_id = UUID(d.pop("user_id"))
 
         def _parse_expires_at(data: object) -> datetime.datetime | None | Unset:
@@ -146,6 +153,7 @@ class AdminApiKeyListItem:
             is_active=is_active,
             last_used_at=last_used_at,
             name=name,
+            scope=scope,
             user_id=user_id,
             expires_at=expires_at,
         )

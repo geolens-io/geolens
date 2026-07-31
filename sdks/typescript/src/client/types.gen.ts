@@ -155,6 +155,12 @@ export type AdminApiKeyCreateRequest = {
      */
     name: string;
     /**
+     * Scope
+     *
+     * Privilege scope (#875). 'full' impersonates the owner completely, the pre-existing behavior. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. A service-account key minted for an application is the usual case for 'read_only'.
+     */
+    scope?: 'full' | 'read_only';
+    /**
      * User Id
      *
      * ID of the user the new API key will belong to.
@@ -208,6 +214,12 @@ export type AdminApiKeyListItem = {
      * Human-readable label.
      */
     name: string;
+    /**
+     * Scope
+     *
+     * Privilege scope: 'full' or 'read_only' (#875).
+     */
+    scope: string;
     /**
      * User Id
      *
@@ -649,6 +661,12 @@ export type ApiKeyCreateRequest = {
      * Human-readable label for the API key
      */
     name: string;
+    /**
+     * Scope
+     *
+     * Privilege scope (#875). 'full' impersonates the owner completely, the pre-existing behavior. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403.
+     */
+    scope?: 'full' | 'read_only';
 };
 
 /**
@@ -685,6 +703,12 @@ export type ApiKeyCreateResponse = {
      * Name
      */
     name: string;
+    /**
+     * Scope
+     *
+     * Privilege scope: 'full' or 'read_only' (#875)
+     */
+    scope: string;
 };
 
 /**
@@ -723,6 +747,12 @@ export type ApiKeyListItem = {
      * Name
      */
     name: string;
+    /**
+     * Scope
+     *
+     * Privilege scope: 'full' or 'read_only' (#875)
+     */
+    scope: string;
 };
 
 /**
@@ -5749,6 +5779,10 @@ export type MapSummaryResponse = {
      * Name
      */
     name: string;
+    /**
+     * Thumbnail Updated At
+     */
+    thumbnail_updated_at?: string | null;
     /**
      * Thumbnail Url
      */
@@ -26014,50 +26048,6 @@ export type ClusterTileEndpointTilesClustersTablePathZxyPbfGetErrors = {
 export type ClusterTileEndpointTilesClustersTablePathZxyPbfGetError = ClusterTileEndpointTilesClustersTablePathZxyPbfGetErrors[keyof ClusterTileEndpointTilesClustersTablePathZxyPbfGetErrors];
 
 export type ClusterTileEndpointTilesClustersTablePathZxyPbfGetResponses = {
-    /**
-     * Successful Response
-     */
-    200: unknown;
-};
-
-export type RasterAuthCheckTilesRasterAuthCheckGetData = {
-    body?: never;
-    path?: never;
-    query: {
-        /**
-         * Dataset Id
-         */
-        dataset_id: string;
-    };
-    url: '/tiles/raster-auth-check/';
-};
-
-export type RasterAuthCheckTilesRasterAuthCheckGetErrors = {
-    /**
-     * Bad request — invalid query parameters or payload
-     */
-    400: ProblemDetail;
-    /**
-     * Not found
-     */
-    404: ProblemDetail;
-    /**
-     * Validation error
-     */
-    422: ProblemDetail;
-    /**
-     * Internal server error
-     */
-    500: ProblemDetail;
-    /**
-     * Service unavailable — the database could not serve the request
-     */
-    503: ProblemDetail;
-};
-
-export type RasterAuthCheckTilesRasterAuthCheckGetError = RasterAuthCheckTilesRasterAuthCheckGetErrors[keyof RasterAuthCheckTilesRasterAuthCheckGetErrors];
-
-export type RasterAuthCheckTilesRasterAuthCheckGetResponses = {
     /**
      * Successful Response
      */
