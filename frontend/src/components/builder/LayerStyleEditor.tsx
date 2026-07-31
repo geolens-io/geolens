@@ -262,7 +262,23 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
   );
 
   const updateBuilderConfig = useCallback((patch: BuilderStyleConfig, nextPaint: Record<string, unknown> = paint) => {
-    onStyleConfigChange(layer.id, withBuilderConfig(layer.style_config, patch), stripLegacyBuilderPaint(nextPaint));
+    const nextConfig = withBuilderConfig(layer.style_config, patch);
+    const strippedPaint = stripLegacyBuilderPaint(nextPaint);
+    // A patch that EMPTIES the builder has to replace, not merge. withBuilderConfig
+    // drops the builder key once every field compacts away (collapsing the whole
+    // config to null when nothing else is left), and handleStyleConfigChange reads a
+    // missing builder as "keep the existing one" — so the default merge silently
+    // undoes the clear. That is the same collapse #1022 hit with the fill-color
+    // stash, and it reached three controls here: the fill and stroke visibility
+    // switches sprang straight back on, and a line gradient survived switching to
+    // Solid. Detected centrally because `onBuilderChange` is one prop shared by every
+    // builder control, so a per-caller flag would have to be threaded through all of
+    // them and would go stale the next time a control learns to clear a key.
+    if (!nextConfig?.builder && layer.style_config?.builder) {
+      onStyleConfigChange(layer.id, nextConfig, strippedPaint, { replace: true });
+      return;
+    }
+    onStyleConfigChange(layer.id, nextConfig, strippedPaint);
   }, [layer.id, layer.style_config, paint, onStyleConfigChange]);
 
   const handlePaintProp = useCallback((key: string, value: unknown) => {
