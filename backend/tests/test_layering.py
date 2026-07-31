@@ -1071,7 +1071,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # ingest/router.py is also scanned by the router-glob gate; this exact
     # ratchet overrides its 1500 default so the remaining ~18-line runway to
     # the cliff cannot be spent silently.
-    "backend/app/processing/ingest/router.py": 1482,
+    "backend/app/processing/ingest/router.py": 1493,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
@@ -1095,7 +1095,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # image-upload endpoints. Its docstring carries the part that is easy to
     # get wrong: Map.updated_at has onupdate=func.now(), so dropping the
     # explicit assignment does not stop the bump. Ratchet stays exact.
-    "backend/app/modules/catalog/maps/router.py": 1417,
+    # fix(#941): +8 — the reworded add-layer history summary carries the reason
+    # the immediate-POST and save-diff writers say different things, so a later
+    # refactor does not collapse them. Ratchet stays exact.
+    "backend/app/modules/catalog/maps/router.py": 1425,
     # fix(#474): thread negotiated languages through catalog search, cache keys,
     # and OGC record serialization; fix(#475) adds Records array-query handling,
     # including collection IDs, plus response-header and documented 400 parity.
@@ -1207,7 +1210,12 @@ def test_open_core_decomposition_boundaries_stay_clean() -> None:
         # fix(v1.6.0 audit): hypso_reversed flows into the color-relief
         # companion so exported ramps match the builder's Reverse toggle.
         # fix(#836): +1 for the RASTER_FAMILY_RECORD_TYPES import.
-        "backend/app/modules/catalog/maps/style_json.py": 1432,
+        # fix(#917): +85 — builtin fill patterns are stripped at export and fall back
+        # to a solid colour. Plain strings only: composites are left as authored,
+        # because MapLibre skips a missing pattern and exposes styleimagemissing to
+        # repair it, while stripping a working expression is unrecoverable (#1069).
+        # Ratchet stays exact.
+        "backend/app/modules/catalog/maps/style_json.py": 1517,
         "backend/app/modules/catalog/maps/style_import.py": 450,
         "backend/app/modules/catalog/maps/style_sanitizers.py": 200,
         "backend/app/modules/catalog/maps/router_assets.py": 126,

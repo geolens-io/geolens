@@ -151,6 +151,34 @@ def _ring(x0: float, south: float, x1: float, north: float) -> str:
     return f"({x0} {south},{x1} {south},{x1} {north},{x0} {north},{x0} {south})"
 
 
+# fix(#944): a span this narrow is degenerate, and the sliver it is widened to.
+# Both come from :func:`seam_extent_wkt_for_table`, which hit the same problem
+# one caller upstream first; 1e-9 is also the magnitude the ``ST_Expand`` calls
+# in ``processing/ingest/metadata.py`` and ``catalog/features/service.py`` use
+# on POINT/LINESTRING extents, so a padded extent produced here is
+# indistinguishable in size from one produced by ingest.
+_DEGENERATE_SPAN = 1e-12
+_DEGENERATE_PAD = 1e-9
+
+
+def _pad_degenerate(low: float, high: float, limit: float) -> tuple[float, float]:
+    """Widen a zero-span axis to a sliver, without leaving ``±limit``.
+
+    Padding outward is what the ``ST_Expand`` callers do, but an axis sitting
+    exactly on its domain edge (a point on the antimeridian, or at a pole) has
+    no room on one side, so the pad is clamped and the sliver grows inward
+    instead. Non-degenerate spans are returned untouched, so a genuine bbox
+    never moves by an epsilon.
+
+    Callers must reject a non-finite bbox first: NaN compares False against
+    everything, so it would fall past the span test into the clamp and
+    ``max``/``min`` would quietly substitute the domain edge.
+    """
+    if high - low >= _DEGENERATE_SPAN:
+        return low, high
+    return max(-limit, low - _DEGENERATE_PAD), min(limit, high + _DEGENERATE_PAD)
+
+
 def bbox_to_extent_wkt(west: float, south: float, east: float, north: float) -> str:
     """Build extent WKT for an RFC 7946 §5.2 bbox, splitting it at ±180.
 
@@ -164,8 +192,32 @@ def bbox_to_extent_wkt(west: float, south: float, east: float, north: float) -> 
     same latitude band -- which ``catalog.records.spatial_extent`` accepts as of
     migration ``0030_records_spatial_extent_type`` and which
     :func:`extent_to_bbox` reads back as the original ``west > east`` pair.
+
+    fix(#944): a degenerate axis is padded to a sliver first. A bbox with
+    ``south == north`` (a single point, or a run of points on one parallel)
+    otherwise yields four collinear vertices -- zero area, and not a valid
+    polygon -- and the same applies to a zero-width non-crossing bbox. Only the
+    width case was guarded before, and only on the crossing branch. Padding
+    rather than rejecting follows the producers, which already ``ST_Expand``
+    degenerate POINT/LINESTRING extents by the same 1e-9; rejecting would turn
+    a working ingest into a failed one for data the schema stores happily.
+
+    fix(#944 codex r1): a non-finite coordinate is refused outright. NaN
+    compares False against every test below, so it reaches the clamp and
+    ``max``/``min`` substitute the domain edge; a NaN longitude also fails
+    ``west <= east``, then loses both crossing halves to the ``x0 < x1``
+    filter and lands on the full -180..180 fallback. Either way a malformed
+    bbox (``StacImportItem.bbox`` is an unconstrained float list) would be
+    silently recorded as an almost-global extent. "An extent must never
+    silently narrow to nothing" has a mirror, and this is it. STAC import
+    isolates each item in a savepoint and records the failure per item, so
+    raising costs the batch nothing.
     """
+    if not all(math.isfinite(v) for v in (west, south, east, north)):
+        raise ValueError(f"bbox must be finite, got ({west}, {south}, {east}, {north})")
+    south, north = _pad_degenerate(south, north, 90.0)
     if west <= east:
+        west, east = _pad_degenerate(west, east, 180.0)
         return f"POLYGON({_ring(west, south, east, north)})"
 
     # A crossing bbox whose west sits at +180 (or east at -180) has a zero-width
@@ -414,13 +466,12 @@ async def seam_extent_wkt_for_table(
         crossing = True
     if not crossing:
         return None
-    # Mirror the callers' degenerate padding (their non-crossing path runs
-    # ST_Expand 1e-9 on POINT/LINESTRING extents): a crossing extent can
-    # never be zero-width, but a single-parallel source is zero-height and
-    # would produce invalid zero-height rings. Related: #944.
-    if north - south < 1e-12:
-        south -= 1e-9
-        north += 1e-9
+    # fix(#944): the zero-height pad this function used to carry moved into
+    # bbox_to_extent_wkt, which now pads both axes for every caller. Keeping a
+    # copy here would not double-pad (this one widens the span past the 1e-12
+    # trigger, so the helper's would never fire) — it would be worse, leaving
+    # the helper's version dead on this path and two copies of one convention
+    # to keep in sync.
     # fix(#934 codex r2): a fold whose west lands exactly on +180 (rows at
     # planar 180 and -170), or whose east lands on -180, has a zero-width
     # half. bbox_to_extent_wkt drops such halves, which is correct for its
