@@ -95,12 +95,28 @@ _SHARED_MAP_AUDIENCES = ("public", "internal")
 # properly needs a new protocol method and an EXTENSION_API_VERSION bump, so it
 # is tracked separately rather than folded into a visibility fix.
 #
-# The failure direction is why deferring it is safe. Narrowing the real audience
-# only ever makes this guard MORE conservative: it can refuse a move that
-# strands nobody, never permit one that strands someone. So an overlay inherits
-# a refusal that lies, not a silent break — the same class as the grant and
-# publication-status cases above, and the reason those were worth fixing rather
-# than urgent. See #1068 for the shape of the seam change.
+# The two overlay directions do NOT fail the same way, and this paragraph said
+# they did until the guard stopped being rank-only. `_stranded_viewer_exists`
+# reads `users`/`user_roles` directly rather than going through
+# `filter_visible`, and its answer is what makes this function `return []`, so
+# the community answer can now be permissive as well as conservative:
+#
+#   NARROWING overlay (ABAC excluding some active non-owner users) — the query
+#   finds a user the overlay would have excluded, the guard refuses, and nobody
+#   was actually stranded. A refusal that lies, which is the safe direction and
+#   the same class as the grant and publication-status cases above.
+#
+#   WIDENING overlay (extra visible rows OR'd in — the additive shape SLOT-02's
+#   wrap-don't-replace rule is written for, and what `PermissionExtension`'s own
+#   docstring offers as "advanced RBAC, ABAC, or row-level filters") — the
+#   community query finds nobody stranded, the guard returns [], the change
+#   applies, and a user the overlay HAD granted access to silently loses the
+#   layer. That is the break this guard exists to prevent, reappearing one level
+#   up.
+#
+# Both need the seam, and neither is fixable here: `filter_visible` and
+# `can_access_dataset` take a CONCRETE user, and a map's audience is a set with
+# no representative member to pass them. See #1068 for the protocol method.
 #
 # fix(#931 codex r1): `restricted` is a PARTIAL audience, not an absent one.
 # Treating it as unreachable made `restricted -> private` look like it stranded
@@ -229,20 +245,33 @@ async def find_maps_broken_by_dataset_visibility(
     # fix(#931 codex r5): the rank narrowing says the audience COULD shrink;
     # whether anyone is standing in the part being cut is a separate question.
     #
-    # A public map is the one case needing no lookup, and only when the dataset
-    # was public: anonymous visitors see nothing else, they always exist, and
-    # they are never a row in `users`. A public map losing a dataset that was
-    # already non-public strands only signed-in viewers, so it asks the same
-    # question an internal map does.
-    anonymous_stranded = "public" in audiences and old_visibility == "public"
-    if not anonymous_stranded:
-        old_reaches_all = old_visibility in ("public", "internal")
-        if old_reaches_all:
-            cut = "ungranted" if new_visibility == "restricted" else "any"
-        else:
-            cut = "granted"
-        if not await _stranded_viewer_exists(session, dataset_id, owner_id, slice_=cut):
-            return []
+    # fix(#931 codex r6): asked PER AUDIENCE. A public map losing a public
+    # dataset always strands its anonymous visitors — they see nothing else,
+    # always exist, and are never a row in `users` — but that says nothing about
+    # the internal map beside it, whose viewers may all hold grants. Answering
+    # once for both listed maps that were not stranded, sending the operator to
+    # remove a layer from a map that renders fine.
+    signed_in_stranded: bool | None = None
+    stranded: list[str] = []
+    for visibility in audiences:
+        if visibility == "public" and old_visibility == "public":
+            stranded.append(visibility)
+            continue
+        if signed_in_stranded is None:
+            # The same question whichever map asks it: the dataset's own
+            # audience, so it is resolved once and reused.
+            if old_visibility in ("public", "internal"):
+                cut = "ungranted" if new_visibility == "restricted" else "any"
+            else:
+                cut = "granted"
+            signed_in_stranded = await _stranded_viewer_exists(
+                session, dataset_id, owner_id, slice_=cut
+            )
+        if signed_in_stranded:
+            stranded.append(visibility)
+    if not stranded:
+        return []
+    audiences = stranded
     stmt = (
         select(Map.name)
         .select_from(MapLayer)

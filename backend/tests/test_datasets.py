@@ -10,6 +10,7 @@ Requirements:
 """
 
 import uuid
+from contextlib import asynccontextmanager
 
 import pytest
 from httpx import AsyncClient
@@ -676,19 +677,16 @@ class TestUpdateMetadata:
         )
         assert allowed.status_code == 200, allowed.text
 
-    async def test_internal_to_private_does_not_block_when_no_one_else_is_active(
-        self,
-        client: AsyncClient,
-        admin_auth_header: dict,
-        test_db_session,
-    ):
-        """fix(#931 codex r5): a rank drop is not the same as someone losing access.
+    @staticmethod
+    @asynccontextmanager
+    async def _only_admins_active(test_db_session):
+        """Temporarily leave the admin accounts as the only active users.
 
-        No `viewer_auth_header` here, so the only accounts are the admin owner
-        and other admins — all of whom keep access either way. The internal
-        audience the move removes is empty, so refusing would be a refusal that
-        lies. Deactivate any stray non-admin left by an earlier test in this
-        worker, since the per-worker DB persists.
+        The per-worker DB persists across tests, so earlier ones leave live
+        `viewer_<hex>` accounts behind. A test asserting "nobody else is in the
+        audience" has to remove them — and RESTORE them, or it silently rewrites
+        the world for every test that runs after it in the same worker. Ask me
+        how I know.
         """
         from app.modules.auth.models import Role, User, UserRole
 
@@ -708,11 +706,33 @@ class TestUpdateMetadata:
             .scalars()
             .all()
         )
-        for stray in strays:
-            stray.is_active = False
-            stray.status = "suspended"
+        saved = [(u, u.is_active, u.status) for u in strays]
+        for user, _, _ in saved:
+            user.is_active = False
+            user.status = "suspended"
         await test_db_session.commit()
+        try:
+            yield
+        finally:
+            for user, was_active, was_status in saved:
+                user.is_active = was_active
+                user.status = was_status
+            await test_db_session.commit()
 
+    async def test_internal_to_private_does_not_block_when_no_one_else_is_active(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """fix(#931 codex r5): a rank drop is not the same as someone losing access.
+
+        No `viewer_auth_header` here, so the only accounts are the admin owner
+        and other admins — all of whom keep access either way. The internal
+        audience the move removes is empty, so refusing would be a refusal that
+        lies. Deactivate any stray non-admin left by an earlier test in this
+        worker, since the per-worker DB persists.
+        """
         admin_id = await _get_user_id(test_db_session, "admin")
         ds = await self._dataset_on_map(
             test_db_session,
@@ -722,11 +742,12 @@ class TestUpdateMetadata:
             map_name="No Other Viewers Map",
         )
 
-        resp = await client.patch(
-            f"/datasets/{ds.id}",
-            json={"visibility": "private"},
-            headers=admin_auth_header,
-        )
+        async with self._only_admins_active(test_db_session):
+            resp = await client.patch(
+                f"/datasets/{ds.id}",
+                json={"visibility": "private"},
+                headers=admin_auth_header,
+            )
 
         assert resp.status_code == 200, resp.text
 
@@ -762,6 +783,53 @@ class TestUpdateMetadata:
 
         assert resp.status_code == 422
         assert map_name in resp.json()["detail"]
+
+    async def test_only_the_stranded_map_is_named_when_audiences_differ(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """fix(#931 codex r6): each audience is judged on its own.
+
+        A public dataset on BOTH a public and an internal map, moving to
+        private. The public map strands its anonymous visitors and must be
+        named. The internal map strands nobody — the only active accounts here
+        are the admin owner and other admins, all of whom keep access — so
+        naming it would send the operator to remove a layer from a map that
+        renders fine.
+        """
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await self._dataset_on_map(
+            test_db_session,
+            admin_id,
+            dataset_visibility="public",
+            map_visibility="public",
+            map_name="Anonymous Strands Here",
+        )
+        internal_map = Map(
+            name="Internal Strands Nobody",
+            visibility="internal",
+            created_by=admin_id,
+        )
+        test_db_session.add(internal_map)
+        await test_db_session.flush()
+        test_db_session.add(
+            MapLayer(map_id=internal_map.id, dataset_id=ds.id, sort_order=0)
+        )
+        await test_db_session.commit()
+
+        async with self._only_admins_active(test_db_session):
+            resp = await client.patch(
+                f"/datasets/{ds.id}",
+                json={"visibility": "private"},
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 422
+        detail = resp.json()["detail"]
+        assert "Anonymous Strands Here" in detail
+        assert "Internal Strands Nobody" not in detail
 
     async def test_an_unpublished_dataset_never_blocks(
         self,
