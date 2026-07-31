@@ -373,9 +373,15 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     } else {
       // switching to solid / None: remove fill-pattern
       delete next['fill-pattern'];
-      // Restore the stashed color, or the default when there was none to stash
+      // Restore the stashed color, or the default when there was none to stash.
+      // fix(#910, codex P2): the stash is typed `string` but comes from an open
+      // `style_config` that gets size validation only, so an API-authored layer can
+      // hold a number or object there. Painting that would hand MapLibre a colour it
+      // rejects, so an unusable stash falls through to the default — the same rule
+      // `fill-adapter.ts` and the backend export apply to the same value.
       if (!next['fill-color']) {
-        next['fill-color'] = fillColorSaved ?? FILL_DEFAULTS['fill-color'];
+        next['fill-color'] =
+          typeof fillColorSaved === 'string' ? fillColorSaved : FILL_DEFAULTS['fill-color'];
       }
       fillColorSaved = undefined;
     }

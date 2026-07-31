@@ -1647,6 +1647,32 @@ describe('LayerStyleEditor — EDIT-05 fill-color / fill-pattern mutual exclusio
     expect(config?.builder?.fillColorSaved).toBeUndefined();
   });
 
+  // fix(#910, codex P2): the stash is declared `string` but arrives from an open
+  // `style_config`, so an API-authored layer can hold junk. Restoring that on None
+  // would paint a colour MapLibre rejects.
+  it('falls back to the default colour when the stash is not a usable colour', () => {
+    const onStyleConfigChange = vi.fn();
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Polygon',
+          paint: { 'fill-pattern': 'geolens-fill-hatch' },
+          style_config: { builder: { fillColorSaved: 42 } } as unknown as StyleConfig,
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
+        onLayoutChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'None' })[0]);
+
+    const { paint } = lastStyleConfigCall(onStyleConfigChange);
+    expect('fill-pattern' in paint).toBe(false);
+    expect(typeof paint['fill-color']).toBe('string');
+  });
+
   it('keeps the stash when switching from one pattern straight to another', () => {
     const onStyleConfigChange = vi.fn();
     render(
