@@ -15,6 +15,7 @@ Requirements:
 
 import ast
 import uuid
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -492,11 +493,17 @@ class TestToolResultSerializationSites:
     and pass for the wrong reason.
     """
 
-    KNOWN_SITE_MODULES = (
-        "processing/ai/streaming.py",
-        "platform/extensions/defaults_ai_anthropic.py",
-        "platform/extensions/defaults_ai_openai.py",
-    )
+    # fix(#699 codex P2): counted PER MODULE, not merely present. streaming.py
+    # builds two of these messages (the Anthropic tool_result block and the
+    # OpenAI tool message), and a set of module names collapses them — so if
+    # one changed its key spelling and stopped matching, the other would keep
+    # this anchor satisfied while the unmatched site quietly serialized an
+    # untrimmed payload.
+    KNOWN_SITE_COUNTS = {
+        "processing/ai/streaming.py": 2,
+        "platform/extensions/defaults_ai_anthropic.py": 1,
+        "platform/extensions/defaults_ai_openai.py": 1,
+    }
 
     @staticmethod
     def _content_value(node: ast.Dict) -> ast.expr | None:
@@ -537,12 +544,17 @@ class TestToolResultSerializationSites:
                 if value is not None:
                     sites.append((rel, node.lineno, value))
 
-        found_in = {rel for rel, _, _ in sites}
-        missing = [rel for rel in self.KNOWN_SITE_MODULES if rel not in found_in]
-        assert not missing, (
-            "the walk no longer recognizes the tool-result messages in "
-            f"{missing} — the key names it matches on must have changed, so "
-            "this gate is passing without checking anything."
+        found_per_module = Counter(rel for rel, _, _ in sites)
+        undercounted = {
+            rel: (found_per_module[rel], expected)
+            for rel, expected in self.KNOWN_SITE_COUNTS.items()
+            if found_per_module[rel] < expected
+        }
+        assert not undercounted, (
+            "the walk no longer recognizes every known tool-result message "
+            f"(module: found vs expected) {undercounted} — the key names it "
+            "matches on must have changed, so this gate is passing without "
+            "checking the sites it lost."
         )
 
         unwrapped = [
