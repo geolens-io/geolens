@@ -44,7 +44,6 @@ from app.platform.analysis_sql import (
     render_spatial_join_match_count,
     spatial_join_output_columns,
 )
-from app.platform.sandbox.schemas import SandboxError
 from app.platform.sandbox.executor import execute_safe
 from app.platform.sandbox.schemas import SandboxError
 

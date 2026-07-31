@@ -845,10 +845,14 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # positional rows become properties — not SQL. Two folds during the
         # wave (#955's count builder, #956's preview projection) each bought
         # one more operation's worth of room before it stopped fitting.
-        # 310 on main + 145 for the four operations = 455. The per-operation
+        # 310 on main + 144 for the four operations = 454. The per-operation
         # dispatch is now the majority of the file, so an eighth operation
         # should split that out rather than raise this again.
-        "backend/app/modules/catalog/datasets/domain/service_analysis.py": 455,
+        # This budget is a ceiling rather than an exact ratchet, so it would
+        # pass at 455 with the file at 454. Set to the measured value anyway:
+        # the spare line is what the no-headroom rule on _MODULE_LOC_CAPS
+        # calls the seed of the next raise.
+        "backend/app/modules/catalog/datasets/domain/service_analysis.py": 454,
         "backend/app/modules/catalog/maps/service_crud.py": 550,
         # fix(#474, #475): localized ranking/eager loading plus the OGC
         # ids/externalIds filters cross the default by nine lines. Keep the

@@ -4,6 +4,7 @@ import re
 import uuid
 from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import and_, func, or_, select, text
@@ -378,6 +379,42 @@ async def _validate_materialize_params(
         _validate_intersect_columns(dataset, overlay)
 
 
+def _build_analysis_job_metadata(
+    body: AnalysisMaterializeRequest, dataset
+) -> dict[str, Any]:
+    """The params recorded on the job so Admin -> Jobs can diagnose a run.
+
+    "analysis-buffer failed" on its own says nothing. The drawn mask geometry
+    is deliberately NOT stored: it can be kilobytes, and a marker suffices.
+
+    Extracted from the handler rather than left inline (#1097 review): this is
+    the per-operation dispatch, so it is the block that grows every time an
+    operation is added, and it took the endpoint past ruff's C901 threshold at
+    the fourth one. Inline, the next operation would trip the same rule again
+    and the fix would be the same extraction done under more pressure. Nothing
+    here touches the request, the session, or the job row, so it lifts out
+    whole.
+    """
+    meta: dict[str, Any] = {
+        "operation": body.operation,
+        "source_dataset_id": str(dataset.id),
+        "title": body.title,
+    }
+    if body.distance_meters is not None:
+        meta["distance_meters"] = body.distance_meters
+    if body.by_field is not None:
+        meta["by_field"] = body.by_field
+    if body.operation == "clip":
+        meta["mask_source"] = "layer" if body.mask_dataset_id else "drawn"
+        if body.mask_dataset_id is not None:
+            meta["mask_dataset_id"] = str(body.mask_dataset_id)
+    if body.operation == "spatial_join":
+        meta["join_dataset_id"] = str(body.join_dataset_id)
+        if body.join_fields:
+            meta["join_fields"] = list(body.join_fields)
+    return meta
+
+
 @router.post(
     "/{dataset_id}/analysis/materialize/",
     response_model=AnalysisMaterializeResponse,
@@ -533,27 +570,7 @@ async def analysis_materialize_endpoint(
     job = await get_catalog_port().create_ingest_job(
         db, f"analysis-{body.operation}", "", user.id
     )
-    # Record the request params so Admin → Jobs can diagnose a failed run
-    # ("analysis-buffer failed" alone says nothing). The drawn mask geometry
-    # is deliberately NOT stored — it can be kilobytes; a marker suffices.
-    analysis_meta = {
-        "operation": body.operation,
-        "source_dataset_id": str(dataset.id),
-        "title": body.title,
-    }
-    if body.distance_meters is not None:
-        analysis_meta["distance_meters"] = body.distance_meters
-    if body.by_field is not None:
-        analysis_meta["by_field"] = body.by_field
-    if body.operation == "clip":
-        analysis_meta["mask_source"] = "layer" if body.mask_dataset_id else "drawn"
-        if body.mask_dataset_id is not None:
-            analysis_meta["mask_dataset_id"] = str(body.mask_dataset_id)
-    if body.operation == "spatial_join":
-        analysis_meta["join_dataset_id"] = str(body.join_dataset_id)
-        if body.join_fields:
-            analysis_meta["join_fields"] = list(body.join_fields)
-    job.user_metadata = {"analysis": analysis_meta}
+    job.user_metadata = {"analysis": _build_analysis_job_metadata(body, dataset)}
     # ux(#698): stamp a step so a pending job reads as "queued" rather than
     # being indistinguishable from a broken one. This matters more since #703
     # deliberately defers analysis below the default priority — a queued job
