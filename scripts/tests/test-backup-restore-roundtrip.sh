@@ -349,6 +349,41 @@ grep -q "pg_dumpall --globals-only failed" "$FAIL_LOG" \
     || fail "a failed globals dump left its .tmp behind"
 echo "      failure path OK — cycle non-zero, .last-success untouched, no partial artifact."
 
+# fix(#995) review: publishing failures must fail the cycle too. backup_globals
+# always runs inside a `$(...) || cycle_failed=1` command substitution, which
+# suspends `set -e` for its whole body, so an unchecked `mv` (read-only volume,
+# ENOSPC) would fall through and report a healthy cycle with no globals artifact
+# beside a valid dump. The stub fails ONLY for globals paths, so the dump's own
+# mv still succeeds and this isolates the publish step.
+MV_STUB_BIN="${WORKDIR}/stub-mv"
+mkdir -p "$MV_STUB_BIN"
+cat > "${MV_STUB_BIN}/mv" <<'MVSTUB'
+#!/bin/sh
+case "$*" in *globals-*) echo "simulated mv failure" >&2; exit 1;; esac
+for real in /bin/mv /usr/bin/mv; do [ -x "$real" ] && exec "$real" "$@"; done
+exit 127
+MVSTUB
+chmod +x "${MV_STUB_BIN}/mv"
+
+sleep 1
+touch "$LAST_SUCCESS_MARKER"
+MV_LOG="${WORKDIR}/cycle-mv.log"
+set +e
+run_cycle "${MV_STUB_BIN}:${PATH}" > "$MV_LOG" 2>&1
+MV_RC=$?
+set -e
+[ "$MV_RC" -ne 0 ] || {
+    cat "$MV_LOG" >&2
+    fail "cycle returned 0 despite the globals dump never being published"
+}
+grep -q "could not publish" "$MV_LOG" \
+    || fail "cycle failed but never logged that the globals dump could not be published"
+[ ! "${CYCLE_BACKUPS}/.last-success" -nt "$LAST_SUCCESS_MARKER" ] \
+    || fail ".last-success was touched by a cycle that could not publish its globals dump"
+[ -z "$(find "${CYCLE_BACKUPS}/daily" -name 'globals-*.sql.tmp' 2>/dev/null)" ] \
+    || fail "a failed publish left the globals .tmp behind"
+echo "      publish failure OK — an unpublished globals dump fails the cycle."
+
 # fix(#995) review: companions prune by PAIRING, not by their own count. The
 # failure path above is exactly how the counts diverge — a good dump with no
 # globals — so with count-based pruning a retention window of 1 keeps the

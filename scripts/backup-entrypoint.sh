@@ -296,7 +296,17 @@ backup_globals() {
         rm -f "${globals_file}.tmp"
         return 1
     fi
-    mv "${globals_file}.tmp" "$globals_file"
+    # Every publish step is checked explicitly. This function always runs inside
+    # a `$(...) || cycle_failed=1` command substitution, which suspends `set -e`
+    # for its whole body — so an unchecked `mv` or `cp` failing (read-only
+    # volume, ENOSPC) would fall through to the final printf, return success,
+    # and let the cycle touch .last-success with no globals artifact beside a
+    # valid dump.
+    if ! mv "${globals_file}.tmp" "$globals_file"; then
+        log "ERROR: could not publish $(basename "$globals_file") — is the backup volume writable and not full?" >&2
+        rm -f "${globals_file}.tmp"
+        return 1
+    fi
 
     local size
     size="$(du -h "$globals_file" | cut -f1)"
@@ -304,9 +314,15 @@ backup_globals() {
     if [ "$(date '+%u')" = "7" ]; then
         # cp carries the source's 0600 across (measured on both busybox and
         # GNU cp), but the weekly copy is the one an operator reaches for
-        # months later, so pin the mode instead of inheriting it.
-        cp "$globals_file" "${WEEKLY_DIR}/$(basename "$globals_file")"
-        chmod 600 "${WEEKLY_DIR}/$(basename "$globals_file")"
+        # months later, so pin the mode instead of inheriting it. Checked for
+        # the same reason as the mv above: a half-written weekly copy beside a
+        # good weekly dump is worse than none, so discard it and fail.
+        local weekly_copy="${WEEKLY_DIR}/$(basename "$globals_file")"
+        if ! cp "$globals_file" "$weekly_copy" || ! chmod 600 "$weekly_copy"; then
+            log "ERROR: could not write the weekly globals copy to ${WEEKLY_DIR}" >&2
+            rm -f "$weekly_copy"
+            return 1
+        fi
         log "Weekly globals copy saved: $(basename "$globals_file")" >&2
     fi
     printf '%s\n' "$globals_file"
