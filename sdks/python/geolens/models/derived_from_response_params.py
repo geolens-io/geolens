@@ -7,12 +7,12 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
 
-T = TypeVar("T", bound="DatasetResponseDerivedFromType0")
+T = TypeVar("T", bound="DerivedFromResponseParams")
 
 
 @_attrs_define
-class DatasetResponseDerivedFromType0:
-    """ """
+class DerivedFromResponseParams:
+    """Operation parameters, minus any dataset reference the requester cannot access"""
 
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -26,10 +26,10 @@ class DatasetResponseDerivedFromType0:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        dataset_response_derived_from_type_0 = cls()
+        derived_from_response_params = cls()
 
-        dataset_response_derived_from_type_0.additional_properties = d
-        return dataset_response_derived_from_type_0
+        derived_from_response_params.additional_properties = d
+        return derived_from_response_params
 
     @property
     def additional_keys(self) -> list[str]:

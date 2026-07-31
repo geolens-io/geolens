@@ -16,12 +16,10 @@ import datetime
 if TYPE_CHECKING:
     from ..models.collection_ref import CollectionRef
     from ..models.column_info import ColumnInfo
-    from ..models.dataset_response_derived_from_type_0 import (
-        DatasetResponseDerivedFromType0,
-    )
     from ..models.dataset_response_stac_assets_type_0 import (
         DatasetResponseStacAssetsType0,
     )
+    from ..models.derived_from_response import DerivedFromResponse
     from ..models.quality_detail import QualityDetail
     from ..models.raster_metadata import RasterMetadata
 
@@ -51,9 +49,9 @@ class DatasetResponse:
         current_version (int | Unset): Monotonic version counter Default: 1.
         data_vintage_end (datetime.date | None | Unset): End of temporal coverage
         data_vintage_start (datetime.date | None | Unset): Start of temporal coverage
-        derived_from (DatasetResponseDerivedFromType0 | None | Unset): Provenance for an analysis output — {dataset_id,
-            operation, params, created_at}. Null for a dataset that was not derived, and also for a requester who cannot
-            access the source dataset.
+        derived_from (DerivedFromResponse | None | Unset): Provenance for an analysis output. Null for a dataset that
+            was not derived, and also for a requester who cannot access the source dataset — the two are deliberately
+            indistinguishable.
         extent_bbox (list[float] | None | Unset): Bounding box [west, south, east, north] per RFC 7946 §5.2. west > east
             on an antimeridian-crossing extent.
         geometry_type (None | str | Unset): OGC geometry type, e.g. MultiPolygon
@@ -112,7 +110,7 @@ class DatasetResponse:
     current_version: int | Unset = 1
     data_vintage_end: datetime.date | None | Unset = UNSET
     data_vintage_start: datetime.date | None | Unset = UNSET
-    derived_from: DatasetResponseDerivedFromType0 | None | Unset = UNSET
+    derived_from: DerivedFromResponse | None | Unset = UNSET
     extent_bbox: list[float] | None | Unset = UNSET
     geometry_type: None | str | Unset = UNSET
     has_generic_geometry: bool | Unset = False
@@ -148,12 +146,10 @@ class DatasetResponse:
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        from ..models.dataset_response_derived_from_type_0 import (
-            DatasetResponseDerivedFromType0,
-        )
         from ..models.dataset_response_stac_assets_type_0 import (
             DatasetResponseStacAssetsType0,
         )
+        from ..models.derived_from_response import DerivedFromResponse
         from ..models.quality_detail import QualityDetail
         from ..models.raster_metadata import RasterMetadata
 
@@ -239,7 +235,7 @@ class DatasetResponse:
         derived_from: dict[str, Any] | None | Unset
         if isinstance(self.derived_from, Unset):
             derived_from = UNSET
-        elif isinstance(self.derived_from, DatasetResponseDerivedFromType0):
+        elif isinstance(self.derived_from, DerivedFromResponse):
             derived_from = self.derived_from.to_dict()
         else:
             derived_from = self.derived_from
@@ -551,12 +547,10 @@ class DatasetResponse:
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.collection_ref import CollectionRef
         from ..models.column_info import ColumnInfo
-        from ..models.dataset_response_derived_from_type_0 import (
-            DatasetResponseDerivedFromType0,
-        )
         from ..models.dataset_response_stac_assets_type_0 import (
             DatasetResponseStacAssetsType0,
         )
+        from ..models.derived_from_response import DerivedFromResponse
         from ..models.quality_detail import QualityDetail
         from ..models.raster_metadata import RasterMetadata
 
@@ -710,9 +704,7 @@ class DatasetResponse:
             d.pop("data_vintage_start", UNSET)
         )
 
-        def _parse_derived_from(
-            data: object,
-        ) -> DatasetResponseDerivedFromType0 | None | Unset:
+        def _parse_derived_from(data: object) -> DerivedFromResponse | None | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
@@ -720,12 +712,12 @@ class DatasetResponse:
             try:
                 if not isinstance(data, dict):
                     raise TypeError()
-                derived_from_type_0 = DatasetResponseDerivedFromType0.from_dict(data)
+                derived_from_type_0 = DerivedFromResponse.from_dict(data)
 
                 return derived_from_type_0
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
-            return cast(DatasetResponseDerivedFromType0 | None | Unset, data)
+            return cast(DerivedFromResponse | None | Unset, data)
 
         derived_from = _parse_derived_from(d.pop("derived_from", UNSET))
 

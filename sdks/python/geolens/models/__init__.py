@@ -202,7 +202,6 @@ from .dataset_relationship_create import DatasetRelationshipCreate
 from .dataset_relationship_list_response import DatasetRelationshipListResponse
 from .dataset_relationship_response import DatasetRelationshipResponse
 from .dataset_response import DatasetResponse
-from .dataset_response_derived_from_type_0 import DatasetResponseDerivedFromType0
 from .dataset_response_stac_assets_type_0 import DatasetResponseStacAssetsType0
 from .dataset_rows_response import DatasetRowsResponse
 from .dataset_rows_response_rows_item import DatasetRowsResponseRowsItem
@@ -210,6 +209,8 @@ from .dataset_version_list_response import DatasetVersionListResponse
 from .dataset_version_response import DatasetVersionResponse
 from .dbf_truncation_collision_warning import DbfTruncationCollisionWarning
 from .dbf_truncation_detail import DbfTruncationDetail
+from .derived_from_response import DerivedFromResponse
+from .derived_from_response_params import DerivedFromResponseParams
 from .detect_embedding_dims_response import DetectEmbeddingDimsResponse
 from .discover_response import DiscoverResponse
 from .discovered_table import DiscoveredTable
@@ -884,7 +885,6 @@ __all__ = (
     "DatasetRelationshipListResponse",
     "DatasetRelationshipResponse",
     "DatasetResponse",
-    "DatasetResponseDerivedFromType0",
     "DatasetResponseStacAssetsType0",
     "DatasetRowsResponse",
     "DatasetRowsResponseRowsItem",
@@ -892,6 +892,8 @@ __all__ = (
     "DatasetVersionResponse",
     "DbfTruncationCollisionWarning",
     "DbfTruncationDetail",
+    "DerivedFromResponse",
+    "DerivedFromResponseParams",
     "DetectEmbeddingDimsResponse",
     "DiscoveredTable",
     "DiscoverResponse",
