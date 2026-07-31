@@ -81,13 +81,28 @@ async def validate_public_visibility(
 _SHARED_MAP_AUDIENCES = ("public", "internal")
 
 
-def _dataset_reaches(map_visibility: str, dataset_visibility: str) -> bool:
-    """Whether a dataset at this visibility is visible to a map's whole audience."""
-    if map_visibility == "public":
-        return dataset_visibility == "public"
+# How much of a shared map's audience a dataset at each visibility reaches. The
+# four rungs nest — the owner is a grantee is a signed-in user is everyone — so
+# this is a total order, and "does this change strand someone" is a comparison
+# rather than a table of allowed moves.
+#
+# fix(#931 codex r1): `restricted` is a PARTIAL audience, not an absent one.
+# Treating it as unreachable made `restricted -> private` look like it stranded
+# nobody, when it drops the grant holders who could render the layer.
+_DATASET_AUDIENCE_RANK = {"private": 0, "restricted": 1, "internal": 2, "public": 3}
+
+
+def _reach_rank(map_visibility: str, dataset_visibility: str) -> int:
+    """How much of ``map_visibility``'s audience the dataset reaches.
+
+    An internal map's audience is every signed-in user, and both ``internal``
+    and ``public`` reach all of them — so the two tie there, which is what makes
+    the public-to-internal move safe on an internal map and not on a public one.
+    """
+    rank = _DATASET_AUDIENCE_RANK.get(dataset_visibility, 0)
     if map_visibility == "internal":
-        return dataset_visibility in ("public", "internal")
-    return True
+        return min(rank, _DATASET_AUDIENCE_RANK["internal"])
+    return rank
 
 
 async def find_maps_broken_by_dataset_visibility(
@@ -108,17 +123,15 @@ async def find_maps_broken_by_dataset_visibility(
     values, because #930 turned the rule into a matrix. An internal map keeps
     working when its dataset moves from public to internal, and breaks only on
     the move to private — a rule expressed against today's target value alone
-    would fire on a move that is in fact safe. It also means a dataset that was
-    already unreachable for an audience (a ``restricted`` one on an internal
-    map) does not produce a block for a change that strands nothing new.
+    would fire on a move that is in fact safe.
 
     Empty = safe to apply.
     """
     audiences = [
         visibility
         for visibility in _SHARED_MAP_AUDIENCES
-        if _dataset_reaches(visibility, old_visibility)
-        and not _dataset_reaches(visibility, new_visibility)
+        if _reach_rank(visibility, new_visibility)
+        < _reach_rank(visibility, old_visibility)
     ]
     if not audiences:
         return []

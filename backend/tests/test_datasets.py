@@ -520,8 +520,14 @@ class TestUpdateMetadata:
             ("public", "internal", "internal", False),
             # A private map has no audience beyond its owner and grantees.
             ("public", "private", "private", False),
-            # Already unreachable for that audience: nothing new breaks.
-            ("restricted", "internal", "private", False),
+            # fix(#931 codex r1): `restricted` is a PARTIAL audience, not an
+            # absent one. Grant holders could render this layer, and dropping to
+            # private takes it from them — the exact stranding this guard is for.
+            ("restricted", "internal", "private", True),
+            ("restricted", "public", "private", True),
+            # Widening never strands anyone.
+            ("restricted", "internal", "public", False),
+            ("private", "internal", "internal", False),
             # The public-map rule is unchanged — any move off public strands it.
             ("public", "public", "internal", True),
             ("public", "public", "private", True),
