@@ -8,8 +8,6 @@ which removes the drift class by construction; these tests pin the wiring so
 a rewrite of the prompt cannot quietly reintroduce a hand-written copy.
 """
 
-import pytest
-
 from app.platform.analysis_sql import render_geodesic_buffer
 from app.processing.ai.sql_generator import SQL_SYSTEM_PROMPT
 
@@ -70,28 +68,25 @@ def test_every_buffer_in_the_prompt_is_generated_or_marked_wrong():
         )
 
 
-def test_rendered_buffer_expression_is_refused_until_1001_lands():
-    """fix(#1001): INVERTED, deliberately, and it must go back to asserting
-    admission when #1001 lands.
+def test_rendered_buffer_expression_validates():
+    """fix(#1001): the prompt mandates render_geodesic_buffer's output, so the
+    sandbox has to admit what the model is taught to emit.
 
-    #935 codex r1 admitted the buffer's functions and bounded them with cost
-    guards. #990 then rebuilt the renderer, and those guards — written against
-    the older shape — rejected the very expression the prompt mandates. Three
-    attempts to recalibrate them each drew a real P1 (see #1002), because
-    proving a target's units and admitting the canonical buffer are
-    contradictory under any target-inspection scheme: the buffer segmentizes
-    an alias, `_pb_d0.c0`, several derived levels from its input.
+    This test spent one release inverted. #935 codex r1 admitted the buffer's
+    functions and bounded them with per-call cost guards; #990 then rebuilt the
+    renderer and those guards, written against the older shape, rejected the
+    very expression the prompt mandates. Three attempts to recalibrate them
+    each drew a real P1 (#1002), because proving a call's argument is safe and
+    admitting the canonical buffer are contradictory under any
+    argument-inspection scheme — the buffer segmentizes an alias, `_pb_d0.c0`,
+    several derived levels from its input. #1003 took the guards and the
+    allowlist entries back out, which left the prompt teaching an expression
+    the sandbox refused, and this test asserting that refusal.
 
-    So the allowlist entries and the guards both came out. That leaves the
-    prompt still teaching the SAFE banded expression, which the sandbox now
-    refuses outright. The refusal is the point: the alternative was reverting
-    the prompt too, and `st_buffer` is allowlisted independently, so the model
-    would have emitted the bare `ST_Buffer(geom::geography, N)::geometry` form
-    and it would have EXECUTED — returning the world-spanning polygon across
-    ±180° that #883/#900/#990 fixed. A refused buffer question beats a
-    silently wrong overlay and bbox.
+    #1001 admits it a different way: nothing is allowlisted per call, and a
+    subtree is exempted only when it is exactly what the renderer emits around
+    its own input. So this asserts admission again.
     """
-    from app.platform.sandbox.schemas import SandboxError
     from app.platform.sandbox.validator import validate_sql
 
     denver = render_geodesic_buffer(
@@ -99,20 +94,26 @@ def test_rendered_buffer_expression_is_refused_until_1001_lands():
         50000,
     )
     # The prompt's worked example, as the model would emit it.
-    with pytest.raises(SandboxError):
-        validate_sql(
-            "SELECT p.name AS park_name\n"
-            "FROM data.national_parks p\n"
-            f"WHERE ST_Intersects(p.geom_4326, {denver})\n"
-            "LIMIT 100"
-        )
+    result = validate_sql(
+        "SELECT p.name AS park_name\n"
+        "FROM data.national_parks p\n"
+        f"WHERE ST_Intersects(p.geom_4326, {denver})\n"
+        "LIMIT 100"
+    )
+    # The buffer's scaffold contributes no table of its own; the two tables are
+    # the ones the model actually asked for.
+    assert result.tables == {
+        ("data", "national_parks"),
+        ("data", "us_state_capitals"),
+    }
+
     # A direct buffer-geometry request, the chat_geojson-shaped form.
     buffered = render_geodesic_buffer("s.geom_4326", 10000)
-    with pytest.raises(SandboxError):
-        validate_sql(
-            f"SELECT s.name, ST_AsGeoJSON({buffered}) AS geometry\n"
-            "FROM data.stations s\nLIMIT 100"
-        )
+    result = validate_sql(
+        f"SELECT s.name, ST_AsGeoJSON({buffered}) AS geometry\n"
+        "FROM data.stations s\nLIMIT 100"
+    )
+    assert result.tables == {("data", "stations")}
 
 
 def test_function_reference_line_declares_degrees():

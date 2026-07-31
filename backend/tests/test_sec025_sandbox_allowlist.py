@@ -18,7 +18,7 @@ import pytest
 from structlog.testing import capture_logs
 
 from app.platform.sandbox.schemas import SandboxError
-from app.platform.sandbox.validator import validate_sql
+from app.platform.sandbox.validator import _MAX_BUFFER_MATCH_ATTEMPTS, validate_sql
 
 
 # ---------------------------------------------------------------------------
@@ -546,6 +546,12 @@ class TestResourceAmplificationRejected:
 
     def test_rejects_unknown_postgis_function(self):
         _assert_rejects("SELECT ST_MakeEnvelope(0, 0, 1, 1, 4326)")
+        # fix(#1001): ST_GeneratePoints is the attacker-chosen-cardinality
+        # generator the allowlist comment cites. Kept alongside ST_MakeEnvelope
+        # rather than replacing it: #1001 admits the buffer's machinery only
+        # inside the rendered template, so ST_MakeEnvelope on its own is still
+        # an unknown spatial function and both belong here.
+        _assert_rejects("SELECT ST_GeneratePoints(geom_4326, 100) FROM data.cities")
 
     def test_rejects_oversized_generate_series(self):
         _assert_rejects("SELECT array_agg(i) FROM generate_series(1, 1000000000) AS i")
@@ -609,3 +615,243 @@ class TestResourceAmplificationRejected:
     )
     def test_rejects_unbounded_collection_builders(self, sql):
         _assert_rejects(sql)
+
+    def test_rejects_table_scanning_unary_st_collect_however_aliased(self):
+        """fix(#935 codex r2, restored by #1001): the canonical buffer's unary
+        ST_Collect is admitted by whole-template match, not by a per-call
+        exception. Hiding a table scan one derived level down — or borrowing
+        the renderer's own alias names — must not slip past."""
+        _assert_rejects(
+            "SELECT (SELECT ST_Collect(_pb_p.p) FROM "
+            "(SELECT geom_4326 AS p FROM data.cities) AS _pb_p) AS blob"
+        )
+
+    def test_rejects_tiny_or_dynamic_segmentize_length(self):
+        """fix(#935 codex r2, restored by #1001): ST_Segmentize's max-edge
+        argument controls vertex amplification. Outside the rendered template
+        the function is not allowlisted at all, so no argument saves it."""
+        _assert_rejects("SELECT ST_Segmentize(geom_4326, 1e-100) FROM data.cities")
+        _assert_rejects("SELECT ST_Segmentize(geom_4326, population) FROM data.cities")
+        # The lengths the renderer itself uses buy nothing on their own.
+        _assert_rejects(
+            "SELECT ST_Segmentize(geom_4326::geography, 20000) FROM data.cities LIMIT 5"
+        )
+
+    def test_rejects_table_scanning_st_dump(self):
+        """fix(#935 codex r3, restored by #1001): ST_Dump over a table is the
+        UNNEST row-amplification class."""
+        _assert_rejects(
+            "SELECT COUNT(*) FROM data.cities c "
+            "CROSS JOIN LATERAL ST_Dump(c.geom_4326) d"
+        )
+        _assert_rejects("SELECT (ST_Dump(geom_4326)).geom FROM data.cities")
+        _assert_rejects(
+            "SELECT COUNT(*) FROM data.roads r, LATERAL ST_DumpSegments(r.geom_4326) s"
+        )
+
+
+# ---------------------------------------------------------------------------
+# fix(#1001): the canonical geodesic buffer
+# ---------------------------------------------------------------------------
+
+
+def _canonical_buffer(geom: str = "s.geom_4326", distance: float = 10000) -> str:
+    from app.platform.analysis_sql import render_geodesic_buffer
+
+    return render_geodesic_buffer(geom, distance)
+
+
+def _unlisted_names_in_canonical_buffer() -> set[str]:
+    """Function names the rendered buffer uses that neither allowlist carries.
+
+    Derived from the renderer rather than hard-coded, so a renderer change
+    moves this set and the paired negative controls follow it.
+    """
+    import sqlglot
+    from sqlglot import exp
+
+    from app.platform.sandbox.validator import (
+        _ALLOWED_FUNCTIONS,
+        _ALLOWED_POSTGIS_FUNCTIONS,
+        _func_name,
+    )
+
+    parsed = sqlglot.parse_one(
+        f"SELECT {_canonical_buffer('geom_4326', 1000)} AS g FROM data.t",
+        dialect="postgres",
+    )
+    names: set[str] = set()
+    for func in parsed.find_all(exp.Func):
+        # Skipped by the walk itself, so not part of the gap this issue closes.
+        if isinstance(func, (exp.Connector, exp.Exists)):
+            continue
+        name = _func_name(func)
+        if name.startswith("st_"):
+            if name not in _ALLOWED_POSTGIS_FUNCTIONS:
+                names.add(name)
+        elif name not in _ALLOWED_FUNCTIONS:
+            names.add(name)
+    return names
+
+
+class TestCanonicalGeodesicBufferAdmitted:
+    """fix(#1001): the NL->SQL prompt mandates render_geodesic_buffer's output
+    verbatim, and the fail-closed allowlist refused it — every buffer question
+    in the surface was dead. The functions it needs are admitted only inside a
+    subtree that re-renders to exactly the same AST, never per call."""
+
+    def test_admits_the_rendered_buffer(self):
+        _assert_allows(
+            f"SELECT s.name, ST_AsGeoJSON({_canonical_buffer()}) AS geometry "
+            "FROM data.stations s LIMIT 100"
+        )
+
+    def test_admits_a_buffer_over_a_subquery_input(self):
+        _assert_allows(
+            "SELECT p.name FROM data.national_parks p WHERE ST_Intersects("
+            "p.geom_4326, "
+            + _canonical_buffer(
+                "(SELECT geom_4326 FROM data.us_state_capitals WHERE name = 'Denver')",
+                50000,
+            )
+            + ") LIMIT 100"
+        )
+
+    @pytest.mark.parametrize("spelling", ["10000", "10000.0", "1e4"])
+    def test_admits_every_spelling_of_the_same_distance(self, spelling):
+        """The model may write 1e4 where the renderer writes 10000. Numeric
+        literals compare by value, so the match does not turn on spelling."""
+        rendered = _canonical_buffer()
+        _assert_allows(
+            f"SELECT ST_AsGeoJSON({rendered.replace('10000', spelling)}) "
+            "FROM data.stations s"
+        )
+
+    def test_the_gap_is_real(self):
+        """Guards the guard: if this set ever empties, the tests below stop
+        proving anything and the exemption has quietly become unnecessary."""
+        assert len(_unlisted_names_in_canonical_buffer()) >= 10
+
+    @pytest.mark.parametrize("name", sorted(_unlisted_names_in_canonical_buffer()))
+    def test_each_readmitted_function_is_still_refused_on_its_own(self, name):
+        """The paired negative control for every function the buffer readmits.
+
+        Nothing was added to either allowlist, so each of these is still an
+        unlisted function the moment it appears outside the rendered template.
+        """
+        # sqlglot's canonical name for generate_series is not itself valid SQL.
+        call = "generate_series" if name == "exploding_generate_series" else name
+        _assert_rejects(f"SELECT {call}(geom_4326) FROM data.cities")
+
+    def test_the_scaffold_holds_no_blocked_function(self):
+        """A renderer change cannot smuggle a blocked function through the
+        exemption — the BLOCKED check runs inside a match too — but a tripwire
+        here fails at the renderer instead of at a user's query."""
+        import sqlglot
+        from sqlglot import exp
+
+        from app.platform.sandbox.validator import _BLOCKED_FUNCTIONS, _func_name
+
+        parsed = sqlglot.parse_one(
+            f"SELECT {_canonical_buffer('geom_4326', 1000)} AS g FROM data.t",
+            dialect="postgres",
+        )
+        used = {_func_name(func) for func in parsed.find_all(exp.Func)}
+        assert not (used & _BLOCKED_FUNCTIONS)
+
+
+class TestCanonicalBufferExemptionIsScoped:
+    """The exemption covers the rendered scaffold and nothing else."""
+
+    def test_rejects_a_disallowed_function_in_the_buffer_input(self):
+        """The input expression is the model's, so it keeps every check."""
+        _assert_rejects(
+            f"SELECT ST_AsGeoJSON({_canonical_buffer('ST_GeneratePoints(s.geom_4326, 100000)')}) "
+            "FROM data.stations s"
+        )
+
+    def test_rejects_a_blocked_function_in_the_buffer_input(self):
+        _assert_rejects(
+            f"SELECT ST_AsGeoJSON({_canonical_buffer('pg_read_file(s.path)')}) "
+            "FROM data.stations s"
+        )
+
+    def test_rejects_an_unbounded_generator_in_the_buffer_input(self):
+        _assert_rejects(
+            "SELECT ST_AsGeoJSON("
+            + _canonical_buffer("(SELECT i FROM generate_series(1, 1000000000) AS i)")
+            + ") FROM data.stations s"
+        )
+
+    def test_does_not_exempt_the_rest_of_the_query(self):
+        """A canonical buffer in one clause must not license anything in another."""
+        _assert_rejects(
+            f"SELECT ST_AsGeoJSON({_canonical_buffer()}) AS geometry, "
+            "ST_GeneratePoints(s.geom_4326, 100000) AS pts "
+            "FROM data.stations s"
+        )
+
+    def test_rejects_a_tampered_segmentize_length(self):
+        """One scaffold constant changed and the whole subtree fails the match.
+
+        1e-100 is the vertex-amplification payload #1002 chased with a numeric
+        floor; here it simply is not the rendered template.
+        """
+        tampered = _canonical_buffer().replace("20000)::geometry", "1e-100)::geometry")
+        assert tampered != _canonical_buffer()
+        _assert_rejects(
+            f"SELECT ST_AsGeoJSON({tampered}) FROM data.stations s",
+        )
+
+    def test_rejects_a_tampered_band_series(self):
+        """The banding series is bounded by a longitude span in the template;
+        swapping in a literal bound must not survive."""
+        rendered = _canonical_buffer()
+        tampered = rendered.replace(
+            "generate_series(0, GREATEST(", "generate_series(0, 1000000000 + GREATEST("
+        )
+        assert tampered != rendered
+        _assert_rejects(f"SELECT ST_AsGeoJSON({tampered}) FROM data.stations s")
+
+    def test_rejects_a_scaffold_borrowing_the_renderer_aliases(self):
+        """The alias-rebinding attack: the template includes the derived-table
+        scaffold that binds `_pb`, so a real table bound to those names is not
+        the rendered expression."""
+        _assert_rejects(
+            "SELECT ST_UnaryUnion(ST_Collect(_pb_p.p)) FROM "
+            "(SELECT (ST_Dump(c.geom_4326)).geom AS p FROM data.cities c) AS _pb_p"
+        )
+
+    def test_rejects_a_truncated_lookalike(self):
+        """Just wearing the renderer's input fence is not enough."""
+        _assert_rejects(
+            "SELECT (SELECT CASE WHEN ST_XMax(_pb.g) - ST_XMin(_pb.g) >= 6 "
+            "THEN ST_UnaryUnion(_pb.g) ELSE _pb.g END "
+            "FROM (SELECT s.geom_4326 AS g OFFSET 0) AS _pb) FROM data.stations s"
+        )
+
+    def test_rejects_a_buffer_rendered_under_a_different_alias(self):
+        """Only the renderer's default alias can match, which is what the
+        prompt emits; anything else fails closed."""
+        from app.platform.analysis_sql import render_geodesic_buffer
+
+        odd = render_geodesic_buffer("s.geom_4326", 10000, alias="_zz")
+        _assert_rejects(f"SELECT ST_AsGeoJSON({odd}) FROM data.stations s")
+
+    @staticmethod
+    def _n_buffers(count: int) -> str:
+        buffers = ", ".join(
+            f"ST_AsGeoJSON({_canonical_buffer(f's.geom_{i}')}) AS g{i}"
+            for i in range(count)
+        )
+        return f"SELECT {buffers} FROM data.stations s"
+
+    def test_up_to_the_cap_still_validates(self):
+        _assert_allows(self._n_buffers(_MAX_BUFFER_MATCH_ATTEMPTS))
+
+    def test_match_attempts_are_capped(self):
+        """Each match re-renders and re-parses ~4 KB of SQL, so a statement
+        stuffed with buffer-shaped scaffolds must not turn the validator into
+        the DoS. Past the cap nothing more is exempted, which fails closed —
+        a query carrying more buffers than the cap is refused, not slow."""
+        _assert_rejects(self._n_buffers(_MAX_BUFFER_MATCH_ATTEMPTS + 1))
