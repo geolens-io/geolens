@@ -7,7 +7,7 @@ import threading
 import time
 import uuid
 from typing import Any, Literal, NamedTuple
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlencode
 
 import httpx
 import structlog
@@ -750,6 +750,43 @@ async def _resolve_raster_meta(
     return meta
 
 
+def _tile_signature_authorizes(request: Request, dataset_id: uuid.UUID) -> bool:
+    """Whether the caller presented a VALID signed template for this dataset.
+
+    fix(#688): the mirror of the vector verify path. The expected scope is
+    recomputed with the SAME ``tenant_bound_scope(str(dataset.id))`` expression
+    the mint site uses — the two must never be allowed to drift, because a
+    divergence is a silent authorization bypass rather than a test failure. A
+    raster dataset has no ``table_name``, so the dataset id is the resource
+    string; it is already unique per tenant and is what the tile URL keys on.
+
+    fix(#688 codex r1): returns a bool instead of raising. The signature is an
+    ADDITIONAL way in for a client that cannot send headers, never a restriction
+    on one that can, so an absent, malformed, or expired signature has to fall
+    through to the other branches rather than refuse. Refusing preemptively
+    403'd an in-app map holding a perfectly valid session the moment its
+    15-minute template aged out, since MapLibre keeps requesting the URL it was
+    given.
+
+    ``tenant_bound_scope`` raises when multi-tenant is active with no tenant in
+    context, so the import stays inside the function exactly as it does on the
+    vector path.
+    """
+    from app.core.tenancy import tenant_bound_scope
+
+    params = request.query_params
+    sig, exp_raw, scope = (params.get(n) for n in ("sig", "exp", "scope"))
+    if not (sig and exp_raw and scope):
+        return False
+    if scope != tenant_bound_scope(str(dataset_id)):
+        return False
+    try:
+        exp = int(exp_raw)
+    except ValueError:
+        return False
+    return verify_tile_signature(scope, exp, sig)
+
+
 async def _resolve_raster_access(
     db: AsyncSession,
     dataset_id: uuid.UUID,
@@ -783,8 +820,24 @@ async def _resolve_raster_access(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Invalid or expired embed token",
             )
+    elif _tile_signature_authorizes(request, dataset_id):
+        # fix(#688) auth priority 2: a valid signed template, mirroring the
+        # vector path. MapLibre issues tile image requests itself and attaches
+        # no header, so without this an API-key-only client could not render a
+        # private raster at all — the contract handed it a template that could
+        # never authenticate. nginx forwards `$is_args$args` to this proxy, so
+        # the query string arrives intact (`frontend/nginx.conf`).
+        #
+        # fix(#688 codex r1): checked ahead of the visibility split rather than
+        # inside the non-public arm. A public-but-unpublished raster is an
+        # owner/admin draft preview, and the mint endpoint issues a template for
+        # it; gating on `visibility != "public"` sent that template to the
+        # unpublished branch below, which 404s a headerless caller. The
+        # signature already attests that someone authorized minted it for this
+        # dataset, which is the same thing it attests on the vector path.
+        pass
     elif visibility != "public":
-        # Auth priority 2: require authenticated user for non-public datasets
+        # Auth priority 3: require authenticated user for non-public datasets
         if user is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -1235,9 +1288,29 @@ def _build_tile_token_for_dataset(
                     dataset_id=str(dataset.id),
                 )
 
+        # fix(#688): sign the raster template too. A raster dataset has no
+        # table_name to bind the scope to, so the resource string is the dataset
+        # id — already unique per tenant, and what the tile URL keys on. The
+        # tenant binding is WR-03, exactly as on the vector branch below: without
+        # it a token minted for tenant A is replayable in tenant B's context.
+        # This expression is mirrored byte-for-byte at the verify site in
+        # `_resolve_raster_access`; a divergence there is a silent authorization
+        # bypass rather than a test failure, so both go through this one helper.
+        from app.core.tenancy import tenant_bound_scope
+
+        raster_exp = round_expiry()
+        raster_scope = tenant_bound_scope(str(dataset.id))
+        raster_sig = generate_tile_signature(raster_scope, raster_exp)
+        tile_path = f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png"
+        query = urlencode({"sig": raster_sig, "exp": raster_exp, "scope": raster_scope})
+
         return RasterTileToken(
             kind="raster",
-            tile_url=f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png",
+            tile_url=f"{tile_path}?{query}",
+            sig=raster_sig,
+            exp=raster_exp,
+            scope=raster_scope,
+            expires_in=raster_exp - int(time.time()),
             bounds=bounds,
             minzoom=0,
             maxzoom=_raster_maxzoom_from_metadata(
