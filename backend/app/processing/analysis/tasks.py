@@ -103,8 +103,10 @@ def registration_timeout() -> str:
 # work_mem is per OPERATION and per BACKEND, so one plan can allocate several
 # multiples of it: at most 2 memory-hungry nodes for these shapes (dissolve is
 # one Sort feeding a GroupAggregate; buffer and centroid have none; clip has a
-# join), times 2 backends, since max_parallel_workers_per_gather = 1
-# (db/postgresql.conf:73) means a parallel plan runs the leader plus one worker.
+# join), times 2 backends. The second factor is guaranteed rather than assumed —
+# the override pins max_parallel_workers_per_gather to 1 for this transaction,
+# because db/postgresql.conf only governs the bundled database and says nothing
+# about an external one.
 #
 # THE CEILING IS AN OPERATOR SETTING, not a constant, because the two things
 # that decide what is safe are both invisible from here:
@@ -132,12 +134,18 @@ def registration_timeout() -> str:
 # the conservative default trades some of the win for a ceiling that cannot OOM
 # the database on a deployment this process cannot measure.
 #
-# There is deliberately NO floor. A floor at the bundled 8MB default would be
-# an assumption about the connected cluster that this process cannot check: an
-# external PostgreSQL tuned below 8MB would be RAISED by a clamp advertised as
-# leaving it alone, and an operator who wants less than 8MB per materialize
-# could not have it. ANALYSIS_MATERIALIZE_WORK_MEM_MB=0 is the honest way to
-# say "do not touch work_mem" — it skips the SET LOCAL entirely.
+# There is deliberately NO floor at the bundled 8MB default: that would be an
+# assumption about the connected cluster this process cannot check. An external
+# PostgreSQL tuned below 8MB would be RAISED by a clamp advertised as leaving it
+# alone, and an operator who wants less than 8MB per materialize could not have
+# it. ANALYSIS_MATERIALIZE_WORK_MEM_MB=0 is the honest way to say "do not touch
+# work_mem" — it skips the SET LOCAL entirely.
+#
+# The division is done in kB, not MB, so the budget is never exceeded by
+# rounding: a 1MB budget across 128 slots is 8kB each, not 1MB each. Below
+# PostgreSQL's own 64kB minimum the budget cannot be honoured at all, so the
+# override is skipped rather than silently overshot.
+_MIN_WORK_MEM_KB = 64
 
 
 async def _apply_materialize_work_mem(session: AsyncSession) -> None:
@@ -152,6 +160,15 @@ async def _apply_materialize_work_mem(session: AsyncSession) -> None:
     work_mem = _materialize_work_mem()
     if work_mem is None:
         return
+    # Pin parallelism first, so the budget arithmetic is true by construction
+    # rather than by assuming the server's configuration. work_mem is granted to
+    # the leader AND to every parallel worker, so a server with
+    # max_parallel_workers_per_gather above 1 — a customised bundled conf, or
+    # any external PostgreSQL reached through DATABASE_URL_OVERRIDE, neither of
+    # which db/postgresql.conf:73 constrains — would multiply the ceiling by a
+    # number this process cannot see. One leader plus one worker is what the
+    # budget in config.py is sized for.
+    await session.execute(text("SET LOCAL max_parallel_workers_per_gather = 1"))
     await session.execute(text(f"SET LOCAL work_mem = '{work_mem}'"))
 
 
@@ -159,13 +176,18 @@ def _materialize_work_mem() -> str | None:
     """Per-slot work_mem for the CTAS, or None to leave the cluster's alone."""
     from app.core.config import settings
 
-    budget = settings.analysis_materialize_work_mem_mb
-    if budget <= 0:
+    budget_kb = settings.analysis_materialize_work_mem_mb * 1024
+    if budget_kb <= 0:
         return None
-    # At least 1MB: the division must not round a configured budget down to a
-    # zero-size literal, which PostgreSQL would reject.
-    per_slot = max(1, budget // max(1, settings.worker_concurrency))
-    return f"{per_slot}MB"
+    per_slot_kb = budget_kb // max(1, settings.worker_concurrency)
+    if per_slot_kb < _MIN_WORK_MEM_KB:
+        # Honouring the budget would need a work_mem below what PostgreSQL
+        # accepts, so raising it at all would break the ceiling this setting
+        # exists to hold. Leave the cluster's value alone instead.
+        return None
+    if per_slot_kb % 1024 == 0:
+        return f"{per_slot_kb // 1024}MB"
+    return f"{per_slot_kb}kB"
 
 
 # fix(#694): post-CTAS backstop on the built output's on-disk size. The

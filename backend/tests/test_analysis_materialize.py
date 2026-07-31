@@ -2664,6 +2664,13 @@ class TestMaterializeWorker:
         # the hashagg flip whose sort it pays for.
         assert executed.index(work_mems[0]) < executed.index(ctas[0])
         assert executed.index(hashaggs[0]) < executed.index(ctas[0])
+        # fix(#1012 review): parallelism is pinned alongside it, so the "x2
+        # backends" the budget is sized for is guaranteed rather than assumed
+        # from db/postgresql.conf — which says nothing about an external server.
+        par = [s for s in executed if "max_parallel_workers_per_gather" in s]
+        assert len(par) == 1, par
+        assert par[0].startswith("SET LOCAL"), par[0]
+        assert executed.index(par[0]) < executed.index(ctas[0])
 
     async def test_work_mem_override_can_be_disabled(
         self,
@@ -2707,6 +2714,9 @@ class TestMaterializeWorker:
         assert not [s for s in executed if "work_mem" in s], (
             "work_mem was set despite the override being disabled"
         )
+        # The parallelism pin exists to protect the work_mem ceiling, so it
+        # must not fire when there is no ceiling to protect.
+        assert not [s for s in executed if "max_parallel_workers_per_gather" in s]
 
     def test_work_mem_is_divided_across_worker_slots(self, monkeypatch):
         """fix(#1012): the budget is per worker PROCESS, so parallel job slots
@@ -2722,12 +2732,20 @@ class TestMaterializeWorker:
         assert _materialize_work_mem() == "64MB"
         monkeypatch.setattr(settings, "worker_concurrency", 4)
         assert _materialize_work_mem() == "16MB"
-        # A large divisor floors at 1MB rather than rounding to a zero-size
-        # literal PostgreSQL would reject. No clamp to the bundled 8MB default:
+        # Divided in kB so the budget is never exceeded by rounding: 64MB
+        # across 128 slots is 512kB each, not 1MB each (which would be 128MB
+        # against a 64MB budget). No clamp to the bundled 8MB default either —
         # this process cannot read the connected cluster's work_mem, so it
         # cannot know whether such a floor preserves that value or raises it.
         monkeypatch.setattr(settings, "worker_concurrency", 128)
-        assert _materialize_work_mem() == "1MB"
+        assert _materialize_work_mem() == "512kB"
+        # Below PostgreSQL's 64kB minimum the budget cannot be honoured, so the
+        # override is skipped rather than silently overshot.
+        monkeypatch.setattr(settings, "analysis_materialize_work_mem_mb", 1)
+        monkeypatch.setattr(settings, "worker_concurrency", 8)
+        assert _materialize_work_mem() == "128kB"
+        monkeypatch.setattr(settings, "worker_concurrency", 1024)
+        assert _materialize_work_mem() is None
 
     def test_work_mem_ceiling_is_operator_configurable(self, monkeypatch):
         """fix(#1012 review): the safe value depends on DB_MEM_LIMIT and on how
