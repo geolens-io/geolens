@@ -293,9 +293,13 @@ test.describe('Accessibility - WCAG 2AA', () => {
     await page.getByRole('button', { name: 'Analysis', exact: true }).click();
     await expect(page.getByTestId('analysis-panel')).toBeVisible({ timeout: 15_000 });
 
+    // Scope to the rail panel, not the inner form: BuilderRail renders the panel
+    // title and close control as siblings of AnalysisPanel, and since the
+    // builder-page scan runs with the panel closed, that chrome would otherwise
+    // be covered nowhere.
     const results = await new AxeBuilder({ page })
       .withTags(wcagTags)
-      .include('[data-testid="analysis-panel"]')
+      .include('[data-rail-panel]')
       .analyze();
 
     expect(results.violations, formatViolations(results.violations)).toEqual([]);

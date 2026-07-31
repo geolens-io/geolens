@@ -120,7 +120,11 @@ export function KeyboardShortcutsSheet({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm">
+      {/* fix(#806, codex P2): DialogContent has no max height and no overflow of its
+          own, and it is vertically centred, so a sheet taller than the viewport
+          clips at both ends with nothing to scroll. Fifteen rows plus wrapped
+          translations reach that on a short window or with enlarged text. */}
+      <DialogContent className="sm:max-w-sm max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {t('a11y.shortcuts.title', { defaultValue: 'Keyboard shortcuts' })}
