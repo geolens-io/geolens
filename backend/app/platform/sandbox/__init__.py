@@ -15,7 +15,7 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
-from app.platform.sandbox.executor import execute_safe
+from app.platform.sandbox.executor import DEFAULT_TIMEOUT_MS, execute_safe
 from app.platform.sandbox.schemas import SandboxError, SandboxResult
 from app.platform.sandbox.validator import (
     build_table_allowlist,
@@ -34,6 +34,7 @@ async def validate_and_execute(
     user: Identity | None,
     *,
     row_limit: int = 1000,
+    timeout_ms: int = DEFAULT_TIMEOUT_MS,
     restrict_tables: frozenset[str] | None = None,
 ) -> SandboxResult:
     """Validate and safely execute a SQL query.
@@ -49,6 +50,10 @@ async def validate_and_execute(
         db: Async database session.
         user: Current user (None for anonymous).
         row_limit: Maximum rows to return (default 1000).
+        timeout_ms: Statement timeout in milliseconds, applied as SET LOCAL
+            statement_timeout on the execution connection (default 10000).
+            Callers that need a tighter budget than the shared default — a
+            synchronous request path, say — pass a smaller value.
         restrict_tables: Optional surface-level scope: when set, the effective
             allowlist is the INTERSECTION of the user's RBAC allowlist with
             this set — it can only narrow access, never widen it. Used by
@@ -88,6 +93,7 @@ async def validate_and_execute(
             db,
             validated.sql,
             row_limit=row_limit,
+            timeout_ms=timeout_ms,
             concurrency_key=concurrency_key,
         )
 
