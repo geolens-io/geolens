@@ -379,6 +379,22 @@ export function useLayerMapSync(
         const { 'fill-pattern': _droppedPattern, ...rest } = effectivePaint;
         effectivePaint = rest;
       }
+      // fix(#910, codex P2): the same collision arrives WITHOUT a data-driven config.
+      // Paste-style overlays a copied `fill-pattern` onto a target that kept its own
+      // `fill-color` (applyCopiedStyleToLayer merges the two paint objects, and that
+      // file belongs to #923), so the merged paint lands here holding both keys with a
+      // builder-only config — `isDataDrivenColor` is false and the branch above never
+      // fires. MapLibre draws the pattern either way, so the pattern owns the fill and
+      // the stray colour goes, rather than persisting a pair EDIT-05 forbids and
+      // letting the extrusion companion paint the target's old colour.
+      const patternOwnsFill =
+        !isDataDrivenColor && 'fill-color' in effectivePaint && 'fill-pattern' in effectivePaint;
+      let strandedFillColor: unknown;
+      if (patternOwnsFill) {
+        const { 'fill-color': droppedColor, ...rest } = effectivePaint;
+        strandedFillColor = droppedColor;
+        effectivePaint = rest;
+      }
       applyLayerUpdate(
         layerId,
         (l) => {
@@ -417,6 +433,22 @@ export function useLayerMapSync(
               builder: Object.keys(restBuilder).length > 0 ? restBuilder : undefined,
             };
           }
+          // fix(#910, codex P2): the colour just dropped above still has to be
+          // recoverable through None. An incoming `fillColorSaved` wins — on a paste
+          // that is the SOURCE layer's colour, which is the one the user copied — so
+          // this only fills the gap when nothing was stashed. Strings only: the stash
+          // feeds the extrusion companion and #914's tint resolver, both of which want
+          // a solid colour, and an expression cannot serve as one.
+          if (
+            patternOwnsFill &&
+            typeof strandedFillColor === 'string' &&
+            mergedConfig?.builder?.fillColorSaved === undefined
+          ) {
+            mergedConfig = {
+              ...(mergedConfig ?? {}),
+              builder: { ...(mergedConfig?.builder ?? {}), fillColorSaved: strandedFillColor },
+            } as StyleConfig;
+          }
           return {
             ...l,
             style_config: normalizeDemStyleConfig(mergedConfig, l.is_dem),
@@ -442,6 +474,20 @@ export function useLayerMapSync(
                 } catch {
                   /* not a fill layer — fill-pattern is not a valid property */
                 }
+              }
+            }
+          }
+          // fix(#910, codex P2): mirror of the above for the paste collision. The
+          // pattern already wins visually, but leaving the target's old fill-color on
+          // the live map means a later None click flashes THAT colour instead of the
+          // stash we just wrote.
+          if (patternOwnsFill) {
+            const mapLayerId = `layer-${layer.id}`;
+            if (map.getLayer(mapLayerId)) {
+              try {
+                map.setPaintProperty(mapLayerId, 'fill-color', undefined);
+              } catch {
+                /* not a fill layer — fill-color is not a valid property */
               }
             }
           }

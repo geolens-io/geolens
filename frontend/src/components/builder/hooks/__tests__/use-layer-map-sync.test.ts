@@ -15,7 +15,7 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useLayerMapSync } from '../use-layer-map-sync';
-import type { MapLayerResponse } from '@/types/api';
+import type { MapLayerResponse, StyleConfig } from '@/types/api';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 
 // ---------------------------------------------------------------------------
@@ -932,6 +932,75 @@ describe('useLayerMapSync — handleStyleConfigChange fill-pattern cleanup (#918
     const builder = (layers().find((l) => l.id === LAYER_ID)!.style_config as
       { builder?: Record<string, unknown> } | null)?.builder;
     expect(builder?.outlineWidth).toBe(3);
+  });
+
+  // fix(#910, codex P2): the both-keys collision also arrives with NO data-driven
+  // config. Paste-style merges a copied fill-pattern onto a target that kept its own
+  // fill-color, so this is the shape handlePasteStyle actually sends.
+  it('drops the target fill-color when a pasted pattern arrives beside it', () => {
+    const { result, mapStub, layers } = renderWith(
+      makeLayer({
+        dataset_geometry_type: 'Polygon',
+        paint: { 'fill-color': '#0000ff', 'fill-opacity': 0.3 },
+      }),
+    );
+
+    act(() => {
+      // What applyCopiedStyleToLayer produces: copied pattern over the target's colour,
+      // with the SOURCE layer's colour already stashed in the copied builder.
+      result.current.handleStyleConfigChange(
+        LAYER_ID,
+        { builder: { fillColorSaved: '#ff0000' } } as StyleConfig,
+        { 'fill-color': '#0000ff', 'fill-pattern': 'geolens-fill-hatch', 'fill-opacity': 0.3 },
+      );
+    });
+
+    const updated = layers().find((l) => l.id === LAYER_ID)!;
+    expect('fill-color' in (updated.paint ?? {})).toBe(false);
+    expect(updated.paint?.['fill-pattern']).toBe('geolens-fill-hatch');
+    // The copied source colour wins — that is the one None has to restore, not the
+    // target's old blue.
+    const builder = (updated.style_config as { builder?: Record<string, unknown> } | null)?.builder;
+    expect(builder?.fillColorSaved).toBe('#ff0000');
+    expect(mapStub.setPaintProperty).toHaveBeenCalledWith(`layer-${LAYER_ID}`, 'fill-color', undefined);
+  });
+
+  it('stashes the dropped colour when the incoming config has no stash of its own', () => {
+    const { result, layers } = renderWith(
+      makeLayer({ dataset_geometry_type: 'Polygon', paint: { 'fill-color': '#0000ff' } }),
+    );
+
+    act(() => {
+      result.current.handleStyleConfigChange(
+        LAYER_ID,
+        { builder: { outlineWidth: 2 } } as StyleConfig,
+        { 'fill-color': '#0000ff', 'fill-pattern': 'geolens-fill-dots' },
+      );
+    });
+
+    const builder = (layers().find((l) => l.id === LAYER_ID)!.style_config as
+      { builder?: Record<string, unknown> } | null)?.builder;
+    expect(builder?.fillColorSaved).toBe('#0000ff');
+    expect(builder?.outlineWidth).toBe(2);
+  });
+
+  it('does not stash an expression-valued fill-color it drops', () => {
+    const { result, layers } = renderWith(
+      makeLayer({ dataset_geometry_type: 'Polygon', paint: { 'fill-color': RAMP } }),
+    );
+
+    act(() => {
+      result.current.handleStyleConfigChange(
+        LAYER_ID,
+        { builder: { outlineWidth: 2 } } as StyleConfig,
+        { 'fill-color': RAMP, 'fill-pattern': 'geolens-fill-hatch' },
+      );
+    });
+
+    const updated = layers().find((l) => l.id === LAYER_ID)!;
+    expect('fill-color' in (updated.paint ?? {})).toBe(false);
+    const builder = (updated.style_config as { builder?: Record<string, unknown> } | null)?.builder;
+    expect(builder?.fillColorSaved).toBeUndefined();
   });
 });
 
