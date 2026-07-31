@@ -387,6 +387,8 @@ describe('FillEditor', () => {
           'style.fillPatternName.diagonal': 'Diagonal',
           'style.fillPatternName.dots': 'Dots',
           'style.fillPatternName.grid': 'Grid',
+          'style.fillPattern (clear only)': 'Fill Pattern (clear only)',
+          'style.fillPatternClearOnly': 'Fill Pattern (clear only)',
           'style.fillPatternUnavailableDataDriven': 'Patterns unavailable',
           'style.fillColorUnavailablePattern': 'Color unavailable',
         };
@@ -500,8 +502,13 @@ describe('FillEditor', () => {
         })}
       />,
     );
-    expect(screen.getByText('Fill Pattern')).toBeInTheDocument();
+    // fix(#910, codex P2): recovery only — applying a pattern to a classified layer
+    // is impossible by EDIT-05 and the funnel strips it straight back, so a swatch
+    // that silently reverts must not be offered.
+    expect(screen.getByText('Fill Pattern (clear only)')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'None' }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: 'Hatch', exact: true })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Dots' })).toBeNull();
   });
 
   it('does NOT render Fill Pattern section in 3D-extrusion mode', () => {
@@ -531,8 +538,9 @@ describe('FillEditor', () => {
         })}
       />,
     );
-    expect(screen.getByText('Fill Pattern')).toBeInTheDocument();
+    expect(screen.getByText('Fill Pattern (clear only)')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'None' }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: 'Dots' })).toBeNull();
   });
 
   // fix(#910, codex P2): fill-pattern accepts MapLibre expressions and

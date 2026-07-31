@@ -103,6 +103,7 @@ export function FillEditor({
               value={typeof paint['fill-pattern'] === 'string' ? paint['fill-pattern'] : undefined}
               onChange={onFillPatternChange}
               t={t}
+              clearOnly={isDataDriven || !!currentHeightCol}
             />
           ) : isPolygon && isDataDriven ? (
             <div className="text-xs text-muted-foreground italic">

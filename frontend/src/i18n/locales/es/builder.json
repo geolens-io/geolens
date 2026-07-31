@@ -249,6 +249,7 @@
     "toggleFill": "Alternar relleno",
     "toggleStroke": "Alternar trazo",
     "fillPattern": "Patrón de relleno",
+    "fillPatternClearOnly": "Patrón de relleno (solo quitar)",
     "fillPatternNone": "Sin patrón",
     "fillPatternUnavailableDataDriven": "Los patrones no están disponibles al estilizar por un atributo",
     "fillColorUnavailablePattern": "El color no está disponible mientras se aplica un patrón",

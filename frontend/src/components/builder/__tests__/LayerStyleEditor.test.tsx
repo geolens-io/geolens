@@ -1620,7 +1620,8 @@ describe('LayerStyleEditor — EDIT-05 fill-color / fill-pattern mutual exclusio
 
   // fix(#910, codex P2): the delete is what destroyed classifications. It must never
   // touch an expression — only a solid colour is stashable, and only a solid colour
-  // is safe to remove.
+  // is safe to remove. Reachable without a classification: Advanced JSON can write an
+  // expression into fill-color with no style_config mode, and the picker is live there.
   it('never deletes an expression-valued fill-color when a pattern is applied', () => {
     const ramp = ['match', ['get', 'era'], 'pre-war', '#ff0000', '#00ff00'];
     const onStyleConfigChange = vi.fn();
@@ -1628,8 +1629,7 @@ describe('LayerStyleEditor — EDIT-05 fill-color / fill-pattern mutual exclusio
       <LayerStyleEditor
         layer={makeLayer({
           dataset_geometry_type: 'Polygon',
-          paint: { 'fill-pattern': 'geolens-fill-hatch', 'fill-color': ramp },
-          style_config: { column: 'era', mode: 'categorical', ramp: 'Set2' },
+          paint: { 'fill-color': ramp, 'fill-opacity': 0.3 },
         })}
         onPaintChange={vi.fn()}
         onOpacityChange={vi.fn()}

@@ -6,6 +6,14 @@ interface FillPatternPickerProps {
   value: string | undefined;
   onChange: (id: string | undefined) => void;
   t: (key: string, opts?: Record<string, unknown>) => string;
+  /**
+   * fix(#910, codex P2): recovery-only mode — render just the None swatch. A
+   * data-driven or extruded layer can arrive carrying a pattern (Advanced JSON, the
+   * AI set_style action), and it must stay clearable; but applying one there is
+   * impossible by EDIT-05, and handleStyleConfigChange strips it straight back. A
+   * swatch that silently reverts is worse than no swatch, so only None is offered.
+   */
+  clearOnly?: boolean;
 }
 
 /**
@@ -21,10 +29,12 @@ function shortKey(id: string): string {
  * Renders a "None" (solid) option first, then one swatch per FILL_PATTERN_IDS.
  * Pure presentational — no map access, no network.
  */
-export function FillPatternPicker({ value, onChange, t }: FillPatternPickerProps) {
+export function FillPatternPicker({ value, onChange, t, clearOnly = false }: FillPatternPickerProps) {
   return (
     <div className="space-y-1.5">
-      <div className="text-xs text-muted-foreground">{t('style.fillPattern')}</div>
+      <div className="text-xs text-muted-foreground">
+        {clearOnly ? t('style.fillPatternClearOnly') : t('style.fillPattern')}
+      </div>
       <div className="grid grid-cols-5 gap-1">
         {/* None (solid fill) swatch */}
         <button
@@ -43,7 +53,7 @@ export function FillPatternPicker({ value, onChange, t }: FillPatternPickerProps
           <span className="h-5 w-5 rounded-sm bg-current" />
         </button>
         {/* Pattern swatches */}
-        {FILL_PATTERN_IDS.map((id) => {
+        {(clearOnly ? [] : FILL_PATTERN_IDS).map((id) => {
           const label = t(`style.fillPatternName.${shortKey(id)}`);
           const isActive = value === id;
           return (
