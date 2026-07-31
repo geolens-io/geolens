@@ -757,6 +757,14 @@ export function AnalysisPanel({
     // rejection from a request whose inputs were already abandoned must not
     // raise "Analysis failed" over a newer, possibly successful preview.
     onError: (error: Error, { seq }) => {
+      // fix(#787 item 3): a preview this panel cancelled is not a failure to
+      // report. The seq guard alone does not cover the unmount abort, which
+      // aborts WITHOUT bumping the sequence, and the callback still fires
+      // (the rejection outlives the commit that unsubscribed the observer) —
+      // so closing the panel mid-preview raised "Analysis failed" over the
+      // builder. A timeout is not caught here: safeFetch turns TimeoutError
+      // into a normalized ApiError, and only a caller abort keeps this name.
+      if (error.name === 'AbortError') return;
       if (seq !== previewSeqRef.current) return;
       toast.error(
         error.message ||

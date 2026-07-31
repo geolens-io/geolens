@@ -520,6 +520,35 @@ describe('AnalysisPanel', () => {
     expect(signal?.aborted).toBe(true);
   });
 
+  it('closing the panel mid-preview raises no error toast (#787 item 3)', async () => {
+    // The unmount abort rejects the fetch, but the rejection lands a microtask
+    // later — after React has finished the commit that unsubscribed TanStack's
+    // observer, which is what suppresses the option callbacks. Pinned because
+    // the alternative is an "Analysis failed" toast over a panel the user
+    // deliberately closed.
+    vi.mocked(previewAnalysis).mockImplementationOnce(
+      ((_id: string, _body: unknown, signal?: AbortSignal) =>
+        new Promise((_resolve, reject) => {
+          signal?.addEventListener('abort', () =>
+            reject(new DOMException('Aborted', 'AbortError')),
+          );
+        })) as never,
+    );
+    mockToast.error.mockClear();
+    const { unmount } = renderPanel([datasetLayer]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() => expect(previewAnalysis).toHaveBeenCalled());
+
+    unmount();
+    // Let the rejection and any queued callbacks run.
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mockToast.error).not.toHaveBeenCalled();
+  });
+
   it('aborts a preview whose inputs changed under it (#787 item 3)', async () => {
     // The sequence guard only stops the response being drawn. Preview stays
     // disabled while the mutation is pending, so an un-aborted request also
