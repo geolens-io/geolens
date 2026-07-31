@@ -14,6 +14,7 @@ Requirements:
 """
 
 import uuid
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import select, text
@@ -637,6 +638,66 @@ class TestRunAnalysisClipByLayer:
         assert "error" in result, result
         assert "polygon" in result["error"].lower()
         assert "POINT" in result["error"]
+
+    async def test_oversized_mask_layer_is_refused(self, test_db_session: AsyncSession):
+        """fix(#683 codex P1): a resource rail, not a correctness one. The
+        preview's _mask_pieces CTE materializes and subdivides every mask row
+        before the row cap can bite, so the work scales with the whole mask
+        however small the source is. The REST route rejects this in
+        _load_mask_dataset; exposing clip through chat without the same gate
+        would let one sentence tie up the shared database until timeout."""
+        admin = await _get_admin(test_db_session)
+        source = await _create_polygon_dataset(test_db_session, created_by=admin.id)
+        mask = await _create_mask_dataset(test_db_session, created_by=admin.id)
+        mask.feature_count = 1_001
+        await test_db_session.commit()
+
+        result = await _handle_run_analysis(
+            {
+                "layer_id": "layer-1",
+                "operation": "clip",
+                "mask_layer_id": "layer-2",
+            },
+            test_db_session,
+            admin,
+            await _default_port.get_user_roles(test_db_session, admin),
+            [_layer_for(source), _layer_for(mask, "layer-2")],
+            port=_default_port,
+        )
+        assert "error" in result, result
+        assert "too many features" in result["error"]
+        assert "geojson" not in result
+
+    async def test_unknown_mask_size_is_counted_live(
+        self, test_db_session: AsyncSession
+    ):
+        """fix(#701 review) parity: a NULL feature_count must not read as zero,
+        or the gate admits exactly the unknown-size layers it exists for. The
+        one-row mask table is counted live against a patched cap."""
+        admin = await _get_admin(test_db_session)
+        source = await _create_polygon_dataset(test_db_session, created_by=admin.id)
+        mask = await _create_mask_dataset(test_db_session, created_by=admin.id)
+        mask.feature_count = None
+        await test_db_session.commit()
+
+        with patch(
+            "app.platform.analysis_sql.MAX_MASK_LAYER_FEATURES",
+            0,
+        ):
+            result = await _handle_run_analysis(
+                {
+                    "layer_id": "layer-1",
+                    "operation": "clip",
+                    "mask_layer_id": "layer-2",
+                },
+                test_db_session,
+                admin,
+                await _default_port.get_user_roles(test_db_session, admin),
+                [_layer_for(source), _layer_for(mask, "layer-2")],
+                port=_default_port,
+            )
+        assert "error" in result, result
+        assert "too many features" in result["error"]
 
     async def test_user_id_is_still_readable_after_the_tool_returns(
         self, test_db_session: AsyncSession
