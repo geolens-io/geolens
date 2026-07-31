@@ -272,6 +272,13 @@ def collect_run_analysis_action(result: dict) -> dict | None:
     # and requiring one dropped the disclosure entirely, presenting a capped
     # clip preview as the whole result. Report the cap; name the total only
     # when there is one.
+    #
+    # fix(#1076): this flag currently reaches nobody. Both consumers —
+    # ChatPanel.tsx and ViewerChatPanel.tsx — build their truncation object
+    # only when a total came with it, and EphemeralBadge has no label for
+    # "capped, total unknown", so a capped clip still renders as a plain
+    # count. The payload is correct here so that fix is possible; the three
+    # frontend files move together in #1076.
     total = result.get("source_feature_count")
     if result.get("truncated"):
         action["truncated"] = True
