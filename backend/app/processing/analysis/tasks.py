@@ -52,18 +52,33 @@ logger = structlog.stdlib.get_logger(__name__)
 _SAFE_IDENT = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 _SAFE_TABLE = re.compile(r"^[a-z0-9_]+$")
 
+
 # The preview path is bounded (10s sandbox timeout, 500-row cap); the CTAS
 # here is the only unbounded statement a user can queue, so cap it.
-# Hardcoded ceiling; promote to persistent-config if operators hit it.
-MATERIALIZE_TIMEOUT = "300s"
+#
+# fix(#1013): the value is an operator setting now, not a hardcoded ceiling.
+# Read through a function rather than bound at import: these render into SQL
+# and into a user-facing message, and a module-level snapshot would freeze
+# whatever the settings object held the first time this module was imported.
+def materialize_timeout() -> str:
+    """The CTAS statement_timeout, as a PostgreSQL interval literal."""
+    from app.core.config import settings
+
+    return f"{settings.analysis_materialize_timeout_seconds}s"
+
 
 # The mid-task commit that makes the output table durable also ends the
-# transaction carrying MATERIALIZE_TIMEOUT — registration then runs full-scan
+# transaction carrying the CTAS budget — registration then runs full-scan
 # metadata extraction (COUNT + ST_Extent + the sample-values CTE) in a fresh
 # transaction, which would otherwise have no statement budget at all
-# (fix(#692)). Larger than the CTAS budget: those scans are cheap relative to
-# the build, but must never be unbounded.
-REGISTRATION_TIMEOUT = "600s"
+# (fix(#692)). Larger than the CTAS budget by default: those scans are cheap
+# relative to the build, but must never be unbounded.
+def registration_timeout() -> str:
+    """The post-commit registration statement_timeout, as an interval literal."""
+    from app.core.config import settings
+
+    return f"{settings.analysis_registration_timeout_seconds}s"
+
 
 # fix(#694): post-CTAS backstop on the built output's on-disk size. The
 # enqueue gates read the cached feature_count snapshot, which can be stale;
@@ -81,7 +96,7 @@ ANALYSIS_JOBS = Counter(
 )
 
 
-def _user_error_message(exc: Exception) -> str:
+def _user_error_message(exc: Exception, *, registered: bool = False) -> str:
     """Map a failure onto text safe to return from ``GET /jobs/{job_id}``.
 
     SQLAlchemy stringifies DB errors with the full statement appended
@@ -93,9 +108,17 @@ def _user_error_message(exc: Exception) -> str:
         exc_text = str(exc).lower()
         if "querycancelederror" in exc_text or "statement timeout" in exc_text:
             # fix(v1.6.0 audit D11): name the configured limit so the user
-            # knows what budget was exceeded.
+            # knows what budget was exceeded. fix(#1013 review): WHICH limit
+            # depends on the phase — the CTAS transaction carries the
+            # materialize budget, and the commit that ends it re-arms
+            # registration with its own (#692). Naming the wrong one was
+            # harmless while both were hardcoded at 300s/600s and only the
+            # first was ever quoted; now that an operator can set them
+            # independently, a registration timeout quoting the materialize
+            # budget sends them to tune the setting that did not fire.
+            budget = registration_timeout() if registered else materialize_timeout()
             return (
-                f"The analysis exceeded its {MATERIALIZE_TIMEOUT} processing "
+                f"The analysis exceeded its {budget} processing "
                 "time limit. Try a smaller dataset or area."
             )
         if isinstance(exc, (DataError, InternalError)):
@@ -374,6 +397,7 @@ async def _mark_job_failed(
     schema: str,
     out_table: str | None,
     operation: str,
+    registered: bool = False,
 ) -> None:
     """Roll back, record the failure, and drop this job's own partial table.
 
@@ -396,7 +420,7 @@ async def _mark_job_failed(
         values={
             "status": "failed",
             # Sanitized (fix(#692)): raw DB errors embed the generated SQL.
-            "error_message": _user_error_message(exc),
+            "error_message": _user_error_message(exc, registered=registered),
             # fix(v1.6.0 audit B12): stamp completion time like ingest does.
             "completed_at": datetime.now(timezone.utc),
         },
@@ -611,6 +635,10 @@ async def _materialize(
         # generated name, an unconditional cleanup would destroy the winner's
         # table while its dataset registration stays live.
         out_table_created = False
+        # fix(#1013 review): flipped when the CTAS transaction commits and
+        # registration re-arms its own statement_timeout, so a failure after
+        # that point quotes the budget that actually fired.
+        registration_started = False
         # Created inside the try so the finally below always reaps it: a
         # heartbeat left running after an exception here would renew a lease
         # for a job nobody is executing, and the sweep can never fail a row
@@ -694,7 +722,7 @@ async def _materialize(
                 mask_table_ref=mask_table_ref,
             )
             await session.execute(
-                text(f"SET LOCAL statement_timeout = '{MATERIALIZE_TIMEOUT}'")
+                text(f"SET LOCAL statement_timeout = '{materialize_timeout()}'")
             )
             if operation == "dissolve":
                 # fix(#694): hash aggregation holds every group's union state
@@ -754,13 +782,14 @@ async def _materialize(
             await session.execute(text(f"ANALYZE {out_ref}"))
             job.current_step = "registering"
             await session.commit()
+            registration_started = True
 
             # The commit above ended the transaction and the SET LOCAL with
             # it — give registration its own budget (fix(#692)). Set here
             # rather than inside register_existing_table, which is shared
             # with the upload path.
             await session.execute(
-                text(f"SET LOCAL statement_timeout = '{REGISTRATION_TIMEOUT}'")
+                text(f"SET LOCAL statement_timeout = '{registration_timeout()}'")
             )
             # Identity is a structural Protocol; registration only reads .id.
             requester = SimpleNamespace(id=uuid.UUID(user_id))
@@ -821,6 +850,9 @@ async def _materialize(
                 schema=_schema,
                 out_table=out_table if out_table_created else None,
                 operation=operation,
+                # True only once the CTAS transaction has committed, which is
+                # exactly when the registration budget is the one in force.
+                registered=registration_started,
             )
         finally:
             # The row has left 'running' by now, so the loop would exit on its
