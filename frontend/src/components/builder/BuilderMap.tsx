@@ -1394,6 +1394,13 @@ export const BuilderMap = memo(function BuilderMap({
   onMapRefLatest.current = onMapRef;
   useEffect(() => {
     return () => {
+      // fix(#787 item 6): the Toaster outlives the route change, so a live
+      // "return to previous view" offer would follow the user to an unrelated page
+      // and ease a torn-down map on click.
+      if (returnToViewToastRef.current !== undefined) {
+        toast.dismiss(returnToViewToastRef.current);
+        returnToViewToastRef.current = undefined;
+      }
       if (mapRef.current && errorHandlerRef.current) {
         mapRef.current.off('error', errorHandlerRef.current);
       }

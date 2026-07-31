@@ -191,7 +191,7 @@ describe('useDeleteDataset', () => {
     return { result, qc: captured as QueryClient };
   }
 
-  it('cancels the deleted dataset own queries and never invalidates or removes them', async () => {
+  it('marks the deleted dataset own queries stale without fetching them', async () => {
     mockDeleteDataset.mockResolvedValueOnce({ message: 'ok' } as never);
     const { result, qc } = renderWithClient();
     const cancel = vi.spyOn(qc, 'cancelQueries');
@@ -206,11 +206,12 @@ describe('useDeleteDataset', () => {
       queryKeys.datasets.maps('ds-1'),
     ]) {
       expect(cancel).toHaveBeenCalledWith({ queryKey });
+      // Stale, but explicitly not refetched: the observers are still mounted here.
+      expect(invalidate).toHaveBeenCalledWith({ queryKey, refetchType: 'none' });
       expect(invalidate).not.toHaveBeenCalledWith({ queryKey });
     }
-    // Removing an ACTIVE query makes its observer rebuild and fetch. The detail
-    // page is still mounted when this runs (the caller navigates afterwards), and
-    // a live run measured that as one more 404 than leaving the entry alone.
+    // Removing an ACTIVE query makes its observer rebuild and fetch — a live run
+    // measured that as one more 404 than marking it stale.
     expect(remove).not.toHaveBeenCalled();
   });
 
