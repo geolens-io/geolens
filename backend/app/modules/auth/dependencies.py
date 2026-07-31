@@ -24,6 +24,59 @@ oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error
 log = structlog.get_logger()
 
 
+# fix(#875): HTTP methods a read_only API key may authenticate. Enforcement is
+# method-based rather than capability-based on purpose: every read surface an
+# API-key client actually uses (OGC Features, STAC, tiles, search, dataset and
+# map reads) is a GET here, the STAC and OGC routers define no write routes at
+# all, and classifying every capability in the permission matrix as read or
+# write is a much larger change that is easy to get subtly wrong.
+_READ_ONLY_SAFE_METHODS: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
+
+# fix(#875): the ONE carve-out, as exact (METHOD, route template) pairs.
+#
+# #565 adds POST /api/query/, a SELECT-only sandbox endpoint that is a pure
+# read semantically and a POST only mechanically. A read_only key may call it,
+# because it is a read — the maintainer decision is recorded in both #875 and
+# #565. The general rule ("POST endpoints that are reads in spirit can trigger
+# jobs and writes") holds for AI chat and analysis previews and does not hold
+# for a raw SELECT through the sandbox rails.
+#
+# Pairs, not bare templates: exempting the PATH would also exempt a future
+# DELETE /api/query/{id}. And an exact list rather than a "POST that looks
+# like a read" category, so a future POST cannot inherit the exemption by
+# resembling one. Matching is on the template Starlette resolved, never on the
+# concrete path, so a caller-supplied path that merely spells the same
+# characters cannot reach it; an unresolvable template is
+# ``<unmatched-route>``, which is in no pair and so is refused.
+#
+# The route is not mounted yet. Whoever lands #565 owns re-reading this.
+_READ_ONLY_KEY_EXEMPT_ROUTES: frozenset[tuple[str, str]] = frozenset(
+    {("POST", "/api/query/")}
+)
+
+
+def _route_template(request: Request) -> str:
+    """The matched route's path template, or a generic placeholder.
+
+    Never falls back to ``request.url.path``: concrete paths can contain UUIDs,
+    tokens, or other tenant-controlled identifiers, and this value is both
+    logged and compared against an exemption list.
+    """
+    scope = getattr(request, "scope", None)
+    route = scope.get("route") if isinstance(scope, dict) else None
+    route_template = getattr(route, "path", None)
+    if not isinstance(route_template, str) or not route_template.startswith("/"):
+        return "<unmatched-route>"
+    return route_template
+
+
+def _read_only_key_may_call(method: str, route_template: str) -> bool:
+    """Whether a ``read_only`` API key may authenticate this request (#875)."""
+    if method in _READ_ONLY_SAFE_METHODS:
+        return True
+    return (method, route_template) in _READ_ONLY_KEY_EXEMPT_ROUTES
+
+
 def log_permission_denial(
     request: Request,
     user: Identity,
@@ -39,14 +92,7 @@ def log_permission_denial(
     strings, bodies, resource identifiers, or resource objects here: those can
     contain credentials or tenant data.
     """
-    scope = getattr(request, "scope", None)
-    route = scope.get("route") if isinstance(scope, dict) else None
-    route_template = getattr(route, "path", None)
-    if not isinstance(route_template, str) or not route_template.startswith("/"):
-        # Never fall back to request.url.path: concrete paths can contain UUIDs,
-        # tokens, or other tenant-controlled identifiers. This generic value is
-        # intentionally less informative when routing metadata is unavailable.
-        route_template = "<unmatched-route>"
+    route_template = _route_template(request)
     fields: dict[str, object] = {
         "user_id": str(user.id),
         "capability": capability,
@@ -119,6 +165,32 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
             )
             await side_session.commit()
         api_key_obj.last_used_at = now
+    # fix(#875): least-privilege scope, enforced HERE rather than in
+    # require_permission or middleware, because this is the one chokepoint
+    # every API-key lane passes through — header, deprecated ?api_key=, and
+    # every router that resolves an optional user.
+    #
+    # It must RAISE, not return None: returning None falls through to the
+    # anonymous/JWT path and turns a scope violation into a confusing 401.
+    #
+    # It sits AFTER the last_used_at bump on purpose. The key did
+    # authenticate; the request is refused on what it asked to do, and usage
+    # is recorded either way, so a client hammering writes with a read-only
+    # key still shows a moving last_used_at instead of looking dormant.
+    route_template = _route_template(request)
+    if api_key_obj.scope == "read_only" and not _read_only_key_may_call(
+        request.method, route_template
+    ):
+        log.warning(
+            "api_key_scope_denied",
+            user_id=str(user.id),
+            method=request.method,
+            path=route_template,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This API key is read-only",
+        )
     return user
 
 

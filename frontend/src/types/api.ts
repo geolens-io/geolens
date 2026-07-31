@@ -641,6 +641,9 @@ export interface JobStatusResponse {
   created_at: string;
 }
 
+/** fix(#875): 'read_only' keys authenticate GET/HEAD/OPTIONS only. */
+export type ApiKeyScope = 'full' | 'read_only';
+
 export interface ApiKeyResponse {
   id: string;
   user_id: string;
@@ -648,6 +651,7 @@ export interface ApiKeyResponse {
   fingerprint: string | null;
   is_active: boolean;
   expires_at: string | null;
+  scope: ApiKeyScope;
   created_at: string;
   last_used_at: string | null;
 }
@@ -658,6 +662,7 @@ export interface ApiKeyCreateResponse {
   fingerprint: string;
   name: string;
   expires_at: string | null;
+  scope: ApiKeyScope;
   created_at: string;
 }
 
@@ -667,6 +672,7 @@ export interface MyApiKeyResponse {
   fingerprint: string | null;
   is_active: boolean;
   expires_at: string | null;
+  scope: ApiKeyScope;
   created_at: string;
   last_used_at: string | null;
 }

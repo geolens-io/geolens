@@ -185,7 +185,13 @@ class UserRole(Base):
 
 class ApiKey(Base):
     __tablename__ = "api_keys"
-    __table_args__ = {"schema": "catalog"}
+    __table_args__ = (
+        CheckConstraint(
+            "scope IN ('full', 'read_only')",
+            name="chk_api_keys_scope",
+        ),
+        {"schema": "catalog"},
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True, server_default=func.gen_random_uuid()
@@ -213,6 +219,13 @@ class ApiKey(Base):
     # Migration 0029 backfills pre-existing keys with each owner's
     # then-current epoch.
     key_epoch: Mapped[int] = mapped_column(Integer, nullable=False)
+    # fix(#875): least-privilege machine credentials. "read_only" authenticates
+    # GET/HEAD/OPTIONS only; anything else is refused at the resolution
+    # chokepoint (see _resolve_api_key). The server_default backfills every
+    # pre-0030 key as "full", so existing keys behave exactly as before.
+    scope: Mapped[str] = mapped_column(
+        String(20), server_default="full", nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
