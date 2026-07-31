@@ -1311,6 +1311,9 @@ export const BuilderMap = memo(function BuilderMap({
   if (prevVisibleBoundsKeyRef.current === undefined) {
     prevVisibleBoundsKeyRef.current = visibleLayerBoundsKey(getVisibleLayerBounds(layers));
   }
+  // fix(#787 item 6): id of the live "return to previous view" toast, so a second
+  // auto-fit replaces the offer instead of stacking a stale one.
+  const returnToViewToastRef = useRef<string | number | undefined>(undefined);
 
   // Auto-fit to visible layers (skip on initial load if saved view exists)
   useEffect(() => {
@@ -1325,7 +1328,8 @@ export const BuilderMap = memo(function BuilderMap({
     prevVisibleBoundsKeyRef.current = visibleBoundsKey;
 
     // First auto-fit trigger: skip if we have a saved view to restore
-    if (!initialFitDoneRef.current) {
+    const isFirstFit = !initialFitDoneRef.current;
+    if (isFirstFit) {
       initialFitDoneRef.current = true;
       if (hasSavedView) return; // MapGL already positioned via initialViewState
     }
@@ -1336,6 +1340,16 @@ export const BuilderMap = memo(function BuilderMap({
     if (!layerCountChanged) return;
     if (!visibleBounds || !visibleBoundsChanged) return;
 
+    // fix(#787 item 6): the fit used to move the camera with no way back. Capture
+    // it first and offer a one-shot return. Not on the very first fit — there is no
+    // view the user chose yet, so the offer would just be page-load noise.
+    const previousCamera = {
+      center: map.getCenter(),
+      zoom: map.getZoom(),
+      bearing: map.getBearing(),
+      pitch: map.getPitch(),
+    };
+
     map.fitBounds(
       visibleBounds,
       { padding: 40, maxZoom: 18, duration: 0 },
@@ -1344,6 +1358,28 @@ export const BuilderMap = memo(function BuilderMap({
     // Clamp zoom to 2+ so tiles render (ST_AsMVT fails at z0/z1 for complex geometries)
     if (map.getZoom() < 2) {
       map.setZoom(2);
+    }
+
+    if (!isFirstFit) {
+      // Replace rather than stack: a second auto-fit makes the older offer stale,
+      // and its camera is no longer the one the user was looking at.
+      if (returnToViewToastRef.current !== undefined) toast.dismiss(returnToViewToastRef.current);
+      returnToViewToastRef.current = toast(t('map.autoFitMoved'), {
+        // Longer than the default: an auto-fit usually rides along with another
+        // toast ("Layer removed"), and sonner collapses the stack, so a 4s offer
+        // can expire while it is still hidden behind the one in front.
+        duration: 10_000,
+        action: {
+          label: t('map.returnToPreviousView'),
+          onClick: () => {
+            mapRef.current?.easeTo({ ...previousCamera, duration: 400 });
+            if (returnToViewToastRef.current !== undefined) {
+              toast.dismiss(returnToViewToastRef.current);
+              returnToViewToastRef.current = undefined;
+            }
+          },
+        },
+      });
     }
   // Phase 1051 IN-01 (iter-2): no longer reads popupInvalidationKey — the
   // effect short-circuits on unchanged layer count and unchanged visible

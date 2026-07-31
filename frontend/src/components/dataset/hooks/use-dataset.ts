@@ -92,8 +92,25 @@ export function useDeleteDataset() {
     mutationFn: ({ datasetId, confirmName }: { datasetId: string; confirmName: string }) =>
       deleteDataset(datasetId, confirmName),
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
-      qc.invalidateQueries({ queryKey: queryKeys.datasets.all });
+      // fix(#787 item 5): invalidating fired three refetches at a dataset that no
+      // longer exists — its detail query, plus related/ and maps/, which live under
+      // the ['datasets'] prefix the list invalidation matches. Cancel all three and
+      // keep the list invalidation off the deleted id.
+      //
+      // Cancel, do NOT remove, the detail query: the caller navigates away after
+      // this resolves, so its observer is still mounted here, and removing an
+      // active query makes the observer rebuild it and fetch — measured as one
+      // more 404 than doing nothing. The stale entry ages out via gcTime instead.
+      const deadKeys = [
+        queryKeys.datasets.detail(variables.datasetId),
+        queryKeys.datasets.related(variables.datasetId),
+        queryKeys.datasets.maps(variables.datasetId),
+      ];
+      for (const queryKey of deadKeys) qc.cancelQueries({ queryKey });
+      qc.invalidateQueries({
+        queryKey: queryKeys.datasets.all,
+        predicate: (query) => query.queryKey[1] !== variables.datasetId,
+      });
       qc.invalidateQueries({ queryKey: queryKeys.search.all });
       qc.invalidateQueries({ queryKey: queryKeys.admin.stats });
     },

@@ -1,5 +1,6 @@
-import { AlertCircle, Clock3, History, Loader2, type LucideIcon } from 'lucide-react';
+import { AlertCircle, Clock3, History, Loader2, RotateCcw, type LucideIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Button } from '@/components/ui/button';
 import { useMapHistory } from '@/hooks/use-maps';
 import { formatProvenanceTime } from '@/lib/provenance-attribution';
 import { cn } from '@/lib/utils';
@@ -16,11 +17,13 @@ function HistoryPanelState({
   title,
   description,
   role,
+  action,
 }: {
   icon: LucideIcon;
   title: string;
   description?: string;
   role?: 'status' | 'alert';
+  action?: React.ReactNode;
 }) {
   return (
     <div
@@ -38,6 +41,7 @@ function HistoryPanelState({
       {description && (
         <p className="max-w-56 text-xs leading-5 text-muted-foreground">{description}</p>
       )}
+      {action}
     </div>
   );
 }
@@ -120,10 +124,17 @@ export function HistoryPanel({ mapId, limit = 50, className }: HistoryPanelProps
       <HistoryPanelState
         icon={AlertCircle}
         title={t('history.errorTitle', { defaultValue: 'History could not be loaded' })}
-        description={t('history.errorDescription', {
-          defaultValue: 'Try closing and reopening this panel.',
-        })}
+        description={t('history.errorDescription')}
         role="alert"
+        // fix(#787 item 9): the copy used to tell people to close and reopen the
+        // panel. Refetching is what that did, so offer the button instead —
+        // same affordance as DatasetSearchPanel's error state.
+        action={(
+          <Button type="button" variant="ghost" size="sm" onClick={() => historyQuery.refetch()}>
+            <RotateCcw className="me-1 h-3.5 w-3.5" aria-hidden="true" />
+            {t('history.retry')}
+          </Button>
+        )}
       />
     );
   }
