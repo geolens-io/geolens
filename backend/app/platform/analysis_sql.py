@@ -671,14 +671,35 @@ def render_spatial_join(
         if not _SPATIAL_JOIN_IDENT.match(name):
             raise ValueError(f"Invalid join field name: {name!r}")
 
+    # fix(#953): the JOIN side is tested RAW, deliberately. The module docstring's
+    # ST_MakeValid rule exists for OVERLAY operations — measured here, PostGIS
+    # 3.6 raises from ST_Intersection over a self-intersecting bowtie but
+    # ST_Intersects over the same geometry returns an answer, in either argument
+    # position, and the same answer the repaired geometry gives. Wrapping it
+    # costs a repair per CANDIDATE ROW, which the source-side hoist above cannot
+    # amortise because _j differs every row: on 32,186 meteorite points against
+    # 242 Natural Earth country polygons that was 33.68s versus 1.98s raw, both
+    # returning 30,712 pairs. Prevalidating the join layer in a MATERIALIZED CTE
+    # was tried and is worse — it wins nothing in that direction (5.22s) and
+    # loses the GIST index in the other, taking 0.21s to 12.88s.
     match = (
         f"_j.geom_4326 IS NOT NULL"
         f" AND _j.geom_4326 && {src}.geom_4326"
-        f" AND ST_Intersects("
-        f"ST_MakeValid(_j.geom_4326), ST_MakeValid({src}.geom_4326))"
+        f" AND ST_Intersects(_j.geom_4326, _sv.g)"
     )
     columns = f"_jc.{SPATIAL_JOIN_COUNT_COLUMN}"
     joins = (
+        # fix(#953): the source geometry is made valid ONCE PER SOURCE ROW here,
+        # not inside the predicate below. Inlined, it is re-evaluated per
+        # CANDIDATE PAIR — the same trap fix(#700) documents for the preview's
+        # geometry expression, and the OFFSET 0 fence against subquery pull-up
+        # is the same remedy. Measured on real data (242 Natural Earth country
+        # polygons x 32,186 meteorite points): inlined 28.36s, hoisted 0.20s,
+        # both returning 30,712 matches. The inlined form blew the sandbox's
+        # 10s statement timeout, so the preview 422'd on a pairing a user would
+        # obviously try.
+        f" CROSS JOIN LATERAL (SELECT ST_MakeValid({src}.geom_4326) AS g"
+        f" OFFSET 0) AS _sv"
         f" CROSS JOIN LATERAL ("
         f"SELECT count(*)::integer AS {SPATIAL_JOIN_COUNT_COLUMN}"
         f" FROM {join_table_ref} AS _j WHERE {match}) AS _jc"
@@ -704,15 +725,20 @@ def render_spatial_join_match_count(src_table_ref: str, join_table_ref: str) -> 
     it looks like the answer. This runs as its own statement, bounded by the
     sandbox statement timeout rather than by a row cap, since it returns one
     row however large the inputs are.
+
+    Built from ``render_spatial_join`` rather than from a second hand-written
+    predicate: a total that disagrees with the per-feature counts on the map is
+    the one failure mode this field cannot afford, and one renderer is what
+    makes disagreement impossible. It also inherits the per-source-row
+    ST_MakeValid hoist, without which this statement has the same 100x+
+    blow-up the per-row counts did.
     """
+    _, joins = render_spatial_join(join_table_ref, src="_src")
     return (
-        f"SELECT count(*)::bigint AS match_count"
-        f" FROM {src_table_ref} AS _src"
-        f" JOIN {join_table_ref} AS _j"
-        f" ON _j.geom_4326 && _src.geom_4326"
-        f" AND ST_Intersects("
-        f"ST_MakeValid(_j.geom_4326), ST_MakeValid(_src.geom_4326))"
-        f" WHERE _src.geom_4326 IS NOT NULL AND _j.geom_4326 IS NOT NULL"
+        f"SELECT COALESCE(sum(_jc.{SPATIAL_JOIN_COUNT_COLUMN}), 0)::bigint"
+        f" AS match_count"
+        f" FROM {src_table_ref} AS _src{joins}"
+        f" WHERE _src.geom_4326 IS NOT NULL"
     )
 
 

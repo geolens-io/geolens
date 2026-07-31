@@ -215,6 +215,86 @@ class TestSpatialJoinPreview:
         # The source's NULL-geometry row produced no feature and no error.
         assert 4 not in counts
 
+    async def test_invalid_join_geometry_neither_raises_nor_changes_the_count(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """The join side is tested RAW, without ST_MakeValid — see the note in
+        render_spatial_join for the 33.68s-vs-1.98s measurement behind that.
+
+        This pins the safety half of that trade: a self-intersecting bowtie in
+        the join layer must not abort the statement (which ST_Intersection over
+        the same geometry does), and must produce the count the repaired
+        geometry would.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        # Bowtie crossing at (1,1): two lobes, left and right, and the region
+        # directly below the crossing belongs to neither.
+        bowtie = await _create_layer(
+            test_db_session,
+            created_by=admin_id,
+            column_type="Geometry",
+            geometry_type="POLYGON",
+            values_sql=(
+                "('bowtie',"
+                " ST_GeomFromText('POLYGON((0 0, 2 2, 2 0, 0 2, 0 0))', 4326),"
+                " ST_GeomFromText('POLYGON((0 0, 2 2, 2 0, 0 2, 0 0))', 4326))"
+            ),
+        )
+        assert not (
+            await test_db_session.execute(
+                text(
+                    f"SELECT ST_IsValid(geom_4326) "  # noqa: S608
+                    f"FROM data.{bowtie.table_name} LIMIT 1"
+                )
+            )
+        ).scalar_one(), "fixture must actually be invalid or this proves nothing"
+
+        probes = await _create_layer(
+            test_db_session,
+            created_by=admin_id,
+            column_type="Point",
+            geometry_type="POINT",
+            values_sql=(
+                # Inside the left lobe.
+                "('in_lobe', ST_SetSRID(ST_MakePoint(0.3,1.0),4326),"
+                " ST_SetSRID(ST_MakePoint(0.3,1.0),4326)),"
+                # Below the crossing: inside the bbox, inside NEITHER lobe.
+                "('between', ST_SetSRID(ST_MakePoint(1,0.5),4326),"
+                " ST_SetSRID(ST_MakePoint(1,0.5),4326))"
+            ),
+            feature_count=2,
+        )
+
+        resp = await client.post(
+            _preview_url(probes.id),
+            json={"operation": "spatial_join", "join_dataset_id": str(bowtie.id)},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        counts = {
+            f["properties"]["gid"]: f["properties"]["join_count"]
+            for f in resp.json()["geojson"]["features"]
+        }
+
+        # Ground truth from the REPAIRED geometry: the raw predicate must agree.
+        expected = {
+            gid: (
+                await test_db_session.execute(
+                    text(
+                        f"SELECT count(*) FROM data.{bowtie.table_name} b "  # noqa: S608
+                        f"JOIN data.{probes.table_name} p ON p.gid = :gid "
+                        f"WHERE ST_Intersects(ST_MakeValid(b.geom_4326), p.geom_4326)"
+                    ).bindparams(gid=gid)
+                )
+            ).scalar_one()
+            for gid in counts
+        }
+        assert counts == expected
+        assert set(counts.values()) == {0, 1}, counts
+
     async def test_match_count_covers_the_whole_source_not_the_cap(
         self,
         client: AsyncClient,
