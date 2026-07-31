@@ -1107,7 +1107,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # _native_resolution_meters moved off `epsg == 4326` onto the stored WKT
     # (wkt_is_geographic + wkt_has_degree_unit), with the grads fall-through
     # documented at the site. Ratchet stays exact.
-    "backend/app/processing/tiles/router.py": 2069,
+    # fix(#957): +12 — raster_auth_check dropped out of the OpenAPI schema, and
+    # the note recording that the ROUTE is vestigial while the HANDLER is on the
+    # live raster tile path sits at the decorator so nobody deletes the wrong
+    # half. Ratchet stays exact.
+    "backend/app/processing/tiles/router.py": 2081,
 }
 
 

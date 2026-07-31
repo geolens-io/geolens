@@ -823,7 +823,16 @@ async def _resolve_raster_access(
     return meta, storage_backend
 
 
-@router.get("/raster-auth-check/", response_model=None)
+# fix(#957): unpublished from the API contract, not deleted. The route
+# registration is what is vestigial: it was the nginx `auth_request` target back
+# when nginx proxied raster tiles straight to Titiler, and `frontend/nginx.conf`
+# now forwards them to the api-side `/tiles/raster-proxy/` instead. The HANDLER
+# is load-bearing — `raster_tile_proxy` calls it in-process below and reads four
+# `X-GeoLens-*` headers off the Response it returns. Keeping the route mounted
+# also keeps the raster-RBAC coverage (21 HTTP call sites across five test
+# files) exercising the real handler. What it stopped being is a published SDK
+# endpoint whose only answer is internal storage topology.
+@router.get("/raster-auth-check/", response_model=None, include_in_schema=False)
 @limiter.exempt
 async def raster_auth_check(
     request: Request,
@@ -831,10 +840,13 @@ async def raster_auth_check(
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Auth-check endpoint called by nginx auth_request for raster tile serving.
+    """Resolve RBAC and the COG open-path for a raster dataset.
 
-    Validates RBAC access to a raster dataset and returns the COG open-path
-    in response headers (which nginx passes to Titiler, never the browser).
+    Called in-process by :func:`raster_tile_proxy`, which reads the
+    ``X-GeoLens-*`` headers off the returned Response. It was reachable over
+    HTTP as the nginx ``auth_request`` target; that topology is gone and the
+    route is no longer published in the OpenAPI schema (#957), though it stays
+    mounted for the raster-RBAC tests.
 
     Returns:
         200 with X-GeoLens-Asset-OpenPath and X-GeoLens-Cache-Status headers
