@@ -520,6 +520,28 @@ describe('AnalysisPanel', () => {
     expect(signal?.aborted).toBe(true);
   });
 
+  it('aborts a preview whose inputs changed under it (#787 item 3)', async () => {
+    // The sequence guard only stops the response being drawn. Preview stays
+    // disabled while the mutation is pending, so an un-aborted request also
+    // blocks the replacement the user is reaching for.
+    let signal: AbortSignal | undefined;
+    vi.mocked(previewAnalysis).mockImplementationOnce(
+      ((_id: string, _body: unknown, s?: AbortSignal) => {
+        signal = s;
+        return new Promise(() => {});
+      }) as never,
+    );
+    renderPanel([datasetLayer]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() => expect(previewAnalysis).toHaveBeenCalled());
+
+    fireEvent.change(screen.getByLabelText('Distance'), {
+      target: { value: '750' },
+    });
+    expect(signal?.aborted).toBe(true);
+  });
+
   it('picks up a map that arrives after mount (#787 item 10)', async () => {
     // The panel mounts before the lazy map finishes loading, and the ref it
     // is handed is filled in by assignment — which re-renders nothing. The

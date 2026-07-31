@@ -591,6 +591,12 @@ export function AnalysisPanel({
   ownsPreviewRef.current = previewSource === 'analysis-panel' || !!prefill;
   const handleInputsChanged = useCallback(() => {
     previewSeqRef.current += 1;
+    // fix(#787 item 3): the sequence bump only makes the response ineligible
+    // to be drawn. Abort here too, or the abandoned request keeps its sandbox
+    // query running to the request timeout — and because canRun gates on
+    // isPending, that also blocks the replacement preview the user is trying
+    // to run, so the abort at the head of the next mutation can never fire.
+    previewAbortRef.current?.abort();
     formEditedRef.current = true;
     if (ownsPreviewRef.current) onClearPreview?.();
     // fix(#764): a finished run's "Dataset created" + name must not survive
