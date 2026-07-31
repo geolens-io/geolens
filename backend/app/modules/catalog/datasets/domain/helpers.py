@@ -129,6 +129,7 @@ def dataset_to_response(
     source_count: int | None = None,
     base_url: str | None = None,
     stac_assets=None,
+    derived_from: dict | None = None,
 ) -> DatasetResponse:
     """Convert a Dataset ORM object to a DatasetResponse schema."""
     record = dataset.record
@@ -209,6 +210,11 @@ def dataset_to_response(
         collections=collections,
         record_status=record.record_status,
         lineage_summary=record.lineage_summary,
+        # feat(#765): passed in already access-checked (the detail path calls
+        # visible_derived_from). Not read off the record here: the list
+        # builders share this function and would need a per-row check on the
+        # source dataset to emit it safely.
+        derived_from=derived_from,
         update_frequency=record.update_frequency,
         usage_constraints=record.usage_constraints,
         access_constraints=record.access_constraints,

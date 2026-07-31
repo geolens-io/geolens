@@ -37,6 +37,7 @@ from app.platform.analysis_sql import (
     render_clip_layer_join,
     render_geometry_expr,
 )
+from app.processing.analysis.provenance import apply_analysis_provenance
 from app.platform.jobs.heartbeat import (
     claim_ingest_job_attempt,
     maintain_ingest_job_heartbeat,
@@ -799,6 +800,25 @@ async def _materialize(
                     table_name=out_table, title=title, visibility="private"
                 ),
                 requester,
+            )
+            # feat(#765): provenance before the completing commit, so a
+            # registered output can never be visible without its lineage.
+            await apply_analysis_provenance(
+                session,
+                new_record_id=dataset.record_id,
+                source_dataset_id=dataset_id,
+                user_id=user_id,
+                operation=operation,
+                params={
+                    "distance_meters": distance_meters,
+                    "by_field": by_field,
+                    "mask_source": (
+                        ("layer" if mask_dataset_id else "drawn")
+                        if operation == "clip"
+                        else None
+                    ),
+                    "mask_dataset_id": mask_dataset_id,
+                },
             )
             await _complete_job_for_attempt(
                 session,

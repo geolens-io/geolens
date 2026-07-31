@@ -250,6 +250,8 @@ async def _dataset_to_stac_item(
     spatial_extent_geojson: str | None = None,
     public_app_url: str | None = None,
     preferred_languages: Sequence[str] | None = None,
+    user: Identity | None = None,
+    user_roles: set[str] | None = None,
 ) -> dict:
     """Convert a Dataset ORM object to a STAC Item dict with presigned URLs.
 
@@ -313,7 +315,37 @@ async def _dataset_to_stac_item(
         ogc_record,
         collection_id=collection_id,
         stac_api_url=stac_api_url,
+        derived_from_id=await _visible_derived_from_id(db, record, user, user_roles),
     )
+
+
+async def _visible_derived_from_id(
+    db: AsyncSession,
+    record: Record,
+    user: Identity | None,
+    user_roles: set[str] | None,
+) -> str | None:
+    """Source item id for a ``rel="derived_from"`` link, when it is fetchable.
+
+    feat(#765): gated on the same query the item endpoints serve from, so the
+    link never points at an item this requester would get a 404 for, and a
+    private source is omitted entirely rather than disclosed as a dangling id.
+    """
+    reference = getattr(record, "derived_from", None) or {}
+    raw_id = reference.get("dataset_id")
+    if not raw_id:
+        return None
+    try:
+        source_id = uuid.UUID(str(raw_id))
+    except (TypeError, ValueError):
+        return None
+    stmt = (
+        _base_published_raster_query(user, user_roles or set())
+        .where(Dataset.id == source_id)
+        .limit(1)
+    )
+    found = (await db.execute(stmt)).scalars().first()
+    return str(source_id) if found is not None else None
 
 
 def _require_finite_bbox(values: list[float]) -> None:
@@ -1049,6 +1081,8 @@ async def get_collection_items(
             spatial_extent_geojson=extent_geojson_map.get(str(dataset.id)),
             public_app_url=public_app_url,
             preferred_languages=parse_accept_languages(request),
+            user=user,
+            user_roles=user_roles,
         )
         features.append(item)
 
@@ -1110,6 +1144,8 @@ async def _build_item_response(
     collection_id: str | None = None,
     public_app_url: str | None = None,
     preferred_languages: Sequence[str] | None = None,
+    user: Identity | None = None,
+    user_roles: set[str] | None = None,
 ) -> JSONResponse:
     """Fetch assets/raster metadata, convert to STAC Item, return as geo+json."""
 
@@ -1136,6 +1172,8 @@ async def _build_item_response(
             collection_id=collection_id,
             public_app_url=public_app_url,
             preferred_languages=preferred_languages,
+            user=user,
+            user_roles=user_roles,
         )
     )
     return JSONResponse(
@@ -1188,6 +1226,8 @@ async def get_collection_item(
         collection_id=collection_id,
         public_app_url=public_app_url,
         preferred_languages=parse_accept_languages(request),
+        user=user,
+        user_roles=user_roles,
     )
 
 
@@ -1224,6 +1264,8 @@ async def get_item(
         stac_api_url,
         public_app_url=public_app_url,
         preferred_languages=parse_accept_languages(request),
+        user=user,
+        user_roles=user_roles,
     )
 
 
@@ -1540,6 +1582,8 @@ async def _execute_search(
             ),
             public_app_url=public_app_url,
             preferred_languages=preferred_languages,
+            user=user,
+            user_roles=user_roles,
         )
         features.append(item)
 

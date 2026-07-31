@@ -859,7 +859,14 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Hosted opaque-share isolation joins every token operation through
         # its RLS-visible Map/User parent (+9 LOC). Cap 720 -> 735 leaves
         # only six lines before the next required split review.
-        "backend/app/modules/catalog/maps/service_public.py": 735,
+        # fix(#931): +32. find_public_maps_using_dataset became
+        # find_maps_broken_by_dataset_visibility: an internal map using the
+        # dataset was matched by neither the old query nor its caller's gate,
+        # so the flip succeeded and every signed-in viewer of that map lost
+        # the layer in silence. #930 made the rule a matrix, so the helper
+        # compares the before and after audiences instead of listing
+        # forbidden target values. Cap 735 -> 876, exact.
+        "backend/app/modules/catalog/maps/service_public.py": 876,
         "backend/app/modules/catalog/search/service_records.py": 500,
         # fix(#448): +~40 LOC — query-embedding hot-path deadline (asyncio.wait_for
         # wrapper) + the gated/approximated vector-only match COUNT in
@@ -895,7 +902,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 620,
         # fix(#474): reject primary-language updates that collide with a
         # translated variant. Cap 460 -> 480 (~9 LOC headroom above 471).
-        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 480,
+        # fix(#931): +7. _apply_visibility_change no longer carries its own
+        # `new != public and old == public` gate — that gate is what hid the
+        # internal-map case — and delegates the whole before/after audience
+        # comparison to the maps helper. Cap 480 -> 489, exact.
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 489,
         # fix(#435 codex r1): +6 LOC in get_dataset_rows to probe schema existence
         # before degrading a 42P01 to an empty page. Postgres reports a missing
         # tenant data schema with the same code as a raster dataset's synthetic
@@ -903,7 +914,10 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # emptiness. Cap 390 -> 396, no headroom.
         # fix(#836): +1 for the RASTER_FAMILY_RECORD_TYPES import. Cap 397,
         # still no headroom.
-        "backend/app/modules/catalog/datasets/domain/service_query.py": 397,
+        # feat(#765): +7 — the detail response resolves derived_from through
+        # visible_derived_from, so a private source is never disclosed via a
+        # derived dataset. Cap 397 -> 404, still no headroom.
+        "backend/app/modules/catalog/datasets/domain/service_query.py": 404,
         # Phase 276 CODE-02: chat_*.py sub-modules are all under the 350
         # default (largest is chat_actions.py at ~245 LOC). No explicit
         # per-file overrides needed; default applies.
@@ -1152,6 +1166,19 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_vector.py": 1058,
     "backend/app/modules/auth/oauth/service.py": 1031,
     "backend/app/processing/ingest/service.py": 1017,
+    # --- entered by the inclusion rule, feat(#765) -------------------------
+    # First time this module crosses 1000. main sat at 994, six lines under the
+    # gate, so it was going to fire on whoever added next; it fired here.
+    # +38 — DerivedFromResponse. The provenance reference was typed
+    # dict[str, Any], which OpenAPI renders as additionalProperties: true, and
+    # both SDKs then generate an untyped map — the shape is exactly what a
+    # durable reference exists to carry, so leaving it untyped defeated the
+    # feature (#1045 review). The model's own docstring holds the part worth
+    # keeping: `params` stays untyped deliberately, because it is the
+    # operation's parameter dict AND it is redacted per requester, so a union
+    # of per-operation models would describe a shape visible_derived_from is
+    # free to punch holes in. Ratchet exact at 1032.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1032,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.
@@ -1186,7 +1213,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # ST_XMin/ST_YMin/ST_XMax/ST_YMax(ST_Extent(...)) columns for one
     # rollup_bbox_columns() splat, and _parse_extent_row folds the row through
     # rollup_bbox(). Cap lowered 1796 -> 1789, still exact.
-    "backend/app/standards/stac/router.py": 1789,
+    # feat(#765): +44 — _visible_derived_from_id resolves the rel="derived_from"
+    # source against the same published+visible query the item endpoints serve
+    # from, and user/user_roles are threaded to the four item builders that
+    # feed it. Cap 1789 -> 1833, still exact.
+    "backend/app/standards/stac/router.py": 1833,
     # Central tenant-bound scope resolution replaced duplicated inline logic.
     # fix(#836): +1 — the RASTER_FAMILY_RECORD_TYPES import that replaces four
     # pasted family literals. Same +1 on the stac and search routers.

@@ -209,6 +209,8 @@ from .dataset_version_list_response import DatasetVersionListResponse
 from .dataset_version_response import DatasetVersionResponse
 from .dbf_truncation_collision_warning import DbfTruncationCollisionWarning
 from .dbf_truncation_detail import DbfTruncationDetail
+from .derived_from_response import DerivedFromResponse
+from .derived_from_response_params import DerivedFromResponseParams
 from .detect_embedding_dims_response import DetectEmbeddingDimsResponse
 from .discover_response import DiscoverResponse
 from .discovered_table import DiscoveredTable
@@ -890,6 +892,8 @@ __all__ = (
     "DatasetVersionResponse",
     "DbfTruncationCollisionWarning",
     "DbfTruncationDetail",
+    "DerivedFromResponse",
+    "DerivedFromResponseParams",
     "DetectEmbeddingDimsResponse",
     "DiscoveredTable",
     "DiscoverResponse",

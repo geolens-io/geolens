@@ -139,6 +139,75 @@ async def check_dataset_access(
     return user_roles
 
 
+async def _can_access_dataset_id(
+    db: AsyncSession,
+    dataset_id: Any,
+    user: Identity | None,
+    user_roles: set[str],
+) -> bool:
+    """Boolean form of the visibility check, for a raw id that may be junk.
+
+    False for an unparseable id and for one whose dataset no longer exists:
+    access cannot be established either way, so the caller withholds.
+    """
+    from app.modules.catalog.datasets.domain.service import get_dataset
+
+    try:
+        parsed = uuid.UUID(str(dataset_id))
+    except (TypeError, ValueError):
+        return False
+    dataset = await get_dataset(db, parsed)
+    if dataset is None:
+        return False
+    return await get_permission_extension().can_access_dataset(
+        db,
+        dataset,
+        parsed,
+        user,
+        user_roles=user_roles,
+    )
+
+
+async def visible_derived_from(
+    db: AsyncSession,
+    derived_from: dict | None,
+    user: Identity | None,
+    user_roles: set[str],
+) -> dict | None:
+    """The provenance reference, with every dataset id in it access-checked.
+
+    feat(#765): an analysis output can be shared while the dataset it was
+    derived from stays private, so the reference is gated on access to that
+    source. It is omitted rather than stubbed: a requester cannot tell
+    "not derived from anything" from "derived from something you cannot see",
+    which is what keeps the id (and the fact of its existence) from leaking.
+
+    fix(#765 review): the source is not the only dataset in here. A clip
+    carries ``params.mask_dataset_id``, and a public output can be derived
+    from a public source through a PRIVATE mask layer — so that id is checked
+    on its own and dropped when it fails, rather than riding along on the
+    source's verdict. A returned dict is always a copy; the caller must not be
+    able to mutate the record's JSONB through it.
+
+    A source that has since been deleted also yields None: access to it can no
+    longer be established, and the prose lineage on the record still reads.
+    """
+    if not derived_from:
+        return None
+    if not await _can_access_dataset_id(
+        db, derived_from.get("dataset_id"), user, user_roles
+    ):
+        return None
+
+    params = dict(derived_from.get("params") or {})
+    mask_id = params.get("mask_dataset_id")
+    if mask_id is not None and not await _can_access_dataset_id(
+        db, mask_id, user, user_roles
+    ):
+        params.pop("mask_dataset_id")
+    return {**derived_from, "params": params}
+
+
 async def check_dataset_write_access(
     db: AsyncSession,
     dataset: Any,

@@ -213,6 +213,17 @@ class Record(Base):
         nullable=True,
     )
 
+    # feat(#765): provenance for a record produced FROM another record —
+    # {dataset_id, operation, params, created_at}. Only the analysis
+    # materialize path writes it; nullable with no backfill, so every record
+    # predating it stays NULL. Deliberately not a FK: the reference has to
+    # survive the source dataset being deleted (the lineage sentence in
+    # lineage_summary reads as prose either way), and read paths gate it on
+    # the requester's access to the source anyway.
+    derived_from: Mapped[dict | None] = mapped_column(
+        MutableDict.as_mutable(JSONB), nullable=True
+    )
+
     # Audit
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("catalog.users.id", ondelete="SET NULL"), nullable=True

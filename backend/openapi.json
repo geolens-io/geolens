@@ -5107,6 +5107,17 @@
             "description": "Start of temporal coverage",
             "title": "Data Vintage Start"
           },
+          "derived_from": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DerivedFromResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Provenance for an analysis output. Null for a dataset that was not derived, and also for a requester who cannot access the source dataset \u2014 the two are deliberately indistinguishable."
+          },
           "extent_bbox": {
             "anyOf": [
               {
@@ -5785,6 +5796,41 @@
           "originals"
         ],
         "title": "DbfTruncationDetail",
+        "type": "object"
+      },
+      "DerivedFromResponse": {
+        "description": "Provenance for an analysis output: what it came from, and how.\n\nfix(#765 review): declared as a model rather than ``dict[str, Any]``. The\ndict spelled itself into the checked-in OpenAPI as bare\n``additionalProperties: true``, so both generated SDKs lost the shape \u2014 the\nTypeScript one degraded to an index signature and the Python one to an\nempty additional-properties container. The stable shape was documented in\nprose and mirrored by hand in the frontend types while the SDKs, which is\nwhere most consumers actually meet it, could not use it type-safely.\n\n``params`` stays untyped on purpose: it is the operation's own parameter\ndict, so its keys differ per operation (``distance_meters`` for a buffer,\n``mask_source``/``mask_dataset_id`` for a clip), and it is additionally\nREDACTED per requester \u2014 ``visible_derived_from`` drops any embedded\ndataset id the caller cannot see. A union of per-operation models would\ndescribe a shape the redaction is free to punch holes in.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "dataset_id": {
+            "description": "The dataset this one was derived from",
+            "format": "uuid",
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "operation": {
+            "description": "Analysis operation that produced it",
+            "title": "Operation",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": true,
+            "description": "Operation parameters, minus any dataset reference the requester cannot access",
+            "title": "Params",
+            "type": "object"
+          }
+        },
+        "required": [
+          "dataset_id",
+          "operation",
+          "params",
+          "created_at"
+        ],
+        "title": "DerivedFromResponse",
         "type": "object"
       },
       "DetectEmbeddingDimsResponse": {

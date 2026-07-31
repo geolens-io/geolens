@@ -13,7 +13,10 @@ Requirements:
   - Docker database must be running (docker compose up db)
 """
 
+import ast
 import uuid
+from collections import Counter
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -865,3 +868,126 @@ class TestModelSafeToolResult:
     def test_result_without_geojson_is_passed_through_unchanged(self) -> None:
         result = {"columns": ["n"], "rows": [[1]], "row_count": 1}
         assert model_safe_tool_result(result) is result
+
+
+class TestToolResultSerializationSites:
+    """The pure function above is not the guarantee that matters.
+
+    fix(#699): what protects the model's context is that EVERY provider call
+    site routes its tool result through ``model_safe_tool_result`` before
+    ``json.dumps``. A site that drops the wrapper passes every test in the
+    class above, and ``test_extensions.py`` only asserts the extension
+    *binding name* exists, which is a different claim again. So assert the
+    property structurally, over the AST.
+
+    The rule: any dict literal carrying a provider tool-result id
+    (``tool_use_id`` for Anthropic, ``tool_call_id`` for OpenAI) alongside a
+    ``content`` key must set that content to
+    ``json.dumps(model_safe_tool_result(...), ...)``.
+
+    fix(#699 codex P2): the walk covers all of ``backend/app/``, not a fixed
+    list of the modules that happen to build these messages today, following
+    ``test_rule2_structural.py``. A fourth provider adapter added in a new
+    module is exactly the case this is for, and an allowlist would have let it
+    through while the assertion still read as if it were covered.
+
+    The known sites below are an anti-vacuity anchor, not the scan's scope:
+    without them, renaming the id keys would make the walk find nothing at all
+    and pass for the wrong reason.
+    """
+
+    # fix(#699 codex P2): counted PER MODULE, not merely present. streaming.py
+    # builds two of these messages (the Anthropic tool_result block and the
+    # OpenAI tool message), and a set of module names collapses them — so if
+    # one changed its key spelling and stopped matching, the other would keep
+    # this anchor satisfied while the unmatched site quietly serialized an
+    # untrimmed payload.
+    KNOWN_SITE_COUNTS = {
+        "processing/ai/streaming.py": 2,
+        "platform/extensions/defaults_ai_anthropic.py": 1,
+        "platform/extensions/defaults_ai_openai.py": 1,
+    }
+
+    # The two ids that mark a message as carrying a tool RESULT rather than
+    # anything else a provider payload contains.
+    RESULT_ID_KEYS = ("tool_use_id", "tool_call_id")
+
+    @classmethod
+    def _content_value(cls, node: ast.AST) -> ast.expr | None:
+        """Return the ``content`` of a tool-result message, however it is built.
+
+        fix(#699 codex P2): a dict LITERAL is only the shape these happen to
+        take today. `dict(tool_call_id=..., content=...)`, or any provider's
+        own message class constructed with the same keywords, is the identical
+        payload and was invisible to a literal-only walk — so a fourth adapter
+        written in either style would have serialized an untrimmed result while
+        all three known-module counts stayed satisfied.
+
+        Matching on the key names rather than the construction style is what
+        makes this robust: the names are what the provider APIs fix, and they
+        are the same whether they arrive as strings or as keywords.
+        """
+        if isinstance(node, ast.Dict):
+            named = {
+                key.value: value
+                for key, value in zip(node.keys, node.values)
+                if isinstance(key, ast.Constant) and isinstance(key.value, str)
+            }
+        elif isinstance(node, ast.Call):
+            named = {kw.arg: kw.value for kw in node.keywords if kw.arg is not None}
+        else:
+            return None
+        if not set(named) & set(cls.RESULT_ID_KEYS):
+            return None
+        return named.get("content")
+
+    @staticmethod
+    def _is_trimmed_dumps(value: ast.expr) -> bool:
+        if not isinstance(value, ast.Call):
+            return False
+        func = value.func
+        if not (isinstance(func, ast.Attribute) and func.attr == "dumps"):
+            return False
+        if not value.args:
+            return False
+        inner = value.args[0]
+        return (
+            isinstance(inner, ast.Call)
+            and isinstance(inner.func, ast.Name)
+            and inner.func.id == "model_safe_tool_result"
+        )
+
+    def test_every_provider_tool_result_is_trimmed_before_serialization(self) -> None:
+        app_root = Path(__file__).resolve().parent.parent / "app"
+        sites: list[tuple[str, int, ast.expr]] = []
+        for path in sorted(app_root.rglob("*.py")):
+            rel = path.relative_to(app_root).as_posix()
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if not isinstance(node, (ast.Dict, ast.Call)):
+                    continue
+                value = self._content_value(node)
+                if value is not None:
+                    sites.append((rel, node.lineno, value))
+
+        found_per_module = Counter(rel for rel, _, _ in sites)
+        undercounted = {
+            rel: (found_per_module[rel], expected)
+            for rel, expected in self.KNOWN_SITE_COUNTS.items()
+            if found_per_module[rel] < expected
+        }
+        assert not undercounted, (
+            "the walk no longer recognizes every known tool-result message "
+            f"(module: found vs expected) {undercounted} — the key names it "
+            "matches on must have changed, so this gate is passing without "
+            "checking the sites it lost."
+        )
+
+        unwrapped = [
+            f"{rel}:{line}"
+            for rel, line, value in sites
+            if not self._is_trimmed_dumps(value)
+        ]
+        assert not unwrapped, (
+            "these tool-result sites serialize the raw result, so the whole "
+            f"GeoJSON payload reaches the model: {unwrapped}"
+        )
