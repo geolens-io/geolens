@@ -67,6 +67,13 @@ jobs:
       backup: ${{ steps.filter.outputs.backup }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # fix(#1094): the default depth-1 clone grafts the checked-out commit
+          # as a shallow boundary, and git then reports it as having NO parents:
+          # `git rev-parse HEAD^1` dies with "ambiguous argument". Depth 2 is the
+          # minimum that materialises the merge ref's two parents, which is all
+          # the base resolution below needs.
+          fetch-depth: 2
       # fix(#1094): resolve the PR diff base ourselves. paths-filter's no-token
       # path diffs `pull_request.base.sha .. merge-commit`, and base.sha is
       # frozen at PR-open time while GitHub recomputes the merge ref every time
@@ -77,10 +84,9 @@ jobs:
       #
       # checkout leaves us on refs/pull/N/merge, whose FIRST parent is the base
       # branch tip as of when that ref was built. Diffing against it yields the
-      # PR's own changes and nothing else. rev-parse reads the parent out of the
-      # merge commit itself, so this needs no extra fetch depth, and
-      # paths-filter's ensureRefAvailable does `fetch --depth=1 origin <sha>`
-      # for the base it is handed.
+      # PR's own changes and nothing else. This needs the fetch-depth: 2 above;
+      # paths-filter's own ensureRefAvailable then finds the base locally rather
+      # than re-fetching it.
       - name: Resolve the PR diff base
         id: diffbase
         if: github.event_name == 'pull_request'
