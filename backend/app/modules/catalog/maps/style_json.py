@@ -1266,6 +1266,89 @@ def _strip_wrong_typed_values(layer: dict[str, Any], key: str) -> None:
         )
 
 
+# fix(#917): the builder's builtin fill patterns. Their images are generated and
+# registered in the browser by `layer-adapters/fill-pattern-images.ts`, so they
+# exist only inside a GeoLens session — the served sprite is indexed from the
+# `map_icons` table alone and has never contained them. Mirrors
+# `FILL_PATTERN_IDS` in that module; keep the two in step.
+#
+# fix(#917 codex r1): matched exactly, never by the `geolens-fill-` prefix.
+# `create_icon_asset` derives a sprite slug from the uploaded filename, so an
+# icon named `geolens-fill-logo.png` becomes a real `map_icons` entry whose slug
+# carries that prefix — reserving it would strip a working pattern from every
+# exported style.
+_BUILTIN_FILL_PATTERN_IDS = frozenset(
+    {
+        "geolens-fill-hatch",
+        "geolens-fill-crosshatch",
+        "geolens-fill-diagonal",
+        "geolens-fill-dots",
+        "geolens-fill-grid",
+    }
+)
+
+
+def _references_builtin_fill_pattern(value: Any) -> bool:
+    """Whether a fill-pattern value is a builtin id.
+
+    A plain string only. A composite value — a data-driven expression or a
+    legacy function object — is left alone deliberately, and that is a design
+    decision rather than a coverage gap.
+
+    fix(#917 codex r1-r6): eight review rounds built an expression reader here
+    and then established that it could not be made safe. MapLibre resolves a
+    missing pattern by SKIPPING it and firing `styleimagemissing`, which the
+    docs describe as the hook for supplying the image at runtime — so an export
+    that still names a builtin degrades and stays repairable by the consumer.
+    Stripping a working expression removes authored content that no downstream
+    hook can bring back. One failure is recoverable by design, the other is
+    permanent, and reading composites correctly was trading the permanent one
+    for the recoverable one: `["coalesce", ["image", builtin], ["image", other]]`
+    is MapLibre's own documented way to author a fallback, and the detector was
+    deleting it.
+
+    Coverage is unaffected for the bug #917 reports. The BUILDER writes a plain
+    string (`fill-pattern-images.ts`), which is all GeoLens itself produces;
+    every composite reaches the column through style import or the open-dict
+    `paint` API, which makes it authored and the author's to own. A correct
+    composite reader is a MapLibre expression evaluator — a real feature with a
+    real spec, tracked separately, not a stopgap in a serializer.
+    """
+    return isinstance(value, str) and value in _BUILTIN_FILL_PATTERN_IDS
+
+
+def _strip_builtin_fill_pattern(layer: dict[str, Any]) -> None:
+    """Drop a builtin fill-pattern from an emitted layer, falling back to a colour.
+
+    fix(#917): an external MapLibre client loading the exported document asked
+    the sprite for an id it does not contain, got a missing-image warning, and
+    rendered no fill at all — a polygon layer that silently disappeared. In-app
+    surfaces never hit this because they go through the client-side adapter
+    registry, which generates the images in the browser.
+
+    A solid fill is the honest export of a pattern the document cannot carry.
+    Baking the five generators into the served sprite would keep exports
+    faithful, but a sprite is one shared atlas and cannot hold the per-layer
+    tint the client-side generator applies (#914), so that is not this fix.
+
+    Only the five builtin ids are stripped. They are a closed set this repo owns
+    and knows to be absent from the sprite; any other value may name a real
+    ``map_icons`` sprite entry, and dropping it would break a style that works.
+    """
+    paint = layer.get("paint")
+    if not isinstance(paint, dict):
+        return
+    if not _references_builtin_fill_pattern(paint.get("fill-pattern")):
+        return
+    del paint["fill-pattern"]
+    if "fill-color" not in paint:
+        paint["fill-color"] = DEFAULT_FILL_COLOR
+    logger.debug(
+        "Exported layer %s as a solid fill: builtin fill patterns are not in the sprite",
+        layer.get("id"),
+    )
+
+
 def _validate_emitted_style(style: dict[str, Any]) -> None:
     """Strip non-spec paint/layout properties from every emitted layer in place."""
     layers = style.get("layers")
@@ -1275,6 +1358,8 @@ def _validate_emitted_style(style: dict[str, Any]) -> None:
         if not isinstance(layer, dict):
             continue
         layer_type = layer.get("type")
+        if layer_type == "fill":
+            _strip_builtin_fill_pattern(layer)
         paint_allowed = _PAINT_PROPERTIES_BY_TYPE.get(layer_type)
         if paint_allowed is not None:
             _strip_unknown_properties(layer, "paint", paint_allowed)
