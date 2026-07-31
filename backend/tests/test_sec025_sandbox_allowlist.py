@@ -27,21 +27,29 @@ from app.platform.sandbox.validator import validate_sql
 def _recording_validator_logger():
     """Collect the validator's structured rejection events, immune to caching.
 
-    fix(#1024): `structlog.testing.capture_logs()` cannot see these events.
-    `app/core/logging_config.py` configures structlog with
-    `cache_logger_on_first_use=True`, and `validator.py` binds its logger at
-    module import, so the first call that logs freezes the processor chain onto
-    that logger. Every later `capture_logs()` swaps the GLOBAL chain, which the
-    frozen logger no longer consults, and yields `[]` — the rejection still
-    happens, but the assertion reading the log sees nothing.
+    fix(#1024): `structlog.testing.capture_logs()` observes the GLOBAL
+    structlog configuration, so what it sees depends on what else ran earlier
+    in the same xdist worker rather than on the code under test. Under `-n 4`
+    it started yielding `[]` here while the rejection itself still happened,
+    which turned main red. The same file passes run alone, and two failing
+    runs disagreed on how many of the three broke.
 
-    That makes the failure purely a function of xdist worker assignment: these
-    tests passed when they landed and started failing once another test that
-    exercises `validate_sql` was scheduled ahead of them in the same worker.
+    The exact trigger was NOT pinned down, and this docstring deliberately
+    does not claim it was. Two people failed to reproduce it in a single
+    process, including forcing `setup_logging()` ahead of a warmed validator
+    logger and raising the stdlib root level. The leading candidate is
+    `cache_logger_on_first_use=True` in `app/core/logging_config.py` combined
+    with `validator.py` binding its logger at import, which matches the
+    symptom documented at test_tile_signing.py:648-656 — but it did not
+    demonstrate on structlog 25.5.0 even when that order was forced. Treat it
+    as unconfirmed if you are here debugging something similar.
 
-    Replacing the module global is caching-immune, because the call sites
-    resolve `logger` from module globals at call time. Same approach and same
-    reasoning as the tile_access assertion in test_tile_signing.py.
+    What IS established is the class of cause: an assertion about validator
+    behaviour should not read through global logging state that any other test
+    in the worker can mutate. Swapping the module global removes that
+    dependency outright, because the call sites resolve `logger` from module
+    globals at call time. That is why this is the right fix whether or not the
+    caching story turns out to be the trigger.
     """
     events: list[dict] = []
 
@@ -49,7 +57,10 @@ def _recording_validator_logger():
         def _record(self, event=None, **kwargs):
             events.append({"event": event, **kwargs})
 
-        debug = info = warning = error = critical = _record
+        # `exception` included deliberately: without it __getattr__ below would
+        # return a silent no-op, and an assertion would fail with an empty list
+        # — the exact confusing symptom this helper exists to remove.
+        debug = info = warning = error = critical = exception = _record
 
         def __getattr__(self, _name):
             # bind() and friends: no-op that supports chaining.
