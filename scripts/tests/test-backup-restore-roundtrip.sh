@@ -492,6 +492,47 @@ WEEKLY_TS="$(basename "$WEEKLY_GLOBALS" | sed -nE 's/^.*-([0-9]{8}_[0-9]{6})\..*
 find "${SUNDAY_BACKUPS}/weekly" -maxdepth 1 -name "*_${WEEKLY_TS}.dump" -type f | grep -q . \
     || fail "the weekly globals copy does not pair with a weekly dump"
 echo "      weekly copy OK — paired, mode ${WEEKLY_MODE}, no leftover .tmp."
+
+# fix(#995) review: a Sunday cycle that crosses midnight must not produce a
+# weekly dump with no paired globals. This stub answers 7 for the FIRST weekday
+# question and 1 for every one after, which is exactly what a 23:59 schedule or
+# a slow staging archive looks like. The cycle has to decide once and stick to
+# it, so all three artifacts land in weekly/ or none do.
+MIDNIGHT_STUB_BIN="${WORKDIR}/stub-midnight"
+mkdir -p "$MIDNIGHT_STUB_BIN"
+cat > "${MIDNIGHT_STUB_BIN}/date" <<'MIDSTUB'
+#!/bin/sh
+case "$*" in
+  "+%u")
+    n=$(cat "$WEEKDAY_CALLS" 2>/dev/null || echo 0)
+    n=$((n + 1)); echo "$n" > "$WEEKDAY_CALLS"
+    if [ "$n" -eq 1 ]; then echo 7; else echo 1; fi
+    exit 0;;
+esac
+for real in /bin/date /usr/bin/date; do [ -x "$real" ] && exec "$real" "$@"; done
+exit 127
+MIDSTUB
+chmod +x "${MIDNIGHT_STUB_BIN}/date"
+
+MIDNIGHT_BACKUPS="${WORKDIR}/midnight-backups"
+mkdir -p "$MIDNIGHT_BACKUPS"
+env BACKUP_DIR="$MIDNIGHT_BACKUPS" STAGING_DIR="$CYCLE_STAGING" \
+    POSTGRES_HOST="$PGHOST" PGPORT="$PGPORT" \
+    POSTGRES_USER="$PGUSER" POSTGRES_PASSWORD="$PGPASSWORD" \
+    POSTGRES_DB="$SRC_DB" BACKUP_S3_ENABLED=false \
+    WEEKDAY_CALLS="${WORKDIR}/weekday-calls" PATH="${MIDNIGHT_STUB_BIN}:${PATH}" \
+    bash "${REPO_ROOT}/scripts/backup-entrypoint.sh" --run-backup > /dev/null 2>&1 \
+    || fail "midnight-crossing cycle exited non-zero"
+
+MID_WEEKLY_DUMP="$(find "${MIDNIGHT_BACKUPS}/weekly" -name '*.dump' -type f | head -1)"
+if [ -n "$MID_WEEKLY_DUMP" ]; then
+    MID_TS="$(basename "$MID_WEEKLY_DUMP" .dump | sed -nE 's/^.*_([0-9]{8}_[0-9]{6})$/\1/p')"
+    [ -f "${MIDNIGHT_BACKUPS}/weekly/globals-${MID_TS}.sql" ] \
+        || fail "a weekly dump landed with no paired globals — the weekly decision was re-evaluated mid-cycle"
+    echo "      midnight crossing OK — the weekly decision held for every artifact."
+else
+    fail "the midnight-crossing cycle produced no weekly dump, so the pairing was not exercised"
+fi
 echo ""
 
 echo "=== PASS: backup+restore round-trip verified (bundled + managed modes) ==="

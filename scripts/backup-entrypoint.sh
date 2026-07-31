@@ -82,6 +82,14 @@ unset _ret_var _ret_val
 run_backup() {
     local timestamp
     timestamp="$(date '+%Y%m%d_%H%M%S')"
+    # fix(#995 review): decide "is this a weekly cycle?" ONCE, with the
+    # timestamp that names the cycle, and reuse it for every artifact. Each one
+    # used to re-ask the weekday at the moment it was written, so a Sunday
+    # cycle that crossed midnight — a 23:59 schedule, or a large staging
+    # archive — could copy the dump into weekly/ and then answer Monday for its
+    # companions, leaving a weekly dump with no paired globals.
+    CYCLE_IS_WEEKLY=0
+    [ "$(date '+%u')" = "7" ] && CYCLE_IS_WEEKLY=1
     local filename="${POSTGRES_DB}_${timestamp}.dump"
     local filepath="${DAILY_DIR}/${filename}"
 
@@ -132,7 +140,7 @@ run_backup() {
     log "Backup verified: ${filename} fully readable"
 
     # Weekly copy on Sundays
-    if [ "$(date '+%u')" = "7" ]; then
+    if [ "$CYCLE_IS_WEEKLY" -eq 1 ]; then
         cp "$filepath" "${WEEKLY_DIR}/${filename}"
         log "Weekly copy saved: ${filename}"
     fi
@@ -171,7 +179,7 @@ run_backup() {
         if [ -n "$globals_dump" ]; then
             upload_to_s3 "$globals_dump" "daily/$(basename "$globals_dump")" || upload_failed=1
         fi
-        if [ "$(date '+%u')" = "7" ]; then
+        if [ "$CYCLE_IS_WEEKLY" -eq 1 ]; then
             upload_to_s3 "$filepath" "weekly/${filename}" || upload_failed=1
             if [ -n "$staging_archive" ]; then
                 upload_to_s3 "$staging_archive" "weekly/$(basename "$staging_archive")" || upload_failed=1
@@ -256,7 +264,7 @@ backup_staging() {
     local size
     size="$(du -h "$archive" | cut -f1)"
     log "Object-storage archive complete: $(basename "$archive") (${size})" >&2
-    if [ "$(date '+%u')" = "7" ]; then
+    if [ "$CYCLE_IS_WEEKLY" -eq 1 ]; then
         cp "$archive" "${WEEKLY_DIR}/$(basename "$archive")"
         log "Weekly object-storage copy saved: $(basename "$archive")" >&2
     fi
@@ -313,7 +321,7 @@ backup_globals() {
     local size
     size="$(du -h "$globals_file" | cut -f1)"
     log "Cluster globals complete: $(basename "$globals_file") (${size})" >&2
-    if [ "$(date '+%u')" = "7" ]; then
+    if [ "$CYCLE_IS_WEEKLY" -eq 1 ]; then
         # Same .tmp-then-rename as the daily artifact, and for the same reason:
         # a container killed mid-`cp` never reaches the failure branch, so
         # copying straight to the final name would leave a truncated file under
