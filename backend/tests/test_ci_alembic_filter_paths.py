@@ -174,6 +174,75 @@ class TestAlembicFilterGlobs:
         )
 
 
+class TestPullRequestDiffBase:
+    """fix(#1094): the PR diff base must not be the stale pull_request.base.sha."""
+
+    def _changes_steps(self) -> list[dict]:
+        with CI_YML_PATH.open() as fh:
+            ci: dict[str, Any] = yaml.safe_load(fh)
+        return ci["jobs"]["changes"]["steps"]
+
+    def test_paths_filter_is_given_an_explicit_base(self):
+        """Without a `base` input the action uses pull_request.base.sha.
+
+        That value is frozen when the PR is opened, while GitHub rebuilds the
+        refs/pull/N/merge ref every time main moves, so the diff silently grows
+        to include everything that landed in between. #1027 changed 4 files and
+        its filter reported 117, which switched Backend Tests on for unrelated
+        backend/** work and made a green job say nothing about the PR.
+        """
+        steps = self._changes_steps()
+        filter_step = next(
+            (s for s in steps if "dorny/paths-filter" in str(s.get("uses", ""))),
+            None,
+        )
+        assert filter_step is not None, "paths-filter step not found in changes job"
+
+        base = str(filter_step.get("with", {}).get("base", "")).strip()
+        assert base, (
+            "The paths-filter step has no 'base' input, so it falls back to the "
+            "stale pull_request.base.sha and a PR's filter diff grows as main "
+            "moves underneath it. See #1094."
+        )
+
+        producer_ids = {str(s.get("id", "")) for s in steps if s.get("id")}
+        referenced = re.findall(r"steps\.([A-Za-z0-9_-]+)\.outputs", base)
+        assert referenced, (
+            f"'base' should come from a step output that resolves a merge base; "
+            f"got {base!r}."
+        )
+        missing = [r for r in referenced if r not in producer_ids]
+        assert not missing, (
+            f"'base' references step id(s) {missing} that do not exist in the "
+            f"changes job. Known ids: {sorted(producer_ids)}"
+        )
+
+    def test_diff_base_is_resolved_from_the_merge_ref_parent(self):
+        """The resolver must derive the base from the merge ref, not the payload.
+
+        Reading github.event.pull_request.base.sha back out of the payload would
+        reintroduce #1094 with extra steps.
+        """
+        steps = self._changes_steps()
+        resolver = next(
+            (s for s in steps if str(s.get("id", "")) == "diffbase"),
+            None,
+        )
+        assert resolver is not None, (
+            "No step with id 'diffbase' in the changes job. Something removed "
+            "the #1094 base resolver."
+        )
+        script = str(resolver.get("run", ""))
+        assert "HEAD^1" in script, (
+            "The diff-base resolver no longer reads the merge ref's first "
+            f"parent. Script was:\n{script}"
+        )
+        assert "base.sha" not in script.replace(" ", ""), (
+            "The diff-base resolver reads pull_request.base.sha, which is the "
+            "stale value #1094 exists to stop using."
+        )
+
+
 class TestBackendFilterCoversReferencedScripts:
     """fix(#1088): guard the backend filter against the skipped-suite trap."""
 
