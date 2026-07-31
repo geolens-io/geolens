@@ -87,8 +87,9 @@ run_backup() {
 
     # fix(#819): orphaned .tmp dumps (pg_dump killed mid-write) match no prune glob and
     # would accumulate forever; a new cycle starting means no dump is in
-    # flight, so any leftover .tmp is garbage.
-    rm -f "${DAILY_DIR}"/*.dump.tmp
+    # flight, so any leftover .tmp is garbage. fix(#995): the globals dump
+    # writes through the same .tmp-then-rename path and needs the same sweep.
+    rm -f "${DAILY_DIR}"/*.dump.tmp "${DAILY_DIR}"/globals-*.sql.tmp
 
     log "Starting backup: ${filename}"
 
@@ -183,15 +184,14 @@ run_backup() {
         fi
     fi
 
-    # Retention runs regardless of S3 outcome (dumps and their paired staging
-    # archives share retention counts) — local backups must be pruned even when
-    # the offsite upload failed, or backup_data fills up during an S3 outage.
+    # Retention runs regardless of S3 outcome (dumps set the window; their
+    # companions follow) — local backups must be pruned even when the offsite
+    # upload failed, or backup_data fills up during an S3 outage.
     prune_old_backups "$DAILY_DIR" "$BACKUP_RETENTION_DAILY"
     prune_old_backups "$WEEKLY_DIR" "$BACKUP_RETENTION_WEEKLY"
-    prune_old_staging "$DAILY_DIR" "$BACKUP_RETENTION_DAILY"
-    prune_old_staging "$WEEKLY_DIR" "$BACKUP_RETENTION_WEEKLY"
-    prune_old_globals "$DAILY_DIR" "$BACKUP_RETENTION_DAILY"
-    prune_old_globals "$WEEKLY_DIR" "$BACKUP_RETENTION_WEEKLY"
+    # Must run after prune_old_backups — it prunes by what that just left.
+    prune_orphaned_companions "$DAILY_DIR"
+    prune_orphaned_companions "$WEEKLY_DIR"
 
     # Surface the S3 failure now that retention has run, so the cycle is still
     # reported as failed (non-zero) to the cron / sleep-loop caller.
@@ -282,14 +282,21 @@ backup_globals() {
     local globals_file="${DAILY_DIR}/globals-${timestamp}.sql"
 
     log "Dumping cluster globals: $(basename "$globals_file")" >&2
+    # fix(#995): write to .tmp and rename on success, for the same reason the
+    # dump does. A container killed mid-write (OOM, `compose stop`) never
+    # reaches the cleanup below, so writing straight to the final name would
+    # leave a truncated globals file sitting next to a complete dump, looking
+    # like the valid paired artifact. The rename makes globals-*.sql appear
+    # only atomically; the .tmp is swept at the top of the next cycle.
     local rc=0
     (umask 077; pg_dumpall -h "$POSTGRES_HOST" -U "$POSTGRES_USER" \
-        --globals-only > "$globals_file") || rc=$?
+        --globals-only > "${globals_file}.tmp") || rc=$?
     if [ "$rc" -ne 0 ]; then
         log "ERROR: pg_dumpall --globals-only failed (exit ${rc}) — roles could not be captured, so this cycle will be reported as failed" >&2
-        rm -f "$globals_file"
+        rm -f "${globals_file}.tmp"
         return 1
     fi
+    mv "${globals_file}.tmp" "$globals_file"
 
     local size
     size="$(du -h "$globals_file" | cut -f1)"
@@ -358,52 +365,61 @@ upload_to_s3() {
 # ---------------------------------------------------------------------------
 # Retention pruning
 # ---------------------------------------------------------------------------
+# Ordered by the timestamp in the filename, not by mtime. Two reasons: the
+# embedded timestamp is the cycle's identity, while mtime is whenever the file
+# was last written (the weekly copies all carry their `cp` time, so mtime order
+# there is the copy order, not the backup order); and `find -printf` is a GNU
+# extension, so mtime ordering made this function silently unrunnable outside
+# the container — including in scripts/tests/test-backup-restore-roundtrip.sh,
+# which is documented as a standalone local tool. `<db>_<YYYYmmdd_HHMMSS>.dump`
+# sorts oldest-first lexicographically.
 prune_old_backups() {
     local dir="$1"
     local keep="$2"
 
     local count
-    count="$(find "$dir" -name "*.dump" -type f | wc -l)"
+    count="$(find "$dir" -maxdepth 1 -name "*.dump" -type f | wc -l)"
     if [ "$count" -gt "$keep" ]; then
         local to_remove=$((count - keep))
         log "Pruning ${to_remove} old backup(s) from ${dir}"
-        find "$dir" -name "*.dump" -type f -printf '%T+ %p\n' | \
-            sort | head -n "$to_remove" | awk '{print $2}' | \
-            xargs rm -f
+        find "$dir" -maxdepth 1 -name "*.dump" -type f | sort | \
+            head -n "$to_remove" | while IFS= read -r stale; do
+                rm -f "$stale"
+            done
     fi
 }
 
-# BKP-01: prune object-storage archives with the same retention policy as dumps.
-prune_old_staging() {
+# BKP-01 / fix(#995): companion artifacts (the object-storage archive and the
+# globals dump) are pruned by PAIRING, not by their own count.
+#
+# Counting them independently looked equivalent and is not, because a companion
+# can be absent for a cycle that still produces a dump: backup_staging skips a
+# missing or empty staging mount, and a failed pg_dumpall leaves a good dump
+# with no globals. Once the counts diverge, `keep the newest N of each` prunes
+# a dump whose companion is younger than N and therefore survives — so after
+# enough such cycles every complete set is gone while the orphans remain.
+#
+# The dumps are the primary artifact and prune_old_backups is the authority on
+# retention. This runs AFTER it and drops any companion whose dump is no longer
+# there, which keeps the invariant that matters for a restore: every companion
+# present has the dump it pairs with.
+prune_orphaned_companions() {
     local dir="$1"
-    local keep="$2"
 
-    local count
-    count="$(find "$dir" -name "staging-*.tar.gz" -type f | wc -l)"
-    if [ "$count" -gt "$keep" ]; then
-        local to_remove=$((count - keep))
-        log "Pruning ${to_remove} old object-storage archive(s) from ${dir}"
-        find "$dir" -name "staging-*.tar.gz" -type f -printf '%T+ %p\n' | \
-            sort | head -n "$to_remove" | awk '{print $2}' | \
-            xargs rm -f
-    fi
-}
-
-# fix(#995): prune globals dumps on the same retention counts as the dumps they
-# pair with, so a globals file never outlives its dump (or vice versa).
-prune_old_globals() {
-    local dir="$1"
-    local keep="$2"
-
-    local count
-    count="$(find "$dir" -name "globals-*.sql" -type f | wc -l)"
-    if [ "$count" -gt "$keep" ]; then
-        local to_remove=$((count - keep))
-        log "Pruning ${to_remove} old globals dump(s) from ${dir}"
-        find "$dir" -name "globals-*.sql" -type f -printf '%T+ %p\n' | \
-            sort | head -n "$to_remove" | awk '{print $2}' | \
-            xargs rm -f
-    fi
+    local companion base ts
+    for companion in "$dir"/staging-*.tar.gz "$dir"/globals-*.sql; do
+        # Unmatched globs expand to themselves; -f skips those.
+        [ -f "$companion" ] || continue
+        base="$(basename "$companion")"
+        # Anchored at the end, like restore.sh's parse.
+        ts="$(printf '%s' "$base" | sed -nE 's/^.*-([0-9]{8}_[0-9]{6})\..*$/\1/p')"
+        # A name we cannot pair is left alone rather than guessed at.
+        [ -n "$ts" ] || continue
+        if ! find "$dir" -maxdepth 1 -name "*_${ts}.dump" -type f | grep -q .; then
+            log "Pruning orphaned ${base} from ${dir} (its dump has aged out)"
+            rm -f "$companion"
+        fi
+    done
 }
 
 # ---------------------------------------------------------------------------

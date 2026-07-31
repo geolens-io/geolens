@@ -308,7 +308,6 @@ GLOBALS_MODE="$(ls -l "$GLOBALS_FILE" | cut -c1-10)"
 echo "      globals artifact OK — $(basename "$GLOBALS_FILE"), mode ${GLOBALS_MODE}, paired timestamp."
 
 [ -f "${CYCLE_BACKUPS}/.last-success" ] || fail "successful cycle did not write .last-success"
-LAST_SUCCESS_BEFORE="$(ls -l "${CYCLE_BACKUPS}/.last-success")"
 
 # Failure path: a pg_dumpall that fails must fail the CYCLE (an unrestorable-
 # roles backup is not a good backup), leaving .last-success at its old value so
@@ -319,6 +318,15 @@ STUB_BIN="${WORKDIR}/stub-bin"
 mkdir -p "$STUB_BIN"
 printf '#!/bin/sh\necho "simulated pg_dumpall failure" >&2\nexit 1\n' > "${STUB_BIN}/pg_dumpall"
 chmod +x "${STUB_BIN}/pg_dumpall"
+
+# Artifact names carry a whole-second timestamp, so back-to-back cycles reuse
+# one name and silently overwrite each other — which would leave the pairing
+# check below with a single set and nothing to prove. Sleep past the boundary.
+sleep 1
+# A marker file rather than a stringified `ls -l`: ls prints minute-granularity
+# times, so a re-touch inside the same minute would compare equal.
+LAST_SUCCESS_MARKER="${WORKDIR}/last-success-marker"
+touch "$LAST_SUCCESS_MARKER"
 
 FAIL_LOG="${WORKDIR}/cycle-fail.log"
 set +e
@@ -331,13 +339,43 @@ set -e
 }
 grep -q "pg_dumpall --globals-only failed" "$FAIL_LOG" \
     || fail "cycle failed but never logged why the globals dump could not be captured"
-[ "$(ls -l "${CYCLE_BACKUPS}/.last-success")" = "$LAST_SUCCESS_BEFORE" ] \
+[ ! "${CYCLE_BACKUPS}/.last-success" -nt "$LAST_SUCCESS_MARKER" ] \
     || fail ".last-success was touched by a cycle whose globals dump failed"
 # The partial file must not be left behind: a truncated globals dump replays as
 # a partial set of roles, which is worse than having none.
 [ -z "$(find "${CYCLE_BACKUPS}/daily" -name 'globals-*.sql' -size 0 2>/dev/null)" ] \
     || fail "a failed globals dump left an empty artifact behind"
+[ -z "$(find "${CYCLE_BACKUPS}/daily" -name 'globals-*.sql.tmp' 2>/dev/null)" ] \
+    || fail "a failed globals dump left its .tmp behind"
 echo "      failure path OK — cycle non-zero, .last-success untouched, no partial artifact."
+
+# fix(#995) review: companions prune by PAIRING, not by their own count. The
+# failure path above is exactly how the counts diverge — a good dump with no
+# globals — so with count-based pruning a retention window of 1 keeps the
+# newest dump while the older globals, being the only one of its kind, survives
+# as an orphan. Drive that with BACKUP_RETENTION_DAILY=1: the first cycle's
+# dump ages out, so its globals must go with it.
+sleep 1  # distinct timestamp again, for the same reason as above
+ORPHAN_LOG="${WORKDIR}/cycle-orphan.log"
+if ! env BACKUP_RETENTION_DAILY=1 BACKUP_RETENTION_WEEKLY=1 \
+    BACKUP_DIR="$CYCLE_BACKUPS" STAGING_DIR="$CYCLE_STAGING" \
+    POSTGRES_HOST="$PGHOST" PGPORT="$PGPORT" \
+    POSTGRES_USER="$PGUSER" POSTGRES_PASSWORD="$PGPASSWORD" \
+    POSTGRES_DB="$SRC_DB" BACKUP_S3_ENABLED=false \
+    bash "${REPO_ROOT}/scripts/backup-entrypoint.sh" --run-backup > "$ORPHAN_LOG" 2>&1; then
+    cat "$ORPHAN_LOG" >&2
+    fail "retention-1 cycle exited non-zero"
+fi
+REMAINING_DUMPS="$(find "${CYCLE_BACKUPS}/daily" -name '*.dump' -type f | wc -l | tr -d ' ')"
+[ "$REMAINING_DUMPS" = "1" ] \
+    || fail "expected retention to leave exactly 1 dump, found ${REMAINING_DUMPS}"
+for g in "${CYCLE_BACKUPS}"/daily/globals-*.sql; do
+    [ -f "$g" ] || continue
+    g_ts="$(basename "$g" | sed -nE 's/^.*-([0-9]{8}_[0-9]{6})\..*$/\1/p')"
+    find "${CYCLE_BACKUPS}/daily" -maxdepth 1 -name "*_${g_ts}.dump" -type f | grep -q . \
+        || fail "globals-${g_ts}.sql outlived its dump — companions are not pruning by pairing"
+done
+echo "      pairing OK — every surviving globals dump still has the dump it pairs with."
 echo ""
 
 echo "=== PASS: backup+restore round-trip verified (bundled + managed modes) ==="
