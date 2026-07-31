@@ -1093,3 +1093,124 @@ describe('clearExcludedPaintOnMap', () => {
     expect(map.setPaintProperty).not.toHaveBeenCalled();
   });
 });
+
+// fix(#910/#918, codex P2): the EDIT-05 rule is enforced at applyLayerUpdate, the one
+// boundary every handler in this hook commits through, so it holds on paths that never
+// touch handleStyleConfigChange. The provenance rule is read off the paint diff: the key
+// the write INTRODUCED is the one the user asked for.
+describe('useLayerMapSync — EDIT-05 at the commit boundary', () => {
+  const LID = 'layer-uuid-123';
+
+  function renderBoundary(initialLayer: MapLayerResponse, mapStub = makeMapStub([`layer-${LID}`])) {
+    let finalLayers: MapLayerResponse[] = [initialLayer];
+    const { result } = renderHook(() => {
+      const [layers, setLayers] = React.useState([initialLayer]);
+      finalLayers = layers;
+      return useLayerMapSync(
+        layers,
+        setLayers as React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
+        vi.fn(),
+        { current: mapStub } as unknown as React.RefObject<import('maplibre-gl').Map | null>,
+      );
+    });
+    return { result, mapStub, layers: () => finalLayers };
+  }
+
+  // The AI `set_style` action and the Advanced JSON editor both write through
+  // onPaintChange, never the style-config funnel. Adding a colour to a patterned layer
+  // reported success while MapLibre kept drawing the old pattern.
+  it('a paint-only write that adds fill-color displaces the pattern', () => {
+    const { result, layers, mapStub } = renderBoundary(
+      makeLayer({
+        dataset_geometry_type: 'Polygon',
+        paint: { 'fill-pattern': 'geolens-fill-hatch', 'fill-opacity': 0.3 },
+      }),
+    );
+
+    act(() => {
+      result.current.handlePaintChange(LID, {
+        'fill-pattern': 'geolens-fill-hatch',
+        'fill-color': '#abc',
+        'fill-opacity': 0.3,
+      });
+    });
+
+    const updated = layers().find((l) => l.id === LID)!;
+    expect('fill-pattern' in (updated.paint ?? {})).toBe(false);
+    expect(updated.paint?.['fill-color']).toBe('#abc');
+    expect(mapStub.setPaintProperty).toHaveBeenCalledWith(`layer-${LID}`, 'fill-pattern', undefined);
+  });
+
+  // The mirror direction on the same path: a pattern added over a solid colour.
+  it('a paint-only write that adds fill-pattern displaces and stashes the colour', () => {
+    const { result, layers } = renderBoundary(
+      makeLayer({ dataset_geometry_type: 'Polygon', paint: { 'fill-color': '#0000ff' } }),
+    );
+
+    act(() => {
+      result.current.handlePaintChange(LID, {
+        'fill-color': '#0000ff',
+        'fill-pattern': 'geolens-fill-dots',
+      });
+    });
+
+    const updated = layers().find((l) => l.id === LID)!;
+    expect('fill-color' in (updated.paint ?? {})).toBe(false);
+    const builder = (updated.style_config as { builder?: Record<string, unknown> } | null)?.builder;
+    expect(builder?.fillColorSaved).toBe('#0000ff');
+  });
+
+  // A write that does not touch paint expresses no new intent, so a layer that already
+  // carries the forbidden pair is left exactly as it was.
+  it('leaves a pre-existing collision alone when the write does not touch paint', () => {
+    const { result, layers } = renderBoundary(
+      makeLayer({
+        dataset_geometry_type: 'Polygon',
+        paint: { 'fill-color': '#0000ff', 'fill-pattern': 'geolens-fill-hatch' },
+      }),
+    );
+
+    act(() => {
+      result.current.handleToggleVisibility(LID);
+    });
+
+    const updated = layers().find((l) => l.id === LID)!;
+    expect(updated.paint?.['fill-color']).toBe('#0000ff');
+    expect(updated.paint?.['fill-pattern']).toBe('geolens-fill-hatch');
+    expect(updated.visible).toBe(false);
+  });
+
+  // Revert-to-saved must reproduce the baseline byte-for-byte: the dirty check diffs
+  // against that same baseline, so a normalized restore never returns to clean.
+  it('restores a both-keys baseline verbatim instead of normalizing it', () => {
+    const savedPaint = { 'fill-color': '#0000ff', 'fill-pattern': 'geolens-fill-hatch' };
+    const { result, layers } = renderBoundary(
+      makeLayer({ dataset_geometry_type: 'Polygon', paint: { 'fill-color': '#ff0000' } }),
+    );
+
+    act(() => {
+      result.current.handleStyleConfigChange(LID, null, savedPaint, { replace: true, restore: true });
+    });
+
+    expect(layers().find((l) => l.id === LID)!.paint).toEqual(savedPaint);
+  });
+
+  it('still normalizes a replace that is NOT a restore', () => {
+    const { result, layers } = renderBoundary(
+      makeLayer({ dataset_geometry_type: 'Polygon', paint: { 'fill-pattern': 'geolens-fill-hatch' } }),
+    );
+
+    act(() => {
+      result.current.handleStyleConfigChange(
+        LID,
+        null,
+        { 'fill-pattern': 'geolens-fill-hatch', 'fill-color': '#abc' },
+        { replace: true },
+      );
+    });
+
+    const updated = layers().find((l) => l.id === LID)!;
+    expect('fill-pattern' in (updated.paint ?? {})).toBe(false);
+    expect(updated.paint?.['fill-color']).toBe('#abc');
+  });
+});

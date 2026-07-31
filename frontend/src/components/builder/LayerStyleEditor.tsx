@@ -38,7 +38,7 @@ interface LayerStyleEditorProps {
   onPaintChange: (layerId: string, paint: Record<string, unknown>) => void;
   /** Omit to hide the master opacity slider (e.g. when the parent owns opacity via a separate control). */
   onOpacityChange?: (layerId: string, opacity: number) => void;
-  onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>, opts?: { replace?: boolean }) => void;
+  onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>, opts?: { replace?: boolean; restore?: boolean }) => void;
   onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
   /**
    * fix(#913): banner Revert restores the baseline through the ordinary mutation
@@ -464,7 +464,12 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
       handleResetStyle();
       return;
     }
-    onStyleConfigChange(layer.id, savedLayer.style_config ?? null, savedLayer.paint ?? {}, { replace: true });
+    // fix(#910, codex P2): `restore` as well as `replace`. This is the one caller that
+    // reproduces a saved baseline verbatim, so the EDIT-05 normalization at the commit
+    // boundary must not touch it — the dirty check compares against that same baseline,
+    // so a normalized restore would leave the layer permanently dirty. The other seven
+    // `replace` callers are forward edits and DO need normalizing.
+    onStyleConfigChange(layer.id, savedLayer.style_config ?? null, savedLayer.paint ?? {}, { replace: true, restore: true });
     onLayoutChange(layer.id, savedLayer.layout ?? {});
     onOpacityChange?.(layer.id, savedLayer.opacity ?? 1);
     // Remount DataDrivenStyleEditor so its local ramp/mode/column re-seed from the

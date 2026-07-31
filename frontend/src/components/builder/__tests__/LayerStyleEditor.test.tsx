@@ -134,8 +134,12 @@ describe('LayerStyleEditor - SP-05 pending preview banner gating', () => {
     // Restores the exact saved paint (not FILL_DEFAULTS), saved layout, saved opacity.
     // fix(#461, codex P2): passes { replace: true } so the saved config is restored
     // verbatim — the builder-merge must not strand a discarded builder-only edit.
+    // fix(#910, codex P2): and `restore: true`, which opts the commit boundary out of
+    // the EDIT-05 normalization. A baseline that holds both fill keys (reachable via
+    // Advanced JSON) would otherwise come back normalized, and since the dirty check
+    // diffs against that same baseline the layer could never return to clean.
     await user.click(screen.getByRole('button', { name: 'Revert' }));
-    expect(onStyleConfigChange).toHaveBeenCalledWith('layer-1', null, saved.paint, { replace: true });
+    expect(onStyleConfigChange).toHaveBeenCalledWith('layer-1', null, saved.paint, { replace: true, restore: true });
     expect(onLayoutChange).toHaveBeenCalledWith('layer-1', saved.layout);
     expect(onOpacityChange).toHaveBeenCalledWith('layer-1', 1);
   });

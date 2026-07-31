@@ -192,6 +192,7 @@ export function applyLayerOpacityToMap(
 export function resolveFillExclusions(
   config: StyleConfig | null,
   paint: Record<string, unknown>,
+  previousPaint?: Record<string, unknown>,
 ): {
   paint: Record<string, unknown>;
   isDataDrivenColor: boolean;
@@ -210,8 +211,21 @@ export function resolveFillExclusions(
     const { 'line-gradient': _droppedGradient, ...rest } = effectivePaint;
     effectivePaint = rest;
   }
-  const dropsFillPattern =
-    isDataDrivenColor && 'fill-color' in effectivePaint && 'fill-pattern' in effectivePaint;
+  // fix(#910/#918, codex P2): which key wins is decided by PROVENANCE, read off the
+  // diff against the layer's previous paint — the key the write just INTRODUCED is the
+  // one the user asked for, so the other goes. Deriving it here rather than having each
+  // caller declare its intent is what makes the rule hold on paths nobody enumerated:
+  // the style-config funnel, a paint-only write from Advanced JSON or the AI
+  // `set_style` action, a paste, and a bulk apply all diff the same way.
+  //
+  // With no previous paint to compare (or both keys already present, so nothing was
+  // introduced) it falls back to pattern-wins, which is right for the one case that
+  // reaches it: an Advanced-JSON layer that already carried the forbidden pair.
+  const collides = 'fill-color' in effectivePaint && 'fill-pattern' in effectivePaint;
+  const addedFillColor = collides && !!previousPaint && !('fill-color' in previousPaint);
+  const addedFillPattern = collides && !!previousPaint && !('fill-pattern' in previousPaint);
+  const colorWins = collides && (isDataDrivenColor || (addedFillColor && !addedFillPattern));
+  const dropsFillPattern = colorWins;
   if (dropsFillPattern) {
     const { 'fill-pattern': _droppedPattern, ...rest } = effectivePaint;
     effectivePaint = rest;
@@ -225,8 +239,7 @@ export function resolveFillExclusions(
   // Both keys then persist, which the pattern wins on the map — a pre-existing
   // Advanced-JSON quirk, and far cheaper than destroying the user's classification.
   const fillColor = effectivePaint['fill-color'];
-  const patternOwnsFill =
-    !isDataDrivenColor && typeof fillColor === 'string' && 'fill-pattern' in effectivePaint;
+  const patternOwnsFill = collides && !colorWins && typeof fillColor === 'string';
   let strandedFillColor: string | undefined;
   if (patternOwnsFill) {
     const { 'fill-color': _droppedColor, ...rest } = effectivePaint;
@@ -234,40 +247,6 @@ export function resolveFillExclusions(
     effectivePaint = rest;
   }
   return { paint: effectivePaint, isDataDrivenColor, dropsFillPattern, patternOwnsFill, strandedFillColor };
-}
-
-/**
- * fix(#910, codex P2): which fill key wins is a question of PROVENANCE, and only the
- * clipboard paths can answer it.
- *
- * `applyCopiedStyleToLayer` spreads the copied paint over the target's, so the target's
- * key for the OTHER half of the pair survives the merge. `resolveFillExclusions` then
- * sees both keys with no way to tell which came from where, and its tie-break — the
- * pattern wins — is right for a copied pattern and wrong for a copied colour: pasting
- * a solid style onto a patterned layer deleted the colour the user had just copied and
- * left the old pattern drawing, so the paste appeared to do nothing at all.
- *
- * Resolved here, where the source paint is in hand: whichever key the SOURCE brought is
- * the one the user asked for, so the target's leftover goes first and the resolver then
- * sees an unambiguous paint.
- *
- * fix(#910): the target's `fillColorSaved` is deliberately left alone. It is read only
- * while a pattern is active, and picking a pattern overwrites it with the current
- * colour first, so a stale value here can never resurface.
- */
-export function applySourceFillPrecedence(
-  mergedPaint: Record<string, unknown>,
-  sourcePaint: Record<string, unknown>,
-): Record<string, unknown> {
-  // Only the colour-over-pattern direction needs handling. A copied PATTERN leaves the
-  // target's colour behind for the resolver to drop and stash, which is what we want.
-  const displacesPattern =
-    'fill-color' in sourcePaint
-    && !('fill-pattern' in sourcePaint)
-    && 'fill-pattern' in mergedPaint;
-  if (!displacesPattern) return mergedPaint;
-  const { 'fill-pattern': _droppedPattern, ...rest } = mergedPaint;
-  return rest;
 }
 
 /**
@@ -357,7 +336,12 @@ export function useLayerMapSync(
   // inside the functional setState; `applyFn` runs the imperative MapLibre
   // sync using the freshly-computed layer.
   const applyLayerUpdate = useCallback(
-    (layerId: string, updater: LayerUpdater, applyFn?: LayerSideEffect) => {
+    (
+      layerId: string,
+      updater: LayerUpdater,
+      applyFn?: LayerSideEffect,
+      opts?: { verbatim?: boolean },
+    ) => {
       // Pre-check existence against the synchronous ref so we can gate the
       // dirty-flag BEFORE React schedules the functional setState (whose
       // callback may not run until the next render). Closes the side-finding
@@ -374,8 +358,42 @@ export function useLayerMapSync(
       // snapshot. The existence gate above (ref-based) still guards the
       // dirty-flag; the actual mutation moves inside prev.map() so React's
       // functional update queue accumulates correctly.
+      // fix(#910/#918, codex P2): EDIT-05 is enforced HERE, at the one boundary every
+      // handler in this hook commits through, instead of inside each handler. The
+      // handlers are an open set — the style-config funnel, paint-only writes, and
+      // whatever is added next — and a rule inlined per handler is only ever as
+      // complete as the list someone remembered. Two guards keep it honest:
+      //
+      // `verbatim` opts out for a restore. Revert-to-saved has to reproduce the saved
+      // baseline exactly, and the dirty check compares against that baseline, so
+      // normalizing a restore leaves the layer permanently dirty. NOTE this is NOT the
+      // same as the funnel's `replace`: 7 of the 8 `replace` callers are forward edits
+      // (Reset, the pattern picker, the data-driven clears) that DO need normalizing.
+      //
+      // A reference-equal paint means the write never touched paint (visibility,
+      // opacity, layout, popup), so there is no new intent to act on and the layer is
+      // left alone.
+      const normalize = (prevLayer: MapLayerResponse, nextLayer: MapLayerResponse) => {
+        if (opts?.verbatim || nextLayer.paint === prevLayer.paint) {
+          return { layer: nextLayer, exclusions: null };
+        }
+        const exclusions = resolveFillExclusions(
+          nextLayer.style_config ?? null,
+          nextLayer.paint ?? {},
+          prevLayer.paint ?? {},
+        );
+        return {
+          layer: {
+            ...nextLayer,
+            paint: exclusions.paint,
+            style_config: stashExcludedFillColor(nextLayer.style_config ?? null, exclusions),
+          },
+          exclusions,
+        };
+      };
+
       setLocalLayers((prev) =>
-        prev.map((l) => (l.id === layerId ? updater(l) : l)),
+        prev.map((l) => (l.id === layerId ? normalize(l, updater(l)).layer : l)),
       );
       setHasUnsavedChanges(true);
 
@@ -386,7 +404,11 @@ export function useLayerMapSync(
       // map call is idempotent and the stale-ref issue only affects React state
       // composition, not the live-map sync. This keeps the applyFn signature
       // stable (it receives the just-computed updated layer, not a stale one).
-      applyFn(map, updater(existing));
+      const { layer: normalized, exclusions } = normalize(existing, updater(existing));
+      // A key that merely stopped being present cannot be expressed in a paint object,
+      // so the removal needs an explicit undefined write before the adapter repaint.
+      if (exclusions) clearExcludedPaintOnMap(map, layerId, exclusions);
+      applyFn(map, normalized);
     },
     [setLocalLayers, setHasUnsavedChanges, mapInstanceRef],
   );
@@ -411,7 +433,12 @@ export function useLayerMapSync(
         (l) => ({ ...l, paint: newPaint }),
         (map, layer) => {
           const mapLayerId = `layer-${layerId}`;
-          const adapterType = resolveLayerAdapterType(layer, newPaint);
+          // fix(#910/#918, codex P2): the EDIT-05 normalization happens at the commit
+          // boundary, so the winning paint is `layer.paint` — NOT the raw `newPaint`
+          // this handler was called with. Feeding the adapter the raw object would
+          // repaint the very key the commit just dropped.
+          const effectivePaint = layer.paint ?? {};
+          const adapterType = resolveLayerAdapterType(layer, effectivePaint);
           const adapter = getAdapter(adapterType);
 
           const input: AdapterLayerInput & { style_config?: StyleConfig | null } = {
@@ -420,7 +447,7 @@ export function useLayerMapSync(
             dataset_geometry_type: layer.dataset_geometry_type,
             opacity: layer.opacity ?? 1,
             visible: layer.visible,
-            paint: newPaint,
+            paint: effectivePaint,
             layout: layer.layout ?? {},
             filter: layer.filter ?? null,
             // SF-04 dedupe: source id is per-dataset for non-cluster vector
@@ -515,14 +542,20 @@ export function useLayerMapSync(
   );
 
   const handleStyleConfigChange = useCallback(
-    (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>, opts?: { replace?: boolean }) => {
-      // The EDIT-05 exclusions live in `resolveFillExclusions` because the AI
-      // `set_style_config` action, paste-style and bulk apply all have to obey them
-      // too — this funnel is only one of the write paths. `builder.lineGradient` is
-      // handled below rather than in the helper: dropping the paint without the
-      // intent stub lets map-sync's lineGradientNeededFor() re-add the gradient.
-      const exclusions = resolveFillExclusions(config, paint);
-      const { isDataDrivenColor, paint: effectivePaint } = exclusions;
+    (
+      layerId: string,
+      config: StyleConfig | null,
+      paint: Record<string, unknown>,
+      opts?: { replace?: boolean; restore?: boolean },
+    ) => {
+      // The EDIT-05 exclusions are applied by applyLayerUpdate, at the commit boundary
+      // every write path shares. Only the `builder.lineGradient` intent stub is handled
+      // here: dropping the gradient paint without it lets map-sync's
+      // lineGradientNeededFor() put the gradient straight back.
+      const isDataDrivenColor =
+        !!config &&
+        (config.mode === 'categorical' || config.mode === 'graduated') &&
+        (config.target === undefined || config.target === 'color');
       applyLayerUpdate(
         layerId,
         (l) => {
@@ -551,19 +584,16 @@ export function useLayerMapSync(
               builder: Object.keys(restBuilder).length > 0 ? restBuilder : undefined,
             };
           }
-          mergedConfig = stashExcludedFillColor(mergedConfig, exclusions);
           return {
             ...l,
             style_config: normalizeDemStyleConfig(mergedConfig, l.is_dem),
-            paint: effectivePaint,
+            paint,
           };
         },
-        (map, layer) => {
-          // Clear the excluded keys on the live map before the adapter repaint, so
-          // the winning key shows without waiting on a full adapter re-add.
-          clearExcludedPaintOnMap(map, layer.id, exclusions);
-          syncStyleConfigToMap(map, layer, effectivePaint);
-        },
+        // `layer` arrives already normalized, and applyLayerUpdate has done the
+        // imperative clear for whichever key lost, so the repaint just follows it.
+        (map, layer) => syncStyleConfigToMap(map, layer, layer.paint ?? {}),
+        { verbatim: opts?.restore },
       );
     },
     [applyLayerUpdate, syncStyleConfigToMap],
