@@ -922,16 +922,25 @@ def analysis_materialize(
     response = _analysis.run_materialize(sdk.client, dataset_id, request)
     job_id = str(getattr(response, "job_id", "") or "")
 
-    resolved: Optional[str] = None
-    if wait:
-        resolved = _publish.resolve_dataset_id(sdk.client, job_id)
-        if resolved is None:
-            # The job outlived the poll window or failed outright; the URL
-            # falls back to the job-search form so the user can follow it up.
-            state.output.warn(
-                "The job did not resolve a dataset before the poll timed out. "
-                f"Check its status with `geolens jobs` or GET /jobs/{job_id}."
-            )
+    if not wait:
+        # Nothing was polled, so there is no dataset to name yet — report the
+        # job id rather than a URL for a dataset that may not exist.
+        if state.output.json_mode:
+            state.output.json({"job_id": job_id, "dataset_id": None, "url": None})
+        else:
+            state.output.success(f"Analysis job queued: {job_id}")
+        return
+
+    resolved = _publish.resolve_dataset_id(sdk.client, job_id)
+    if resolved is None:
+        # resolve_dataset_id returns None for BOTH a failed job and a poll
+        # timeout, and a script that asked us to wait must not read either as
+        # success. Exit non-zero and name the job so it can be followed up.
+        state.output.error(
+            f"Analysis job {job_id} produced no dataset. It either failed or is "
+            "still running; check GET /jobs/" + job_id + " for its status."
+        )
+        raise typer.Exit(EXIT_GENERIC)
 
     url = _publish.construct_dataset_url(
         instance, dataset_id=resolved, job_id=job_id
