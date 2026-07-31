@@ -232,6 +232,33 @@ describe('DataDrivenStyleEditor', () => {
       await waitFor(() => expect(onStyleConfigChange).not.toHaveBeenCalled());
     });
 
+    // fix(#910, codex P2): the closed-editor half of the same hazard. The transition
+    // guard above only sees a claim being retired while this component is MOUNTED; when
+    // the paint replacement happens with the panel closed, the editor mounts fresh with
+    // no transition to observe. It seeds local `column` from the config and defaults local
+    // `mode` to 'categorical', so a retired config that still carried its column read as a
+    // live categorical classification and the effect re-applied it over the user's paint.
+    // The reconciliation drops `column`/`ramp` for exactly this reason; this pins the
+    // consequence at the component, where the damage would appear.
+    it('does not classify on mount from a column with no mode behind it', async () => {
+      mockUseColumnValues.mockReturnValue(
+        hookData({ values: VALUES, count: VALUES.length }),
+      );
+
+      const onStyleConfigChange = vi.fn();
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({
+            style_config: { builder: { outlineWidth: 2 } } as StyleConfig,
+            paint: { 'fill-color': '#3b82f6' },
+          })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      await waitFor(() => expect(onStyleConfigChange).not.toHaveBeenCalled());
+    });
+
     it('regenerates colors when categories do not match hook data', async () => {
       const staleConfig: StyleConfig = {
         mode: 'categorical',

@@ -404,9 +404,14 @@ describe('reconcileColorClassification', () => {
     expect(next?.categories).toBeUndefined();
     expect(next?.colors).toBeUndefined();
     expect(next?.breaks).toBeUndefined();
+    // fix(#910, codex P2): column and ramp too — a config carrying a column and no mode
+    // reads to a freshly mounted DataDrivenStyleEditor as a live categorical
+    // classification, which re-applied it over the paint that retired it.
+    expect(next?.column).toBeUndefined();
+    expect(next?.ramp).toBeUndefined();
+    // Not the claim: the renderer and the builder block are untouched.
     expect(next?.render_mode).toBe('cluster');
     expect(next?.builder?.outlineWidth).toBe(3);
-    expect(next?.column).toBe('era');
   });
 
   it('returns the config untouched (same reference) when nothing is orphaned', () => {

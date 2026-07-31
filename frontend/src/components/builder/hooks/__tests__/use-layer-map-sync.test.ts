@@ -1506,9 +1506,12 @@ describe('useLayerMapSync — an orphaned colour classification is reconciled at
     const config = configOf(layers().find((l) => l.id === LID)!);
     expect(config?.mode).toBeUndefined();
     expect(config?.categories).toBeUndefined();
-    // The user's column and ramp selections are not the claim, so they survive — and
-    // reopening the editor re-asserts the classification rather than forgetting it.
-    expect(config?.column).toBe('era');
+    // fix(#910, codex P2): and `column` goes with them. Keeping it as "the user's
+    // selection" re-applied the classification the next time the editor mounted, because
+    // a config with a column and no mode reads to a fresh DataDrivenStyleEditor as a live
+    // categorical classification.
+    expect(config?.column).toBeUndefined();
+    expect(config?.ramp).toBeUndefined();
   });
 
   // The same shape a pattern write produces: no fill-color in the resolved paint at all.

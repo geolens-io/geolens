@@ -364,7 +364,7 @@ export function getSizeProperty(
 }
 
 /** The fields that constitute a colour classification — see `colorClassificationIsOrphaned`. */
-const COLOR_CLASSIFICATION_KEYS = ['mode', 'categories', 'colors', 'breaks'] as const;
+const COLOR_CLASSIFICATION_KEYS = ['mode', 'column', 'ramp', 'categories', 'colors', 'breaks'] as const;
 
 /**
  * fix(#910/#918, codex P2): does `config` claim an attribute-driven colour that
@@ -429,12 +429,19 @@ export function colorClassificationIsOrphaned(
 /**
  * fix(#910/#918, codex P2): strip a classification claim that `paint` no longer backs.
  *
- * Drops exactly the fields `colorClassificationIsOrphaned` reads to detect the claim,
- * so detection and removal stay in lockstep by construction. Everything else survives
+ * Drops the fields `colorClassificationIsOrphaned` reads to detect the claim, so
+ * detection and removal stay in lockstep, PLUS `column`/`ramp`. Everything else survives
  * — `StyleConfig` is an open bag, and `render_mode`, `symbol` and the builder block
- * describe things a colour classification has no say over. `column`/`ramp` survive too:
- * they are the user's selections, and keeping them means reopening the editor
- * re-asserts the classification instead of silently forgetting the column.
+ * describe things a colour classification has no say over.
+ *
+ * fix(#910, codex P2): `column` and `ramp` looked like the user's selections worth
+ * keeping, and keeping them re-applied the classification on the next open. A fresh
+ * `DataDrivenStyleEditor` seeds local `column` from the config and defaults local `mode`
+ * to 'categorical', so a config carrying a column and no mode reads to it as a live
+ * categorical classification: its effect regenerated the expression and overwrote the
+ * paint the replacement had just written. The transition guard in that component covers
+ * the editor being ALREADY OPEN and cannot cover this — on a fresh mount there is no
+ * transition to observe, because the claim was already gone before it rendered.
  */
 export function reconcileColorClassification(
   config: StyleConfig | null,
