@@ -5,12 +5,11 @@ Pins the v13.13 closure of M-65. Even if a developer accidentally logs
 reaching stdout / log aggregators.
 """
 
-import logging
-
 import pytest
 import structlog
 
 from app.core.logging_config import _redact_sensitive_fields, setup_logging
+from tests._logging_state import preserved_logging_state
 
 
 # ---------------------------------------------------------------------------
@@ -111,22 +110,14 @@ def restore_logging_state():
     fixture setup binds to a stream capsys is not capturing. Saving here and
     restoring on teardown is the part that can live in a fixture.
 
-    fix(#1064 codex r1): restores the previous structlog config rather than
-    calling `reset_defaults()`. The library default drops
-    `_redact_sensitive_fields` and the stdlib routing, so resetting would
-    leave later tests on the worker logging unredacted — trading one
-    order-dependence for a worse one.
+    fix(#1064 codex r1/r2): restores the previous structlog config rather than
+    calling `reset_defaults()` — the library default drops
+    `_redact_sensitive_fields` and the stdlib routing — and covers the three
+    uvicorn loggers `setup_logging()` also rewrites, not just root. Both live
+    in `preserved_logging_state()` so there is one shape to be wrong.
     """
-    root = logging.getLogger()
-    saved_handlers = root.handlers[:]
-    saved_level = root.level
-    saved_structlog = dict(structlog.get_config())
-    try:
+    with preserved_logging_state():
         yield
-    finally:
-        structlog.configure(**saved_structlog)
-        root.handlers[:] = saved_handlers
-        root.setLevel(saved_level)
 
 
 def test_integration_token_redacted_in_log_output(capsys, restore_logging_state):

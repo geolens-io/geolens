@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import contextlib
 import json
-import logging
 from typing import Any
 from unittest.mock import patch
 
@@ -19,6 +18,7 @@ import pytest
 import structlog
 
 from app.core.logging_config import setup_logging
+from tests._logging_state import preserved_logging_state
 from app.platform.extensions.protocols import Notification
 
 # ---------------------------------------------------------------------------
@@ -81,8 +81,9 @@ def _live_logs(capsys: pytest.CaptureFixture[str]) -> Any:
     a stream that is not the one being captured and every write fails with
     ``--- Logging error ---`` instead of landing anywhere assertable.
 
-    On exit the root handlers, the root level and the structlog config are all
-    put back exactly as they were.
+    On exit every logger `setup_logging()` touches is put back exactly as it
+    was, via `preserved_logging_state()` — root AND the three uvicorn loggers,
+    handlers, propagate and level, plus the whole structlog config.
 
     fix(#1064 codex r1): an earlier version called `structlog.reset_defaults()`
     instead, reasoning that the library default leaves
@@ -100,37 +101,31 @@ def _live_logs(capsys: pytest.CaptureFixture[str]) -> Any:
     LOG_LEVEL=DEBUG emitted the secret. The assertions this replaced used
     `caplog.at_level(logging.DEBUG)`, so anything narrower is a regression.
     """
-    root = logging.getLogger()
-    saved_handlers = root.handlers[:]
-    saved_level = root.level
-    saved_structlog = dict(structlog.get_config())
-    setup_logging(json_logs=True, log_level="DEBUG")
-    records: list[str] = []
-    live = _LiveLogs(records)
-    try:
-        yield live
-    finally:
-        structlog.stdlib.get_logger("app.platform.notifications.liveness").info(
-            _LIVENESS_MARKER
-        )
-        captured = capsys.readouterr()
-        for line in (captured.out + captured.err).splitlines():
-            line = line.strip()
-            if not line.startswith("{"):
-                # pytest writes tracebacks to the same stream; a traceback
-                # carrying a secret is a different finding from a LOG carrying
-                # one. A traceback rendered INTO a record is still caught,
-                # because format_exc_info puts it inside the JSON.
-                continue
-            try:
-                parsed = json.loads(line)
-            except ValueError:
-                continue
-            if isinstance(parsed, dict) and "event" in parsed:
-                records.append(line)
-        structlog.configure(**saved_structlog)
-        root.handlers[:] = saved_handlers
-        root.setLevel(saved_level)
+    with preserved_logging_state():
+        setup_logging(json_logs=True, log_level="DEBUG")
+        records: list[str] = []
+        live = _LiveLogs(records)
+        try:
+            yield live
+        finally:
+            structlog.stdlib.get_logger("app.platform.notifications.liveness").info(
+                _LIVENESS_MARKER
+            )
+            captured = capsys.readouterr()
+            for line in (captured.out + captured.err).splitlines():
+                line = line.strip()
+                if not line.startswith("{"):
+                    # pytest writes tracebacks to the same stream; a traceback
+                    # carrying a secret is a different finding from a LOG
+                    # carrying one. A traceback rendered INTO a record is still
+                    # caught, because format_exc_info puts it inside the JSON.
+                    continue
+                try:
+                    parsed = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(parsed, dict) and "event" in parsed:
+                    records.append(line)
 
 
 # ---------------------------------------------------------------------------
