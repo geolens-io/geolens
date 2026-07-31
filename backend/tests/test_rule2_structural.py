@@ -1346,6 +1346,38 @@ _TRANSPARENT_WRAPPERS = (
 )
 
 
+def _default_parameter_name(args: ast.arguments, value: ast.AST) -> str | None:
+    """The parameter a default value belongs to, positionally or by keyword."""
+    positional = [*args.posonlyargs, *args.args]
+    if value in args.defaults:
+        # Defaults are right-aligned against the positional parameters.
+        idx = args.defaults.index(value)
+        offset = len(positional) - len(args.defaults)
+        if 0 <= offset + idx < len(positional):
+            return positional[offset + idx].arg
+    if value in args.kw_defaults:
+        kw = args.kwonlyargs[args.kw_defaults.index(value)]
+        return kw.arg
+    return None
+
+
+def _defaults_owner(node: ast.AST) -> ast.AST | None:
+    """The callable whose SIGNATURE holds ``node`` as a default, if any.
+
+    The default itself is evaluated in the enclosing scope, but the parameter
+    it binds lives in the callable's own body — so that body, not the
+    enclosing scope, is where its uses are (fix(#996 review)).
+    """
+    prev: ast.AST = node
+    current: ast.AST | None = getattr(node, "_rule2_parent", None)
+    while current is not None:
+        if isinstance(current, _SCOPE_NODES):
+            return current if prev is getattr(current, "args", None) else None
+        prev = current
+        current = getattr(current, "_rule2_parent", None)
+    return None
+
+
 def _binding_targets(node: ast.AST) -> tuple[set[str], bool]:
     """Names this literal's value is reachable through in its own scope.
 
@@ -1392,6 +1424,14 @@ def _binding_targets(node: ast.AST) -> tuple[set[str], bool]:
     # elements in, so the target holds the vector rather than a container.
     if isinstance(parent, ast.AugAssign) and parent.value is current:
         return _target_names(parent.target), False
+    # fix(#996 review): `def run(cmd=("gdalinfo", "-json")): subprocess.run(cmd)`
+    # executes the default on every bare call. The literal sits in the
+    # signature, so the escape walk stops at the function boundary and no
+    # assignment matches — the vector bound to the parameter NAME is the link.
+    if isinstance(parent, ast.arguments):
+        name = _default_parameter_name(parent, current)
+        if name:
+            return {name}, False
     # fix(#996 review): `for cmd in (["gdalinfo", path],): subprocess.run(cmd)`
     # reaches an exec through the loop target. Same for `async for` and for a
     # comprehension's generator.
@@ -1409,6 +1449,63 @@ def _binding_targets(node: ast.AST) -> tuple[set[str], bool]:
         # vector itself, not a container of it.
         return _target_names(parent.target), False
     return set(), False
+
+
+def _enclosing_statement(node: ast.AST, body: list) -> ast.stmt | None:
+    """The statement of ``body`` that contains ``node``, if any."""
+    current: ast.AST | None = node
+    while current is not None:
+        parent = getattr(current, "_rule2_parent", None)
+        if isinstance(current, ast.stmt) and current in body:
+            return current
+        current = parent
+    return None
+
+
+def _overwritten_before(used: ast.AST, binding: ast.AST, path: str) -> bool:
+    """True when ``path`` is re-bound between its binding and this use.
+
+    fix(#996 review): `cmd = ["gdalinfo", ...]` then `cmd = ["echo", "ok"]`
+    then `run(cmd)` reported the GDAL literal as escaping, although nothing
+    GDAL can execute — ordinary variable reuse producing a CI-blocking false
+    positive.
+
+    Deliberately narrow. Only rebindings in the SAME statement list count, so
+    "later" really means later: #974 round 10 already declined statement-order
+    analysis for the rasterio resolver, and a rebinding under an `if` is not
+    ordered against a use in the `else`. Where order is not straight-line this
+    returns False and the use still counts, which keeps the miss on the
+    reported side.
+    """
+    binding_stmt = None
+    body = None
+    current: ast.AST | None = binding
+    while current is not None and binding_stmt is None:
+        parent = getattr(current, "_rule2_parent", None)
+        for attr in ("body", "orelse", "finalbody"):
+            candidate = getattr(parent, attr, None)
+            if isinstance(candidate, list) and current in candidate:
+                binding_stmt, body = current, candidate
+                break
+        current = parent
+    if binding_stmt is None or body is None:
+        return False
+
+    use_stmt = _enclosing_statement(used, body)
+    if use_stmt is None:
+        return False
+    start, end = body.index(binding_stmt), body.index(use_stmt)
+    if end <= start:
+        return False
+    for stmt in body[start + 1 : end]:
+        targets: list = []
+        if isinstance(stmt, ast.Assign):
+            targets = list(stmt.targets)
+        elif isinstance(stmt, (ast.AnnAssign, ast.AugAssign)):
+            targets = [stmt.target]
+        if any(path in _target_names(tgt) for tgt in targets):
+            return True
+    return False
 
 
 def _use_reaches_the_binding(used: ast.Name, scope: ast.AST, rel: str) -> bool:
@@ -1455,7 +1552,7 @@ def _argv_escape_kind(node: ast.List | ast.Tuple, rel: str) -> int:
     if best == _ESCAPE_CALL:
         return best
     names, holds_container = _binding_targets(node)
-    scope = _scope_root(node)
+    scope = _defaults_owner(node) or _scope_root(node)
     if not names or scope is None:
         return best
 
@@ -1464,6 +1561,10 @@ def _argv_escape_kind(node: ast.List | ast.Tuple, rel: str) -> int:
     # literal was never directly bound to, and stopping at the first hop lost
     # it — a regression against the pre-#996 scan, which flagged everything.
     seen: set[str] = set()
+    # The overwrite guard below applies only to paths the literal binds
+    # DIRECTLY. For a derived alias the statement that introduces it would
+    # itself look like an overwrite, and over-reporting is the safe side.
+    original_paths = set(names)
     pending = {(n, holds_container) for n in names}
     while pending:
         current_batch = pending
@@ -1480,6 +1581,8 @@ def _argv_escape_kind(node: ast.List | ast.Tuple, rel: str) -> int:
                 continue
             root = _expression_root_name(used)
             if root is not None and not _use_reaches_the_binding(root, scope, rel):
+                continue
+            if path in original_paths and _overwritten_before(used, node, path):
                 continue
             holds = current_paths[path]
             # fix(#996 review): reading a CONTAINER through a subscript or
@@ -2837,6 +2940,62 @@ def test_guard_extracting_a_vector_from_a_container_keeps_the_chain():
             "def fn(path):\n"
             "    commands = {'inspect': ['gdalinfo', path]}\n"
             "    cmd = commands['inspect']\n"
+            "    subprocess.run(cmd)\n"
+        ),
+        {},
+    )
+    assert total == 1, (total, violations)
+    assert len(violations) == 1 and "(fn)" in violations[0]
+
+
+def test_guard_argv_as_a_default_parameter_is_detected():
+    """fix(#996 review): a default executes on every bare call, but the literal
+    sits in the signature — the escape walk stops at the function boundary, so
+    the parameter NAME is the link."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def positional(cmd=('gdalinfo', '-json')):\n"
+            "    subprocess.run(cmd)\n"
+            "def keyword_only(*, cmd=['ogrinfo', '-so']):\n"
+            "    subprocess.run(cmd)\n"
+        ),
+        {},
+    )
+    assert total == 2, (total, violations)
+    assert any("(positional)" in v for v in violations)
+    assert any("(keyword_only)" in v for v in violations)
+
+
+def test_guard_rebinding_before_use_is_not_an_escape():
+    """fix(#996 review): ordinary variable reuse must not fail the gate.
+    `cmd = [gdal]; cmd = ['echo', 'ok']; run(cmd)` executes nothing GDAL."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def fn():\n"
+            "    cmd = ['gdalinfo', '-json']\n"
+            "    cmd = ['echo', 'ok']\n"
+            "    subprocess.run(cmd)\n"
+        ),
+        {},
+    )
+    assert total == 0, (total, violations)
+    assert violations == []
+
+
+def test_guard_rebinding_in_a_branch_still_reports():
+    """The narrowness is deliberate: only a rebinding in the SAME statement
+    list is ordered against the use. A rebinding under an `if` is not, so the
+    literal still counts — the miss stays on the reported side, matching #974
+    round 10's refusal to do statement-order analysis."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def fn(flag):\n"
+            "    cmd = ['gdalinfo', '-json']\n"
+            "    if flag:\n"
+            "        cmd = ['echo', 'ok']\n"
             "    subprocess.run(cmd)\n"
         ),
         {},
