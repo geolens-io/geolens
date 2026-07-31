@@ -94,7 +94,14 @@ CHAT_TOOLS_ANTHROPIC = [
     {
         "name": "set_filter",
         "description": (
-            "Set or clear a filter on a map layer. Pass a MapLibre filter "
+            # fix(#549): a pointer, not a second copy of the rule. This tool
+            # carried no routing guidance at all while run_analysis carried
+            # some, which is how "show me the ..." landed on a persistent
+            # layer filter instead of a query result.
+            "Set or clear a filter on a map layer. This is the map-edit path: "
+            "it changes what the map shows and persists on save. The system "
+            "prompt's verb classes decide when a request routes here. "
+            "Pass a MapLibre filter "
             "expression array to filter features, or null to clear the filter. "
             "Always reference columns with the expression form "
             '["get", "column"] -- never bare field names. '
@@ -127,8 +134,13 @@ CHAT_TOOLS_ANTHROPIC = [
             "Set replace_paint=true only when paint contains the complete "
             "desired paint object. Use the correct paint property for the "
             "geometry type: fill-color for polygons, line-color for lines, "
-            "circle-color for points. Do NOT use this for data-driven coloring "
-            "-- use set_data_driven_style instead."
+            "circle-color for points. Data-driven coloring (a colour that "
+            # fix(#549 codex r1): reworded from "Do NOT use this for ... use
+            # set_data_driven_style instead". The pointer is a CAPABILITY
+            # difference and stays, but the old phrasing read as
+            # request-classification prose, which is the shape the routing
+            # guard now rejects.
+            "varies by column value) belongs to set_data_driven_style."
         ),
         "input_schema": {
             "type": "object",
@@ -313,10 +325,15 @@ CHAT_TOOLS_ANTHROPIC = [
     {
         "name": "query_data",
         "description": (
-            "Query the user's map data using SQL. Use this when the user asks "
-            "a question about their data (counts, statistics, spatial analysis, "
-            "finding features, distances, areas, etc.). Do NOT use this for map "
-            "styling or layer management -- use the other tools for that."
+            # fix(#549 codex r1): behavioural only. This description used to
+            # classify user phrasing too ("use this when the user asks a
+            # question", "do NOT use this for map styling"), competing with
+            # the system prompt's verb classes from a second site without
+            # naming any sibling tool.
+            "Query the user's map data using SQL. The server generates the "
+            "SQL from a natural language question and executes it safely, so "
+            "the result is a table of values plus an optional highlight "
+            "overlay -- never a persistent map change."
         ),
         "input_schema": {
             "type": "object",
@@ -332,14 +349,18 @@ CHAT_TOOLS_ANTHROPIC = [
     {
         "name": "run_analysis",
         "description": (
+            # fix(#549): behavioural only. This description used to classify
+            # user phrasing -- it cited "show the centre point of each parcel"
+            # as a transform request while the system prompt left "show"
+            # unclassified, so the model read verb classes from two competing
+            # sites. The system prompt is now the single owner of verb
+            # classification; nothing here may re-litigate which phrasing wins.
             "Run a parameterized PostGIS geometry operation on a layer and "
-            "show the result on the map as a temporary preview. Use this for "
-            "requests that TRANSFORM geometry -- 'buffer the schools by 500 "
-            "metres', 'show the centre point of each parcel'. Use query_data "
-            "instead for questions ANSWERED from the data (counts, sums, "
-            "which/where/how many). The preview is temporary and is not "
-            "saved. Do NOT tell the user where to save it -- the tool result "
-            "says what they need to know, and the surfaces differ."
+            "draw the result on the map as a temporary preview. buffer grows "
+            "each feature by a distance; centroid replaces each feature with "
+            "its centre point. The preview is temporary and is not saved. "
+            "Do NOT tell the user where to save it -- the tool result says "
+            "what they need to know, and the surfaces differ."
         ),
         "input_schema": {
             "type": "object",
