@@ -5,12 +5,13 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db.tenant_session import defer_async_with_tenant
+from app.core.db.tenant_session import current_tenant_var, defer_async_with_tenant
 from app.core.dependencies import get_db
 from app.core.identity import Identity
+from app.core.tenancy import is_multi_tenant
 from app.modules.auth.dependencies import get_current_active_user, require_permission
 from app.modules.catalog.authorization import check_dataset_access
 from app.modules.catalog.datasets.domain.schemas import (
@@ -51,6 +52,28 @@ router = APIRouter(
 )
 
 _SAFE_COLUMN_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+# fix(#1015): ceiling on active materializes for one tenant, above the
+# one-per-user cap rather than replacing it. The two answer different
+# questions — "are you already running one?" and "is your organisation using
+# more than its share?" — so both stay, with 429 details that say which was
+# hit.
+#
+# Why a tenant needs its own ceiling: the per-user cap lets a tenant with N
+# users hold N active CTASes, and #1012 raises the per-statement work_mem that
+# each of those would claim. A raised ceiling times an unbounded count is the
+# same outage in a new place.
+#
+# Three: with the default WORKER_CONCURRENCY of 1 that is one running plus two
+# queued, so a single tenant cannot monopolise the queue while still being able
+# to line work up. On a deployment that raises WORKER_CONCURRENCY it bounds
+# genuinely concurrent CTASes to three per tenant, which is the count #1012's
+# work_mem division is sized against.
+#
+# A module constant, not a Settings field, for the same reason as the ingest
+# caps: four surfaces for a limit nobody has asked to tune yet. #1013 is the
+# issue that establishes the promotion pattern.
+MAX_ACTIVE_MATERIALIZES_PER_TENANT = 3
 
 # fix(#766): PostgreSQL has no equality operator for these types, so a
 # dissolve GROUP BY on such a column fails the CTAS with an opaque 42883
@@ -289,34 +312,84 @@ async def analysis_materialize_endpoint(
     # The client deliberately applies no staleness rule of its own
     # (AnalysisJobWatcher.tsx): it mirrors job status from the API, and on a
     # released lease the next create attempt simply succeeds server-side.
+    # fix(#1015): serialize admission per tenant before counting anything.
+    # Without it the caps are check-then-insert: N users in one tenant can all
+    # read a count below the ceiling, then all create a job, and the tenant
+    # ends up over by however many callers arrived together — precisely the
+    # unbounded-concurrency case the ceiling exists to stop, and the one #1012's
+    # raised work_mem makes expensive. A transaction-scoped advisory lock held
+    # until this request commits makes the count-then-create sequence atomic.
+    #
+    # Blocking rather than pg_try_advisory_xact_lock (the sandbox's shape at
+    # executor.py): concurrent admissions should queue for the microseconds this
+    # takes, not fail. The critical section is a COUNT and an INSERT.
+    #
+    # In single-tenant mode the key is constant, so this serializes every
+    # analysis admission on the deployment. That is the correct reading — there
+    # is one tenant — and admissions are rare and short. It also incidentally
+    # hardens the per-user cap below, which the comment there describes as soft.
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:admission_key, 0))"),
+        {
+            "admission_key": (
+                f"geolens:analysis-admission:{current_tenant_var.get()}"
+                if is_multi_tenant()
+                else "geolens:analysis-admission"
+            )
+        },
+    )
+
     lease_cutoff = datetime.now(timezone.utc) - timedelta(
         seconds=MATERIALIZE_LEASE_SECONDS
+    )
+    # fix(#1015): the liveness rule is shared by both caps rather than
+    # reinvented for the tenant one. All three properties documented above are
+    # load-bearing and apply identically at tenant scope.
+    active_predicate = (
+        # fix(#682 review): the analysis marker in user_metadata, NOT
+        # source_filename — uploads copy the user's own filename into that
+        # column, so an upload named "analysis-data.geojson" would lock the
+        # uploader out of analysis. The metadata below is written in the
+        # same transaction as the job row, so this never misses one.
+        IngestJob.user_metadata.has_key("analysis"),
+        or_(
+            IngestJob.status == "pending",
+            and_(
+                IngestJob.status == "running",
+                func.coalesce(IngestJob.heartbeat_at, IngestJob.started_at)
+                >= lease_cutoff,
+            ),
+        ),
     )
     active = await db.scalar(
         select(func.count())
         .select_from(IngestJob)
-        .where(
-            IngestJob.created_by == user.id,
-            # fix(#682 review): the analysis marker in user_metadata, NOT
-            # source_filename — uploads copy the user's own filename into that
-            # column, so an upload named "analysis-data.geojson" would lock the
-            # uploader out of analysis. The metadata below is written in the
-            # same transaction as the job row, so this never misses one.
-            IngestJob.user_metadata.has_key("analysis"),
-            or_(
-                IngestJob.status == "pending",
-                and_(
-                    IngestJob.status == "running",
-                    func.coalesce(IngestJob.heartbeat_at, IngestJob.started_at)
-                    >= lease_cutoff,
-                ),
-            ),
-        )
+        .where(IngestJob.created_by == user.id, *active_predicate)
     )
     if active:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="An analysis job is already running; wait for it to finish",
+        )
+
+    # fix(#1015): the tenant ceiling above the per-user cap. In single-tenant
+    # mode there is one tenant by definition, so the unfiltered count IS the
+    # tenant's — which also avoids depending on whether the database stamps
+    # tenant_id as NULL or as a fixed value there. IngestJob.tenant_id is
+    # already indexed (ix_catalog_ingest_jobs_tenant_id), so the multi-tenant
+    # filter needs no schema work.
+    tenant_stmt = select(func.count()).select_from(IngestJob).where(*active_predicate)
+    if is_multi_tenant():
+        tenant_stmt = tenant_stmt.where(IngestJob.tenant_id == current_tenant_var.get())
+    tenant_active = await db.scalar(tenant_stmt)
+    if tenant_active and tenant_active >= MAX_ACTIVE_MATERIALIZES_PER_TENANT:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                "Your organization already has "
+                f"{MAX_ACTIVE_MATERIALIZES_PER_TENANT} analysis jobs running or "
+                "queued; wait for one to finish"
+            ),
         )
 
     job = await get_catalog_port().create_ingest_job(
