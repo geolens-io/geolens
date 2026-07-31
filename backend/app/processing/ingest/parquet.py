@@ -29,6 +29,33 @@ if TYPE_CHECKING:
 
 _INSERT_BATCH_ROWS = 5000
 
+# fix(#948): ingest budget for this path.
+#
+# The 500 MB upload cap is a weak proxy for how much work a parquet file
+# represents, because parquet compresses well — a densely compressed file just
+# under the ceiling can still expand into an arbitrarily large table. That
+# matters more here than on the ogr2ogr path: a runaway ogr2ogr is a subprocess
+# killed on a timer (OGR2OGR_FILE_TIMEOUT_SECONDS and friends in ogr.py), while
+# this loader runs in-process in the worker with no backstop of any kind.
+#
+# Both ceilings are checked from the file footer before a single row is
+# written, not from a running counter — parquet carries the row count in its
+# metadata, so an oversized file is rejected in milliseconds and no table is
+# created.
+#
+# Deliberately module constants rather than Settings fields: a Settings knob is
+# four surfaces (field, validation, .env.example, docs site) for a limit no
+# operator has asked to tune. #1013 establishes the pattern for promoting
+# ingest and analysis constants to settings if these ever need it.
+#
+# Rows: well above any real upload seen so far, low enough that hitting it is a
+# genuine signal. Cells bound the work better than rows alone, because a
+# 400-column file is a very different load from a 4-column one at the same row
+# count — at the row cap this permits 20 columns, and a wider table trips the
+# cell cap sooner, which is the intent.
+_MAX_TOTAL_ROWS = 5_000_000
+_MAX_TOTAL_CELLS = 100_000_000
+
 
 def _read_geo_metadata(pf: pq.ParquetFile) -> dict | None:
     """Parse the file-level ``geo`` key (GeoParquet), or None for plain parquet."""
@@ -323,6 +350,29 @@ def _column_plan(
     return plan
 
 
+def _check_ingest_budget(num_rows: int, num_columns: int) -> None:
+    """Reject a parquet file whose footer already says it is too big.
+
+    fix(#948). Raises ``IngestionError`` naming the limit and the observed
+    value, the same way the geometry-only guard fails.
+    """
+    from app.processing.ingest.ogr import IngestionError
+
+    if num_rows > _MAX_TOTAL_ROWS:
+        raise IngestionError(
+            f"Parquet file has {num_rows:,} rows, above the "
+            f"{_MAX_TOTAL_ROWS:,}-row ingest limit. Split the file or load a "
+            "subset."
+        )
+    cells = num_rows * num_columns
+    if cells > _MAX_TOTAL_CELLS:
+        raise IngestionError(
+            f"Parquet file has {cells:,} cells ({num_rows:,} rows x "
+            f"{num_columns:,} columns), above the {_MAX_TOTAL_CELLS:,}-cell "
+            "ingest limit. Split the file or drop columns you do not need."
+        )
+
+
 async def load_parquet_to_postgis(
     file_path: str,
     table_name: str,
@@ -403,6 +453,10 @@ async def load_parquet_to_postgis(
             "Parquet file contains only a geometry column; loading it "
             "without geometry would produce an empty dataset."
         )
+
+    # fix(#948): both ceilings are enforced here, before the DDL below, so an
+    # oversized file leaves no table behind.
+    _check_ingest_budget(pf.metadata.num_rows, len(plan))
 
     async with async_session() as session:
         await session.execute(text(f"DROP TABLE IF EXISTS {tref}"))

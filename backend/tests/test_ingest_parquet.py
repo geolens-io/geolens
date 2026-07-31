@@ -24,6 +24,7 @@ from app.processing.ingest.ogr import (
     run_ogrinfo,
     run_ogrinfo_preview,
 )
+from app.processing.ingest import parquet as parquet_module
 from app.processing.ingest.parquet import (
     _srid_from_geo,
     load_parquet_to_postgis,
@@ -68,6 +69,89 @@ async def test_geometry_only_without_geometry_raises(tmp_path):
         await load_parquet_to_postgis(
             str(p), "t_geomonly", schema="data", srid=4326, include_geometry=False
         )
+
+
+class TestParquetIngestBudget:
+    """fix(#948): row and cell ceilings, checked from the footer.
+
+    The constants are monkeypatched down rather than generating a
+    five-million-row fixture — being module constants is half the reason they
+    are module constants. Each test asserts the loader raises BEFORE creating
+    the table, which is what checking ``pf.metadata.num_rows`` up front buys
+    over a running counter.
+    """
+
+    @staticmethod
+    def _write(path, *, rows: int, columns: int) -> None:
+        cols = {f"c{i}": list(range(rows)) for i in range(columns)}
+        pq.write_table(pa.table(cols), path)
+
+    @staticmethod
+    async def _table_exists(session, table_name: str) -> bool:
+        result = await session.execute(
+            text("SELECT to_regclass(:t)"), {"t": f"data.{table_name}"}
+        )
+        return result.scalar() is not None
+
+    @pytest.mark.anyio
+    async def test_over_row_cap_rejected(self, tmp_path, monkeypatch, test_db_session):
+        """Trips the ROW cap alone: 6 rows x 1 column is 6 cells, well under
+        the cell cap, so this isolates the row ceiling."""
+        monkeypatch.setattr(parquet_module, "_MAX_TOTAL_ROWS", 5)
+        monkeypatch.setattr(parquet_module, "_MAX_TOTAL_CELLS", 1_000)
+        p = tmp_path / "wide_rows.parquet"
+        self._write(p, rows=6, columns=1)
+
+        table_name = f"t_rowcap_{uuid.uuid4().hex[:8]}"
+        with pytest.raises(IngestionError, match=r"6 rows, above the 5-row"):
+            await load_parquet_to_postgis(
+                str(p), table_name, schema="data", srid=4326, include_geometry=False
+            )
+        assert not await self._table_exists(test_db_session, table_name), (
+            "the loader created a table before rejecting the file — the budget "
+            "check must run before the DDL"
+        )
+
+    @pytest.mark.anyio
+    async def test_over_cell_cap_rejected(self, tmp_path, monkeypatch, test_db_session):
+        """Trips the CELL cap alone: 4 rows is under a row cap of 100, but
+        4 x 5 = 20 cells is over a cell cap of 10."""
+        monkeypatch.setattr(parquet_module, "_MAX_TOTAL_ROWS", 100)
+        monkeypatch.setattr(parquet_module, "_MAX_TOTAL_CELLS", 10)
+        p = tmp_path / "wide_cols.parquet"
+        self._write(p, rows=4, columns=5)
+
+        table_name = f"t_cellcap_{uuid.uuid4().hex[:8]}"
+        with pytest.raises(IngestionError, match=r"20 cells \(4 rows x 5 columns\)"):
+            await load_parquet_to_postgis(
+                str(p), table_name, schema="data", srid=4326, include_geometry=False
+            )
+        assert not await self._table_exists(test_db_session, table_name)
+
+    @pytest.mark.anyio
+    async def test_just_under_both_caps_still_loads(
+        self, tmp_path, monkeypatch, test_db_session
+    ):
+        """The ceilings are exclusive: a file exactly at both still ingests."""
+        monkeypatch.setattr(parquet_module, "_MAX_TOTAL_ROWS", 4)
+        monkeypatch.setattr(parquet_module, "_MAX_TOTAL_CELLS", 8)
+        p = tmp_path / "under.parquet"
+        self._write(p, rows=4, columns=2)
+
+        table_name = f"t_undercap_{uuid.uuid4().hex[:8]}"
+        try:
+            await load_parquet_to_postgis(
+                str(p), table_name, schema="data", srid=4326, include_geometry=False
+            )
+            result = await test_db_session.execute(
+                text(f"SELECT COUNT(*) FROM data.{table_name}")
+            )
+            assert result.scalar() == 4
+        finally:
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table_name}")
+            )
+            await test_db_session.commit()
 
 
 class TestParquetValidation:
