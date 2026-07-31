@@ -1030,7 +1030,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # matching the #435 convention: growth needs a reviewed carve-out here,
     # shrinking must lower the cap in the same commit.
     "backend/app/api/main.py": 1292,
-    "backend/app/modules/catalog/maps/schemas.py": 1312,
+    # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
+    # thumbnail cache version split out of updated_at. Ratchet stays exact.
+    "backend/app/modules/catalog/maps/schemas.py": 1316,
     # fix(#888): +117. `clip_to_mercator_bounds` used to lose data twice over
     # in silence — it clipped away everything east of lon 180 in a 0..360
     # source, and it reduced valid polar geometry to EMPTY without telling
@@ -1066,7 +1068,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.
-    "backend/app/modules/catalog/maps/router.py": 1385,
+    # fix(#1005): +32 — _record_image_capture, the shared write for both
+    # image-upload endpoints. Its docstring carries the part that is easy to
+    # get wrong: Map.updated_at has onupdate=func.now(), so dropping the
+    # explicit assignment does not stop the bump. Ratchet stays exact.
+    "backend/app/modules/catalog/maps/router.py": 1417,
     # fix(#474): thread negotiated languages through catalog search, cache keys,
     # and OGC record serialization; fix(#475) adds Records array-query handling,
     # including collection IDs, plus response-header and documented 400 parity.

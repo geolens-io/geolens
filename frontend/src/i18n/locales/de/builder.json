@@ -8,7 +8,9 @@
     "opacityModified": "Deckkraft angepasst"
   },
   "map": {
-    "ariaLabel": "Kartenerstellung"
+    "ariaLabel": "Kartenerstellung",
+    "autoFitMoved": "Die Ansicht wurde an die sichtbaren Ebenen angepasst",
+    "returnToPreviousView": "Zurück zur vorherigen Ansicht"
   },
   "mapNameLabel": "Kartenname",
   "descriptionLabel": "Kartenbeschreibung",
@@ -1093,12 +1095,13 @@
     "emptyTitle": "Noch kein Bearbeitungsverlauf",
     "emptyDescription": "Der Verlauf beginnt, nachdem gespeicherte Bearbeitungen für diese Karte aufgezeichnet wurden.",
     "errorTitle": "Verlauf konnte nicht geladen werden",
-    "errorDescription": "Schließen und erneut öffnen Sie dieses Panel.",
+    "errorDescription": "Prüfe deine Verbindung und versuche es erneut.",
     "notAvailableTitle": "Speichern Sie diese Karte, um den Verlauf zu sehen",
     "notAvailableDescription": "Der Bearbeitungsverlauf ist verfügbar, nachdem die Karte gespeichert wurde.",
     "unknownTime": "Unbekannte Zeit",
     "unknownActor": "Unbekannter Benutzer",
-    "actorTarget": "{{actor}} - {{target}}"
+    "actorTarget": "{{actor}} - {{target}}",
+    "retry": "Erneut versuchen"
   },
   "dock": {
     "askAi": "KI fragen",

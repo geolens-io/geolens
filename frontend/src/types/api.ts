@@ -1130,6 +1130,10 @@ export interface MapSummaryResponse {
   description: string | null;
   visibility: MapVisibility;
   thumbnail_url: string | null;
+  /** fix(#1005): the thumbnail's cache version, separate from the map's edit
+   * timestamp. Null for maps whose thumbnail predates the column — fall back to
+   * `updated_at` so the card keeps a stable version either way. */
+  thumbnail_updated_at: string | null;
   layer_count: number;
   created_by_username: string | null;
   created_at: string;

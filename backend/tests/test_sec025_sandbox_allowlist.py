@@ -14,10 +14,67 @@ RED → GREEN history:
 
 from __future__ import annotations
 
+import contextlib
+
 import pytest
 
+from app.platform.sandbox import validator as _validator
 from app.platform.sandbox.schemas import SandboxError
 from app.platform.sandbox.validator import validate_sql
+
+
+@contextlib.contextmanager
+def _recording_validator_logger():
+    """Collect the validator's structured rejection events, immune to caching.
+
+    fix(#1024): `structlog.testing.capture_logs()` observes the GLOBAL
+    structlog configuration, so what it sees depends on what else ran earlier
+    in the same xdist worker rather than on the code under test. Under `-n 4`
+    it started yielding `[]` here while the rejection itself still happened,
+    which turned main red. The same file passes run alone, and two failing
+    runs disagreed on how many of the three broke.
+
+    The exact trigger was NOT pinned down, and this docstring deliberately
+    does not claim it was. Two people failed to reproduce it in a single
+    process, including forcing `setup_logging()` ahead of a warmed validator
+    logger and raising the stdlib root level. The leading candidate is
+    `cache_logger_on_first_use=True` in `app/core/logging_config.py` combined
+    with `validator.py` binding its logger at import, which matches the
+    symptom documented at test_tile_signing.py:648-656 — but it did not
+    demonstrate on structlog 25.5.0 even when that order was forced. Treat it
+    as unconfirmed if you are here debugging something similar.
+
+    What IS established is the class of cause: an assertion about validator
+    behaviour should not read through global logging state that any other test
+    in the worker can mutate. Swapping the module global removes that
+    dependency outright, because the call sites resolve `logger` from module
+    globals at call time. That is why this is the right fix whether or not the
+    caching story turns out to be the trigger.
+    """
+    events: list[dict] = []
+
+    class _Recorder:
+        def _record(self, event=None, **kwargs):
+            events.append({"event": event, **kwargs})
+
+        # `exception` included deliberately: without it __getattr__ below would
+        # return a silent no-op, and an assertion would fail with an empty list
+        # — the exact confusing symptom this helper exists to remove.
+        debug = info = warning = error = critical = exception = _record
+
+        def __getattr__(self, _name):
+            # bind() and friends: no-op that supports chaining.
+            def _noop(*args, **kwargs):
+                return self
+
+            return _noop
+
+    original = _validator.logger
+    _validator.logger = _Recorder()
+    try:
+        yield events
+    finally:
+        _validator.logger = original
 
 
 # ---------------------------------------------------------------------------
@@ -39,6 +96,30 @@ def _assert_rejects(
     )
     if expected_message is not None:
         assert exc_info.value.user_message == expected_message
+
+
+def _assert_rejects_function(sql: str, expected_function: str) -> None:
+    """Assert validate_sql rejects `sql` and names `expected_function` as the cause.
+
+    Plain `_assert_rejects` cannot tell "the function inside the subquery was
+    caught" from "the enclosing predicate was itself refused as an unlisted
+    function", which is exactly the confusion #538/#1017 are about. Reading the
+    structured log's `function` field pins the reason.
+    """
+    with _recording_validator_logger() as logs:
+        with pytest.raises(SandboxError) as exc_info:
+            validate_sql(sql)
+    assert exc_info.value.category == "invalid_query"
+    rejected = [
+        entry.get("function")
+        for entry in logs
+        if str(entry.get("event") or "").startswith("sandbox.")
+        and entry.get("function") is not None
+    ]
+    assert rejected == [expected_function], (
+        f"Expected rejection on {expected_function!r} but the validator "
+        f"reported {rejected!r} for SQL: {sql!r}"
+    )
 
 
 def _assert_allows(sql: str) -> None:
@@ -447,6 +528,65 @@ class TestBooleanOperatorsAllowed:
     def test_rejects_unlisted_spatial_function_inside_and(self):
         _assert_rejects(
             "SELECT name FROM data.cities WHERE ST_EvilThing(geom_4326) AND pop > 1"
+        )
+
+
+class TestExistsSubqueryAllowed:
+    """EXISTS is a subquery predicate, not a callable — but sqlglot models
+    exp.Exists on the same Func path that trapped AND/OR (#538), so the
+    fail-closed walk rejected every EXISTS subquery as function "exists"
+    (#1017; fix skips Exists nodes, whose operands are still walked)."""
+
+    def test_allows_exists_subquery(self):
+        _assert_allows(
+            "SELECT name FROM data.t AS a "
+            "WHERE EXISTS (SELECT 1 FROM data.u AS b WHERE b.id = a.id)"
+        )
+
+    def test_allows_not_exists_subquery(self):
+        _assert_allows(
+            "SELECT name FROM data.t AS a "
+            "WHERE NOT EXISTS (SELECT 1 FROM data.u AS b WHERE b.id = a.id)"
+        )
+
+    def test_allows_exists_with_allowed_functions_inside(self):
+        _assert_allows(
+            "SELECT c.name FROM data.cities AS c "
+            "WHERE EXISTS (SELECT 1 FROM data.parks AS p "
+            "WHERE ST_Intersects(p.geom_4326, c.geom_4326) AND LOWER(p.name) = 'x')"
+        )
+
+    def test_rejects_blocked_function_inside_exists(self):
+        """Skipping the Exists node must NOT hide functions in its subquery."""
+        _assert_rejects_function(
+            "SELECT name FROM data.t AS a "
+            "WHERE EXISTS (SELECT 1 FROM data.u AS b WHERE pg_sleep(1) IS NULL)",
+            "pg_sleep",
+        )
+
+    def test_rejects_unlisted_function_inside_exists(self):
+        _assert_rejects_function(
+            "SELECT name FROM data.t AS a "
+            "WHERE EXISTS (SELECT version() FROM data.u AS b WHERE b.id = a.id)",
+            "current_version",
+        )
+
+    def test_rejects_unlisted_spatial_function_inside_exists(self):
+        _assert_rejects_function(
+            "SELECT name FROM data.t AS a "
+            "WHERE EXISTS (SELECT 1 FROM data.u AS b "
+            "WHERE ST_MakeEnvelope(0, 0, 1, 1, 4326) IS NOT NULL)",
+            "st_makeenvelope",
+        )
+
+    def test_rejects_recursive_cte_inside_exists(self):
+        """The other tree-wide guards still reach into an EXISTS subquery."""
+        _assert_rejects(
+            "SELECT name FROM data.t AS a WHERE EXISTS ("
+            "WITH RECURSIVE bomb(n) AS ("
+            "SELECT 1 UNION ALL SELECT n + 1 FROM bomb WHERE n < 1000000000"
+            ") SELECT n FROM bomb)",
+            expected_message="Recursive queries are not allowed",
         )
 
 

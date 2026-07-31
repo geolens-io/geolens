@@ -8,7 +8,9 @@
     "opacityModified": "Opacity adjusted"
   },
   "map": {
-    "ariaLabel": "Map builder"
+    "ariaLabel": "Map builder",
+    "autoFitMoved": "The view moved to fit the visible layers",
+    "returnToPreviousView": "Return to previous view"
   },
   "mapNameLabel": "Map name",
   "descriptionLabel": "Map description",
@@ -1097,12 +1099,13 @@
     "emptyTitle": "No edit history yet",
     "emptyDescription": "History starts after saved edits are recorded for this map.",
     "errorTitle": "History could not be loaded",
-    "errorDescription": "Try closing and reopening this panel.",
+    "errorDescription": "Check your connection, then try again.",
     "notAvailableTitle": "Save this map to see history",
     "notAvailableDescription": "Edit history is available after the map exists.",
     "unknownTime": "Unknown time",
     "unknownActor": "Unknown user",
-    "actorTarget": "{{actor}} - {{target}}"
+    "actorTarget": "{{actor}} - {{target}}",
+    "retry": "Try again"
   },
   "dock": {
     "askAi": "Ask AI",
