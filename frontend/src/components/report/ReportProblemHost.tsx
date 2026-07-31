@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { LifeBuoy } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth-store';
-import { useReportDialog, useReportEntries } from '@/lib/report';
+import { countDistinctFailures, useReportDialog, useReportEntries } from '@/lib/report';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ReportProblemWizard } from './ReportProblemWizard';
@@ -25,7 +25,9 @@ export function ReportProblemHost() {
 
   if (!token) return null;
 
-  const errorCount = entries.reduce((count, entry) => count + (entry.severity === 'error' ? 1 : 0), 0);
+  // fix(#908): distinct failures, not rows — one unrecovered map error writes
+  // both a `maplibre` row and a `console` row, and the badge used to read "2".
+  const errorCount = countDistinctFailures(entries);
   const hasErrors = errorCount > 0;
   const badge = errorCount > 9 ? '9+' : String(errorCount);
 

@@ -146,17 +146,13 @@ async def vrt_db_state(
     (_create_vrt_dataset_rows), minus distribution rows and source_dataset_ids
     parameter handling.
     """
-    import app.core.db as db_module
-    import app.processing.ingest.tasks_vrt as tasks_vrt_module
     from app.modules.catalog.datasets.domain.models import Dataset, Record
     from app.platform.jobs.models import IngestJob
     from app.processing.raster.models import RasterAsset
 
-    # CRITICAL: tasks_vrt.py imports async_session at module level. The
-    # `client` fixture patches db_module.async_session to the test factory,
-    # but that does NOT update the binding in tasks_vrt. Without this
-    # re-patch, regenerate_vrt opens a session on the production engine.
-    monkeypatch.setattr(tasks_vrt_module, "async_session", db_module.async_session)
+    # fix(#909): tasks_vrt now late-binds async_session from app.core.db,
+    # which the `client` fixture already patches to the test factory — the
+    # per-module re-patch this comment used to defend is gone by design.
 
     session = test_db_session
     source_uris = list(source_tifs.keys())  # ["rasters/src-1/source.cog.tif", ...]

@@ -8,6 +8,8 @@ which removes the drift class by construction; these tests pin the wiring so
 a rewrite of the prompt cannot quietly reintroduce a hand-written copy.
 """
 
+import pytest
+
 from app.platform.analysis_sql import render_geodesic_buffer
 from app.processing.ai.sql_generator import SQL_SYSTEM_PROMPT
 
@@ -68,13 +70,28 @@ def test_every_buffer_in_the_prompt_is_generated_or_marked_wrong():
         )
 
 
-def test_rendered_buffer_expression_passes_the_sandbox_validator():
-    """fix(#935 codex r1): the prompt mandates copying the expression
-    verbatim, so the sandbox's fail-closed allowlist must admit every
-    function it uses — otherwise the exact SQL the prompt teaches raises
-    invalid_query and no buffer question can execute. Rendering live keeps
-    this in lockstep with analysis_sql; a renderer change that introduces a
-    new function fails here until the validator admits it."""
+def test_rendered_buffer_expression_is_refused_until_1001_lands():
+    """fix(#1001): INVERTED, deliberately, and it must go back to asserting
+    admission when #1001 lands.
+
+    #935 codex r1 admitted the buffer's functions and bounded them with cost
+    guards. #990 then rebuilt the renderer, and those guards — written against
+    the older shape — rejected the very expression the prompt mandates. Three
+    attempts to recalibrate them each drew a real P1 (see #1002), because
+    proving a target's units and admitting the canonical buffer are
+    contradictory under any target-inspection scheme: the buffer segmentizes
+    an alias, `_pb_d0.c0`, several derived levels from its input.
+
+    So the allowlist entries and the guards both came out. That leaves the
+    prompt still teaching the SAFE banded expression, which the sandbox now
+    refuses outright. The refusal is the point: the alternative was reverting
+    the prompt too, and `st_buffer` is allowlisted independently, so the model
+    would have emitted the bare `ST_Buffer(geom::geography, N)::geometry` form
+    and it would have EXECUTED — returning the world-spanning polygon across
+    ±180° that #883/#900/#990 fixed. A refused buffer question beats a
+    silently wrong overlay and bbox.
+    """
+    from app.platform.sandbox.schemas import SandboxError
     from app.platform.sandbox.validator import validate_sql
 
     denver = render_geodesic_buffer(
@@ -82,18 +99,20 @@ def test_rendered_buffer_expression_passes_the_sandbox_validator():
         50000,
     )
     # The prompt's worked example, as the model would emit it.
-    validate_sql(
-        "SELECT p.name AS park_name\n"
-        "FROM data.national_parks p\n"
-        f"WHERE ST_Intersects(p.geom_4326, {denver})\n"
-        "LIMIT 100"
-    )
+    with pytest.raises(SandboxError):
+        validate_sql(
+            "SELECT p.name AS park_name\n"
+            "FROM data.national_parks p\n"
+            f"WHERE ST_Intersects(p.geom_4326, {denver})\n"
+            "LIMIT 100"
+        )
     # A direct buffer-geometry request, the chat_geojson-shaped form.
     buffered = render_geodesic_buffer("s.geom_4326", 10000)
-    validate_sql(
-        f"SELECT s.name, ST_AsGeoJSON({buffered}) AS geometry\n"
-        "FROM data.stations s\nLIMIT 100"
-    )
+    with pytest.raises(SandboxError):
+        validate_sql(
+            f"SELECT s.name, ST_AsGeoJSON({buffered}) AS geometry\n"
+            "FROM data.stations s\nLIMIT 100"
+        )
 
 
 def test_function_reference_line_declares_degrees():

@@ -1620,11 +1620,8 @@ async def client(tmp_path):
     db_module.engine = test_engine
     db_module.async_session = test_session_factory
 
-    # Patch health service module's engine reference
-    import app.observability.health.service as health_service_module
-
-    original_health_engine = health_service_module.engine
-    health_service_module.engine = test_engine
+    # fix(#909): the health service late-binds engine from app.core.db, so
+    # the db_module patch above covers it — no per-module re-point needed.
 
     # Override the get_db dependency
     from app.core.dependencies import get_db
@@ -1688,7 +1685,6 @@ async def client(tmp_path):
     app.dependency_overrides.clear()
     db_module.engine = original_engine
     db_module.async_session = original_session
-    health_service_module.engine = original_health_engine
     storage_provider_module._storage = original_storage
     settings.upload_staging_dir = original_upload_staging_dir
     tempfile.tempdir = original_tempdir
@@ -1876,16 +1872,17 @@ def _point_ogr2ogr_at_test_db(request, monkeypatch):
     (or a class-level ``pytestmark``) trigger the monkeypatch. All
     other tests are unaffected.
 
-    fix(#885): the export wrapper does ``from app.processing.ingest.ogr import
-    build_pg_conn_str`` at module scope, so it holds its OWN binding — patching
-    only the ingest module left ``run_ogr2ogr_export`` reading the dev/prod
-    database. Both bindings are redirected.
+    fix(#885): the export wrapper used to do ``from app.processing.ingest.ogr
+    import build_pg_conn_str`` at module scope, holding its OWN binding —
+    patching only the ingest module left ``run_ogr2ogr_export`` reading the
+    dev/prod database. fix(#909): the export wrapper now late-binds at call
+    scope (enforced by test_layering.py), so the origin-module patch below is
+    the single binding again.
     """
     if "requires_ogr2ogr" not in request.keywords:
         return
 
     from app.core.config import settings as _settings
-    from app.processing.export import ogr as _export_ogr
     from app.processing.ingest import ogr as _ogr
 
     def _test_pg_conn_str() -> str:
@@ -1898,7 +1895,6 @@ def _point_ogr2ogr_at_test_db(request, monkeypatch):
         )
 
     monkeypatch.setattr(_ogr, "build_pg_conn_str", _test_pg_conn_str)
-    monkeypatch.setattr(_export_ogr, "build_pg_conn_str", _test_pg_conn_str)
 
 
 @pytest.fixture

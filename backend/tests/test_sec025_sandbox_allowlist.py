@@ -461,10 +461,7 @@ class TestResourceAmplificationRejected:
         )
 
     def test_rejects_unknown_postgis_function(self):
-        # fix(#935): ST_MakeEnvelope joined the allowlist (canonical buffer
-        # machinery); ST_GeneratePoints — the attacker-chosen-cardinality
-        # generator the allowlist comment cites — stands in as the unknown.
-        _assert_rejects("SELECT ST_GeneratePoints(geom_4326, 100) FROM data.cities")
+        _assert_rejects("SELECT ST_MakeEnvelope(0, 0, 1, 1, 4326)")
 
     def test_rejects_oversized_generate_series(self):
         _assert_rejects("SELECT array_agg(i) FROM generate_series(1, 1000000000) AS i")
@@ -528,37 +525,3 @@ class TestResourceAmplificationRejected:
     )
     def test_rejects_unbounded_collection_builders(self, sql):
         _assert_rejects(sql)
-
-    def test_rejects_table_scanning_unary_st_collect_however_aliased(self):
-        """fix(#935 codex r2): the unary ST_Collect exception is scoped to the
-        canonical buffer's table-free re-collect. Hiding the table scan one
-        derived level down (or borrowing the canonical alias names) must not
-        slip past."""
-        _assert_rejects(
-            "SELECT (SELECT ST_Collect(_pb_p.p) FROM "
-            "(SELECT geom_4326 AS p FROM data.cities) AS _pb_p) AS blob"
-        )
-
-    def test_rejects_tiny_or_dynamic_segmentize_length(self):
-        """fix(#935 codex r2): ST_Segmentize's max-edge argument controls
-        vertex amplification; only large numeric literals pass."""
-        _assert_rejects("SELECT ST_Segmentize(geom_4326, 1e-100) FROM data.cities")
-        _assert_rejects("SELECT ST_Segmentize(geom_4326, population) FROM data.cities")
-
-    def test_allows_canonical_scale_segmentize(self):
-        validate_sql(
-            "SELECT ST_Segmentize(geom_4326::geography, 20000) FROM data.cities LIMIT 5"
-        )
-
-    def test_rejects_table_scanning_st_dump(self):
-        """fix(#935 codex r3): ST_Dump over a table is the UNNEST
-        row-amplification class; only the canonical buffer's table-free dump
-        of a single fenced geometry is admitted."""
-        _assert_rejects(
-            "SELECT COUNT(*) FROM data.cities c "
-            "CROSS JOIN LATERAL ST_Dump(c.geom_4326) d"
-        )
-        _assert_rejects("SELECT (ST_Dump(geom_4326)).geom FROM data.cities")
-        _assert_rejects(
-            "SELECT COUNT(*) FROM data.roads r, LATERAL ST_DumpSegments(r.geom_4326) s"
-        )

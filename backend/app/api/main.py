@@ -27,7 +27,10 @@ from app.observability.metrics import init_metrics
 from app.platform.cache.provider import init_tile_cache
 
 # settings already imported above for the tempdir override — do NOT reimport
-from app.core.db import async_session, engine
+# fix(#909): async_session/engine are late-bound inside each function that
+# uses them. A module-scope `from app.core.db import ...` snapshots the
+# dev-DB objects before the test fixture rebinds app.core.db, so lifespan
+# seed functions in tests would silently hit the dev database.
 from app.core.db.tenant_session import tenant_job_context
 from app.core.logging_config import setup_logging
 from app.core.tenancy import is_multi_tenant
@@ -81,6 +84,8 @@ async def seed_roles() -> None:
     unique constraint and crashing the loser's startup *before* the admin-seed
     lock is ever reached.
     """
+    from app.core.db import async_session  # fix(#909): late-bind for tests
+
     async with async_session() as session:
         await session.execute(
             text("SELECT pg_advisory_xact_lock(:k)"), {"k": _SEED_LOCK_KEY}
@@ -135,6 +140,8 @@ async def seed_initial_admin() -> None:
     xact-scoped advisory lock makes exactly one worker seed; the rest see
     count>0 and no-op. The lock releases when the session's transaction ends.
     """
+    from app.core.db import async_session  # fix(#909): late-bind for tests
+
     async with async_session() as session:
         await session.execute(
             text("SELECT pg_advisory_xact_lock(:k)"), {"k": _SEED_LOCK_KEY}
@@ -190,6 +197,7 @@ async def sweep_stale_jobs_once(
     ``ingest_jobs`` reads and writes. Recovery is best-effort per tenant: one
     broken tenant must not prevent the remaining tenants from being swept.
     """
+    from app.core.db import async_session  # fix(#909): late-bind for tests
     from app.platform.jobs.router import fail_stale_jobs
 
     if not is_multi_tenant():
@@ -255,6 +263,8 @@ async def sweep_stale_jobs_once(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from app.core.db import engine  # fix(#909): late-bind for tests
+
     for attempt in range(1, 4):
         try:
             async with engine.connect() as conn:
