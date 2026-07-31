@@ -977,6 +977,7 @@
     "opSpatialJoin": "Jointure spatiale",
     "opMeasure": "Mesurer",
     "opSelectByLocation": "Sélectionner par emplacement",
+    "opIntersect": "Intersecter",
     "distanceLabel": "Distance",
     "distanceOutOfRange": "Saisissez une distance supérieure à 0 et d’au plus {{max}} {{unit}}.",
     "drawMask": "Dessiner la zone de découpe",
@@ -1038,7 +1039,10 @@
     "drawSelectionArea": "Dessiner la zone de sélection",
     "selectionAreaSet": "Zone de sélection définie",
     "selectLayerLabel": "Ou sélectionner avec une couche",
-    "drawSelectionPointerHint": "Le dessin nécessite un pointeur. Pour sélectionner sans pointeur, choisissez une couche de polygones ci-dessous."
+    "drawSelectionPointerHint": "Le dessin nécessite un pointeur. Pour sélectionner sans pointeur, choisissez une couche de polygones ci-dessous.",
+    "intersectHint": "Crée de nouvelles entités là où les deux couches se chevauchent, une par paire, portant les colonnes des deux. Utilisez Mesurer ensuite pour la surface de chevauchement.",
+    "overlayLayerLabel": "Superposer avec la couche",
+    "overlayLayerNone": "Choisissez une couche"
   },
   "attributeForm": {
     "titleEdit": "Modifier les attributs de l'entité",

@@ -31,12 +31,14 @@ from app.core.db.tenant_schema import tenant_data_schema
 from app.core.db.tenant_session import current_tenant_var, tenant_task
 from app.core.tenancy import is_multi_tenant
 from app.platform.analysis_sql import (
+    INTERSECT_OUTPUT_COLUMNS,
     MAX_MASK_LAYER_FEATURES,
     MAX_SOURCE_FEATURES,
     MEASURE_OUTPUT_COLUMNS,
     NOT_EMPTY_PREDICATE,
     render_clip_layer_join,
     render_geometry_expr,
+    render_intersect_pairs,
     render_measure_columns,
     render_select_by_location_where,
     render_spatial_join,
@@ -369,6 +371,8 @@ def _generated_columns(
         return MEASURE_OUTPUT_COLUMNS
     if operation == "spatial_join":
         return tuple(spatial_join_output_columns(join_fields))
+    if operation == "intersect":
+        return INTERSECT_OUTPUT_COLUMNS
     return ()
 
 
@@ -399,8 +403,12 @@ async def _resolve_layer_table_ref(
     schema: str,
     *,
     label: str,
-) -> str:
-    """Re-resolve a secondary layer's table ref at run time (fix(#953)).
+) -> tuple[str, str]:
+    """Re-resolve a secondary layer at run time: ``(table_ref, table_name)``.
+
+    fix(#953); fix(#956) added the bare name to the return, because an overlay
+    reads that layer's live columns out of ``information_schema``, which takes
+    a plain name rather than the quoted ref every other caller wants.
 
     Both two-layer operations need this — clip against a mask layer, and
     spatial_join against a join layer — with the same trust model: access was
@@ -419,7 +427,7 @@ async def _resolve_layer_table_ref(
         raise ValueError(f"{label.capitalize()} dataset not found")
     if not _SAFE_TABLE.match(layer.table_name):
         raise ValueError(f"Invalid {label} table name")
-    return f'"{schema}"."{layer.table_name}"'
+    return f'"{schema}"."{layer.table_name}"', layer.table_name
 
 
 async def _recheck_size_caps(
@@ -702,8 +710,23 @@ def _build_materialize_select(
     mask_table_ref: str | None = None,
     join_table_ref: str | None = None,
     join_fields: list[str] | None = None,
+    mask_carry_cols: list[str] | None = None,
 ) -> str:
     """Render the SELECT that produces the output table's rows."""
+    if operation == "intersect" and mask_table_ref is not None:
+        # fix(#956): the only branch whose output rows are not 1:1 with source
+        # rows, so it is also the only one besides dissolve that generates its
+        # own gid — the unconditional ADD PRIMARY KEY (gid) below would die on
+        # duplicates otherwise. The empty-geometry filter is inside the
+        # renderer for the same reason clip's is (fix(#719 review)):
+        # _enforce_output_size measures the CTAS before the post-CTAS DELETE
+        # can shrink it.
+        return render_intersect_pairs(
+            src_ref,
+            mask_table_ref,
+            src_columns=[_sql_quote_ident(c) for c in carry_cols],
+            mask_columns=[_sql_quote_ident(c) for c in (mask_carry_cols or [])],
+        )
     if operation == "measure":
         # fix(#954): the same renderer the preview uses, so a saved measurement
         # equals the one the user approved rather than being recomputed by a
@@ -895,20 +918,17 @@ async def _materialize(
             # Layer-sourced clip mask: re-resolve the table name at run time
             # (access was checked at enqueue by the router, same trust model
             # as the source dataset).
-            mask_table_ref = (
-                await _resolve_layer_table_ref(
+            mask_table_ref: str | None = None
+            mask_table_name: str | None = None
+            if mask_dataset_id is not None:
+                mask_table_ref, mask_table_name = await _resolve_layer_table_ref(
                     session, Dataset, mask_dataset_id, _schema, label="mask"
                 )
-                if mask_dataset_id is not None
-                else None
-            )
-            join_table_ref = (
-                await _resolve_layer_table_ref(
+            join_table_ref: str | None = None
+            if join_dataset_id is not None:
+                join_table_ref, _ = await _resolve_layer_table_ref(
                     session, Dataset, join_dataset_id, _schema, label="join"
                 )
-                if join_dataset_id is not None
-                else None
-            )
 
             await _recheck_size_caps(
                 session,
@@ -946,6 +966,23 @@ async def _materialize(
             _reject_output_column_collision(
                 carry_cols, _generated_columns(operation, join_fields)
             )
+            # fix(#956): an overlay carries columns from BOTH inputs, so it is
+            # the only operation that also needs the second layer's live column
+            # list — and the only one where two same-named columns are likely
+            # rather than exotic. Same two-sided story as the guard above: the
+            # router checked the catalog snapshot at enqueue, this re-checks the
+            # real columns after the queue wait.
+            mask_carry_cols: list[str] = []
+            if operation == "intersect" and mask_table_name is not None:
+                mask_carry_cols = await _list_carry_columns(
+                    session, _schema, mask_table_name
+                )
+                _reject_output_column_collision(
+                    carry_cols, (*mask_carry_cols, *INTERSECT_OUTPUT_COLUMNS)
+                )
+                _reject_output_column_collision(
+                    mask_carry_cols, INTERSECT_OUTPUT_COLUMNS
+                )
             select_sql = _build_materialize_select(
                 src_ref,
                 operation,
@@ -956,6 +993,7 @@ async def _materialize(
                 mask_table_ref=mask_table_ref,
                 join_table_ref=join_table_ref,
                 join_fields=join_fields,
+                mask_carry_cols=mask_carry_cols,
             )
             await session.execute(
                 text(f"SET LOCAL statement_timeout = '{materialize_timeout()}'")

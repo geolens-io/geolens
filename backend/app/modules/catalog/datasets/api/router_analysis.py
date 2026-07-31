@@ -29,6 +29,7 @@ from app.modules.catalog.datasets.domain.service import (
 )
 from app.modules.quota.service import check_upload_quota
 from app.platform.analysis_sql import (
+    INTERSECT_OUTPUT_COLUMNS,
     MAX_MASK_LAYER_FEATURES,
     MAX_SOURCE_FEATURES,
     MEASURE_OUTPUT_COLUMNS,
@@ -224,6 +225,43 @@ def _validate_join_fields(source, join_dataset, join_fields: list[str]) -> None:
     _reject_generated_column_collision(source, spatial_join_output_columns(join_fields))
 
 
+def _column_names(dataset) -> set[str]:
+    return {col.get("name") for col in (dataset.column_info or []) if col}
+
+
+def _validate_intersect_columns(source, overlay) -> None:
+    """422 on any column an overlay would emit twice (fix(#956)).
+
+    An overlay is the first operation to carry columns from BOTH inputs onto
+    every output row, so a same-named column in the two layers is likely
+    rather than exotic — ``name``, ``id`` and ``area`` are all common. The CTAS
+    would fail it with an opaque "column specified more than once" after the
+    whole queue wait. Prefixing silently is the alternative, and it makes the
+    output columns unpredictable for anyone scripting against the result.
+    """
+    _reject_generated_column_collision(source, INTERSECT_OUTPUT_COLUMNS)
+    generated = sorted(_column_names(overlay) & set(INTERSECT_OUTPUT_COLUMNS))
+    if generated:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"The overlay layer has a column named {generated[0]!r}, which "
+                "this operation generates. Rename it, or choose a different "
+                "layer."
+            ),
+        )
+    clashes = sorted(_column_names(source) & _column_names(overlay))
+    if clashes:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Both layers have a column named {clashes[0]!r}, and an "
+                "overlay carries columns from both. Rename one of them, or "
+                "choose a different layer."
+            ),
+        )
+
+
 @router.post("/{dataset_id}/analysis/preview/", response_model=AnalysisPreviewResponse)
 async def analysis_preview_endpoint(
     dataset_id: uuid.UUID,
@@ -332,6 +370,12 @@ async def _validate_materialize_params(
         _validate_join_fields(dataset, join_dataset, body.join_fields or [])
     if body.operation == "measure":
         _reject_generated_column_collision(dataset, MEASURE_OUTPUT_COLUMNS)
+    if body.operation == "intersect":
+        # Access check on the overlay layer, plus the column checks. Rule 1
+        # applies to BOTH datasets; the worker re-resolves the table and
+        # re-checks the collisions against the live columns after the queue.
+        overlay = await _load_mask_dataset(db, body.mask_dataset_id, user)
+        _validate_intersect_columns(dataset, overlay)
 
 
 @router.post(

@@ -837,6 +837,17 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     }
     private_service_default_line_budget = 350
     private_service_line_budget_allowlist = {
+        # M4 phase-2 grew this from three analysis operations to seven
+        # (#953 spatial_join, #954 measure, #955 select_by_location, #956
+        # intersect). Every rendered statement was pushed down into
+        # app.platform.analysis_sql as it landed, so what remains here is the
+        # preview ORCHESTRATION — which branch feeds which renderer, and how the
+        # positional rows become properties — not SQL. Two folds during the
+        # wave (#955's count builder, #956's preview projection) kept it under
+        # this cap once each before it stopped fitting. 375 leaves ~10 lines;
+        # an eighth operation should split the per-operation dispatch out
+        # rather than raise this again.
+        "backend/app/modules/catalog/datasets/domain/service_analysis.py": 375,
         "backend/app/modules/catalog/maps/service_crud.py": 550,
         # fix(#474, #475): localized ranking/eager loading plus the OGC
         # ids/externalIds filters cross the default by nine lines. Keep the

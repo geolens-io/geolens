@@ -977,6 +977,7 @@
     "opSpatialJoin": "Unión espacial",
     "opMeasure": "Medir",
     "opSelectByLocation": "Seleccionar por ubicación",
+    "opIntersect": "Intersecar",
     "distanceLabel": "Distancia",
     "distanceOutOfRange": "Introduce una distancia mayor que 0 y no superior a {{max}} {{unit}}.",
     "drawMask": "Dibujar área de recorte",
@@ -1038,7 +1039,10 @@
     "drawSelectionArea": "Dibujar área de selección",
     "selectionAreaSet": "Área de selección definida",
     "selectLayerLabel": "O seleccionar con una capa",
-    "drawSelectionPointerHint": "Dibujar requiere un puntero. Para seleccionar sin él, elige una capa de polígonos abajo."
+    "drawSelectionPointerHint": "Dibujar requiere un puntero. Para seleccionar sin él, elige una capa de polígonos abajo.",
+    "intersectHint": "Crea entidades nuevas donde las dos capas se solapan, una por cada par solapado, con las columnas de ambas. Usa Medir después para obtener el área de solape.",
+    "overlayLayerLabel": "Superponer con la capa",
+    "overlayLayerNone": "Elige una capa"
   },
   "attributeForm": {
     "titleEdit": "Editar atributos de la entidad",

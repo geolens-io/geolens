@@ -272,6 +272,7 @@ export function AnalysisPanel({
       select_by_location: t('analysisTools.opSelectByLocation', {
         defaultValue: 'Select by location',
       }),
+      intersect: t('analysisTools.opIntersect', { defaultValue: 'Intersect' }),
     };
     return [base, opLabel[prefill.operation]].filter(Boolean).join(' — ');
   });
@@ -553,6 +554,11 @@ export function AnalysisPanel({
   // layer pair clip does, and the API takes it in the same two fields, so the
   // panel shares the controls rather than growing a second spelling of them.
   const usesMask = operation === 'clip' || operation === 'select_by_location';
+  // feat(#956): intersect shares the layer PICKER but not the draw block — a
+  // drawn polygon carries no attributes to overlay with, which would make it an
+  // expensive clip. The API reflects that too: `mask` is not an intersect
+  // param, only `mask_dataset_id`.
+  const usesMaskLayer = usesMask || operation === 'intersect';
   // The controls are shared; the words cannot be. "Draw clip area" under a
   // selection names an operation the user did not pick.
   const maskCopy =
@@ -567,16 +573,36 @@ export function AnalysisPanel({
           layerLabel: t('analysisTools.selectLayerLabel', {
             defaultValue: 'Or select against a layer',
           }),
+          layerNone: t('analysisTools.clipLayerNone', {
+            defaultValue: 'None — draw on the map',
+          }),
           pointerHint: t('analysisTools.drawSelectionPointerHint', {
             defaultValue:
               'Drawing needs a pointer. To select without one, pick a polygon layer below.',
           }),
         }
+      : operation === 'intersect'
+        ? {
+            // draw/areaSet/pointerHint are unused here: intersect renders the
+            // picker below but never the draw block above it.
+            draw: '',
+            areaSet: '',
+            pointerHint: '',
+            layerLabel: t('analysisTools.overlayLayerLabel', {
+              defaultValue: 'Overlay with layer',
+            }),
+            layerNone: t('analysisTools.overlayLayerNone', {
+              defaultValue: 'Choose a layer',
+            }),
+          }
       : {
           draw: t('analysisTools.drawMask', { defaultValue: 'Draw clip area' }),
           areaSet: t('analysisTools.maskSet', { defaultValue: 'Clip area set' }),
           layerLabel: t('analysisTools.clipLayerLabel', {
             defaultValue: 'Or clip to a layer',
+          }),
+          layerNone: t('analysisTools.clipLayerNone', {
+            defaultValue: 'None — draw on the map',
           }),
           pointerHint: t('analysisTools.drawMaskPointerHint', {
             defaultValue:
@@ -824,7 +850,7 @@ export function AnalysisPanel({
           operation: operation as Exclude<AnalysisOperation, 'dissolve'>,
           ...(operation === 'buffer' ? { distance_meters: distanceValue } : {}),
           ...(usesMask && mask ? { mask } : {}),
-          ...(usesMask && !mask && maskLayer?.dataset_id
+          ...(usesMaskLayer && !mask && maskLayer?.dataset_id
             ? { mask_dataset_id: maskLayer.dataset_id }
             : {}),
           ...(operation === 'spatial_join' && joinLayer?.dataset_id
@@ -935,7 +961,7 @@ export function AnalysisPanel({
         title,
         ...(operation === 'buffer' ? { distance_meters: distanceValue } : {}),
         ...(usesMask && mask ? { mask } : {}),
-        ...(usesMask && !mask && maskLayer?.dataset_id
+        ...(usesMaskLayer && !mask && maskLayer?.dataset_id
           ? { mask_dataset_id: maskLayer.dataset_id }
           : {}),
         ...(operation === 'dissolve' && byField !== BY_FIELD_NONE
@@ -981,6 +1007,8 @@ export function AnalysisPanel({
   const paramsValid =
     (operation !== 'buffer' || distanceValid) &&
     (!usesMask || !!mask || !!maskLayer) &&
+    // feat(#956): layer only, so there is no drawn fallback to fall back to.
+    (operation !== 'intersect' || !!maskLayer) &&
     // feat(#953): a join with nothing to join against is not a runnable form —
     // reflect it here rather than letting the click earn a 422.
     (operation !== 'spatial_join' || !!joinLayer);
@@ -1123,6 +1151,9 @@ export function AnalysisPanel({
                 defaultValue: 'Select by location',
               })}
             </SelectItem>
+            <SelectItem value="intersect">
+              {t('analysisTools.opIntersect', { defaultValue: 'Intersect' })}
+            </SelectItem>
             {/* fix(#779): dissolve has no preview by design, and the whole
                 materialize block is hidden without the upload permission — a
                 viewer picking it got a form with no actions and a hint
@@ -1143,6 +1174,15 @@ export function AnalysisPanel({
           </p>
         )}
       </div>
+
+      {operation === 'intersect' && (
+        <p className="text-xs text-muted-foreground">
+          {t('analysisTools.intersectHint', {
+            defaultValue:
+              'Cuts new features where the two layers overlap, one per overlapping pair, carrying columns from both. Use Measure afterwards for overlap area.',
+          })}
+        </p>
+      )}
 
       {operation === 'select_by_location' && (
         <p className="text-xs text-muted-foreground">
@@ -1422,7 +1462,7 @@ export function AnalysisPanel({
         </div>
       )}
 
-      {usesMask && (
+      {usesMaskLayer && (
         <div className="space-y-1.5">
           <Label className="text-xs" htmlFor="analysis-mask-layer">
             {maskCopy.layerLabel}
@@ -1443,11 +1483,7 @@ export function AnalysisPanel({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={MASK_LAYER_NONE}>
-                {t('analysisTools.clipLayerNone', {
-                  defaultValue: 'None — draw on the map',
-                })}
-              </SelectItem>
+              <SelectItem value={MASK_LAYER_NONE}>{maskCopy.layerNone}</SelectItem>
               {/* fix(#779): say why the list is empty instead of showing a
                   dropdown with a lone "None" entry. */}
               {maskLayerOptions.length === 0 && (

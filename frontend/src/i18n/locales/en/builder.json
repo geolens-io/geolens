@@ -977,6 +977,7 @@
     "opSpatialJoin": "Spatial join",
     "opMeasure": "Measure",
     "opSelectByLocation": "Select by location",
+    "opIntersect": "Intersect",
     "distanceLabel": "Distance",
     "distanceOutOfRange": "Enter a distance greater than 0 and no more than {{max}} {{unit}}.",
     "drawMask": "Draw clip area",
@@ -1038,7 +1039,10 @@
     "drawSelectionArea": "Draw selection area",
     "selectionAreaSet": "Selection area set",
     "selectLayerLabel": "Or select against a layer",
-    "drawSelectionPointerHint": "Drawing needs a pointer. To select without one, pick a polygon layer below."
+    "drawSelectionPointerHint": "Drawing needs a pointer. To select without one, pick a polygon layer below.",
+    "intersectHint": "Cuts new features where the two layers overlap, one per overlapping pair, carrying columns from both. Use Measure afterwards for overlap area.",
+    "overlayLayerLabel": "Overlay with layer",
+    "overlayLayerNone": "Choose a layer"
   },
   "attributeForm": {
     "titleEdit": "Edit Feature Attributes",

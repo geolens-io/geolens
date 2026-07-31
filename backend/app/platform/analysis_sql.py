@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Sequence
 from typing import Any
 
 import shapely
@@ -42,8 +43,11 @@ MAX_MASK_LAYER_FEATURES = 1_000
 # fix(#694): per-operation source-size ceilings.
 # dissolve: ST_Union memory grows with input; ~1M polygons OOM-kills a 2 GB
 # db container, taking every connection with it — 250k keeps 4x headroom.
-# buffer: the only output-amplifying operation, and vector datasets carry no
-# byte quota, so bound the amplification source instead.
+# buffer: an output-amplifying operation, and vector datasets carry no byte
+# quota, so bound the amplification source instead. (fix(#956): buffer was
+# described here as the ONLY amplifying operation. Intersect amplifies too,
+# and along a different axis — buffer grows each geometry, intersect
+# multiplies ROWS.)
 # Enforced twice with LIMIT-bounded live counts: at enqueue (router, fast
 # 422) and again in the worker right before the CTAS — the queue wait can be
 # long enough for a dataset to be re-uploaded past its cap (fix(#701
@@ -62,12 +66,45 @@ MAX_MASK_LAYER_FEATURES = 1_000
 # into a second layer per source row — so it takes the same 250k. Note clip is
 # deliberately absent and therefore uncapped: its mask layer is what is bounded
 # (MAX_MASK_LAYER_FEATURES), not its source.
+# fix(#956): intersect is the only operation whose OUTPUT ROW COUNT is not
+# bounded by its source count, so its ceiling was measured rather than guessed.
+# Benchmarked against a 972-polygon / 249,804-vertex mask (the same yardstick
+# render_clip_layer_join's docstring uses, reproduced synthetically), varying
+# how many mask features each source overlaps:
+#
+#   sources   overlap   output rows      CTAS      output size
+#     1,000       4x          4,000     0.26s          3.6 MB
+#    10,000       4x         40,000      1.4s           35 MB
+#    50,000       4x        200,000     12.4s          174 MB
+#   150,000       4x        600,000     22.2s          521 MB
+#    10,000      58x        577,453     47.8s        1,235 MB
+#    10,000     145x              —      7.2s   ERROR: temp_file_limit (4 GB)
+#
+# The source count is NOT the binding constraint; the overlap factor is. At
+# 10k sources and heavy overlap the output already passes half of
+# MAX_OUTPUT_BYTES, and the 4326 rewrite roughly doubles the payload again, so
+# _enforce_output_size is what actually catches an amplifying run — no source
+# ceiling could. Extreme overlap dies earlier still, on PostgreSQL's own
+# temp_file_limit.
+#
+# 100k is therefore sized on the BENIGN case staying comfortably inside both
+# budgets (~400k rows, ~350 MB, ~15s, roughly 700 MB after the rewrite), while
+# anything pathological hits the 300s MATERIALIZE_TIMEOUT or the output check
+# instead of the box's memory. Half of dissolve's 250k because each source row
+# here does more work AND emits more than one output row.
+#
+# The obvious next suggestion is to lower this until it catches the 58x row.
+# Don't: no source ceiling separates those two runs, so the only value that
+# rejects the 47.8s job also rejects the benign 150k one that finishes in 22s.
+# That trades a cheap early-out for a false refusal. Leave the amplifying case
+# to _enforce_output_size, which measures the thing that actually varies.
 MAX_SOURCE_FEATURES = {
     "dissolve": 250_000,
     "buffer": 500_000,
     "spatial_join": 250_000,
     "measure": 1_000_000,
     "select_by_location": 250_000,
+    "intersect": 100_000,
 }
 
 _CLIP_MASK_TYPES = ("Polygon", "MultiPolygon")
@@ -592,6 +629,132 @@ def render_clip_layer_join(mask_table_ref: str, *, src: str) -> tuple[str, str, 
         f" WHERE geom_4326 && {src}.geom_4326)"
     )
     return cte, lateral, where
+
+
+# fix(#956): overlay output rows do not correspond 1:1 to source rows, so the
+# source gid cannot be the output key — the CTAS takes a generated one, like
+# dissolve. The source gid is carried as an ordinary attribute instead, which
+# is what makes an output piece traceable back to the feature it came from
+# ("which parcel is this 0.4 acres of flood zone?"). The overlay feature needs
+# no equivalent: its own attributes are already carried onto every row.
+INTERSECT_SOURCE_GID_COLUMN = "source_gid"
+INTERSECT_OUTPUT_COLUMNS = (INTERSECT_SOURCE_GID_COLUMN,)
+
+
+def render_intersect_pairs(
+    src_table_ref: str,
+    mask_table_ref: str,
+    *,
+    src_columns: Sequence[str] = (),
+    mask_columns: Sequence[str] = (),
+) -> str:
+    """One row per intersecting (source feature, overlay feature) PAIR (#956).
+
+    This is what separates an overlay from a clip. ``render_clip_layer_join``
+    aggregates every mask piece back to ONE geometry per source row, so a
+    parcel crossing three flood zones clips to a single feature. An overlay
+    wants three, each carrying its own zone's attributes, because the question
+    is "how many acres of THIS parcel fall in THAT zone".
+
+    ``src_columns`` and ``mask_columns`` must arrive ALREADY QUOTED, per this
+    module's rule that identifiers are the caller's responsibility. The caller
+    also guarantees they do not collide: the router rejects that at enqueue
+    (a duplicate output column fails the CTAS with an opaque "column specified
+    more than once"), so nothing here silently prefixes or renames.
+
+    Shape notes, each of which is load-bearing:
+
+    - The mask is subdivided by ``_mask_pieces`` for the reason
+      ``render_clip_layer_join`` documents (per-row cost tracks local overlap
+      instead of whole-mask complexity), but the grouping is by mask ``gid``,
+      NOT collapsed across the layer. Subdividing without re-grouping per mask
+      FEATURE would emit one row per PIECE, so a mask polygon that happened to
+      split into four would silently quadruple the output.
+    - ``ST_MakeValid`` on the source is hoisted into an ``OFFSET 0`` lateral so
+      it runs once per source row rather than once per candidate pair. Inlined,
+      it is #953's 28.4s-vs-0.2s trap, and worse here: this shape probes every
+      piece of every overlapping mask feature.
+    - ``GROUP BY _src.gid`` alone licenses the ungrouped ``_src.*`` references
+      (PostgreSQL recognizes functional dependency on a real table's primary
+      key). ``_mp`` is a CTE and has no key, so every ``_mp`` column that is
+      selected has to be grouped explicitly.
+    - ``ST_LineMerge`` on single-part LineString sources only, for the reason
+      spelled out in ``render_clip_layer_join``: ``ST_Union`` re-dissolves
+      adjacent polygons but does not sew line segments, so a line crossing a
+      piece seam would come back artificially fragmented.
+    - ``row_number()`` is evaluated after ``WHERE``, so the generated gids are
+      contiguous over the rows that survive the empty-geometry filter rather
+      than carrying its holes.
+
+    The cost of the generated key is that neither the preview nor the CTAS can
+    stop early: a window function has to see every row. The preview therefore
+    pays the full overlay before its cap applies, bounded by the sandbox
+    statement timeout rather than by the row limit.
+    """
+    src_sel = "".join(f", _src.{c}" for c in src_columns)
+    mask_sel = "".join(f", _mp.{c}" for c in mask_columns)
+    mask_pick = "".join(f", {c}" for c in mask_columns)
+    mask_group = "".join(f", _mp.{c}" for c in mask_columns)
+    outer_cols = "".join(f", _p.{c}" for c in (*src_columns, *mask_columns))
+    return (
+        f"WITH _mask_pieces AS MATERIALIZED ("
+        f"SELECT _o.gid AS _mask_gid{mask_pick},"
+        f" ST_Subdivide(_o.g, {MASK_SUBDIVIDE_MAX_VERTICES}) AS geom"
+        f" FROM (SELECT gid{mask_pick},"
+        f" ST_CollectionExtract(ST_MakeValid(geom_4326), 3) AS g"
+        f" FROM {mask_table_ref} WHERE geom_4326 IS NOT NULL OFFSET 0) AS _o"
+        f" WHERE NOT ST_IsEmpty(_o.g))"
+        f" SELECT (row_number() OVER ())::integer AS gid,"
+        f" _p.{INTERSECT_SOURCE_GID_COLUMN}{outer_cols},"
+        f" CASE WHEN _p._src_type = 'LINESTRING'"
+        f" THEN ST_LineMerge(_p.geom) ELSE _p.geom END AS geom"
+        f" FROM (SELECT _src.gid AS {INTERSECT_SOURCE_GID_COLUMN},"
+        f" GeometryType(_src.geom_4326) AS _src_type"
+        f"{src_sel}{mask_sel},"
+        f" ST_Union(ST_CollectionExtract("
+        f"ST_Intersection(_sv.g, _mp.geom),"
+        f" ST_Dimension(_src.geom_4326) + 1)) AS geom"
+        f" FROM {src_table_ref} AS _src"
+        f" CROSS JOIN LATERAL (SELECT ST_MakeValid(_src.geom_4326) AS g"
+        f" OFFSET 0) AS _sv"
+        f" JOIN _mask_pieces AS _mp"
+        f" ON _mp.geom && _src.geom_4326"
+        f" AND ST_Intersects(_mp.geom, _sv.g)"
+        f" GROUP BY _src.gid, _mp._mask_gid{mask_group}) AS _p"
+        f" WHERE _p.geom IS NOT NULL AND NOT ST_IsEmpty(_p.geom)"
+    )
+
+
+def render_intersect_preview(
+    src_table_ref: str, mask_table_ref: str, *, geojson_precision: int
+) -> str:
+    """The preview projection over ``render_intersect_pairs`` (fix(#956)).
+
+    An overlay is a JOIN with a GROUP BY, not a per-row expression, so it does
+    not fit the lateral template the other operations share — it renders whole
+    and the preview selects from it.
+
+    Only ``gid`` and ``source_gid`` are carried as properties. The preview
+    answers "what shape, and how many"; the saved dataset answers "with which
+    attributes". Threading both layers' column lists in here would buy
+    properties nothing on the map reads.
+
+    ``match_count`` is a WINDOW over this same statement, not a second one.
+    ``row_number()`` inside the pairs query has already forced every row to be
+    materialized, so ``count(*) OVER ()`` is free, whereas a separate aggregate
+    would mean running the most expensive operation twice. It is selected last
+    and sits outside the caller's extra-column list, so the positional zip that
+    builds properties stops before it and it never lands in one.
+    """
+    pairs = render_intersect_pairs(src_table_ref, mask_table_ref)
+    return (
+        f"SELECT gid,"
+        f" ST_AsGeoJSON(geom, {geojson_precision}) AS geometry_json,"
+        f" {INTERSECT_SOURCE_GID_COLUMN},"
+        f" count(*) OVER () AS match_count"
+        f" FROM ({pairs}) AS _ov"
+        f" ORDER BY gid"
+    )
 
 
 def render_select_by_location_where(mask_table_ref: str, *, src: str) -> str:

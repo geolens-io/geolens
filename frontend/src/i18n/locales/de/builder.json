@@ -977,6 +977,7 @@
     "opSpatialJoin": "Räumliche Verknüpfung",
     "opMeasure": "Messen",
     "opSelectByLocation": "Nach Lage auswählen",
+    "opIntersect": "Verschneiden",
     "distanceLabel": "Entfernung",
     "distanceOutOfRange": "Geben Sie eine Entfernung größer als 0 und höchstens {{max}} {{unit}} ein.",
     "drawMask": "Zuschneidebereich zeichnen",
@@ -1038,7 +1039,10 @@
     "drawSelectionArea": "Auswahlbereich zeichnen",
     "selectionAreaSet": "Auswahlbereich festgelegt",
     "selectLayerLabel": "Oder anhand einer Ebene auswählen",
-    "drawSelectionPointerHint": "Zum Zeichnen wird ein Zeigegerät benötigt. Ohne Zeigegerät unten eine Polygon-Ebene wählen."
+    "drawSelectionPointerHint": "Zum Zeichnen wird ein Zeigegerät benötigt. Ohne Zeigegerät unten eine Polygon-Ebene wählen.",
+    "intersectHint": "Erzeugt neue Objekte dort, wo sich die beiden Ebenen überlappen, eines je Überlappungspaar, mit den Spalten beider Ebenen. Für die Überlappungsfläche anschließend Messen verwenden.",
+    "overlayLayerLabel": "Mit Ebene verschneiden",
+    "overlayLayerNone": "Ebene auswählen"
   },
   "attributeForm": {
     "titleEdit": "Feature-Attribute bearbeiten",

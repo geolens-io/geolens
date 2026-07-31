@@ -2264,18 +2264,139 @@ describe('AnalysisPanel select by location (feat(#955))', () => {
     ]);
   });
 
-  it('still drops a drawn area when leaving for an operation that ignores it', async () => {
+  it('still tears the drawn area off the map when leaving for centroid', async () => {
     const user = userEvent.setup();
+    mockTerraDraw.instance.stop.mockClear();
     seedDrawnClipMask();
-    // mapId is what keys the saved form; without it there is nothing to restore.
-    renderPanel([datasetLayer, datasetLayer2], { mapId: 'm1' });
+    // A map ref is required for BOTH halves: it is what makes the restore
+    // construct a TerraDraw instance, and therefore what makes the teardown
+    // observable at all.
+    renderPanel([datasetLayer, datasetLayer2], {
+      mapId: 'm1',
+      mapInstanceRef: { current: { on: vi.fn(), off: vi.fn() } as never },
+    });
+    await waitFor(() =>
+      expect(mockTerraDraw.instance.addFeatures).toHaveBeenCalled(),
+    );
 
-    // fix(#680)'s rule survives the widening: the retained mask must go when
-    // the next operation has no use for it, or its map layers linger.
+    // fix(#680)'s rule survives the widening: the retained polygon's TerraDraw
+    // layers must come off the map when the next operation ignores them.
+    // Asserted through stop() rather than through the request body — the body
+    // omits `mask` for centroid anyway, so it cannot tell the two apart.
     await pickOperation(user, 'Centroids');
+    await waitFor(() => expect(mockTerraDraw.instance.stop).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() => expect(previewAnalysis).toHaveBeenCalled());
+    expect(previewRequest()).toEqual(['ds1', { operation: 'centroid' }]);
+  });
+});
+
+describe('AnalysisPanel intersect (feat(#956))', () => {
+  beforeEach(() => {
+    useAnalysisJobStore.setState({ job: null });
+    useAnalysisAddedStore.setState({ addedDatasetIds: [], pendingAddIds: [] });
+    useAnalysisFormStore.setState({ forms: {} });
+    vi.clearAllMocks();
+  });
+
+  async function pickIntersect(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getAllByRole('combobox')[1]);
+    await user.click(await screen.findByRole('option', { name: 'Intersect' }));
+  }
+
+  function previewRequest() {
+    return vi.mocked(previewAnalysis).mock.calls[0].slice(0, 2);
+  }
+
+  it('offers a layer picker and no way to draw', async () => {
+    const user = userEvent.setup();
+    renderPanel([datasetLayer, datasetLayer2]);
+    await pickIntersect(user);
+
+    // A drawn polygon carries no attributes to overlay with, so the API takes
+    // a layer only and the panel must not offer the alternative.
+    expect(screen.getByLabelText('Overlay with layer')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Draw clip area' })).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Draw selection area' }),
+    ).toBeNull();
+  });
+
+  it('cannot preview until a layer is picked', async () => {
+    const user = userEvent.setup();
+    renderPanel([datasetLayer, datasetLayer2]);
+    await pickIntersect(user);
+
+    // No drawn fallback exists, so the empty picker is genuinely blocking.
+    expect(screen.getByRole('button', { name: 'Preview' })).toBeDisabled();
+
+    await user.click(screen.getByLabelText('Overlay with layer'));
+    await user.click(await screen.findByRole('option', { name: 'Roads' }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Preview' })).toBeEnabled(),
+    );
+  });
+
+  it('sends mask_dataset_id and never a drawn mask', async () => {
+    const user = userEvent.setup();
+    renderPanel([datasetLayer, datasetLayer2]);
+    await pickIntersect(user);
+
+    await user.click(screen.getByLabelText('Overlay with layer'));
+    await user.click(await screen.findByRole('option', { name: 'Roads' }));
     fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
 
     await waitFor(() => expect(previewAnalysis).toHaveBeenCalled());
-    expect(previewRequest()).toEqual(['ds1', { operation: 'centroid' }]);
+    expect(previewRequest()).toEqual([
+      'ds1',
+      { operation: 'intersect', mask_dataset_id: 'ds2' },
+    ]);
+  });
+
+  it('tears a drawn area carried over from clip off the map', async () => {
+    const user = userEvent.setup();
+    mockTerraDraw.instance.stop.mockClear();
+    useAnalysisFormStore.getState().save('m1', {
+      layerId: 'l1', operation: 'clip', distance: '500', distanceUnit: 'm',
+      mask: { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] },
+      maskLayerId: '__none__', byField: '__none__', outputTitle: '',
+    });
+    renderPanel([datasetLayer, datasetLayer2], {
+      mapId: 'm1',
+      mapInstanceRef: { current: { on: vi.fn(), off: vi.fn() } as never },
+    });
+    await waitFor(() =>
+      expect(mockTerraDraw.instance.addFeatures).toHaveBeenCalled(),
+    );
+
+    // Unlike clip -> select_by_location, this switch has to clear the polygon:
+    // intersect ignores a drawn mask, so a retained one would sit on the map
+    // depicting nothing. The request body cannot prove it (usesMask already
+    // excludes intersect), so assert the teardown itself.
+    await pickIntersect(user);
+    await waitFor(() => expect(mockTerraDraw.instance.stop).toHaveBeenCalled());
+
+    await user.click(screen.getByLabelText('Overlay with layer'));
+    await user.click(await screen.findByRole('option', { name: 'Roads' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() => expect(previewAnalysis).toHaveBeenCalled());
+    expect(previewRequest()).toEqual([
+      'ds1',
+      { operation: 'intersect', mask_dataset_id: 'ds2' },
+    ]);
+  });
+
+  it('offers only polygon layers to overlay with', async () => {
+    const user = userEvent.setup();
+    renderPanel([datasetLayer, datasetLayer2, pointLayer]);
+    await pickIntersect(user);
+
+    // _load_mask_dataset requires a polygonal layer, so filter here rather
+    // than let the pick earn a 422.
+    await user.click(screen.getByLabelText('Overlay with layer'));
+    expect(await screen.findByRole('option', { name: 'Roads' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Bus stops' })).toBeNull();
   });
 });

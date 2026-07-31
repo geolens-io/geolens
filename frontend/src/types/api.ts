@@ -1921,16 +1921,19 @@ export type AnalysisOperation =
   | 'dissolve'
   | 'spatial_join'
   | 'measure'
-  | 'select_by_location';
+  | 'select_by_location'
+  | 'intersect';
 
 export interface AnalysisPreviewRequest {
   operation: Exclude<AnalysisOperation, 'dissolve'>;
   /** Buffer distance in meters (buffer only). */
   distance_meters?: number;
-  /** GeoJSON Polygon/MultiPolygon mask in EPSG:4326 (clip and select_by_location). */
+  /** GeoJSON Polygon/MultiPolygon mask in EPSG:4326 (clip and select_by_location).
+   * NOT accepted for intersect, which takes a layer only. */
   mask?: GeoJSON.Polygon | GeoJSON.MultiPolygon;
-  /** Polygon dataset supplying the mask geometry: the area clipped to, or
-   * selected against (clip and select_by_location; alternative to mask). */
+  /** Polygon dataset supplying the second layer: the area clipped to, selected
+   * against, or overlaid with (clip, select_by_location, intersect; the
+   * alternative to mask for the first two, and required for intersect). */
   mask_dataset_id?: string;
   /** Layer to join against; each source feature gains a join_count (spatial_join only). */
   join_dataset_id?: string;
@@ -1958,10 +1961,12 @@ export interface AnalysisMaterializeRequest {
   operation: AnalysisOperation;
   title: string;
   distance_meters?: number;
-  /** GeoJSON Polygon/MultiPolygon mask in EPSG:4326 (clip and select_by_location). */
+  /** GeoJSON Polygon/MultiPolygon mask in EPSG:4326 (clip and select_by_location).
+   * NOT accepted for intersect, which takes a layer only. */
   mask?: GeoJSON.Polygon | GeoJSON.MultiPolygon;
-  /** Polygon dataset supplying the mask geometry: the area clipped to, or
-   * selected against (clip and select_by_location; alternative to mask). */
+  /** Polygon dataset supplying the second layer: the area clipped to, selected
+   * against, or overlaid with (clip, select_by_location, intersect; the
+   * alternative to mask for the first two, and required for intersect). */
   mask_dataset_id?: string;
   by_field?: string;
   /** Layer to join against; each source feature gains a join_count (spatial_join only). */

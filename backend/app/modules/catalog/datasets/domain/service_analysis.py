@@ -31,10 +31,12 @@ from app.modules.catalog.datasets.domain.schemas import (
     AnalysisPreviewResponse,
 )
 from app.platform.analysis_sql import (
+    INTERSECT_SOURCE_GID_COLUMN,
     MEASURE_OUTPUT_COLUMNS,
     NOT_EMPTY_PREDICATE,
     render_clip_layer_join,
     render_geometry_expr,
+    render_intersect_preview,
     render_measure_columns,
     render_select_by_location_count,
     render_select_by_location_where,
@@ -157,6 +159,14 @@ def build_preview_sql(
     (logical ``data`` schema; the sandbox executor rewrites it to the tenant
     schema in multi-tenant).
     """
+    if request.operation == "intersect" and mask_table_ref is not None:
+        # Rendered whole in analysis_sql: an overlay is a JOIN with a GROUP BY,
+        # not a per-row expression, so it shares none of the lateral template
+        # below. See render_intersect_preview for why match_count rides this
+        # statement as a window rather than costing a second overlay.
+        return render_intersect_preview(
+            table_ref, mask_table_ref, geojson_precision=_GEOJSON_PRECISION
+        )
     extra_cols = ""
     extra_joins = ""
     if join_table_ref is not None:
@@ -241,6 +251,8 @@ def _preview_extra_columns(
         return spatial_join_output_columns(request.join_fields)
     if request.operation == "measure":
         return list(MEASURE_OUTPUT_COLUMNS)
+    if request.operation == "intersect":
+        return [INTERSECT_SOURCE_GID_COLUMN]
     return []
 
 
@@ -360,7 +372,13 @@ async def run_analysis_preview(
         )
     features: list[dict[str, Any]] = []
     bbox: list[float] | None = None
+    # fix(#956): intersect's exact total rides its own preview statement as a
+    # trailing window column (see build_preview_sql). Read off any row — the
+    # window is computed before the cap, so every row carries the true total.
+    inline_match_count: int | None = None
     for row in result.rows:
+        if request.operation == "intersect":
+            inline_match_count = int(row[-1])
         gid, geometry_json = row[0], row[1]
         if geometry_json is None:
             continue
@@ -391,7 +409,9 @@ async def run_analysis_preview(
             else None
         ),
         match_count=(
-            await _resolve_match_count(db, count_sql, user_id)
+            inline_match_count
+            if request.operation == "intersect"
+            else await _resolve_match_count(db, count_sql, user_id)
             if count_sql is not None
             else None
         ),
@@ -400,7 +420,7 @@ async def run_analysis_preview(
 
 # Operations that drop source rows, so the source's own feature count says
 # nothing about how many features the result has.
-_ROW_FILTERING_OPERATIONS = ("clip", "select_by_location")
+_ROW_FILTERING_OPERATIONS = ("clip", "select_by_location", "intersect")
 
 
 async def _resolve_match_count(

@@ -910,14 +910,16 @@ class IngestionResult(BaseModel):
 _ANALYSIS_PARAM_OWNERS = {
     "distance_meters": ("buffer",),
     "mask": ("clip", "select_by_location"),
-    "mask_dataset_id": ("clip", "select_by_location"),
+    "mask_dataset_id": ("clip", "select_by_location", "intersect"),
     "by_field": ("dissolve",),
     "join_dataset_id": ("spatial_join",),
     "join_fields": ("spatial_join",),
 }
 
 # Operations whose geometry comes from a drawn mask or a mask layer, exactly
-# one of the two.
+# one of the two. fix(#956): intersect is deliberately NOT here — it takes a
+# LAYER only, because a drawn polygon carries no attributes to overlay with,
+# which would make it an expensive clip.
 MASK_OPERATIONS = ("clip", "select_by_location")
 
 
@@ -946,6 +948,11 @@ def _require_analysis_params(request: Any) -> None:
         raise ValueError(
             f"{request.operation} requires exactly one of mask or mask_dataset_id"
         )
+    # fix(#956): layer only, and required. `mask` is not an intersect param, so
+    # _drop_params_for_other_operations has already discarded any drawn one by
+    # the time this runs — this just insists on the layer that replaces it.
+    if request.operation == "intersect" and request.mask_dataset_id is None:
+        raise ValueError("intersect requires mask_dataset_id")
     if request.operation == "spatial_join":
         if request.join_dataset_id is None:
             raise ValueError("spatial_join requires join_dataset_id")
@@ -962,7 +969,13 @@ class AnalysisPreviewRequest(BaseModel):
     """
 
     operation: Literal[
-        "buffer", "centroid", "clip", "spatial_join", "measure", "select_by_location"
+        "buffer",
+        "centroid",
+        "clip",
+        "spatial_join",
+        "measure",
+        "select_by_location",
+        "intersect",
     ]
     distance_meters: float | None = Field(
         default=None,
@@ -1050,6 +1063,7 @@ class AnalysisMaterializeRequest(BaseModel):
         "spatial_join",
         "measure",
         "select_by_location",
+        "intersect",
     ]
     title: str = Field(min_length=1, max_length=500)
     distance_meters: float | None = Field(
