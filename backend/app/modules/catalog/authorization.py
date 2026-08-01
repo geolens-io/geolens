@@ -11,7 +11,6 @@ Relocated from the deleted auth visibility module (Phase 213).
 """
 
 import enum
-import re
 import uuid
 from collections.abc import Iterable, Sequence
 from typing import Any
@@ -242,30 +241,24 @@ async def visible_derived_from(
     return {**derived_from, "params": params}
 
 
-# fix(#1103): the phrases a redacted lineage sentence is left with. The layer
-# form is the GENERATOR's own fallback for a title it could not read (see
-# _operation_phrase in processing/analysis/provenance.py), so a redacted
-# sentence reads exactly like one whose second layer had no title — the
-# redaction is not itself a signal.
+# fix(#1103): the sentence a restricted requester gets instead of the stored
+# prose. Deliberately not the dataset's id — _DATASET_ID_PARAMS above exists
+# because an id the requester cannot resolve is still a disclosure worth
+# withholding, and putting it in the prose would route around the redaction
+# that drops it from the reference.
 #
-# Deliberately not the dataset's id. _DATASET_ID_PARAMS above exists because an
-# id the requester cannot resolve is still a disclosure worth withholding, and
-# putting it in the prose would route around the redaction that drops it from
-# the reference.
-_REDACTED_SOURCE_TITLE = "another dataset"
-_REDACTED_LAYER_TITLE = "another layer"
-
-# fix(#1108 review): the whole-sentence replacement for prose whose quoted
-# spans cannot be aligned with the referenced datasets. A hidden title that
-# itself contains a quote character corrupts the span boundaries, so a
-# span-by-span redaction can leave fragments of that title BETWEEN the spans
-# it replaces. Misaligned prose has no trustworthy structure to edit; the only
-# safe partial disclosure is none.
+# fix(#1108 review): the replacement is ALWAYS the whole sentence — the prose
+# is never edited span-by-span. Three review rounds each produced a working
+# forgery against in-place editing: an unnamed source shifts every quoted span
+# onto the wrong dataset; a title with embedded quotes (odd or even) corrupts
+# the span boundaries so fragments of the hidden title survive between them;
+# and quote characters in NON-title free text (an actor name) can compensate
+# for a missing title so even a quote-character count reads as aligned. The
+# sentence interleaves attacker-influenced free text with the secrets, so no
+# delimiter arithmetic over it is trustworthy. The unforgeable rule is binary:
+# a requester who can read every referenced dataset gets the prose verbatim,
+# and one who cannot gets this constant — never any byte of the stored text.
 _REDACTED_SUMMARY = "Derived from another dataset."
-
-# Every title the generator writes is quoted, and nothing else in the sentence
-# is: distances, field names, the actor and the date all render bare.
-_QUOTED_TITLE_RE = re.compile(r'"[^"]*"')
 
 
 def _provenance_dataset_ids(derived_from: dict) -> list[uuid.UUID | None]:
@@ -327,40 +320,6 @@ async def _accessible_dataset_ids(
     return {row for row in rows.scalars() if row in wanted}
 
 
-def _redact_quoted_titles(
-    summary: str, dataset_ids: Sequence[uuid.UUID | None], hidden_slots: set[int]
-) -> str:
-    """Replace the quoted titles at ``hidden_slots`` with a neutral phrase.
-
-    Slots are positional: the generator emits the source's title first and the
-    second layer's after it, so span N belongs to ``dataset_ids[N]``. That
-    alignment only holds while every referenced dataset contributed exactly one
-    clean quoted span, and the check for it counts quote CHARACTERS, not spans:
-    the generator writes two quotes per title, and an embedded quote can only
-    add, so ``count('"') == 2 * len(dataset_ids)`` holds iff no title contained
-    a quote and no title fell back to a bare unnamed phrase. A span count is
-    not the same test — fix(#1108 review): a title with an ODD number of
-    embedded quotes (``Flood "Zone``) yields exactly one span per dataset, so
-    the span counts agree while the span boundaries sit inside the hidden
-    title, and slot-by-slot replacement strands part of it in the clear.
-    Unalignable prose has no boundary the redaction can trust, so the entire
-    sentence is replaced.
-    """
-    if summary.count('"') != 2 * len(dataset_ids):
-        return _REDACTED_SUMMARY
-
-    slot = -1
-
-    def _replace(match: re.Match[str]) -> str:
-        nonlocal slot
-        slot += 1
-        if slot not in hidden_slots:
-            return match.group(0)
-        return _REDACTED_SOURCE_TITLE if slot == 0 else _REDACTED_LAYER_TITLE
-
-    return _QUOTED_TITLE_RE.sub(_replace, summary)
-
-
 async def visible_lineage_summaries(
     db: AsyncSession,
     records: Sequence[Any],
@@ -380,21 +339,24 @@ async def visible_lineage_summaries(
     arriving through a channel that had no redaction.
 
     Prose has no per-requester form on its own, so this is the per-requester
-    form: the sentence stays, its entry survives (that a derived dataset HAS
-    provenance is not the secret), and only the titles of datasets this
-    requester could not open are replaced. Ids are not substituted in — see
-    _REDACTED_SOURCE_TITLE.
+    form, and it is deliberately all-or-nothing (see _REDACTED_SUMMARY for the
+    three forgeries that killed span editing): a requester who can open every
+    dataset the provenance references gets the sentence exactly as stored, and
+    one who cannot gets the neutral constant. The entry itself survives either
+    way — that a derived dataset HAS provenance is not the secret.
 
     Records with no ``derived_from`` are returned untouched. Their lineage is
     hand-written or inherited from ingest rather than assembled from other
     datasets' titles, which is also what keeps this cheap: the query below runs
     only for the analysis outputs on the page.
 
-    The bound worth stating: ``lineage_summary`` is editable metadata. An owner
-    who rewrites the sentence and types a private layer's name into it has
-    published that name themselves, exactly as they would by typing it into the
-    summary field (see apply_analysis_provenance). This redacts what the
-    generator wrote.
+    The all-or-nothing rule is also what makes owner-edited prose safe to
+    serve: ``lineage_summary`` is editable metadata, and edited free text can
+    embed anything, so it is never partially rewritten — a full-access viewer
+    reads it verbatim (an owner who types a private layer's name into it has
+    published that name themselves, see apply_analysis_provenance), and a
+    restricted viewer gets the constant, because prose that CANNOT be verified
+    clean is withheld whole rather than edited by guesswork.
     """
     referenced: dict[uuid.UUID, list[uuid.UUID | None]] = {}
     for record in records:
@@ -420,14 +382,11 @@ async def visible_lineage_summaries(
         if summary is None or not dataset_ids:
             summaries[record.id] = summary
             continue
-        hidden = {
-            slot
-            for slot, dataset_id in enumerate(dataset_ids)
-            if dataset_id is None or dataset_id not in accessible
-        }
-        summaries[record.id] = (
-            _redact_quoted_titles(summary, dataset_ids, hidden) if hidden else summary
+        any_hidden = any(
+            dataset_id is None or dataset_id not in accessible
+            for dataset_id in dataset_ids
         )
+        summaries[record.id] = _REDACTED_SUMMARY if any_hidden else summary
     return summaries
 
 

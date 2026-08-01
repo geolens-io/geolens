@@ -13,6 +13,7 @@ import ast
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import NamedTuple
 
 import pytest
@@ -882,10 +883,13 @@ class TestLineageSummaryVisibility:
         lineage = other.json()["lineage_summary"]
         assert clip.mask_title not in lineage
         assert str(clip.mask_id) not in lineage
-        assert "another layer" in lineage
-        # The public source is still named: this redacts per dataset, not per
-        # sentence, so a requester keeps everything they could have looked up.
-        assert clip.source_title in lineage
+        # fix(#1108 review): all-or-nothing — the sentence interleaves
+        # attacker-influenced free text with the titles, so no in-place edit of
+        # it is trustworthy. A viewer missing ANY referenced dataset gets the
+        # constant; the source title they could look up stays available in the
+        # structured derived_from reference, not in prose.
+        assert lineage == "Derived from another dataset."
+        assert clip.source_title not in lineage
 
         admin = await client.get(
             f"/datasets/{clip.output_id}", headers=admin_auth_header
@@ -922,7 +926,7 @@ class TestLineageSummaryVisibility:
         assert clip.source_title not in lineage
         assert clip.mask_title not in lineage
         assert str(clip.source_id) not in lineage
-        assert lineage.startswith("Clipped from another dataset to another layer")
+        assert lineage == "Derived from another dataset."
 
         owner = await client.get(
             f"/datasets/{clip.output_id}", headers=editor_auth_header
@@ -961,7 +965,7 @@ class TestLineageSummaryVisibility:
             assert str(clip.mask_id) not in resp.text, url
             # Redacted, not dropped. Without this a surface that simply stopped
             # serving the sentence would satisfy the two assertions above.
-            assert "another layer" in resp.text, url
+            assert "Derived from another dataset." in resp.text, url
 
         # The feeds carry every visible dataset, so only the negative holds.
         for url in ("/datasets/", "/datasets/dcat/", "/datasets/geodcat-ap/"):
@@ -976,70 +980,53 @@ class TestLineageSummaryVisibility:
         )
         assert clip.mask_title in owner_detail.text
 
-    def test_a_sentence_that_cannot_be_aligned_is_replaced_whole(self):
-        """The positional mapping is only safe while it can be checked.
+    async def test_prose_is_never_edited_only_passed_or_replaced(self):
+        """fix(#1108 review): the forgery family that killed span editing.
 
-        A source whose title was already unreadable renders as a bare phrase, so
-        the mask's title becomes the FIRST quoted span and a slot-by-slot
-        redaction would hand it to a requester who may not see it. Fewer spans
-        than referenced datasets is exactly that case, and the sentence is
-        replaced whole rather than edited by guesswork.
+        Three review rounds each broke an in-place edit of the sentence: an
+        unnamed source shifted every span onto the wrong dataset; embedded
+        quotes in a hidden title (odd or even) corrupted the span boundaries so
+        fragments survived between them; and quote characters in NON-title free
+        text (an actor name) compensated for a missing title so even a
+        quote-character count read as aligned. The sentence interleaves
+        attacker-influenced free text with the secrets, so the rule is binary —
+        and this pins that no shape of stored prose changes it: whatever the
+        text contains, a restricted viewer gets the constant and nothing else.
         """
         from app.modules.catalog.authorization import (
             _REDACTED_SUMMARY,
-            _redact_quoted_titles,
+            visible_lineage_summaries,
         )
 
-        sentence = (
-            'Clipped from an unnamed dataset to "Flood Zone", '
-            "created by admin on 2026-07-31."
-        )
-        redacted = _redact_quoted_titles(sentence, [uuid.uuid4(), uuid.uuid4()], {1})
-        assert "Flood Zone" not in redacted
-        assert redacted == _REDACTED_SUMMARY
-
-    def test_a_hidden_title_containing_a_quote_leaves_no_fragment(self):
-        """fix(#1108 review): a quote INSIDE a hidden title splits the span scan.
-
-        ``"Flood "Zone" map"`` reads as two spans with ``Zone`` stranded between
-        them; redacting span-by-span would keep that fragment readable. The
-        count mismatch such a title always produces must therefore replace the
-        whole sentence, not just the spans it happened to detect.
-        """
-        from app.modules.catalog.authorization import (
-            _REDACTED_SUMMARY,
-            _redact_quoted_titles,
-        )
-
-        sentence = (
-            'Clipped from "Roads" to "Flood "Zone" map", '
-            "created by admin on 2026-07-31."
-        )
-        redacted = _redact_quoted_titles(sentence, [uuid.uuid4(), uuid.uuid4()], {1})
-        assert redacted == _REDACTED_SUMMARY
-        assert "Zone" not in redacted
-        assert "Flood" not in redacted
-
-    def test_an_odd_quote_count_cannot_fake_alignment(self):
-        """fix(#1108 review): an odd embedded quote makes the SPAN counts agree.
-
-        ``"Flood "Zone`` wraps to ``"Flood "Zone"`` — the scan sees ``"Roads"``
-        and ``"Flood "`` and counts two spans for two datasets, so a span-count
-        guard passes while slot 1's replacement strands ``Zone"`` in the clear.
-        Counting quote CHARACTERS (two per clean title, embedded ones only add)
-        is the test that cannot coincide.
-        """
-        from app.modules.catalog.authorization import (
-            _REDACTED_SUMMARY,
-            _redact_quoted_titles,
-        )
-
-        sentence = (
-            'Clipped from "Roads" to "Flood "Zone", created by admin on 2026-07-31.'
-        )
-        redacted = _redact_quoted_titles(sentence, [uuid.uuid4(), uuid.uuid4()], {1})
-        assert redacted == _REDACTED_SUMMARY
-        assert "Zone" not in redacted
+        hidden_mask = uuid.uuid4()
+        adversarial_sentences = [
+            # round 1: even embedded quotes — fragments between spans
+            'Clipped from "Roads" to "Flood "Zone" map", created by admin.',
+            # round 2: odd embedded quote — span counts coincide
+            'Clipped from "Roads" to "Flood "Zone", created by admin.',
+            # round 3: unnamed source + quoted actor — char counts coincide
+            'Clipped from an unnamed dataset to "Secret Zone", created by "bob".',
+            # plain prose, nothing adversarial at all
+            'Clipped from "Roads" to "Secret Zone", created by admin.',
+        ]
+        for sentence in adversarial_sentences:
+            record = SimpleNamespace(
+                id=uuid.uuid4(),
+                lineage_summary=sentence,
+                derived_from={
+                    "operation": "clip",
+                    "dataset_id": str(uuid.uuid4()),
+                    "params": {"mask_dataset_id": str(hidden_mask)},
+                },
+            )
+            # No DB session needed: an unresolvable dataset id is unprovable,
+            # hence hidden — but _accessible_dataset_ids still runs, so give it
+            # a session-shaped refusal by making every id unparseable instead.
+            record.derived_from["dataset_id"] = "not-a-uuid"
+            record.derived_from["params"]["mask_dataset_id"] = "also-not-a-uuid"
+            result = await visible_lineage_summaries(None, [record], None, set())
+            assert result[record.id] == _REDACTED_SUMMARY, sentence
+            assert "Zone" not in result[record.id], sentence
 
     async def test_a_record_with_no_provenance_costs_no_query(self):
         """Hand-written lineage is not assembled from other datasets' titles.
