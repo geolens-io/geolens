@@ -1130,7 +1130,16 @@ export function AnalysisPanel({
     (operation !== 'intersect' || !!maskLayer) &&
     // feat(#953): a join with nothing to join against is not a runnable form —
     // reflect it here rather than letting the click earn a 422.
-    (operation !== 'spatial_join' || !!joinLayer);
+    (operation !== 'spatial_join' || !!joinLayer) &&
+    // fix(#1097 review): and the transferred field has to still be one the
+    // picker would offer. Clearing it when the source changes handles the way
+    // it went stale in practice; this handles the rest, because the field and
+    // the rule that validates it depend on two different layers and either can
+    // move underneath it. Submission is gated on the state agreeing with the
+    // menu rather than on enumerating the ways they can disagree.
+    (operation !== 'spatial_join' ||
+      joinField === BY_FIELD_NONE ||
+      joinFieldColumns.includes(joinField.replace(/^col:/, '')));
   const canRun =
     !!selectedLayer?.dataset_id &&
     !previewMutation.isPending &&
@@ -1205,6 +1214,17 @@ export function AnalysisPanel({
             // carry to another — it may not exist there (422 from the API) or
             // silently group by a same-named field.
             setByField(BY_FIELD_NONE);
+            // fix(#1097 review): the transferred field is the same problem and
+            // was left out of this reset. It belongs to the JOIN layer, so it
+            // survives a source change intact — but whether it is usable
+            // depends on the SOURCE, since join_<name> has to not collide with
+            // a source column. Picking `zone` against a source with no
+            // join_zone and then switching to one that has it left the menu
+            // filtering `zone` out while the state still held it, and the
+            // request still went (and earned a 422). A join layer can't join
+            // against itself either, so the layer goes with the field.
+            if (v === joinLayerId) setJoinLayerId(MASK_LAYER_NONE);
+            setJoinField(BY_FIELD_NONE);
           }}
         >
           <SelectTrigger id="analysis-layer" className="w-full">

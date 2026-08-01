@@ -61,6 +61,8 @@ logger = structlog.stdlib.get_logger(__name__)
 
 _SAFE_IDENT = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 _SAFE_TABLE = re.compile(r"^[a-z0-9_]+$")
+# Mirrors _POLYGONAL_TYPES in router_analysis: a mask layer must be polygonal.
+_POLYGONAL = {"POLYGON", "MULTIPOLYGON"}
 
 
 # The preview path is bounded (10s sandbox timeout, 500-row cap); the CTAS
@@ -545,6 +547,7 @@ async def _resolve_layer_table_ref(
     schema: str,
     *,
     label: str,
+    require_polygonal: bool = False,
 ) -> tuple[str, str]:
     """Re-resolve a secondary layer at run time: ``(table_ref, table_name)``.
 
@@ -569,6 +572,19 @@ async def _resolve_layer_table_ref(
         raise ValueError(f"{label.capitalize()} dataset not found")
     if not _SAFE_TABLE.match(layer.table_name):
         raise ValueError(f"Invalid {label} table name")
+    # fix(#1097 review): the geometry requirement is re-applied here, not just
+    # at enqueue. The router's _load_mask_dataset refuses a non-polygonal mask,
+    # but a re-upload can turn that layer into points or lines while the job
+    # waits in the queue — and the swap updates Dataset.geometry_type, so the
+    # stale value the router checked is not the one the CTAS would run against.
+    # Nothing downstream notices: the mask expression simply matches no rows,
+    # and the job dies on "Analysis produced no features", which sends the user
+    # looking at their data rather than at the layer that changed under them.
+    if require_polygonal and (layer.geometry_type or "").upper() not in _POLYGONAL:
+        raise ValueError(
+            f"The {label} layer is no longer a polygon layer. It may have been "
+            "re-uploaded since this analysis was queued."
+        )
     return f'"{schema}"."{layer.table_name}"', layer.table_name
 
 
@@ -1064,7 +1080,12 @@ async def _materialize(
             mask_table_name: str | None = None
             if mask_dataset_id is not None:
                 mask_table_ref, mask_table_name = await _resolve_layer_table_ref(
-                    session, Dataset, mask_dataset_id, _schema, label="mask"
+                    session,
+                    Dataset,
+                    mask_dataset_id,
+                    _schema,
+                    label="mask",
+                    require_polygonal=True,
                 )
             join_table_ref: str | None = None
             # fix(#1097 review): the plain name is kept now, not discarded. The

@@ -570,6 +570,69 @@ class TestColumnCollisions:
         assert carry == ["parcel"]
         assert mask_carry == ["zone"]
 
+    async def test_an_overlay_that_stops_being_polygonal_is_caught(
+        self, test_db_session: AsyncSession
+    ):
+        """fix(#1097 review): the polygon requirement is re-applied live.
+
+        The router refuses a non-polygonal mask at enqueue, but a re-upload can
+        turn that layer into points or lines while the job waits — and the swap
+        updates Dataset.geometry_type, so the value the router checked is not
+        the one the CTAS would run against.
+
+        Nothing downstream notices on its own: the mask expression simply
+        matches no rows and the job dies on "Analysis produced no features",
+        which sends the user looking at their own data rather than at the layer
+        that changed underneath them.
+        """
+        from app.modules.catalog.datasets.domain.models import Dataset
+        from app.processing.analysis.tasks import _resolve_layer_table_ref
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        zones = await _create_zones(test_db_session, created_by=admin_id)
+        zones.geometry_type = "POINT"
+        await test_db_session.commit()
+
+        with pytest.raises(ValueError) as excinfo:
+            await _resolve_layer_table_ref(
+                test_db_session,
+                Dataset,
+                str(zones.id),
+                "data",
+                label="mask",
+                require_polygonal=True,
+            )
+        assert "polygon" in str(excinfo.value).lower()
+
+    async def test_a_polygonal_overlay_passes_the_live_geometry_recheck(
+        self, test_db_session: AsyncSession
+    ):
+        """The negative control, and the guard on the flag: an unchanged
+        polygon layer resolves, and a JOIN layer is not held to this rule at
+        all (a spatial join counts in any direction — see the spatial-join
+        picker, which offers points)."""
+        from app.modules.catalog.datasets.domain.models import Dataset
+        from app.processing.analysis.tasks import _resolve_layer_table_ref
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        zones = await _create_zones(test_db_session, created_by=admin_id)
+        ref, name = await _resolve_layer_table_ref(
+            test_db_session,
+            Dataset,
+            str(zones.id),
+            "data",
+            label="mask",
+            require_polygonal=True,
+        )
+        assert name == zones.table_name
+
+        zones.geometry_type = "POINT"
+        await test_db_session.commit()
+        # Same layer, same non-polygon type, resolved WITHOUT the flag: fine.
+        await _resolve_layer_table_ref(
+            test_db_session, Dataset, str(zones.id), "data", label="join"
+        )
+
     async def test_an_overlay_that_gains_a_json_column_after_enqueue_is_caught(
         self, test_db_session: AsyncSession
     ):

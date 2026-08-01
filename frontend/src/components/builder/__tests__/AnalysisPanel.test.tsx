@@ -2283,6 +2283,39 @@ describe('AnalysisPanel spatial join (feat(#953))', () => {
     expect(screen.queryByRole('option', { name: 'zone' })).toBeNull();
   });
 
+  it('does not keep a join field the new source makes invalid (#1097 review)', async () => {
+    // The field belongs to the JOIN layer, so a source change leaves it
+    // intact — but whether it is USABLE depends on the source, since
+    // join_<name> must not collide with a source column. ds1 has join_zone and
+    // the others do not, so picking `zone` against a ds2 source and then
+    // switching the source to ds1 left the menu filtering `zone` out while the
+    // state still held it. The request went anyway and earned a 422.
+    //
+    // The join layer is a THIRD layer on purpose: switching the source onto
+    // the join layer also clears it (nothing joins against itself), which
+    // would mask whether the FIELD was cleared on its own.
+    const user = userEvent.setup();
+    renderPanel([datasetLayer2, pointLayer, datasetLayer]);
+    await user.click(screen.getAllByRole('combobox')[1]);
+    await user.click(await screen.findByRole('option', { name: 'Spatial join' }));
+    await user.click(screen.getAllByRole('combobox')[2]);
+    await user.click(await screen.findByRole('option', { name: 'Bus stops' }));
+    await user.click(screen.getAllByRole('combobox')[3]);
+    await user.click(await screen.findByRole('option', { name: 'zone' }));
+
+    // Switch the SOURCE to the layer that already carries join_zone.
+    await user.click(screen.getAllByRole('combobox')[0]);
+    await user.click(await screen.findByRole('option', { name: 'Parcels' }));
+
+    vi.mocked(previewAnalysis).mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() => expect(previewAnalysis).toHaveBeenCalled());
+    const body = vi.mocked(previewAnalysis).mock.calls[0][1] as {
+      join_fields?: string[];
+    };
+    expect(body.join_fields ?? []).not.toContain('zone');
+  });
+
   it('cannot preview until a join layer is picked', async () => {
     const user = userEvent.setup();
     renderPanel([datasetLayer, datasetLayer2]);

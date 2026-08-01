@@ -1263,7 +1263,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # set moved into rather than raising _materialize's C901 threshold: five
     # checks over two layers share a subject the surrounding job bookkeeping
     # does not.
-    "backend/app/processing/analysis/tasks.py": 1322,
+    #
+    # fix(#1097 review): +21 for re-applying the polygon requirement on the
+    # mask layer at resolve time. The router refuses a non-polygonal mask at
+    # enqueue and a re-upload can change that layer's geometry_type while the
+    # job waits, and nothing downstream notices: the mask matches no rows and
+    # the job dies on "produced no features", pointing the user at their data
+    # instead of at the layer that changed.
+    "backend/app/processing/analysis/tasks.py": 1343,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.
