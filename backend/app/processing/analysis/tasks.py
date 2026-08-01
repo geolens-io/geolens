@@ -63,6 +63,13 @@ _SAFE_IDENT = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 _SAFE_TABLE = re.compile(r"^[a-z0-9_]+$")
 # Mirrors _POLYGONAL_TYPES in router_analysis: a mask layer must be polygonal.
 _POLYGONAL = {"POLYGON", "MULTIPOLYGON"}
+# Mirrors MASK_OPERATIONS in catalog/datasets/domain/schemas.py: the operations
+# whose second input can be a DRAWN polygon rather than a layer. Duplicated
+# rather than imported because processing/ must not import from
+# app.modules.catalog (PROCESS-02), the same reason _POLYGONAL is duplicated.
+# intersect is absent deliberately: it takes a layer only, so the discriminator
+# would be a constant there.
+_DRAWN_MASK_OPERATIONS = ("clip", "select_by_location")
 
 
 # The preview path is bounded (10s sandbox timeout, 500-row cap); the CTAS
@@ -1260,9 +1267,22 @@ async def _materialize(
                 params={
                     "distance_meters": distance_meters,
                     "by_field": by_field,
+                    # fix(#1097 review): every operation that can take a
+                    # DRAWN mask, not clip alone. The drawn geometry itself is
+                    # deliberately excluded from provenance (it can be
+                    # kilobytes), so for a drawn select_by_location this
+                    # discriminator was the only trace that an area shaped the
+                    # selection at all — without it those params serialise
+                    # empty and the lineage says a selection happened by no
+                    # visible means.
+                    #
+                    # The sibling of the job-metadata fix in the previous
+                    # round. That one was the writer the review named; this is
+                    # the other writer of the same fact, and fixing only the
+                    # named one is what left this behind.
                     "mask_source": (
                         ("layer" if mask_dataset_id else "drawn")
-                        if operation == "clip"
+                        if operation in _DRAWN_MASK_OPERATIONS
                         else None
                     ),
                     "mask_dataset_id": mask_dataset_id,

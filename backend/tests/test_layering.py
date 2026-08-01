@@ -1294,7 +1294,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # still be polygonal; the JOIN layer must only still be spatial, because a
     # join counts in any direction — but a re-upload from a non-spatial source
     # leaves no geom_4326 for render_spatial_join to reference.
-    "backend/app/processing/analysis/tasks.py": 1365,
+    #
+    # fix(#1097 review): +20 for _DRAWN_MASK_OPERATIONS and the note on why
+    # mask_source belongs to every operation that can take a drawn mask. The
+    # drawn geometry is deliberately excluded from provenance, so that
+    # discriminator is the only trace a drawn selection leaves — the constant
+    # is duplicated from schemas because PROCESS-02 forbids the import, and a
+    # test pins the two copies together.
+    "backend/app/processing/analysis/tasks.py": 1385,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.

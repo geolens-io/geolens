@@ -472,6 +472,62 @@ class TestDerivedFromParamsVisibility:
         assert params["join_dataset_id"] == str(polys.id)
         assert params["join_fields"] == ["name", "pop"]
 
+    async def test_a_drawn_selection_still_records_that_it_was_drawn(
+        self, test_db_session: AsyncSession
+    ):
+        """fix(#1097 review): mask_source was recorded for clip alone.
+
+        The drawn geometry itself is deliberately kept out of provenance — it
+        can be kilobytes — so this discriminator is the ONLY trace that an area
+        shaped the selection. Without it a drawn select_by_location serialised
+        empty params: a lineage saying a selection happened by no visible
+        means.
+        """
+        from tests.test_analysis_preview import _create_polygon_dataset
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        source = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        job = await _create_job(test_db_session, admin_id)
+
+        await _materialize(
+            job_id=str(job.id),
+            dataset_id=str(source.id),
+            user_id=str(admin_id),
+            operation="select_by_location",
+            title=f"Selected {uuid.uuid4().hex[:6]}",
+            mask={
+                "type": "Polygon",
+                "coordinates": [[[0, 0], [0, 1], [1, 1], [1, 0], [0, 0]]],
+            },
+        )
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+
+        out = await test_db_session.get(Dataset, job.dataset_id)
+        record = await _record_of(test_db_session, out)
+        assert record.derived_from["params"]["mask_source"] == "drawn"
+
+    def test_both_writers_of_mask_source_agree_on_which_operations_have_one(self):
+        """The two writers of this fact must not drift.
+
+        The router records it on the job (Admin Jobs reads that to diagnose a
+        run) and the worker records it in provenance (the durable lineage).
+        They are separate constants because processing/ cannot import from
+        app.modules.catalog (PROCESS-02), and separate constants are how the
+        previous round's fix landed in one writer and not the other.
+
+        Pinned rather than deduplicated, since the import boundary is the
+        reason the duplication exists.
+        """
+        from app.modules.catalog.datasets.domain.schemas import MASK_OPERATIONS
+        from app.processing.analysis.tasks import _DRAWN_MASK_OPERATIONS
+
+        assert set(_DRAWN_MASK_OPERATIONS) == set(MASK_OPERATIONS), (
+            "the job metadata and the durable provenance disagree about which "
+            "operations can take a drawn mask, so one of them is recording a "
+            "discriminator the other omits"
+        )
+
     def test_every_dataset_id_param_is_redactable(self):
         """Structural: everything STORED that names a dataset must be
         access-checked per requester.
