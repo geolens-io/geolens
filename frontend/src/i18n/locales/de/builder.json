@@ -1010,6 +1010,8 @@
     "byFieldNone": "Keine Gruppierung — alles zusammenführen",
     "truncatedNoticeTotal_one": "Das erste von {{total, number}} Quell-Features wird angezeigt",
     "truncatedNoticeTotal_other": "Die ersten {{count, number}} von {{total, number}} Quell-Features werden angezeigt",
+    "truncatedNoticeMatched_one": "Das erste von {{total, number}} übereinstimmenden Features wird angezeigt",
+    "truncatedNoticeMatched_other": "Die ersten {{count, number}} von {{total, number}} übereinstimmenden Features werden angezeigt",
     "clipLayerLabel": "Oder an einer Ebene zuschneiden",
     "clipLayerNone": "Keine — auf der Karte zeichnen",
     "clipLayerEmpty": "Keine Polygon-Ebenen auf dieser Karte",

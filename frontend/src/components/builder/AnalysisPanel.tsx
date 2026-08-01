@@ -211,7 +211,12 @@ export function AnalysisPanel({
           (l) => l.id === remembered.layerId && isAnalysableLayer(l),
         ) ||
         (remembered.maskLayerId !== MASK_LAYER_NONE &&
-          !layers.some((l) => l.id === remembered.maskLayerId))
+          !layers.some((l) => l.id === remembered.maskLayerId)) ||
+        // fix(#1097 review): a vanished JOIN layer strands the overlay for the
+        // same reason a vanished mask layer does — the drawn result depicts a
+        // pairing that can no longer be reproduced.
+        (remembered.joinLayerId !== MASK_LAYER_NONE &&
+          !layers.some((l) => l.id === remembered.joinLayerId))
       );
     })(),
   );
@@ -242,12 +247,29 @@ export function AnalysisPanel({
   // feat(#953): the layer a spatial join counts against. MASK_LAYER_NONE is
   // reused as the shared "no layer picked" sentinel rather than a second
   // identically-valued constant.
-  const [joinLayerId, setJoinLayerId] = useState(MASK_LAYER_NONE);
+  // fix(#1097 review): restored from the snapshot on the same terms as
+  // maskLayerId — a join layer cannot be the source layer, and a remembered
+  // layer that has since left the map falls back to the sentinel.
+  const [joinLayerId, setJoinLayerId] = useState(() =>
+    savedForm &&
+    savedForm.joinLayerId !== initialLayerId &&
+    layers.some((l) => l.id === savedForm.joinLayerId)
+      ? savedForm.joinLayerId
+      : MASK_LAYER_NONE,
+  );
   // One transferable column, or none. The API takes a list and the backend
   // handles up to MAX_SPATIAL_JOIN_FIELDS; the panel offers a single Select
   // because that is the "which district is this point in" case, and it needs
   // no multi-select primitive that does not exist here yet.
-  const [joinField, setJoinField] = useState(BY_FIELD_NONE);
+  // fix(#1097 review): the field names a column of the JOIN layer, so it is
+  // restorable exactly when that layer was — not on the source layer's terms
+  // like byField below. If the join layer fell back to the sentinel above,
+  // a remembered column of it means nothing.
+  const [joinField, setJoinField] = useState(() =>
+    savedForm && joinLayerId !== MASK_LAYER_NONE
+      ? savedForm.joinField
+      : BY_FIELD_NONE,
+  );
   const [byField, setByField] = useState(
     // ux(#772)/fix(#680) parity: a remembered group-by column belongs to the
     // remembered layer — it must not carry to a stack-selected one.
@@ -362,6 +384,8 @@ export function AnalysisPanel({
     mask,
     maskLayerId,
     byField,
+    joinLayerId,
+    joinField,
     outputTitle,
     runDisowned: formEditedRef.current,
   };
@@ -897,7 +921,22 @@ export function AnalysisPanel({
         );
         return;
       }
-      const total = result.source_feature_count;
+      // fix(#1097 review): which total the server sent, and what it MEANS.
+      // For 1:1 operations it sends source_feature_count and the notice says
+      // "source features". For the row-filtering ones (select_by_location,
+      // intersect) the source count cannot describe the output, so it sends
+      // null there and the exact OUTPUT total as match_count instead — which
+      // this read used to discard, leaving the user the generic cap message
+      // despite the server having paid for an exact count.
+      //
+      // Keyed off source_feature_count being null rather than off an operation
+      // list: spatial_join sends BOTH (it keeps every source row, and its
+      // match_count is how many of them found a match), so preferring
+      // match_count wherever present would relabel its total wrongly. A ninth
+      // operation needs no change here.
+      const sourceTotal = result.source_feature_count ?? null;
+      const matchedTotal = sourceTotal == null ? (result.match_count ?? null) : null;
+      const total = sourceTotal ?? matchedTotal;
       const bbox = result.bbox as [number, number, number, number];
       if (result.truncated) {
         onPreviewResult?.(result.geojson, bbox, {
@@ -910,7 +949,19 @@ export function AnalysisPanel({
       }
       if (result.truncated) {
         toast.info(
-          total != null
+          matchedTotal != null
+            ? t('analysisTools.truncatedNoticeMatched', {
+                // fix(#1097 review): a separate string, not the same one with
+                // a different number. This total is the OUTPUT row count, so
+                // calling it "source features" would misdescribe it — for
+                // intersect it is not even a count of source rows, since one
+                // source feature can produce several output pieces.
+                defaultValue:
+                  'Showing the first {{count, number}} of {{total, number}} matching features',
+                count: result.feature_count,
+                total: matchedTotal,
+              })
+            : total != null
             ? t('analysisTools.truncatedNoticeTotal', {
                 // fix(#680 review): "source features" — the total is the
                 // source dataset's COUNT(*), which can exceed the number of

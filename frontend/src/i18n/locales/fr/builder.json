@@ -1010,6 +1010,8 @@
     "byFieldNone": "Sans regroupement — tout fusionner",
     "truncatedNoticeTotal_one": "Affichage de la première des {{total, number}} entités sources",
     "truncatedNoticeTotal_other": "Affichage des {{count, number}} premières entités sur {{total, number}} entités sources",
+    "truncatedNoticeMatched_one": "Affichage de la première entité sur {{total, number}} entités correspondantes",
+    "truncatedNoticeMatched_other": "Affichage des {{count, number}} premières entités sur {{total, number}} entités correspondantes",
     "clipLayerLabel": "Ou découper selon une couche",
     "clipLayerNone": "Aucune — dessiner sur la carte",
     "clipLayerEmpty": "Aucune couche de polygones sur cette carte",

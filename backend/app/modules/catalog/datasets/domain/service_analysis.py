@@ -374,7 +374,16 @@ async def run_analysis_preview(
     # fix(#956): intersect's exact total rides its own preview statement as a
     # trailing window column (see build_preview_sql). Read off any row — the
     # window is computed before the cap, so every row carries the true total.
-    inline_match_count: int | None = None
+    #
+    # fix(#1097 review): seeded to 0 for intersect rather than None. The window
+    # column rides ON the rows, so an intersect with no overlapping pairs has
+    # no row to read it off and would leave this None — reporting
+    # `match_count: null`, which the contract reserves for "could not be
+    # computed" (the count timed out). That makes a correct empty answer
+    # indistinguishable from a broken one, and empty is a perfectly ordinary
+    # result for two layers that do not overlap. execute_safe has already
+    # returned by here, so zero rows means zero pairs, and zero is the answer.
+    inline_match_count: int | None = 0 if request.operation == "intersect" else None
     for row in result.rows:
         if request.operation == "intersect":
             inline_match_count = int(row[-1])

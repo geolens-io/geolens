@@ -1010,6 +1010,8 @@
     "byFieldNone": "Sin agrupación — combinar todo",
     "truncatedNoticeTotal_one": "Mostrando la primera de {{total, number}} entidades de origen",
     "truncatedNoticeTotal_other": "Mostrando las primeras {{count, number}} de {{total, number}} entidades de origen",
+    "truncatedNoticeMatched_one": "Mostrando la primera de {{total, number}} entidades coincidentes",
+    "truncatedNoticeMatched_other": "Mostrando las primeras {{count, number}} de {{total, number}} entidades coincidentes",
     "clipLayerLabel": "O recortar con una capa",
     "clipLayerNone": "Ninguna — dibujar en el mapa",
     "clipLayerEmpty": "No hay capas de polígonos en este mapa",

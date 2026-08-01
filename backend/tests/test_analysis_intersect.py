@@ -88,7 +88,11 @@ async def _create_zones(
 
 
 async def _create_bar(
-    session: AsyncSession, *, created_by: uuid.UUID, visibility: str = "public"
+    session: AsyncSession,
+    *,
+    created_by: uuid.UUID,
+    visibility: str = "public",
+    wkt: str = BAR_WKT,
 ):
     bar = await _create_layer(
         session,
@@ -97,8 +101,7 @@ async def _create_bar(
         geometry_type="POLYGON",
         visibility=visibility,
         values_sql=(
-            f"('bar', ST_GeomFromText('{BAR_WKT}', 4326),"
-            f" ST_GeomFromText('{BAR_WKT}', 4326))"
+            f"('bar', ST_GeomFromText('{wkt}', 4326), ST_GeomFromText('{wkt}', 4326))"
         ),
         column_info=[{"name": "parcel", "type": "text"}],
     )
@@ -295,6 +298,43 @@ class TestPreview:
         assert body["source_feature_count"] is None
         # The exact pair total rides the same statement as a window column.
         assert body["match_count"] == 3
+
+    async def test_match_count_is_zero_not_null_when_nothing_overlaps(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#1097 review): an empty result is an ANSWER, not a failure.
+
+        match_count is null in the contract when the total could not be
+        computed — a timed-out count. intersect's total rides its preview
+        statement as a window column, so with no overlapping pairs there is no
+        row to read it off, and it defaulted to null. That made "these two
+        layers do not overlap" (an ordinary result) indistinguishable from
+        "the server gave up", and the panel renders those differently.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        zones = await _create_zones(test_db_session, created_by=admin_id)
+        # Same shape as the overlapping fixture, parked far away: the query
+        # runs and returns cleanly, it just finds nothing.
+        far = await _create_bar(
+            test_db_session,
+            created_by=admin_id,
+            wkt="POLYGON((100 40, 101 40, 101 41, 100 41, 100 40))",
+        )
+
+        resp = await client.post(
+            _preview_url(far.id),
+            json={"operation": "intersect", "mask_dataset_id": str(zones.id)},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["geojson"]["features"] == []
+        assert body["feature_count"] == 0
+        assert body["match_count"] == 0, "zero pairs is a computed answer"
+        assert body["match_count"] is not None
 
     async def test_match_count_is_exact_beyond_the_preview_cap(
         self,

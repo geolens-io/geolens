@@ -496,6 +496,70 @@ describe('AnalysisPanel', () => {
     );
   });
 
+  it('names the exact OUTPUT total for a row-filtering preview (#1097 review)', async () => {
+    // select_by_location and intersect send source_feature_count: null (the
+    // source count cannot describe how many rows survive) and the exact output
+    // total as match_count. Before this the panel read only
+    // source_feature_count, so the server paid for an uncapped count and the
+    // user still got the generic cap message.
+    vi.mocked(previewAnalysis).mockResolvedValueOnce({
+      geojson: { type: 'FeatureCollection', features: [] },
+      feature_count: 500,
+      truncated: true,
+      bbox: [0, 0, 1, 1],
+      source_feature_count: null,
+      match_count: 2838,
+    });
+    renderPanel([datasetLayer]);
+    mockT.mockClear();
+    mockToast.info.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() => expect(mockToast.info).toHaveBeenCalled());
+
+    // A distinct string, not truncatedNoticeTotal with a different number:
+    // this total is output rows, and for intersect one source feature can
+    // produce several, so "source features" would misdescribe it.
+    expect(mockT).toHaveBeenCalledWith(
+      'analysisTools.truncatedNoticeMatched',
+      expect.objectContaining({ count: 500, total: 2838 }),
+    );
+    expect(mockT).not.toHaveBeenCalledWith(
+      'analysisTools.truncatedNotice',
+      expect.anything(),
+    );
+  });
+
+  it('keeps the SOURCE total for spatial join, which also sends match_count (#1097 review)', async () => {
+    // The guard on the fix above. spatial_join sends BOTH: it keeps every
+    // source row, and its match_count is how many of them found a match.
+    // Preferring match_count wherever present would relabel 10,651 source
+    // features as 30,712 "matching" ones.
+    vi.mocked(previewAnalysis).mockResolvedValueOnce({
+      geojson: { type: 'FeatureCollection', features: [] },
+      feature_count: 500,
+      truncated: true,
+      bbox: [0, 0, 1, 1],
+      source_feature_count: 10651,
+      match_count: 30712,
+    });
+    renderPanel([datasetLayer]);
+    mockT.mockClear();
+    mockToast.info.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() => expect(mockToast.info).toHaveBeenCalled());
+
+    expect(mockT).toHaveBeenCalledWith(
+      'analysisTools.truncatedNoticeTotal',
+      expect.objectContaining({ count: 500, total: 10651 }),
+    );
+    expect(mockT).not.toHaveBeenCalledWith(
+      'analysisTools.truncatedNoticeMatched',
+      expect.anything(),
+    );
+  });
+
   it('raises no truncation notice for a complete preview', async () => {
     // fix(#699 codex P2): wait on a signal belonging to THIS request. The
     // `previewAnalysis` mock is shared and never cleared between tests, so
@@ -1081,6 +1145,7 @@ describe('AnalysisPanel — chat handoff prefill (#675)', () => {
       useAnalysisFormStore.getState().save('m1', {
         layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
         mask: null, maskLayerId: '__none__', byField: '__none__',
+        joinLayerId: '__none__', joinField: '__none__',
         outputTitle: 'Walkshed',
       });
       useAnalysisJobStore.setState({
@@ -1136,7 +1201,7 @@ describe('AnalysisPanel — chat handoff prefill (#675)', () => {
       useAnalysisFormStore.getState().save('m1', {
         layerId: 'deleted-layer', operation: 'buffer', distance: '750',
         distanceUnit: 'm', mask: null, maskLayerId: '__none__',
-        byField: '__none__', outputTitle: '',
+        byField: '__none__', joinLayerId: '__none__', joinField: '__none__', outputTitle: '',
       });
       renderPanel([datasetLayer], {
         mapId: 'm1',
@@ -1155,7 +1220,7 @@ describe('AnalysisPanel — chat handoff prefill (#675)', () => {
       useAnalysisFormStore.getState().save('m1', {
         layerId: 'deleted-layer', operation: 'buffer', distance: '750',
         distanceUnit: 'm', mask: null, maskLayerId: '__none__',
-        byField: '__none__', outputTitle: '',
+        byField: '__none__', joinLayerId: '__none__', joinField: '__none__', outputTitle: '',
       });
       // The slot holds a NEWER chat result (no analysis-panel provenance) —
       // opening Analysis must not wipe it just because the remembered layer
@@ -1251,7 +1316,8 @@ describe('AnalysisPanel — chat handoff prefill (#675)', () => {
           type: 'Polygon',
           coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]],
         },
-        maskLayerId: '__none__', byField: '__none__', outputTitle: '',
+        maskLayerId: '__none__', byField: '__none__',
+      joinLayerId: '__none__', joinField: '__none__', outputTitle: '',
       });
       // The lazy BuilderMap has not loaded yet — the ref is empty at mount.
       const mapRef = { current: null as unknown };
@@ -1292,7 +1358,8 @@ describe('AnalysisPanel — chat handoff prefill (#675)', () => {
           type: 'Polygon',
           coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]],
         },
-        maskLayerId: '__none__', byField: '__none__', outputTitle: '',
+        maskLayerId: '__none__', byField: '__none__',
+      joinLayerId: '__none__', joinField: '__none__', outputTitle: '',
       });
       renderPanel([datasetLayer], {
         mapId: 'm1',
@@ -1315,7 +1382,7 @@ describe('AnalysisPanel — chat handoff prefill (#675)', () => {
       };
       useAnalysisFormStore.getState().save('m1', {
         layerId: 'l1', operation: 'clip', distance: '500', distanceUnit: 'm',
-        mask, maskLayerId: '__none__', byField: '__none__', outputTitle: '',
+        mask, maskLayerId: '__none__', byField: '__none__', joinLayerId: '__none__', joinField: '__none__', outputTitle: '',
       });
       // A map that actually tracks its style.load handlers: the fix
       // subscribes for the lifetime of the mask, and the unsubscribe half
@@ -1424,7 +1491,7 @@ describe('AnalysisPanel — chat handoff prefill (#675)', () => {
       useAnalysisFormStore.getState().save('m1', {
         layerId: 'l1', operation: 'buffer', distance: '750',
         distanceUnit: 'm', mask: null, maskLayerId: '__none__',
-        byField: '__none__', outputTitle: 'New draft', runDisowned: true,
+        byField: '__none__', joinLayerId: '__none__', joinField: '__none__', outputTitle: 'New draft', runDisowned: true,
       });
       useAnalysisJobStore.setState({
         job: { jobId: 'old-job', title: 'Old run', mapId: 'm1' },
@@ -1448,7 +1515,7 @@ describe('AnalysisPanel — chat handoff prefill (#675)', () => {
       useAnalysisFormStore.getState().save('m1', {
         layerId: 'l1', operation: 'buffer', distance: '750',
         distanceUnit: 'm', mask: null, maskLayerId: '__none__',
-        byField: '__none__', outputTitle: 'New draft', runDisowned: true,
+        byField: '__none__', joinLayerId: '__none__', joinField: '__none__', outputTitle: 'New draft', runDisowned: true,
       });
       renderPanel([datasetLayer], { mapId: 'm1' });
       act(() => {
@@ -1559,6 +1626,7 @@ describe('AnalysisPanel — stack-selected layer (#772)', () => {
     useAnalysisFormStore.getState().save('m1', {
       layerId: 'l1', operation: 'buffer', distance: '750', distanceUnit: 'm',
       mask: null, maskLayerId: '__none__', byField: '__none__',
+      joinLayerId: '__none__', joinField: '__none__',
       outputTitle: 'Draft name',
     });
     renderPanel([datasetLayer, datasetLayer2], {
@@ -1574,6 +1642,7 @@ describe('AnalysisPanel — stack-selected layer (#772)', () => {
     useAnalysisFormStore.getState().save('m1', {
       layerId: 'l1', operation: 'dissolve', distance: '500', distanceUnit: 'm',
       mask: null, maskLayerId: '__none__', byField: 'col:name',
+      joinLayerId: '__none__', joinField: '__none__',
       outputTitle: 'Dissolved',
     });
     renderPanel([datasetLayer, datasetLayer2], {
@@ -1593,7 +1662,7 @@ describe('AnalysisPanel — stack-selected layer (#772)', () => {
   it('clears a remembered mask layer the selection displaces into the source slot', () => {
     useAnalysisFormStore.getState().save('m1', {
       layerId: 'l1', operation: 'clip', distance: '500', distanceUnit: 'm',
-      mask: null, maskLayerId: 'l3', byField: '__none__', outputTitle: '',
+      mask: null, maskLayerId: 'l3', byField: '__none__', joinLayerId: '__none__', joinField: '__none__', outputTitle: '',
     });
     renderPanel([datasetLayer, datasetLayer2], {
       mapId: 'm1',
@@ -1611,6 +1680,7 @@ describe('AnalysisPanel — stack-selected layer (#772)', () => {
     useAnalysisFormStore.getState().save('m1', {
       layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
       mask: null, maskLayerId: '__none__', byField: '__none__',
+      joinLayerId: '__none__', joinField: '__none__',
       outputTitle: 'Run name',
     });
     useAnalysisJobStore.setState({
@@ -1635,6 +1705,7 @@ describe('AnalysisPanel — stack-selected layer (#772)', () => {
     useAnalysisFormStore.getState().save('m1', {
       layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
       mask: null, maskLayerId: '__none__', byField: '__none__',
+      joinLayerId: '__none__', joinField: '__none__',
       outputTitle: 'Run name',
     });
     useAnalysisJobStore.setState({
@@ -1662,7 +1733,7 @@ describe('AnalysisPanel — stack-selected layer (#772)', () => {
     const onClearPreview = vi.fn();
     useAnalysisFormStore.getState().save('m1', {
       layerId: 'l1', operation: 'buffer', distance: '750', distanceUnit: 'm',
-      mask: null, maskLayerId: '__none__', byField: '__none__', outputTitle: '',
+      mask: null, maskLayerId: '__none__', byField: '__none__', joinLayerId: '__none__', joinField: '__none__', outputTitle: '',
     });
     renderPanel([datasetLayer, datasetLayer2], {
       mapId: 'm1',
@@ -2006,7 +2077,8 @@ describe('AnalysisPanel — audit remediation (v1.6.0)', () => {
         type: 'Polygon',
         coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]],
       },
-      maskLayerId: '__none__', byField: '__none__', outputTitle: '',
+      maskLayerId: '__none__', byField: '__none__',
+      joinLayerId: '__none__', joinField: '__none__', outputTitle: '',
     });
     const qc = new QueryClient({
       defaultOptions: { mutations: { retry: false } },
@@ -2155,6 +2227,37 @@ describe('AnalysisPanel spatial join (feat(#953))', () => {
       { operation: 'spatial_join', join_dataset_id: 'ds4' },
     ]);
   });
+
+  it('restores the join layer and field after a remount (#1097 review)', async () => {
+    const user = userEvent.setup();
+    // mapId is what keys the remembered form — without it the panel persists
+    // nothing and this test would pass against any implementation.
+    const layerSet = [datasetLayer, datasetLayer2, pointLayer];
+    const { unmount } = renderPanel(layerSet, { mapId: 'm1' });
+    await pickSpatialJoin(user);
+    await user.click(screen.getAllByRole('combobox')[2]);
+    await user.click(await screen.findByRole('option', { name: 'Roads' }));
+    await user.click(screen.getAllByRole('combobox')[3]);
+    await user.click(await screen.findByRole('option', { name: 'name' }));
+
+    // Closing the rail (or crossing the responsive breakpoint) unmounts the
+    // panel. Before this both inputs came back as their sentinels, so the
+    // restored spatial-join form was unrunnable with its required layer
+    // silently cleared — while the mask layer next to it survived.
+    unmount();
+    renderPanel(layerSet, { mapId: 'm1' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() => expect(previewAnalysis).toHaveBeenCalled());
+    expect(previewRequest()).toEqual([
+      'ds1',
+      {
+        operation: 'spatial_join',
+        join_dataset_id: 'ds2',
+        join_fields: ['name'],
+      },
+    ]);
+  });
 });
 
 describe('AnalysisPanel select by location (feat(#955))', () => {
@@ -2241,7 +2344,8 @@ describe('AnalysisPanel select by location (feat(#955))', () => {
     useAnalysisFormStore.getState().save('m1', {
       layerId: 'l1', operation: 'clip', distance: '500', distanceUnit: 'm',
       mask: drawnMask,
-      maskLayerId: '__none__', byField: '__none__', outputTitle: '',
+      maskLayerId: '__none__', byField: '__none__',
+      joinLayerId: '__none__', joinField: '__none__', outputTitle: '',
     });
   }
 
@@ -2361,7 +2465,8 @@ describe('AnalysisPanel intersect (feat(#956))', () => {
     useAnalysisFormStore.getState().save('m1', {
       layerId: 'l1', operation: 'clip', distance: '500', distanceUnit: 'm',
       mask: { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] },
-      maskLayerId: '__none__', byField: '__none__', outputTitle: '',
+      maskLayerId: '__none__', byField: '__none__',
+      joinLayerId: '__none__', joinField: '__none__', outputTitle: '',
     });
     renderPanel([datasetLayer, datasetLayer2], {
       mapId: 'm1',
