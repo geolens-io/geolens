@@ -258,13 +258,6 @@ class TestMaterializedProvenance:
                 "spatial_join",
                 {"join_dataset_id": "x", "join_fields": ["owner", "value"]},
                 {"join_title": "Parcels Registry"},
-                'Joined from "Points" against "Parcels Registry", '
-                "transferring owner, value",
-            ),
-            (
-                "spatial_join",
-                {"join_dataset_id": "x"},
-                {"join_title": "Parcels Registry"},
                 'Joined from "Points" against "Parcels Registry"',
             ),
             (
@@ -301,6 +294,39 @@ class TestMaterializedProvenance:
             )
             # The fallback is what these branches exist to avoid.
             assert "applied to" not in sentence, operation
+
+    def test_the_sentence_never_names_a_private_layers_columns(self):
+        """fix(#1097 review): lineage_summary has no per-requester form.
+
+        It is stored once and served raw — the dataset page returns it, search
+        indexes it, three DCAT services export it — and none of those pass it
+        through visible_derived_from, which is what access-checks the
+        structured provenance per requester.
+
+        So anything the redaction treats as sensitive must not reach this
+        prose. join_fields is a dependent of join_dataset_id in
+        _DATASET_ID_PARAMS precisely because a column list is most of a
+        schema, and the previous round routed it around that redaction while
+        making the sentence more useful.
+        """
+        from app.modules.catalog.authorization import _DATASET_ID_PARAMS
+
+        sentence = build_lineage_sentence(
+            operation="spatial_join",
+            source_title="Points",
+            params={
+                "join_dataset_id": "x",
+                "join_fields": ["parcel_owner", "assessed_value"],
+            },
+            actor="admin",
+            created_at=datetime(2026, 7, 31),
+            join_title="Parcels Registry",
+        )
+        assert "parcel_owner" not in sentence
+        assert "assessed_value" not in sentence
+        # And the reason, stated where it can rot loudly: these are the keys
+        # the redaction drops, so they are the keys prose may not carry.
+        assert "join_fields" in _DATASET_ID_PARAMS["join_dataset_id"]
 
     def test_a_second_layer_whose_title_is_gone_still_reads_as_a_sentence(self):
         """A deleted or unreadable layer yields no title, and a bare UUID would

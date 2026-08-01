@@ -120,13 +120,22 @@ def _operation_phrase(
     # it, search indexes it, and DCAT exports it — so an overlay whose whole
     # point is the second layer was described without mentioning one.
     if operation == "spatial_join":
+        # fix(#1097 review): the transferred field names are NOT named here.
+        #
+        # This sentence is stored once on the record and served to every
+        # requester who can see the output — the dataset page returns it raw,
+        # search indexes it, and three DCAT services export it. None of them
+        # pass it through visible_derived_from, which is what access-checks the
+        # structured provenance per requester.
+        #
+        # So anything the redaction treats as sensitive cannot appear in this
+        # prose, because prose has no per-requester form. join_fields is listed
+        # in _DATASET_ID_PARAMS as a dependent of join_dataset_id precisely
+        # because it describes a layer the requester may not be allowed to see:
+        # a column list is most of a schema. The previous round put it here
+        # while making the sentence more useful, which routed it around the
+        # redaction added for exactly this.
         target = _quoted(join_title) if join_title else "another layer"
-        fields = params.get("join_fields")
-        if fields:
-            return (
-                f"Joined from {source} against {target}, "
-                f"transferring {', '.join(fields)}"
-            )
         return f"Joined from {source} against {target}"
     if operation == "intersect":
         target = _quoted(mask_title) if mask_title else "another layer"
