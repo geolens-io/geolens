@@ -187,12 +187,20 @@ def dataset_to_ogc_record(
     spatial_extent_geojson: str | None = None,
     public_app_url: str | None = None,
     preferred_languages: Sequence[str] | None = None,
+    lineage_summary: str | None = None,
 ) -> dict:
     """Convert a Dataset ORM object to an OGC Record GeoJSON Feature dict.
 
     ``public_app_url`` is threaded to :func:`build_assets` so the raster/VRT
     ``raster_tiles`` asset href uses the app origin (see that function's
     docstring); all other assets/links remain on ``public_api_url``.
+
+    fix(#1103): ``lineage_summary`` arrives access-checked from the caller
+    (``visible_lineage_summary``) rather than being read off the record, because
+    an analysis output's lineage names the titles of the datasets it was derived
+    from and this function has no requester to check them against. Omitted when
+    the caller does not supply it: a missing sentence is recoverable, a leaked
+    one is not.
     """
     record = dataset.record
     localized = select_localized_record_text(record, preferred_languages)
@@ -349,7 +357,7 @@ def dataset_to_ogc_record(
             ),
             "time": record_time,
             # ISO governance fields (API-01)
-            "lineage": record.lineage_summary,
+            "lineage": lineage_summary,
             "update_frequency": record.update_frequency,
             "constraints": (
                 {"usage": record.usage_constraints, "access": record.access_constraints}

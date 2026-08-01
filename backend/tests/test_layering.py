@@ -955,7 +955,13 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # feat(#765): +7 — the detail response resolves derived_from through
         # visible_derived_from, so a private source is never disclosed via a
         # derived dataset. Cap 397 -> 404, still no headroom.
-        "backend/app/modules/catalog/datasets/domain/service_query.py": 404,
+        # fix(#1103): +15 — the same treatment for the PROSE. Both builders in
+        # this module now resolve lineage_summary through
+        # visible_lineage_summary(ies), which is what stops a derived dataset
+        # from naming a source or mask layer the requester cannot open. The
+        # list builder takes the batch form deliberately: one visibility query
+        # for the page rather than one per row. Cap 404 -> 419, no headroom.
+        "backend/app/modules/catalog/datasets/domain/service_query.py": 419,
         # Phase 276 CODE-02: chat_*.py sub-modules are all under the 350
         # default (largest is chat_actions.py at ~245 LOC). No explicit
         # per-file overrides needed; default applies.
@@ -1359,7 +1365,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # ST_AsGeoJSON(ST_Envelope(ST_Collect(...))) plus its GeoJSON coordinate
     # fold onto rollup_bbox_columns()/rollup_bbox(), which also retires the
     # module's last json import. Cap lowered 1432 -> 1427, still exact.
-    "backend/app/modules/catalog/search/router.py": 1427,
+    # fix(#1103): +13 — the OGC record's `lineage` property is access-checked
+    # per requester now (the sentence names the titles of the datasets an
+    # analysis output was derived from). The item endpoint keeps the roles
+    # check_dataset_access_or_anonymous already resolved; the list endpoint
+    # takes the batch form, one visibility query per page. Cap 1427 -> 1440,
+    # still exact.
+    "backend/app/modules/catalog/search/router.py": 1440,
     # fix(#474): negotiate localized STAC record text; fix(#475) adds the
     # unassigned Collection and matching HTTP Link navigation. fix(#506): keep
     # validated STAC item responses wire-compatible with serializer output.
@@ -1376,7 +1388,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # source against the same published+visible query the item endpoints serve
     # from, and user/user_roles are threaded to the four item builders that
     # feed it. Cap 1789 -> 1833, still exact.
-    "backend/app/standards/stac/router.py": 1833,
+    # fix(#1103): +10 — the STAC item's lineage property is gated the same way
+    # as its derived_from link, on the user/user_roles already threaded here.
+    # Cap 1833 -> 1843, still exact.
+    "backend/app/standards/stac/router.py": 1843,
     # Central tenant-bound scope resolution replaced duplicated inline logic.
     # fix(#836): +1 — the RASTER_FAMILY_RECORD_TYPES import that replaces four
     # pasted family literals. Same +1 on the stac and search routers.

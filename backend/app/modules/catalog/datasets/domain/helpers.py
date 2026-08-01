@@ -130,6 +130,7 @@ def dataset_to_response(
     base_url: str | None = None,
     stac_assets=None,
     derived_from: dict | None = None,
+    lineage_summary: str | None = None,
 ) -> DatasetResponse:
     """Convert a Dataset ORM object to a DatasetResponse schema."""
     record = dataset.record
@@ -209,7 +210,13 @@ def dataset_to_response(
         last_edited_at=last_edited.timestamp,
         collections=collections,
         record_status=record.record_status,
-        lineage_summary=record.lineage_summary,
+        # fix(#1103): passed in already access-checked, like derived_from below
+        # and for the same reason — an analysis output's lineage sentence names
+        # the titles of the datasets it was built from, and a caller with no
+        # requester in hand cannot decide whether this requester may read them.
+        # Reading record.lineage_summary here instead is what leaked them; the
+        # structural guard in tests/test_analysis_provenance.py keeps it out.
+        lineage_summary=lineage_summary,
         # feat(#765): passed in already access-checked (the detail path calls
         # visible_derived_from). Not read off the record here: the list
         # builders share this function and would need a per-row check on the

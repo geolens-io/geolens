@@ -30,6 +30,7 @@ from app.modules.catalog.authorization import (
     check_dataset_access,
     check_dataset_access_or_anonymous,
     get_user_roles,
+    visible_lineage_summaries,
 )
 from app.standards.dcat.service import (
     catalog_to_dcat,
@@ -243,6 +244,32 @@ _FEED_OFFSET_Q = Query(
 )
 
 
+async def _visible_lineage(
+    db: AsyncSession,
+    datasets: list[DatasetModel],
+    user: Identity | None,
+) -> dict[uuid.UUID, str | None]:
+    """fix(#1103): access-checked ``dcterms:provenance`` for a page, in one query.
+
+    These feeds serve anonymous requesters, and an analysis output's lineage
+    sentence names the titles of the datasets it was derived from — including a
+    private mask or join layer the requester is not allowed to know exists.
+    The serializers no longer read the column, so a handler that forgets this
+    emits no provenance rather than someone else's title.
+    """
+    user_roles = await get_user_roles(db, user) if user is not None else set()
+    return await visible_lineage_summaries(
+        db, [ds.record for ds in datasets], user, user_roles
+    )
+
+
+async def _visible_record_lineage(
+    db: AsyncSession, dataset: DatasetModel, user: Identity | None
+) -> str | None:
+    """One dataset's access-checked provenance sentence. See _visible_lineage."""
+    return (await _visible_lineage(db, [dataset], user))[dataset.record_id]
+
+
 async def _get_dcat_dataset_for_export(
     db: AsyncSession,
     dataset_id: uuid.UUID,
@@ -286,6 +313,7 @@ async def get_dcat_catalog(
         datasets,
         base_url,
         preferred_languages=preferred_languages,
+        lineage_by_record_id=await _visible_lineage(db, datasets, user),
     )
     completeness = _catalog_completeness(
         datasets,
@@ -318,7 +346,11 @@ async def validate_dcat3_catalog(
     datasets = await _get_visible_dcat_datasets(db, user)
 
     base_url = await get_public_api_url(db, request=request)
-    catalog = catalog_to_dcat(datasets, base_url)
+    catalog = catalog_to_dcat(
+        datasets,
+        base_url,
+        lineage_by_record_id=await _visible_lineage(db, datasets, user),
+    )
     report = validate_dcat3(catalog, "Catalog")
     report.update(
         _catalog_completeness(
@@ -353,6 +385,7 @@ async def get_dcat_us3_catalog(
         datasets,
         base_url,
         catalog_contact_email=settings.dcat_contact_email,
+        lineage_by_record_id=await _visible_lineage(db, datasets, user),
     )
     fallback_fields = [
         dcat_us3_fallback_fields(dataset, settings.dcat_contact_email)
@@ -390,6 +423,7 @@ async def validate_dcat_us3_catalog(
         datasets,
         base_url,
         catalog_contact_email=settings.dcat_contact_email,
+        lineage_by_record_id=await _visible_lineage(db, datasets, user),
     )
     report = validate_dcat_us3(catalog, "Catalog")
     fallback_fields = [
@@ -414,7 +448,11 @@ async def get_geodcat_ap_catalog(
     datasets = await _get_visible_dcat_datasets(db, user, limit=limit, offset=offset)
 
     base_url = await get_public_api_url(db, request=request)
-    catalog = catalog_to_geodcat_ap(datasets, base_url)
+    catalog = catalog_to_geodcat_ap(
+        datasets,
+        base_url,
+        lineage_by_record_id=await _visible_lineage(db, datasets, user),
+    )
     completeness = _catalog_completeness(
         datasets,
         catalog,
@@ -444,7 +482,11 @@ async def validate_geodcat_ap_catalog(
     datasets = await _get_visible_dcat_datasets(db, user)
 
     base_url = await get_public_api_url(db, request=request)
-    catalog = catalog_to_geodcat_ap(datasets, base_url)
+    catalog = catalog_to_geodcat_ap(
+        datasets,
+        base_url,
+        lineage_by_record_id=await _visible_lineage(db, datasets, user),
+    )
     report = validate_geodcat_ap(catalog, "Catalog")
     report.update(
         _catalog_completeness(
@@ -474,7 +516,11 @@ async def validate_dcat3_record(
     dataset = await _get_dcat_dataset_for_export(db, dataset_id, user)
 
     base_url = await get_public_api_url(db, request=request)
-    dcat = record_to_dcat(dataset, base_url)
+    dcat = record_to_dcat(
+        dataset,
+        base_url,
+        lineage_summary=await _visible_record_lineage(db, dataset, user),
+    )
     report = validate_dcat3(dcat, "Dataset")
     fallback_fields = dcat_fallback_fields(dataset)
     report.update(
@@ -503,6 +549,7 @@ async def get_dcat_record(
         dataset,
         base_url,
         preferred_languages=preferred_languages,
+        lineage_summary=await _visible_record_lineage(db, dataset, user),
     )
     fallback_fields = dcat_fallback_fields(dataset, preferred_languages)
     return JSONResponse(
@@ -535,6 +582,7 @@ async def validate_dcat_us3_record(
         dataset,
         base_url,
         catalog_contact_email=settings.dcat_contact_email,
+        lineage_summary=await _visible_record_lineage(db, dataset, user),
     )
     report = validate_dcat_us3(dcat, "Dataset")
     fallback_fields = dcat_us3_fallback_fields(dataset, settings.dcat_contact_email)
@@ -570,6 +618,7 @@ async def get_dcat_us3_record(
         dataset,
         base_url,
         catalog_contact_email=settings.dcat_contact_email,
+        lineage_summary=await _visible_record_lineage(db, dataset, user),
     )
     fallback_fields = dcat_us3_fallback_fields(dataset, settings.dcat_contact_email)
     _ensure_conformant_dcat_us3(dcat, "Dataset")
@@ -600,7 +649,11 @@ async def validate_geodcat_ap_record(
     dataset = await _get_dcat_dataset_for_export(db, dataset_id, user)
 
     base_url = await get_public_api_url(db, request=request)
-    geodcat = record_to_geodcat_ap(dataset, base_url)
+    geodcat = record_to_geodcat_ap(
+        dataset,
+        base_url,
+        lineage_summary=await _visible_record_lineage(db, dataset, user),
+    )
     report = validate_geodcat_ap(geodcat, "Dataset")
     fallback_fields = geodcat_ap_fallback_fields(dataset)
     report.update(
@@ -627,7 +680,11 @@ async def get_geodcat_ap_record(
     dataset = await _get_dcat_dataset_for_export(db, dataset_id, user)
 
     base_url = await get_public_api_url(db, request=request)
-    geodcat = record_to_geodcat_ap(dataset, base_url)
+    geodcat = record_to_geodcat_ap(
+        dataset,
+        base_url,
+        lineage_summary=await _visible_record_lineage(db, dataset, user),
+    )
     fallback_fields = geodcat_ap_fallback_fields(dataset)
 
     return JSONResponse(

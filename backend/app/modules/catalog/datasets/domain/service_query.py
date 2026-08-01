@@ -148,6 +148,13 @@ async def get_datasets_list(
         for row in sc_result.all():
             source_counts[row.vrt_dataset_id] = row.cnt
 
+    # fix(#1103): one visibility query for the page, not one per row.
+    from app.modules.catalog.authorization import visible_lineage_summaries
+
+    lineage = await visible_lineage_summaries(
+        db, [d.record for d in datasets], user, user_roles
+    )
+
     response_list = [
         dataset_to_response(
             d,
@@ -156,6 +163,7 @@ async def get_datasets_list(
             is_admin=is_admin,
             source_count=source_counts.get(str(d.id)),
             base_url=base_url,
+            lineage_summary=lineage[d.record_id],
         )
         for d in datasets
     ]
@@ -255,7 +263,10 @@ async def get_dataset_detail(
         user_roles = await get_user_roles(db, user) if user is not None else set()
     is_admin = "admin" in user_roles
 
-    from app.modules.catalog.authorization import visible_derived_from
+    from app.modules.catalog.authorization import (
+        visible_derived_from,
+        visible_lineage_summary,
+    )
 
     response = dataset_to_response(
         dataset,
@@ -270,6 +281,10 @@ async def get_dataset_detail(
         # source dataset.
         derived_from=await visible_derived_from(
             db, dataset.record.derived_from, user, user_roles
+        ),
+        # fix(#1103): the prose names the same datasets the reference points at.
+        lineage_summary=await visible_lineage_summary(
+            db, dataset.record, user, user_roles
         ),
     )
     # fix(#430 codex r18): genericity probe (helpers.py) keeps all draw modes.

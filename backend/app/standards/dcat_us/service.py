@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date, datetime, timezone
 import re
+import uuid
 from typing import TYPE_CHECKING
 
 import structlog
@@ -29,8 +31,15 @@ def record_to_dcat_us3(
     *,
     include_context: bool = True,
     catalog_contact_email: str | None = None,
+    lineage_summary: str | None = None,
 ) -> dict:
-    """Serialize a GeoLens dataset to the DCAT-US Schema v3.0 profile."""
+    """Serialize a GeoLens dataset to the DCAT-US Schema v3.0 profile.
+
+    ``lineage_summary`` arrives access-checked from the caller
+    (``visible_lineage_summary``) rather than off the record — fix(#1103): an
+    analysis output's lineage names the titles of the datasets it was derived
+    from, and this feed is served to anonymous requesters.
+    """
     record = dataset.record
     result: dict = {}
 
@@ -81,8 +90,8 @@ def record_to_dcat_us3(
         # the filter-the-feed posture that silently dropped it from the catalog.
         result["rights"] = [record.usage_constraints]
 
-    if record.lineage_summary is not None:
-        result["provenance"] = [record.lineage_summary]
+    if lineage_summary is not None:
+        result["provenance"] = [lineage_summary]
 
     temporal = _temporal_to_dcat_us3(record)
     if temporal is not None:
@@ -115,6 +124,7 @@ def catalog_to_dcat_us3(
     base_url: str,
     *,
     catalog_contact_email: str | None = None,
+    lineage_by_record_id: Mapping[uuid.UUID, str | None] | None = None,
 ) -> dict:
     """Serialize visible datasets to a DCAT-US 3.0 Catalog document.
 
@@ -124,12 +134,14 @@ def catalog_to_dcat_us3(
     truthful and validation reports the unresolved mandatory field.
     """
     now = datetime.now(timezone.utc).isoformat()
+    lineage = lineage_by_record_id or {}
     entries = [
         record_to_dcat_us3(
             ds,
             base_url,
             include_context=False,
             catalog_contact_email=catalog_contact_email,
+            lineage_summary=lineage.get(ds.record_id),
         )
         for ds in datasets
     ]

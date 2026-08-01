@@ -34,7 +34,11 @@ from app.modules.auth.dependencies import (
     get_optional_user_no_security_schema,
     get_optional_user_or_401,
 )
-from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
+from app.modules.catalog.authorization import (
+    apply_visibility_filter,
+    get_user_roles,
+    visible_lineage_summary,
+)
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
     DatasetGrant,
@@ -275,6 +279,12 @@ async def _dataset_to_stac_item(
         spatial_extent_geojson=spatial_extent_geojson,
         public_app_url=public_app_url,
         preferred_languages=preferred_languages,
+        # fix(#1103): the prose names the same datasets the derived_from link
+        # below points at, and is gated the same way — per requester, on each
+        # referenced dataset rather than on the output they can already see.
+        lineage_summary=await visible_lineage_summary(
+            db, record, user, user_roles or set()
+        ),
     )
 
     # Re-build assets with storage_provider for presigned URLs
