@@ -133,6 +133,8 @@ const SHARED_COLUMNS = [
   { name: 'props', type: 'json' },
   // Transferable on its own; the SOURCE below is what makes it collide.
   { name: 'zone', type: 'text' },
+  // Long enough that `join_` + this exceeds the 63-byte identifier limit.
+  { name: `${'q'.repeat(58)}_alpha`, type: 'text' },
 ];
 
 // fix(#1097 review): keyed on the dataset id. A join field's collision is a
@@ -145,7 +147,15 @@ vi.mock('@/components/dataset/hooks/use-dataset', () => ({
     data: {
       column_info:
         datasetId === 'ds1'
-          ? [...SHARED_COLUMNS, { name: 'join_zone', type: 'text' }]
+          ? [
+              ...SHARED_COLUMNS,
+              { name: 'join_zone', type: 'text' },
+              // fix(#1097 review): 63 chars — what `join_` + LONG_JOIN_FIELD
+              // becomes once PostgreSQL truncates it. The untruncated alias
+              // does not match this, so a picker comparing untruncated names
+              // offers the field and the server refuses it.
+              { name: `join_${'q'.repeat(58)}`.slice(0, 63), type: 'text' },
+            ]
           : SHARED_COLUMNS,
     },
   })),
@@ -2276,6 +2286,12 @@ describe('AnalysisPanel spatial join (feat(#953))', () => {
     for (const refused of ['count', 'Área', '2020_pop']) {
       expect(screen.queryByRole('option', { name: refused })).toBeNull();
     }
+    // fix(#1097 review): and the one that only collides AFTER truncation.
+    // `join_` + this field is 64 chars; PostgreSQL cuts it to 63, which is
+    // exactly a column ds1 already has. Comparing untruncated names misses it.
+    expect(
+      screen.queryByRole('option', { name: `${'q'.repeat(58)}_alpha` }),
+    ).toBeNull();
     // fix(#1097 review): and the one that depends on the OTHER layer. `zone`
     // is transferable in itself; it is refused because the source already has
     // a join_zone, so the transfer would arrive twice. A picker that reads

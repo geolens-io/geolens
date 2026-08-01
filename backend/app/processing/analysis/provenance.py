@@ -29,7 +29,27 @@ logger = structlog.get_logger(__name__)
 
 # Params carried into the sentence and the reference. Mirrors the analysis
 # metadata the router records on the job, minus the bookkeeping keys.
-PARAM_KEYS = ("distance_meters", "by_field", "mask_source", "mask_dataset_id")
+#
+# fix(#1097 review): the spatial-join pair was missing. _materialize passes
+# join_dataset_id and join_fields to apply_analysis_provenance, and this filter
+# silently dropped both — so a join's durable lineage recorded the source and
+# the operation and neither the layer it joined against nor the columns it
+# transferred, which is most of what makes a join reproducible.
+#
+# This list is the STORAGE contract, and that has a consequence worth stating
+# where the keys are: anything added here becomes visible to every requester
+# who can see the output, so a key naming a dataset must also appear in
+# _DATASET_ID_PARAMS in catalog/authorization.py, which access-checks each one
+# per requester. test_every_dataset_id_param_is_redactable enforces exactly
+# that pairing, and it reads THIS tuple.
+PARAM_KEYS = (
+    "distance_meters",
+    "by_field",
+    "mask_source",
+    "mask_dataset_id",
+    "join_dataset_id",
+    "join_fields",
+)
 
 
 def _format_metres(value: Any) -> str:

@@ -428,57 +428,84 @@ class TestDerivedFromParamsVisibility:
         assert visible["params"]["join_dataset_id"] == str(join.id)
         assert visible["params"]["join_fields"] == ["parcel_owner"]
 
-    def test_every_dataset_id_param_is_redactable(self):
-        """Structural: the redaction table must cover every dataset id the
-        worker actually writes into provenance params.
+    async def test_a_spatial_join_records_the_layer_and_fields_it_used(
+        self, test_db_session: AsyncSession
+    ):
+        """fix(#1097 review): end to end, through the real worker.
 
-        This gap has now happened twice — the mask in #765, the join layer in
-        #1097 — and both times the code was correct for the operations that
-        existed when it was written. The failure mode is silence: an
-        unredacted id looks like ordinary provenance and nothing errors, so
-        the next operation to carry one would ship the same leak.
-
-        Parsed from the source rather than asserted against a hand-kept list,
-        because a hand-kept list is the thing that fell behind.
+        The unit-level whitelist check above says the key is allowed through.
+        This says it actually arrives, because the two are separable: the
+        params reach apply_analysis_provenance and are then filtered, so a
+        whitelist assertion alone would have passed throughout the window when
+        nothing was being stored.
         """
-        import ast
-        import pathlib
+        from tests.test_analysis_spatial_join import (
+            _create_probe_points,
+            _create_two_overlapping_polygons,
+        )
 
+        admin_id = await get_user_id(test_db_session, "admin")
+        points = await _create_probe_points(test_db_session, created_by=admin_id)
+        polys = await _create_two_overlapping_polygons(
+            test_db_session, created_by=admin_id
+        )
+        job = await _create_job(test_db_session, admin_id)
+
+        await _materialize(
+            job_id=str(job.id),
+            dataset_id=str(points.id),
+            user_id=str(admin_id),
+            operation="spatial_join",
+            title=f"Joined {uuid.uuid4().hex[:6]}",
+            join_dataset_id=str(polys.id),
+            join_fields=["name", "pop"],
+        )
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+
+        out = await test_db_session.get(Dataset, job.dataset_id)
+        record = await _record_of(test_db_session, out)
+        assert record.derived_from is not None
+        params = record.derived_from["params"]
+        # The layer it joined against, and the columns it copied. Without both,
+        # the lineage cannot explain where the join_* columns came from.
+        assert params["join_dataset_id"] == str(polys.id)
+        assert params["join_fields"] == ["name", "pop"]
+
+    def test_every_dataset_id_param_is_redactable(self):
+        """Structural: everything STORED that names a dataset must be
+        access-checked per requester.
+
+        fix(#1097 review): this reads PARAM_KEYS now, not the params dict at
+        the _materialize call site. The first version parsed the call site and
+        was checking the wrong layer — join_dataset_id was passed there and
+        then dropped by build_derived_from's PARAM_KEYS filter, so it never
+        reached records.derived_from at all. The test passed, and it was
+        confirming a pairing between two things that had no bearing on what
+        was stored.
+
+        PARAM_KEYS is the storage contract, so it is the one that matters: a
+        key added there becomes visible to every requester who can see the
+        output. This is also why the redaction and the whitelist have to move
+        together — adding join_dataset_id to PARAM_KEYS without the matching
+        _DATASET_ID_PARAMS row is precisely how a private join layer's id would
+        reach an unauthorised reader.
+
+        The failure mode is silence: an unredacted id looks like ordinary
+        provenance and nothing errors.
+        """
         from app.modules.catalog.authorization import _DATASET_ID_PARAMS
+        from app.processing.analysis.provenance import PARAM_KEYS
 
-        source = pathlib.Path("app/processing/analysis/tasks.py").read_text(
-            encoding="utf-8"
+        stored_ids = {k for k in PARAM_KEYS if k.endswith("_dataset_id")}
+        assert stored_ids, (
+            "no *_dataset_id keys in PARAM_KEYS — either the naming convention "
+            "changed or this test has stopped checking anything"
         )
-        written: set[str] = set()
-        for node in ast.walk(ast.parse(source)):
-            # The params= dict handed to apply_analysis_provenance.
-            if not isinstance(node, ast.Call):
-                continue
-            func = node.func
-            name = (
-                func.attr
-                if isinstance(func, ast.Attribute)
-                else getattr(func, "id", "")
-            )
-            if name != "apply_analysis_provenance":
-                continue
-            for kw in node.keywords:
-                if kw.arg != "params" or not isinstance(kw.value, ast.Dict):
-                    continue
-                for key in kw.value.keys:
-                    if isinstance(key, ast.Constant) and isinstance(key.value, str):
-                        if key.value.endswith("_dataset_id"):
-                            written.add(key.value)
-
-        assert written, (
-            "found no *_dataset_id keys in the provenance params — the parse "
-            "stopped matching the source, so this test is no longer checking "
-            "anything"
-        )
-        missing = written - set(_DATASET_ID_PARAMS)
+        missing = stored_ids - set(_DATASET_ID_PARAMS)
         assert not missing, (
-            f"{sorted(missing)} reach provenance params but are not in "
-            "_DATASET_ID_PARAMS, so they are published to requesters who "
+            f"{sorted(missing)} are stored in records.derived_from but are not "
+            "in _DATASET_ID_PARAMS, so they are published to requesters who "
             "cannot access the dataset they name. Add a row (and list any "
             "param that DESCRIBES that dataset as a dependent, the way "
             "join_fields hangs off join_dataset_id)."

@@ -65,6 +65,10 @@ const ROW_FILTERING_OPERATIONS = ['clip', 'select_by_location', 'intersect'] as 
 // the finding named the join picker, but the gap is in what the pickers know
 // about the server's rules, and dissolve had the same hole.
 const SAFE_COLUMN_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+// Mirrors MAX_IDENTIFIER_LENGTH in backend/app/platform/analysis_sql.py:
+// PostgreSQL's NAMEDATALEN - 1. Safe as a character count here because
+// SAFE_COLUMN_RE above has already restricted these names to ASCII.
+const MAX_IDENTIFIER_LENGTH = 63;
 const NON_GROUPABLE_COLUMN_TYPES = new Set(['json', 'xml']);
 // ux(#686): buffer distances are metres on the wire; the picker converts so a
 // user thinking in feet or miles doesn't have to.
@@ -700,7 +704,14 @@ export function AnalysisPanel({
       // Every rejection below is about the name the field would LAND on, not
       // the name it has, so all of them compare the generated form. That is
       // what keeps them true if the prefix or the generated set changes.
-      const generated = `join_${c.name}`;
+      //
+      // fix(#1097 review): truncated first, mirroring
+      // spatial_join_output_columns. PostgreSQL truncates an identifier past
+      // 63 bytes with a notice rather than refusing it, so the name the
+      // comparisons below need is the truncated one — an over-long alias can
+      // land on a source column that the untruncated string does not match,
+      // and the picker would offer a field the server then rejects.
+      const generated = `join_${c.name}`.slice(0, MAX_IDENTIFIER_LENGTH);
       // Would overwrite the generated match count.
       if (generated === 'join_count') return false;
       // Would arrive twice: once from the source, once from the join.
