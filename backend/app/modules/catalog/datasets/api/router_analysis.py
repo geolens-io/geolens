@@ -289,6 +289,45 @@ def _validate_intersect_columns(source, overlay) -> None:
                 "choose a different layer."
             ),
         )
+    # fix(#1097 review): the OVERLAY's columns, and only the overlay's.
+    #
+    # render_intersect_pairs groups by `_src.gid, _mp._mask_gid` plus every
+    # carried overlay column. The source's columns need no grouping — gid is a
+    # real table's primary key, so PostgreSQL licenses them by functional
+    # dependency — but `_mask_pieces` is a CTE with no key, so each overlay
+    # column it carries has to be named in the GROUP BY explicitly. json and
+    # xml have no equality operator, so grouping on one fails the CTAS with
+    # SQLSTATE 42883, and it fails there rather than in the preview: the
+    # preview carries gid and source_gid only, so it succeeds and the operation
+    # dies after the queue wait with an error naming a generated alias the user
+    # never wrote.
+    #
+    # Refused at enqueue instead, which is what _NON_GROUPABLE_TYPES already
+    # does for dissolve's by_field. Refusing rather than silently dropping the
+    # column is the same choice the sibling guards above make: an overlay whose
+    # output columns depend on which of them happened to be groupable is worse
+    # for anyone scripting against the result than one that says no.
+    #
+    # Carrying these through an overlay is a real gap and is worth doing — it
+    # needs the aggregate to group by the two gids alone and join the overlay's
+    # attributes back afterwards, which is a change to this query's shape
+    # rather than a guard. Tracked separately.
+    ungroupable = sorted(
+        (col.get("name"), str(col.get("type") or "").lower())
+        for col in (overlay.column_info or [])
+        if col and str(col.get("type") or "").lower() in _NON_GROUPABLE_TYPES
+    )
+    if ungroupable:
+        name, col_type = ungroupable[0]
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"The overlay layer's column {name!r} has type {col_type!r}, "
+                "which cannot be grouped, and an overlay carries every overlay "
+                "column onto its output. Choose a different layer, or remove "
+                "that column from it."
+            ),
+        )
 
 
 @router.post("/{dataset_id}/analysis/preview/", response_model=AnalysisPreviewResponse)

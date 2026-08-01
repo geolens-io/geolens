@@ -19,6 +19,8 @@ Requirements:
 import uuid
 from unittest.mock import patch
 
+import pytest
+from fastapi import HTTPException
 from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -424,6 +426,84 @@ class TestColumnCollisions:
         )
         assert resp.status_code == 422
         assert "name" in resp.text
+
+    async def test_an_ungroupable_overlay_column_is_rejected_at_enqueue(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#1097 review): json and xml have no equality operator.
+
+        render_intersect_pairs groups by the two gids plus every carried
+        OVERLAY column — the source's columns ride the functional dependency on
+        _src.gid, but _mask_pieces is a CTE with no key, so its columns must be
+        named in the GROUP BY. Grouping on json fails the CTAS with SQLSTATE
+        42883, and it fails only there: the preview carries gid and source_gid
+        alone, so it succeeds first and the operation dies after the queue wait
+        quoting a generated alias the user never wrote.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        zones = await _create_zones(test_db_session, created_by=admin_id)
+        bar = await _create_bar(test_db_session, created_by=admin_id)
+        # Physical column AND catalog snapshot: the guard reads column_info,
+        # and the worker that would hit 42883 reads the live table.
+        await test_db_session.execute(
+            text(f"ALTER TABLE data.{zones.table_name} ADD COLUMN props json")  # noqa: S608
+        )
+        zones.column_info = [
+            {"name": "zone", "type": "text"},
+            {"name": "props", "type": "json"},
+        ]
+        await test_db_session.commit()
+
+        resp = await client.post(
+            _materialize_url(bar.id),
+            json={
+                "operation": "intersect",
+                "mask_dataset_id": str(zones.id),
+                "title": "Nope",
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422
+        # Names the column and its type: "cannot be grouped" with no referent
+        # sends the operator looking through both layers by hand.
+        assert "props" in resp.text
+        assert "json" in resp.text
+
+    def test_an_ungroupable_SOURCE_column_is_still_allowed(self):
+        """The guard is deliberately one-sided, so pin the side it lets through.
+
+        A json column on the SOURCE never reaches the GROUP BY: _src.gid is a
+        real table's primary key, so PostgreSQL licenses every other _src
+        column by functional dependency. Rejecting both sides would refuse
+        overlays that work.
+
+        Against the validator rather than the endpoint: enqueueing needs the
+        task queue, so an HTTP assertion here would be reading a 503 from the
+        broker as evidence about column rules.
+        """
+        from types import SimpleNamespace
+
+        from app.modules.catalog.datasets.api.router_analysis import (
+            _validate_intersect_columns,
+        )
+
+        source = SimpleNamespace(
+            column_info=[
+                {"name": "parcel", "type": "text"},
+                {"name": "props", "type": "json"},
+            ]
+        )
+        overlay = SimpleNamespace(column_info=[{"name": "zone", "type": "text"}])
+        _validate_intersect_columns(source, overlay)
+
+        # And the mirror image is refused, which is what makes the pass above
+        # a statement about WHICH side rather than about json in general.
+        with pytest.raises(HTTPException) as excinfo:
+            _validate_intersect_columns(overlay, source)
+        assert "props" in str(excinfo.value.detail)
 
     async def test_a_source_column_named_source_gid_is_rejected(
         self,

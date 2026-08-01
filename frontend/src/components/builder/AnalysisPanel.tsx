@@ -49,6 +49,23 @@ const POLYGONAL_GEOMETRY_TYPES = new Set(['POLYGON', 'MULTIPOLYGON']);
 // spatial_join is absent on purpose: it reports match_count too, but as a
 // count of matched pairs beside a result that keeps every source row.
 const ROW_FILTERING_OPERATIONS = ['clip', 'select_by_location', 'intersect'] as const;
+// fix(#1097 review): a column the server will refuse must not be offered.
+//
+// These mirror router_analysis.py. _SAFE_COLUMN_RE gates any column named as a
+// group key or a transferred field, so `Área`, `2020_pop` and `:id` are all
+// rejected there — GDAL launders only case, `-` and `#`, so ingested tables
+// hold names like those routinely (see _list_carry_columns on why they are
+// still CARRIED; being carried and being nameable in a request are different
+// questions). _NON_GROUPABLE_TYPES rejects json and xml as group keys.
+//
+// The picker filtered exactly one of these before: dissolve dropped
+// `source_count`. Everything else was offered and then refused on submit, so
+// the only way to learn a field was unusable was to run the operation. Both
+// pickers share the rule now rather than the join picker learning it alone —
+// the finding named the join picker, but the gap is in what the pickers know
+// about the server's rules, and dissolve had the same hole.
+const SAFE_COLUMN_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+const NON_GROUPABLE_COLUMN_TYPES = new Set(['json', 'xml']);
 // ux(#686): buffer distances are metres on the wire; the picker converts so a
 // user thinking in feet or miles doesn't have to.
 const BUFFER_UNIT_METERS = { m: 1, km: 1000, ft: 0.3048, mi: 1609.344 } as const;
@@ -654,15 +671,31 @@ export function AnalysisPanel({
     operation === 'dissolve' ? (selectedLayer?.dataset_id ?? '') : '',
   );
   const byFieldColumns = (datasetDetail.data?.column_info ?? [])
-    .map((c) => c.name)
-    // The dissolve output already emits a generated source_count column.
-    .filter((name) => name !== 'source_count');
+    .filter(
+      (c) =>
+        SAFE_COLUMN_RE.test(c.name) &&
+        // The dissolve output already emits a generated source_count column.
+        c.name !== 'source_count' &&
+        // A group key needs an equality operator; json and xml have none.
+        !NON_GROUPABLE_COLUMN_TYPES.has(String(c.type ?? '').toLowerCase()),
+    )
+    .map((c) => c.name);
   // Columns of the JOIN layer, not the source — these are what gets copied
   // across. Fetched only while a join layer is actually selected.
   const joinDatasetDetail = useDataset(
     operation === 'spatial_join' ? (joinLayer?.dataset_id ?? '') : '',
   );
-  const joinFieldColumns = (joinDatasetDetail.data?.column_info ?? []).map((c) => c.name);
+  const joinFieldColumns = (joinDatasetDetail.data?.column_info ?? [])
+    .filter(
+      (c) =>
+        SAFE_COLUMN_RE.test(c.name) &&
+        // Transferred fields are prefixed 'join_', so a field named 'count'
+        // would land on the generated join_count column. Compared against the
+        // generated name rather than against the literal 'count', so it keeps
+        // holding if the prefix or the generated set changes.
+        `join_${c.name}` !== 'join_count',
+    )
+    .map((c) => c.name);
 
   const stopDrawing = useCallback(() => {
     drawRef.current?.stop();

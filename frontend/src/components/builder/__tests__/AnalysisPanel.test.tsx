@@ -123,6 +123,17 @@ vi.mock('@/components/dataset/hooks/use-dataset', () => ({
         { name: 'name', type: 'text' },
         // Must be filtered out — collides with the generated output column.
         { name: 'source_count', type: 'integer' },
+        // fix(#1097 review): every remaining shape the server refuses. GDAL
+        // launders only case, '-' and '#', so ingested tables hold names like
+        // these routinely; they are carried into analysis output but cannot be
+        // NAMED in a request, because _SAFE_COLUMN_RE gates group keys and
+        // transferred fields.
+        { name: 'Área', type: 'text' },
+        { name: '2020_pop', type: 'integer' },
+        // Prefixes to the generated join_count column.
+        { name: 'count', type: 'integer' },
+        // No equality operator, so it cannot be a group key.
+        { name: 'props', type: 'json' },
       ],
     },
   })),
@@ -929,6 +940,24 @@ describe('AnalysisPanel', () => {
         by_field: 'name',
       }),
     );
+  });
+
+  it('offers no dissolve group column the server would refuse (#1097 review)', async () => {
+    // The review named the JOIN picker, but the gap was in what the pickers
+    // know about the server's rules, and dissolve had the same hole: it
+    // filtered source_count and nothing else, so a json column (no equality
+    // operator, so it cannot be a group key) and the identifier-shape
+    // rejections were all offered and then refused on submit.
+    const user = userEvent.setup();
+    renderPanel([datasetLayer]);
+    await user.click(screen.getAllByRole('combobox')[1]);
+    await user.click(await screen.findByRole('option', { name: 'Dissolve' }));
+
+    await user.click(screen.getAllByRole('combobox')[2]);
+    expect(await screen.findByRole('option', { name: 'name' })).toBeInTheDocument();
+    for (const refused of ['source_count', 'props', 'Área', '2020_pop']) {
+      expect(screen.queryByRole('option', { name: refused })).toBeNull();
+    }
   });
 
   it('resets the dissolve group field when the source layer changes (fix(#680))', async () => {
@@ -2216,6 +2245,25 @@ describe('AnalysisPanel spatial join (feat(#953))', () => {
     expect(screen.getByRole('option', { name: 'Roads' })).toBeInTheDocument();
     // The source layer cannot join against itself.
     expect(screen.queryByRole('option', { name: 'Parcels' })).toBeNull();
+  });
+
+  it('offers no join field the server would refuse (#1097 review)', async () => {
+    // The picker used to list every column of the join layer. Three classes of
+    // them can never run: `count` prefixes onto the generated join_count
+    // column, and `Área`/`2020_pop` fail _SAFE_COLUMN_RE. Offering them meant
+    // the only way to learn a field was unusable was to submit and read a 422.
+    const user = userEvent.setup();
+    renderPanel([datasetLayer, datasetLayer2]);
+    await pickSpatialJoin(user);
+    await user.click(screen.getAllByRole('combobox')[2]);
+    await user.click(await screen.findByRole('option', { name: 'Roads' }));
+
+    await user.click(screen.getAllByRole('combobox')[3]);
+    // The one usable column is still offered — this filters, it does not empty.
+    expect(await screen.findByRole('option', { name: 'name' })).toBeInTheDocument();
+    for (const refused of ['count', 'Área', '2020_pop']) {
+      expect(screen.queryByRole('option', { name: refused })).toBeNull();
+    }
   });
 
   it('cannot preview until a join layer is picked', async () => {
