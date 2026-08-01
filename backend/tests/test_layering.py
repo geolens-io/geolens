@@ -1179,6 +1179,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # of per-operation models would describe a shape visible_derived_from is
     # free to punch holes in. Ratchet exact at 1032.
     "backend/app/modules/catalog/datasets/domain/schemas.py": 1032,
+    # fix(#1012): crossed on the rebase, not in either branch. main grew this
+    # module past 900 while the work_mem branch was open, and the branch's +120
+    # (the SET LOCAL, its budget arithmetic and the boot-time validator) landed
+    # on top of that — so the gate fired for the first time on a merge result
+    # neither side had ever built. What the lines bought: work_mem is allocated
+    # per operation AND per backend, so the ceiling this file computes is the
+    # difference between one materialize using its stated budget and one using
+    # several multiples of it. The reasoning has to live next to the SET LOCAL,
+    # because a future reader tuning the number is exactly who needs it.
+    # Ratchet exact at 1031.
+    "backend/app/processing/analysis/tasks.py": 1031,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.
