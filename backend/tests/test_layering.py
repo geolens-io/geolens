@@ -942,7 +942,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # list response returns dereferenceable ids. Smoke-residual follow-up (#315):
         # +try/except (ProgrammingError->503) around get_related_records table
         # queries (raster/missing-table guard). Cap 595 -> 620 (~3 LOC headroom).
-        "backend/app/modules/catalog/datasets/domain/service_relationships.py": 620,
+        # fix(#1104): +8 — _fetch_target_rows projects the row before to_jsonb
+        # (via live_property_columns) so the curved source `geom` column never
+        # reaches the geometry→jsonb cast, which raises on curves. Cap
+        # 620 -> 628, exact.
+        "backend/app/modules/catalog/datasets/domain/service_relationships.py": 628,
         # fix(#474): reject primary-language updates that collide with a
         # translated variant. Cap 460 -> 480 (~9 LOC headroom above 471).
         # fix(#931): +7. _apply_visibility_change no longer carries its own

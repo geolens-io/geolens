@@ -503,11 +503,19 @@ async def _fetch_target_rows(
     after: int,
 ) -> list[dict]:
     """Window-fetch matching target rows as gid+properties dicts."""
+    # fix(#1104): project the row before to_jsonb — serializing t.* first
+    # passes the curved source `geom` through the geometry→jsonb cast, which
+    # raises, even though the subtraction then discards it. Same rule as the
+    # feature readers; see live_property_columns.
+    from app.modules.catalog.features.service import live_property_columns
+
+    prop_cols = await live_property_columns(session, target_table)
+    prop_sel = f", {prop_cols}" if prop_cols else ""
     table_ref = get_catalog_port().quote_table(target_table)
     rows_result = await session.execute(
         text(
-            f"SELECT gid, to_jsonb(t.*) - 'gid' - 'geom' - 'geom_4326' AS properties "
-            f"FROM {table_ref} t "
+            f"SELECT gid, to_jsonb(t.*) - 'gid' AS properties "
+            f"FROM (SELECT gid{prop_sel} FROM {table_ref}) t "
             f"WHERE t.{target_column} = :fk_val "
             f"ORDER BY gid LIMIT :lim OFFSET :off"
         ).bindparams(fk_val=fk_value, lim=limit, off=after)

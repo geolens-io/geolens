@@ -404,3 +404,45 @@ class TestCurvedIngestNormalization:
         assert resp.status_code == 200, resp.text
         assert resp.headers["content-type"] == "application/vnd.mapbox-vector-tile"
         assert len(resp.content) > 0
+
+    async def test_features_read_serializes_a_curved_source(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """Browse, single read, and features.geojson all answer for curves.
+
+        Two raises used to hide here: ST_AsGeoJSON over a curved geom_4326
+        (fixed by ingest linearization) and ``to_jsonb(t.*)`` serializing the
+        curved SOURCE ``geom`` column before the ``- 'geom'`` subtraction
+        could discard it (fixed by projecting the row first). Each response
+        also proves properties survived the projection.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_curved_polygon_layer(test_db_session, created_by=admin_id)
+
+        resp = await client.get(
+            f"/datasets/{ds.id}/features/", headers=admin_auth_header
+        )
+        assert resp.status_code == 200, resp.text
+        features = resp.json()["features"]
+        assert len(features) == 1
+        assert features[0]["geometry"]["type"] in LINEAR_GEOJSON_TYPES
+        assert features[0]["properties"]["name"] == "circle"
+
+        gid = features[0]["id"]
+        single = await client.get(
+            f"/datasets/{ds.id}/features/{gid}", headers=admin_auth_header
+        )
+        assert single.status_code == 200, single.text
+        assert single.json()["geometry"]["type"] in LINEAR_GEOJSON_TYPES
+        assert single.json()["properties"]["name"] == "circle"
+
+        geojson = await client.get(
+            f"/datasets/{ds.id}/features.geojson", headers=admin_auth_header
+        )
+        assert geojson.status_code == 200, geojson.text
+        gj_features = geojson.json()["features"]
+        assert len(gj_features) == 1
+        assert gj_features[0]["geometry"]["type"] in LINEAR_GEOJSON_TYPES
