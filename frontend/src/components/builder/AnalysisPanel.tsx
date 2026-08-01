@@ -41,6 +41,35 @@ const MASK_LAYER_NONE = '__none__';
 // backend/app/modules/catalog/datasets/api/router_analysis.py — the server
 // rejects any other mask dataset with a 422.
 const POLYGONAL_GEOMETRY_TYPES = new Set(['POLYGON', 'MULTIPOLYGON']);
+// fix(#1097 review): mirrors _ROW_FILTERING_OPERATIONS in
+// backend/app/modules/catalog/datasets/domain/service_analysis.py. These drop
+// or multiply source rows, so the source's feature count says nothing about
+// the output and the server sends null for it. They are also the operations
+// whose match_count IS the output total, which is what this list selects for.
+// spatial_join is absent on purpose: it reports match_count too, but as a
+// count of matched pairs beside a result that keeps every source row.
+const ROW_FILTERING_OPERATIONS = ['clip', 'select_by_location', 'intersect'] as const;
+// fix(#1097 review): a column the server will refuse must not be offered.
+//
+// These mirror router_analysis.py. _SAFE_COLUMN_RE gates any column named as a
+// group key or a transferred field, so `Área`, `2020_pop` and `:id` are all
+// rejected there — GDAL launders only case, `-` and `#`, so ingested tables
+// hold names like those routinely (see _list_carry_columns on why they are
+// still CARRIED; being carried and being nameable in a request are different
+// questions). _NON_GROUPABLE_TYPES rejects json and xml as group keys.
+//
+// The picker filtered exactly one of these before: dissolve dropped
+// `source_count`. Everything else was offered and then refused on submit, so
+// the only way to learn a field was unusable was to run the operation. Both
+// pickers share the rule now rather than the join picker learning it alone —
+// the finding named the join picker, but the gap is in what the pickers know
+// about the server's rules, and dissolve had the same hole.
+const SAFE_COLUMN_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+// Mirrors MAX_IDENTIFIER_LENGTH in backend/app/platform/analysis_sql.py:
+// PostgreSQL's NAMEDATALEN - 1. Safe as a character count here because
+// SAFE_COLUMN_RE above has already restricted these names to ASCII.
+const MAX_IDENTIFIER_LENGTH = 63;
+const NON_GROUPABLE_COLUMN_TYPES = new Set(['json', 'xml']);
 // ux(#686): buffer distances are metres on the wire; the picker converts so a
 // user thinking in feet or miles doesn't have to.
 const BUFFER_UNIT_METERS = { m: 1, km: 1000, ft: 0.3048, mi: 1609.344 } as const;
@@ -211,7 +240,12 @@ export function AnalysisPanel({
           (l) => l.id === remembered.layerId && isAnalysableLayer(l),
         ) ||
         (remembered.maskLayerId !== MASK_LAYER_NONE &&
-          !layers.some((l) => l.id === remembered.maskLayerId))
+          !layers.some((l) => l.id === remembered.maskLayerId)) ||
+        // fix(#1097 review): a vanished JOIN layer strands the overlay for the
+        // same reason a vanished mask layer does — the drawn result depicts a
+        // pairing that can no longer be reproduced.
+        (remembered.joinLayerId !== MASK_LAYER_NONE &&
+          !layers.some((l) => l.id === remembered.joinLayerId))
       );
     })(),
   );
@@ -239,6 +273,32 @@ export function AnalysisPanel({
       ? savedForm.maskLayerId
       : MASK_LAYER_NONE,
   );
+  // feat(#953): the layer a spatial join counts against. MASK_LAYER_NONE is
+  // reused as the shared "no layer picked" sentinel rather than a second
+  // identically-valued constant.
+  // fix(#1097 review): restored from the snapshot on the same terms as
+  // maskLayerId — a join layer cannot be the source layer, and a remembered
+  // layer that has since left the map falls back to the sentinel.
+  const [joinLayerId, setJoinLayerId] = useState(() =>
+    savedForm &&
+    savedForm.joinLayerId !== initialLayerId &&
+    layers.some((l) => l.id === savedForm.joinLayerId)
+      ? savedForm.joinLayerId
+      : MASK_LAYER_NONE,
+  );
+  // One transferable column, or none. The API takes a list and the backend
+  // handles up to MAX_SPATIAL_JOIN_FIELDS; the panel offers a single Select
+  // because that is the "which district is this point in" case, and it needs
+  // no multi-select primitive that does not exist here yet.
+  // fix(#1097 review): the field names a column of the JOIN layer, so it is
+  // restorable exactly when that layer was — not on the source layer's terms
+  // like byField below. If the join layer fell back to the sentinel above,
+  // a remembered column of it means nothing.
+  const [joinField, setJoinField] = useState(() =>
+    savedForm && joinLayerId !== MASK_LAYER_NONE
+      ? savedForm.joinField
+      : BY_FIELD_NONE,
+  );
   const [byField, setByField] = useState(
     // ux(#772)/fix(#680) parity: a remembered group-by column belongs to the
     // remembered layer — it must not carry to a stack-selected one.
@@ -250,15 +310,22 @@ export function AnalysisPanel({
     if (!prefill) return savedForm?.outputTitle ?? '';
     const layer = layers.find((l) => l.id === prefill.layerId);
     const base = layer?.display_name ?? layer?.dataset_name ?? '';
-    const opLabel =
-      prefill.operation === 'buffer'
-        ? t('analysisTools.opBuffer', { defaultValue: 'Buffer' })
-        : prefill.operation === 'centroid'
-          ? t('analysisTools.opCentroid', { defaultValue: 'Centroids' })
-          : prefill.operation === 'clip'
-            ? t('analysisTools.opClip', { defaultValue: 'Clip' })
-            : t('analysisTools.opDissolve', { defaultValue: 'Dissolve' });
-    return [base, opLabel].filter(Boolean).join(' — ');
+    // feat(#953): a lookup, not a ternary chain. The chain's final else read
+    // "Dissolve", so every operation added after it was silently labelled
+    // Dissolve in the suggested title until someone extended the chain too.
+    const opLabel: Record<AnalysisOperation, string> = {
+      buffer: t('analysisTools.opBuffer', { defaultValue: 'Buffer' }),
+      centroid: t('analysisTools.opCentroid', { defaultValue: 'Centroids' }),
+      clip: t('analysisTools.opClip', { defaultValue: 'Clip' }),
+      dissolve: t('analysisTools.opDissolve', { defaultValue: 'Dissolve' }),
+      spatial_join: t('analysisTools.opSpatialJoin', { defaultValue: 'Spatial join' }),
+      measure: t('analysisTools.opMeasure', { defaultValue: 'Measure' }),
+      select_by_location: t('analysisTools.opSelectByLocation', {
+        defaultValue: 'Select by location',
+      }),
+      intersect: t('analysisTools.opIntersect', { defaultValue: 'Intersect' }),
+    };
+    return [base, opLabel[prefill.operation]].filter(Boolean).join(' — ');
   });
   // fix(#760): rehydrate a still-tracked materialize for THIS map so a
   // reopened (or reloaded) panel shows the status line and completion
@@ -346,6 +413,8 @@ export function AnalysisPanel({
     mask,
     maskLayerId,
     byField,
+    joinLayerId,
+    joinField,
     outputTitle,
     runDisowned: formEditedRef.current,
   };
@@ -534,14 +603,122 @@ export function AnalysisPanel({
     maskLayerId !== MASK_LAYER_NONE
       ? maskLayerOptions.find((l) => l.id === maskLayerId)
       : undefined;
-  // Only fetched while dissolve is selected (enabled gates on a non-empty id).
+  // feat(#955): select_by_location takes its geometry from the same drawn-or-
+  // layer pair clip does, and the API takes it in the same two fields, so the
+  // panel shares the controls rather than growing a second spelling of them.
+  const usesMask = operation === 'clip' || operation === 'select_by_location';
+  // feat(#956): intersect shares the layer PICKER but not the draw block — a
+  // drawn polygon carries no attributes to overlay with, which would make it an
+  // expensive clip. The API reflects that too: `mask` is not an intersect
+  // param, only `mask_dataset_id`.
+  const usesMaskLayer = usesMask || operation === 'intersect';
+  // The controls are shared; the words cannot be. "Draw clip area" under a
+  // selection names an operation the user did not pick.
+  const maskCopy =
+    operation === 'select_by_location'
+      ? {
+          draw: t('analysisTools.drawSelectionArea', {
+            defaultValue: 'Draw selection area',
+          }),
+          areaSet: t('analysisTools.selectionAreaSet', {
+            defaultValue: 'Selection area set',
+          }),
+          layerLabel: t('analysisTools.selectLayerLabel', {
+            defaultValue: 'Or select against a layer',
+          }),
+          layerNone: t('analysisTools.clipLayerNone', {
+            defaultValue: 'None — draw on the map',
+          }),
+          pointerHint: t('analysisTools.drawSelectionPointerHint', {
+            defaultValue:
+              'Drawing needs a pointer. To select without one, pick a polygon layer below.',
+          }),
+        }
+      : operation === 'intersect'
+        ? {
+            // draw/areaSet/pointerHint are unused here: intersect renders the
+            // picker below but never the draw block above it.
+            draw: '',
+            areaSet: '',
+            pointerHint: '',
+            layerLabel: t('analysisTools.overlayLayerLabel', {
+              defaultValue: 'Overlay with layer',
+            }),
+            layerNone: t('analysisTools.overlayLayerNone', {
+              defaultValue: 'Choose a layer',
+            }),
+          }
+      : {
+          draw: t('analysisTools.drawMask', { defaultValue: 'Draw clip area' }),
+          areaSet: t('analysisTools.maskSet', { defaultValue: 'Clip area set' }),
+          layerLabel: t('analysisTools.clipLayerLabel', {
+            defaultValue: 'Or clip to a layer',
+          }),
+          layerNone: t('analysisTools.clipLayerNone', {
+            defaultValue: 'None — draw on the map',
+          }),
+          pointerHint: t('analysisTools.drawMaskPointerHint', {
+            defaultValue:
+              'Drawing needs a pointer. To clip without one, pick a polygon layer below.',
+          }),
+        };
+  // feat(#953): a join works in every direction — points in polygons, polygons
+  // over polygons, lines crossing polygons — so unlike the clip mask above
+  // there is no geometry-type filter, only "not the source layer".
+  const joinLayerOptions = datasetLayers.filter((l) => l.id !== layerId);
+  const joinLayer =
+    joinLayerId !== MASK_LAYER_NONE
+      ? joinLayerOptions.find((l) => l.id === joinLayerId)
+      : undefined;
+  // fix(#1097 review): spatial_join needs the SOURCE's columns too, not just
+  // dissolve. A transferred field lands as join_<name>, so a source that
+  // already has join_zone — routinely, because it is the output of an earlier
+  // spatial join — collides with a join layer's `zone`, and the server rejects
+  // both Preview and Create with a 422 the picker gave no warning of.
   const datasetDetail = useDataset(
-    operation === 'dissolve' ? (selectedLayer?.dataset_id ?? '') : '',
+    operation === 'dissolve' || operation === 'spatial_join'
+      ? (selectedLayer?.dataset_id ?? '')
+      : '',
+  );
+  const sourceColumnNames = new Set(
+    (datasetDetail.data?.column_info ?? []).map((c) => c.name),
   );
   const byFieldColumns = (datasetDetail.data?.column_info ?? [])
-    .map((c) => c.name)
-    // The dissolve output already emits a generated source_count column.
-    .filter((name) => name !== 'source_count');
+    .filter(
+      (c) =>
+        SAFE_COLUMN_RE.test(c.name) &&
+        // The dissolve output already emits a generated source_count column.
+        c.name !== 'source_count' &&
+        // A group key needs an equality operator; json and xml have none.
+        !NON_GROUPABLE_COLUMN_TYPES.has(String(c.type ?? '').toLowerCase()),
+    )
+    .map((c) => c.name);
+  // Columns of the JOIN layer, not the source — these are what gets copied
+  // across. Fetched only while a join layer is actually selected.
+  const joinDatasetDetail = useDataset(
+    operation === 'spatial_join' ? (joinLayer?.dataset_id ?? '') : '',
+  );
+  const joinFieldColumns = (joinDatasetDetail.data?.column_info ?? [])
+    .filter((c) => {
+      if (!SAFE_COLUMN_RE.test(c.name)) return false;
+      // Every rejection below is about the name the field would LAND on, not
+      // the name it has, so all of them compare the generated form. That is
+      // what keeps them true if the prefix or the generated set changes.
+      //
+      // fix(#1097 review): truncated first, mirroring
+      // spatial_join_output_columns. PostgreSQL truncates an identifier past
+      // 63 bytes with a notice rather than refusing it, so the name the
+      // comparisons below need is the truncated one — an over-long alias can
+      // land on a source column that the untruncated string does not match,
+      // and the picker would offer a field the server then rejects.
+      const generated = `join_${c.name}`.slice(0, MAX_IDENTIFIER_LENGTH);
+      // Would overwrite the generated match count.
+      if (generated === 'join_count') return false;
+      // Would arrive twice: once from the source, once from the join.
+      if (sourceColumnNames.has(generated)) return false;
+      return true;
+    })
+    .map((c) => c.name);
 
   const stopDrawing = useCallback(() => {
     drawRef.current?.stop();
@@ -632,12 +809,27 @@ export function AnalysisPanel({
   const maskLayerGone =
     maskLayerId !== MASK_LAYER_NONE &&
     !maskLayerOptions.some((l) => l.id === maskLayerId);
+  // feat(#953): a vanished join layer is an input change on the same terms.
+  const joinLayerGone =
+    joinLayerId !== MASK_LAYER_NONE &&
+    !joinLayerOptions.some((l) => l.id === joinLayerId);
   useEffect(() => {
-    if (!selectedLayerGone && !maskLayerGone) return;
+    if (!selectedLayerGone && !maskLayerGone && !joinLayerGone) return;
     handleInputsChanged();
     if (selectedLayerGone) setLayerId(firstEligibleId);
     if (maskLayerGone) setMaskLayerId(MASK_LAYER_NONE);
-  }, [selectedLayerGone, maskLayerGone, firstEligibleId, handleInputsChanged]);
+    if (joinLayerGone) {
+      setJoinLayerId(MASK_LAYER_NONE);
+      // The field list belonged to the layer that just went away.
+      setJoinField(BY_FIELD_NONE);
+    }
+  }, [
+    selectedLayerGone,
+    maskLayerGone,
+    joinLayerGone,
+    firstEligibleId,
+    handleInputsChanged,
+  ]);
 
   // Stop any active draw when the panel unmounts.
   useEffect(() => stopDrawing, [stopDrawing]);
@@ -745,9 +937,17 @@ export function AnalysisPanel({
           // canRun blocks dissolve from the preview path.
           operation: operation as Exclude<AnalysisOperation, 'dissolve'>,
           ...(operation === 'buffer' ? { distance_meters: distanceValue } : {}),
-          ...(operation === 'clip' && mask ? { mask } : {}),
-          ...(operation === 'clip' && !mask && maskLayer?.dataset_id
+          ...(usesMask && mask ? { mask } : {}),
+          ...(usesMaskLayer && !mask && maskLayer?.dataset_id
             ? { mask_dataset_id: maskLayer.dataset_id }
+            : {}),
+          ...(operation === 'spatial_join' && joinLayer?.dataset_id
+            ? {
+                join_dataset_id: joinLayer.dataset_id,
+                ...(joinField !== BY_FIELD_NONE
+                  ? { join_fields: [joinField.replace(/^col:/, '')] }
+                  : {}),
+              }
             : {}),
         },
         controller.signal,
@@ -785,7 +985,37 @@ export function AnalysisPanel({
         );
         return;
       }
-      const total = result.source_feature_count;
+      // fix(#1097 review): which total the server sent, and what it MEANS.
+      // For 1:1 operations it sends source_feature_count and the notice says
+      // "source features". For the row-filtering ones (select_by_location,
+      // intersect) the source count cannot describe the output, so it sends
+      // null there and the exact OUTPUT total as match_count instead — which
+      // this read used to discard, leaving the user the generic cap message
+      // despite the server having paid for an exact count.
+      //
+      // fix(#1097 review): keyed off the OPERATION, not off source_feature_count
+      // being null. Null has two causes, and only one of them means "read
+      // match_count instead": the operation filters rows, or the dataset's
+      // cached feature_count snapshot is simply absent (legacy imports,
+      // register_existing_table). A spatial_join on a dataset with no snapshot
+      // hits the second, and its match_count is a count of matched PAIRS — one
+      // source row can match many join rows, so it runs LARGER than the output,
+      // which for a 1:1 join is the source row count. Inferring from null
+      // reported and stored that pair count as the output total.
+      //
+      // Reading `operation` after the seq guard above is what makes this the
+      // operation that produced `result`: any input change bumps the sequence,
+      // so a response that outlived its inputs has already returned.
+      //
+      // A ninth operation lands in the else branch and gets the source total.
+      // That is the safe default and it is deliberately not automatic: what
+      // match_count MEANS is per-operation, so a new one owes this list a
+      // decision rather than inheriting a guess.
+      const filtersRows = ROW_FILTERING_OPERATIONS.includes(
+        operation as (typeof ROW_FILTERING_OPERATIONS)[number],
+      );
+      const matchedTotal = filtersRows ? (result.match_count ?? null) : null;
+      const total = matchedTotal ?? result.source_feature_count ?? null;
       const bbox = result.bbox as [number, number, number, number];
       if (result.truncated) {
         onPreviewResult?.(result.geojson, bbox, {
@@ -798,7 +1028,19 @@ export function AnalysisPanel({
       }
       if (result.truncated) {
         toast.info(
-          total != null
+          matchedTotal != null
+            ? t('analysisTools.truncatedNoticeMatched', {
+                // fix(#1097 review): a separate string, not the same one with
+                // a different number. This total is the OUTPUT row count, so
+                // calling it "source features" would misdescribe it — for
+                // intersect it is not even a count of source rows, since one
+                // source feature can produce several output pieces.
+                defaultValue:
+                  'Showing the first {{count, number}} of {{total, number}} matching features',
+                count: result.feature_count,
+                total: matchedTotal,
+              })
+            : total != null
             ? t('analysisTools.truncatedNoticeTotal', {
                 // fix(#680 review): "source features" — the total is the
                 // source dataset's COUNT(*), which can exceed the number of
@@ -848,12 +1090,20 @@ export function AnalysisPanel({
         operation,
         title,
         ...(operation === 'buffer' ? { distance_meters: distanceValue } : {}),
-        ...(operation === 'clip' && mask ? { mask } : {}),
-        ...(operation === 'clip' && !mask && maskLayer?.dataset_id
+        ...(usesMask && mask ? { mask } : {}),
+        ...(usesMaskLayer && !mask && maskLayer?.dataset_id
           ? { mask_dataset_id: maskLayer.dataset_id }
           : {}),
         ...(operation === 'dissolve' && byField !== BY_FIELD_NONE
           ? { by_field: byField.replace(/^col:/, '') }
+          : {}),
+        ...(operation === 'spatial_join' && joinLayer?.dataset_id
+          ? {
+              join_dataset_id: joinLayer.dataset_id,
+              ...(joinField !== BY_FIELD_NONE
+                ? { join_fields: [joinField.replace(/^col:/, '')] }
+                : {}),
+            }
           : {}),
       });
       // fix(#793 review): mark the job as this instance's own BEFORE the
@@ -886,7 +1136,21 @@ export function AnalysisPanel({
 
   const paramsValid =
     (operation !== 'buffer' || distanceValid) &&
-    (operation !== 'clip' || !!mask || !!maskLayer);
+    (!usesMask || !!mask || !!maskLayer) &&
+    // feat(#956): layer only, so there is no drawn fallback to fall back to.
+    (operation !== 'intersect' || !!maskLayer) &&
+    // feat(#953): a join with nothing to join against is not a runnable form —
+    // reflect it here rather than letting the click earn a 422.
+    (operation !== 'spatial_join' || !!joinLayer) &&
+    // fix(#1097 review): and the transferred field has to still be one the
+    // picker would offer. Clearing it when the source changes handles the way
+    // it went stale in practice; this handles the rest, because the field and
+    // the rule that validates it depend on two different layers and either can
+    // move underneath it. Submission is gated on the state agreeing with the
+    // menu rather than on enumerating the ways they can disagree.
+    (operation !== 'spatial_join' ||
+      joinField === BY_FIELD_NONE ||
+      joinFieldColumns.includes(joinField.replace(/^col:/, '')));
   const canRun =
     !!selectedLayer?.dataset_id &&
     !previewMutation.isPending &&
@@ -961,6 +1225,17 @@ export function AnalysisPanel({
             // carry to another — it may not exist there (422 from the API) or
             // silently group by a same-named field.
             setByField(BY_FIELD_NONE);
+            // fix(#1097 review): the transferred field is the same problem and
+            // was left out of this reset. It belongs to the JOIN layer, so it
+            // survives a source change intact — but whether it is usable
+            // depends on the SOURCE, since join_<name> has to not collide with
+            // a source column. Picking `zone` against a source with no
+            // join_zone and then switching to one that has it left the menu
+            // filtering `zone` out while the state still held it, and the
+            // request still went (and earned a 422). A join layer can't join
+            // against itself either, so the layer goes with the field.
+            if (v === joinLayerId) setJoinLayerId(MASK_LAYER_NONE);
+            setJoinField(BY_FIELD_NONE);
           }}
         >
           <SelectTrigger id="analysis-layer" className="w-full">
@@ -989,10 +1264,13 @@ export function AnalysisPanel({
           onValueChange={(v) => {
             handleInputsChanged();
             const next = v as AnalysisOperation;
-            if (next !== 'clip') {
+            if (next !== 'clip' && next !== 'select_by_location') {
               // fix(#680): leaving clip mode must drop the retained mask —
               // the static-mode TerraDraw layers otherwise stay visible on
-              // the map under operations that ignore them.
+              // the map under operations that ignore them. feat(#955): clip
+              // and select_by_location both use the mask, so switching
+              // BETWEEN them keeps the drawn area instead of making the user
+              // redraw the same polygon.
               setMask(null);
               stopDrawing();
             }
@@ -1011,6 +1289,20 @@ export function AnalysisPanel({
             </SelectItem>
             <SelectItem value="clip">
               {t('analysisTools.opClip', { defaultValue: 'Clip' })}
+            </SelectItem>
+            <SelectItem value="spatial_join">
+              {t('analysisTools.opSpatialJoin', { defaultValue: 'Spatial join' })}
+            </SelectItem>
+            <SelectItem value="measure">
+              {t('analysisTools.opMeasure', { defaultValue: 'Measure' })}
+            </SelectItem>
+            <SelectItem value="select_by_location">
+              {t('analysisTools.opSelectByLocation', {
+                defaultValue: 'Select by location',
+              })}
+            </SelectItem>
+            <SelectItem value="intersect">
+              {t('analysisTools.opIntersect', { defaultValue: 'Intersect' })}
             </SelectItem>
             {/* fix(#779): dissolve has no preview by design, and the whole
                 materialize block is hidden without the upload permission — a
@@ -1032,6 +1324,109 @@ export function AnalysisPanel({
           </p>
         )}
       </div>
+
+      {operation === 'intersect' && (
+        <p className="text-xs text-muted-foreground">
+          {t('analysisTools.intersectHint', {
+            defaultValue:
+              'Cuts new features where the two layers overlap, one per overlapping pair, carrying columns from both. Use Measure afterwards for overlap area.',
+          })}
+        </p>
+      )}
+
+      {operation === 'select_by_location' && (
+        <p className="text-xs text-muted-foreground">
+          {t('analysisTools.selectByLocationHint', {
+            defaultValue:
+              'Keeps the features that touch the area, whole and unchanged. Use Create dataset to save the list, then export it.',
+          })}
+        </p>
+      )}
+
+      {operation === 'measure' && (
+        <p className="text-xs text-muted-foreground">
+          {t('analysisTools.measureHint', {
+            defaultValue:
+              'Adds area_sqm and length_m to every feature, measured on the globe. Polygons get an area and lines a length; the other reads 0.',
+          })}
+        </p>
+      )}
+
+      {operation === 'spatial_join' && (
+        <>
+          <div className="space-y-1.5">
+            <Label className="text-xs" htmlFor="analysis-join-layer">
+              {t('analysisTools.joinLayerLabel', { defaultValue: 'Join with layer' })}
+            </Label>
+            <Select
+              value={joinLayerId}
+              onValueChange={(v) => {
+                handleInputsChanged();
+                setJoinLayerId(v);
+                // The column list comes from the join layer, so a remembered
+                // field cannot survive changing which layer that is.
+                setJoinField(BY_FIELD_NONE);
+              }}
+            >
+              <SelectTrigger id="analysis-join-layer" className="w-full">
+                <SelectValue
+                  placeholder={t('analysisTools.joinLayerPlaceholder', {
+                    defaultValue: 'Choose a layer',
+                  })}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {joinLayerOptions.map((l) => (
+                  <SelectItem key={l.id} value={l.id}>
+                    {l.display_name ?? l.dataset_name ?? l.id}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {t('analysisTools.spatialJoinHint', {
+                defaultValue:
+                  'Each feature gains a join_count of the features it intersects. Overlaps count every match but still produce one row.',
+              })}
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs" htmlFor="analysis-join-field">
+              {t('analysisTools.joinFieldLabel', {
+                defaultValue: 'Copy a field across (optional)',
+              })}
+            </Label>
+            <Select
+              value={joinField}
+              onValueChange={(v) => {
+                handleInputsChanged();
+                setJoinField(v);
+              }}
+              disabled={!joinLayer}
+            >
+              <SelectTrigger id="analysis-join-field" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={BY_FIELD_NONE}>
+                  {t('analysisTools.joinFieldNone', {
+                    defaultValue: 'Count only',
+                  })}
+                </SelectItem>
+                {joinFieldColumns.map((name) => (
+                  // Same 'col:' prefix as the dissolve picker, for the same
+                  // reason: a real column named '__none__' must not collide
+                  // with the sentinel.
+                  <SelectItem key={name} value={`col:${name}`}>
+                    {name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </>
+      )}
 
       {operation === 'dissolve' && (
         <div className="space-y-1.5">
@@ -1150,15 +1545,13 @@ export function AnalysisPanel({
         </div>
       )}
 
-      {operation === 'clip' && maskLayer == null && (
+      {usesMask && maskLayer == null && (
         <div className="space-y-1.5">
           {/* fix(#754): no htmlFor here — a <label for> pointed at a button
               OVERRIDES the button's own text in the accessible-name
               computation, so Cancel and Clear were both announced as "Draw
               clip area". The buttons below are self-labeling. */}
-          <Label className="text-xs">
-            {t('analysisTools.drawMask', { defaultValue: 'Draw clip area' })}
-          </Label>
+          <Label className="text-xs">{maskCopy.draw}</Label>
           {isDrawing ? (
             <div className="space-y-1.5">
               <p className="text-xs text-muted-foreground">
@@ -1179,7 +1572,7 @@ export function AnalysisPanel({
           ) : mask ? (
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs text-muted-foreground">
-                {t('analysisTools.maskSet', { defaultValue: 'Clip area set' })}
+                {maskCopy.areaSet}
               </span>
               <Button
                 ref={clearMaskButtonRef}
@@ -1207,27 +1600,22 @@ export function AnalysisPanel({
                 onClick={startDrawing}
                 disabled={!mapInstance}
               >
-                {t('analysisTools.drawMask', { defaultValue: 'Draw clip area' })}
+                {maskCopy.draw}
               </Button>
               {/* ux(#686): drawing is pointer-only. Name the keyboard-reachable
                   alternative instead of leaving it to be discovered. */}
               <p className="text-xs text-muted-foreground">
-                {t('analysisTools.drawMaskPointerHint', {
-                  defaultValue:
-                    'Drawing needs a pointer. To clip without one, pick a polygon layer below.',
-                })}
+                {maskCopy.pointerHint}
               </p>
             </div>
           )}
         </div>
       )}
 
-      {operation === 'clip' && (
+      {usesMaskLayer && (
         <div className="space-y-1.5">
           <Label className="text-xs" htmlFor="analysis-mask-layer">
-            {t('analysisTools.clipLayerLabel', {
-              defaultValue: 'Or clip to a layer',
-            })}
+            {maskCopy.layerLabel}
           </Label>
           <Select
             value={maskLayerId}
@@ -1245,11 +1633,7 @@ export function AnalysisPanel({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={MASK_LAYER_NONE}>
-                {t('analysisTools.clipLayerNone', {
-                  defaultValue: 'None — draw on the map',
-                })}
-              </SelectItem>
+              <SelectItem value={MASK_LAYER_NONE}>{maskCopy.layerNone}</SelectItem>
               {/* fix(#779): say why the list is empty instead of showing a
                   dropdown with a lone "None" entry. */}
               {maskLayerOptions.length === 0 && (

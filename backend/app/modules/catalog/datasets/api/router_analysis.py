@@ -2,7 +2,9 @@
 
 import re
 import uuid
+from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import and_, func, or_, select, text
@@ -15,6 +17,7 @@ from app.core.tenancy import is_multi_tenant
 from app.modules.auth.dependencies import get_current_active_user, require_permission
 from app.modules.catalog.authorization import check_dataset_access
 from app.modules.catalog.datasets.domain.schemas import (
+    MASK_OPERATIONS,
     AnalysisMaterializeRequest,
     AnalysisMaterializeResponse,
     AnalysisPreviewRequest,
@@ -27,9 +30,14 @@ from app.modules.catalog.datasets.domain.service import (
 )
 from app.modules.quota.service import check_upload_quota
 from app.platform.analysis_sql import (
+    INTERSECT_OUTPUT_COLUMNS,
     MAX_MASK_LAYER_FEATURES,
     MAX_SOURCE_FEATURES,
+    INTERNAL_ALIAS_PREFIX,
+    MEASURE_OUTPUT_COLUMNS,
+    NON_GROUPABLE_COLUMN_TYPES,
     render_mask_expr,
+    spatial_join_output_columns,
 )
 from app.platform.extensions import get_catalog_port
 from app.platform.jobs.defer_guard import (
@@ -79,7 +87,6 @@ MAX_ACTIVE_MATERIALIZES_PER_TENANT = 3
 # dissolve GROUP BY on such a column fails the CTAS with an opaque 42883
 # after the queue wait. GDAL maps nested GeoJSON objects to `json`, so
 # real uploads hit this. Rejected at enqueue with the column named.
-_NON_GROUPABLE_TYPES = {"json", "xml"}
 
 # fix(#695): Procrastinate ranks by per-job priority (DESC, default 0), not
 # by queue name — so a 300-second analysis CTAS enqueued first would
@@ -136,9 +143,16 @@ _POLYGONAL_TYPES = {"POLYGON", "MULTIPOLYGON"}
 async def _load_mask_dataset(
     db: AsyncSession, mask_dataset_id: uuid.UUID, user: Identity
 ):
-    """Fetch + visibility-check a clip-mask dataset (Rule 1 applies to BOTH
+    """Fetch + visibility-check a mask dataset (Rule 1 applies to BOTH
     datasets of a two-layer operation) and require it to be polygonal —
-    unioning points/lines produces a mask that clips nothing meaningful."""
+    unioning points/lines produces a mask that clips nothing meaningful.
+
+    fix(#955): shared with select_by_location, which takes its selection
+    geometry from the same mask pair. Both ceilings apply there unchanged; the
+    over-limit message still says "to clip with", which reads slightly off for
+    a selection but is wired through error-map.ts and four locales, so it is
+    left alone rather than half-changed.
+    """
     dataset = await _load_vector_dataset(db, mask_dataset_id, user)
     if (dataset.geometry_type or "").upper() not in _POLYGONAL_TYPES:
         raise HTTPException(
@@ -160,6 +174,189 @@ async def _load_mask_dataset(
     return dataset
 
 
+async def _load_join_dataset(
+    db: AsyncSession, join_dataset_id: uuid.UUID, user: Identity
+):
+    """Fetch + visibility-check a spatial-join layer (fix(#953)).
+
+    Rule 1 applies to BOTH datasets of a two-layer operation, so this is the
+    same treatment ``_load_mask_dataset`` gives the clip mask. No geometry-type
+    requirement, unlike the mask: a join is meaningful in every direction —
+    points in polygons, polygons touching lines, polygons overlapping polygons
+    — and the count means the same thing in all of them. No size ceiling of its
+    own either: the join layer is probed through its GIST index once per source
+    row, so it is the SOURCE row count that drives the cost, and that is what
+    MAX_SOURCE_FEATURES['spatial_join'] bounds.
+    """
+    return await _load_vector_dataset(db, join_dataset_id, user)
+
+
+def _reject_generated_column_collision(source, generated: Iterable[str]) -> None:
+    """422 when the source already has a column an operation would generate.
+
+    Every 1:1 operation's output is the source's own columns verbatim plus its
+    generated ones, so a source column of the same name reaches the CTAS twice
+    and fails it with an opaque "column specified more than once" — after the
+    whole queue wait. Named at enqueue instead. This is the shared form of the
+    guard dissolve applies to ``source_count`` in ``_validate_dissolve_by_field``
+    (fix(#954): measure and spatial_join both need it, so it lives in one place
+    rather than being re-derived per operation).
+    """
+    source_columns = {col.get("name") for col in (source.column_info or []) if col}
+    clashes = sorted(source_columns & set(generated))
+    if clashes:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"The source dataset already has a column named {clashes[0]!r}, "
+                "which this operation would overwrite. Rename it, or choose a "
+                "different operation."
+            ),
+        )
+
+
+def _validate_join_fields(source, join_dataset, join_fields: list[str]) -> None:
+    """422 on unknown join columns, or ones that would collide on output."""
+    known = {col.get("name") for col in (join_dataset.column_info or []) if col}
+    for name in join_fields:
+        if not _SAFE_COLUMN_RE.match(name) or name not in known:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"Unknown join column: {name!r}",
+            )
+    generated = spatial_join_output_columns(join_fields)
+    # fix(#1097 review): the generated names must be unique among THEMSELVES
+    # before they are checked against the source. A join layer with an ordinary
+    # column named `count` prefixes to `join_count`, the name this operation
+    # already generates for the match count — so the list holds it twice while
+    # the guard below, which only compares against the SOURCE, sees nothing
+    # wrong. Materialization then failed the CTAS with "column specified more
+    # than once" after the whole queue wait, and the preview was worse: it maps
+    # both values onto one property, so the transferred field silently
+    # overwrote the real match count.
+    #
+    # Written as a duplicate check rather than as "reject the field named
+    # `count`" because the collision is a property of the generated names, not
+    # of that one input: a change to the prefix or to the generated set moves
+    # which field collides, and this keeps holding. The other way a name can
+    # repeat, the same field requested twice, is already rejected by
+    # AnalysisMaterializeRequest and never reaches here.
+    duplicates = sorted({name for name in generated if generated.count(name) > 1})
+    if duplicates:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Two transferred columns would both be named {duplicates[0]!r} "
+                "in the result. Choose the field once, and rename it in the join "
+                "layer if its name collides with a column this operation "
+                "generates."
+            ),
+        )
+    _reject_generated_column_collision(source, generated)
+
+
+def _column_names(dataset) -> set[str]:
+    return {col.get("name") for col in (dataset.column_info or []) if col}
+
+
+def _validate_intersect_columns(source, overlay) -> None:
+    """422 on any column an overlay would emit twice (fix(#956)).
+
+    An overlay is the first operation to carry columns from BOTH inputs onto
+    every output row, so a same-named column in the two layers is likely
+    rather than exotic — ``name``, ``id`` and ``area`` are all common. The CTAS
+    would fail it with an opaque "column specified more than once" after the
+    whole queue wait. Prefixing silently is the alternative, and it makes the
+    output columns unpredictable for anyone scripting against the result.
+    """
+    _reject_generated_column_collision(source, INTERSECT_OUTPUT_COLUMNS)
+    generated = sorted(_column_names(overlay) & set(INTERSECT_OUTPUT_COLUMNS))
+    if generated:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"The overlay layer has a column named {generated[0]!r}, which "
+                "this operation generates. Rename it, or choose a different "
+                "layer."
+            ),
+        )
+    clashes = sorted(_column_names(source) & _column_names(overlay))
+    if clashes:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Both layers have a column named {clashes[0]!r}, and an "
+                "overlay carries columns from both. Rename one of them, or "
+                "choose a different layer."
+            ),
+        )
+    # fix(#1097 review): the OVERLAY's columns, and only the overlay's.
+    #
+    # render_intersect_pairs groups by `_src.gid, _mp._mask_gid` plus every
+    # carried overlay column. The source's columns need no grouping — gid is a
+    # real table's primary key, so PostgreSQL licenses them by functional
+    # dependency — but `_mask_pieces` is a CTE with no key, so each overlay
+    # column it carries has to be named in the GROUP BY explicitly. json and
+    # xml have no equality operator, so grouping on one fails the CTAS with
+    # SQLSTATE 42883, and it fails there rather than in the preview: the
+    # preview carries gid and source_gid only, so it succeeds and the operation
+    # dies after the queue wait with an error naming a generated alias the user
+    # never wrote.
+    #
+    # Refused at enqueue instead, which is what NON_GROUPABLE_COLUMN_TYPES already
+    # does for dissolve's by_field. Refusing rather than silently dropping the
+    # column is the same choice the sibling guards above make: an overlay whose
+    # output columns depend on which of them happened to be groupable is worse
+    # for anyone scripting against the result than one that says no.
+    #
+    # Carrying these through an overlay is a real gap and is worth doing — it
+    # needs the aggregate to group by the two gids alone and join the overlay's
+    # attributes back afterwards, which is a change to this query's shape
+    # rather than a guard. Tracked separately.
+    # fix(#1097 review): a carried column may not sit in the alias namespace.
+    # Both layers, because an overlay carries columns from both and the inner
+    # aggregate names them in one select list alongside _gl_src_type; the
+    # overlay's are additionally re-listed inside _mask_pieces beside
+    # _gl_mask_gid and _gl_g. Checked against the PREFIX rather than the three
+    # alias names, so an alias added to that query later is covered without a
+    # second place to update.
+    reserved = sorted(
+        name
+        for name in (_column_names(source) | _column_names(overlay))
+        if name and name.startswith(INTERNAL_ALIAS_PREFIX)
+    )
+    if reserved:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Column {reserved[0]!r} uses the {INTERNAL_ALIAS_PREFIX!r} "
+                "prefix, which this operation reserves for its own internal "
+                "columns. Rename it, or choose a different layer."
+            ),
+        )
+    # fix(#1097 review): SCALAR json/xml only. The snapshot stores an array
+    # column's type as 'ARRAY' with no element type, so json[]/xml[] are
+    # invisible here by construction; the worker's live-schema recheck
+    # (_ungroupable_type_name reads udt_name) is their sole guard, and the
+    # same applies to dissolve's by_field check above.
+    ungroupable = sorted(
+        (col.get("name"), str(col.get("type") or "").lower())
+        for col in (overlay.column_info or [])
+        if col and str(col.get("type") or "").lower() in NON_GROUPABLE_COLUMN_TYPES
+    )
+    if ungroupable:
+        name, col_type = ungroupable[0]
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"The overlay layer's column {name!r} has type {col_type!r}, "
+                "which cannot be grouped, and an overlay carries every overlay "
+                "column onto its output. Choose a different layer, or remove "
+                "that column from it."
+            ),
+        )
+
+
 @router.post("/{dataset_id}/analysis/preview/", response_model=AnalysisPreviewResponse)
 async def analysis_preview_endpoint(
     dataset_id: uuid.UUID,
@@ -178,6 +375,16 @@ async def analysis_preview_endpoint(
         if body.mask_dataset_id is not None
         else None
     )
+    join_dataset = None
+    if body.join_dataset_id is not None:
+        join_dataset = await _load_join_dataset(db, body.join_dataset_id, user)
+        # fix(#1097 review): unconditionally, matching materialize. The guard
+        # used to be `if body.join_fields`, but _validate_join_fields also
+        # checks the ALWAYS-generated join_count against the source's columns —
+        # so a source that already had a join_count column previewed fine and
+        # then failed Create on the identical form. Preview approving an output
+        # that Create refuses is worse than either verdict on its own.
+        _validate_join_fields(dataset, join_dataset, body.join_fields or [])
     try:
         return await run_analysis_preview(
             db,
@@ -185,6 +392,7 @@ async def analysis_preview_endpoint(
             body,
             user.id,
             mask_dataset=mask_dataset,
+            join_dataset=join_dataset,
             # fix(#716): safe here — `user.id` is evaluated above, and neither
             # this handler nor any middleware reads ORM state afterwards.
             release_session=True,
@@ -219,7 +427,7 @@ def _validate_dissolve_by_field(dataset, by_field: str) -> None:
             detail="by_field conflicts with the generated 'source_count' column",
         )
     by_field_type = str(known_columns[by_field].get("type") or "").lower()
-    if by_field_type in _NON_GROUPABLE_TYPES:
+    if by_field_type in NON_GROUPABLE_COLUMN_TYPES:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
@@ -228,6 +436,92 @@ def _validate_dissolve_by_field(dataset, by_field: str) -> None:
                 "with comparable values."
             ),
         )
+
+
+async def _validate_materialize_params(
+    db: AsyncSession, dataset, body: AnalysisMaterializeRequest, user: Identity
+) -> None:
+    """Per-operation enqueue-time validation, so a bad request 422s fast.
+
+    Everything here fails BEFORE a job row exists — the alternative is a job
+    the user has to watch fail minutes later with an opaque database error.
+    Each check has a second, run-time half in the worker, because the queue
+    wait sits between the two and the world can move underneath it.
+    """
+    # fix(#955): select_by_location takes the same mask pair clip does, so it
+    # takes the same two checks. Rule 1 applies to BOTH datasets either way.
+    if body.operation in MASK_OPERATIONS and body.mask_dataset_id is not None:
+        # Access + polygon checks happen here at enqueue time; the worker
+        # re-resolves the table name and re-validates it against _SAFE_TABLE.
+        await _load_mask_dataset(db, body.mask_dataset_id, user)
+    elif body.operation in MASK_OPERATIONS:
+        try:
+            render_mask_expr(body.mask or {})
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+            ) from exc
+    if body.operation == "dissolve" and body.by_field is not None:
+        _validate_dissolve_by_field(dataset, body.by_field)
+    if body.operation == "spatial_join":
+        # Access + column checks, same as the clip mask; the worker re-resolves
+        # the table name and re-checks the collision against the live columns.
+        join_dataset = await _load_join_dataset(db, body.join_dataset_id, user)
+        _validate_join_fields(dataset, join_dataset, body.join_fields or [])
+    if body.operation == "measure":
+        _reject_generated_column_collision(dataset, MEASURE_OUTPUT_COLUMNS)
+    if body.operation == "intersect":
+        # Access check on the overlay layer, plus the column checks. Rule 1
+        # applies to BOTH datasets; the worker re-resolves the table and
+        # re-checks the collisions against the live columns after the queue.
+        overlay = await _load_mask_dataset(db, body.mask_dataset_id, user)
+        _validate_intersect_columns(dataset, overlay)
+
+
+def _build_analysis_job_metadata(
+    body: AnalysisMaterializeRequest, dataset
+) -> dict[str, Any]:
+    """The params recorded on the job so Admin -> Jobs can diagnose a run.
+
+    "analysis-buffer failed" on its own says nothing. The drawn mask geometry
+    is deliberately NOT stored: it can be kilobytes, and a marker suffices.
+
+    Extracted from the handler rather than left inline (#1097 review): this is
+    the per-operation dispatch, so it is the block that grows every time an
+    operation is added, and it took the endpoint past ruff's C901 threshold at
+    the fourth one. Inline, the next operation would trip the same rule again
+    and the fix would be the same extraction done under more pressure. Nothing
+    here touches the request, the session, or the job row, so it lifts out
+    whole.
+    """
+    meta: dict[str, Any] = {
+        "operation": body.operation,
+        "source_dataset_id": str(dataset.id),
+        "title": body.title,
+    }
+    if body.distance_meters is not None:
+        meta["distance_meters"] = body.distance_meters
+    if body.by_field is not None:
+        meta["by_field"] = body.by_field
+    # fix(#1097 review): the second layer is recorded for EVERY operation that
+    # consumes one, not just clip. Admin Jobs surfaces this metadata to
+    # diagnose a failed run, and select_by_location and intersect are both
+    # driven by a layer the operator could not otherwise identify — so a failure
+    # caused by that layer (re-uploaded mid-queue, wrong geometry, ungroupable
+    # column) showed only the operation, the source and the title.
+    #
+    # mask_source stays scoped to the operations that can take a DRAWN mask.
+    # intersect rejects one, so "layer" there would be a constant dressed up as
+    # a discriminator.
+    if body.mask_dataset_id is not None:
+        meta["mask_dataset_id"] = str(body.mask_dataset_id)
+    if body.operation in MASK_OPERATIONS:
+        meta["mask_source"] = "layer" if body.mask_dataset_id else "drawn"
+    if body.operation == "spatial_join":
+        meta["join_dataset_id"] = str(body.join_dataset_id)
+        if body.join_fields:
+            meta["join_fields"] = list(body.join_fields)
+    return meta
 
 
 @router.post(
@@ -273,20 +567,7 @@ async def analysis_materialize_endpoint(
                 ),
             )
 
-    # Fail fast on invalid params before creating a job.
-    if body.operation == "clip" and body.mask_dataset_id is not None:
-        # Access + polygon checks happen here at enqueue time; the worker
-        # re-resolves the table name and re-validates it against _SAFE_TABLE.
-        await _load_mask_dataset(db, body.mask_dataset_id, user)
-    elif body.operation == "clip":
-        try:
-            render_mask_expr(body.mask or {})
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
-            ) from exc
-    if body.operation == "dissolve" and body.by_field is not None:
-        _validate_dissolve_by_field(dataset, body.by_field)
+    await _validate_materialize_params(db, dataset, body, user)
 
     # Best-effort dataset-count pre-check; the authoritative atomic
     # reservation happens at registration time in the worker.
@@ -398,23 +679,7 @@ async def analysis_materialize_endpoint(
     job = await get_catalog_port().create_ingest_job(
         db, f"analysis-{body.operation}", "", user.id
     )
-    # Record the request params so Admin → Jobs can diagnose a failed run
-    # ("analysis-buffer failed" alone says nothing). The drawn mask geometry
-    # is deliberately NOT stored — it can be kilobytes; a marker suffices.
-    analysis_meta = {
-        "operation": body.operation,
-        "source_dataset_id": str(dataset.id),
-        "title": body.title,
-    }
-    if body.distance_meters is not None:
-        analysis_meta["distance_meters"] = body.distance_meters
-    if body.by_field is not None:
-        analysis_meta["by_field"] = body.by_field
-    if body.operation == "clip":
-        analysis_meta["mask_source"] = "layer" if body.mask_dataset_id else "drawn"
-        if body.mask_dataset_id is not None:
-            analysis_meta["mask_dataset_id"] = str(body.mask_dataset_id)
-    job.user_metadata = {"analysis": analysis_meta}
+    job.user_metadata = {"analysis": _build_analysis_job_metadata(body, dataset)}
     # ux(#698): stamp a step so a pending job reads as "queued" rather than
     # being indistinguishable from a broken one. This matters more since #703
     # deliberately defers analysis below the default priority — a queued job
@@ -432,11 +697,16 @@ async def analysis_materialize_endpoint(
         # the pre-clip-by-layer code rejects unknown kwargs, and an
         # unconditional None would break EVERY materialize during a rolling
         # deploy instead of only the new feature.
-        extra_kwargs = (
-            {"mask_dataset_id": str(body.mask_dataset_id)}
-            if body.mask_dataset_id is not None
-            else {}
-        )
+        extra_kwargs: dict[str, object] = {}
+        if body.mask_dataset_id is not None:
+            extra_kwargs["mask_dataset_id"] = str(body.mask_dataset_id)
+        # Same rolling-deploy rule for the join params (fix(#953)): a worker
+        # still running pre-spatial-join code rejects unknown kwargs, so they
+        # ride along only when the operation actually uses them.
+        if body.join_dataset_id is not None:
+            extra_kwargs["join_dataset_id"] = str(body.join_dataset_id)
+            if body.join_fields:
+                extra_kwargs["join_fields"] = list(body.join_fields)
         await defer_async_with_tenant(
             get_catalog_port()
             .materialize_analysis_task()

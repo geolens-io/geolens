@@ -1,0 +1,348 @@
+"""Curved-geometry sources and binary property values (#1097 review).
+
+WFS ingest admits CURVED geometries — GeoServer MultiSurface/CompoundCurve
+layers load as stored, and ingest classifies the dataset by the closest
+concrete linear type without rewriting the rows (metadata.py's
+_ABSTRACT_TO_CONCRETE_GEOMETRY_TYPE). Verified against PostGIS 3.6:
+``::geography``, ``ST_MakeValid`` and ``ST_AsGeoJSON`` all RAISE on curved
+input, so without ``linearized()`` (analysis_sql) every operation in this file
+either 500s its preview or fails its CTAS on a dataset the app admits.
+
+The bytea test pins the OTHER preview serialization hazard from the same
+review round: a transferred ``bytea`` value reaching Pydantic as raw bytes.
+
+Requirements:
+  - Docker database must be running (docker compose up db)
+"""
+
+import uuid
+
+import pytest
+from httpx import AsyncClient
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.processing.analysis.tasks import _materialize
+
+from tests.factories import get_user_id
+from tests.test_analysis_materialize import _create_job
+from tests.test_analysis_spatial_join import _create_layer
+
+# A full circle of radius 0.5 centred on (0.5, 0), stored as the curved
+# MULTISURFACE/CURVEPOLYGON type a GeoServer WFS layer ingests as.
+CURVED_POLYGON = (
+    "ST_GeomFromText('MULTISURFACE(CURVEPOLYGON(CIRCULARSTRING("
+    "0 0,0.5 0.5,1 0,0.5 -0.5,0 0)))', 4326)"
+)
+# A line with a genuine arc segment, stored as COMPOUNDCURVE.
+CURVED_LINE = (
+    "ST_GeomFromText('COMPOUNDCURVE((0 0,1 1),CIRCULARSTRING(1 1,2 2,3 1))', 4326)"
+)
+LINEAR_GEOJSON_TYPES = {
+    "Point",
+    "MultiPoint",
+    "LineString",
+    "MultiLineString",
+    "Polygon",
+    "MultiPolygon",
+    "GeometryCollection",
+}
+
+
+def _preview_url(dataset_id) -> str:
+    return f"/datasets/{dataset_id}/analysis/preview/"
+
+
+async def _create_curved_polygon_layer(session: AsyncSession, *, created_by):
+    return await _create_layer(
+        session,
+        created_by=created_by,
+        column_type="Geometry",
+        # What ingest records for a MultiSurface source (metadata.py).
+        geometry_type="MULTIPOLYGON",
+        values_sql=f"('circle', {CURVED_POLYGON}, {CURVED_POLYGON})",
+        feature_count=1,
+    )
+
+
+class TestCurvedSources:
+    async def test_measure_preview_answers_for_a_curved_source(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """A curved dataset measures instead of 500ing, with correct numbers.
+
+        Ground truth is PostGIS's own measure of the linearized geometry, so
+        the assertion pins the plumbing rather than circle-area maths.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_layer(
+            test_db_session,
+            created_by=admin_id,
+            column_type="Geometry",
+            geometry_type="MULTIPOLYGON",
+            values_sql=(
+                f"('circle', {CURVED_POLYGON}, {CURVED_POLYGON}),"
+                f"('arc', {CURVED_LINE}, {CURVED_LINE})"
+            ),
+            feature_count=2,
+        )
+
+        resp = await client.post(
+            _preview_url(ds.id),
+            json={"operation": "measure"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        features = resp.json()["geojson"]["features"]
+        got = {
+            f["properties"]["gid"]: (
+                f["properties"]["area_sqm"],
+                f["properties"]["length_m"],
+            )
+            for f in features
+        }
+        expected = {
+            gid: (a, ln)
+            for gid, a, ln in (
+                await test_db_session.execute(
+                    text(
+                        f"SELECT gid,"  # noqa: S608
+                        f" ST_Area(ST_CurveToLine(geom_4326)::geography),"
+                        f" ST_Length(ST_CurveToLine(geom_4326)::geography)"
+                        f" FROM data.{ds.table_name} ORDER BY gid"
+                    )
+                )
+            ).all()
+        }
+        assert set(got) == set(expected) == {1, 2}
+        for gid, (area, length) in got.items():
+            assert area == pytest.approx(expected[gid][0], rel=1e-6)
+            assert length == pytest.approx(expected[gid][1], rel=1e-6)
+        # The pass-through geometry serialized as a LINEAR GeoJSON type —
+        # GeoJSON has no curved types, so anything else could not have been
+        # emitted at all.
+        assert {f["geometry"]["type"] for f in features} <= LINEAR_GEOJSON_TYPES
+
+    async def test_spatial_join_preview_joins_onto_a_curved_source(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """The per-source-row ST_MakeValid hoist accepts a curved source."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        src = await _create_curved_polygon_layer(test_db_session, created_by=admin_id)
+        points = await _create_layer(
+            test_db_session,
+            created_by=admin_id,
+            column_type="Point",
+            geometry_type="POINT",
+            values_sql=(
+                "('inside', ST_SetSRID(ST_MakePoint(0.5, 0.2), 4326),"
+                " ST_SetSRID(ST_MakePoint(0.5, 0.2), 4326)),"
+                "('outside', ST_SetSRID(ST_MakePoint(5, 5), 4326),"
+                " ST_SetSRID(ST_MakePoint(5, 5), 4326))"
+            ),
+            feature_count=2,
+        )
+
+        resp = await client.post(
+            _preview_url(src.id),
+            json={
+                "operation": "spatial_join",
+                "join_dataset_id": str(points.id),
+                "join_fields": ["name"],
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        features = body["geojson"]["features"]
+        assert len(features) == 1
+        assert features[0]["properties"]["join_count"] == 1
+        assert features[0]["properties"]["join_name"] == "inside"
+        assert body["match_count"] == 1
+        assert features[0]["geometry"]["type"] in LINEAR_GEOJSON_TYPES
+
+    async def test_select_by_location_serializes_a_curved_selection(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """A drawn mask selecting a curved row must serialize that row."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        src = await _create_curved_polygon_layer(test_db_session, created_by=admin_id)
+
+        resp = await client.post(
+            _preview_url(src.id),
+            json={
+                "operation": "select_by_location",
+                "mask": {
+                    "type": "Polygon",
+                    "coordinates": [[[-1, -1], [2, -1], [2, 1], [-1, 1], [-1, -1]]],
+                },
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        features = resp.json()["geojson"]["features"]
+        assert [f["properties"]["gid"] for f in features] == [1]
+        assert features[0]["geometry"]["type"] in LINEAR_GEOJSON_TYPES
+
+    async def test_intersect_preview_with_curved_source_and_curved_mask(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """Both intersect wrap sites at once: curved mask prep, curved source.
+
+        The COMPOUNDCURVE source also pins the LINESTRING type check — read
+        raw it would say 'COMPOUNDCURVE', silently skipping ST_LineMerge, so a
+        LINEAR output type here proves the check reads the linearized form.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        src = await _create_layer(
+            test_db_session,
+            created_by=admin_id,
+            column_type="Geometry",
+            geometry_type="MULTILINESTRING",
+            values_sql=f"('arc', {CURVED_LINE}, {CURVED_LINE})",
+            feature_count=1,
+        )
+        # Curved TYPE with a plain square ring: still MultiSurface to every
+        # curve-intolerant function, which is what the mask pipeline must
+        # survive.
+        mask_wkt = "ST_GeomFromText('MULTISURFACE(((0 0,2 0,2 2,0 2,0 0)))', 4326)"
+        mask = await _create_layer(
+            test_db_session,
+            created_by=admin_id,
+            column_type="Geometry",
+            geometry_type="MULTIPOLYGON",
+            values_sql=f"('square', {mask_wkt}, {mask_wkt})",
+            feature_count=1,
+        )
+
+        resp = await client.post(
+            _preview_url(src.id),
+            json={"operation": "intersect", "mask_dataset_id": str(mask.id)},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        features = body["geojson"]["features"]
+        assert len(features) == 1
+        assert body["match_count"] == 1
+        assert features[0]["geometry"]["type"] in (
+            "LineString",
+            "MultiLineString",
+        )
+
+    async def test_materialize_saves_linear_geometry_from_a_curved_source(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """The CTAS stores the linearized geometry, not the curved original.
+
+        A curved geometry written into the derived table would fail that
+        LAYER's tiles and feature reads later — the whole reason the
+        pass-through output is linearized rather than only the casts.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_curved_polygon_layer(test_db_session, created_by=admin_id)
+        job = await _create_job(test_db_session, admin_id)
+
+        await _materialize(
+            job_id=str(job.id),
+            dataset_id=str(ds.id),
+            user_id=str(admin_id),
+            operation="measure",
+            title=f"Curved measure {uuid.uuid4().hex[:6]}",
+        )
+
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+
+        from app.modules.catalog.datasets.domain.models import Dataset
+
+        new_ds = await test_db_session.get(Dataset, job.dataset_id)
+        assert new_ds is not None
+        rows = (
+            await test_db_session.execute(
+                text(
+                    f"SELECT GeometryType(geom), area_sqm"  # noqa: S608
+                    f" FROM data.{new_ds.table_name}"
+                )
+            )
+        ).all()
+        assert len(rows) == 1
+        geom_type, area = rows[0]
+        assert geom_type in ("POLYGON", "MULTIPOLYGON")
+        assert area > 0
+
+
+class TestBinaryJoinFields:
+    async def test_spatial_join_preview_encodes_a_bytea_join_field(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """Transferred bytea values arrive hex-encoded, not as raw bytes.
+
+        Raw bytes raise inside Pydantic's JSON serializer, turning a valid
+        preview into a 500 — and a ``bytea[]`` column comes back as a LIST of
+        bytes, so the encoder must recurse into containers, not just handle
+        the scalar (round-14 review). Both encodings match ``to_jsonb``'s
+        (which the features browse API serves for the same columns):
+        ``\\x`` + hex, and an array of the same.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        points = await _create_layer(
+            test_db_session,
+            created_by=admin_id,
+            column_type="Point",
+            geometry_type="POINT",
+            values_sql=(
+                "('probe', ST_SetSRID(ST_MakePoint(0.5, 0.5), 4326),"
+                " ST_SetSRID(ST_MakePoint(0.5, 0.5), 4326))"
+            ),
+            feature_count=1,
+        )
+        polys = await _create_layer(
+            test_db_session,
+            created_by=admin_id,
+            column_type="Polygon",
+            geometry_type="POLYGON",
+            extra_columns="blob BYTEA, blobs BYTEA[],",
+            values_sql=(
+                "('zone', decode('deadbeef', 'hex'),"
+                " ARRAY[decode('dead', 'hex'), decode('beef', 'hex')],"
+                " ST_MakeEnvelope(0,0,1,1,4326), ST_MakeEnvelope(0,0,1,1,4326))"
+            ),
+            column_info=[
+                {"name": "name", "type": "text"},
+                {"name": "blob", "type": "bytea"},
+                {"name": "blobs", "type": "bytea[]"},
+            ],
+            feature_count=1,
+        )
+
+        resp = await client.post(
+            _preview_url(points.id),
+            json={
+                "operation": "spatial_join",
+                "join_dataset_id": str(polys.id),
+                "join_fields": ["blob", "blobs"],
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        features = resp.json()["geojson"]["features"]
+        assert len(features) == 1
+        assert features[0]["properties"]["join_blob"] == "\\xdeadbeef"
+        assert features[0]["properties"]["join_blobs"] == ["\\xdead", "\\xbeef"]

@@ -1914,16 +1914,31 @@ export interface MapLayerBulkDeleteResponse {
 }
 
 /** M4 analysis tools: parameterized PostGIS operations. */
-export type AnalysisOperation = 'buffer' | 'centroid' | 'clip' | 'dissolve';
+export type AnalysisOperation =
+  | 'buffer'
+  | 'centroid'
+  | 'clip'
+  | 'dissolve'
+  | 'spatial_join'
+  | 'measure'
+  | 'select_by_location'
+  | 'intersect';
 
 export interface AnalysisPreviewRequest {
   operation: Exclude<AnalysisOperation, 'dissolve'>;
   /** Buffer distance in meters (buffer only). */
   distance_meters?: number;
-  /** GeoJSON Polygon/MultiPolygon mask in EPSG:4326 (clip only). */
+  /** GeoJSON Polygon/MultiPolygon mask in EPSG:4326 (clip and select_by_location).
+   * NOT accepted for intersect, which takes a layer only. */
   mask?: GeoJSON.Polygon | GeoJSON.MultiPolygon;
-  /** Polygon dataset whose unioned features form the clip mask (clip only; alternative to mask). */
+  /** Polygon dataset supplying the second layer: the area clipped to, selected
+   * against, or overlaid with (clip, select_by_location, intersect; the
+   * alternative to mask for the first two, and required for intersect). */
   mask_dataset_id?: string;
+  /** Layer to join against; each source feature gains a join_count (spatial_join only). */
+  join_dataset_id?: string;
+  /** Columns copied from the intersecting join feature, prefixed 'join_' (spatial_join only). */
+  join_fields?: string[];
 }
 
 export interface AnalysisPreviewResponse {
@@ -1933,16 +1948,39 @@ export interface AnalysisPreviewResponse {
   bbox: number[] | null;
   /** Source dataset total (1:1 ops only; null when the op filters rows, e.g. clip). */
   source_feature_count?: number | null;
+  /**
+   * Exact total across the WHOLE source, not just the previewed features.
+   * Null for operations that report no such total, and when the count could
+   * not be computed within the query budget.
+   *
+   * What it counts is per-operation, so read it against the operation you
+   * sent rather than treating it as one number:
+   * - select_by_location: selected source features. IS the output total.
+   * - intersect: output pieces. IS the output total.
+   * - spatial_join: intersecting source/join PAIRS. NOT the output total —
+   *   the join keeps every source row, so one source row matching four join
+   *   rows contributes 4 here and 1 to the result. Use source_feature_count
+   *   for that operation's total.
+   */
+  match_count?: number | null;
 }
 
 export interface AnalysisMaterializeRequest {
   operation: AnalysisOperation;
   title: string;
   distance_meters?: number;
+  /** GeoJSON Polygon/MultiPolygon mask in EPSG:4326 (clip and select_by_location).
+   * NOT accepted for intersect, which takes a layer only. */
   mask?: GeoJSON.Polygon | GeoJSON.MultiPolygon;
-  /** Polygon dataset whose unioned features form the clip mask (clip only; alternative to mask). */
+  /** Polygon dataset supplying the second layer: the area clipped to, selected
+   * against, or overlaid with (clip, select_by_location, intersect; the
+   * alternative to mask for the first two, and required for intersect). */
   mask_dataset_id?: string;
   by_field?: string;
+  /** Layer to join against; each source feature gains a join_count (spatial_join only). */
+  join_dataset_id?: string;
+  /** Columns copied from the intersecting join feature, prefixed 'join_' (spatial_join only). */
+  join_fields?: string[];
 }
 
 export interface AnalysisMaterializeResponse {

@@ -837,6 +837,44 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     }
     private_service_default_line_budget = 350
     private_service_line_budget_allowlist = {
+        # M4 phase-2 grew this from three analysis operations to seven
+        # (#953 spatial_join, #954 measure, #955 select_by_location, #956
+        # intersect). Every rendered statement was pushed down into
+        # app.platform.analysis_sql as it landed, so what remains here is the
+        # preview ORCHESTRATION — which branch feeds which renderer, and how the
+        # positional rows become properties — not SQL. Two folds during the
+        # wave (#955's count builder, #956's preview projection) each bought
+        # one more operation's worth of room before it stopped fitting.
+        # 310 on main + 144 for the four operations = 454, then +9 for the
+        # #1097-review note on why intersect's match_count seeds to 0 rather
+        # than None (an empty overlay is an ANSWER; None is reserved for a
+        # count that could not be computed, and the panel renders those
+        # differently). The per-operation dispatch is now the majority of the
+        # file, so an eighth operation should split that out rather than raise
+        # this again.
+        # Then +12 for the #1097-review fix that moves the exact-count query
+        # inside the preview semaphore: 6 lines of code and the note explaining
+        # that BOTH statements open a sandbox connection, so releasing the slot
+        # between them let a finished preview admit the next caller while still
+        # holding one — the bound stopped bounding the thing it exists for.
+        # This budget is a ceiling rather than an exact ratchet, so a stale
+        # higher number would still pass. Set to the measured value anyway:
+        # the spare line is what the no-headroom rule on _MODULE_LOC_CAPS
+        # calls the seed of the next raise.
+        #
+        # Then +19 for the #1097-review preview-serialization fixes: _json_safe
+        # (a transferred bytea value reaches Pydantic as raw bytes and raises;
+        # encode as to_jsonb's hex form so both endpoints serve the same
+        # representation) and linearizing the select-by-location layer-path
+        # identity lateral, the one pass-through geometry this module renders
+        # itself rather than through render_geometry_expr.
+        #
+        # Then +12 making _json_safe recursive: a bytea[] column comes back as
+        # a LIST of bytes, which the scalar check waved through to the same
+        # 500 (round-14 review). to_jsonb renders that as an array of hex
+        # strings, so recursing with the same scalar encoding keeps the two
+        # endpoints byte-identical.
+        "backend/app/modules/catalog/datasets/domain/service_analysis.py": 506,
         "backend/app/modules/catalog/maps/service_crud.py": 550,
         # fix(#474, #475): localized ranking/eager loading plus the OGC
         # ids/externalIds filters cross the default by nine lines. Keep the
@@ -1177,19 +1215,129 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # keeping: `params` stays untyped deliberately, because it is the
     # operation's parameter dict AND it is redacted per requester, so a union
     # of per-operation models would describe a shape visible_derived_from is
-    # free to punch holes in. Ratchet exact at 1032.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1032,
-    # fix(#1012): crossed on the rebase, not in either branch. main grew this
-    # module past 900 while the work_mem branch was open, and the branch's +120
-    # (the SET LOCAL, its budget arithmetic and the boot-time validator) landed
-    # on top of that — so the gate fired for the first time on a merge result
-    # neither side had ever built. What the lines bought: work_mem is allocated
-    # per operation AND per backend, so the ceiling this file computes is the
-    # difference between one materialize using its stated budget and one using
-    # several multiples of it. The reasoning has to live next to the SET LOCAL,
-    # because a future reader tuning the number is exactly who needs it.
-    # Ratchet exact at 1031.
-    "backend/app/processing/analysis/tasks.py": 1031,
+    # free to punch holes in.
+    # +95 — the four analysis operations. Each one adds a value to both
+    # AnalysisOperation Literals, a params field with its bounds, and its row
+    # in _ANALYSIS_PARAM_OWNERS, which is what makes a param submitted to the
+    # wrong operation a 422 instead of a silently ignored key. 1032 -> 1127.
+    # fix(#1097 review): +6 for the mask_dataset_id description, on both
+    # request models. It said the field applied to clip and select_by_location
+    # and was an alternative to `mask`, while the validator requires it for
+    # every intersect and rejects a drawn mask there — so the generated SDK
+    # docs led clients to requests that always 422.
+    # fix(#1097 review): +5 for the match_count description, which said the
+    # field is null for anything but spatial_join and select_by_location while
+    # intersect returns it. This is the SOURCE the SDKs and the hand-typed
+    # frontend mirror are generated from or checked against, so it had been
+    # corrected in the mirror and left wrong here — backwards, and the reason
+    # the wrong text shipped into both SDKs.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1138,
+    # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
+    # Both cross 1000 for the first time here, and both cross it for the same
+    # reason: the four operations are deliberately concentrated rather than
+    # spread. Every rendered statement lives in analysis_sql (662 -> 1173) so
+    # the preview path and the materialize worker cannot drift apart on what
+    # SQL they run, which is the whole reason the module exists in platform/
+    # instead of in either caller. tasks.py grows by one branch per operation
+    # for the same reason: the CTAS shape is decided in one place. Splitting
+    # either one per-operation would trade this module's size for the drift it
+    # was built to prevent, so the growth is the design working.
+    #
+    # What that costs, stated plainly rather than left for the next reader:
+    # analysis_sql is now the largest module under platform/ and roughly 40%
+    # of it is the four operations added here. The split is filed as #1089 —
+    # by OPERATION FAMILY (overlay, measure, transform), with the shared
+    # fences, ceilings and antimeridian helpers staying central. Never by
+    # CALLER: giving the preview path and the worker their own rendering
+    # modules recreates exactly the drift this module exists to prevent, so
+    # #1089 says to reject that proposal on sight.
+    #
+    # fix(#1097 review): +8 for NON_GROUPABLE_COLUMN_TYPES. It lives here
+    # because three guards need it — dissolve's by_field in the router,
+    # intersect's overlay at enqueue, and the worker's live recheck after the
+    # queue wait — and the worker must not import from the API layer. Putting
+    # it in either caller would have meant duplicating the set, which is how
+    # the two halves of a guard drift apart.
+    #
+    # fix(#1097 review): +18 for INTERNAL_ALIAS_PREFIX and its reasoning. The
+    # output-collision guards reserved names that reach the OUTPUT and said
+    # nothing about the aliases a query invents on the way there, so an overlay
+    # column named `_mask_gid` landed in the same select list as that alias. The
+    # aliases moved into a namespace and the namespace is reserved, which is
+    # what makes an alias added later safe without a list to keep in step.
+    #
+    # fix(#1097 review): +27 for MAX_IDENTIFIER_LENGTH and truncating the
+    # generated join names to it. PostgreSQL truncates an over-long identifier
+    # with a NOTICE rather than refusing it, so the uniqueness and
+    # source-collision guards were comparing strings the database would never
+    # see. The comment carries the empirical check (max_identifier_length is
+    # 63) and why source columns need no equivalent — they already exist in a
+    # table, so the server truncated them at creation.
+    #
+    # fix(#1097 review): +42 for linearized() and its call sites. WFS sources
+    # can store curved geometries (MultiSurface/CompoundCurve) that ingest
+    # admits but ::geography, ST_MakeValid and ST_AsGeoJSON all raise on, so
+    # every geometry read feeding one of those — or passing through into
+    # preview GeoJSON or a CTAS — goes through one ST_CurveToLine wrapper. The
+    # bulk of the lines is the helper's docstring recording which functions
+    # raise, which tolerate curves, why WHERE predicates stay on the bare
+    # column (the GIST index), and that #1104 (ingest-level normalization)
+    # is what eventually retires the helper.
+    "backend/app/platform/analysis_sql.py": 1260,
+    # tasks.py carries growth from BOTH sides of this rebase, so the number is
+    # re-measured rather than taken from either. #1012 added the scoped
+    # work_mem (the SET LOCAL, its budget arithmetic and the boot-time
+    # validator); this branch added one CTAS branch per operation. Each cap was
+    # correct for the tree that produced it and neither is correct for the
+    # merge, which is the conflict doing its job.
+    #
+    # fix(#1097 review): +40 on top of that, for
+    # _reject_ungroupable_overlay_columns — the worker half of the overlay type
+    # guard. The router validates a catalog SNAPSHOT and a re-upload can
+    # replace the overlay before the job runs, the same window
+    # _reject_output_column_collision beside it exists for. Types rather than
+    # names, because the live name list was already read there and would not
+    # have caught it: the column that breaks the CTAS has an ordinary name.
+    #
+    # fix(#1097 review): +91 for the live-schema rechecks. Two more guards (the
+    # reserved-alias prefix, and re-checking transferred join fields against the
+    # join layer's live columns) plus _resolve_and_validate_columns, which the
+    # set moved into rather than raising _materialize's C901 threshold: five
+    # checks over two layers share a subject the surrounding job bookkeeping
+    # does not.
+    #
+    # fix(#1097 review): +21 for re-applying the polygon requirement on the
+    # mask layer at resolve time. The router refuses a non-polygonal mask at
+    # enqueue and a re-upload can change that layer's geometry_type while the
+    # job waits, and nothing downstream notices: the mask matches no rows and
+    # the job dies on "produced no features", pointing the user at their data
+    # instead of at the layer that changed.
+    #
+    # fix(#1097 review): +22 for the second geometry strength. The mask must
+    # still be polygonal; the JOIN layer must only still be spatial, because a
+    # join counts in any direction — but a re-upload from a non-spatial source
+    # leaves no geom_4326 for render_spatial_join to reference.
+    #
+    # fix(#1097 review): +20 for _DRAWN_MASK_OPERATIONS and the note on why
+    # mask_source belongs to every operation that can take a drawn mask. The
+    # drawn geometry is deliberately excluded from provenance, so that
+    # discriminator is the only trace a drawn selection leaves — the constant
+    # is duplicated from schemas because PROCESS-02 forbids the import, and a
+    # test pins the two copies together.
+    #
+    # fix(#1097 review): +3 for linearizing the three pass-through CTAS
+    # geometry columns (measure, spatial_join, select_by_location) so a curved
+    # source row is stored linear — a curved geometry written into the derived
+    # table would fail that layer's tiles and feature reads later.
+    #
+    # fix(#1097 review): +62 for the array-element half of the ungroupable
+    # guards. information_schema stores an array column's data_type as
+    # 'ARRAY', so json[]/xml[] passed the exact scalar comparison and failed
+    # the CTAS with 42883 after the queue wait; _ungroupable_type_name reads
+    # udt_name ('_json') as well, and the same check now also covers
+    # dissolve's by_field, which had the identical blind spot plus no live
+    # recheck at all.
+    "backend/app/processing/analysis/tasks.py": 1450,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.

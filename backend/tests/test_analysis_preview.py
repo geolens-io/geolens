@@ -438,6 +438,70 @@ class TestPreviewGlobalBound:
             r.status_code for r in responses
         ]
 
+    async def test_the_exact_count_query_holds_a_slot_too(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """fix(#1097 review): the second sandbox query counts against the bound.
+
+        Operations that report an exact total run TWO sandbox statements, each
+        opening its own connection. The count used to run after the semaphore
+        was released, so a preview could admit the next caller while still
+        holding a connection — the bound would stop describing how many
+        connections previews can hold, which is the only reason it exists.
+
+        The count is the likelier of the two to still be running when the
+        geometry query returns: it is uncapped and scans both inputs, while the
+        geometry query stops at PREVIEW_FEATURE_CAP rows.
+
+        Asserted through `.locked()` against a one-slot semaphore rather than
+        by counting: locked() is unambiguous at a bound of one, and the bound
+        is what is under test, not the arithmetic that sizes it.
+        """
+        import asyncio
+
+        from app.modules.catalog.datasets.domain import service_analysis
+
+        monkeypatch.setattr(service_analysis, "_preview_slots", asyncio.Semaphore(1))
+        real = service_analysis.execute_safe
+        held: list[bool] = []
+
+        async def _recording_execute_safe(db, sql, **kwargs):
+            held.append(service_analysis._preview_slots.locked())
+            return await real(db, sql, **kwargs)
+
+        monkeypatch.setattr(service_analysis, "execute_safe", _recording_execute_safe)
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        src = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        mask = await _create_mask_dataset(
+            test_db_session, created_by=admin_id, wkt=SQUARE
+        )
+
+        resp = await client.post(
+            _preview_url(src.id),
+            json={
+                "operation": "select_by_location",
+                "mask_dataset_id": str(mask.id),
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        # The exact total is what makes this a two-statement operation; without
+        # it the test would pass on a single query and prove nothing.
+        assert resp.json()["match_count"] == 1
+
+        assert len(held) == 2, (
+            f"expected a geometry query and a count query, saw {len(held)}"
+        )
+        assert held == [True, True], (
+            "a sandbox query ran outside the preview semaphore: previews can "
+            "hold more connections than the bound allows"
+        )
+
 
 class TestAnalysisPreviewEndpoint:
     async def test_preview_releases_request_session_before_sandbox_query(

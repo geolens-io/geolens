@@ -14,6 +14,7 @@ from pydantic import (
 
 from app.core.url_redaction import has_url_credentials
 from app.core.text import normalize_nfc as _nfc
+from app.platform.analysis_sql import MAX_SPATIAL_JOIN_FIELDS
 
 
 _COLUMN_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -902,21 +903,62 @@ class IngestionResult(BaseModel):
 # request validators (fix(#682): a stray mask_dataset_id sent alongside
 # buffer/centroid would otherwise be loaded — and could 404/422 the request
 # or fail the job — and distance's gt/le bounds fire on placeholder values).
+# fix(#955): values are tuples because a param can belong to more than one
+# operation — select_by_location takes its selection geometry from the same
+# `mask`/`mask_dataset_id` pair clip does, rather than a second spelling of the
+# same two fields.
 _ANALYSIS_PARAM_OWNERS = {
-    "distance_meters": "buffer",
-    "mask": "clip",
-    "mask_dataset_id": "clip",
-    "by_field": "dissolve",
+    "distance_meters": ("buffer",),
+    "mask": ("clip", "select_by_location"),
+    "mask_dataset_id": ("clip", "select_by_location", "intersect"),
+    "by_field": ("dissolve",),
+    "join_dataset_id": ("spatial_join",),
+    "join_fields": ("spatial_join",),
 }
+
+# Operations whose geometry comes from a drawn mask or a mask layer, exactly
+# one of the two. fix(#956): intersect is deliberately NOT here — it takes a
+# LAYER only, because a drawn polygon carries no attributes to overlay with,
+# which would make it an expensive clip.
+MASK_OPERATIONS = ("clip", "select_by_location")
 
 
 def _drop_params_for_other_operations(data: Any) -> Any:
     if isinstance(data, dict):
         op = data.get("operation")
         data = {
-            k: v for k, v in data.items() if _ANALYSIS_PARAM_OWNERS.get(k, op) == op
+            k: v for k, v in data.items() if op in _ANALYSIS_PARAM_OWNERS.get(k, (op,))
         }
     return data
+
+
+def _require_analysis_params(request: Any) -> None:
+    """Per-operation requiredness, shared by preview and materialize.
+
+    The two request models carry the same rules for every operation they have
+    in common, and drifting them apart is how a param ends up required on one
+    endpoint and optional on the other. ``dissolve``'s ``by_field`` is
+    genuinely optional and materialize-only, so it has nothing here.
+    """
+    if request.operation == "buffer" and request.distance_meters is None:
+        raise ValueError("buffer requires distance_meters")
+    if request.operation in MASK_OPERATIONS and (request.mask is None) == (
+        request.mask_dataset_id is None
+    ):
+        raise ValueError(
+            f"{request.operation} requires exactly one of mask or mask_dataset_id"
+        )
+    # fix(#956): layer only, and required. `mask` is not an intersect param, so
+    # _drop_params_for_other_operations has already discarded any drawn one by
+    # the time this runs — this just insists on the layer that replaces it.
+    if request.operation == "intersect" and request.mask_dataset_id is None:
+        raise ValueError("intersect requires mask_dataset_id")
+    if request.operation == "spatial_join":
+        if request.join_dataset_id is None:
+            raise ValueError("spatial_join requires join_dataset_id")
+        fields = request.join_fields or []
+        if len(fields) != len(set(fields)):
+            raise ValueError("join_fields must not repeat a column")
 
 
 class AnalysisPreviewRequest(BaseModel):
@@ -926,7 +968,15 @@ class AnalysisPreviewRequest(BaseModel):
     endpoint; per-operation requiredness is enforced by the validator.
     """
 
-    operation: Literal["buffer", "centroid", "clip"]
+    operation: Literal[
+        "buffer",
+        "centroid",
+        "clip",
+        "spatial_join",
+        "measure",
+        "select_by_location",
+        "intersect",
+    ]
     distance_meters: float | None = Field(
         default=None,
         gt=0,
@@ -936,14 +986,35 @@ class AnalysisPreviewRequest(BaseModel):
     mask: dict[str, Any] | None = Field(
         default=None,
         description=(
-            "GeoJSON Polygon or MultiPolygon geometry in EPSG:4326 (clip only)"
+            "GeoJSON Polygon or MultiPolygon geometry in EPSG:4326 "
+            "(clip and select_by_location)"
         ),
     )
     mask_dataset_id: uuid.UUID | None = Field(
         default=None,
         description=(
-            "Polygon dataset whose unioned features form the clip mask "
-            "(clip only; alternative to mask)"
+            "Polygon dataset supplying the second layer: the area clipped to, "
+            "selected against, or overlaid with. For clip and "
+            "select_by_location it is the alternative to `mask`; for intersect "
+            "it is REQUIRED and `mask` is rejected, because an overlay carries "
+            "the second layer's attributes onto its output and a drawn polygon "
+            "has none."
+        ),
+    )
+    join_dataset_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "Dataset to join against; each source feature gains a count of the "
+            "features from it that intersect (spatial_join only)"
+        ),
+    )
+    join_fields: list[str] | None = Field(
+        default=None,
+        max_length=MAX_SPATIAL_JOIN_FIELDS,
+        description=(
+            "Columns to copy from the intersecting join feature, prefixed "
+            "'join_' in the output. Ties break on the lowest join-layer gid "
+            "(spatial_join only)"
         ),
     )
 
@@ -954,12 +1025,7 @@ class AnalysisPreviewRequest(BaseModel):
 
     @model_validator(mode="after")
     def _require_operation_params(self) -> "AnalysisPreviewRequest":
-        if self.operation == "buffer" and self.distance_meters is None:
-            raise ValueError("buffer requires distance_meters")
-        if self.operation == "clip" and (self.mask is None) == (
-            self.mask_dataset_id is None
-        ):
-            raise ValueError("clip requires exactly one of mask or mask_dataset_id")
+        _require_analysis_params(self)
         return self
 
 
@@ -977,12 +1043,36 @@ class AnalysisPreviewResponse(BaseModel):
             "null when the operation filters rows, e.g. clip)"
         ),
     )
+    match_count: int | None = Field(
+        default=None,
+        description=(
+            "Exact total across the WHOLE source, not just the previewed "
+            "features. What it counts is per-operation, so read it against "
+            "the operation you sent rather than as one number: "
+            "select_by_location gives the selected source features and "
+            "intersect gives the output pieces, and for both of those it IS "
+            "the output total; spatial_join gives intersecting source/join "
+            "PAIRS, which is NOT the output total, because the join keeps "
+            "every source row (use source_feature_count for that operation). "
+            "Null for operations that report no such total, and when the "
+            "count could not be computed within the query budget"
+        ),
+    )
 
 
 class AnalysisMaterializeRequest(BaseModel):
     """Parameters for materializing an analysis result as a new dataset."""
 
-    operation: Literal["buffer", "centroid", "clip", "dissolve"]
+    operation: Literal[
+        "buffer",
+        "centroid",
+        "clip",
+        "dissolve",
+        "spatial_join",
+        "measure",
+        "select_by_location",
+        "intersect",
+    ]
     title: str = Field(min_length=1, max_length=500)
     distance_meters: float | None = Field(
         default=None,
@@ -993,20 +1083,41 @@ class AnalysisMaterializeRequest(BaseModel):
     mask: dict[str, Any] | None = Field(
         default=None,
         description=(
-            "GeoJSON Polygon or MultiPolygon geometry in EPSG:4326 (clip only)"
+            "GeoJSON Polygon or MultiPolygon geometry in EPSG:4326 "
+            "(clip and select_by_location)"
         ),
     )
     mask_dataset_id: uuid.UUID | None = Field(
         default=None,
         description=(
-            "Polygon dataset whose unioned features form the clip mask "
-            "(clip only; alternative to mask)"
+            "Polygon dataset supplying the second layer: the area clipped to, "
+            "selected against, or overlaid with. For clip and "
+            "select_by_location it is the alternative to `mask`; for intersect "
+            "it is REQUIRED and `mask` is rejected, because an overlay carries "
+            "the second layer's attributes onto its output and a drawn polygon "
+            "has none."
         ),
     )
     by_field: str | None = Field(
         default=None,
         max_length=63,
         description="Optional group-by column for dissolve",
+    )
+    join_dataset_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "Dataset to join against; each source feature gains a count of the "
+            "features from it that intersect (spatial_join only)"
+        ),
+    )
+    join_fields: list[str] | None = Field(
+        default=None,
+        max_length=MAX_SPATIAL_JOIN_FIELDS,
+        description=(
+            "Columns to copy from the intersecting join feature, prefixed "
+            "'join_' in the output. Ties break on the lowest join-layer gid "
+            "(spatial_join only)"
+        ),
     )
 
     @model_validator(mode="before")
@@ -1016,12 +1127,7 @@ class AnalysisMaterializeRequest(BaseModel):
 
     @model_validator(mode="after")
     def _require_operation_params(self) -> "AnalysisMaterializeRequest":
-        if self.operation == "buffer" and self.distance_meters is None:
-            raise ValueError("buffer requires distance_meters")
-        if self.operation == "clip" and (self.mask is None) == (
-            self.mask_dataset_id is None
-        ):
-            raise ValueError("clip requires exactly one of mask or mask_dataset_id")
+        _require_analysis_params(self)
         return self
 
 

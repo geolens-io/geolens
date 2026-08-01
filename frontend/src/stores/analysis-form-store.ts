@@ -18,6 +18,13 @@ export interface SavedAnalysisForm {
   mask: GeoJSON.Polygon | null;
   maskLayerId: string;
   byField: string;
+  /** fix(#1097 review): the spatial-join inputs persist for the same reason
+   *  maskLayerId does. Without them, closing the rail (or crossing the
+   *  responsive breakpoint, which unmounts the panel) reset both to their
+   *  sentinels, and a restored spatial-join form came back unrunnable with
+   *  its required layer silently cleared. */
+  joinLayerId: string;
+  joinField: string;
   outputTitle: string;
   /** fix(#793 review): true when the form was edited AFTER the last run
    *  started — the run (and its completion) no longer owns these fields, so

@@ -10,6 +10,8 @@ const form = {
   mask: null,
   maskLayerId: '__none__',
   byField: '__none__',
+  joinLayerId: '__none__',
+  joinField: '__none__',
   outputTitle: 'Walkshed',
 };
 

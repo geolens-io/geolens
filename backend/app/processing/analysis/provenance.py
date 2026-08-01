@@ -29,7 +29,27 @@ logger = structlog.get_logger(__name__)
 
 # Params carried into the sentence and the reference. Mirrors the analysis
 # metadata the router records on the job, minus the bookkeeping keys.
-PARAM_KEYS = ("distance_meters", "by_field", "mask_source", "mask_dataset_id")
+#
+# fix(#1097 review): the spatial-join pair was missing. _materialize passes
+# join_dataset_id and join_fields to apply_analysis_provenance, and this filter
+# silently dropped both — so a join's durable lineage recorded the source and
+# the operation and neither the layer it joined against nor the columns it
+# transferred, which is most of what makes a join reproducible.
+#
+# This list is the STORAGE contract, and that has a consequence worth stating
+# where the keys are: anything added here becomes visible to every requester
+# who can see the output, so a key naming a dataset must also appear in
+# _DATASET_ID_PARAMS in catalog/authorization.py, which access-checks each one
+# per requester. test_every_dataset_id_param_is_redactable enforces exactly
+# that pairing, and it reads THIS tuple.
+PARAM_KEYS = (
+    "distance_meters",
+    "by_field",
+    "mask_source",
+    "mask_dataset_id",
+    "join_dataset_id",
+    "join_fields",
+)
 
 
 def _format_metres(value: Any) -> str:
@@ -67,6 +87,7 @@ def _operation_phrase(
     source: str,
     params: Mapping[str, Any],
     mask_title: str | None,
+    join_title: str | None = None,
 ) -> str:
     """The clause naming the operation and its parameters.
 
@@ -93,6 +114,39 @@ def _operation_phrase(
         if by_field:
             return f"Dissolved from {source} by {by_field}"
         return f"Dissolved from {source} into a single feature"
+    # fix(#1097 review): the four operations this branch adds had no branch, so
+    # they fell through to the generic fallback and their sentences named only
+    # the source. That sentence is a product surface — the dataset page shows
+    # it, search indexes it, and DCAT exports it — so an overlay whose whole
+    # point is the second layer was described without mentioning one.
+    if operation == "spatial_join":
+        # fix(#1097 review): the transferred field names are NOT named here.
+        #
+        # This sentence is stored once on the record and served to every
+        # requester who can see the output — the dataset page returns it raw,
+        # search indexes it, and three DCAT services export it. None of them
+        # pass it through visible_derived_from, which is what access-checks the
+        # structured provenance per requester.
+        #
+        # So anything the redaction treats as sensitive cannot appear in this
+        # prose, because prose has no per-requester form. join_fields is listed
+        # in _DATASET_ID_PARAMS as a dependent of join_dataset_id precisely
+        # because it describes a layer the requester may not be allowed to see:
+        # a column list is most of a schema. The previous round put it here
+        # while making the sentence more useful, which routed it around the
+        # redaction added for exactly this.
+        target = _quoted(join_title) if join_title else "another layer"
+        return f"Joined from {source} against {target}"
+    if operation == "intersect":
+        target = _quoted(mask_title) if mask_title else "another layer"
+        return f"Intersected from {source} with {target}"
+    if operation == "select_by_location":
+        if params.get("mask_source") == "layer":
+            target = _quoted(mask_title) if mask_title else "another layer"
+            return f"Selected from {source} by {target}"
+        return f"Selected from {source} by a drawn area"
+    if operation == "measure":
+        return f"Measurements computed from {source}"
     return f"{operation.replace('_', ' ').capitalize()} applied to {source}"
 
 
@@ -104,6 +158,7 @@ def build_lineage_sentence(
     actor: str,
     created_at: datetime,
     mask_title: str | None = None,
+    join_title: str | None = None,
 ) -> str:
     """A human sentence describing how this dataset was produced.
 
@@ -111,7 +166,9 @@ def build_lineage_sentence(
     ``dcterms:provenance`` and the dataset page shows it verbatim.
     """
     params = params or {}
-    phrase = _operation_phrase(operation, _quoted(source_title), params, mask_title)
+    phrase = _operation_phrase(
+        operation, _quoted(source_title), params, mask_title, join_title
+    )
     return f"{phrase}, created by {actor} on {created_at.date().isoformat()}."
 
 
@@ -223,11 +280,14 @@ async def apply_analysis_provenance(
         return
 
     source_title = await _record_title(session, source_dataset_id)
-    mask_title = (
-        await _record_title(session, params.get("mask_dataset_id"))
-        if params.get("mask_source") == "layer"
-        else None
-    )
+    # fix(#1097 review): keyed off the ID being present, not off the
+    # mask_source discriminator. intersect takes a layer and has no
+    # mask_source — the discriminator only distinguishes drawn from layer for
+    # the operations that can be either — so gating on it meant an overlay's
+    # title was never resolved and its sentence said "another layer" for a
+    # layer whose title was one query away.
+    mask_title = await _record_title(session, params.get("mask_dataset_id"))
+    join_title = await _record_title(session, params.get("join_dataset_id"))
 
     record.lineage_summary = build_lineage_sentence(
         operation=operation,
@@ -236,6 +296,7 @@ async def apply_analysis_provenance(
         actor=await _actor_label(session, user_id),
         created_at=now,
         mask_title=mask_title,
+        join_title=join_title,
     )
     record.derived_from = build_derived_from(
         source_dataset_id=source_dataset_id,

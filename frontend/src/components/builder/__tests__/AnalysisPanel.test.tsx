@@ -116,14 +116,47 @@ vi.mock('@/api/analysis', () => ({
     .mockResolvedValue({ job_id: 'job1', status: 'pending' }),
 }));
 
+const SHARED_COLUMNS = [
+  { name: 'name', type: 'text' },
+  // Must be filtered out — collides with the generated output column.
+  { name: 'source_count', type: 'integer' },
+  // fix(#1097 review): every remaining shape the server refuses. GDAL
+  // launders only case, '-' and '#', so ingested tables hold names like
+  // these routinely; they are carried into analysis output but cannot be
+  // NAMED in a request, because _SAFE_COLUMN_RE gates group keys and
+  // transferred fields.
+  { name: 'Área', type: 'text' },
+  { name: '2020_pop', type: 'integer' },
+  // Prefixes to the generated join_count column.
+  { name: 'count', type: 'integer' },
+  // No equality operator, so it cannot be a group key.
+  { name: 'props', type: 'json' },
+  // Transferable on its own; the SOURCE below is what makes it collide.
+  { name: 'zone', type: 'text' },
+  // Long enough that `join_` + this exceeds the 63-byte identifier limit.
+  { name: `${'q'.repeat(58)}_alpha`, type: 'text' },
+];
+
+// fix(#1097 review): keyed on the dataset id. A join field's collision is a
+// relationship between the two layers, so a mock that hands both the same
+// columns cannot express it — ds1 is the source and already carries a
+// join_zone (routine, since it is what an earlier spatial join leaves behind),
+// while ds2 is the join layer offering a plain `zone`.
 vi.mock('@/components/dataset/hooks/use-dataset', () => ({
-  useDataset: vi.fn(() => ({
+  useDataset: vi.fn((datasetId?: string) => ({
     data: {
-      column_info: [
-        { name: 'name', type: 'text' },
-        // Must be filtered out — collides with the generated output column.
-        { name: 'source_count', type: 'integer' },
-      ],
+      column_info:
+        datasetId === 'ds1'
+          ? [
+              ...SHARED_COLUMNS,
+              { name: 'join_zone', type: 'text' },
+              // fix(#1097 review): 63 chars — what `join_` + LONG_JOIN_FIELD
+              // becomes once PostgreSQL truncates it. The untruncated alias
+              // does not match this, so a picker comparing untruncated names
+              // offers the field and the server refuses it.
+              { name: `join_${'q'.repeat(58)}`.slice(0, 63), type: 'text' },
+            ]
+          : SHARED_COLUMNS,
     },
   })),
 }));
@@ -496,6 +529,139 @@ describe('AnalysisPanel', () => {
     );
   });
 
+  it('names the exact OUTPUT total for a row-filtering preview (#1097 review)', async () => {
+    // select_by_location and intersect send source_feature_count: null (the
+    // source count cannot describe how many rows survive) and the exact output
+    // total as match_count. Before this the panel read only
+    // source_feature_count, so the server paid for an uncapped count and the
+    // user still got the generic cap message.
+    const user = userEvent.setup();
+    vi.mocked(previewAnalysis).mockResolvedValueOnce({
+      geojson: { type: 'FeatureCollection', features: [] },
+      feature_count: 500,
+      truncated: true,
+      bbox: [0, 0, 1, 1],
+      source_feature_count: null,
+      match_count: 2838,
+    });
+    renderPanel([datasetLayer, datasetLayer2]);
+    // fix(#1097 review): the operation is now what selects match_count, so
+    // this test has to run one. It previously proved less than it read: with
+    // the panel on its default buffer, the assertion passed on the null
+    // source count alone and would have passed for EVERY operation.
+    await user.click(screen.getAllByRole('combobox')[1]);
+    await user.click(await screen.findByRole('option', { name: 'Select by location' }));
+    await user.click(screen.getAllByRole('combobox')[2]);
+    await user.click(await screen.findByRole('option', { name: 'Roads' }));
+    mockT.mockClear();
+    mockToast.info.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() => expect(mockToast.info).toHaveBeenCalled());
+
+    // A distinct string, not truncatedNoticeTotal with a different number:
+    // this total is output rows, and for intersect one source feature can
+    // produce several, so "source features" would misdescribe it.
+    expect(mockT).toHaveBeenCalledWith(
+      'analysisTools.truncatedNoticeMatched',
+      expect.objectContaining({ count: 500, total: 2838 }),
+    );
+    expect(mockT).not.toHaveBeenCalledWith(
+      'analysisTools.truncatedNotice',
+      expect.anything(),
+    );
+  });
+
+  it('keeps the SOURCE total for spatial join, which also sends match_count (#1097 review)', async () => {
+    // The guard on the fix above. spatial_join sends BOTH: it keeps every
+    // source row, and its match_count counts matched PAIRS.
+    // Preferring match_count wherever present would relabel 10,651 source
+    // features as 30,712 "matching" ones.
+    const user = userEvent.setup();
+    vi.mocked(previewAnalysis).mockResolvedValueOnce({
+      geojson: { type: 'FeatureCollection', features: [] },
+      feature_count: 500,
+      truncated: true,
+      bbox: [0, 0, 1, 1],
+      source_feature_count: 10651,
+      match_count: 30712,
+    });
+    renderPanel([datasetLayer, datasetLayer2]);
+    await user.click(screen.getAllByRole('combobox')[1]);
+    await user.click(await screen.findByRole('option', { name: 'Spatial join' }));
+    await user.click(screen.getAllByRole('combobox')[2]);
+    await user.click(await screen.findByRole('option', { name: 'Roads' }));
+    mockT.mockClear();
+    mockToast.info.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() => expect(mockToast.info).toHaveBeenCalled());
+
+    expect(mockT).toHaveBeenCalledWith(
+      'analysisTools.truncatedNoticeTotal',
+      expect.objectContaining({ count: 500, total: 10651 }),
+    );
+    expect(mockT).not.toHaveBeenCalledWith(
+      'analysisTools.truncatedNoticeMatched',
+      expect.anything(),
+    );
+  });
+
+  it('reports NO total for a spatial join whose source count is missing (#1097 review)', async () => {
+    // The case that made keying off `source_feature_count == null` wrong.
+    // Null has a second cause that has nothing to do with the operation: the
+    // dataset's cached feature_count snapshot is absent (legacy imports,
+    // register_existing_table). A spatial join on such a dataset sends null
+    // AND a match_count, and that match_count counts PAIRS — 30,712 of them
+    // behind a 1:1 result whose real total is the source row count. Inferring
+    // from null announced and stored 30,712 as the output total, a number
+    // larger than the result can possibly be.
+    //
+    // No total is the honest answer here: the server could not supply one.
+    const user = userEvent.setup();
+    vi.mocked(previewAnalysis).mockResolvedValueOnce({
+      geojson: { type: 'FeatureCollection', features: [] },
+      feature_count: 500,
+      truncated: true,
+      bbox: [0, 0, 1, 1],
+      source_feature_count: null,
+      match_count: 30712,
+    });
+    const onPreviewResult = vi.fn();
+    renderPanel([datasetLayer, datasetLayer2], { onPreviewResult });
+    await user.click(screen.getAllByRole('combobox')[1]);
+    await user.click(await screen.findByRole('option', { name: 'Spatial join' }));
+    await user.click(screen.getAllByRole('combobox')[2]);
+    await user.click(await screen.findByRole('option', { name: 'Roads' }));
+    mockT.mockClear();
+    mockToast.info.mockClear();
+    onPreviewResult.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() => expect(mockToast.info).toHaveBeenCalled());
+
+    // The generic cap notice, which names no total at all.
+    expect(mockT).toHaveBeenCalledWith(
+      'analysisTools.truncatedNotice',
+      expect.objectContaining({ count: 500 }),
+    );
+    expect(mockT).not.toHaveBeenCalledWith(
+      'analysisTools.truncatedNoticeMatched',
+      expect.anything(),
+    );
+    expect(mockT).not.toHaveBeenCalledWith(
+      'analysisTools.truncatedNoticeTotal',
+      expect.anything(),
+    );
+    // And the pair count is not stored on the overlay either, where it would
+    // outlive the toast as a badge.
+    expect(onPreviewResult).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ truncated: true, totalCount: undefined }),
+    );
+  });
+
   it('raises no truncation notice for a complete preview', async () => {
     // fix(#699 codex P2): wait on a signal belonging to THIS request. The
     // `previewAnalysis` mock is shared and never cleared between tests, so
@@ -798,6 +964,24 @@ describe('AnalysisPanel', () => {
     );
   });
 
+  it('offers no dissolve group column the server would refuse (#1097 review)', async () => {
+    // The review named the JOIN picker, but the gap was in what the pickers
+    // know about the server's rules, and dissolve had the same hole: it
+    // filtered source_count and nothing else, so a json column (no equality
+    // operator, so it cannot be a group key) and the identifier-shape
+    // rejections were all offered and then refused on submit.
+    const user = userEvent.setup();
+    renderPanel([datasetLayer]);
+    await user.click(screen.getAllByRole('combobox')[1]);
+    await user.click(await screen.findByRole('option', { name: 'Dissolve' }));
+
+    await user.click(screen.getAllByRole('combobox')[2]);
+    expect(await screen.findByRole('option', { name: 'name' })).toBeInTheDocument();
+    for (const refused of ['source_count', 'props', 'Área', '2020_pop']) {
+      expect(screen.queryByRole('option', { name: refused })).toBeNull();
+    }
+  });
+
   it('resets the dissolve group field when the source layer changes (fix(#680))', async () => {
     const user = userEvent.setup();
     renderPanel([datasetLayer, datasetLayer2]);
@@ -1081,6 +1265,7 @@ describe('AnalysisPanel — chat handoff prefill (#675)', () => {
       useAnalysisFormStore.getState().save('m1', {
         layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
         mask: null, maskLayerId: '__none__', byField: '__none__',
+        joinLayerId: '__none__', joinField: '__none__',
         outputTitle: 'Walkshed',
       });
       useAnalysisJobStore.setState({
@@ -1136,7 +1321,7 @@ describe('AnalysisPanel — chat handoff prefill (#675)', () => {
       useAnalysisFormStore.getState().save('m1', {
         layerId: 'deleted-layer', operation: 'buffer', distance: '750',
         distanceUnit: 'm', mask: null, maskLayerId: '__none__',
-        byField: '__none__', outputTitle: '',
+        byField: '__none__', joinLayerId: '__none__', joinField: '__none__', outputTitle: '',
       });
       renderPanel([datasetLayer], {
         mapId: 'm1',
@@ -1155,7 +1340,7 @@ describe('AnalysisPanel — chat handoff prefill (#675)', () => {
       useAnalysisFormStore.getState().save('m1', {
         layerId: 'deleted-layer', operation: 'buffer', distance: '750',
         distanceUnit: 'm', mask: null, maskLayerId: '__none__',
-        byField: '__none__', outputTitle: '',
+        byField: '__none__', joinLayerId: '__none__', joinField: '__none__', outputTitle: '',
       });
       // The slot holds a NEWER chat result (no analysis-panel provenance) —
       // opening Analysis must not wipe it just because the remembered layer
@@ -1251,7 +1436,8 @@ describe('AnalysisPanel — chat handoff prefill (#675)', () => {
           type: 'Polygon',
           coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]],
         },
-        maskLayerId: '__none__', byField: '__none__', outputTitle: '',
+        maskLayerId: '__none__', byField: '__none__',
+      joinLayerId: '__none__', joinField: '__none__', outputTitle: '',
       });
       // The lazy BuilderMap has not loaded yet — the ref is empty at mount.
       const mapRef = { current: null as unknown };
@@ -1292,7 +1478,8 @@ describe('AnalysisPanel — chat handoff prefill (#675)', () => {
           type: 'Polygon',
           coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]],
         },
-        maskLayerId: '__none__', byField: '__none__', outputTitle: '',
+        maskLayerId: '__none__', byField: '__none__',
+      joinLayerId: '__none__', joinField: '__none__', outputTitle: '',
       });
       renderPanel([datasetLayer], {
         mapId: 'm1',
@@ -1315,7 +1502,7 @@ describe('AnalysisPanel — chat handoff prefill (#675)', () => {
       };
       useAnalysisFormStore.getState().save('m1', {
         layerId: 'l1', operation: 'clip', distance: '500', distanceUnit: 'm',
-        mask, maskLayerId: '__none__', byField: '__none__', outputTitle: '',
+        mask, maskLayerId: '__none__', byField: '__none__', joinLayerId: '__none__', joinField: '__none__', outputTitle: '',
       });
       // A map that actually tracks its style.load handlers: the fix
       // subscribes for the lifetime of the mask, and the unsubscribe half
@@ -1424,7 +1611,7 @@ describe('AnalysisPanel — chat handoff prefill (#675)', () => {
       useAnalysisFormStore.getState().save('m1', {
         layerId: 'l1', operation: 'buffer', distance: '750',
         distanceUnit: 'm', mask: null, maskLayerId: '__none__',
-        byField: '__none__', outputTitle: 'New draft', runDisowned: true,
+        byField: '__none__', joinLayerId: '__none__', joinField: '__none__', outputTitle: 'New draft', runDisowned: true,
       });
       useAnalysisJobStore.setState({
         job: { jobId: 'old-job', title: 'Old run', mapId: 'm1' },
@@ -1448,7 +1635,7 @@ describe('AnalysisPanel — chat handoff prefill (#675)', () => {
       useAnalysisFormStore.getState().save('m1', {
         layerId: 'l1', operation: 'buffer', distance: '750',
         distanceUnit: 'm', mask: null, maskLayerId: '__none__',
-        byField: '__none__', outputTitle: 'New draft', runDisowned: true,
+        byField: '__none__', joinLayerId: '__none__', joinField: '__none__', outputTitle: 'New draft', runDisowned: true,
       });
       renderPanel([datasetLayer], { mapId: 'm1' });
       act(() => {
@@ -1559,6 +1746,7 @@ describe('AnalysisPanel — stack-selected layer (#772)', () => {
     useAnalysisFormStore.getState().save('m1', {
       layerId: 'l1', operation: 'buffer', distance: '750', distanceUnit: 'm',
       mask: null, maskLayerId: '__none__', byField: '__none__',
+      joinLayerId: '__none__', joinField: '__none__',
       outputTitle: 'Draft name',
     });
     renderPanel([datasetLayer, datasetLayer2], {
@@ -1574,6 +1762,7 @@ describe('AnalysisPanel — stack-selected layer (#772)', () => {
     useAnalysisFormStore.getState().save('m1', {
       layerId: 'l1', operation: 'dissolve', distance: '500', distanceUnit: 'm',
       mask: null, maskLayerId: '__none__', byField: 'col:name',
+      joinLayerId: '__none__', joinField: '__none__',
       outputTitle: 'Dissolved',
     });
     renderPanel([datasetLayer, datasetLayer2], {
@@ -1593,7 +1782,7 @@ describe('AnalysisPanel — stack-selected layer (#772)', () => {
   it('clears a remembered mask layer the selection displaces into the source slot', () => {
     useAnalysisFormStore.getState().save('m1', {
       layerId: 'l1', operation: 'clip', distance: '500', distanceUnit: 'm',
-      mask: null, maskLayerId: 'l3', byField: '__none__', outputTitle: '',
+      mask: null, maskLayerId: 'l3', byField: '__none__', joinLayerId: '__none__', joinField: '__none__', outputTitle: '',
     });
     renderPanel([datasetLayer, datasetLayer2], {
       mapId: 'm1',
@@ -1611,6 +1800,7 @@ describe('AnalysisPanel — stack-selected layer (#772)', () => {
     useAnalysisFormStore.getState().save('m1', {
       layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
       mask: null, maskLayerId: '__none__', byField: '__none__',
+      joinLayerId: '__none__', joinField: '__none__',
       outputTitle: 'Run name',
     });
     useAnalysisJobStore.setState({
@@ -1635,6 +1825,7 @@ describe('AnalysisPanel — stack-selected layer (#772)', () => {
     useAnalysisFormStore.getState().save('m1', {
       layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
       mask: null, maskLayerId: '__none__', byField: '__none__',
+      joinLayerId: '__none__', joinField: '__none__',
       outputTitle: 'Run name',
     });
     useAnalysisJobStore.setState({
@@ -1662,7 +1853,7 @@ describe('AnalysisPanel — stack-selected layer (#772)', () => {
     const onClearPreview = vi.fn();
     useAnalysisFormStore.getState().save('m1', {
       layerId: 'l1', operation: 'buffer', distance: '750', distanceUnit: 'm',
-      mask: null, maskLayerId: '__none__', byField: '__none__', outputTitle: '',
+      mask: null, maskLayerId: '__none__', byField: '__none__', joinLayerId: '__none__', joinField: '__none__', outputTitle: '',
     });
     renderPanel([datasetLayer, datasetLayer2], {
       mapId: 'm1',
@@ -2006,7 +2197,8 @@ describe('AnalysisPanel — audit remediation (v1.6.0)', () => {
         type: 'Polygon',
         coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]],
       },
-      maskLayerId: '__none__', byField: '__none__', outputTitle: '',
+      maskLayerId: '__none__', byField: '__none__',
+      joinLayerId: '__none__', joinField: '__none__', outputTitle: '',
     });
     const qc = new QueryClient({
       defaultOptions: { mutations: { retry: false } },
@@ -2036,5 +2228,463 @@ describe('AnalysisPanel — audit remediation (v1.6.0)', () => {
       expect(mockTerraDraw.instance.addFeatures).toHaveBeenCalledTimes(2),
     );
     expect(mockTerraDraw.instance.setMode).toHaveBeenLastCalledWith('static');
+  });
+});
+
+describe('AnalysisPanel spatial join (feat(#953))', () => {
+  beforeEach(() => {
+    useAnalysisJobStore.setState({ job: null });
+    useAnalysisAddedStore.setState({ addedDatasetIds: [], pendingAddIds: [] });
+    useAnalysisFormStore.setState({ forms: {} });
+    vi.clearAllMocks();
+  });
+
+  async function pickSpatialJoin(user: ReturnType<typeof userEvent.setup>) {
+    // Combobox order: layer, operation.
+    await user.click(screen.getAllByRole('combobox')[1]);
+    await user.click(await screen.findByRole('option', { name: 'Spatial join' }));
+  }
+
+  /** The (datasetId, body) of the first preview call.
+   *
+   * Deliberately the first TWO arguments rather than toHaveBeenCalledWith:
+   * #787 item 3 adds a third AbortSignal argument on a separate branch, and
+   * these tests are about the request body, which is the same either way.
+   */
+  function previewRequest() {
+    return vi.mocked(previewAnalysis).mock.calls[0].slice(0, 2);
+  }
+
+  it('offers every other layer as a join target, not only polygons', async () => {
+    const user = userEvent.setup();
+    // pointLayer is excluded from the CLIP mask picker by the ux(#698) filter;
+    // a join counts in any direction, so it must be offered here.
+    renderPanel([datasetLayer, datasetLayer2, pointLayer]);
+    await pickSpatialJoin(user);
+
+    await user.click(screen.getAllByRole('combobox')[2]);
+    expect(await screen.findByRole('option', { name: 'Bus stops' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Roads' })).toBeInTheDocument();
+    // The source layer cannot join against itself.
+    expect(screen.queryByRole('option', { name: 'Parcels' })).toBeNull();
+  });
+
+  it('offers no join field the server would refuse (#1097 review)', async () => {
+    // The picker used to list every column of the join layer. Three classes of
+    // them can never run: `count` prefixes onto the generated join_count
+    // column, and `Área`/`2020_pop` fail _SAFE_COLUMN_RE. Offering them meant
+    // the only way to learn a field was unusable was to submit and read a 422.
+    const user = userEvent.setup();
+    renderPanel([datasetLayer, datasetLayer2]);
+    await pickSpatialJoin(user);
+    await user.click(screen.getAllByRole('combobox')[2]);
+    await user.click(await screen.findByRole('option', { name: 'Roads' }));
+
+    await user.click(screen.getAllByRole('combobox')[3]);
+    // The one usable column is still offered — this filters, it does not empty.
+    expect(await screen.findByRole('option', { name: 'name' })).toBeInTheDocument();
+    for (const refused of ['count', 'Área', '2020_pop']) {
+      expect(screen.queryByRole('option', { name: refused })).toBeNull();
+    }
+    // fix(#1097 review): and the one that only collides AFTER truncation.
+    // `join_` + this field is 64 chars; PostgreSQL cuts it to 63, which is
+    // exactly a column ds1 already has. Comparing untruncated names misses it.
+    expect(
+      screen.queryByRole('option', { name: `${'q'.repeat(58)}_alpha` }),
+    ).toBeNull();
+    // fix(#1097 review): and the one that depends on the OTHER layer. `zone`
+    // is transferable in itself; it is refused because the source already has
+    // a join_zone, so the transfer would arrive twice. A picker that reads
+    // only the join layer cannot see this.
+    expect(screen.queryByRole('option', { name: 'zone' })).toBeNull();
+  });
+
+  it('does not keep a join field the new source makes invalid (#1097 review)', async () => {
+    // The field belongs to the JOIN layer, so a source change leaves it
+    // intact — but whether it is USABLE depends on the source, since
+    // join_<name> must not collide with a source column. ds1 has join_zone and
+    // the others do not, so picking `zone` against a ds2 source and then
+    // switching the source to ds1 left the menu filtering `zone` out while the
+    // state still held it. The request went anyway and earned a 422.
+    //
+    // The join layer is a THIRD layer on purpose: switching the source onto
+    // the join layer also clears it (nothing joins against itself), which
+    // would mask whether the FIELD was cleared on its own.
+    const user = userEvent.setup();
+    renderPanel([datasetLayer2, pointLayer, datasetLayer]);
+    await user.click(screen.getAllByRole('combobox')[1]);
+    await user.click(await screen.findByRole('option', { name: 'Spatial join' }));
+    await user.click(screen.getAllByRole('combobox')[2]);
+    await user.click(await screen.findByRole('option', { name: 'Bus stops' }));
+    await user.click(screen.getAllByRole('combobox')[3]);
+    await user.click(await screen.findByRole('option', { name: 'zone' }));
+
+    // Switch the SOURCE to the layer that already carries join_zone.
+    await user.click(screen.getAllByRole('combobox')[0]);
+    await user.click(await screen.findByRole('option', { name: 'Parcels' }));
+
+    vi.mocked(previewAnalysis).mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() => expect(previewAnalysis).toHaveBeenCalled());
+    const body = vi.mocked(previewAnalysis).mock.calls[0][1] as {
+      join_fields?: string[];
+    };
+    expect(body.join_fields ?? []).not.toContain('zone');
+  });
+
+  it('cannot preview until a join layer is picked', async () => {
+    const user = userEvent.setup();
+    renderPanel([datasetLayer, datasetLayer2]);
+    await pickSpatialJoin(user);
+
+    expect(screen.getByRole('button', { name: 'Preview' })).toBeDisabled();
+
+    await user.click(screen.getAllByRole('combobox')[2]);
+    await user.click(await screen.findByRole('option', { name: 'Roads' }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Preview' })).toBeEnabled(),
+    );
+  });
+
+  it('sends join_dataset_id alone when no field is transferred', async () => {
+    const user = userEvent.setup();
+    renderPanel([datasetLayer, datasetLayer2]);
+    await pickSpatialJoin(user);
+
+    await user.click(screen.getAllByRole('combobox')[2]);
+    await user.click(await screen.findByRole('option', { name: 'Roads' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+
+    await waitFor(() => expect(previewAnalysis).toHaveBeenCalled());
+    expect(previewRequest()).toEqual([
+      'ds1',
+      { operation: 'spatial_join', join_dataset_id: 'ds2' },
+    ]);
+  });
+
+  it('sends join_fields when a column is chosen', async () => {
+    const user = userEvent.setup();
+    renderPanel([datasetLayer, datasetLayer2]);
+    await pickSpatialJoin(user);
+
+    await user.click(screen.getAllByRole('combobox')[2]);
+    await user.click(await screen.findByRole('option', { name: 'Roads' }));
+    // Third combobox is the field picker, populated from the JOIN layer.
+    await user.click(screen.getAllByRole('combobox')[3]);
+    await user.click(await screen.findByRole('option', { name: 'name' }));
+
+    fireEvent.change(screen.getByLabelText('New dataset name'), {
+      target: { value: 'Parcels with road names' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create dataset' }));
+
+    await waitFor(() =>
+      expect(materializeAnalysis).toHaveBeenCalledWith('ds1', {
+        operation: 'spatial_join',
+        title: 'Parcels with road names',
+        join_dataset_id: 'ds2',
+        join_fields: ['name'],
+      }),
+    );
+  });
+
+  it('drops the chosen field when the join layer changes', async () => {
+    const user = userEvent.setup();
+    renderPanel([datasetLayer, datasetLayer2, pointLayer]);
+    await pickSpatialJoin(user);
+
+    await user.click(screen.getAllByRole('combobox')[2]);
+    await user.click(await screen.findByRole('option', { name: 'Roads' }));
+    await user.click(screen.getAllByRole('combobox')[3]);
+    await user.click(await screen.findByRole('option', { name: 'name' }));
+
+    // Switching layers must not carry a column that belonged to the old one.
+    await user.click(screen.getAllByRole('combobox')[2]);
+    await user.click(await screen.findByRole('option', { name: 'Bus stops' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() => expect(previewAnalysis).toHaveBeenCalled());
+    expect(previewRequest()).toEqual([
+      'ds1',
+      { operation: 'spatial_join', join_dataset_id: 'ds4' },
+    ]);
+  });
+
+  it('restores the join layer and field after a remount (#1097 review)', async () => {
+    const user = userEvent.setup();
+    // mapId is what keys the remembered form — without it the panel persists
+    // nothing and this test would pass against any implementation.
+    const layerSet = [datasetLayer, datasetLayer2, pointLayer];
+    const { unmount } = renderPanel(layerSet, { mapId: 'm1' });
+    await pickSpatialJoin(user);
+    await user.click(screen.getAllByRole('combobox')[2]);
+    await user.click(await screen.findByRole('option', { name: 'Roads' }));
+    await user.click(screen.getAllByRole('combobox')[3]);
+    await user.click(await screen.findByRole('option', { name: 'name' }));
+
+    // Closing the rail (or crossing the responsive breakpoint) unmounts the
+    // panel. Before this both inputs came back as their sentinels, so the
+    // restored spatial-join form was unrunnable with its required layer
+    // silently cleared — while the mask layer next to it survived.
+    unmount();
+    renderPanel(layerSet, { mapId: 'm1' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() => expect(previewAnalysis).toHaveBeenCalled());
+    expect(previewRequest()).toEqual([
+      'ds1',
+      {
+        operation: 'spatial_join',
+        join_dataset_id: 'ds2',
+        join_fields: ['name'],
+      },
+    ]);
+  });
+});
+
+describe('AnalysisPanel select by location (feat(#955))', () => {
+  beforeEach(() => {
+    useAnalysisJobStore.setState({ job: null });
+    useAnalysisAddedStore.setState({ addedDatasetIds: [], pendingAddIds: [] });
+    useAnalysisFormStore.setState({ forms: {} });
+    vi.clearAllMocks();
+  });
+
+  async function pickOperation(
+    user: ReturnType<typeof userEvent.setup>,
+    name: string,
+  ) {
+    await user.click(screen.getAllByRole('combobox')[1]);
+    await user.click(await screen.findByRole('option', { name }));
+  }
+
+  function previewRequest() {
+    return vi.mocked(previewAnalysis).mock.calls[0].slice(0, 2);
+  }
+
+  it('names the selection, not the clip, in the shared mask controls', async () => {
+    const user = userEvent.setup();
+    renderPanel([datasetLayer, datasetLayer2]);
+    await pickOperation(user, 'Select by location');
+
+    // The controls are clip's; the wording must not be.
+    expect(screen.getByRole('button', { name: 'Draw selection area' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Draw clip area' })).toBeNull();
+    expect(screen.getByLabelText('Or select against a layer')).toBeInTheDocument();
+  });
+
+  it('offers only polygon layers to select against', async () => {
+    const user = userEvent.setup();
+    // The selection geometry has to be an area, so this keeps clip's ux(#698)
+    // filter rather than spatial_join's any-direction rule.
+    renderPanel([datasetLayer, datasetLayer2, pointLayer]);
+    await pickOperation(user, 'Select by location');
+
+    await user.click(screen.getByLabelText('Or select against a layer'));
+    expect(await screen.findByRole('option', { name: 'Roads' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Bus stops' })).toBeNull();
+  });
+
+  it('cannot preview until an area is drawn or a layer is picked', async () => {
+    const user = userEvent.setup();
+    renderPanel([datasetLayer, datasetLayer2]);
+    await pickOperation(user, 'Select by location');
+
+    expect(screen.getByRole('button', { name: 'Preview' })).toBeDisabled();
+
+    await user.click(screen.getByLabelText('Or select against a layer'));
+    await user.click(await screen.findByRole('option', { name: 'Roads' }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Preview' })).toBeEnabled(),
+    );
+  });
+
+  it('sends mask_dataset_id on the same two fields clip uses', async () => {
+    const user = userEvent.setup();
+    renderPanel([datasetLayer, datasetLayer2]);
+    await pickOperation(user, 'Select by location');
+
+    await user.click(screen.getByLabelText('Or select against a layer'));
+    await user.click(await screen.findByRole('option', { name: 'Roads' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+
+    await waitFor(() => expect(previewAnalysis).toHaveBeenCalled());
+    expect(previewRequest()).toEqual([
+      'ds1',
+      { operation: 'select_by_location', mask_dataset_id: 'ds2' },
+    ]);
+  });
+
+  // The DRAWN mask, not the layer picker: only the drawn one is cleared by the
+  // operation switch, so it is the only one these two tests can tell apart.
+  const drawnMask = {
+    type: 'Polygon' as const,
+    coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]],
+  };
+  function seedDrawnClipMask() {
+    useAnalysisFormStore.getState().save('m1', {
+      layerId: 'l1', operation: 'clip', distance: '500', distanceUnit: 'm',
+      mask: drawnMask,
+      maskLayerId: '__none__', byField: '__none__',
+      joinLayerId: '__none__', joinField: '__none__', outputTitle: '',
+    });
+  }
+
+  it('keeps a drawn area when switching between clip and select', async () => {
+    const user = userEvent.setup();
+    seedDrawnClipMask();
+    // mapId is what keys the saved form; without it there is nothing to restore.
+    renderPanel([datasetLayer, datasetLayer2], { mapId: 'm1' });
+
+    // Both operations take the same geometry, so switching must not make the
+    // user redraw the polygon they already have.
+    await pickOperation(user, 'Select by location');
+    expect(screen.getByText('Selection area set')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+
+    await waitFor(() => expect(previewAnalysis).toHaveBeenCalled());
+    expect(previewRequest()).toEqual([
+      'ds1',
+      { operation: 'select_by_location', mask: drawnMask },
+    ]);
+  });
+
+  it('still tears the drawn area off the map when leaving for centroid', async () => {
+    const user = userEvent.setup();
+    mockTerraDraw.instance.stop.mockClear();
+    seedDrawnClipMask();
+    // A map ref is required for BOTH halves: it is what makes the restore
+    // construct a TerraDraw instance, and therefore what makes the teardown
+    // observable at all.
+    renderPanel([datasetLayer, datasetLayer2], {
+      mapId: 'm1',
+      mapInstanceRef: { current: { on: vi.fn(), off: vi.fn() } as never },
+    });
+    await waitFor(() =>
+      expect(mockTerraDraw.instance.addFeatures).toHaveBeenCalled(),
+    );
+
+    // fix(#680)'s rule survives the widening: the retained polygon's TerraDraw
+    // layers must come off the map when the next operation ignores them.
+    // Asserted through stop() rather than through the request body — the body
+    // omits `mask` for centroid anyway, so it cannot tell the two apart.
+    await pickOperation(user, 'Centroids');
+    await waitFor(() => expect(mockTerraDraw.instance.stop).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() => expect(previewAnalysis).toHaveBeenCalled());
+    expect(previewRequest()).toEqual(['ds1', { operation: 'centroid' }]);
+  });
+});
+
+describe('AnalysisPanel intersect (feat(#956))', () => {
+  beforeEach(() => {
+    useAnalysisJobStore.setState({ job: null });
+    useAnalysisAddedStore.setState({ addedDatasetIds: [], pendingAddIds: [] });
+    useAnalysisFormStore.setState({ forms: {} });
+    vi.clearAllMocks();
+  });
+
+  async function pickIntersect(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getAllByRole('combobox')[1]);
+    await user.click(await screen.findByRole('option', { name: 'Intersect' }));
+  }
+
+  function previewRequest() {
+    return vi.mocked(previewAnalysis).mock.calls[0].slice(0, 2);
+  }
+
+  it('offers a layer picker and no way to draw', async () => {
+    const user = userEvent.setup();
+    renderPanel([datasetLayer, datasetLayer2]);
+    await pickIntersect(user);
+
+    // A drawn polygon carries no attributes to overlay with, so the API takes
+    // a layer only and the panel must not offer the alternative.
+    expect(screen.getByLabelText('Overlay with layer')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Draw clip area' })).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Draw selection area' }),
+    ).toBeNull();
+  });
+
+  it('cannot preview until a layer is picked', async () => {
+    const user = userEvent.setup();
+    renderPanel([datasetLayer, datasetLayer2]);
+    await pickIntersect(user);
+
+    // No drawn fallback exists, so the empty picker is genuinely blocking.
+    expect(screen.getByRole('button', { name: 'Preview' })).toBeDisabled();
+
+    await user.click(screen.getByLabelText('Overlay with layer'));
+    await user.click(await screen.findByRole('option', { name: 'Roads' }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Preview' })).toBeEnabled(),
+    );
+  });
+
+  it('sends mask_dataset_id and never a drawn mask', async () => {
+    const user = userEvent.setup();
+    renderPanel([datasetLayer, datasetLayer2]);
+    await pickIntersect(user);
+
+    await user.click(screen.getByLabelText('Overlay with layer'));
+    await user.click(await screen.findByRole('option', { name: 'Roads' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+
+    await waitFor(() => expect(previewAnalysis).toHaveBeenCalled());
+    expect(previewRequest()).toEqual([
+      'ds1',
+      { operation: 'intersect', mask_dataset_id: 'ds2' },
+    ]);
+  });
+
+  it('tears a drawn area carried over from clip off the map', async () => {
+    const user = userEvent.setup();
+    mockTerraDraw.instance.stop.mockClear();
+    useAnalysisFormStore.getState().save('m1', {
+      layerId: 'l1', operation: 'clip', distance: '500', distanceUnit: 'm',
+      mask: { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] },
+      maskLayerId: '__none__', byField: '__none__',
+      joinLayerId: '__none__', joinField: '__none__', outputTitle: '',
+    });
+    renderPanel([datasetLayer, datasetLayer2], {
+      mapId: 'm1',
+      mapInstanceRef: { current: { on: vi.fn(), off: vi.fn() } as never },
+    });
+    await waitFor(() =>
+      expect(mockTerraDraw.instance.addFeatures).toHaveBeenCalled(),
+    );
+
+    // Unlike clip -> select_by_location, this switch has to clear the polygon:
+    // intersect ignores a drawn mask, so a retained one would sit on the map
+    // depicting nothing. The request body cannot prove it (usesMask already
+    // excludes intersect), so assert the teardown itself.
+    await pickIntersect(user);
+    await waitFor(() => expect(mockTerraDraw.instance.stop).toHaveBeenCalled());
+
+    await user.click(screen.getByLabelText('Overlay with layer'));
+    await user.click(await screen.findByRole('option', { name: 'Roads' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() => expect(previewAnalysis).toHaveBeenCalled());
+    expect(previewRequest()).toEqual([
+      'ds1',
+      { operation: 'intersect', mask_dataset_id: 'ds2' },
+    ]);
+  });
+
+  it('offers only polygon layers to overlay with', async () => {
+    const user = userEvent.setup();
+    renderPanel([datasetLayer, datasetLayer2, pointLayer]);
+    await pickIntersect(user);
+
+    // _load_mask_dataset requires a polygonal layer, so filter here rather
+    // than let the pick earn a 422.
+    await user.click(screen.getByLabelText('Overlay with layer'));
+    expect(await screen.findByRole('option', { name: 'Roads' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Bus stops' })).toBeNull();
   });
 });

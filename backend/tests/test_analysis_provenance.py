@@ -245,6 +245,110 @@ class TestMaterializedProvenance:
             'Clipped from "Parcels" to "Flood Zone", created by admin on 2026-07-31.'
         )
 
+    def test_every_operation_names_its_second_layer(self):
+        """fix(#1097 review): the four new operations had no branch, so they
+        fell through to "<operation> applied to <source>".
+
+        That sentence is a product surface — the dataset page renders it,
+        search indexes it, and DCAT exports it — so an overlay whose entire
+        point is the second layer was described without naming one.
+        """
+        cases = [
+            (
+                "spatial_join",
+                {"join_dataset_id": "x", "join_fields": ["owner", "value"]},
+                {"join_title": "Parcels Registry"},
+                'Joined from "Points" against "Parcels Registry"',
+            ),
+            (
+                "intersect",
+                {"mask_dataset_id": "x"},
+                {"mask_title": "Zones"},
+                'Intersected from "Points" with "Zones"',
+            ),
+            (
+                "select_by_location",
+                {"mask_source": "layer", "mask_dataset_id": "x"},
+                {"mask_title": "Zones"},
+                'Selected from "Points" by "Zones"',
+            ),
+            (
+                "select_by_location",
+                {"mask_source": "drawn"},
+                {},
+                'Selected from "Points" by a drawn area',
+            ),
+            ("measure", {}, {}, 'Measurements computed from "Points"'),
+        ]
+        for operation, params, titles, expected in cases:
+            sentence = build_lineage_sentence(
+                operation=operation,
+                source_title="Points",
+                params=params,
+                actor="admin",
+                created_at=datetime(2026, 7, 31),
+                **titles,
+            )
+            assert sentence == (f"{expected}, created by admin on 2026-07-31."), (
+                f"{operation} with {params!r} rendered as {sentence!r}"
+            )
+            # The fallback is what these branches exist to avoid.
+            assert "applied to" not in sentence, operation
+
+    def test_the_sentence_never_names_a_private_layers_columns(self):
+        """fix(#1097 review): lineage_summary has no per-requester form.
+
+        It is stored once and served raw — the dataset page returns it, search
+        indexes it, three DCAT services export it — and none of those pass it
+        through visible_derived_from, which is what access-checks the
+        structured provenance per requester.
+
+        So anything the redaction treats as sensitive must not reach this
+        prose. join_fields is a dependent of join_dataset_id in
+        _DATASET_ID_PARAMS precisely because a column list is most of a
+        schema, and the previous round routed it around that redaction while
+        making the sentence more useful.
+        """
+        from app.modules.catalog.authorization import _DATASET_ID_PARAMS
+
+        sentence = build_lineage_sentence(
+            operation="spatial_join",
+            source_title="Points",
+            params={
+                "join_dataset_id": "x",
+                "join_fields": ["parcel_owner", "assessed_value"],
+            },
+            actor="admin",
+            created_at=datetime(2026, 7, 31),
+            join_title="Parcels Registry",
+        )
+        assert "parcel_owner" not in sentence
+        assert "assessed_value" not in sentence
+        # And the reason, stated where it can rot loudly: these are the keys
+        # the redaction drops, so they are the keys prose may not carry.
+        assert "join_fields" in _DATASET_ID_PARAMS["join_dataset_id"]
+
+    def test_a_second_layer_whose_title_is_gone_still_reads_as_a_sentence(self):
+        """A deleted or unreadable layer yields no title, and a bare UUID would
+        not read. Same treatment clip already gave it, extended to the
+        operations that now name a layer."""
+        for operation, params in (
+            ("spatial_join", {"join_dataset_id": "x"}),
+            ("intersect", {"mask_dataset_id": "x"}),
+            ("select_by_location", {"mask_source": "layer", "mask_dataset_id": "x"}),
+        ):
+            sentence = build_lineage_sentence(
+                operation=operation,
+                source_title="Points",
+                params=params,
+                actor="admin",
+                created_at=datetime(2026, 7, 31),
+            )
+            assert "another layer" in sentence, operation
+            assert "x" not in sentence.replace("Intersected", "").replace(
+                "transferring", ""
+            ), f"{operation} leaked an id into the sentence: {sentence!r}"
+
 
 class TestDerivedFromVisibility:
     async def test_detail_omits_derived_from_without_access_to_the_source(
@@ -356,6 +460,216 @@ class TestDerivedFromParamsVisibility:
         visible = await visible_derived_from(test_db_session, reference, None, set())
         assert visible is not None
         assert visible["params"]["mask_dataset_id"] == str(mask.id)
+
+    async def test_a_private_join_layer_takes_its_column_names_with_it(
+        self, test_db_session: AsyncSession
+    ):
+        """fix(#1097 review): the mask was not the last dataset id in params.
+
+        Spatial join carries join_dataset_id, and the redaction covered only
+        the mask — so a public join output derived through a PRIVATE join layer
+        published that layer's id to every viewer.
+
+        join_fields goes with it. Dropping the id alone would still publish the
+        private layer's column names, which is most of what its schema is: an
+        id you cannot resolve is a weaker disclosure than the list of fields
+        someone chose to copy out of it.
+        """
+        from app.modules.catalog.authorization import visible_derived_from
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        source = await _create_polygon_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+        join = await _create_polygon_dataset(
+            test_db_session, created_by=admin_id, visibility="private"
+        )
+        reference = {
+            "dataset_id": str(source.id),
+            "operation": "spatial_join",
+            "params": {
+                "join_dataset_id": str(join.id),
+                "join_fields": ["parcel_owner", "assessed_value"],
+            },
+            "created_at": "2026-07-31T00:00:00+00:00",
+        }
+
+        anonymous = await visible_derived_from(test_db_session, reference, None, set())
+        assert anonymous is not None
+        assert "join_dataset_id" not in anonymous["params"]
+        assert "join_fields" not in anonymous["params"]
+        # The record's own JSONB is untouched — this redacts a copy per
+        # requester, it does not destroy the provenance.
+        assert reference["params"]["join_fields"] == ["parcel_owner", "assessed_value"]
+
+    async def test_a_visible_join_layer_keeps_its_fields(
+        self, test_db_session: AsyncSession
+    ):
+        """The guard on the redaction above: it must key off ACCESS, not off
+        the param existing. An owner reading their own output still gets the
+        lineage that makes it reproducible."""
+        from app.modules.catalog.authorization import visible_derived_from
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        source = await _create_polygon_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+        join = await _create_polygon_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+        reference = {
+            "dataset_id": str(source.id),
+            "operation": "spatial_join",
+            "params": {
+                "join_dataset_id": str(join.id),
+                "join_fields": ["parcel_owner"],
+            },
+            "created_at": "2026-07-31T00:00:00+00:00",
+        }
+
+        visible = await visible_derived_from(test_db_session, reference, None, set())
+        assert visible is not None
+        assert visible["params"]["join_dataset_id"] == str(join.id)
+        assert visible["params"]["join_fields"] == ["parcel_owner"]
+
+    async def test_a_spatial_join_records_the_layer_and_fields_it_used(
+        self, test_db_session: AsyncSession
+    ):
+        """fix(#1097 review): end to end, through the real worker.
+
+        The unit-level whitelist check above says the key is allowed through.
+        This says it actually arrives, because the two are separable: the
+        params reach apply_analysis_provenance and are then filtered, so a
+        whitelist assertion alone would have passed throughout the window when
+        nothing was being stored.
+        """
+        from tests.test_analysis_spatial_join import (
+            _create_probe_points,
+            _create_two_overlapping_polygons,
+        )
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        points = await _create_probe_points(test_db_session, created_by=admin_id)
+        polys = await _create_two_overlapping_polygons(
+            test_db_session, created_by=admin_id
+        )
+        job = await _create_job(test_db_session, admin_id)
+
+        await _materialize(
+            job_id=str(job.id),
+            dataset_id=str(points.id),
+            user_id=str(admin_id),
+            operation="spatial_join",
+            title=f"Joined {uuid.uuid4().hex[:6]}",
+            join_dataset_id=str(polys.id),
+            join_fields=["name", "pop"],
+        )
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+
+        out = await test_db_session.get(Dataset, job.dataset_id)
+        record = await _record_of(test_db_session, out)
+        assert record.derived_from is not None
+        params = record.derived_from["params"]
+        # The layer it joined against, and the columns it copied. Without both,
+        # the lineage cannot explain where the join_* columns came from.
+        assert params["join_dataset_id"] == str(polys.id)
+        assert params["join_fields"] == ["name", "pop"]
+
+    async def test_a_drawn_selection_still_records_that_it_was_drawn(
+        self, test_db_session: AsyncSession
+    ):
+        """fix(#1097 review): mask_source was recorded for clip alone.
+
+        The drawn geometry itself is deliberately kept out of provenance — it
+        can be kilobytes — so this discriminator is the ONLY trace that an area
+        shaped the selection. Without it a drawn select_by_location serialised
+        empty params: a lineage saying a selection happened by no visible
+        means.
+        """
+        from tests.test_analysis_preview import _create_polygon_dataset
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        source = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        job = await _create_job(test_db_session, admin_id)
+
+        await _materialize(
+            job_id=str(job.id),
+            dataset_id=str(source.id),
+            user_id=str(admin_id),
+            operation="select_by_location",
+            title=f"Selected {uuid.uuid4().hex[:6]}",
+            mask={
+                "type": "Polygon",
+                "coordinates": [[[0, 0], [0, 1], [1, 1], [1, 0], [0, 0]]],
+            },
+        )
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+
+        out = await test_db_session.get(Dataset, job.dataset_id)
+        record = await _record_of(test_db_session, out)
+        assert record.derived_from["params"]["mask_source"] == "drawn"
+
+    def test_both_writers_of_mask_source_agree_on_which_operations_have_one(self):
+        """The two writers of this fact must not drift.
+
+        The router records it on the job (Admin Jobs reads that to diagnose a
+        run) and the worker records it in provenance (the durable lineage).
+        They are separate constants because processing/ cannot import from
+        app.modules.catalog (PROCESS-02), and separate constants are how the
+        previous round's fix landed in one writer and not the other.
+
+        Pinned rather than deduplicated, since the import boundary is the
+        reason the duplication exists.
+        """
+        from app.modules.catalog.datasets.domain.schemas import MASK_OPERATIONS
+        from app.processing.analysis.tasks import _DRAWN_MASK_OPERATIONS
+
+        assert set(_DRAWN_MASK_OPERATIONS) == set(MASK_OPERATIONS), (
+            "the job metadata and the durable provenance disagree about which "
+            "operations can take a drawn mask, so one of them is recording a "
+            "discriminator the other omits"
+        )
+
+    def test_every_dataset_id_param_is_redactable(self):
+        """Structural: everything STORED that names a dataset must be
+        access-checked per requester.
+
+        fix(#1097 review): this reads PARAM_KEYS now, not the params dict at
+        the _materialize call site. The first version parsed the call site and
+        was checking the wrong layer — join_dataset_id was passed there and
+        then dropped by build_derived_from's PARAM_KEYS filter, so it never
+        reached records.derived_from at all. The test passed, and it was
+        confirming a pairing between two things that had no bearing on what
+        was stored.
+
+        PARAM_KEYS is the storage contract, so it is the one that matters: a
+        key added there becomes visible to every requester who can see the
+        output. This is also why the redaction and the whitelist have to move
+        together — adding join_dataset_id to PARAM_KEYS without the matching
+        _DATASET_ID_PARAMS row is precisely how a private join layer's id would
+        reach an unauthorised reader.
+
+        The failure mode is silence: an unredacted id looks like ordinary
+        provenance and nothing errors.
+        """
+        from app.modules.catalog.authorization import _DATASET_ID_PARAMS
+        from app.processing.analysis.provenance import PARAM_KEYS
+
+        stored_ids = {k for k in PARAM_KEYS if k.endswith("_dataset_id")}
+        assert stored_ids, (
+            "no *_dataset_id keys in PARAM_KEYS — either the naming convention "
+            "changed or this test has stopped checking anything"
+        )
+        missing = stored_ids - set(_DATASET_ID_PARAMS)
+        assert not missing, (
+            f"{sorted(missing)} are stored in records.derived_from but are not "
+            "in _DATASET_ID_PARAMS, so they are published to requesters who "
+            "cannot access the dataset they name. Add a row (and list any "
+            "param that DESCRIBES that dataset as a dependent, the way "
+            "join_fields hangs off join_dataset_id)."
+        )
 
 
 class TestStacDerivedFromLink:

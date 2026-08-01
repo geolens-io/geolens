@@ -5407,22 +5407,32 @@ export interface components {
              */
             distance_meters?: number | null;
             /**
+             * Join Dataset Id
+             * @description Dataset to join against; each source feature gains a count of the features from it that intersect (spatial_join only)
+             */
+            join_dataset_id?: string | null;
+            /**
+             * Join Fields
+             * @description Columns to copy from the intersecting join feature, prefixed 'join_' in the output. Ties break on the lowest join-layer gid (spatial_join only)
+             */
+            join_fields?: string[] | null;
+            /**
              * Mask
-             * @description GeoJSON Polygon or MultiPolygon geometry in EPSG:4326 (clip only)
+             * @description GeoJSON Polygon or MultiPolygon geometry in EPSG:4326 (clip and select_by_location)
              */
             mask?: {
                 [key: string]: unknown;
             } | null;
             /**
              * Mask Dataset Id
-             * @description Polygon dataset whose unioned features form the clip mask (clip only; alternative to mask)
+             * @description Polygon dataset supplying the second layer: the area clipped to, selected against, or overlaid with. For clip and select_by_location it is the alternative to `mask`; for intersect it is REQUIRED and `mask` is rejected, because an overlay carries the second layer's attributes onto its output and a drawn polygon has none.
              */
             mask_dataset_id?: string | null;
             /**
              * Operation
              * @enum {string}
              */
-            operation: "buffer" | "centroid" | "clip" | "dissolve";
+            operation: "buffer" | "centroid" | "clip" | "dissolve" | "spatial_join" | "measure" | "select_by_location" | "intersect";
             /** Title */
             title: string;
         };
@@ -5453,22 +5463,32 @@ export interface components {
              */
             distance_meters?: number | null;
             /**
+             * Join Dataset Id
+             * @description Dataset to join against; each source feature gains a count of the features from it that intersect (spatial_join only)
+             */
+            join_dataset_id?: string | null;
+            /**
+             * Join Fields
+             * @description Columns to copy from the intersecting join feature, prefixed 'join_' in the output. Ties break on the lowest join-layer gid (spatial_join only)
+             */
+            join_fields?: string[] | null;
+            /**
              * Mask
-             * @description GeoJSON Polygon or MultiPolygon geometry in EPSG:4326 (clip only)
+             * @description GeoJSON Polygon or MultiPolygon geometry in EPSG:4326 (clip and select_by_location)
              */
             mask?: {
                 [key: string]: unknown;
             } | null;
             /**
              * Mask Dataset Id
-             * @description Polygon dataset whose unioned features form the clip mask (clip only; alternative to mask)
+             * @description Polygon dataset supplying the second layer: the area clipped to, selected against, or overlaid with. For clip and select_by_location it is the alternative to `mask`; for intersect it is REQUIRED and `mask` is rejected, because an overlay carries the second layer's attributes onto its output and a drawn polygon has none.
              */
             mask_dataset_id?: string | null;
             /**
              * Operation
              * @enum {string}
              */
-            operation: "buffer" | "centroid" | "clip";
+            operation: "buffer" | "centroid" | "clip" | "spatial_join" | "measure" | "select_by_location" | "intersect";
         };
         /**
          * AnalysisPreviewResponse
@@ -5483,6 +5503,11 @@ export interface components {
             geojson: {
                 [key: string]: unknown;
             };
+            /**
+             * Match Count
+             * @description Exact total across the WHOLE source, not just the previewed features. What it counts is per-operation, so read it against the operation you sent rather than as one number: select_by_location gives the selected source features and intersect gives the output pieces, and for both of those it IS the output total; spatial_join gives intersecting source/join PAIRS, which is NOT the output total, because the join keeps every source row (use source_feature_count for that operation). Null for operations that report no such total, and when the count could not be computed within the query budget
+             */
+            match_count?: number | null;
             /**
              * Source Feature Count
              * @description Total feature count of the source dataset (1:1 operations only; null when the operation filters rows, e.g. clip)

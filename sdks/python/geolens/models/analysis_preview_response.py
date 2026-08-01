@@ -28,6 +28,12 @@ class AnalysisPreviewResponse:
         geojson (AnalysisPreviewResponseGeojson):
         truncated (bool):
         bbox (list[float] | None | Unset):
+        match_count (int | None | Unset): Exact total across the WHOLE source, not just the previewed features. What it
+            counts is per-operation, so read it against the operation you sent rather than as one number: select_by_location
+            gives the selected source features and intersect gives the output pieces, and for both of those it IS the output
+            total; spatial_join gives intersecting source/join PAIRS, which is NOT the output total, because the join keeps
+            every source row (use source_feature_count for that operation). Null for operations that report no such total,
+            and when the count could not be computed within the query budget
         source_feature_count (int | None | Unset): Total feature count of the source dataset (1:1 operations only; null
             when the operation filters rows, e.g. clip)
     """
@@ -36,6 +42,7 @@ class AnalysisPreviewResponse:
     geojson: AnalysisPreviewResponseGeojson
     truncated: bool
     bbox: list[float] | None | Unset = UNSET
+    match_count: int | None | Unset = UNSET
     source_feature_count: int | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -55,6 +62,12 @@ class AnalysisPreviewResponse:
         else:
             bbox = self.bbox
 
+        match_count: int | None | Unset
+        if isinstance(self.match_count, Unset):
+            match_count = UNSET
+        else:
+            match_count = self.match_count
+
         source_feature_count: int | None | Unset
         if isinstance(self.source_feature_count, Unset):
             source_feature_count = UNSET
@@ -72,6 +85,8 @@ class AnalysisPreviewResponse:
         )
         if bbox is not UNSET:
             field_dict["bbox"] = bbox
+        if match_count is not UNSET:
+            field_dict["match_count"] = match_count
         if source_feature_count is not UNSET:
             field_dict["source_feature_count"] = source_feature_count
 
@@ -107,6 +122,15 @@ class AnalysisPreviewResponse:
 
         bbox = _parse_bbox(d.pop("bbox", UNSET))
 
+        def _parse_match_count(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        match_count = _parse_match_count(d.pop("match_count", UNSET))
+
         def _parse_source_feature_count(data: object) -> int | None | Unset:
             if data is None:
                 return data
@@ -123,6 +147,7 @@ class AnalysisPreviewResponse:
             geojson=geojson,
             truncated=truncated,
             bbox=bbox,
+            match_count=match_count,
             source_feature_count=source_feature_count,
         )
 

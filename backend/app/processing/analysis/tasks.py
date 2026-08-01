@@ -31,11 +31,21 @@ from app.core.db.tenant_schema import tenant_data_schema
 from app.core.db.tenant_session import current_tenant_var, tenant_task
 from app.core.tenancy import is_multi_tenant
 from app.platform.analysis_sql import (
+    INTERNAL_ALIAS_PREFIX,
+    INTERSECT_OUTPUT_COLUMNS,
     MAX_MASK_LAYER_FEATURES,
     MAX_SOURCE_FEATURES,
+    MEASURE_OUTPUT_COLUMNS,
+    NON_GROUPABLE_COLUMN_TYPES,
     NOT_EMPTY_PREDICATE,
+    linearized,
     render_clip_layer_join,
     render_geometry_expr,
+    render_intersect_pairs,
+    render_measure_columns,
+    render_select_by_location_where,
+    render_spatial_join,
+    spatial_join_output_columns,
 )
 from app.processing.analysis.provenance import apply_analysis_provenance
 from app.platform.jobs.heartbeat import (
@@ -52,6 +62,15 @@ logger = structlog.stdlib.get_logger(__name__)
 
 _SAFE_IDENT = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 _SAFE_TABLE = re.compile(r"^[a-z0-9_]+$")
+# Mirrors _POLYGONAL_TYPES in router_analysis: a mask layer must be polygonal.
+_POLYGONAL = {"POLYGON", "MULTIPOLYGON"}
+# Mirrors MASK_OPERATIONS in catalog/datasets/domain/schemas.py: the operations
+# whose second input can be a DRAWN polygon rather than a layer. Duplicated
+# rather than imported because processing/ must not import from
+# app.modules.catalog (PROCESS-02), the same reason _POLYGONAL is duplicated.
+# intersect is absent deliberately: it takes a layer only, so the discriminator
+# would be a constant there.
+_DRAWN_MASK_OPERATIONS = ("clip", "select_by_location")
 
 
 # The preview path is bounded (10s sandbox timeout, 500-row cap); the CTAS
@@ -356,6 +375,302 @@ async def _count_features_bounded(
     return int(result.scalar_one())
 
 
+def _generated_columns(
+    operation: str, join_fields: list[str] | None
+) -> tuple[str, ...]:
+    """Columns an operation adds to the output beside the carried source ones."""
+    if operation == "measure":
+        return MEASURE_OUTPUT_COLUMNS
+    if operation == "spatial_join":
+        return tuple(spatial_join_output_columns(join_fields))
+    if operation == "intersect":
+        return INTERSECT_OUTPUT_COLUMNS
+    return ()
+
+
+def _reject_output_column_collision(
+    carry_cols: list[str], generated: tuple[str, ...]
+) -> None:
+    """Worker-side half of the router's enqueue guard.
+
+    The router validates against ``column_info``, a catalog snapshot, and the
+    queue wait sits between that and the live column list held here — so the
+    check runs again against the real columns. Without it the CTAS fails on an
+    opaque "column specified more than once" after the whole wait
+    (fix(#953), extended to measure by fix(#954)).
+    """
+    clashes = sorted(set(carry_cols) & set(generated))
+    if clashes:
+        raise ValueError(
+            "The source dataset already has a column named "
+            f"{clashes[0]!r}, which this operation would overwrite. "
+            "Rename it, or choose a different operation."
+        )
+
+
+async def _resolve_and_validate_columns(
+    session: AsyncSession,
+    *,
+    schema: str,
+    operation: str,
+    src_table_name: str,
+    mask_table_name: str | None,
+    join_table_name: str | None,
+    join_fields: list[str] | None,
+) -> tuple[list[str], list[str]]:
+    """The live-schema rechecks, run together after the queue wait.
+
+    Every guard in here has an enqueue-time twin in the router that reads
+    ``column_info``, a catalog SNAPSHOT. The queue wait sits between the two and
+    a re-upload can replace either layer in that window, so each one runs again
+    against the real columns. Returns the carried column lists the CTAS is
+    built from, because resolving them is how most of these are checked.
+
+    Extracted in fix(#1097 review) rather than raising the C901 threshold on
+    ``_materialize``: the set has grown to five checks over two layers, and
+    they share a subject that the surrounding job bookkeeping does not.
+    """
+    carry_cols = (
+        await _list_carry_columns(session, schema, src_table_name)
+        if operation != "dissolve"
+        else []
+    )
+    _reject_output_column_collision(
+        carry_cols, _generated_columns(operation, join_fields)
+    )
+    if operation == "intersect":
+        _reject_reserved_alias_columns(carry_cols)
+    if operation == "spatial_join" and join_table_name is not None:
+        await _reject_missing_join_fields(session, schema, join_table_name, join_fields)
+    # fix(#956): an overlay carries columns from BOTH inputs, so it is the only
+    # operation that also needs the second layer's live column list — and the
+    # only one where two same-named columns are likely rather than exotic.
+    mask_carry_cols: list[str] = []
+    if operation == "intersect" and mask_table_name is not None:
+        mask_carry_cols = await _list_carry_columns(session, schema, mask_table_name)
+        _reject_output_column_collision(
+            carry_cols, (*mask_carry_cols, *INTERSECT_OUTPUT_COLUMNS)
+        )
+        _reject_output_column_collision(mask_carry_cols, INTERSECT_OUTPUT_COLUMNS)
+        _reject_reserved_alias_columns(mask_carry_cols)
+        await _reject_ungroupable_overlay_columns(session, schema, mask_table_name)
+    return carry_cols, mask_carry_cols
+
+
+def _reject_reserved_alias_columns(carry_cols: list[str]) -> None:
+    """Worker-side half of the reserved-alias guard.
+
+    fix(#1097 review): the router checked a catalog snapshot; a re-upload can
+    introduce a column in the alias namespace before the job runs. Same window
+    as the two rechecks below, and cheap, because the live column list is
+    already in hand here.
+    """
+    reserved = sorted(c for c in carry_cols if c.startswith(INTERNAL_ALIAS_PREFIX))
+    if reserved:
+        raise ValueError(
+            f"Column {reserved[0]!r} uses the {INTERNAL_ALIAS_PREFIX!r} prefix, "
+            "which this operation reserves for its own internal columns. "
+            "Rename it, or choose a different layer."
+        )
+
+
+async def _reject_missing_join_fields(
+    session: AsyncSession, schema: str, table_name: str, join_fields: list[str] | None
+) -> None:
+    """The transferred fields must still exist on the join layer.
+
+    fix(#1097 review): the router validated them against column_info at
+    enqueue, and the worker re-resolved the join layer's TABLE without ever
+    re-checking its COLUMNS. A re-upload that drops or renames a requested
+    field left render_spatial_join referencing a column that is no longer
+    there, so the CTAS failed after the whole queue wait with a database error
+    naming a column the user had legitimately selected when they asked.
+
+    The sibling rechecks beside this one exist for exactly that window; this
+    one was the gap in the set.
+    """
+    if not join_fields:
+        return
+    live = set(
+        (
+            await session.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema = :schema AND table_name = :table_name"
+                ).bindparams(schema=schema, table_name=table_name)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    missing = sorted(set(join_fields) - live)
+    if missing:
+        raise ValueError(
+            f"The join layer no longer has a column named {missing[0]!r}. It "
+            "may have been re-uploaded since this analysis was queued. Choose "
+            "the fields again."
+        )
+
+
+def _ungroupable_type_name(data_type: str | None, udt_name: str | None) -> str | None:
+    """The display name of a non-groupable column type, or None if groupable.
+
+    fix(#1097 review): information_schema reports EVERY array column's
+    data_type as 'ARRAY'; the element type only surfaces in udt_name, with a
+    leading underscore ('_json' for json[]). An exact data_type comparison
+    therefore admitted json[]/xml[] columns straight into GROUP BY, where
+    PostgreSQL cannot apply equality to them (SQLSTATE 42883, verified) — and
+    the catalog snapshot has the same blind spot, so the failure landed after
+    the queue wait. Elements, not arrays: int[]/text[] have equality and group
+    fine, so rejecting 'ARRAY' wholesale would refuse layers that work.
+    """
+    dt = str(data_type or "").lower()
+    if dt in NON_GROUPABLE_COLUMN_TYPES:
+        return dt
+    udt = str(udt_name or "").lower()
+    if udt.startswith("_") and udt[1:] in NON_GROUPABLE_COLUMN_TYPES:
+        return f"{udt[1:]}[]"
+    return None
+
+
+async def _reject_ungroupable_overlay_columns(
+    session: AsyncSession, schema: str, table_name: str
+) -> None:
+    """Worker-side half of the router's ungroupable-overlay guard.
+
+    fix(#1097 review): the enqueue guard reads ``column_info``, a catalog
+    snapshot, and a re-upload can replace the overlay between enqueue and the
+    job running — the same window ``_reject_output_column_collision`` exists
+    for, and the reason the carry-column list beside it is read live rather
+    than trusted from the snapshot. A replacement that introduces a json or xml
+    column would otherwise reach ``render_intersect_pairs``, which names every
+    carried overlay column in its GROUP BY, and fail the CTAS with SQLSTATE
+    42883. Array forms (json[]/xml[]) can ONLY be caught here: the snapshot
+    stores 'ARRAY' with no element type, so the router admits them and this
+    recheck is the sole guard (see _ungroupable_type_name).
+
+    Types, not names: reading the live names already happens and would not have
+    caught this, because the column that breaks the query is one whose NAME is
+    unremarkable.
+    """
+    rows = await session.execute(
+        text(
+            "SELECT column_name, data_type, udt_name "
+            "FROM information_schema.columns "
+            "WHERE table_schema = :schema AND table_name = :table_name "
+            "AND column_name NOT IN ('gid', 'geom', 'geom_4326') "
+            "ORDER BY ordinal_position"
+        ).bindparams(schema=schema, table_name=table_name)
+    )
+    for name, data_type, udt_name in rows:
+        bad = _ungroupable_type_name(data_type, udt_name)
+        if bad is not None:
+            raise ValueError(
+                f"The overlay layer's column {name!r} has type "
+                f"{bad!r}, which cannot be grouped, and an "
+                "overlay carries every overlay column onto its output. Choose "
+                "a different layer, or remove that column from it."
+            )
+
+
+async def _reject_ungroupable_by_field(
+    session: AsyncSession, schema: str, table_name: str, by_field: str
+) -> None:
+    """Dissolve's GROUP BY column must be groupable on the LIVE schema.
+
+    fix(#1097 review): the same shape as the overlay recheck above, one
+    operation over — dissolve names ``by_field`` in its GROUP BY, the router
+    checked it against the snapshot, and the snapshot cannot see a json[]
+    element type ('ARRAY'). One query answers both failure modes: a column the
+    re-upload dropped, and one whose live type has no equality operator.
+    """
+    row = (
+        await session.execute(
+            text(
+                "SELECT data_type, udt_name FROM information_schema.columns "
+                "WHERE table_schema = :schema AND table_name = :table_name "
+                "AND column_name = :column_name"
+            ).bindparams(schema=schema, table_name=table_name, column_name=by_field)
+        )
+    ).first()
+    if row is None:
+        raise ValueError(
+            f"Column {by_field!r} no longer exists on the source layer. It "
+            "may have been re-uploaded since this analysis was queued."
+        )
+    bad = _ungroupable_type_name(row[0], row[1])
+    if bad is not None:
+        raise ValueError(
+            f"Column {by_field!r} has type {bad!r} and can't be used to "
+            "group features. Choose a column with comparable values."
+        )
+
+
+async def _resolve_layer_table_ref(
+    session: AsyncSession,
+    dataset_cls: Any,
+    dataset_id: str,
+    schema: str,
+    *,
+    label: str,
+    require_geometry: str | None = None,
+) -> tuple[str, str]:
+    """Re-resolve a secondary layer at run time: ``(table_ref, table_name)``.
+
+    fix(#953); fix(#956) added the bare name to the return, because an overlay
+    reads that layer's live columns out of ``information_schema``, which takes
+    a plain name rather than the quoted ref every other caller wants.
+
+    Both two-layer operations need this — clip against a mask layer, and
+    spatial_join against a join layer — with the same trust model: access was
+    checked at enqueue by the router, and the table name is re-matched against
+    ``_SAFE_TABLE`` here because the queue wait sits between the two.
+
+    ``dataset_cls`` is passed in rather than imported: ``processing/`` must not
+    import from ``app.modules.catalog.*`` (PROCESS-02), so the caller hands
+    over what it got from ``ProcessingPort.get_dataset_orm_class()``.
+    """
+    result = await session.execute(
+        select(dataset_cls).where(dataset_cls.id == uuid.UUID(dataset_id))
+    )
+    layer = result.scalar_one_or_none()
+    if layer is None or not layer.table_name:
+        raise ValueError(f"{label.capitalize()} dataset not found")
+    if not _SAFE_TABLE.match(layer.table_name):
+        raise ValueError(f"Invalid {label} table name")
+    # fix(#1097 review): the geometry requirement is re-applied here, not just
+    # at enqueue. A re-upload can change what a layer IS while the job waits in
+    # the queue, and the swap updates Dataset.geometry_type, so the value the
+    # router checked is not the one the CTAS runs against.
+    #
+    # Two strengths, because the two layers want different things.
+    #
+    # "polygonal" is the mask's: _load_mask_dataset refuses points and lines,
+    # since unioning them produces a mask that clips nothing meaningful.
+    # Nothing downstream notices if that changes — the mask expression simply
+    # matches no rows, and the job dies on "Analysis produced no features",
+    # which sends the user to look at their own data rather than at the layer
+    # that changed underneath them.
+    #
+    # "any" is the join layer's. A spatial join counts in any direction, so
+    # points and lines stay valid and only the absence of geometry is fatal:
+    # a re-upload from a non-spatial source sets geometry_type to None and
+    # builds a table with no geom_4326 at all, and render_spatial_join
+    # references _j.geom_4326 (fix(#1097 review)).
+    geometry_type = (layer.geometry_type or "").upper()
+    if require_geometry == "polygonal" and geometry_type not in _POLYGONAL:
+        raise ValueError(
+            f"The {label} layer is no longer a polygon layer. It may have been "
+            "re-uploaded since this analysis was queued."
+        )
+    if require_geometry == "any" and not geometry_type:
+        raise ValueError(
+            f"The {label} layer no longer has geometry. It may have been "
+            "re-uploaded since this analysis was queued."
+        )
+    return f'"{schema}"."{layer.table_name}"', layer.table_name
+
+
 async def _recheck_size_caps(
     session: AsyncSession,
     *,
@@ -634,8 +949,50 @@ def _build_materialize_select(
     by_field: str | None,
     carry_cols: list[str],
     mask_table_ref: str | None = None,
+    join_table_ref: str | None = None,
+    join_fields: list[str] | None = None,
+    mask_carry_cols: list[str] | None = None,
 ) -> str:
     """Render the SELECT that produces the output table's rows."""
+    if operation == "intersect" and mask_table_ref is not None:
+        # fix(#956): the only branch whose output rows are not 1:1 with source
+        # rows, so it is also the only one besides dissolve that generates its
+        # own gid — the unconditional ADD PRIMARY KEY (gid) below would die on
+        # duplicates otherwise. The empty-geometry filter is inside the
+        # renderer for the same reason clip's is (fix(#719 review)):
+        # _enforce_output_size measures the CTAS before the post-CTAS DELETE
+        # can shrink it.
+        return render_intersect_pairs(
+            src_ref,
+            mask_table_ref,
+            src_columns=[_sql_quote_ident(c) for c in carry_cols],
+            mask_columns=[_sql_quote_ident(c) for c in (mask_carry_cols or [])],
+        )
+    if operation == "measure":
+        # fix(#954): the same renderer the preview uses, so a saved measurement
+        # equals the one the user approved rather than being recomputed by a
+        # second expression that could drift.
+        measure_cols, measure_join = render_measure_columns(src="_src")
+        cols = "".join(f"_src.{_sql_quote_ident(c)}, " for c in carry_cols)
+        return _wrap_not_empty(
+            f"SELECT _src.gid, {cols}{linearized('_src.geom_4326')} AS geom,"
+            f" {measure_cols}"
+            f" FROM {src_ref} AS _src{measure_join}"
+        )
+    if operation == "spatial_join" and join_table_ref is not None:
+        # fix(#953): the same two laterals the preview uses, so the saved
+        # dataset and the approved preview agree row for row — including the
+        # tie-break, which is the difference between one output row per source
+        # feature and a duplicate-gid CTAS that dies on ADD PRIMARY KEY below.
+        join_cols, joins = render_spatial_join(
+            join_table_ref, src="_src", join_fields=join_fields
+        )
+        cols = "".join(f"_src.{_sql_quote_ident(c)}, " for c in carry_cols)
+        return _wrap_not_empty(
+            f"SELECT _src.gid, {cols}{linearized('_src.geom_4326')} AS geom,"
+            f" {join_cols}"
+            f" FROM {src_ref} AS _src{joins}"
+        )
     if operation == "dissolve":
         # ST_MakeValid: one invalid ring would abort the whole union.
         # ST_CollectionExtract: a union over mixed geometry types returns a
@@ -656,6 +1013,21 @@ def _build_materialize_select(
         return _wrap_not_empty(
             f"SELECT 1 AS gid, COUNT(*)::integer AS source_count, "
             f"{union_expr} AS geom FROM {src_ref}"
+        )
+    if operation == "select_by_location" and mask_table_ref is not None:
+        # fix(#955): whole source rows, filtered. No lateral and no CTE, so
+        # unlike the clip branch below there is nothing for the not-empty
+        # filter to catch downstream — _wrap_not_empty applies it to the source
+        # geometry directly, which is what the output geometry IS.
+        #
+        # The DRAWN-mask half needs no branch at all: render_geometry_expr
+        # returns the linearized pass-through and its <where>, and the generic
+        # tail below is already the right shape.
+        where = render_select_by_location_where(mask_table_ref, src="_src")
+        cols = "".join(f"_src.{_sql_quote_ident(c)}, " for c in carry_cols)
+        return _wrap_not_empty(
+            f"SELECT _src.gid, {cols}{linearized('_src.geom_4326')} AS geom"
+            f" FROM {src_ref} AS _src{where}"
         )
     if operation == "clip" and mask_table_ref is not None:
         # fix(#719): the same subdivided-mask join the preview uses. This used
@@ -700,6 +1072,8 @@ async def _materialize(
     mask: dict[str, Any] | None = None,
     mask_dataset_id: str | None = None,
     by_field: str | None = None,
+    join_dataset_id: str | None = None,
+    join_fields: list[str] | None = None,
 ) -> None:
     """Core materialize logic; separated from the task wrapper for tests."""
     from app.core.db import async_session
@@ -780,24 +1154,43 @@ async def _materialize(
                 raise ValueError("Source dataset not found")
             if not _SAFE_TABLE.match(src.table_name):
                 raise ValueError("Invalid source table name")
-            if by_field is not None and not _SAFE_IDENT.match(by_field):
-                raise ValueError("Invalid dissolve column name")
+            if by_field is not None:
+                if not _SAFE_IDENT.match(by_field):
+                    raise ValueError("Invalid dissolve column name")
+                await _reject_ungroupable_by_field(
+                    session, _schema, src.table_name, by_field
+                )
             src_ref = f'"{_schema}"."{src.table_name}"'
 
             # Layer-sourced clip mask: re-resolve the table name at run time
             # (access was checked at enqueue by the router, same trust model
             # as the source dataset).
             mask_table_ref: str | None = None
+            mask_table_name: str | None = None
             if mask_dataset_id is not None:
-                mask_result = await session.execute(
-                    select(Dataset).where(Dataset.id == uuid.UUID(mask_dataset_id))
+                mask_table_ref, mask_table_name = await _resolve_layer_table_ref(
+                    session,
+                    Dataset,
+                    mask_dataset_id,
+                    _schema,
+                    label="mask",
+                    require_geometry="polygonal",
                 )
-                mask_ds = mask_result.scalar_one_or_none()
-                if mask_ds is None or not mask_ds.table_name:
-                    raise ValueError("Mask dataset not found")
-                if not _SAFE_TABLE.match(mask_ds.table_name):
-                    raise ValueError("Invalid mask table name")
-                mask_table_ref = f'"{_schema}"."{mask_ds.table_name}"'
+            join_table_ref: str | None = None
+            # fix(#1097 review): the plain name is kept now, not discarded. The
+            # transferred fields have to be re-checked against this layer's
+            # LIVE columns, and information_schema takes a name rather than the
+            # quoted ref.
+            join_table_name: str | None = None
+            if join_dataset_id is not None:
+                join_table_ref, join_table_name = await _resolve_layer_table_ref(
+                    session,
+                    Dataset,
+                    join_dataset_id,
+                    _schema,
+                    label="join",
+                    require_geometry="any",
+                )
 
             await _recheck_size_caps(
                 session,
@@ -827,10 +1220,14 @@ async def _materialize(
             # same row) for the entire build.
             out_ref = f'"{_schema}"."{out_table}"'
 
-            carry_cols = (
-                await _list_carry_columns(session, _schema, src.table_name)
-                if operation != "dissolve"
-                else []
+            carry_cols, mask_carry_cols = await _resolve_and_validate_columns(
+                session,
+                schema=_schema,
+                operation=operation,
+                src_table_name=src.table_name,
+                mask_table_name=mask_table_name,
+                join_table_name=join_table_name,
+                join_fields=join_fields,
             )
             select_sql = _build_materialize_select(
                 src_ref,
@@ -840,6 +1237,9 @@ async def _materialize(
                 by_field=by_field,
                 carry_cols=carry_cols,
                 mask_table_ref=mask_table_ref,
+                join_table_ref=join_table_ref,
+                join_fields=join_fields,
+                mask_carry_cols=mask_carry_cols,
             )
             await session.execute(
                 text(f"SET LOCAL statement_timeout = '{materialize_timeout()}'")
@@ -932,12 +1332,27 @@ async def _materialize(
                 params={
                     "distance_meters": distance_meters,
                     "by_field": by_field,
+                    # fix(#1097 review): every operation that can take a
+                    # DRAWN mask, not clip alone. The drawn geometry itself is
+                    # deliberately excluded from provenance (it can be
+                    # kilobytes), so for a drawn select_by_location this
+                    # discriminator was the only trace that an area shaped the
+                    # selection at all — without it those params serialise
+                    # empty and the lineage says a selection happened by no
+                    # visible means.
+                    #
+                    # The sibling of the job-metadata fix in the previous
+                    # round. That one was the writer the review named; this is
+                    # the other writer of the same fact, and fixing only the
+                    # named one is what left this behind.
                     "mask_source": (
                         ("layer" if mask_dataset_id else "drawn")
-                        if operation == "clip"
+                        if operation in _DRAWN_MASK_OPERATIONS
                         else None
                     ),
                     "mask_dataset_id": mask_dataset_id,
+                    "join_dataset_id": join_dataset_id,
+                    "join_fields": join_fields or None,
                 },
             )
             await _complete_job_for_attempt(
@@ -1016,6 +1431,8 @@ async def materialize_analysis(
     mask: dict[str, Any] | None = None,
     mask_dataset_id: str | None = None,
     by_field: str | None = None,
+    join_dataset_id: str | None = None,
+    join_fields: list[str] | None = None,
 ) -> None:
     """Procrastinate entry point for async analysis materialization."""
     await _materialize(
@@ -1028,4 +1445,6 @@ async def materialize_analysis(
         mask=mask,
         mask_dataset_id=mask_dataset_id,
         by_field=by_field,
+        join_dataset_id=join_dataset_id,
+        join_fields=join_fields,
     )

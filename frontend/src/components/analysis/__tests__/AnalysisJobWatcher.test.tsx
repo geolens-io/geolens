@@ -63,6 +63,7 @@ describe('AnalysisJobWatcher', () => {
     useAnalysisFormStore.getState().save('m1', {
       layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
       mask: null, maskLayerId: '__none__', byField: '__none__',
+      joinLayerId: '__none__', joinField: '__none__',
       outputTitle: 'Walkshed',
     });
     useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Walkshed', mapId: 'm1' } });
@@ -79,6 +80,7 @@ describe('AnalysisJobWatcher', () => {
     useAnalysisFormStore.getState().save('m1', {
       layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
       mask: null, maskLayerId: '__none__', byField: '__none__',
+      joinLayerId: '__none__', joinField: '__none__',
       outputTitle: 'Walkshed',
     });
     useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Walkshed', mapId: 'm1' } });
@@ -93,6 +95,7 @@ describe('AnalysisJobWatcher', () => {
     useAnalysisFormStore.getState().save('m1', {
       layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
       mask: null, maskLayerId: '__none__', byField: '__none__',
+      joinLayerId: '__none__', joinField: '__none__',
       outputTitle: 'My next run',
       // The panel stamps this whenever the form changes mid-run.
       runDisowned: true,
@@ -110,6 +113,7 @@ describe('AnalysisJobWatcher', () => {
     useAnalysisFormStore.getState().save('m1', {
       layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
       mask: null, maskLayerId: '__none__', byField: '__none__',
+      joinLayerId: '__none__', joinField: '__none__',
       outputTitle: 'Walkshed',
       runDisowned: true,
     });
@@ -124,6 +128,7 @@ describe('AnalysisJobWatcher', () => {
     useAnalysisFormStore.getState().save('m1', {
       layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
       mask: null, maskLayerId: '__none__', byField: '__none__',
+      joinLayerId: '__none__', joinField: '__none__',
       outputTitle: 'Walkshed',
     });
     useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Walkshed', mapId: 'm1' } });
@@ -163,6 +168,7 @@ describe('AnalysisJobWatcher', () => {
     useAnalysisFormStore.getState().save('m1', {
       layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
       mask: null, maskLayerId: '__none__', byField: '__none__',
+      joinLayerId: '__none__', joinField: '__none__',
       outputTitle: 'Walkshed',
     });
     useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
@@ -237,6 +243,7 @@ describe('AnalysisJobWatcher', () => {
     useAnalysisFormStore.getState().save('m1', {
       layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
       mask: null, maskLayerId: '__none__', byField: '__none__',
+      joinLayerId: '__none__', joinField: '__none__',
       outputTitle: 'Walkshed',
     });
     useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
@@ -273,6 +280,7 @@ describe('AnalysisJobWatcher', () => {
     useAnalysisFormStore.getState().save('m1', {
       layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
       mask: null, maskLayerId: '__none__', byField: '__none__',
+      joinLayerId: '__none__', joinField: '__none__',
       outputTitle: 'Walkshed',
     });
     useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
@@ -361,6 +369,7 @@ describe('AnalysisJobWatcher', () => {
     useAnalysisFormStore.getState().save('m1', {
       layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
       mask: null, maskLayerId: '__none__', byField: '__none__',
+      joinLayerId: '__none__', joinField: '__none__',
       outputTitle: 'Walkshed',
     });
     useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
@@ -392,6 +401,7 @@ describe('AnalysisJobWatcher', () => {
     useAnalysisFormStore.getState().save('m1', {
       layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
       mask: null, maskLayerId: '__none__', byField: '__none__',
+      joinLayerId: '__none__', joinField: '__none__',
       outputTitle: 'Walkshed',
     });
     useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
@@ -413,6 +423,7 @@ describe('AnalysisJobWatcher', () => {
     useAnalysisFormStore.getState().save('m1', {
       layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
       mask: null, maskLayerId: '__none__', byField: '__none__',
+      joinLayerId: '__none__', joinField: '__none__',
       outputTitle: 'Walkshed',
     });
     useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });

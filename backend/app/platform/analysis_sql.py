@@ -22,6 +22,8 @@ TopologyException, with no user-side workaround.
 from __future__ import annotations
 
 import math
+import re
+from collections.abc import Sequence
 from typing import Any
 
 import shapely
@@ -41,15 +43,68 @@ MAX_MASK_LAYER_FEATURES = 1_000
 # fix(#694): per-operation source-size ceilings.
 # dissolve: ST_Union memory grows with input; ~1M polygons OOM-kills a 2 GB
 # db container, taking every connection with it — 250k keeps 4x headroom.
-# buffer: the only output-amplifying operation, and vector datasets carry no
-# byte quota, so bound the amplification source instead.
+# buffer: an output-amplifying operation, and vector datasets carry no byte
+# quota, so bound the amplification source instead. (fix(#956): buffer was
+# described here as the ONLY amplifying operation. Intersect amplifies too,
+# and along a different axis — buffer grows each geometry, intersect
+# multiplies ROWS.)
 # Enforced twice with LIMIT-bounded live counts: at enqueue (router, fast
 # 422) and again in the worker right before the CTAS — the queue wait can be
 # long enough for a dataset to be re-uploaded past its cap (fix(#701
 # review)).
+# fix(#953): spatial_join probes the join layer once per source row, so its
+# cost is source rows x per-row index lookup rather than buffer's flat per-row
+# expression. 250k matches dissolve rather than buffer's 500k for that reason.
+# Note the router reads this with .get() and skips the gate when the key is
+# absent, so an operation missing here has NO ceiling, not a default one.
+# fix(#954): measure is the cheapest operation here — one geography cast and
+# two accessor calls per row, no output amplification and no second layer — so
+# its ceiling is the most generous. It exists at all because the router reads
+# this dict with .get() and skips the gate when a key is absent, which would
+# leave the operation with NO ceiling rather than a default one.
+# fix(#955): select_by_location has spatial_join's cost shape — one GIST probe
+# into a second layer per source row — so it takes the same 250k. Note clip is
+# deliberately absent and therefore uncapped: its mask layer is what is bounded
+# (MAX_MASK_LAYER_FEATURES), not its source.
+# fix(#956): intersect is the only operation whose OUTPUT ROW COUNT is not
+# bounded by its source count, so its ceiling was measured rather than guessed.
+# Benchmarked against a 972-polygon / 249,804-vertex mask (the same yardstick
+# render_clip_layer_join's docstring uses, reproduced synthetically), varying
+# how many mask features each source overlaps:
+#
+#   sources   overlap   output rows      CTAS      output size
+#     1,000       4x          4,000     0.26s          3.6 MB
+#    10,000       4x         40,000      1.4s           35 MB
+#    50,000       4x        200,000     12.4s          174 MB
+#   150,000       4x        600,000     22.2s          521 MB
+#    10,000      58x        577,453     47.8s        1,235 MB
+#    10,000     145x              —      7.2s   ERROR: temp_file_limit (4 GB)
+#
+# The source count is NOT the binding constraint; the overlap factor is. At
+# 10k sources and heavy overlap the output already passes half of
+# MAX_OUTPUT_BYTES, and the 4326 rewrite roughly doubles the payload again, so
+# _enforce_output_size is what actually catches an amplifying run — no source
+# ceiling could. Extreme overlap dies earlier still, on PostgreSQL's own
+# temp_file_limit.
+#
+# 100k is therefore sized on the BENIGN case staying comfortably inside both
+# budgets (~400k rows, ~350 MB, ~15s, roughly 700 MB after the rewrite), while
+# anything pathological hits the 300s MATERIALIZE_TIMEOUT or the output check
+# instead of the box's memory. Half of dissolve's 250k because each source row
+# here does more work AND emits more than one output row.
+#
+# The obvious next suggestion is to lower this until it catches the 58x row.
+# Don't: no source ceiling separates those two runs, so the only value that
+# rejects the 47.8s job also rejects the benign 150k one that finishes in 22s.
+# That trades a cheap early-out for a false refusal. Leave the amplifying case
+# to _enforce_output_size, which measures the thing that actually varies.
 MAX_SOURCE_FEATURES = {
     "dissolve": 250_000,
     "buffer": 500_000,
+    "spatial_join": 250_000,
+    "measure": 1_000_000,
+    "select_by_location": 250_000,
+    "intersect": 100_000,
 }
 
 _CLIP_MASK_TYPES = ("Polygon", "MultiPolygon")
@@ -576,6 +631,511 @@ def render_clip_layer_join(mask_table_ref: str, *, src: str) -> tuple[str, str, 
     return cte, lateral, where
 
 
+# fix(#956): overlay output rows do not correspond 1:1 to source rows, so the
+# source gid cannot be the output key — the CTAS takes a generated one, like
+# dissolve. The source gid is carried as an ordinary attribute instead, which
+# is what makes an output piece traceable back to the feature it came from
+# ("which parcel is this 0.4 acres of flood zone?"). The overlay feature needs
+# no equivalent: its own attributes are already carried onto every row.
+INTERSECT_SOURCE_GID_COLUMN = "source_gid"
+INTERSECT_OUTPUT_COLUMNS = (INTERSECT_SOURCE_GID_COLUMN,)
+
+# fix(#1097 review): the prefix every INTERNAL column alias in a rendered
+# statement carries, and which a carried column may therefore not start with.
+#
+# The output-collision guards reserve names that reach the OUTPUT — join_count,
+# source_gid. They said nothing about the aliases a query invents on the way
+# there, so an overlay attribute named `_mask_gid`, `g` or `_src_type` landed in
+# the same select list as the alias of that name: `SELECT _o.gid AS _mask_gid,
+# "_mask_gid"`. The later `_mp._mask_gid` is then ambiguous and the CTAS fails,
+# after the queue wait, quoting a name the user never chose.
+#
+# A reserved PREFIX rather than a list of the three names. A list is correct
+# only for the aliases that exist when it is written, and this PR has already
+# watched two such lists fall behind (the provenance redaction, the picker
+# filters). Renaming the aliases into a namespace and reserving the namespace
+# means an alias added later is covered by construction, with no second place
+# to remember to update.
+INTERNAL_ALIAS_PREFIX = "_gl_"
+
+# Column types PostgreSQL cannot group by, because they have no equality
+# operator. Grouping on one fails with SQLSTATE 42883.
+#
+# Here rather than in either caller: dissolve's by_field guard (the router) and
+# intersect's overlay guards (the router at enqueue, the worker again after the
+# queue wait) all need it, and the worker must not import from the API layer.
+NON_GROUPABLE_COLUMN_TYPES = frozenset({"json", "xml"})
+
+
+def linearized(column: str) -> str:
+    """Wrap a geometry read so curved types never reach curve-intolerant SQL.
+
+    fix(#1097 review): WFS sources can store CURVED geometries — GeoServer's
+    MultiSurface/CompoundCurve layers ingest as-is, because ingest classifies
+    the dataset by the closest concrete linear type (metadata.py's
+    _ABSTRACT_TO_CONCRETE_GEOMETRY_TYPE) without touching the stored binary.
+    Three families of SQL these operations rely on then RAISE on such a row
+    (each verified against PostGIS 3.6): ``::geography`` ("Geography type does
+    not support MultiSurface"), ``ST_MakeValid`` ("unsupported geometry type"),
+    and ``ST_AsGeoJSON`` ("geometry type not supported" — GeoJSON has no
+    curves). ``ST_CurveToLine`` densifies arcs into the linear equivalent and
+    is an exact no-op on already-linear input, so every geometry read that
+    feeds one of those functions — or that passes through into preview GeoJSON
+    or a CTAS output table — goes through this wrapper.
+
+    This is deliberately NOT a repair (contrast ST_MakeValid): the catalog
+    already promises the linear type for these datasets, so the linearized
+    form is the declared shape, not a changed one.
+
+    WHERE predicates stay on the BARE column: ``&&`` (a bbox operator),
+    ``ST_Intersects``, ``ST_Dimension`` and ``ST_IsEmpty`` all accept curves
+    directly (verified), and wrapping the column there would defeat the GIST
+    index the predicates are shaped around.
+
+    These wraps are the analysis-scoped half of a wider class — tiles,
+    feature reads, and the pre-existing operations hit the same raises on
+    main. #1104 tracks normalizing ``geom_4326`` at ingest, after which this
+    helper becomes removable.
+    """
+    return f"ST_CurveToLine({column})"
+
+
+def render_intersect_pairs(
+    src_table_ref: str,
+    mask_table_ref: str,
+    *,
+    src_columns: Sequence[str] = (),
+    mask_columns: Sequence[str] = (),
+) -> str:
+    """One row per intersecting (source feature, overlay feature) PAIR (#956).
+
+    This is what separates an overlay from a clip. ``render_clip_layer_join``
+    aggregates every mask piece back to ONE geometry per source row, so a
+    parcel crossing three flood zones clips to a single feature. An overlay
+    wants three, each carrying its own zone's attributes, because the question
+    is "how many acres of THIS parcel fall in THAT zone".
+
+    ``src_columns`` and ``mask_columns`` must arrive ALREADY QUOTED, per this
+    module's rule that identifiers are the caller's responsibility. The caller
+    also guarantees they do not collide: the router rejects that at enqueue
+    (a duplicate output column fails the CTAS with an opaque "column specified
+    more than once"), so nothing here silently prefixes or renames.
+
+    Shape notes, each of which is load-bearing:
+
+    - The mask is subdivided by ``_mask_pieces`` for the reason
+      ``render_clip_layer_join`` documents (per-row cost tracks local overlap
+      instead of whole-mask complexity), but the grouping is by mask ``gid``,
+      NOT collapsed across the layer. Subdividing without re-grouping per mask
+      FEATURE would emit one row per PIECE, so a mask polygon that happened to
+      split into four would silently quadruple the output.
+    - ``ST_MakeValid`` on the source is hoisted into an ``OFFSET 0`` lateral so
+      it runs once per source row rather than once per candidate pair. Inlined,
+      it is #953's 28.4s-vs-0.2s trap, and worse here: this shape probes every
+      piece of every overlapping mask feature.
+    - ``GROUP BY _src.gid`` alone licenses the ungrouped ``_src.*`` references
+      (PostgreSQL recognizes functional dependency on a real table's primary
+      key). ``_mp`` is a CTE and has no key, so every ``_mp`` column that is
+      selected has to be grouped explicitly.
+    - ``ST_LineMerge`` on single-part LineString sources only, for the reason
+      spelled out in ``render_clip_layer_join``: ``ST_Union`` re-dissolves
+      adjacent polygons but does not sew line segments, so a line crossing a
+      piece seam would come back artificially fragmented.
+    - ``row_number()`` is evaluated after ``WHERE``, so the generated gids are
+      contiguous over the rows that survive the empty-geometry filter rather
+      than carrying its holes.
+
+    The cost of the generated key is that neither the preview nor the CTAS can
+    stop early: a window function has to see every row. The preview therefore
+    pays the full overlay before its cap applies, bounded by the sandbox
+    statement timeout rather than by the row limit.
+    """
+    src_sel = "".join(f", _src.{c}" for c in src_columns)
+    mask_sel = "".join(f", _mp.{c}" for c in mask_columns)
+    mask_pick = "".join(f", {c}" for c in mask_columns)
+    mask_group = "".join(f", _mp.{c}" for c in mask_columns)
+    outer_cols = "".join(f", _p.{c}" for c in (*src_columns, *mask_columns))
+    return (
+        f"WITH _mask_pieces AS MATERIALIZED ("
+        f"SELECT _o.gid AS _gl_mask_gid{mask_pick},"
+        f" ST_Subdivide(_o._gl_g, {MASK_SUBDIVIDE_MAX_VERTICES}) AS geom"
+        f" FROM (SELECT gid{mask_pick},"
+        f" ST_CollectionExtract(ST_MakeValid({linearized('geom_4326')}), 3) AS _gl_g"
+        f" FROM {mask_table_ref} WHERE geom_4326 IS NOT NULL OFFSET 0) AS _o"
+        f" WHERE NOT ST_IsEmpty(_o._gl_g))"
+        f" SELECT (row_number() OVER ())::integer AS gid,"
+        f" _p.{INTERSECT_SOURCE_GID_COLUMN}{outer_cols},"
+        f" CASE WHEN _p._gl_src_type = 'LINESTRING'"
+        f" THEN ST_LineMerge(_p.geom) ELSE _p.geom END AS geom"
+        f" FROM (SELECT _src.gid AS {INTERSECT_SOURCE_GID_COLUMN},"
+        # linearized: GeometryType of a curved source reads COMPOUNDCURVE,
+        # which would silently skip the LINESTRING ST_LineMerge branch above.
+        # ST_Dimension below stays raw — it accepts curves and answers the
+        # same number either way.
+        f" GeometryType({linearized('_src.geom_4326')}) AS _gl_src_type"
+        f"{src_sel}{mask_sel},"
+        f" ST_Union(ST_CollectionExtract("
+        f"ST_Intersection(_sv.g, _mp.geom),"
+        f" ST_Dimension(_src.geom_4326) + 1)) AS geom"
+        f" FROM {src_table_ref} AS _src"
+        f" CROSS JOIN LATERAL (SELECT"
+        f" ST_MakeValid({linearized('_src.geom_4326')}) AS g"
+        f" OFFSET 0) AS _sv"
+        f" JOIN _mask_pieces AS _mp"
+        f" ON _mp.geom && _src.geom_4326"
+        f" AND ST_Intersects(_mp.geom, _sv.g)"
+        f" GROUP BY _src.gid, _mp._gl_mask_gid{mask_group}) AS _p"
+        f" WHERE _p.geom IS NOT NULL AND NOT ST_IsEmpty(_p.geom)"
+    )
+
+
+def render_intersect_preview(
+    src_table_ref: str, mask_table_ref: str, *, geojson_precision: int
+) -> str:
+    """The preview projection over ``render_intersect_pairs`` (fix(#956)).
+
+    An overlay is a JOIN with a GROUP BY, not a per-row expression, so it does
+    not fit the lateral template the other operations share — it renders whole
+    and the preview selects from it.
+
+    Only ``gid`` and ``source_gid`` are carried as properties. The preview
+    answers "what shape, and how many"; the saved dataset answers "with which
+    attributes". Threading both layers' column lists in here would buy
+    properties nothing on the map reads.
+
+    ``match_count`` is a WINDOW over this same statement, not a second one.
+    ``row_number()`` inside the pairs query has already forced every row to be
+    materialized, so ``count(*) OVER ()`` is free, whereas a separate aggregate
+    would mean running the most expensive operation twice. It is selected last
+    and sits outside the caller's extra-column list, so the positional zip that
+    builds properties stops before it and it never lands in one.
+    """
+    pairs = render_intersect_pairs(src_table_ref, mask_table_ref)
+    return (
+        f"SELECT gid,"
+        f" ST_AsGeoJSON(geom, {geojson_precision}) AS geometry_json,"
+        f" {INTERSECT_SOURCE_GID_COLUMN},"
+        f" count(*) OVER () AS match_count"
+        f" FROM ({pairs}) AS _ov"
+        f" ORDER BY gid"
+    )
+
+
+def render_select_by_location_where(mask_table_ref: str, *, src: str) -> str:
+    """Row filter for select-by-location against a mask LAYER (fix(#955)).
+
+    A selection keeps whole source geometries, so unlike ``render_clip_layer_join``
+    there is no intersection lateral downstream. That makes this EXISTS the
+    ENTIRE operation, and it has to be exact on its own.
+
+    Clip's row filter is ``&&`` alone, which admits any source row whose
+    ENVELOPE overlaps a mask envelope. Clip survives that because rows missing
+    the true predicate intersect to NULL/EMPTY and the not-empty filter drops
+    them. Copy it verbatim into a selection and an L-shaped or concave mask
+    selects the features sitting in its notch, which is this operation's
+    signature bug. So ``&&`` stays as the index-drivable prefilter and a real
+    ``ST_Intersects`` is added beside it.
+
+    Both operands are RAW columns. ``ST_Intersects`` accepts invalid geometry
+    (unlike ``ST_Intersection``, which raises) and agrees with the repaired
+    answer, so no ``ST_MakeValid`` is needed — and adding one would be actively
+    harmful here rather than merely wasteful: inside a correlated subquery it
+    re-evaluates per CANDIDATE PAIR instead of per row, which measured 28.4s
+    against 0.2s on #953's join before the ``OFFSET 0`` hoist. Nothing to hoist
+    in this shape, because there is no expression left to evaluate.
+
+    Like clip, the probe targets the RAW mask table rather than a subdivided
+    CTE: it keeps real join statistics in both directions, where the CTE costs
+    a linear piece scan per source row (2.4s vs 0.25s when the mask sits at the
+    high end of the gid order).
+
+    ``ST_Dimension(...) = 2`` keeps the mask polygonal per ROW.
+    ``_load_mask_dataset`` already rejects a non-polygonal mask DATASET, but the
+    catalog classifies ``geometry_type`` from the FIRST feature (fix(#682)), so
+    a "POLYGON" layer can still hold point and line rows — and clip drops those
+    in ``_mask_pieces``. Without this term, selecting and clipping against one
+    layer would disagree about what the mask is. It does NOT chase the narrower
+    case of a degenerate polygon that ``ST_MakeValid`` would shed to a line;
+    that needs the per-row repair ruled out above.
+
+    NULL geometry on either side falls out of ``&&`` by three-valued logic
+    rather than by an explicit guard.
+    """
+    return (
+        f" WHERE EXISTS (SELECT 1 FROM {mask_table_ref} AS _sel"
+        f" WHERE _sel.geom_4326 && {src}.geom_4326"
+        f" AND ST_Intersects(_sel.geom_4326, {src}.geom_4326)"
+        f" AND ST_Dimension(_sel.geom_4326) = 2)"
+    )
+
+
+def render_select_by_location_count(
+    src_table_ref: str, *, mask_table_ref: str | None, mask: dict[str, Any] | None
+) -> str:
+    """Exact selected-record total, uncapped by the preview limit (fix(#955)).
+
+    The record list is this operation's deliverable, so its SIZE cannot be the
+    500 the geometry preview stops at. This is the second, uncapped statement
+    that answers it.
+
+    Rebuilds the row filter by calling the SAME renderer the preview calls for
+    whichever mask path is in play, rather than restating the predicate, so the
+    number under the map and the features on it cannot describe different sets.
+    That is #953's lesson, where a separately written count statement drifted
+    from the per-row one.
+
+    The trailing not-NULL/not-empty pair is what ``NOT_EMPTY_PREDICATE`` does
+    for the preview, restated against the source column because a selection's
+    lateral is the identity. A test pins the total against the feature list
+    rather than leaving the agreement to this paragraph.
+    """
+    if mask_table_ref is not None:
+        where = render_select_by_location_where(mask_table_ref, src="_src")
+    else:
+        _, where = render_geometry_expr("select_by_location", mask=mask)
+    return (
+        f"SELECT count(*)::bigint AS match_count"
+        f" FROM {src_table_ref} AS _src{where}"
+        f" AND _src.geom_4326 IS NOT NULL AND NOT ST_IsEmpty(_src.geom_4326)"
+    )
+
+
+# fix(#954): the columns a measure adds to the source row. Metres on the wire,
+# matching the buffer distance convention the panel's unit picker converts for
+# (AnalysisPanel's BUFFER_UNIT_METERS). ST_Area(geography) returns square
+# metres and ST_Length(geography) metres, so the SQL converts nothing.
+MEASURE_AREA_COLUMN = "area_sqm"
+MEASURE_LENGTH_COLUMN = "length_m"
+MEASURE_OUTPUT_COLUMNS = (MEASURE_AREA_COLUMN, MEASURE_LENGTH_COLUMN)
+
+
+def render_measure_columns(*, src: str = "") -> tuple[str, str]:
+    """Render the measured columns and the cast that feeds them (fix(#954)).
+
+    Returns ``(select_columns, join_clause)`` in the same shape
+    ``render_spatial_join`` uses, so the preview and the CTAS compose them
+    identically.
+
+    BOTH columns are emitted for every geometry type, rather than picking one
+    from the catalog's ``geometry_type``. That column is classified from the
+    dataset's FIRST feature (the same trap fix(#682) documents for clip masks),
+    so a table typed POLYGON can legitimately hold line rows, and branching on
+    it would silently measure the wrong thing for the rest of the table.
+    Emitting both is honest instead: ``ST_Length`` of a polygon is 0 and
+    ``ST_Area`` of a line is 0, so each row carries its meaningful measure and a
+    zero, and a mixed table measures correctly throughout.
+
+    The ``::geography`` cast is hoisted into its own lateral behind an
+    ``OFFSET 0`` fence so it runs ONCE per row and feeds both accessors —
+    inlined, the two references cast the geometry twice. Same fix(#700) shape
+    the preview's geometry expression and the #953 join predicate use; the cast
+    is the expensive part on large inputs, which the issue flags directly.
+
+    geography, not planar: it measures on the spheroid, so an unprojected
+    dataset gets a correct answer with none of the projection juggling the
+    buffer path needs, and an antimeridian-crossing polygon measures correctly
+    where planar area does not.
+    """
+    prefix = f"{src}." if src else ""
+    join = (
+        f" CROSS JOIN LATERAL"
+        f" (SELECT {linearized(f'{prefix}geom_4326')}::geography AS g"
+        f" OFFSET 0) AS _mg"
+    )
+    columns = (
+        f"ST_Area(_mg.g)::double precision AS {MEASURE_AREA_COLUMN},"
+        f" ST_Length(_mg.g)::double precision AS {MEASURE_LENGTH_COLUMN}"
+    )
+    return columns, join
+
+
+# fix(#953): the columns a spatial join adds to the source row.
+SPATIAL_JOIN_COUNT_COLUMN = "join_count"
+SPATIAL_JOIN_FIELD_PREFIX = "join_"
+
+# PostgreSQL's NAMEDATALEN - 1. An identifier longer than this is truncated
+# with a NOTICE rather than refused, so a guard that compares untruncated names
+# is comparing strings the database will never see. Confirmed on the server
+# (SELECT current_setting('max_identifier_length')) rather than taken on faith.
+#
+# Bytes, strictly — but every name this bounds is ASCII, because
+# _SAFE_COLUMN_RE gates the join fields that can be named in a request.
+MAX_IDENTIFIER_LENGTH = 63
+
+# Transferred fields are capped because each one widens every output row and
+# the CTAS has a fixed time budget. Ten is well past the "which district is
+# this in" case the operation exists for.
+MAX_SPATIAL_JOIN_FIELDS = 10
+
+# Same rule dissolve applies to by_field (_validate_dissolve_by_field): a
+# user-selected column name must be identifier-shaped. That is what lets the
+# rendering below quote with plain double quotes — the pattern admits no quote
+# and no colon, so there is nothing for SQLAlchemy's text() bind-parameter
+# parser or for an identifier escape to get wrong. Cost of the rule: a column
+# named "Área" cannot be transferred, exactly as it cannot be dissolved on
+# today. Source columns are unaffected; they ride the carry-column path, which
+# quotes properly and carries every name (fix(#763)).
+_SPATIAL_JOIN_IDENT = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+
+def spatial_join_output_columns(join_fields: list[str] | None) -> list[str]:
+    """Names of the columns a spatial join generates, in output order.
+
+    Callers use this to reject a source dataset that already has a column of
+    the same name: the CTAS would otherwise fail with "column specified more
+    than once" after the queue wait, the same trap ``by_field`` hits on
+    dissolve's generated ``source_count``.
+
+    fix(#1097 review): TRUNCATED to PostgreSQL's identifier limit, because that
+    is the name the CTAS will actually create. Verified against the server
+    rather than assumed: max_identifier_length is 63, and a longer alias is
+    silently truncated to it (a NOTICE, not an error), quoted or not.
+
+    Two join fields sharing their first 58 characters therefore prefix to
+    strings that differ here and are the SAME column in the output, so the
+    uniqueness check below passed and the CTAS failed after the queue wait. One
+    overlong alias can also truncate ONTO an existing source column without the
+    collision check noticing.
+
+    Truncating here rather than rejecting long names keeps the guards comparing
+    what the database will compare, and keeps every consumer — the router's two
+    checks, the worker's recheck, and this list's own uniqueness rule — reading
+    one set of names. Source columns need no such treatment: they already exist
+    in a table, so the server truncated them when it was created.
+    """
+    return [SPATIAL_JOIN_COUNT_COLUMN] + [
+        f"{SPATIAL_JOIN_FIELD_PREFIX}{name}"[:MAX_IDENTIFIER_LENGTH]
+        for name in (join_fields or [])
+    ]
+
+
+def render_spatial_join(
+    join_table_ref: str,
+    *,
+    src: str,
+    join_fields: list[str] | None = None,
+) -> tuple[str, str]:
+    """Spatial join against another LAYER (fix(#953)); preview AND materialize.
+
+    Returns ``(select_columns, join_clauses)`` for a source table aliased
+    ``src``. The geometry is NOT touched — a spatial join adds columns, so the
+    output geometry is the source feature verbatim (see ``render_geometry_expr``
+    for why it is not even ST_MakeValid'd).
+
+    Strictly 1:1. Two laterals, because the two halves want opposite things:
+
+    - The count lateral aggregates EVERY match, so it needs no tie-break and
+      always returns exactly one row (``CROSS JOIN``).
+    - The field lateral takes exactly one match under a stated tie-break —
+      **lowest join-layer gid** — via ``ORDER BY _j.gid LIMIT 1``. Without it a
+      point inside two overlapping polygons emits two rows for one source
+      feature, and materialize then dies on ``ADD PRIMARY KEY (gid)`` with a
+      constraint error rather than anything a user could act on. ``LEFT JOIN``
+      so a source row matching nothing keeps its row with NULL fields instead
+      of vanishing; dropping it would break the 1:1 property that lets
+      ``source_feature_count`` mean anything.
+
+    Deterministic beats cartographically ideal here: smallest-containing-polygon
+    would pick the city over the county for nested boundaries, but it costs an
+    ST_Area per matched pair and nothing in the issue asks for it.
+
+    The match predicate keeps the raw ``&&`` term on the bare columns so the
+    GIST index stays usable, then re-tests with ST_Intersects over made-valid
+    geometries — the same split ``render_geometry_expr`` uses for clip. Both
+    sides are made valid: one invalid ring in EITHER layer would otherwise
+    abort the whole statement with a GEOS TopologyException.
+
+    The explicit ``IS NOT NULL`` term is redundant and deliberate: ``&&``
+    against a NULL yields NULL, so an ungeometried join row already fails the
+    WHERE and cannot reach a count. Removing it changes no result (verified by
+    mutation). It stays because an arbitrary join layer IS partly ungeometried
+    — #700 made analysis OUTPUTS NULL-free, not arbitrary uploads — and the
+    next person to edit this predicate should not have to re-derive
+    three-valued logic to convince themselves those rows are handled.
+    """
+    fields = list(join_fields or [])
+    if len(fields) != len(set(fields)):
+        raise ValueError("join_fields contains duplicates")
+    if len(fields) > MAX_SPATIAL_JOIN_FIELDS:
+        raise ValueError(
+            f"At most {MAX_SPATIAL_JOIN_FIELDS} join fields may be transferred"
+        )
+    for name in fields:
+        if not _SPATIAL_JOIN_IDENT.match(name):
+            raise ValueError(f"Invalid join field name: {name!r}")
+
+    # fix(#953): the JOIN side is tested RAW, deliberately. The module docstring's
+    # ST_MakeValid rule exists for OVERLAY operations — measured here, PostGIS
+    # 3.6 raises from ST_Intersection over a self-intersecting bowtie but
+    # ST_Intersects over the same geometry returns an answer, in either argument
+    # position, and the same answer the repaired geometry gives. Wrapping it
+    # costs a repair per CANDIDATE ROW, which the source-side hoist above cannot
+    # amortise because _j differs every row: on 32,186 meteorite points against
+    # 242 Natural Earth country polygons that was 33.68s versus 1.98s raw, both
+    # returning 30,712 pairs. Prevalidating the join layer in a MATERIALIZED CTE
+    # was tried and is worse — it wins nothing in that direction (5.22s) and
+    # loses the GIST index in the other, taking 0.21s to 12.88s.
+    match = (
+        f"_j.geom_4326 IS NOT NULL"
+        f" AND _j.geom_4326 && {src}.geom_4326"
+        f" AND ST_Intersects(_j.geom_4326, _sv.g)"
+    )
+    columns = f"_jc.{SPATIAL_JOIN_COUNT_COLUMN}"
+    joins = (
+        # fix(#953): the source geometry is made valid ONCE PER SOURCE ROW here,
+        # not inside the predicate below. Inlined, it is re-evaluated per
+        # CANDIDATE PAIR — the same trap fix(#700) documents for the preview's
+        # geometry expression, and the OFFSET 0 fence against subquery pull-up
+        # is the same remedy. Measured on real data (242 Natural Earth country
+        # polygons x 32,186 meteorite points): inlined 28.36s, hoisted 0.20s,
+        # both returning 30,712 matches. The inlined form blew the sandbox's
+        # 10s statement timeout, so the preview 422'd on a pairing a user would
+        # obviously try.
+        f" CROSS JOIN LATERAL"
+        f" (SELECT ST_MakeValid({linearized(f'{src}.geom_4326')}) AS g"
+        f" OFFSET 0) AS _sv"
+        f" CROSS JOIN LATERAL ("
+        f"SELECT count(*)::integer AS {SPATIAL_JOIN_COUNT_COLUMN}"
+        f" FROM {join_table_ref} AS _j WHERE {match}) AS _jc"
+    )
+    if fields:
+        picked = ", ".join(f'_j."{name}"' for name in fields)
+        joins += (
+            f" LEFT JOIN LATERAL (SELECT {picked}"
+            f" FROM {join_table_ref} AS _j WHERE {match}"
+            f" ORDER BY _j.gid LIMIT 1) AS _jf ON TRUE"
+        )
+        for name in fields:
+            columns += f', _jf."{name}" AS "{SPATIAL_JOIN_FIELD_PREFIX}{name}"'
+    return columns, joins
+
+
+def render_spatial_join_match_count(src_table_ref: str, join_table_ref: str) -> str:
+    """Count matched PAIRS across the WHOLE source (fix(#953)).
+
+    The geometry preview is capped at ``PREVIEW_FEATURE_CAP`` rows, so summing
+    its per-row counts would answer "how many points are in these 500 polygons"
+    while the map says nothing about the cap. That number is worse than none:
+    it looks like the answer. This runs as its own statement, bounded by the
+    sandbox statement timeout rather than by a row cap, since it returns one
+    row however large the inputs are.
+
+    Built from ``render_spatial_join`` rather than from a second hand-written
+    predicate: a total that disagrees with the per-feature counts on the map is
+    the one failure mode this field cannot afford, and one renderer is what
+    makes disagreement impossible. It also inherits the per-source-row
+    ST_MakeValid hoist, without which this statement has the same 100x+
+    blow-up the per-row counts did.
+    """
+    _, joins = render_spatial_join(join_table_ref, src="_src")
+    return (
+        f"SELECT COALESCE(sum(_jc.{SPATIAL_JOIN_COUNT_COLUMN}), 0)::bigint"
+        f" AS match_count"
+        f" FROM {src_table_ref} AS _src{joins}"
+        f" WHERE _src.geom_4326 IS NOT NULL"
+    )
+
+
 def render_mask_expr(mask: dict[str, Any]) -> str:
     """Render a validated clip mask as a PostGIS geometry expression.
 
@@ -643,6 +1203,44 @@ def render_geometry_expr(
         return render_geodesic_buffer("ST_MakeValid(geom_4326)", distance), ""
     if operation == "centroid":
         return "ST_Centroid(ST_MakeValid(geom_4326))", ""
+    if operation == "measure":
+        # fix(#954): like spatial_join, measure adds columns and leaves the
+        # geometry alone — see the spatial_join note below on why the output is
+        # NOT ST_MakeValid'd (linearized() explains why it IS linearized). The
+        # measured columns come from render_measure_columns.
+        return linearized("geom_4326"), ""
+    if operation == "spatial_join":
+        # fix(#953): a spatial join adds columns; the geometry is the source
+        # feature as stored. Deliberately NOT ST_MakeValid'd, unlike every
+        # other operation here — those all transform the geometry anyway, so
+        # repairing the input first is free. Here the output IS the input, and
+        # silently returning a repaired copy would hand back a geometry the
+        # user never asked to change. Validity still gets handled where it
+        # actually matters, inside the join predicate (render_spatial_join).
+        # Linearization is not that kind of change — a curved pass-through
+        # cannot be serialized to GeoJSON at all (see linearized()).
+        # The join columns themselves come from render_spatial_join.
+        return linearized("geom_4326"), ""
+    if operation == "select_by_location":
+        # fix(#955): the drawn-mask half of select-by-location. The geometry is
+        # the source feature verbatim (like spatial_join/measure above, and NOT
+        # ST_MakeValid'd for the same reason), so the operation is entirely its
+        # WHERE.
+        #
+        # Unlike clip's inline predicate below, ST_MakeValid is left off the
+        # source side. Clip repairs there because its geometry expression feeds
+        # ST_Intersection, which RAISES on invalid input, and the filter has to
+        # agree with what the expression will compute; a selection computes
+        # nothing, and ST_Intersects accepts invalid geometry directly. Leaving
+        # it off is also what keeps this path's row set identical to the mask-
+        # LAYER path, where the repair is unaffordable (see
+        # render_select_by_location_where).
+        mask_expr = render_mask_expr(mask or {})
+        return (
+            linearized("geom_4326"),
+            f" WHERE geom_4326 && {mask_expr}"
+            f" AND ST_Intersects(geom_4326, {mask_expr})",
+        )
     if operation == "clip":
         mask_expr = render_mask_expr(mask or {})
         # A clip that only grazes a boundary intersects at a lower dimension
