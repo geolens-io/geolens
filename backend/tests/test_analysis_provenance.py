@@ -976,16 +976,19 @@ class TestLineageSummaryVisibility:
         )
         assert clip.mask_title in owner_detail.text
 
-    def test_a_sentence_that_cannot_be_aligned_loses_every_title(self):
+    def test_a_sentence_that_cannot_be_aligned_is_replaced_whole(self):
         """The positional mapping is only safe while it can be checked.
 
         A source whose title was already unreadable renders as a bare phrase, so
         the mask's title becomes the FIRST quoted span and a slot-by-slot
         redaction would hand it to a requester who may not see it. Fewer spans
-        than referenced datasets is exactly that case, and it redacts all of
-        them rather than guessing.
+        than referenced datasets is exactly that case, and the sentence is
+        replaced whole rather than edited by guesswork.
         """
-        from app.modules.catalog.authorization import _redact_quoted_titles
+        from app.modules.catalog.authorization import (
+            _REDACTED_SUMMARY,
+            _redact_quoted_titles,
+        )
 
         sentence = (
             'Clipped from an unnamed dataset to "Flood Zone", '
@@ -993,7 +996,29 @@ class TestLineageSummaryVisibility:
         )
         redacted = _redact_quoted_titles(sentence, [uuid.uuid4(), uuid.uuid4()], {1})
         assert "Flood Zone" not in redacted
-        assert redacted.startswith("Clipped from an unnamed dataset to another dataset")
+        assert redacted == _REDACTED_SUMMARY
+
+    def test_a_hidden_title_containing_a_quote_leaves_no_fragment(self):
+        """fix(#1108 review): a quote INSIDE a hidden title splits the span scan.
+
+        ``"Flood "Zone" map"`` reads as two spans with ``Zone`` stranded between
+        them; redacting span-by-span would keep that fragment readable. The
+        count mismatch such a title always produces must therefore replace the
+        whole sentence, not just the spans it happened to detect.
+        """
+        from app.modules.catalog.authorization import (
+            _REDACTED_SUMMARY,
+            _redact_quoted_titles,
+        )
+
+        sentence = (
+            'Clipped from "Roads" to "Flood "Zone" map", '
+            "created by admin on 2026-07-31."
+        )
+        redacted = _redact_quoted_titles(sentence, [uuid.uuid4(), uuid.uuid4()], {1})
+        assert redacted == _REDACTED_SUMMARY
+        assert "Zone" not in redacted
+        assert "Flood" not in redacted
 
     async def test_a_record_with_no_provenance_costs_no_query(self):
         """Hand-written lineage is not assembled from other datasets' titles.

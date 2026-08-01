@@ -255,6 +255,14 @@ async def visible_derived_from(
 _REDACTED_SOURCE_TITLE = "another dataset"
 _REDACTED_LAYER_TITLE = "another layer"
 
+# fix(#1108 review): the whole-sentence replacement for prose whose quoted
+# spans cannot be aligned with the referenced datasets. A hidden title that
+# itself contains a quote character corrupts the span boundaries, so a
+# span-by-span redaction can leave fragments of that title BETWEEN the spans
+# it replaces. Misaligned prose has no trustworthy structure to edit; the only
+# safe partial disclosure is none.
+_REDACTED_SUMMARY = "Derived from another dataset."
+
 # Every title the generator writes is quoted, and nothing else in the sentence
 # is: distances, field names, the actor and the date all render bare.
 _QUOTED_TITLE_RE = re.compile(r'"[^"]*"')
@@ -328,14 +336,15 @@ def _redact_quoted_titles(
     second layer's after it, so span N belongs to ``dataset_ids[N]``. That
     alignment only holds while the sentence has exactly one quoted span per
     referenced dataset — a source whose title was already unreadable renders as
-    a bare phrase and shifts every later span onto the wrong dataset. When the
-    counts disagree, every quoted title goes: over-redacting a sentence nobody
-    can align is the safe direction, and it also covers a title that itself
-    contained a quote character.
+    a bare phrase and shifts every later span onto the wrong dataset, and a
+    title that itself contains ``"`` splits into several spans with its middle
+    OUTSIDE them. When the counts disagree the sentence has no boundary the
+    redaction can trust — replacing only the detected spans would leave those
+    stranded fragments readable — so the entire sentence is replaced.
     """
     span_count = len(_QUOTED_TITLE_RE.findall(summary))
     if span_count != len(dataset_ids):
-        hidden_slots = set(range(span_count))
+        return _REDACTED_SUMMARY
 
     slot = -1
 
