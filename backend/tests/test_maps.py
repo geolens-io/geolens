@@ -286,6 +286,21 @@ def test_layer_schema_keeps_a_well_formed_legacy_function() -> None:
     assert layer.paint == {"fill-pattern": function_value}
 
 
+def test_expression_operands_are_not_shape_checked() -> None:
+    """fix(#1109 review): `stops` inside an expression operand is plain data.
+
+    MapLibre accepts ``["get", "stops", ["literal", {"stops": 5}]]`` — the
+    literal object is a lookup subject, not a legacy function, and the
+    style.json serializer never descends into it. Walking every nested dict
+    would 422 this valid authored style on save and on import.
+    """
+    expression = ["get", "stops", ["literal", {"stops": 5}]]
+    layer = MapLayerInput.model_validate(
+        {"dataset_id": str(uuid.uuid4()), "paint": {"circle-radius": expression}}
+    )
+    assert layer.paint == {"circle-radius": expression}
+
+
 def test_style_config_stops_are_not_shape_checked() -> None:
     """`style_config` keeps the size cap alone.
 

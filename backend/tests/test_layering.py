@@ -1166,7 +1166,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `style_config` is deliberately excluded — the builder writes its own
     # `stops` there in a different shape, so checking it would 422 every
     # line-gradient save. Ratchet stays exact.
-    "backend/app/modules/catalog/maps/schemas.py": 1379,
+    # fix(#1109 review): -10 — the nested-dict walker is gone; the check reads
+    # direct property values only, because a `stops` key inside an expression
+    # operand is data, not a legacy function. Cap 1379 -> 1369, still exact.
+    "backend/app/modules/catalog/maps/schemas.py": 1369,
     # fix(#888): +117. `clip_to_mercator_bounds` used to lose data twice over
     # in silence — it clipped away everything east of lon 180 in a 0..360
     # source, and it reduced valid polar geometry to EMPTY without telling

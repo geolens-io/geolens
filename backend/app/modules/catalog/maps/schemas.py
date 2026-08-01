@@ -1,7 +1,6 @@
 import json
 import re
 import uuid
-from collections.abc import Iterator
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Annotated, Any, TypedDict
@@ -170,22 +169,6 @@ def _validate_style_dict(v: dict | None) -> dict | None:
     return v
 
 
-def _iter_style_dict_nodes(value: Any) -> Iterator[dict]:
-    """Yield every dict node inside a style value, without recursing.
-
-    An iterative walk on purpose: the payload is caller-supplied JSON, so a
-    recursive walk would add a RecursionError path on deeply nested input.
-    """
-    stack: list[Any] = [value]
-    while stack:
-        node = stack.pop()
-        if isinstance(node, dict):
-            yield node
-            stack.extend(node.values())
-        elif isinstance(node, list):
-            stack.extend(node)
-
-
 def _validate_maplibre_style_dict(v: dict | None) -> dict | None:
     """Size-cap a paint/layout dict, then shape-check any legacy ``stops``.
 
@@ -206,6 +189,13 @@ def _validate_maplibre_style_dict(v: dict | None) -> dict | None:
     ``[input, output]`` pairs. An empty list is left alone — nothing can iterate
     its way into a failure.
 
+    Direct property values only — fix(#1109 review): a ``stops`` key can also
+    appear as plain DATA inside an expression operand, e.g.
+    ``["get", "stops", ["literal", {"stops": 5}]]``, which MapLibre accepts.
+    The legacy-function shape has meaning only as the property's own value,
+    and that is also the only position the style.json serializer descends
+    into, so nested dicts are none of this check's business.
+
     Paint and layout only. ``style_config`` keeps the size cap alone, because
     the builder writes its own ``stops`` there with a different shape
     (``style_config.builder.lineGradient.stops`` is a list of
@@ -217,8 +207,8 @@ def _validate_maplibre_style_dict(v: dict | None) -> dict | None:
     _validate_style_dict(v)
     if v is None:
         return v
-    for node in _iter_style_dict_nodes(v):
-        if "stops" not in node:
+    for node in v.values():
+        if not isinstance(node, dict) or "stops" not in node:
             continue
         stops = node["stops"]
         if not isinstance(stops, list) or any(
