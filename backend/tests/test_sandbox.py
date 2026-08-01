@@ -10,6 +10,7 @@ Covers:
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import uuid
 
@@ -110,6 +111,62 @@ class TestRejectSelectInto:
         with pytest.raises(SandboxError) as exc_info:
             validate_sql("SELECT * INTO new_table FROM data.cities")
         assert exc_info.value.category == "invalid_query"
+
+
+class TestRejectNestedMutation:
+    """fix(#1011): the SELECT-only check inspects the root node, so a write
+    statement nested inside a CTE or a scalar subquery used to validate. Only
+    SET TRANSACTION READ ONLY in execute_safe stopped it from running, which
+    made a one-line change to how that transaction opens the difference
+    between defense-in-depth and arbitrary writes."""
+
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            # The reported payload.
+            "WITH x AS (INSERT INTO data.foo (a) VALUES (1) RETURNING a) "
+            "SELECT a FROM x",
+            "WITH x AS (UPDATE data.foo SET a = 1 RETURNING a) SELECT a FROM x",
+            "WITH x AS (DELETE FROM data.foo RETURNING a) SELECT a FROM x",
+            "WITH x AS (MERGE INTO data.foo t USING data.bar s ON t.a = s.a "
+            "WHEN MATCHED THEN UPDATE SET a = s.a RETURNING t.a) SELECT a FROM x",
+            # DDL nests the same way, and the validator docstring already
+            # promises to reject CREATE and DROP.
+            "WITH x AS (CREATE TABLE data.evil AS SELECT 1) SELECT 1",
+            "WITH x AS (CREATE VIEW data.v AS SELECT 1) SELECT 1",
+            "WITH x AS (DROP TABLE data.foo) SELECT 1",
+            # Two levels deep: a CTE inside a CTE.
+            "WITH outer_cte AS ("
+            "WITH inner_cte AS (INSERT INTO data.foo (a) VALUES (1) RETURNING a) "
+            "SELECT a FROM inner_cte) SELECT a FROM outer_cte",
+            # Not a CTE at all: a scalar subquery in the WHERE clause.
+            "SELECT * FROM data.t WHERE id = ("
+            "WITH y AS (DELETE FROM data.u RETURNING id) SELECT id FROM y)",
+        ],
+    )
+    def test_rejects_nested_write(self, sql):
+        with pytest.raises(SandboxError) as exc_info:
+            validate_sql(sql)
+        # The sandbox's own refusal, not a database error.
+        assert exc_info.value.category == "invalid_query"
+        assert exc_info.value.user_message == "Only SELECT queries are allowed"
+
+    def test_allows_ordinary_read_only_cte(self):
+        """The guard must not cost the read-only CTEs the generator emits."""
+        result = validate_sql(
+            "WITH big AS (SELECT name, pop FROM data.cities WHERE pop > 500000) "
+            "SELECT COUNT(*) FROM big"
+        )
+        assert isinstance(result, ValidatedQuery)
+        assert result.cte_names == {"big"}
+
+    def test_allows_nested_read_only_ctes(self):
+        result = validate_sql(
+            "WITH outer_cte AS ("
+            "WITH inner_cte AS (SELECT a FROM data.foo) SELECT a FROM inner_cte"
+            ") SELECT a FROM outer_cte"
+        )
+        assert result.cte_names == {"outer_cte", "inner_cte"}
 
 
 class TestRejectMultiStatement:
@@ -471,6 +528,98 @@ class TestTimeoutHandling:
             timeout_ms=5000,
         )
         assert result.row_count == 1
+
+
+@contextlib.contextmanager
+def _record_statements():
+    """Capture every statement issued on the sandbox execution engine.
+
+    execute_safe takes its own connection from the engine pool rather than the
+    caller's session, so a session-level hook would see nothing.
+    """
+    import app.core.db as db_module
+    from sqlalchemy import event
+
+    statements: list[str] = []
+
+    def _on_execute(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    engine = db_module.engine.sync_engine
+    event.listen(engine, "before_cursor_execute", _on_execute)
+    try:
+        yield statements
+    finally:
+        event.remove(engine, "before_cursor_execute", _on_execute)
+
+
+def _stub_execute_safe(captured: dict[str, object]):
+    """Return an execute_safe stand-in that records the kwargs it was given."""
+
+    async def _fake(db, sql, **kwargs):
+        captured.update(kwargs)
+        captured["sql"] = sql
+        return SandboxResult(rows=[], columns=[], row_count=0, truncated=False)
+
+    return _fake
+
+
+async def _stub_allowlist(db, user):
+    return {"cities"}
+
+
+class TestTimeoutThreading:
+    """fix(#1011): execute_safe has always taken timeout_ms, but the public
+    wrapper did not expose it, so every caller silently got the 10 s default
+    and none could ask for less."""
+
+    async def test_explicit_timeout_reaches_statement_timeout(
+        self, client, test_db_session
+    ):
+        with _record_statements() as statements:
+            await execute_safe(test_db_session, "SELECT 1 AS ok", timeout_ms=250)
+        assert "SET LOCAL statement_timeout = '250'" in statements
+
+    async def test_default_timeout_reaches_statement_timeout(
+        self, client, test_db_session
+    ):
+        from app.platform.sandbox.executor import DEFAULT_TIMEOUT_MS
+
+        with _record_statements() as statements:
+            await execute_safe(test_db_session, "SELECT 1 AS ok")
+        assert f"SET LOCAL statement_timeout = '{DEFAULT_TIMEOUT_MS}'" in statements
+
+    async def test_wrapper_threads_explicit_timeout(self, monkeypatch):
+        """validate_and_execute must hand its timeout_ms to execute_safe."""
+        captured: dict[str, object] = {}
+        monkeypatch.setattr(
+            "app.platform.sandbox.execute_safe", _stub_execute_safe(captured)
+        )
+        monkeypatch.setattr(
+            "app.platform.sandbox.build_table_allowlist", _stub_allowlist
+        )
+
+        await validate_and_execute(
+            "SELECT name FROM data.cities", None, None, timeout_ms=1500
+        )
+        assert captured["timeout_ms"] == 1500
+
+    async def test_wrapper_defaults_to_executor_default(self, monkeypatch):
+        """Omitting timeout_ms must keep every existing caller byte-identical."""
+        from app.platform.sandbox.executor import DEFAULT_TIMEOUT_MS
+
+        captured: dict[str, object] = {}
+        monkeypatch.setattr(
+            "app.platform.sandbox.execute_safe", _stub_execute_safe(captured)
+        )
+        monkeypatch.setattr(
+            "app.platform.sandbox.build_table_allowlist", _stub_allowlist
+        )
+
+        await validate_and_execute("SELECT name FROM data.cities", None, None)
+        assert captured["timeout_ms"] == DEFAULT_TIMEOUT_MS
+        assert captured["row_limit"] == 1000
+        assert captured["concurrency_key"] == "anonymous"
 
 
 # ---------------------------------------------------------------------------

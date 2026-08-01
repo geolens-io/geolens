@@ -777,6 +777,37 @@ def _canonical_buffer_exempt_ids(stmt: exp.Expression) -> set[int]:
     return exempt
 
 
+# Statement types that write. `validate_sql` isinstance-checks only the ROOT
+# node, so before #1011 any of these nested inside a CTE or a scalar subquery
+# passed validation — `WITH x AS (INSERT ... RETURNING a) SELECT a FROM x` was
+# accepted, and only `SET TRANSACTION READ ONLY` in `execute_safe` stopped it
+# from running. Listed explicitly rather than by sqlglot base class: `exp.DDL`
+# and `exp.DML` do not partition the way the names suggest (Insert is both,
+# Drop and Alter are neither), so an explicit tuple is what stays fail-closed
+# across sqlglot upgrades.
+_MUTATING_STATEMENTS: tuple[type[exp.Expression], ...] = (
+    exp.Insert,
+    exp.Update,
+    exp.Delete,
+    exp.Merge,
+    exp.Copy,
+    exp.Create,
+    exp.Drop,
+    exp.Alter,
+    exp.Command,  # sqlglot's catch-all for statements it does not model
+)
+
+
+def _reject_nested_mutation(stmt: exp.Expression, sql: str) -> None:
+    """Reject write statements found anywhere in the tree, not just at the root."""
+    node = stmt.find(*_MUTATING_STATEMENTS)
+    if node is not None:
+        logger.info(
+            "sandbox.nested_mutation", sql=sql, statement_type=type(node).__name__
+        )
+        raise SandboxError("invalid_query", "Only SELECT queries are allowed")
+
+
 def _reject_recursive_cte(stmt: exp.Expression, sql: str) -> None:
     """Reject recursive CTEs, which are unbounded row generators."""
     if any(
@@ -880,6 +911,8 @@ def validate_sql(sql: str) -> ValidatedQuery:
     if stmt.find(exp.Into):
         logger.info("sandbox.select_into", sql=sql)
         raise SandboxError("invalid_query", "Only SELECT queries are allowed")
+
+    _reject_nested_mutation(stmt, sql)
 
     _reject_recursive_cte(stmt, sql)
 
