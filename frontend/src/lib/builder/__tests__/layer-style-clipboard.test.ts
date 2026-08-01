@@ -8,6 +8,7 @@
  *  - applyCopiedStyleToLayer is pure (no source mutation), merges paint + replaces
  *    style_config, never carries identity fields into the target
  *  - polygon→polygon round-trip preserves categories + colors + breaks
+ *  - #923: the merge never emits fill-color AND fill-pattern together
  */
 
 import { describe, it, expect } from 'vitest';
@@ -191,5 +192,107 @@ describe('layer-style-clipboard — applyCopiedStyleToLayer', () => {
 
     expect(result.style_config).toEqual(styleConfig);
     expect(result.paint['fill-color']).toBe('#ffffff');
+  });
+});
+
+// fix(#923): the paste merge preserves target-only paint keys on purpose, which is what
+// let the loser of the fill pair survive — a copied pattern landing beside the target's
+// colour (and the reverse). MapLibre gives the pattern precedence either way, so the map
+// drew one key while the legend, the editor and the saved JSON reported the other.
+describe('layer-style-clipboard — applyCopiedStyleToLayer fill exclusions (#923)', () => {
+  const patternedSource = () =>
+    extractCopyableStyle(
+      makeLayer({ id: 'src', dataset_geometry_type: 'Polygon', paint: { 'fill-pattern': 'geolens-fill-dots' } }),
+    );
+  const solidSource = () =>
+    extractCopyableStyle(
+      makeLayer({ id: 'src', dataset_geometry_type: 'Polygon', paint: { 'fill-color': '#abcdef' } }),
+    );
+
+  it('drops the target fill-color when a patterned style is pasted over it', () => {
+    const target = makeLayer({
+      id: 'tgt',
+      dataset_geometry_type: 'Polygon',
+      paint: { 'fill-color': '#0000ff', 'fill-opacity': 0.6 },
+    });
+
+    const result = applyCopiedStyleToLayer(target, patternedSource());
+
+    expect('fill-color' in result.paint).toBe(false);
+    expect(result.paint['fill-pattern']).toBe('geolens-fill-dots');
+    // The target-only key the merge exists to preserve is untouched.
+    expect(result.paint['fill-opacity']).toBe(0.6);
+    // Still pure: the colour is dropped from the RESULT, not from the target.
+    expect(target.paint['fill-color']).toBe('#0000ff');
+  });
+
+  it('drops the target fill-pattern when a solid-colour style is pasted over it', () => {
+    const target = makeLayer({
+      id: 'tgt',
+      dataset_geometry_type: 'Polygon',
+      paint: { 'fill-pattern': 'geolens-fill-hatch', 'fill-opacity': 0.4 },
+    });
+
+    const result = applyCopiedStyleToLayer(target, solidSource());
+
+    expect('fill-pattern' in result.paint).toBe(false);
+    expect(result.paint['fill-color']).toBe('#abcdef');
+    expect(result.paint['fill-opacity']).toBe(0.4);
+    expect(target.paint['fill-pattern']).toBe('geolens-fill-hatch');
+  });
+
+  it('lets a copied data-driven colour ramp displace the target pattern', () => {
+    const ramp = ['match', ['get', 'zone'], 'a', '#e41a1c', '#377eb8'];
+    const copied = extractCopyableStyle(
+      makeLayer({
+        id: 'src',
+        dataset_geometry_type: 'Polygon',
+        paint: { 'fill-color': ramp },
+        style_config: {
+          mode: 'categorical',
+          column: 'zone',
+          ramp: 'Set2',
+          categories: [{ value: 'a', color: '#e41a1c' }],
+        },
+      }),
+    );
+    const target = makeLayer({ id: 'tgt', dataset_geometry_type: 'Polygon', paint: { 'fill-pattern': 'geolens-fill-grid' } });
+
+    const result = applyCopiedStyleToLayer(target, copied);
+
+    expect('fill-pattern' in result.paint).toBe(false);
+    expect(result.paint['fill-color']).toEqual(ramp);
+  });
+
+  it('changes nothing but the copied keys when the target carries neither fill key', () => {
+    const target = makeLayer({
+      id: 'tgt',
+      dataset_geometry_type: 'Polygon',
+      paint: { 'fill-opacity': 0.4, 'fill-outline-color': '#333333' },
+    });
+
+    const result = applyCopiedStyleToLayer(target, solidSource());
+
+    expect(result.paint).toEqual({
+      'fill-opacity': 0.4,
+      'fill-outline-color': '#333333',
+      'fill-color': '#abcdef',
+    });
+  });
+
+  // A null fill key is NOT the same as an absent one: an imported or API-authored layer
+  // can carry `fill-pattern: null`, which MapLibre reads as no pattern. Reading that as a
+  // collision would delete the colour the user just pasted.
+  it('treats an inactive `fill-pattern: null` on the target as no pattern at all', () => {
+    const target = makeLayer({
+      id: 'tgt',
+      dataset_geometry_type: 'Polygon',
+      paint: { 'fill-pattern': null, 'fill-color': '#0000ff' },
+    });
+
+    const result = applyCopiedStyleToLayer(target, solidSource());
+
+    expect(result.paint['fill-color']).toBe('#abcdef');
+    expect(result.paint['fill-pattern']).toBeNull();
   });
 });

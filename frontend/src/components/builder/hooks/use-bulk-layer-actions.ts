@@ -40,13 +40,17 @@ type SyncStyleConfigToMap = (
  * fix(#910/#918, codex P2): bulk apply-style, with the EDIT-05 fill exclusions the
  * style-editor funnel applies.
  *
- * `applyCopiedStyleToLayer` merges the copied paint over the target's, so a copied
- * `fill-pattern` lands beside a `fill-color` the target kept (and a copied colour
- * ramp lands beside a pattern the target kept). Bulk apply reaches neither
- * `handleStyleConfigChange` nor `handlePasteStyle`, so without this it persisted the
- * pair EDIT-05 forbids: MapLibre drew one key while the legend and saved JSON
- * claimed the other. Returns the exclusions alongside the layer because the live
- * map needs them for the imperative clear.
+ * Bulk apply reaches neither `handleStyleConfigChange` nor `handlePasteStyle`, so this
+ * is the only boundary the rule can be enforced at for this path: without it, the pair
+ * EDIT-05 forbids persisted and MapLibre drew one key while the legend and saved JSON
+ * claimed the other. Returns the exclusions alongside the layer because the live map
+ * needs them for the imperative clear.
+ *
+ * fix(#923): `applyCopiedStyleToLayer` now resolves the fill pair inside the merge, so
+ * the paint arriving here can no longer carry both keys — re-running the resolver is
+ * idempotent. The wrapper stays because the exclusions are more than the paint: this is
+ * where the displaced colour is stashed (read off the target's previous paint) and where
+ * a classification the resolved paint no longer backs is reconciled away.
  */
 function applyStyleExcludingFillCollisions(
   layer: MapLayerResponse,

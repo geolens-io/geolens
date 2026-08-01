@@ -3,8 +3,9 @@
  *
  * Extract a geometry-compatible style snapshot from one layer and apply it to a
  * geometry-compatible target. These functions are PURE: no React, no MapLibre
- * map instance, no I/O. The hook layer (use-builder-layers.ts) owns the session
- * clipboard ref + live-map sync; this module only computes new layer objects.
+ * map instance, no I/O (the one cross-module import below is a pure function too).
+ * The hook layer (use-builder-layers.ts) owns the session clipboard ref + live-map
+ * sync; this module only computes new layer objects.
  *
  * Geometry-class portability: a polygon style (fill-color, fill-opacity,
  * data-driven categories) is only meaningful on another polygon layer; pasting
@@ -24,6 +25,10 @@
  */
 
 import type { GeometryTypeName, MapLayerResponse, StyleConfig } from '@/types/api';
+// fix(#923): the EDIT-05 fill exclusions, imported rather than restated. `resolveFillExclusions`
+// is a pure function that happens to live beside the style-editor funnel's hook; a second copy of
+// the rule here is exactly how the paste end and the editor end drift apart again.
+import { resolveFillExclusions } from '@/components/builder/hooks/use-layer-map-sync';
 
 export type GeometryStyleClass = 'polygon' | 'line' | 'point' | 'other';
 
@@ -91,18 +96,39 @@ export function isStyleCompatible(copied: CopiedStyle, target: MapLayerResponse)
  *
  * Layer-identity fields on the target (id / dataset_id / display_name / …) are
  * left untouched.
+ *
+ * fix(#923): the merge is what makes a paste collide. A target-only `fill-pattern`
+ * survives a copied `fill-color` and vice versa, and paint carrying both breaks EDIT-05:
+ * MapLibre gives the pattern precedence while the legend, the editor and the saved JSON
+ * all report the colour. Preserving target-only keys is the whole point of the merge
+ * (tile params, outline settings), so the fill family is resolved AFTER it, through the
+ * same `resolveFillExclusions` the style-editor funnel and bulk apply-style call.
+ *
+ * That rule is a provenance diff, which is why the target's own paint is passed as the
+ * baseline: whichever fill key the merge just introduced is the one the copied style
+ * asserted, so the other one goes. Note it reads keys as ACTIVE, not merely present — a
+ * target carrying `fill-pattern: null` (imported or API-authored) has no pattern to
+ * defend and must not swallow the pasted colour.
  */
 export function applyCopiedStyleToLayer(
   target: MapLayerResponse,
   copied: CopiedStyle,
 ): MapLayerResponse {
+  const targetPaint: Record<string, unknown> = target.paint ?? {};
   const mergedPaint: Record<string, unknown> = {
-    ...(target.paint ?? {}),
+    ...targetPaint,
     ...deepClone(copied.paint),
   };
+  const styleConfig = copied.style_config ? deepClone(copied.style_config) : null;
   return {
     ...target,
-    paint: mergedPaint,
-    style_config: copied.style_config ? deepClone(copied.style_config) : null,
+    // Only the resolved paint is taken here. The other two halves of the exclusions —
+    // stashing the displaced colour and reconciling a classification the paint no longer
+    // backs — belong to the write boundary that owns the layer's config (applyLayerUpdate
+    // for a paste, applyStyleExcludingFillCollisions for a bulk apply), and both still
+    // run on the way through. Re-resolving there is idempotent: this paint no longer
+    // collides, and the displaced colour is read back off the target's previous paint.
+    paint: resolveFillExclusions(styleConfig, mergedPaint, targetPaint).paint,
+    style_config: styleConfig,
   };
 }
