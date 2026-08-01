@@ -5425,7 +5425,7 @@ export interface components {
             } | null;
             /**
              * Mask Dataset Id
-             * @description Polygon dataset supplying the mask geometry: the area clipped to, or selected against (clip and select_by_location; alternative to mask)
+             * @description Polygon dataset supplying the second layer: the area clipped to, selected against, or overlaid with. For clip and select_by_location it is the alternative to `mask`; for intersect it is REQUIRED and `mask` is rejected, because an overlay carries the second layer's attributes onto its output and a drawn polygon has none.
              */
             mask_dataset_id?: string | null;
             /**
@@ -5481,7 +5481,7 @@ export interface components {
             } | null;
             /**
              * Mask Dataset Id
-             * @description Polygon dataset supplying the mask geometry: the area clipped to, or selected against (clip and select_by_location; alternative to mask)
+             * @description Polygon dataset supplying the second layer: the area clipped to, selected against, or overlaid with. For clip and select_by_location it is the alternative to `mask`; for intersect it is REQUIRED and `mask` is rejected, because an overlay carries the second layer's attributes onto its output and a drawn polygon has none.
              */
             mask_dataset_id?: string | null;
             /**

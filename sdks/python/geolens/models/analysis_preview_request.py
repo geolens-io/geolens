@@ -40,8 +40,10 @@ class AnalysisPreviewRequest:
                 the output. Ties break on the lowest join-layer gid (spatial_join only)
             mask (AnalysisPreviewRequestMaskType0 | None | Unset): GeoJSON Polygon or MultiPolygon geometry in EPSG:4326
                 (clip and select_by_location)
-            mask_dataset_id (None | Unset | UUID): Polygon dataset supplying the mask geometry: the area clipped to, or
-                selected against (clip and select_by_location; alternative to mask)
+            mask_dataset_id (None | Unset | UUID): Polygon dataset supplying the second layer: the area clipped to, selected
+                against, or overlaid with. For clip and select_by_location it is the alternative to `mask`; for intersect it is
+                REQUIRED and `mask` is rejected, because an overlay carries the second layer's attributes onto its output and a
+                drawn polygon has none.
     """
 
     operation: AnalysisPreviewRequestOperation
