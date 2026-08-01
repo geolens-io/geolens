@@ -27,7 +27,11 @@ from app.modules.catalog.maps.service_shared import (
 )
 from app.modules.embed_tokens.models import EmbedToken
 from app.modules.embed_tokens.service import resolve_embed_scope_for_map
-from app.platform.extensions import get_catalog_port
+from app.platform.extensions import (
+    DefaultPermissionExtension,
+    get_catalog_port,
+    get_permission_extension,
+)
 
 if TYPE_CHECKING:
     from fastapi import Request
@@ -258,15 +262,30 @@ async def find_maps_broken_by_dataset_visibility(
             stranded.append(visibility)
             continue
         if signed_in_stranded is None:
-            # The same question whichever map asks it: the dataset's own
-            # audience, so it is resolved once and reused.
-            if old_visibility in ("public", "internal"):
-                cut = "ungranted" if new_visibility == "restricted" else "any"
+            # fix(#1111 review): the community query below mirrors
+            # DefaultPermissionExtension's grants+ladder exactly, so its answer
+            # is authoritative only while that default IS the permission
+            # authority. A registered overlay can additively widen a dataset's
+            # audience (the SLOT-02 wrap shape), and a viewer only the overlay
+            # admits is invisible to this query — under the rank-only #1056
+            # guard such a viewer was protected by the over-refusal, so
+            # permitting on community math here would strip that accidental
+            # protection. Until #1068 lets the seam answer audience questions,
+            # a non-default authority keeps the conservative refusal.
+            # `type(...) is` on purpose: a subclassing overlay must not read
+            # as the default.
+            if type(get_permission_extension()) is not DefaultPermissionExtension:
+                signed_in_stranded = True
             else:
-                cut = "granted"
-            signed_in_stranded = await _stranded_viewer_exists(
-                session, dataset_id, owner_id, slice_=cut
-            )
+                # The same question whichever map asks it: the dataset's own
+                # audience, so it is resolved once and reused.
+                if old_visibility in ("public", "internal"):
+                    cut = "ungranted" if new_visibility == "restricted" else "any"
+                else:
+                    cut = "granted"
+                signed_in_stranded = await _stranded_viewer_exists(
+                    session, dataset_id, owner_id, slice_=cut
+                )
         if signed_in_stranded:
             stranded.append(visibility)
     if not stranded:

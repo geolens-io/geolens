@@ -794,6 +794,70 @@ class TestUpdateMetadata:
 
         assert resp.status_code == 200, resp.text
 
+    async def test_precision_yields_to_conservative_under_a_permission_overlay(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        viewer_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """fix(#1111 review): a non-default permission authority disables precision.
+
+        The stranded-viewer query mirrors DefaultPermissionExtension's
+        grants+ladder, so its answer is authoritative only while that default IS
+        the permission authority. An overlay that additively widens a dataset's
+        audience (the SLOT-02 wrap shape) admits viewers the query cannot see —
+        under the rank-only #1056 guard they were protected by the
+        over-refusal, and permitting on community math would strip that.
+        Same setup as the everyone-granted permit above; the only difference is
+        a registered non-default authority, and the move must refuse again.
+        `type(...) is` gates it, so even a subclass of the default counts as an
+        overlay.
+        """
+        from app.modules.auth.models import Role, UserRole
+        from app.modules.catalog.datasets.domain.models import DatasetGrant
+        from app.modules.catalog.maps import service_public
+        from app.platform.extensions import DefaultPermissionExtension
+
+        class _WrappedAuthority(DefaultPermissionExtension):
+            """Stand-in for an enterprise wrap of the default authority."""
+
+        monkeypatch.setattr(
+            service_public,
+            "get_permission_extension",
+            lambda: _WrappedAuthority(),
+        )
+
+        admin_id = await _get_user_id(test_db_session, "admin")
+        map_name = f"Overlay Conservative Map {uuid.uuid4().hex[:6]}"
+        ds = await self._dataset_on_map(
+            test_db_session,
+            admin_id,
+            dataset_visibility="internal",
+            map_visibility="internal",
+            map_name=map_name,
+        )
+        viewer_id = uuid.UUID(
+            (await client.get("/auth/me/", headers=viewer_auth_header)).json()["id"]
+        )
+        role = Role(name=f"granted-all-{uuid.uuid4().hex[:8]}")
+        test_db_session.add(role)
+        await test_db_session.flush()
+        test_db_session.add(UserRole(user_id=viewer_id, role_id=role.id))
+        test_db_session.add(DatasetGrant(dataset_id=ds.id, role_id=role.id))
+        await test_db_session.commit()
+
+        async with self._only_admins_active(test_db_session, keep={viewer_id}):
+            resp = await client.patch(
+                f"/datasets/{ds.id}",
+                json={"visibility": "restricted"},
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 422, resp.text
+        assert map_name in resp.text
+
     async def test_internal_to_restricted_blocks_when_someone_is_ungranted(
         self,
         client: AsyncClient,
