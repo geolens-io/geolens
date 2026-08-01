@@ -1,12 +1,15 @@
-"""Curved-geometry sources and binary property values (#1097 review).
+"""Curved-geometry sources and binary property values (#1097 review, #1104).
 
 WFS ingest admits CURVED geometries — GeoServer MultiSurface/CompoundCurve
 layers load as stored, and ingest classifies the dataset by the closest
-concrete linear type without rewriting the rows (metadata.py's
-_ABSTRACT_TO_CONCRETE_GEOMETRY_TYPE). Verified against PostGIS 3.6:
-``::geography``, ``ST_MakeValid`` and ``ST_AsGeoJSON`` all RAISE on curved
-input, so without ``linearized()`` (analysis_sql) every operation in this file
-either 500s its preview or fails its CTAS on a dataset the app admits.
+concrete linear type (metadata.py's _ABSTRACT_TO_CONCRETE_GEOMETRY_TYPE).
+Verified against PostGIS 3.6: ``::geography``, ``ST_MakeValid``,
+``ST_AsGeoJSON`` and ``ST_AsMVTGeom`` all RAISE on curved input. fix(#1104):
+ingest therefore linearizes ``geom_4326`` itself (add_4326_column applies
+ST_CurveToLine; the curved source survives in ``geom``), and the fixture
+routes through that same normalizer — so every test here pins that the
+ingest invariant alone keeps analysis previews, CTAS outputs, tiles and
+feature reads working, with no per-read wraps left in the SQL.
 
 The bytea test pins the OTHER preview serialization hazard from the same
 review round: a transferred ``bytea`` value reaching Pydantic as raw bytes.

@@ -34,7 +34,6 @@ from app.platform.analysis_sql import (
     INTERSECT_SOURCE_GID_COLUMN,
     MEASURE_OUTPUT_COLUMNS,
     NOT_EMPTY_PREDICATE,
-    linearized,
     render_clip_layer_join,
     render_geometry_expr,
     render_intersect_preview,
@@ -191,7 +190,7 @@ def build_preview_sql(
         # identity lateral keeps the query shape (and NOT_EMPTY_PREDICATE)
         # common with every other branch.
         cte = ""
-        lateral = f"(SELECT {linearized('geom_4326')} AS geom_out OFFSET 0)"
+        lateral = "(SELECT geom_4326 AS geom_out OFFSET 0)"
         where = render_select_by_location_where(mask_table_ref, src="_src")
     elif mask_table_ref is not None:
         # fix(#693): layer-sourced clip previews subdivide the mask once and

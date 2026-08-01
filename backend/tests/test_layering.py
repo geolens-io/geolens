@@ -874,7 +874,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # 500 (round-14 review). to_jsonb renders that as an array of hex
         # strings, so recursing with the same scalar encoding keeps the two
         # endpoints byte-identical.
-        "backend/app/modules/catalog/datasets/domain/service_analysis.py": 506,
+        #
+        # fix(#1104): -1 — the select-by-location identity lateral reads the
+        # bare column again; geom_4326 is linearized at ingest now, so the
+        # per-read ST_CurveToLine wrap is gone. Budget 506 -> 505, exact.
+        "backend/app/modules/catalog/datasets/domain/service_analysis.py": 505,
         "backend/app/modules/catalog/maps/service_crud.py": 550,
         # fix(#474, #475): localized ranking/eager loading plus the OGC
         # ids/externalIds filters cross the default by nine lines. Keep the
@@ -1319,16 +1323,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # 63) and why source columns need no equivalent — they already exist in a
     # table, so the server truncated them at creation.
     #
-    # fix(#1097 review): +42 for linearized() and its call sites. WFS sources
-    # can store curved geometries (MultiSurface/CompoundCurve) that ingest
-    # admits but ::geography, ST_MakeValid and ST_AsGeoJSON all raise on, so
-    # every geometry read feeding one of those — or passing through into
-    # preview GeoJSON or a CTAS — goes through one ST_CurveToLine wrapper. The
-    # bulk of the lines is the helper's docstring recording which functions
-    # raise, which tolerate curves, why WHERE predicates stay on the bare
-    # column (the GIST index), and that #1104 (ingest-level normalization)
-    # is what eventually retires the helper.
-    "backend/app/platform/analysis_sql.py": 1260,
+    # fix(#1097 review): +42 for linearized() and its call sites — WFS sources
+    # could store curved geometries that ::geography, ST_MakeValid and
+    # ST_AsGeoJSON all raise on, so every such read went through one
+    # ST_CurveToLine wrapper.
+    # fix(#1104): -33 — that wrapper is retired. Ingest now stores geom_4326
+    # linear (add_4326_column) and migration 0034 backfilled existing rows,
+    # so the per-read wraps had nothing left to guard. The invariant is
+    # recorded in the module docstring instead. Cap 1260 -> 1227, exact.
+    "backend/app/platform/analysis_sql.py": 1227,
     # tasks.py carries growth from BOTH sides of this rebase, so the number is
     # re-measured rather than taken from either. #1012 added the scoped
     # work_mem (the SET LOCAL, its budget arithmetic and the boot-time
@@ -1374,6 +1377,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # geometry columns (measure, spatial_join, select_by_location) so a curved
     # source row is stored linear — a curved geometry written into the derived
     # table would fail that layer's tiles and feature reads later.
+    # fix(#1104): -1 — those wraps are gone again; geom_4326 is linear at
+    # ingest, so the pass-through columns read the bare column. Cap
+    # 1450 -> 1449, exact.
     #
     # fix(#1097 review): +62 for the array-element half of the ungroupable
     # guards. information_schema stores an array column's data_type as
@@ -1382,7 +1388,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # udt_name ('_json') as well, and the same check now also covers
     # dissolve's by_field, which had the identical blind spot plus no live
     # recheck at all.
-    "backend/app/processing/analysis/tasks.py": 1450,
+    "backend/app/processing/analysis/tasks.py": 1449,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.

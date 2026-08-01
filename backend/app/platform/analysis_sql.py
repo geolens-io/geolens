@@ -17,6 +17,12 @@ Pure string rendering. The injection boundary:
 Source geometries are wrapped in ``ST_MakeValid``: one invalid ring anywhere
 in a dataset would otherwise abort the whole statement with a GEOS
 TopologyException, with no user-side workaround.
+
+``geom_4326`` is always LINEAR — ingest applies ``ST_CurveToLine`` when it
+builds the column and migration 0034 backfilled existing rows (#1104) — so
+nothing rendered here needs to guard against curved input. The per-read
+``linearized()`` wrapper the #1097 review added predated that invariant and
+is gone.
 """
 
 from __future__ import annotations
@@ -667,39 +673,6 @@ INTERNAL_ALIAS_PREFIX = "_gl_"
 NON_GROUPABLE_COLUMN_TYPES = frozenset({"json", "xml"})
 
 
-def linearized(column: str) -> str:
-    """Wrap a geometry read so curved types never reach curve-intolerant SQL.
-
-    fix(#1097 review): WFS sources can store CURVED geometries — GeoServer's
-    MultiSurface/CompoundCurve layers ingest as-is, because ingest classifies
-    the dataset by the closest concrete linear type (metadata.py's
-    _ABSTRACT_TO_CONCRETE_GEOMETRY_TYPE) without touching the stored binary.
-    Three families of SQL these operations rely on then RAISE on such a row
-    (each verified against PostGIS 3.6): ``::geography`` ("Geography type does
-    not support MultiSurface"), ``ST_MakeValid`` ("unsupported geometry type"),
-    and ``ST_AsGeoJSON`` ("geometry type not supported" — GeoJSON has no
-    curves). ``ST_CurveToLine`` densifies arcs into the linear equivalent and
-    is an exact no-op on already-linear input, so every geometry read that
-    feeds one of those functions — or that passes through into preview GeoJSON
-    or a CTAS output table — goes through this wrapper.
-
-    This is deliberately NOT a repair (contrast ST_MakeValid): the catalog
-    already promises the linear type for these datasets, so the linearized
-    form is the declared shape, not a changed one.
-
-    WHERE predicates stay on the BARE column: ``&&`` (a bbox operator),
-    ``ST_Intersects``, ``ST_Dimension`` and ``ST_IsEmpty`` all accept curves
-    directly (verified), and wrapping the column there would defeat the GIST
-    index the predicates are shaped around.
-
-    These wraps are the analysis-scoped half of a wider class — tiles,
-    feature reads, and the pre-existing operations hit the same raises on
-    main. #1104 tracks normalizing ``geom_4326`` at ingest, after which this
-    helper becomes removable.
-    """
-    return f"ST_CurveToLine({column})"
-
-
 def render_intersect_pairs(
     src_table_ref: str,
     mask_table_ref: str,
@@ -760,7 +733,7 @@ def render_intersect_pairs(
         f"SELECT _o.gid AS _gl_mask_gid{mask_pick},"
         f" ST_Subdivide(_o._gl_g, {MASK_SUBDIVIDE_MAX_VERTICES}) AS geom"
         f" FROM (SELECT gid{mask_pick},"
-        f" ST_CollectionExtract(ST_MakeValid({linearized('geom_4326')}), 3) AS _gl_g"
+        f" ST_CollectionExtract(ST_MakeValid(geom_4326), 3) AS _gl_g"
         f" FROM {mask_table_ref} WHERE geom_4326 IS NOT NULL OFFSET 0) AS _o"
         f" WHERE NOT ST_IsEmpty(_o._gl_g))"
         f" SELECT (row_number() OVER ())::integer AS gid,"
@@ -768,18 +741,14 @@ def render_intersect_pairs(
         f" CASE WHEN _p._gl_src_type = 'LINESTRING'"
         f" THEN ST_LineMerge(_p.geom) ELSE _p.geom END AS geom"
         f" FROM (SELECT _src.gid AS {INTERSECT_SOURCE_GID_COLUMN},"
-        # linearized: GeometryType of a curved source reads COMPOUNDCURVE,
-        # which would silently skip the LINESTRING ST_LineMerge branch above.
-        # ST_Dimension below stays raw — it accepts curves and answers the
-        # same number either way.
-        f" GeometryType({linearized('_src.geom_4326')}) AS _gl_src_type"
+        f" GeometryType(_src.geom_4326) AS _gl_src_type"
         f"{src_sel}{mask_sel},"
         f" ST_Union(ST_CollectionExtract("
         f"ST_Intersection(_sv.g, _mp.geom),"
         f" ST_Dimension(_src.geom_4326) + 1)) AS geom"
         f" FROM {src_table_ref} AS _src"
         f" CROSS JOIN LATERAL (SELECT"
-        f" ST_MakeValid({linearized('_src.geom_4326')}) AS g"
+        f" ST_MakeValid(_src.geom_4326) AS g"
         f" OFFSET 0) AS _sv"
         f" JOIN _mask_pieces AS _mp"
         f" ON _mp.geom && _src.geom_4326"
@@ -939,7 +908,7 @@ def render_measure_columns(*, src: str = "") -> tuple[str, str]:
     prefix = f"{src}." if src else ""
     join = (
         f" CROSS JOIN LATERAL"
-        f" (SELECT {linearized(f'{prefix}geom_4326')}::geography AS g"
+        f" (SELECT {prefix}geom_4326::geography AS g"
         f" OFFSET 0) AS _mg"
     )
     columns = (
@@ -1092,7 +1061,7 @@ def render_spatial_join(
         # 10s statement timeout, so the preview 422'd on a pairing a user would
         # obviously try.
         f" CROSS JOIN LATERAL"
-        f" (SELECT ST_MakeValid({linearized(f'{src}.geom_4326')}) AS g"
+        f" (SELECT ST_MakeValid({src}.geom_4326) AS g"
         f" OFFSET 0) AS _sv"
         f" CROSS JOIN LATERAL ("
         f"SELECT count(*)::integer AS {SPATIAL_JOIN_COUNT_COLUMN}"
@@ -1206,9 +1175,9 @@ def render_geometry_expr(
     if operation == "measure":
         # fix(#954): like spatial_join, measure adds columns and leaves the
         # geometry alone — see the spatial_join note below on why the output is
-        # NOT ST_MakeValid'd (linearized() explains why it IS linearized). The
-        # measured columns come from render_measure_columns.
-        return linearized("geom_4326"), ""
+        # NOT ST_MakeValid'd. The measured columns come from
+        # render_measure_columns.
+        return "geom_4326", ""
     if operation == "spatial_join":
         # fix(#953): a spatial join adds columns; the geometry is the source
         # feature as stored. Deliberately NOT ST_MakeValid'd, unlike every
@@ -1217,10 +1186,8 @@ def render_geometry_expr(
         # silently returning a repaired copy would hand back a geometry the
         # user never asked to change. Validity still gets handled where it
         # actually matters, inside the join predicate (render_spatial_join).
-        # Linearization is not that kind of change — a curved pass-through
-        # cannot be serialized to GeoJSON at all (see linearized()).
         # The join columns themselves come from render_spatial_join.
-        return linearized("geom_4326"), ""
+        return "geom_4326", ""
     if operation == "select_by_location":
         # fix(#955): the drawn-mask half of select-by-location. The geometry is
         # the source feature verbatim (like spatial_join/measure above, and NOT
@@ -1237,7 +1204,7 @@ def render_geometry_expr(
         # render_select_by_location_where).
         mask_expr = render_mask_expr(mask or {})
         return (
-            linearized("geom_4326"),
+            "geom_4326",
             f" WHERE geom_4326 && {mask_expr}"
             f" AND ST_Intersects(geom_4326, {mask_expr})",
         )
