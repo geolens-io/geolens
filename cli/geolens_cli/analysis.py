@@ -10,6 +10,12 @@ unchanged rather than validated against a literal here, so the generated
 enum stays the single authority and a new backend operation reaches the CLI
 with the next ``make sdks`` instead of a second list to keep in step (#685).
 
+The single exception is ``_require_join_dataset`` below, which copies one
+requiredness rule because it is really about a flag name the CLI owns — see
+its docstring (#1105). The operation list is still not copied; the help
+strings in main.py that name it are held to the SDK enum by
+cli/tests/test_analysis.py rather than by a check at call time.
+
 OCCLI-06 invariant: zero direct ``httpx`` / ``requests`` imports — every HTTP
 call goes through the generated SDK functions.
 """
@@ -59,16 +65,50 @@ def require_finite(value: Optional[float], flag: str) -> Optional[float]:
     return value
 
 
-def _mask_dataset_arg(mask_dataset_id: Optional[str]) -> Any:
-    """Coerce a mask dataset id to the UUID the SDK models declare."""
+def _dataset_id_arg(dataset_id: Optional[str], flag: str) -> Any:
+    """Coerce a dataset-id option to the UUID the SDK models declare."""
     from geolens.types import UNSET
 
-    if not mask_dataset_id:
+    if not dataset_id:
         return UNSET
     try:
-        return UUID(mask_dataset_id)
+        return UUID(dataset_id)
     except ValueError as exc:
-        raise ValueError(f"--mask-dataset is not a valid id: {mask_dataset_id}") from exc
+        raise ValueError(f"{flag} is not a valid id: {dataset_id}") from exc
+
+
+def parse_join_fields(raw: Optional[str]) -> Optional[list[str]]:
+    """Split ``--join-fields`` on commas, dropping the whitespace around them.
+
+    One comma-separated flag rather than a repeatable one because the columns
+    are a set the server validates as a unit — it rejects the whole list if a
+    name repeats or is missing from the join layer.
+    """
+    if raw is None:
+        return None
+    fields = [part.strip() for part in raw.split(",") if part.strip()]
+    if not fields:
+        raise ValueError("--join-fields needs at least one column name")
+    return fields
+
+
+def _require_join_dataset(operation: str, join_dataset_id: Optional[str]) -> None:
+    """Reject a spatial_join with no join layer before it reaches the wire.
+
+    fix(#1105): the one server rule this module copies, and deliberately so.
+    The operation list stays uncopied (see the module docstring), but this
+    condition is about a flag the CLI owns the name of: without it the request
+    comes back 422 and ``unwrap`` reports it as a generic failure (exit 1),
+    naming the JSON field ``join_dataset_id`` the user never typed. The
+    server's rule is ``_require_analysis_params`` in
+    backend/app/modules/catalog/datasets/domain/schemas.py; the wording below
+    mirrors it and adds the flag that supplies it.
+    """
+    if operation == "spatial_join" and not join_dataset_id:
+        raise ValueError(
+            "spatial_join requires join_dataset_id: "
+            "pass --join-dataset-id <dataset-id>"
+        )
 
 
 def build_preview_request(
@@ -76,6 +116,8 @@ def build_preview_request(
     *,
     distance_meters: Optional[float] = None,
     mask_dataset_id: Optional[str] = None,
+    join_dataset_id: Optional[str] = None,
+    join_fields: Optional[str] = None,
 ) -> Any:
     """Build an AnalysisPreviewRequest, omitting the params that were not given.
 
@@ -86,11 +128,15 @@ def build_preview_request(
     from geolens.models.analysis_preview_request import AnalysisPreviewRequest
     from geolens.types import UNSET
 
+    _require_join_dataset(operation, join_dataset_id)
     distance_meters = require_finite(distance_meters, "--distance")
+    parsed_join_fields = parse_join_fields(join_fields)
     return AnalysisPreviewRequest(
         operation=operation,  # type: ignore[arg-type]  # the SDK enum is the authority
         distance_meters=UNSET if distance_meters is None else distance_meters,
-        mask_dataset_id=_mask_dataset_arg(mask_dataset_id),
+        mask_dataset_id=_dataset_id_arg(mask_dataset_id, "--mask-dataset"),
+        join_dataset_id=_dataset_id_arg(join_dataset_id, "--join-dataset-id"),
+        join_fields=UNSET if parsed_join_fields is None else parsed_join_fields,
     )
 
 
@@ -101,18 +147,24 @@ def build_materialize_request(
     distance_meters: Optional[float] = None,
     mask_dataset_id: Optional[str] = None,
     by_field: Optional[str] = None,
+    join_dataset_id: Optional[str] = None,
+    join_fields: Optional[str] = None,
 ) -> Any:
     """Build an AnalysisMaterializeRequest. See build_preview_request on UNSET."""
     from geolens.models.analysis_materialize_request import AnalysisMaterializeRequest
     from geolens.types import UNSET
 
+    _require_join_dataset(operation, join_dataset_id)
     distance_meters = require_finite(distance_meters, "--distance")
+    parsed_join_fields = parse_join_fields(join_fields)
     return AnalysisMaterializeRequest(
         operation=operation,  # type: ignore[arg-type]  # the SDK enum is the authority
         title=title,
         distance_meters=UNSET if distance_meters is None else distance_meters,
-        mask_dataset_id=_mask_dataset_arg(mask_dataset_id),
+        mask_dataset_id=_dataset_id_arg(mask_dataset_id, "--mask-dataset"),
         by_field=UNSET if by_field is None else by_field,
+        join_dataset_id=_dataset_id_arg(join_dataset_id, "--join-dataset-id"),
+        join_fields=UNSET if parsed_join_fields is None else parsed_join_fields,
     )
 
 

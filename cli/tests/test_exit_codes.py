@@ -48,7 +48,12 @@ class TestRemainingStubsExitWithUsage:
     publish is asserted in test_publish_unit.py::TestPublishCli.
     """
 
-    def test_export_stac_stub_exits_2(self, runner) -> None:
+    def test_export_stac_stub_exits_2(self, runner, tmp_xdg_home) -> None:
+        # fix(#1105): tmp_xdg_home, because without it this reads the
+        # developer's real config. It passes in CI, where there is none, and on
+        # a machine with a logged-in instance it reaches the host keychain and
+        # blocks on the OS access prompt — hanging the whole `make cli-test`
+        # run, not just this test.
         result = runner.invoke(app, ["export", "stac", "abc"])
         assert result.exit_code == 2
 
