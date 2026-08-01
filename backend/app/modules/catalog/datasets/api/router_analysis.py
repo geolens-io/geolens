@@ -223,7 +223,35 @@ def _validate_join_fields(source, join_dataset, join_fields: list[str]) -> None:
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Unknown join column: {name!r}",
             )
-    _reject_generated_column_collision(source, spatial_join_output_columns(join_fields))
+    generated = spatial_join_output_columns(join_fields)
+    # fix(#1097 review): the generated names must be unique among THEMSELVES
+    # before they are checked against the source. A join layer with an ordinary
+    # column named `count` prefixes to `join_count`, the name this operation
+    # already generates for the match count — so the list holds it twice while
+    # the guard below, which only compares against the SOURCE, sees nothing
+    # wrong. Materialization then failed the CTAS with "column specified more
+    # than once" after the whole queue wait, and the preview was worse: it maps
+    # both values onto one property, so the transferred field silently
+    # overwrote the real match count.
+    #
+    # Written as a duplicate check rather than as "reject the field named
+    # `count`" because the collision is a property of the generated names, not
+    # of that one input: a change to the prefix or to the generated set moves
+    # which field collides, and this keeps holding. The other way a name can
+    # repeat, the same field requested twice, is already rejected by
+    # AnalysisMaterializeRequest and never reaches here.
+    duplicates = sorted({name for name in generated if generated.count(name) > 1})
+    if duplicates:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Two transferred columns would both be named {duplicates[0]!r} "
+                "in the result. Choose the field once, and rename it in the join "
+                "layer if its name collides with a column this operation "
+                "generates."
+            ),
+        )
+    _reject_generated_column_collision(source, generated)
 
 
 def _column_names(dataset) -> set[str]:

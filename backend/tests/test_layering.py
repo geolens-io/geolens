@@ -852,11 +852,16 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # differently). The per-operation dispatch is now the majority of the
         # file, so an eighth operation should split that out rather than raise
         # this again.
+        # Then +12 for the #1097-review fix that moves the exact-count query
+        # inside the preview semaphore: 6 lines of code and the note explaining
+        # that BOTH statements open a sandbox connection, so releasing the slot
+        # between them let a finished preview admit the next caller while still
+        # holding one — the bound stopped bounding the thing it exists for.
         # This budget is a ceiling rather than an exact ratchet, so a stale
         # higher number would still pass. Set to the measured value anyway:
         # the spare line is what the no-headroom rule on _MODULE_LOC_CAPS
         # calls the seed of the next raise.
-        "backend/app/modules/catalog/datasets/domain/service_analysis.py": 463,
+        "backend/app/modules/catalog/datasets/domain/service_analysis.py": 475,
         "backend/app/modules/catalog/maps/service_crud.py": 550,
         # fix(#474, #475): localized ranking/eager loading plus the OGC
         # ids/externalIds filters cross the default by nine lines. Keep the

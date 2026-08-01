@@ -369,6 +369,20 @@ async def run_analysis_preview(
             row_limit=PREVIEW_FEATURE_CAP,
             concurrency_key=str(user_id),
         )
+        # fix(#1097 review): inside the same slot as the geometry query, not
+        # after it. Both open their own sandbox connection, so releasing the
+        # semaphore between them lets a finished preview admit the next caller
+        # while its count is still holding a connection — _MAX_CONCURRENT_
+        # PREVIEWS stops bounding connections and the pool it exists to protect
+        # can be exhausted anyway. The count is the likelier of the two to still
+        # be running: it is uncapped and scans both layers (see the timeout note
+        # on _resolve_match_count), while the geometry query stops at
+        # PREVIEW_FEATURE_CAP rows.
+        resolved_match_count = (
+            await _resolve_match_count(db, count_sql, user_id)
+            if count_sql is not None
+            else None
+        )
     features: list[dict[str, Any]] = []
     bbox: list[float] | None = None
     # fix(#956): intersect's exact total rides its own preview statement as a
@@ -419,9 +433,7 @@ async def run_analysis_preview(
         match_count=(
             inline_match_count
             if request.operation == "intersect"
-            else await _resolve_match_count(db, count_sql, user_id)
-            if count_sql is not None
-            else None
+            else resolved_match_count
         ),
     )
 

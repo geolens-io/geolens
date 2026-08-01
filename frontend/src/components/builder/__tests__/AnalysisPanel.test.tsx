@@ -502,6 +502,7 @@ describe('AnalysisPanel', () => {
     // total as match_count. Before this the panel read only
     // source_feature_count, so the server paid for an uncapped count and the
     // user still got the generic cap message.
+    const user = userEvent.setup();
     vi.mocked(previewAnalysis).mockResolvedValueOnce({
       geojson: { type: 'FeatureCollection', features: [] },
       feature_count: 500,
@@ -510,7 +511,15 @@ describe('AnalysisPanel', () => {
       source_feature_count: null,
       match_count: 2838,
     });
-    renderPanel([datasetLayer]);
+    renderPanel([datasetLayer, datasetLayer2]);
+    // fix(#1097 review): the operation is now what selects match_count, so
+    // this test has to run one. It previously proved less than it read: with
+    // the panel on its default buffer, the assertion passed on the null
+    // source count alone and would have passed for EVERY operation.
+    await user.click(screen.getAllByRole('combobox')[1]);
+    await user.click(await screen.findByRole('option', { name: 'Select by location' }));
+    await user.click(screen.getAllByRole('combobox')[2]);
+    await user.click(await screen.findByRole('option', { name: 'Roads' }));
     mockT.mockClear();
     mockToast.info.mockClear();
 
@@ -532,9 +541,10 @@ describe('AnalysisPanel', () => {
 
   it('keeps the SOURCE total for spatial join, which also sends match_count (#1097 review)', async () => {
     // The guard on the fix above. spatial_join sends BOTH: it keeps every
-    // source row, and its match_count is how many of them found a match.
+    // source row, and its match_count counts matched PAIRS.
     // Preferring match_count wherever present would relabel 10,651 source
     // features as 30,712 "matching" ones.
+    const user = userEvent.setup();
     vi.mocked(previewAnalysis).mockResolvedValueOnce({
       geojson: { type: 'FeatureCollection', features: [] },
       feature_count: 500,
@@ -543,7 +553,11 @@ describe('AnalysisPanel', () => {
       source_feature_count: 10651,
       match_count: 30712,
     });
-    renderPanel([datasetLayer]);
+    renderPanel([datasetLayer, datasetLayer2]);
+    await user.click(screen.getAllByRole('combobox')[1]);
+    await user.click(await screen.findByRole('option', { name: 'Spatial join' }));
+    await user.click(screen.getAllByRole('combobox')[2]);
+    await user.click(await screen.findByRole('option', { name: 'Roads' }));
     mockT.mockClear();
     mockToast.info.mockClear();
 
@@ -557,6 +571,61 @@ describe('AnalysisPanel', () => {
     expect(mockT).not.toHaveBeenCalledWith(
       'analysisTools.truncatedNoticeMatched',
       expect.anything(),
+    );
+  });
+
+  it('reports NO total for a spatial join whose source count is missing (#1097 review)', async () => {
+    // The case that made keying off `source_feature_count == null` wrong.
+    // Null has a second cause that has nothing to do with the operation: the
+    // dataset's cached feature_count snapshot is absent (legacy imports,
+    // register_existing_table). A spatial join on such a dataset sends null
+    // AND a match_count, and that match_count counts PAIRS — 30,712 of them
+    // behind a 1:1 result whose real total is the source row count. Inferring
+    // from null announced and stored 30,712 as the output total, a number
+    // larger than the result can possibly be.
+    //
+    // No total is the honest answer here: the server could not supply one.
+    const user = userEvent.setup();
+    vi.mocked(previewAnalysis).mockResolvedValueOnce({
+      geojson: { type: 'FeatureCollection', features: [] },
+      feature_count: 500,
+      truncated: true,
+      bbox: [0, 0, 1, 1],
+      source_feature_count: null,
+      match_count: 30712,
+    });
+    const onPreviewResult = vi.fn();
+    renderPanel([datasetLayer, datasetLayer2], { onPreviewResult });
+    await user.click(screen.getAllByRole('combobox')[1]);
+    await user.click(await screen.findByRole('option', { name: 'Spatial join' }));
+    await user.click(screen.getAllByRole('combobox')[2]);
+    await user.click(await screen.findByRole('option', { name: 'Roads' }));
+    mockT.mockClear();
+    mockToast.info.mockClear();
+    onPreviewResult.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() => expect(mockToast.info).toHaveBeenCalled());
+
+    // The generic cap notice, which names no total at all.
+    expect(mockT).toHaveBeenCalledWith(
+      'analysisTools.truncatedNotice',
+      expect.objectContaining({ count: 500 }),
+    );
+    expect(mockT).not.toHaveBeenCalledWith(
+      'analysisTools.truncatedNoticeMatched',
+      expect.anything(),
+    );
+    expect(mockT).not.toHaveBeenCalledWith(
+      'analysisTools.truncatedNoticeTotal',
+      expect.anything(),
+    );
+    // And the pair count is not stored on the overlay either, where it would
+    // outlive the toast as a badge.
+    expect(onPreviewResult).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ truncated: true, totalCount: undefined }),
     );
   });
 

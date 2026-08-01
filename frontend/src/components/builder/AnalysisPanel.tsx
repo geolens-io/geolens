@@ -41,6 +41,14 @@ const MASK_LAYER_NONE = '__none__';
 // backend/app/modules/catalog/datasets/api/router_analysis.py — the server
 // rejects any other mask dataset with a 422.
 const POLYGONAL_GEOMETRY_TYPES = new Set(['POLYGON', 'MULTIPOLYGON']);
+// fix(#1097 review): mirrors _ROW_FILTERING_OPERATIONS in
+// backend/app/modules/catalog/datasets/domain/service_analysis.py. These drop
+// or multiply source rows, so the source's feature count says nothing about
+// the output and the server sends null for it. They are also the operations
+// whose match_count IS the output total, which is what this list selects for.
+// spatial_join is absent on purpose: it reports match_count too, but as a
+// count of matched pairs beside a result that keeps every source row.
+const ROW_FILTERING_OPERATIONS = ['clip', 'select_by_location', 'intersect'] as const;
 // ux(#686): buffer distances are metres on the wire; the picker converts so a
 // user thinking in feet or miles doesn't have to.
 const BUFFER_UNIT_METERS = { m: 1, km: 1000, ft: 0.3048, mi: 1609.344 } as const;
@@ -929,14 +937,29 @@ export function AnalysisPanel({
       // this read used to discard, leaving the user the generic cap message
       // despite the server having paid for an exact count.
       //
-      // Keyed off source_feature_count being null rather than off an operation
-      // list: spatial_join sends BOTH (it keeps every source row, and its
-      // match_count is how many of them found a match), so preferring
-      // match_count wherever present would relabel its total wrongly. A ninth
-      // operation needs no change here.
-      const sourceTotal = result.source_feature_count ?? null;
-      const matchedTotal = sourceTotal == null ? (result.match_count ?? null) : null;
-      const total = sourceTotal ?? matchedTotal;
+      // fix(#1097 review): keyed off the OPERATION, not off source_feature_count
+      // being null. Null has two causes, and only one of them means "read
+      // match_count instead": the operation filters rows, or the dataset's
+      // cached feature_count snapshot is simply absent (legacy imports,
+      // register_existing_table). A spatial_join on a dataset with no snapshot
+      // hits the second, and its match_count is a count of matched PAIRS — one
+      // source row can match many join rows, so it runs LARGER than the output,
+      // which for a 1:1 join is the source row count. Inferring from null
+      // reported and stored that pair count as the output total.
+      //
+      // Reading `operation` after the seq guard above is what makes this the
+      // operation that produced `result`: any input change bumps the sequence,
+      // so a response that outlived its inputs has already returned.
+      //
+      // A ninth operation lands in the else branch and gets the source total.
+      // That is the safe default and it is deliberately not automatic: what
+      // match_count MEANS is per-operation, so a new one owes this list a
+      // decision rather than inheriting a guess.
+      const filtersRows = ROW_FILTERING_OPERATIONS.includes(
+        operation as (typeof ROW_FILTERING_OPERATIONS)[number],
+      );
+      const matchedTotal = filtersRows ? (result.match_count ?? null) : null;
+      const total = matchedTotal ?? result.source_feature_count ?? null;
       const bbox = result.bbox as [number, number, number, number];
       if (result.truncated) {
         onPreviewResult?.(result.geojson, bbox, {

@@ -1949,10 +1949,18 @@ export interface AnalysisPreviewResponse {
   /** Source dataset total (1:1 ops only; null when the op filters rows, e.g. clip). */
   source_feature_count?: number | null;
   /**
-   * Exact total across the WHOLE source, not just the previewed features:
-   * intersecting source/join PAIRS for spatial_join, selected source features
-   * for select_by_location. Null for other operations, and when the count
-   * could not be computed within the query budget.
+   * Exact total across the WHOLE source, not just the previewed features.
+   * Null for operations that report no such total, and when the count could
+   * not be computed within the query budget.
+   *
+   * What it counts is per-operation, so read it against the operation you
+   * sent rather than treating it as one number:
+   * - select_by_location: selected source features. IS the output total.
+   * - intersect: output pieces. IS the output total.
+   * - spatial_join: intersecting source/join PAIRS. NOT the output total —
+   *   the join keeps every source row, so one source row matching four join
+   *   rows contributes 4 here and 1 to the result. Use source_feature_count
+   *   for that operation's total.
    */
   match_count?: number | null;
 }

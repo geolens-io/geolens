@@ -495,6 +495,89 @@ class TestSpatialJoinEnqueueValidation:
         assert resp.status_code == 422
         assert "join_count" in resp.text
 
+    async def test_join_field_prefixing_onto_the_count_column_rejected(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#1097 review): the generated names must not collide with EACH
+        OTHER, only with the source.
+
+        A join layer with an ordinary column named `count` prefixes to
+        `join_count`, which is the name the operation already generates for the
+        match count. The guard above compares the generated names against the
+        SOURCE's columns, so nothing noticed that the list contained the same
+        name twice. Materialization then emitted two `join_count` columns and
+        failed the CTAS after the whole queue wait, and the preview was worse:
+        both values landed on one property, so the transferred field silently
+        overwrote the real match count.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        points = await _create_probe_points(test_db_session, created_by=admin_id)
+        polys = await _create_layer(
+            test_db_session,
+            created_by=admin_id,
+            column_type="Geometry",
+            geometry_type="POLYGON",
+            extra_columns='"count" INTEGER,',
+            values_sql=(
+                "('poly_a', 100, ST_MakeEnvelope(0,0,1,1,4326),"
+                " ST_MakeEnvelope(0,0,1,1,4326))"
+            ),
+            column_info=[
+                {"name": "name", "type": "text"},
+                {"name": "count", "type": "integer"},
+            ],
+            feature_count=1,
+        )
+
+        resp = await client.post(
+            _materialize_url(points.id),
+            json={
+                "operation": "spatial_join",
+                "join_dataset_id": str(polys.id),
+                "join_fields": ["count"],
+                "title": "Nope",
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422
+        assert "join_count" in resp.text
+
+    async def test_the_same_join_field_twice_rejected(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """The other way the same field arrives twice, caught a layer earlier.
+
+        AnalysisMaterializeRequest already rejects a repeated join_fields entry,
+        so this never reaches the router's collision guard. Pinned because the
+        rule had no test: without one, the schema validator could be relaxed and
+        the only signal would be a CTAS failing on a duplicate column after the
+        whole queue wait.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        points = await _create_probe_points(test_db_session, created_by=admin_id)
+        polys = await _create_two_overlapping_polygons(
+            test_db_session, created_by=admin_id
+        )
+
+        resp = await client.post(
+            _materialize_url(points.id),
+            json={
+                "operation": "spatial_join",
+                "join_dataset_id": str(polys.id),
+                "join_fields": ["pop", "pop"],
+                "title": "Nope",
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422
+        assert "must not repeat a column" in resp.text
+
     async def test_oversized_source_rejected_at_enqueue(
         self,
         client: AsyncClient,
