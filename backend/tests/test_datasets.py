@@ -897,6 +897,7 @@ class TestUpdateMetadata:
         self,
         client: AsyncClient,
         admin_auth_header: dict,
+        viewer_auth_header: dict,
         test_db_session,
         dataset_visibility: str,
         map_visibility: str,
@@ -910,7 +911,16 @@ class TestUpdateMetadata:
         only, and its caller gated on ``old == public``, so an internal map was
         invisible to both halves. Once #930 made ``internal`` a real dataset
         rung the rule became a matrix, and each row here is one cell of it.
+
+        fix(#1073): the guard stopped refusing on a rank drop alone, so a
+        blocked row needs a real viewer standing in the slice being cut.
+        Without this fixture the rows borrowed whatever active accounts earlier
+        tests left on the worker DB — true in file order, false when a row runs
+        first on a fresh worker. The permit rows are indifferent to one more
+        ungranted viewer: their maps are unshared, their grants unreachable, or
+        their ranks never drop.
         """
+        assert viewer_auth_header  # the fixture's account is the stranded viewer
         admin_id = await _get_user_id(test_db_session, "admin")
         map_name = f"Strand {map_visibility} {dataset_visibility} {new_visibility}"
         ds = await self._dataset_on_map(
