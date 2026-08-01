@@ -87,6 +87,7 @@ def _operation_phrase(
     source: str,
     params: Mapping[str, Any],
     mask_title: str | None,
+    join_title: str | None = None,
 ) -> str:
     """The clause naming the operation and its parameters.
 
@@ -113,6 +114,30 @@ def _operation_phrase(
         if by_field:
             return f"Dissolved from {source} by {by_field}"
         return f"Dissolved from {source} into a single feature"
+    # fix(#1097 review): the four operations this branch adds had no branch, so
+    # they fell through to the generic fallback and their sentences named only
+    # the source. That sentence is a product surface — the dataset page shows
+    # it, search indexes it, and DCAT exports it — so an overlay whose whole
+    # point is the second layer was described without mentioning one.
+    if operation == "spatial_join":
+        target = _quoted(join_title) if join_title else "another layer"
+        fields = params.get("join_fields")
+        if fields:
+            return (
+                f"Joined from {source} against {target}, "
+                f"transferring {', '.join(fields)}"
+            )
+        return f"Joined from {source} against {target}"
+    if operation == "intersect":
+        target = _quoted(mask_title) if mask_title else "another layer"
+        return f"Intersected from {source} with {target}"
+    if operation == "select_by_location":
+        if params.get("mask_source") == "layer":
+            target = _quoted(mask_title) if mask_title else "another layer"
+            return f"Selected from {source} by {target}"
+        return f"Selected from {source} by a drawn area"
+    if operation == "measure":
+        return f"Measurements computed from {source}"
     return f"{operation.replace('_', ' ').capitalize()} applied to {source}"
 
 
@@ -124,6 +149,7 @@ def build_lineage_sentence(
     actor: str,
     created_at: datetime,
     mask_title: str | None = None,
+    join_title: str | None = None,
 ) -> str:
     """A human sentence describing how this dataset was produced.
 
@@ -131,7 +157,9 @@ def build_lineage_sentence(
     ``dcterms:provenance`` and the dataset page shows it verbatim.
     """
     params = params or {}
-    phrase = _operation_phrase(operation, _quoted(source_title), params, mask_title)
+    phrase = _operation_phrase(
+        operation, _quoted(source_title), params, mask_title, join_title
+    )
     return f"{phrase}, created by {actor} on {created_at.date().isoformat()}."
 
 
@@ -243,11 +271,14 @@ async def apply_analysis_provenance(
         return
 
     source_title = await _record_title(session, source_dataset_id)
-    mask_title = (
-        await _record_title(session, params.get("mask_dataset_id"))
-        if params.get("mask_source") == "layer"
-        else None
-    )
+    # fix(#1097 review): keyed off the ID being present, not off the
+    # mask_source discriminator. intersect takes a layer and has no
+    # mask_source — the discriminator only distinguishes drawn from layer for
+    # the operations that can be either — so gating on it meant an overlay's
+    # title was never resolved and its sentence said "another layer" for a
+    # layer whose title was one query away.
+    mask_title = await _record_title(session, params.get("mask_dataset_id"))
+    join_title = await _record_title(session, params.get("join_dataset_id"))
 
     record.lineage_summary = build_lineage_sentence(
         operation=operation,
@@ -256,6 +287,7 @@ async def apply_analysis_provenance(
         actor=await _actor_label(session, user_id),
         created_at=now,
         mask_title=mask_title,
+        join_title=join_title,
     )
     record.derived_from = build_derived_from(
         source_dataset_id=source_dataset_id,

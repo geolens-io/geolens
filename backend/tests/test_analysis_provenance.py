@@ -245,6 +245,84 @@ class TestMaterializedProvenance:
             'Clipped from "Parcels" to "Flood Zone", created by admin on 2026-07-31.'
         )
 
+    def test_every_operation_names_its_second_layer(self):
+        """fix(#1097 review): the four new operations had no branch, so they
+        fell through to "<operation> applied to <source>".
+
+        That sentence is a product surface — the dataset page renders it,
+        search indexes it, and DCAT exports it — so an overlay whose entire
+        point is the second layer was described without naming one.
+        """
+        cases = [
+            (
+                "spatial_join",
+                {"join_dataset_id": "x", "join_fields": ["owner", "value"]},
+                {"join_title": "Parcels Registry"},
+                'Joined from "Points" against "Parcels Registry", '
+                "transferring owner, value",
+            ),
+            (
+                "spatial_join",
+                {"join_dataset_id": "x"},
+                {"join_title": "Parcels Registry"},
+                'Joined from "Points" against "Parcels Registry"',
+            ),
+            (
+                "intersect",
+                {"mask_dataset_id": "x"},
+                {"mask_title": "Zones"},
+                'Intersected from "Points" with "Zones"',
+            ),
+            (
+                "select_by_location",
+                {"mask_source": "layer", "mask_dataset_id": "x"},
+                {"mask_title": "Zones"},
+                'Selected from "Points" by "Zones"',
+            ),
+            (
+                "select_by_location",
+                {"mask_source": "drawn"},
+                {},
+                'Selected from "Points" by a drawn area',
+            ),
+            ("measure", {}, {}, 'Measurements computed from "Points"'),
+        ]
+        for operation, params, titles, expected in cases:
+            sentence = build_lineage_sentence(
+                operation=operation,
+                source_title="Points",
+                params=params,
+                actor="admin",
+                created_at=datetime(2026, 7, 31),
+                **titles,
+            )
+            assert sentence == (f"{expected}, created by admin on 2026-07-31."), (
+                f"{operation} with {params!r} rendered as {sentence!r}"
+            )
+            # The fallback is what these branches exist to avoid.
+            assert "applied to" not in sentence, operation
+
+    def test_a_second_layer_whose_title_is_gone_still_reads_as_a_sentence(self):
+        """A deleted or unreadable layer yields no title, and a bare UUID would
+        not read. Same treatment clip already gave it, extended to the
+        operations that now name a layer."""
+        for operation, params in (
+            ("spatial_join", {"join_dataset_id": "x"}),
+            ("intersect", {"mask_dataset_id": "x"}),
+            ("select_by_location", {"mask_source": "layer", "mask_dataset_id": "x"}),
+        ):
+            sentence = build_lineage_sentence(
+                operation=operation,
+                source_title="Points",
+                params=params,
+                actor="admin",
+                created_at=datetime(2026, 7, 31),
+            )
+            assert "another layer" in sentence, operation
+            assert "x" not in sentence.replace("Intersected", "").replace(
+                "transferring", ""
+            ), f"{operation} leaked an id into the sentence: {sentence!r}"
+
 
 class TestDerivedFromVisibility:
     async def test_detail_omits_derived_from_without_access_to_the_source(
