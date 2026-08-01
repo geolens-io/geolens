@@ -861,7 +861,14 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # higher number would still pass. Set to the measured value anyway:
         # the spare line is what the no-headroom rule on _MODULE_LOC_CAPS
         # calls the seed of the next raise.
-        "backend/app/modules/catalog/datasets/domain/service_analysis.py": 475,
+        #
+        # Then +19 for the #1097-review preview-serialization fixes: _json_safe
+        # (a transferred bytea value reaches Pydantic as raw bytes and raises;
+        # encode as to_jsonb's hex form so both endpoints serve the same
+        # representation) and linearizing the select-by-location layer-path
+        # identity lateral, the one pass-through geometry this module renders
+        # itself rather than through render_geometry_expr.
+        "backend/app/modules/catalog/datasets/domain/service_analysis.py": 494,
         "backend/app/modules/catalog/maps/service_crud.py": 550,
         # fix(#474, #475): localized ranking/eager loading plus the OGC
         # ids/externalIds filters cross the default by nine lines. Keep the
@@ -1260,7 +1267,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # see. The comment carries the empirical check (max_identifier_length is
     # 63) and why source columns need no equivalent — they already exist in a
     # table, so the server truncated them at creation.
-    "backend/app/platform/analysis_sql.py": 1218,
+    #
+    # fix(#1097 review): +42 for linearized() and its call sites. WFS sources
+    # can store curved geometries (MultiSurface/CompoundCurve) that ingest
+    # admits but ::geography, ST_MakeValid and ST_AsGeoJSON all raise on, so
+    # every geometry read feeding one of those — or passing through into
+    # preview GeoJSON or a CTAS — goes through one ST_CurveToLine wrapper. The
+    # bulk of the lines is the helper's docstring recording which functions
+    # raise, which tolerate curves, why WHERE predicates stay on the bare
+    # column (the GIST index), and that #1104 (ingest-level normalization)
+    # is what eventually retires the helper.
+    "backend/app/platform/analysis_sql.py": 1260,
     # tasks.py carries growth from BOTH sides of this rebase, so the number is
     # re-measured rather than taken from either. #1012 added the scoped
     # work_mem (the SET LOCAL, its budget arithmetic and the boot-time
@@ -1301,7 +1318,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # discriminator is the only trace a drawn selection leaves — the constant
     # is duplicated from schemas because PROCESS-02 forbids the import, and a
     # test pins the two copies together.
-    "backend/app/processing/analysis/tasks.py": 1385,
+    #
+    # fix(#1097 review): +3 for linearizing the three pass-through CTAS
+    # geometry columns (measure, spatial_join, select_by_location) so a curved
+    # source row is stored linear — a curved geometry written into the derived
+    # table would fail that layer's tiles and feature reads later.
+    "backend/app/processing/analysis/tasks.py": 1388,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.

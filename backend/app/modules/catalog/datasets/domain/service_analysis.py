@@ -34,6 +34,7 @@ from app.platform.analysis_sql import (
     INTERSECT_SOURCE_GID_COLUMN,
     MEASURE_OUTPUT_COLUMNS,
     NOT_EMPTY_PREDICATE,
+    linearized,
     render_clip_layer_join,
     render_geometry_expr,
     render_intersect_preview,
@@ -190,7 +191,7 @@ def build_preview_sql(
         # identity lateral keeps the query shape (and NOT_EMPTY_PREDICATE)
         # common with every other branch.
         cte = ""
-        lateral = "(SELECT geom_4326 AS geom_out OFFSET 0)"
+        lateral = f"(SELECT {linearized('geom_4326')} AS geom_out OFFSET 0)"
         where = render_select_by_location_where(mask_table_ref, src="_src")
     elif mask_table_ref is not None:
         # fix(#693): layer-sourced clip previews subdivide the mask once and
@@ -253,6 +254,22 @@ def _preview_extra_columns(
     if request.operation == "intersect":
         return [INTERSECT_SOURCE_GID_COLUMN]
     return []
+
+
+def _json_safe(value: Any) -> Any:
+    """Make one transferred property value JSON-serializable.
+
+    fix(#1097 review): a spatial join can transfer a ``bytea`` column, and the
+    sandbox hands its value back as raw ``bytes``, which Pydantic's JSON
+    serializer treats as UTF-8 and raises on for arbitrary byte sequences — a
+    valid preview would 500. The features browse API never has this problem
+    because it builds properties in SQL (``to_jsonb(t.*)``), where PostgreSQL
+    renders bytea as a ``\\x``-prefixed hex string. Encode identically here, so
+    the same column reads the same through both endpoints.
+    """
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return "\\x" + bytes(value).hex()
+    return value
 
 
 def _extend_bbox(bbox: list[float] | None, coords: Any) -> list[float] | None:
@@ -410,7 +427,9 @@ async def run_analysis_preview(
             continue
         bbox = _extend_bbox(bbox, geometry.get("coordinates"))
         properties: dict[str, Any] = {"gid": gid}
-        properties.update(zip(extra_columns, row[2:]))
+        properties.update(
+            (name, _json_safe(value)) for name, value in zip(extra_columns, row[2:])
+        )
         features.append(
             {"type": "Feature", "geometry": geometry, "properties": properties}
         )

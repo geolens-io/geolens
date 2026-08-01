@@ -38,6 +38,7 @@ from app.platform.analysis_sql import (
     MEASURE_OUTPUT_COLUMNS,
     NON_GROUPABLE_COLUMN_TYPES,
     NOT_EMPTY_PREDICATE,
+    linearized,
     render_clip_layer_join,
     render_geometry_expr,
     render_intersect_pairs,
@@ -916,7 +917,8 @@ def _build_materialize_select(
         measure_cols, measure_join = render_measure_columns(src="_src")
         cols = "".join(f"_src.{_sql_quote_ident(c)}, " for c in carry_cols)
         return _wrap_not_empty(
-            f"SELECT _src.gid, {cols}_src.geom_4326 AS geom, {measure_cols}"
+            f"SELECT _src.gid, {cols}{linearized('_src.geom_4326')} AS geom,"
+            f" {measure_cols}"
             f" FROM {src_ref} AS _src{measure_join}"
         )
     if operation == "spatial_join" and join_table_ref is not None:
@@ -929,7 +931,8 @@ def _build_materialize_select(
         )
         cols = "".join(f"_src.{_sql_quote_ident(c)}, " for c in carry_cols)
         return _wrap_not_empty(
-            f"SELECT _src.gid, {cols}_src.geom_4326 AS geom, {join_cols}"
+            f"SELECT _src.gid, {cols}{linearized('_src.geom_4326')} AS geom,"
+            f" {join_cols}"
             f" FROM {src_ref} AS _src{joins}"
         )
     if operation == "dissolve":
@@ -960,12 +963,12 @@ def _build_materialize_select(
         # geometry directly, which is what the output geometry IS.
         #
         # The DRAWN-mask half needs no branch at all: render_geometry_expr
-        # returns ("geom_4326", <where>) and the generic tail below is already
-        # the right shape.
+        # returns the linearized pass-through and its <where>, and the generic
+        # tail below is already the right shape.
         where = render_select_by_location_where(mask_table_ref, src="_src")
         cols = "".join(f"_src.{_sql_quote_ident(c)}, " for c in carry_cols)
         return _wrap_not_empty(
-            f"SELECT _src.gid, {cols}_src.geom_4326 AS geom"
+            f"SELECT _src.gid, {cols}{linearized('_src.geom_4326')} AS geom"
             f" FROM {src_ref} AS _src{where}"
         )
     if operation == "clip" and mask_table_ref is not None:
