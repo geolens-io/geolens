@@ -600,7 +600,7 @@ class TestColumnCollisions:
                 str(zones.id),
                 "data",
                 label="mask",
-                require_polygonal=True,
+                require_geometry="polygonal",
             )
         assert "polygon" in str(excinfo.value).lower()
 
@@ -622,7 +622,7 @@ class TestColumnCollisions:
             str(zones.id),
             "data",
             label="mask",
-            require_polygonal=True,
+            require_geometry="polygonal",
         )
         assert name == zones.table_name
 

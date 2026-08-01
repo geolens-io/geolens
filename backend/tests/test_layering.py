@@ -1207,7 +1207,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # AnalysisOperation Literals, a params field with its bounds, and its row
     # in _ANALYSIS_PARAM_OWNERS, which is what makes a param submitted to the
     # wrong operation a 422 instead of a silently ignored key. 1032 -> 1127.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1127,
+    # fix(#1097 review): +6 for the mask_dataset_id description, on both
+    # request models. It said the field applied to clip and select_by_location
+    # and was an alternative to `mask`, while the validator requires it for
+    # every intersect and rejects a drawn mask there — so the generated SDK
+    # docs led clients to requests that always 422.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1133,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # Both cross 1000 for the first time here, and both cross it for the same
     # reason: the four operations are deliberately concentrated rather than
@@ -1270,7 +1275,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # job waits, and nothing downstream notices: the mask matches no rows and
     # the job dies on "produced no features", pointing the user at their data
     # instead of at the layer that changed.
-    "backend/app/processing/analysis/tasks.py": 1343,
+    #
+    # fix(#1097 review): +22 for the second geometry strength. The mask must
+    # still be polygonal; the JOIN layer must only still be spatial, because a
+    # join counts in any direction — but a re-upload from a non-spatial source
+    # leaves no geom_4326 for render_spatial_join to reference.
+    "backend/app/processing/analysis/tasks.py": 1365,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.

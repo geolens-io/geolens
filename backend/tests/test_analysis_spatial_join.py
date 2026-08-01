@@ -579,6 +579,102 @@ class TestSpatialJoinEnqueueValidation:
         assert resp.status_code == 422
         assert "must not repeat a column" in resp.text
 
+    async def test_a_count_only_join_is_validated_on_the_preview_path_too(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#1097 review): Preview must not approve what Create refuses.
+
+        The preview path guarded the validator behind `if body.join_fields`,
+        but that validator also checks the ALWAYS-generated join_count against
+        the source's columns. A source that already had a join_count column
+        therefore previewed happily and then failed Create on the identical
+        form — the worst split, because the user has been told it works.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        source = await _create_layer(
+            test_db_session,
+            created_by=admin_id,
+            column_type="Point",
+            geometry_type="POINT",
+            extra_columns="join_count INTEGER,",
+            values_sql=(
+                "('p', 7, ST_SetSRID(ST_MakePoint(0.75,0.5),4326),"
+                " ST_SetSRID(ST_MakePoint(0.75,0.5),4326))"
+            ),
+            column_info=[
+                {"name": "name", "type": "text"},
+                {"name": "join_count", "type": "integer"},
+            ],
+        )
+        polys = await _create_two_overlapping_polygons(
+            test_db_session, created_by=admin_id
+        )
+        body = {"operation": "spatial_join", "join_dataset_id": str(polys.id)}
+
+        # No join_fields at all: the count is still generated.
+        preview = await client.post(
+            _preview_url(source.id), json=body, headers=admin_auth_header
+        )
+        assert preview.status_code == 422, preview.text
+        assert "join_count" in preview.text
+
+        # And the two paths agree, which is the actual invariant.
+        materialize = await client.post(
+            _materialize_url(source.id),
+            json={**body, "title": "Nope"},
+            headers=admin_auth_header,
+        )
+        assert materialize.status_code == preview.status_code
+
+    async def test_a_join_layer_that_loses_its_geometry_is_caught(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#1097 review): points and lines stay valid, no geometry does not.
+
+        A spatial join counts in any direction, so the join layer is
+        deliberately NOT held to the mask's polygon rule. But a re-upload from
+        a non-spatial source sets geometry_type to None and builds a table with
+        no geom_4326 at all, and render_spatial_join references _j.geom_4326 —
+        so the job died on a database error after the queue wait.
+        """
+        from app.modules.catalog.datasets.domain.models import Dataset
+        from app.processing.analysis.tasks import _resolve_layer_table_ref
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        polys = await _create_two_overlapping_polygons(
+            test_db_session, created_by=admin_id
+        )
+
+        # A POINT join layer resolves: direction does not matter to a join.
+        polys.geometry_type = "POINT"
+        await test_db_session.commit()
+        await _resolve_layer_table_ref(
+            test_db_session,
+            Dataset,
+            str(polys.id),
+            "data",
+            label="join",
+            require_geometry="any",
+        )
+
+        # No geometry at all does not.
+        polys.geometry_type = None
+        await test_db_session.commit()
+        with pytest.raises(ValueError) as excinfo:
+            await _resolve_layer_table_ref(
+                test_db_session,
+                Dataset,
+                str(polys.id),
+                "data",
+                label="join",
+                require_geometry="any",
+            )
+        assert "geometry" in str(excinfo.value).lower()
+
     async def test_a_join_field_dropped_after_enqueue_is_caught_before_the_ctas(
         self,
         test_db_session: AsyncSession,

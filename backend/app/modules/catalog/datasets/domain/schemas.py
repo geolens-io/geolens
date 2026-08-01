@@ -993,9 +993,12 @@ class AnalysisPreviewRequest(BaseModel):
     mask_dataset_id: uuid.UUID | None = Field(
         default=None,
         description=(
-            "Polygon dataset supplying the mask geometry: the area clipped to, "
-            "or selected against (clip and select_by_location; alternative to "
-            "mask)"
+            "Polygon dataset supplying the second layer: the area clipped to, "
+            "selected against, or overlaid with. For clip and "
+            "select_by_location it is the alternative to `mask`; for intersect "
+            "it is REQUIRED and `mask` is rejected, because an overlay carries "
+            "the second layer's attributes onto its output and a drawn polygon "
+            "has none."
         ),
     )
     join_dataset_id: uuid.UUID | None = Field(
@@ -1082,9 +1085,12 @@ class AnalysisMaterializeRequest(BaseModel):
     mask_dataset_id: uuid.UUID | None = Field(
         default=None,
         description=(
-            "Polygon dataset supplying the mask geometry: the area clipped to, "
-            "or selected against (clip and select_by_location; alternative to "
-            "mask)"
+            "Polygon dataset supplying the second layer: the area clipped to, "
+            "selected against, or overlaid with. For clip and "
+            "select_by_location it is the alternative to `mask`; for intersect "
+            "it is REQUIRED and `mask` is rejected, because an overlay carries "
+            "the second layer's attributes onto its output and a drawn polygon "
+            "has none."
         ),
     )
     by_field: str | None = Field(

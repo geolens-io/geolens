@@ -373,8 +373,13 @@ async def analysis_preview_endpoint(
     join_dataset = None
     if body.join_dataset_id is not None:
         join_dataset = await _load_join_dataset(db, body.join_dataset_id, user)
-        if body.join_fields:
-            _validate_join_fields(dataset, join_dataset, body.join_fields)
+        # fix(#1097 review): unconditionally, matching materialize. The guard
+        # used to be `if body.join_fields`, but _validate_join_fields also
+        # checks the ALWAYS-generated join_count against the source's columns —
+        # so a source that already had a join_count column previewed fine and
+        # then failed Create on the identical form. Preview approving an output
+        # that Create refuses is worse than either verdict on its own.
+        _validate_join_fields(dataset, join_dataset, body.join_fields or [])
     try:
         return await run_analysis_preview(
             db,

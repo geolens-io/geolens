@@ -547,7 +547,7 @@ async def _resolve_layer_table_ref(
     schema: str,
     *,
     label: str,
-    require_polygonal: bool = False,
+    require_geometry: str | None = None,
 ) -> tuple[str, str]:
     """Re-resolve a secondary layer at run time: ``(table_ref, table_name)``.
 
@@ -573,16 +573,33 @@ async def _resolve_layer_table_ref(
     if not _SAFE_TABLE.match(layer.table_name):
         raise ValueError(f"Invalid {label} table name")
     # fix(#1097 review): the geometry requirement is re-applied here, not just
-    # at enqueue. The router's _load_mask_dataset refuses a non-polygonal mask,
-    # but a re-upload can turn that layer into points or lines while the job
-    # waits in the queue — and the swap updates Dataset.geometry_type, so the
-    # stale value the router checked is not the one the CTAS would run against.
-    # Nothing downstream notices: the mask expression simply matches no rows,
-    # and the job dies on "Analysis produced no features", which sends the user
-    # looking at their data rather than at the layer that changed under them.
-    if require_polygonal and (layer.geometry_type or "").upper() not in _POLYGONAL:
+    # at enqueue. A re-upload can change what a layer IS while the job waits in
+    # the queue, and the swap updates Dataset.geometry_type, so the value the
+    # router checked is not the one the CTAS runs against.
+    #
+    # Two strengths, because the two layers want different things.
+    #
+    # "polygonal" is the mask's: _load_mask_dataset refuses points and lines,
+    # since unioning them produces a mask that clips nothing meaningful.
+    # Nothing downstream notices if that changes — the mask expression simply
+    # matches no rows, and the job dies on "Analysis produced no features",
+    # which sends the user to look at their own data rather than at the layer
+    # that changed underneath them.
+    #
+    # "any" is the join layer's. A spatial join counts in any direction, so
+    # points and lines stay valid and only the absence of geometry is fatal:
+    # a re-upload from a non-spatial source sets geometry_type to None and
+    # builds a table with no geom_4326 at all, and render_spatial_join
+    # references _j.geom_4326 (fix(#1097 review)).
+    geometry_type = (layer.geometry_type or "").upper()
+    if require_geometry == "polygonal" and geometry_type not in _POLYGONAL:
         raise ValueError(
             f"The {label} layer is no longer a polygon layer. It may have been "
+            "re-uploaded since this analysis was queued."
+        )
+    if require_geometry == "any" and not geometry_type:
+        raise ValueError(
+            f"The {label} layer no longer has geometry. It may have been "
             "re-uploaded since this analysis was queued."
         )
     return f'"{schema}"."{layer.table_name}"', layer.table_name
@@ -1085,7 +1102,7 @@ async def _materialize(
                     mask_dataset_id,
                     _schema,
                     label="mask",
-                    require_polygonal=True,
+                    require_geometry="polygonal",
                 )
             join_table_ref: str | None = None
             # fix(#1097 review): the plain name is kept now, not discarded. The
@@ -1095,7 +1112,12 @@ async def _materialize(
             join_table_name: str | None = None
             if join_dataset_id is not None:
                 join_table_ref, join_table_name = await _resolve_layer_table_ref(
-                    session, Dataset, join_dataset_id, _schema, label="join"
+                    session,
+                    Dataset,
+                    join_dataset_id,
+                    _schema,
+                    label="join",
+                    require_geometry="any",
                 )
 
             await _recheck_size_caps(
