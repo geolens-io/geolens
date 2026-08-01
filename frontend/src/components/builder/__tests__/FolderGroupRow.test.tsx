@@ -143,12 +143,24 @@ describe('FolderGroupRow keyboard operability (v1.6.0 audit A7)', () => {
 
     // The confirm mounts INSIDE the row div — its buttons' Enter/Space used to
     // bubble to the container keydown and be preventDefaulted (mouse-only).
-    // Radix returns focus to the kebab trigger asynchronously on menu close;
-    // wait it out so our focus() isn't stolen back before the keypress.
-    await act(() => new Promise<void>((r) => requestAnimationFrame(() => r())));
+    //
+    // fix(#1100): two things reach for focus after this render, and which one
+    // lands last is a race. Radix returns focus to the kebab trigger
+    // asynchronously on menu close, and the confirm autofocuses "Keep group".
+    // The old wait — one rAF, then a waitFor that focused and asserted — closed
+    // neither: waitFor proves focus AT THE MOMENT IT CHECKS, and a restore
+    // still pending could land between that check and the keypress below. On a
+    // loaded CI runner it did, and Enter went to the kebab, so this failed as
+    // "expected vi.fn() to be called once, but got 0 times" — a call-count
+    // error for what was really a focus problem.
+    //
+    // Take focus and require it to SURVIVE a full macrotask instead. Once
+    // focusing sticks across a flush, every pending restore has already run,
+    // so there is nothing left to steal it before the keypress.
     const deleteBtn = screen.getByRole('button', { name: 'Delete all' });
-    await vi.waitFor(() => {
+    await vi.waitFor(async () => {
       deleteBtn.focus();
+      await act(() => new Promise<void>((r) => setTimeout(r, 0)));
       expect(deleteBtn).toHaveFocus();
     });
     await user.keyboard('{Enter}');
