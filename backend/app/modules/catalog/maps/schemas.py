@@ -169,6 +169,58 @@ def _validate_style_dict(v: dict | None) -> dict | None:
     return v
 
 
+def _validate_maplibre_style_dict(v: dict | None) -> dict | None:
+    """Size-cap a paint/layout dict, then shape-check any legacy ``stops``.
+
+    fix(#1069): ``paint`` and ``layout`` are open dicts because MapLibre's
+    property surface is large and dynamic, and until this issue the only bound
+    on them was the serialized size above. That let structurally nonsense values
+    persist — ``{"fill-pattern": {"stops": 1}}`` and
+    ``{"fill-pattern": {"stops": "a-string"}}`` were both accepted — and wait to
+    raise inside whatever serializer next descends into them, which turns stored
+    data into a 500 on the shared ``GET /maps/{id}/style.json`` for every
+    consumer of that map. A string is the nastiest of the two, because iterating
+    it yields one character at a time instead of raising.
+
+    ``stops`` only, deliberately. Validating every paint value against the
+    property it sits on is the raster paint-key-allowlist problem and is out of
+    scope here; ``stops`` is checkable without a per-property table because the
+    legacy MapLibre function shape is the same everywhere: a list of
+    ``[input, output]`` pairs. An empty list is left alone — nothing can iterate
+    its way into a failure.
+
+    Direct property values only — fix(#1109 review): a ``stops`` key can also
+    appear as plain DATA inside an expression operand, e.g.
+    ``["get", "stops", ["literal", {"stops": 5}]]``, which MapLibre accepts.
+    The legacy-function shape has meaning only as the property's own value,
+    and that is also the only position the style.json serializer descends
+    into, so nested dicts are none of this check's business.
+
+    Paint and layout only. ``style_config`` keeps the size cap alone, because
+    the builder writes its own ``stops`` there with a different shape
+    (``style_config.builder.lineGradient.stops`` is a list of
+    ``{position, color}`` objects), and it is never handed to MapLibre.
+
+    Rows written before this check are unaffected — the read side bounds them
+    instead, in ``build_maplibre_style``.
+    """
+    _validate_style_dict(v)
+    if v is None:
+        return v
+    for node in v.values():
+        if not isinstance(node, dict) or "stops" not in node:
+            continue
+        stops = node["stops"]
+        if not isinstance(stops, list) or any(
+            not isinstance(stop, (list, tuple)) or len(stop) != 2 for stop in stops
+        ):
+            raise ValueError(
+                "Invalid MapLibre style value: 'stops' must be a list of "
+                "[input, output] pairs"
+            )
+    return v
+
+
 def _merge_builder_style_config(
     style_config: dict | None,
     builder_values: dict,
@@ -643,8 +695,8 @@ class MapLayerInput(BaseModel):
         ),
     )
 
-    _validate_paint = field_validator("paint")(_validate_style_dict)
-    _validate_layout = field_validator("layout")(_validate_style_dict)
+    _validate_paint = field_validator("paint")(_validate_maplibre_style_dict)
+    _validate_layout = field_validator("layout")(_validate_maplibre_style_dict)
     # builder-audit #338 P2-05: validate label_config bounds/enums via LabelConfig but
     # keep the stored value a plain dict so downstream JSONB assignment is
     # unchanged (see _validate_label_config_dict).
@@ -674,7 +726,7 @@ class MapLayerInput(BaseModel):
         # so frontend-normalized camelCase keys don't persist as a separate
         # schema after layer duplication. See canonicalize_builder_style_config.
         self.style_config = canonicalize_builder_style_config(self.style_config)
-        _validate_style_dict(self.paint)
+        _validate_maplibre_style_dict(self.paint)
         _validate_style_dict(self.style_config)
         return self
 
@@ -703,8 +755,8 @@ class MapLayerPatch(BaseModel):
     )
     show_in_legend: bool | None = None
 
-    _validate_paint = field_validator("paint")(_validate_style_dict)
-    _validate_layout = field_validator("layout")(_validate_style_dict)
+    _validate_paint = field_validator("paint")(_validate_maplibre_style_dict)
+    _validate_layout = field_validator("layout")(_validate_maplibre_style_dict)
     # builder-audit #338 P2-05: validate label_config bounds/enums via LabelConfig but
     # keep the stored value a plain dict so downstream JSONB assignment is
     # unchanged (see _validate_label_config_dict).

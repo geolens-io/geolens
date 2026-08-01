@@ -1082,7 +1082,19 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # BEFORE #917's strip runs, so a builder-patterned polygon exports the colour
     # the user chose instead of brand blue (EDIT-05 means paint never carries one).
     # fix(#910, codex P2): +5 — the seed accepts an explicit `fill-color: null` too.
-    "backend/app/modules/catalog/maps/style_json.py": 1559,
+    # fix(#1069): +56 — the read-side bound on malformed stored style values.
+    # Writes are shape-checked now, but that does nothing about the rows already
+    # in the database, and a serializer that descends into one of them 500s the
+    # SHARED style endpoint from stored data rather than from the request. Two
+    # guards, because the two stages that read stored paint are separate: the
+    # per-layer serialize loop in `build_maplibre_style`, and the emitted-layer
+    # pass now split out as `_validate_emitted_layer` — which is where #1054's
+    # intermediate revision actually walked `fill-pattern` composites. Roughly
+    # half the lines are the write-up of why the catch is a named data-shape
+    # tuple and not `Exception`: `_tile_url_for_layer` raises RuntimeError with
+    # no tenant context, and swallowing that would turn a fail-closed refusal
+    # into a quietly missing layer in a hosted export.
+    "backend/app/modules/catalog/maps/style_json.py": 1615,
     "backend/app/modules/catalog/maps/style_import.py": 450,
     "backend/app/modules/catalog/maps/style_sanitizers.py": 200,
     "backend/app/modules/catalog/maps/router_assets.py": 126,
@@ -1144,7 +1156,20 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative
     # builder camelCase->snake_case table.
-    "backend/app/modules/catalog/maps/schemas.py": 1317,
+    # fix(#1069): +62 — the write-time shape check on `paint`/`layout`. Those
+    # fields were bounded by serialized size alone, so `{"fill-pattern":
+    # {"stops": 1}}` persisted and waited to raise inside whatever serializer
+    # next descended into it. Only `stops` is checked, because it is the one
+    # shape checkable without a per-property paint table (per-property
+    # validation is the raster paint-key-allowlist problem, tracked separately).
+    # Most of the lines are the docstring recording that scope decision and why
+    # `style_config` is deliberately excluded — the builder writes its own
+    # `stops` there in a different shape, so checking it would 422 every
+    # line-gradient save. Ratchet stays exact.
+    # fix(#1109 review): -10 — the nested-dict walker is gone; the check reads
+    # direct property values only, because a `stops` key inside an expression
+    # operand is data, not a legacy function. Cap 1379 -> 1369, still exact.
+    "backend/app/modules/catalog/maps/schemas.py": 1369,
     # fix(#888): +117. `clip_to_mercator_bounds` used to lose data twice over
     # in silence — it clipped away everything east of lon 180 in a 0..360
     # source, and it reduced valid polar geometry to EMPTY without telling
