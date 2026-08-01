@@ -28,9 +28,12 @@ class AnalysisPreviewResponse:
         geojson (AnalysisPreviewResponseGeojson):
         truncated (bool):
         bbox (list[float] | None | Unset):
-        match_count (int | None | Unset): Exact total across the WHOLE source, not just the previewed features:
-            intersecting source/join feature PAIRS for spatial_join, selected source features for select_by_location. Null
-            for other operations, and when the count could not be computed within the query budget
+        match_count (int | None | Unset): Exact total across the WHOLE source, not just the previewed features. What it
+            counts is per-operation, so read it against the operation you sent rather than as one number: select_by_location
+            gives the selected source features and intersect gives the output pieces, and for both of those it IS the output
+            total; spatial_join gives intersecting source/join PAIRS, which is NOT the output total, because the join keeps
+            every source row (use source_feature_count for that operation). Null for operations that report no such total,
+            and when the count could not be computed within the query budget
         source_feature_count (int | None | Unset): Total feature count of the source dataset (1:1 operations only; null
             when the operation filters rows, e.g. clip)
     """
