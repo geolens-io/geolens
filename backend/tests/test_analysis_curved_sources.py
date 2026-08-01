@@ -292,11 +292,14 @@ class TestBinaryJoinFields:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ):
-        """A transferred bytea value arrives hex-encoded, not as raw bytes.
+        """Transferred bytea values arrive hex-encoded, not as raw bytes.
 
         Raw bytes raise inside Pydantic's JSON serializer, turning a valid
-        preview into a 500. The encoding matches ``to_jsonb``'s (which the
-        features browse API serves for the same column): ``\\x`` + hex.
+        preview into a 500 — and a ``bytea[]`` column comes back as a LIST of
+        bytes, so the encoder must recurse into containers, not just handle
+        the scalar (round-14 review). Both encodings match ``to_jsonb``'s
+        (which the features browse API serves for the same columns):
+        ``\\x`` + hex, and an array of the same.
         """
         admin_id = await get_user_id(test_db_session, "admin")
         points = await _create_layer(
@@ -315,14 +318,16 @@ class TestBinaryJoinFields:
             created_by=admin_id,
             column_type="Polygon",
             geometry_type="POLYGON",
-            extra_columns="blob BYTEA,",
+            extra_columns="blob BYTEA, blobs BYTEA[],",
             values_sql=(
                 "('zone', decode('deadbeef', 'hex'),"
+                " ARRAY[decode('dead', 'hex'), decode('beef', 'hex')],"
                 " ST_MakeEnvelope(0,0,1,1,4326), ST_MakeEnvelope(0,0,1,1,4326))"
             ),
             column_info=[
                 {"name": "name", "type": "text"},
                 {"name": "blob", "type": "bytea"},
+                {"name": "blobs", "type": "bytea[]"},
             ],
             feature_count=1,
         )
@@ -332,7 +337,7 @@ class TestBinaryJoinFields:
             json={
                 "operation": "spatial_join",
                 "join_dataset_id": str(polys.id),
-                "join_fields": ["blob"],
+                "join_fields": ["blob", "blobs"],
             },
             headers=admin_auth_header,
         )
@@ -340,3 +345,4 @@ class TestBinaryJoinFields:
         features = resp.json()["geojson"]["features"]
         assert len(features) == 1
         assert features[0]["properties"]["join_blob"] == "\\xdeadbeef"
+        assert features[0]["properties"]["join_blobs"] == ["\\xdead", "\\xbeef"]

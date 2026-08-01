@@ -868,7 +868,13 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # representation) and linearizing the select-by-location layer-path
         # identity lateral, the one pass-through geometry this module renders
         # itself rather than through render_geometry_expr.
-        "backend/app/modules/catalog/datasets/domain/service_analysis.py": 494,
+        #
+        # Then +12 making _json_safe recursive: a bytea[] column comes back as
+        # a LIST of bytes, which the scalar check waved through to the same
+        # 500 (round-14 review). to_jsonb renders that as an array of hex
+        # strings, so recursing with the same scalar encoding keeps the two
+        # endpoints byte-identical.
+        "backend/app/modules/catalog/datasets/domain/service_analysis.py": 506,
         "backend/app/modules/catalog/maps/service_crud.py": 550,
         # fix(#474, #475): localized ranking/eager loading plus the OGC
         # ids/externalIds filters cross the default by nine lines. Keep the

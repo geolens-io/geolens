@@ -266,9 +266,21 @@ def _json_safe(value: Any) -> Any:
     because it builds properties in SQL (``to_jsonb(t.*)``), where PostgreSQL
     renders bytea as a ``\\x``-prefixed hex string. Encode identically here, so
     the same column reads the same through both endpoints.
+
+    Recursive, because the driver returns CONTAINERS for array columns — a
+    ``bytea[]`` on a registered table comes back as a list of ``bytes``, and a
+    scalar-only check would wave the container through to the same 500
+    (round-14 review). ``to_jsonb`` renders that case as an array of hex
+    strings, so recursing with the same scalar encoding stays byte-identical
+    with the features API. Scalar driver types Pydantic serializes natively
+    (datetime, date, Decimal, UUID) pass through untouched.
     """
     if isinstance(value, (bytes, bytearray, memoryview)):
         return "\\x" + bytes(value).hex()
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
     return value
 
 
