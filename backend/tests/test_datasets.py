@@ -679,7 +679,7 @@ class TestUpdateMetadata:
 
     @staticmethod
     @asynccontextmanager
-    async def _only_admins_active(test_db_session):
+    async def _only_admins_active(test_db_session, keep: set | None = None):
         """Temporarily leave the admin accounts as the only active users.
 
         The per-worker DB persists across tests, so earlier ones leave live
@@ -687,6 +687,9 @@ class TestUpdateMetadata:
         audience" has to remove them — and RESTORE them, or it silently rewrites
         the world for every test that runs after it in the same worker. Ask me
         how I know.
+
+        ``keep`` spares the named user ids, for a test whose claim is "the only
+        active non-admins are these" rather than "there are none".
         """
         from app.modules.auth.models import Role, User, UserRole
 
@@ -695,17 +698,12 @@ class TestUpdateMetadata:
             .join(Role, Role.id == UserRole.role_id)
             .where(Role.name == "admin")
         )
-        strays = (
-            (
-                await test_db_session.execute(
-                    select(User).where(
-                        User.is_active.is_(True), User.id.notin_(admin_ids)
-                    )
-                )
-            )
-            .scalars()
-            .all()
+        stray_stmt = select(User).where(
+            User.is_active.is_(True), User.id.notin_(admin_ids)
         )
+        if keep:
+            stray_stmt = stray_stmt.where(User.id.notin_(keep))
+        strays = (await test_db_session.execute(stray_stmt)).scalars().all()
         saved = [(u, u.is_active, u.status) for u in strays]
         for user, _, _ in saved:
             user.is_active = False
@@ -746,6 +744,51 @@ class TestUpdateMetadata:
             resp = await client.patch(
                 f"/datasets/{ds.id}",
                 json={"visibility": "private"},
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 200, resp.text
+
+    async def test_internal_to_restricted_does_not_block_when_everyone_is_granted(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        viewer_auth_header: dict,
+        test_db_session,
+    ):
+        """fix(#1073): `internal -> restricted` when every active user holds a grant.
+
+        The slice this move cuts is the users no grant reaches. Once the
+        context manager suspends the strays, the fixture viewer is the only
+        active non-admin — and the grant below reaches them, so the cut slice
+        is empty and a refusal would strand nobody. The mirror below is the
+        same move with the same viewer ungranted, and it must still block.
+        """
+        from app.modules.auth.models import Role, UserRole
+        from app.modules.catalog.datasets.domain.models import DatasetGrant
+
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await self._dataset_on_map(
+            test_db_session,
+            admin_id,
+            dataset_visibility="internal",
+            map_visibility="internal",
+            map_name="Everyone Granted Map",
+        )
+        viewer_id = uuid.UUID(
+            (await client.get("/auth/me/", headers=viewer_auth_header)).json()["id"]
+        )
+        role = Role(name=f"granted-all-{uuid.uuid4().hex[:8]}")
+        test_db_session.add(role)
+        await test_db_session.flush()
+        test_db_session.add(UserRole(user_id=viewer_id, role_id=role.id))
+        test_db_session.add(DatasetGrant(dataset_id=ds.id, role_id=role.id))
+        await test_db_session.commit()
+
+        async with self._only_admins_active(test_db_session, keep={viewer_id}):
+            resp = await client.patch(
+                f"/datasets/{ds.id}",
+                json={"visibility": "restricted"},
                 headers=admin_auth_header,
             )
 
