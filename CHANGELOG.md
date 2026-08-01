@@ -14,18 +14,19 @@ and releases use semantic versioning.
 - **Four new analysis operations: spatial join, measure, select by location,
   and intersect.** They join buffer, centroid, clip, and dissolve in the
   builder's analysis panel: preview the result on the map, then materialize it
-  as a new dataset. Spatial join and select by location take a predicate
-  (intersects, contains, within, and friends); measure adds computed
-  area/length/perimeter columns; intersect writes the pairwise overlay with
-  attributes from both sides. (#1097)
+  as a new dataset. Spatial join and select by location match on intersection;
+  measure adds computed `area_sqm` and `length_m` columns; intersect writes
+  the pairwise overlay with attributes from both sides. (#1097)
 - **Materialized analysis outputs record where they came from.** Each output
   dataset carries the operation, its parameters, and the source dataset ids it
   was derived from, visible in the dataset detail. (#1045)
 - **An analysis job started in one tab is visible in all of them**, and its
   completion notifies once instead of once per tab. (#1043)
 - **The CLI can run analyses**: `geolens analysis preview` and
-  `geolens analysis materialize` cover the server's operations from scripts.
-  (#1050)
+  `geolens analysis materialize` drive buffer, centroid, clip, dissolve,
+  measure, select by location, and intersect from scripts. Spatial join is
+  not yet drivable from the CLI — it requires a join dataset the CLI has no
+  flag for (#1105). (#1050)
 - **Builder chat can clip a layer by another layer** ("clip roads to the city
   boundary") through the same analysis pipeline. (#1071)
 - **API keys now carry a scope.** A key is minted as `full` or `read_only`;
@@ -165,7 +166,8 @@ and releases use semantic versioning.
   extent; the dataset-preview guard is bypassed by large extents. (#903)
 - Metrics report per-worker registries only; Prometheus multiprocess mode is
   not yet adopted. (#651)
-- The CLI's analysis help text still lists only buffer, centroid, and clip.
+- The CLI cannot run a spatial join (no flag for the required join dataset),
+  and its analysis help text still lists only buffer, centroid, and clip.
   (#1105)
 
 ## [1.6.1] - 2026-07-29
