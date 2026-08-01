@@ -1212,7 +1212,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # and was an alternative to `mask`, while the validator requires it for
     # every intersect and rejects a drawn mask there — so the generated SDK
     # docs led clients to requests that always 422.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1133,
+    # fix(#1097 review): +5 for the match_count description, which said the
+    # field is null for anything but spatial_join and select_by_location while
+    # intersect returns it. This is the SOURCE the SDKs and the hand-typed
+    # frontend mirror are generated from or checked against, so it had been
+    # corrected in the mirror and left wrong here — backwards, and the reason
+    # the wrong text shipped into both SDKs.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1138,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # Both cross 1000 for the first time here, and both cross it for the same
     # reason: the four operations are deliberately concentrated rather than

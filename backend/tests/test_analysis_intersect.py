@@ -17,6 +17,7 @@ Requirements:
 """
 
 import uuid
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -755,6 +756,45 @@ class TestColumnCollisions:
         )
         assert resp.status_code == 422
         assert INTERSECT_SOURCE_GID_COLUMN in resp.text
+
+
+class TestJobMetadata:
+    """fix(#1097 review): Admin Jobs reads this to diagnose a failed run."""
+
+    def _meta(self, operation: str, **kwargs):
+        from app.modules.catalog.datasets.api.router_analysis import (
+            _build_analysis_job_metadata,
+        )
+        from app.modules.catalog.datasets.domain.schemas import (
+            AnalysisMaterializeRequest,
+        )
+
+        body = AnalysisMaterializeRequest(operation=operation, title="t", **kwargs)
+        return _build_analysis_job_metadata(
+            body, SimpleNamespace(id=uuid.uuid4(), table_name="src")
+        )
+
+    def test_every_operation_that_takes_a_layer_records_it(self):
+        """It was recorded for clip alone. select_by_location and intersect are
+        both driven by a second layer, so a run that failed BECAUSE of that
+        layer — re-uploaded mid-queue, wrong geometry, ungroupable column —
+        showed an operator only the operation, the source and the title."""
+        layer_id = uuid.uuid4()
+        for operation in ("clip", "select_by_location", "intersect"):
+            meta = self._meta(operation, mask_dataset_id=layer_id)
+            assert meta["mask_dataset_id"] == str(layer_id), operation
+
+    def test_the_drawn_marker_stays_where_a_drawn_mask_is_possible(self):
+        """mask_source discriminates drawn from layer, so it belongs only to
+        the operations that accept a drawn mask. intersect rejects one, and a
+        constant dressed as a discriminator is worse than its absence."""
+        layer_id = uuid.uuid4()
+        assert self._meta("clip", mask_dataset_id=layer_id)["mask_source"] == "layer"
+        assert (
+            self._meta("select_by_location", mask_dataset_id=layer_id)["mask_source"]
+            == "layer"
+        )
+        assert "mask_source" not in self._meta("intersect", mask_dataset_id=layer_id)
 
 
 class TestAccessControl:

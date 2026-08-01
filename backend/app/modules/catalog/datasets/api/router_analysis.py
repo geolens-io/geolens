@@ -498,10 +498,20 @@ def _build_analysis_job_metadata(
         meta["distance_meters"] = body.distance_meters
     if body.by_field is not None:
         meta["by_field"] = body.by_field
-    if body.operation == "clip":
+    # fix(#1097 review): the second layer is recorded for EVERY operation that
+    # consumes one, not just clip. Admin Jobs surfaces this metadata to
+    # diagnose a failed run, and select_by_location and intersect are both
+    # driven by a layer the operator could not otherwise identify — so a failure
+    # caused by that layer (re-uploaded mid-queue, wrong geometry, ungroupable
+    # column) showed only the operation, the source and the title.
+    #
+    # mask_source stays scoped to the operations that can take a DRAWN mask.
+    # intersect rejects one, so "layer" there would be a constant dressed up as
+    # a discriminator.
+    if body.mask_dataset_id is not None:
+        meta["mask_dataset_id"] = str(body.mask_dataset_id)
+    if body.operation in MASK_OPERATIONS:
         meta["mask_source"] = "layer" if body.mask_dataset_id else "drawn"
-        if body.mask_dataset_id is not None:
-            meta["mask_dataset_id"] = str(body.mask_dataset_id)
     if body.operation == "spatial_join":
         meta["join_dataset_id"] = str(body.join_dataset_id)
         if body.join_fields:
