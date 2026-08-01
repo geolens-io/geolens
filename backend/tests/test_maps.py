@@ -22,7 +22,7 @@ from app.modules.audit.models import AuditLog
 from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.maps.models import Map, MapLayer
-from app.modules.catalog.maps.schemas import MapLayerDiffRequest
+from app.modules.catalog.maps.schemas import MapLayerDiffRequest, MapLayerInput
 from app.processing.raster.models import RasterAsset
 
 from tests.factories import create_dataset, get_user_id
@@ -243,6 +243,70 @@ def test_layer_diff_schema_rejects_invalid_style_payload() -> None:
                 ]
             }
         )
+
+
+# fix(#1069): `paint` and `layout` were bounded by serialized size alone, so a
+# value that is structurally nonsense for the property it sits on persisted and
+# waited to raise inside whatever serializer next descended into it — a 500 on
+# the shared `GET /maps/{id}/style.json` produced by stored data rather than by
+# the request. `stops` is the one shape checkable without a per-property table.
+MALFORMED_STOPS_PAINTS = [
+    {"fill-pattern": {"stops": 1}},
+    {"fill-pattern": {"stops": "a-string"}},
+]
+
+
+@pytest.mark.parametrize("paint", MALFORMED_STOPS_PAINTS)
+def test_layer_schemas_reject_malformed_stops(paint) -> None:
+    """Both the full-save input and the diff patch reject the same shapes."""
+    with pytest.raises(ValidationError, match="must be a list of"):
+        MapLayerInput.model_validate({"dataset_id": str(uuid.uuid4()), "paint": paint})
+
+    with pytest.raises(ValidationError, match="must be a list of"):
+        MapLayerDiffRequest.model_validate(
+            {"updated": [{"id": str(uuid.uuid4()), "layout": paint}]}
+        )
+
+
+def test_layer_schema_keeps_a_well_formed_legacy_function() -> None:
+    """The check is on shape, not on the presence of `stops`.
+
+    A legacy MapLibre function object is valid input and must survive, or the
+    fix trades a 500 for a rejected save.
+    """
+    function_value = {
+        "property": "kind",
+        "type": "categorical",
+        "stops": [["a", "icon-a"], ["b", "icon-b"]],
+        "default": "icon-a",
+    }
+    layer = MapLayerInput.model_validate(
+        {"dataset_id": str(uuid.uuid4()), "paint": {"fill-pattern": function_value}}
+    )
+    assert layer.paint == {"fill-pattern": function_value}
+
+
+def test_style_config_stops_are_not_shape_checked() -> None:
+    """`style_config` keeps the size cap alone.
+
+    The builder writes its own `stops` there with a different shape, and it is
+    never handed to MapLibre — shape-checking it would 422 every line-gradient
+    save.
+    """
+    builder_gradient = {
+        "builder": {
+            "lineGradient": {
+                "stops": [
+                    {"position": 0.0, "color": "#0000ff"},
+                    {"position": 1.0, "color": "#00ff00"},
+                ]
+            }
+        }
+    }
+    layer = MapLayerInput.model_validate(
+        {"dataset_id": str(uuid.uuid4()), "style_config": builder_gradient}
+    )
+    assert layer.style_config == builder_gradient
 
 
 async def _create_map(
@@ -2167,6 +2231,87 @@ class TestMapLayers:
         assert data["visible"] is True
         assert data["opacity"] == 1.0
         assert "id" in data
+
+    @pytest.mark.parametrize("paint", MALFORMED_STOPS_PAINTS)
+    async def test_add_layer_rejects_malformed_stops(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        paint,
+    ):
+        """fix(#1069): POST /maps/{id}/layers answers 422, not 201-then-500."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
+        created = await _create_map(client, admin_auth_header)
+
+        resp = await client.post(
+            f"/maps/{created['id']}/layers",
+            json={"dataset_id": str(ds.id), "paint": paint},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 422, resp.text
+        assert "must be a list of" in resp.text
+
+    async def test_style_json_drops_a_malformed_stored_layer_instead_of_500ing(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """fix(#1069): rows written before the write-time check are still stored.
+
+        Shape-validating new writes does nothing about the rows already in the
+        database, so the read side has to bound them too. The layer's paint is
+        seeded straight into the table — the API would refuse it now — and the
+        serializer is made to descend into it the way #1054's intermediate
+        revision did. The shared style endpoint must answer 200 without that
+        layer rather than 500 for every consumer of the map.
+
+        (Asserted on behaviour, not on captured logs: `caplog` sees no structlog
+        records in this suite.)
+        """
+        from app.modules.catalog.maps import style_json
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        bad_ds = await create_dataset(test_db_session, created_by=admin_id)
+        good_ds = await create_dataset(test_db_session, created_by=admin_id)
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        for dataset in (bad_ds, good_ds):
+            resp = await client.post(
+                f"/maps/{map_id}/layers",
+                json={"dataset_id": str(dataset.id)},
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 201, resp.text
+            if dataset is bad_ds:
+                bad_layer_id = resp.json()["id"]
+
+        stored = await test_db_session.get(MapLayer, uuid.UUID(bad_layer_id))
+        stored.paint = {"fill-pattern": {"stops": 1}}
+        await test_db_session.commit()
+
+        real_clean_paint = style_json._clean_paint
+
+        def clean_paint_reading_patterns(paint):
+            pattern = (paint or {}).get("fill-pattern")
+            if isinstance(pattern, dict):
+                list(pattern["stops"])
+            return real_clean_paint(paint)
+
+        with patch.object(style_json, "_clean_paint", clean_paint_reading_patterns):
+            style_resp = await client.get(
+                f"/maps/{map_id}/style.json", headers=admin_auth_header
+            )
+
+        assert style_resp.status_code == 200, style_resp.text
+        style = style_resp.json()
+        assert f"layer-{bad_layer_id}" not in {entry["id"] for entry in style["layers"]}
+        assert f"geolens-{bad_ds.id}" not in style["sources"]
+        assert f"geolens-{good_ds.id}" in style["sources"]
 
     async def test_add_dem_layer_persists_hillshade_render_mode(
         self,

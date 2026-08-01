@@ -77,6 +77,14 @@ _HILLSHADE_PAINT_KEYS = {
 # to also be constructed with `lineMetrics: true` (set by `build_maplibre_style`).
 _LINE_GRADIENT_SOURCE_TYPES = {"vector", "geojson"}
 _BUILDER_KEY_ALIASES = BUILDER_SNAKE_TO_CAMEL_KEYS
+# fix(#1069): what a malformed stored style value raises when a serializer
+# descends into it — iterating an int, unpacking a string, subscripting a
+# scalar, `.get`-ing a non-dict, hashing a list into a set membership test.
+# Deliberately NOT `Exception`: `_tile_url_for_layer` raises RuntimeError when a
+# hosted deployment has no tenant context, and that must stay fail-closed rather
+# than degrade into a quietly missing layer. Data-shape errors degrade; control
+# errors propagate.
+_MALFORMED_STYLE_ERRORS = (AttributeError, IndexError, KeyError, TypeError, ValueError)
 logger = logging.getLogger(__name__)
 
 
@@ -1391,25 +1399,54 @@ def _strip_builtin_fill_pattern(layer: dict[str, Any]) -> None:
     )
 
 
+def _validate_emitted_layer(layer: dict[str, Any]) -> None:
+    """Strip non-spec paint/layout properties from ONE emitted layer in place."""
+    layer_type = layer.get("type")
+    if layer_type == "fill":
+        _strip_builtin_fill_pattern(layer)
+    paint_allowed = _PAINT_PROPERTIES_BY_TYPE.get(layer_type)
+    if paint_allowed is not None:
+        _strip_unknown_properties(layer, "paint", paint_allowed)
+    layout_allowed = _LAYOUT_PROPERTIES_BY_TYPE.get(layer_type)
+    if layout_allowed is not None:
+        _strip_unknown_properties(layer, "layout", layout_allowed)
+    # Type-contract check runs after the name allowlist on every typed layer.
+    _strip_wrong_typed_values(layer, "paint")
+
+
 def _validate_emitted_style(style: dict[str, Any]) -> None:
     """Strip non-spec paint/layout properties from every emitted layer in place."""
     layers = style.get("layers")
     if not isinstance(layers, list):
         return
+    kept: list[Any] = []
+    dropped = False
     for layer in layers:
-        if not isinstance(layer, dict):
-            continue
-        layer_type = layer.get("type")
-        if layer_type == "fill":
-            _strip_builtin_fill_pattern(layer)
-        paint_allowed = _PAINT_PROPERTIES_BY_TYPE.get(layer_type)
-        if paint_allowed is not None:
-            _strip_unknown_properties(layer, "paint", paint_allowed)
-        layout_allowed = _LAYOUT_PROPERTIES_BY_TYPE.get(layer_type)
-        if layout_allowed is not None:
-            _strip_unknown_properties(layer, "layout", layout_allowed)
-        # Type-contract check runs after the name allowlist on every typed layer.
-        _strip_wrong_typed_values(layer, "paint")
+        if isinstance(layer, dict):
+            try:
+                _validate_emitted_layer(layer)
+            except _MALFORMED_STYLE_ERRORS:
+                # fix(#1069): this pass reads stored paint, and a stored paint
+                # value can be structurally nonsense for the property it sits on
+                # (writes were only size-bounded until #1069). #1054's
+                # intermediate revision read `fill-pattern` composites here and
+                # would have turned every such row into a 500 on the SHARED
+                # style endpoint. One bad layer degrades the document it is in;
+                # it does not take the document down. Only the failing entry is
+                # dropped — a companion of a dropped primary is left in place
+                # rather than hunted down, since the document is already
+                # degraded and the companion still renders.
+                logger.warning(
+                    "Dropping emitted style layer %r: its stored paint/layout "
+                    "could not be validated",
+                    layer.get("id"),
+                    exc_info=True,
+                )
+                dropped = True
+                continue
+        kept.append(layer)
+    if dropped:
+        style["layers"] = kept
 
 
 def build_maplibre_style(
@@ -1424,13 +1461,32 @@ def build_maplibre_style(
     style_layers: list[dict[str, Any]] = []
     for layer in sorted(layers, key=lambda item: item.sort_order):
         source_id = f"geolens-{_safe_id(str(layer.dataset_id))}"
-        if source_id not in sources:
-            sources[source_id] = _source_for_layer(layer)
-        else:
-            _append_cluster_source_metadata(sources[source_id], layer)
-        style_layers.extend(
-            _style_layer_for_map_layer(layer, source_id, mvt_source_layer_prefix)
-        )
+        # fix(#1069): the same bound as `_validate_emitted_style`, one stage
+        # earlier. Serializing a row whose paint/layout is malformed for the
+        # property it sits on must not 500 `GET /maps/{id}/style.json` for every
+        # consumer of a shared map — the layer is dropped from the document and
+        # the rest of the map still exports. The source is only registered once
+        # its layer serializes, so a dropped layer leaves no orphan behind.
+        try:
+            emitted = _style_layer_for_map_layer(
+                layer, source_id, mvt_source_layer_prefix
+            )
+            if source_id in sources:
+                _append_cluster_source_metadata(sources[source_id], layer)
+                new_source = None
+            else:
+                new_source = _source_for_layer(layer)
+        except _MALFORMED_STYLE_ERRORS:
+            logger.warning(
+                "Dropping map layer %s from the exported style: its stored "
+                "paint/layout could not be serialized",
+                layer.id,
+                exc_info=True,
+            )
+            continue
+        if new_source is not None:
+            sources[source_id] = new_source
+        style_layers.extend(emitted)
 
     # Set lineMetrics: true on vector sources whose layers need line-gradient rendering.
     # Per D-01 detection rule, "needs" means paint['line-gradient'] OR builder.lineGradient.

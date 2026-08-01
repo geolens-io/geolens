@@ -2351,3 +2351,64 @@ def test_a_composite_fill_pattern_is_left_exactly_as_authored(pattern):
     style = build_maplibre_style(_map(), [_polygon_layer_with_pattern(pattern)])
 
     assert _fill_paint(style)["fill-pattern"] == pattern
+
+
+# fix(#1069): the read-side bound. Writes are shape-checked now (see
+# `_validate_maplibre_style_dict` in maps/schemas.py), but rows written before
+# that check are still in the database, and validating new writes does nothing
+# about them. Both tests below install a serializer that DOES descend into a
+# `fill-pattern` composite — which is what #1054's intermediate revision did,
+# and what the next serializer to walk a paint value will do — and assert the
+# blast radius is the one bad layer rather than the whole shared document.
+
+
+def _descend_into_stops(value):
+    """A reader that walks a legacy function value. `{"stops": 1}` raises here."""
+    if isinstance(value, dict) and "stops" in value:
+        return any(
+            output in style_json._BUILTIN_FILL_PATTERN_IDS
+            for _, output in value["stops"]
+        )
+    return isinstance(value, str) and value in style_json._BUILTIN_FILL_PATTERN_IDS
+
+
+def test_a_layer_that_cannot_be_serialized_is_dropped_not_500(monkeypatch):
+    """A malformed row costs its own layer, not the document."""
+    real_clean_paint = style_json._clean_paint
+
+    def clean_paint_reading_patterns(paint):
+        _descend_into_stops((paint or {}).get("fill-pattern"))
+        return real_clean_paint(paint)
+
+    monkeypatch.setattr(style_json, "_clean_paint", clean_paint_reading_patterns)
+    bad = _polygon_layer_with_pattern({"stops": 1})
+    good = _layer(label_config=None)
+
+    style = build_maplibre_style(_map(), [bad, good])
+
+    assert [entry["id"] for entry in style["layers"]] == [f"layer-{good.id}"]
+    # The source is registered only once its layer serializes, so the dropped
+    # layer leaves no orphan source (and no signed tile URL) behind.
+    assert f"geolens-{bad.dataset_id}" not in style["sources"]
+    assert f"geolens-{good.dataset_id}" in style["sources"]
+
+
+def test_a_layer_that_cannot_be_validated_is_dropped_not_500(monkeypatch):
+    """The same bound at the later stage, where #1054's near-miss actually was.
+
+    `_validate_emitted_style` reads stored paint too, so guarding only the
+    serializer would have left this path able to 500 the endpoint. Only the
+    failing entry is dropped here: the polygon's outline companion carries its
+    own generated paint and still renders, so it is deliberately left in place.
+    """
+    monkeypatch.setattr(
+        style_json, "_references_builtin_fill_pattern", _descend_into_stops
+    )
+    bad = _polygon_layer_with_pattern({"stops": "geolens-fill-grid"})
+    good = _layer(label_config=None)
+
+    style = build_maplibre_style(_map(), [bad, good])
+
+    emitted = {entry["id"] for entry in style["layers"]}
+    assert f"layer-{bad.id}" not in emitted
+    assert f"layer-{good.id}" in emitted
