@@ -472,6 +472,58 @@ class TestColumnCollisions:
         assert "props" in resp.text
         assert "json" in resp.text
 
+    async def test_an_overlay_that_gains_a_json_column_after_enqueue_is_caught(
+        self, test_db_session: AsyncSession
+    ):
+        """fix(#1097 review): the enqueue guard reads a catalog SNAPSHOT.
+
+        A re-upload can replace the overlay between enqueue and the job
+        running, so a layer that passed the router can be grouping-hostile by
+        the time the worker builds the CTAS. That is the same window
+        _reject_output_column_collision exists for, and why the carry-column
+        list beside it is read live rather than trusted from column_info.
+
+        Types, not names: the live NAME list is already read here and would not
+        have caught this, because the column that breaks the query has a
+        perfectly ordinary name.
+        """
+        from app.processing.analysis.tasks import (
+            _reject_ungroupable_overlay_columns,
+        )
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        zones = await _create_zones(test_db_session, created_by=admin_id)
+        # column_info still says text-only — the snapshot the router would read.
+        assert all(c.get("type") != "json" for c in (zones.column_info or [])), (
+            "fixture drifted: the snapshot must look clean for this to mean anything"
+        )
+        await test_db_session.execute(
+            text(f"ALTER TABLE data.{zones.table_name} ADD COLUMN props json")  # noqa: S608
+        )
+        await test_db_session.commit()
+
+        with pytest.raises(ValueError) as excinfo:
+            await _reject_ungroupable_overlay_columns(
+                test_db_session, "data", zones.table_name
+            )
+        assert "props" in str(excinfo.value)
+        assert "json" in str(excinfo.value)
+
+    async def test_a_groupable_overlay_passes_the_live_recheck(
+        self, test_db_session: AsyncSession
+    ):
+        """The negative control: the live recheck must not refuse ordinary
+        layers, or every intersect would fail at the worker."""
+        from app.processing.analysis.tasks import (
+            _reject_ungroupable_overlay_columns,
+        )
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        zones = await _create_zones(test_db_session, created_by=admin_id)
+        await _reject_ungroupable_overlay_columns(
+            test_db_session, "data", zones.table_name
+        )
+
     def test_an_ungroupable_SOURCE_column_is_still_allowed(self):
         """The guard is deliberately one-sided, so pin the side it lets through.
 

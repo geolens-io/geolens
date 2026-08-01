@@ -666,9 +666,18 @@ export function AnalysisPanel({
     joinLayerId !== MASK_LAYER_NONE
       ? joinLayerOptions.find((l) => l.id === joinLayerId)
       : undefined;
-  // Only fetched while dissolve is selected (enabled gates on a non-empty id).
+  // fix(#1097 review): spatial_join needs the SOURCE's columns too, not just
+  // dissolve. A transferred field lands as join_<name>, so a source that
+  // already has join_zone — routinely, because it is the output of an earlier
+  // spatial join — collides with a join layer's `zone`, and the server rejects
+  // both Preview and Create with a 422 the picker gave no warning of.
   const datasetDetail = useDataset(
-    operation === 'dissolve' ? (selectedLayer?.dataset_id ?? '') : '',
+    operation === 'dissolve' || operation === 'spatial_join'
+      ? (selectedLayer?.dataset_id ?? '')
+      : '',
+  );
+  const sourceColumnNames = new Set(
+    (datasetDetail.data?.column_info ?? []).map((c) => c.name),
   );
   const byFieldColumns = (datasetDetail.data?.column_info ?? [])
     .filter(
@@ -686,15 +695,18 @@ export function AnalysisPanel({
     operation === 'spatial_join' ? (joinLayer?.dataset_id ?? '') : '',
   );
   const joinFieldColumns = (joinDatasetDetail.data?.column_info ?? [])
-    .filter(
-      (c) =>
-        SAFE_COLUMN_RE.test(c.name) &&
-        // Transferred fields are prefixed 'join_', so a field named 'count'
-        // would land on the generated join_count column. Compared against the
-        // generated name rather than against the literal 'count', so it keeps
-        // holding if the prefix or the generated set changes.
-        `join_${c.name}` !== 'join_count',
-    )
+    .filter((c) => {
+      if (!SAFE_COLUMN_RE.test(c.name)) return false;
+      // Every rejection below is about the name the field would LAND on, not
+      // the name it has, so all of them compare the generated form. That is
+      // what keeps them true if the prefix or the generated set changes.
+      const generated = `join_${c.name}`;
+      // Would overwrite the generated match count.
+      if (generated === 'join_count') return false;
+      // Would arrive twice: once from the source, once from the join.
+      if (sourceColumnNames.has(generated)) return false;
+      return true;
+    })
     .map((c) => c.name);
 
   const stopDrawing = useCallback(() => {

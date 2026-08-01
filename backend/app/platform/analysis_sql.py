@@ -640,6 +640,14 @@ def render_clip_layer_join(mask_table_ref: str, *, src: str) -> tuple[str, str, 
 INTERSECT_SOURCE_GID_COLUMN = "source_gid"
 INTERSECT_OUTPUT_COLUMNS = (INTERSECT_SOURCE_GID_COLUMN,)
 
+# Column types PostgreSQL cannot group by, because they have no equality
+# operator. Grouping on one fails with SQLSTATE 42883.
+#
+# Here rather than in either caller: dissolve's by_field guard (the router) and
+# intersect's overlay guards (the router at enqueue, the worker again after the
+# queue wait) all need it, and the worker must not import from the API layer.
+NON_GROUPABLE_COLUMN_TYPES = frozenset({"json", "xml"})
+
 
 def render_intersect_pairs(
     src_table_ref: str,

@@ -357,6 +357,133 @@ class TestDerivedFromParamsVisibility:
         assert visible is not None
         assert visible["params"]["mask_dataset_id"] == str(mask.id)
 
+    async def test_a_private_join_layer_takes_its_column_names_with_it(
+        self, test_db_session: AsyncSession
+    ):
+        """fix(#1097 review): the mask was not the last dataset id in params.
+
+        Spatial join carries join_dataset_id, and the redaction covered only
+        the mask — so a public join output derived through a PRIVATE join layer
+        published that layer's id to every viewer.
+
+        join_fields goes with it. Dropping the id alone would still publish the
+        private layer's column names, which is most of what its schema is: an
+        id you cannot resolve is a weaker disclosure than the list of fields
+        someone chose to copy out of it.
+        """
+        from app.modules.catalog.authorization import visible_derived_from
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        source = await _create_polygon_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+        join = await _create_polygon_dataset(
+            test_db_session, created_by=admin_id, visibility="private"
+        )
+        reference = {
+            "dataset_id": str(source.id),
+            "operation": "spatial_join",
+            "params": {
+                "join_dataset_id": str(join.id),
+                "join_fields": ["parcel_owner", "assessed_value"],
+            },
+            "created_at": "2026-07-31T00:00:00+00:00",
+        }
+
+        anonymous = await visible_derived_from(test_db_session, reference, None, set())
+        assert anonymous is not None
+        assert "join_dataset_id" not in anonymous["params"]
+        assert "join_fields" not in anonymous["params"]
+        # The record's own JSONB is untouched — this redacts a copy per
+        # requester, it does not destroy the provenance.
+        assert reference["params"]["join_fields"] == ["parcel_owner", "assessed_value"]
+
+    async def test_a_visible_join_layer_keeps_its_fields(
+        self, test_db_session: AsyncSession
+    ):
+        """The guard on the redaction above: it must key off ACCESS, not off
+        the param existing. An owner reading their own output still gets the
+        lineage that makes it reproducible."""
+        from app.modules.catalog.authorization import visible_derived_from
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        source = await _create_polygon_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+        join = await _create_polygon_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+        reference = {
+            "dataset_id": str(source.id),
+            "operation": "spatial_join",
+            "params": {
+                "join_dataset_id": str(join.id),
+                "join_fields": ["parcel_owner"],
+            },
+            "created_at": "2026-07-31T00:00:00+00:00",
+        }
+
+        visible = await visible_derived_from(test_db_session, reference, None, set())
+        assert visible is not None
+        assert visible["params"]["join_dataset_id"] == str(join.id)
+        assert visible["params"]["join_fields"] == ["parcel_owner"]
+
+    def test_every_dataset_id_param_is_redactable(self):
+        """Structural: the redaction table must cover every dataset id the
+        worker actually writes into provenance params.
+
+        This gap has now happened twice — the mask in #765, the join layer in
+        #1097 — and both times the code was correct for the operations that
+        existed when it was written. The failure mode is silence: an
+        unredacted id looks like ordinary provenance and nothing errors, so
+        the next operation to carry one would ship the same leak.
+
+        Parsed from the source rather than asserted against a hand-kept list,
+        because a hand-kept list is the thing that fell behind.
+        """
+        import ast
+        import pathlib
+
+        from app.modules.catalog.authorization import _DATASET_ID_PARAMS
+
+        source = pathlib.Path("app/processing/analysis/tasks.py").read_text(
+            encoding="utf-8"
+        )
+        written: set[str] = set()
+        for node in ast.walk(ast.parse(source)):
+            # The params= dict handed to apply_analysis_provenance.
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = (
+                func.attr
+                if isinstance(func, ast.Attribute)
+                else getattr(func, "id", "")
+            )
+            if name != "apply_analysis_provenance":
+                continue
+            for kw in node.keywords:
+                if kw.arg != "params" or not isinstance(kw.value, ast.Dict):
+                    continue
+                for key in kw.value.keys:
+                    if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                        if key.value.endswith("_dataset_id"):
+                            written.add(key.value)
+
+        assert written, (
+            "found no *_dataset_id keys in the provenance params — the parse "
+            "stopped matching the source, so this test is no longer checking "
+            "anything"
+        )
+        missing = written - set(_DATASET_ID_PARAMS)
+        assert not missing, (
+            f"{sorted(missing)} reach provenance params but are not in "
+            "_DATASET_ID_PARAMS, so they are published to requesters who "
+            "cannot access the dataset they name. Add a row (and list any "
+            "param that DESCRIBES that dataset as a dependent, the way "
+            "join_fields hangs off join_dataset_id)."
+        )
+
 
 class TestStacDerivedFromLink:
     """The STAC half.

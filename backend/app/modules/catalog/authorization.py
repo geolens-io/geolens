@@ -168,6 +168,21 @@ async def _can_access_dataset_id(
     )
 
 
+# fix(#1097 review): every provenance param naming a dataset, mapped to the
+# params that DESCRIBE that dataset and must be dropped with it.
+#
+# The keys are what an unauthorized requester must not learn the value of; the
+# values are what would still describe the layer once its id was gone. An
+# operation that adds a dataset-id param adds a row here, and
+# test_every_dataset_id_param_is_redactable fails until it does — the check is
+# structural because the failure mode is silence: the leak looks like ordinary
+# provenance, and nothing errors.
+_DATASET_ID_PARAMS: dict[str, tuple[str, ...]] = {
+    "mask_dataset_id": (),
+    "join_dataset_id": ("join_fields",),
+}
+
+
 async def visible_derived_from(
     db: AsyncSession,
     derived_from: dict | None,
@@ -189,6 +204,16 @@ async def visible_derived_from(
     source's verdict. A returned dict is always a copy; the caller must not be
     able to mutate the record's JSONB through it.
 
+    fix(#1097 review): driven by ``_DATASET_ID_PARAMS`` rather than by a check
+    per id. Spatial join added ``join_dataset_id`` and this function kept
+    redacting only the mask, so a public join output derived through a PRIVATE
+    join layer published that layer's id — and ``join_fields`` with it, which
+    is the layer's column names. That is the same gap #765's review closed for
+    the mask, reopened by the next operation to carry a dataset id, which is
+    the argument for a table over another branch: an operation that adds one is
+    now a row here, and the structural test enforcing that lives in
+    ``test_analysis_provenance.py``.
+
     A source that has since been deleted also yields None: access to it can no
     longer be established, and the prose lineage on the record still reads.
     """
@@ -200,11 +225,18 @@ async def visible_derived_from(
         return None
 
     params = dict(derived_from.get("params") or {})
-    mask_id = params.get("mask_dataset_id")
-    if mask_id is not None and not await _can_access_dataset_id(
-        db, mask_id, user, user_roles
-    ):
-        params.pop("mask_dataset_id")
+    for id_param, dependent_params in _DATASET_ID_PARAMS.items():
+        dataset_id = params.get(id_param)
+        if dataset_id is None:
+            continue
+        if await _can_access_dataset_id(db, dataset_id, user, user_roles):
+            continue
+        params.pop(id_param)
+        # The id is not the only thing that describes the layer. Dropping
+        # join_dataset_id while keeping join_fields would still publish the
+        # private layer's column names, which is most of what its schema is.
+        for dependent in dependent_params:
+            params.pop(dependent, None)
     return {**derived_from, "params": params}
 
 

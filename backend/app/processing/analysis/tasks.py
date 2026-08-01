@@ -35,6 +35,7 @@ from app.platform.analysis_sql import (
     MAX_MASK_LAYER_FEATURES,
     MAX_SOURCE_FEATURES,
     MEASURE_OUTPUT_COLUMNS,
+    NON_GROUPABLE_COLUMN_TYPES,
     NOT_EMPTY_PREDICATE,
     render_clip_layer_join,
     render_geometry_expr,
@@ -394,6 +395,42 @@ def _reject_output_column_collision(
             f"{clashes[0]!r}, which this operation would overwrite. "
             "Rename it, or choose a different operation."
         )
+
+
+async def _reject_ungroupable_overlay_columns(
+    session: AsyncSession, schema: str, table_name: str
+) -> None:
+    """Worker-side half of the router's ungroupable-overlay guard.
+
+    fix(#1097 review): the enqueue guard reads ``column_info``, a catalog
+    snapshot, and a re-upload can replace the overlay between enqueue and the
+    job running — the same window ``_reject_output_column_collision`` exists
+    for, and the reason the carry-column list beside it is read live rather
+    than trusted from the snapshot. A replacement that introduces a json or xml
+    column would otherwise reach ``render_intersect_pairs``, which names every
+    carried overlay column in its GROUP BY, and fail the CTAS with SQLSTATE
+    42883.
+
+    Types, not names: reading the live names already happens and would not have
+    caught this, because the column that breaks the query is one whose NAME is
+    unremarkable.
+    """
+    rows = await session.execute(
+        text(
+            "SELECT column_name, data_type FROM information_schema.columns "
+            "WHERE table_schema = :schema AND table_name = :table_name "
+            "AND column_name NOT IN ('gid', 'geom', 'geom_4326') "
+            "ORDER BY ordinal_position"
+        ).bindparams(schema=schema, table_name=table_name)
+    )
+    for name, data_type in rows:
+        if str(data_type or "").lower() in NON_GROUPABLE_COLUMN_TYPES:
+            raise ValueError(
+                f"The overlay layer's column {name!r} has type "
+                f"{str(data_type).lower()!r}, which cannot be grouped, and an "
+                "overlay carries every overlay column onto its output. Choose "
+                "a different layer, or remove that column from it."
+            )
 
 
 async def _resolve_layer_table_ref(
@@ -982,6 +1019,9 @@ async def _materialize(
                 )
                 _reject_output_column_collision(
                     mask_carry_cols, INTERSECT_OUTPUT_COLUMNS
+                )
+                await _reject_ungroupable_overlay_columns(
+                    session, _schema, mask_table_name
                 )
             select_sql = _build_materialize_select(
                 src_ref,

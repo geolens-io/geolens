@@ -34,6 +34,7 @@ from app.platform.analysis_sql import (
     MAX_MASK_LAYER_FEATURES,
     MAX_SOURCE_FEATURES,
     MEASURE_OUTPUT_COLUMNS,
+    NON_GROUPABLE_COLUMN_TYPES,
     render_mask_expr,
     spatial_join_output_columns,
 )
@@ -85,7 +86,6 @@ MAX_ACTIVE_MATERIALIZES_PER_TENANT = 3
 # dissolve GROUP BY on such a column fails the CTAS with an opaque 42883
 # after the queue wait. GDAL maps nested GeoJSON objects to `json`, so
 # real uploads hit this. Rejected at enqueue with the column named.
-_NON_GROUPABLE_TYPES = {"json", "xml"}
 
 # fix(#695): Procrastinate ranks by per-job priority (DESC, default 0), not
 # by queue name — so a 300-second analysis CTAS enqueued first would
@@ -302,7 +302,7 @@ def _validate_intersect_columns(source, overlay) -> None:
     # dies after the queue wait with an error naming a generated alias the user
     # never wrote.
     #
-    # Refused at enqueue instead, which is what _NON_GROUPABLE_TYPES already
+    # Refused at enqueue instead, which is what NON_GROUPABLE_COLUMN_TYPES already
     # does for dissolve's by_field. Refusing rather than silently dropping the
     # column is the same choice the sibling guards above make: an overlay whose
     # output columns depend on which of them happened to be groupable is worse
@@ -315,7 +315,7 @@ def _validate_intersect_columns(source, overlay) -> None:
     ungroupable = sorted(
         (col.get("name"), str(col.get("type") or "").lower())
         for col in (overlay.column_info or [])
-        if col and str(col.get("type") or "").lower() in _NON_GROUPABLE_TYPES
+        if col and str(col.get("type") or "").lower() in NON_GROUPABLE_COLUMN_TYPES
     )
     if ungroupable:
         name, col_type = ungroupable[0]
@@ -395,7 +395,7 @@ def _validate_dissolve_by_field(dataset, by_field: str) -> None:
             detail="by_field conflicts with the generated 'source_count' column",
         )
     by_field_type = str(known_columns[by_field].get("type") or "").lower()
-    if by_field_type in _NON_GROUPABLE_TYPES:
+    if by_field_type in NON_GROUPABLE_COLUMN_TYPES:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(

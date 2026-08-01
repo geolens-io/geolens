@@ -1227,6 +1227,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # CALLER: giving the preview path and the worker their own rendering
     # modules recreates exactly the drift this module exists to prevent, so
     # #1089 says to reject that proposal on sight.
+    #
+    # fix(#1097 review): +8 for NON_GROUPABLE_COLUMN_TYPES. It lives here
+    # because three guards need it — dissolve's by_field in the router,
+    # intersect's overlay at enqueue, and the worker's live recheck after the
+    # queue wait — and the worker must not import from the API layer. Putting
+    # it in either caller would have meant duplicating the set, which is how
+    # the two halves of a guard drift apart.
     "backend/app/platform/analysis_sql.py": 1173,
     # tasks.py carries growth from BOTH sides of this rebase, so the number is
     # re-measured rather than taken from either. #1012 added the scoped
@@ -1234,7 +1241,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # validator); this branch added one CTAS branch per operation. Each cap was
     # correct for the tree that produced it and neither is correct for the
     # merge, which is the conflict doing its job.
-    "backend/app/processing/analysis/tasks.py": 1191,
+    #
+    # fix(#1097 review): +40 on top of that, for
+    # _reject_ungroupable_overlay_columns — the worker half of the overlay type
+    # guard. The router validates a catalog SNAPSHOT and a re-upload can
+    # replace the overlay before the job runs, the same window
+    # _reject_output_column_collision beside it exists for. Types rather than
+    # names, because the live name list was already read there and would not
+    # have caught it: the column that breaks the CTAS has an ordinary name.
+    "backend/app/processing/analysis/tasks.py": 1231,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.

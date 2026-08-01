@@ -116,25 +116,37 @@ vi.mock('@/api/analysis', () => ({
     .mockResolvedValue({ job_id: 'job1', status: 'pending' }),
 }));
 
+const SHARED_COLUMNS = [
+  { name: 'name', type: 'text' },
+  // Must be filtered out — collides with the generated output column.
+  { name: 'source_count', type: 'integer' },
+  // fix(#1097 review): every remaining shape the server refuses. GDAL
+  // launders only case, '-' and '#', so ingested tables hold names like
+  // these routinely; they are carried into analysis output but cannot be
+  // NAMED in a request, because _SAFE_COLUMN_RE gates group keys and
+  // transferred fields.
+  { name: 'Área', type: 'text' },
+  { name: '2020_pop', type: 'integer' },
+  // Prefixes to the generated join_count column.
+  { name: 'count', type: 'integer' },
+  // No equality operator, so it cannot be a group key.
+  { name: 'props', type: 'json' },
+  // Transferable on its own; the SOURCE below is what makes it collide.
+  { name: 'zone', type: 'text' },
+];
+
+// fix(#1097 review): keyed on the dataset id. A join field's collision is a
+// relationship between the two layers, so a mock that hands both the same
+// columns cannot express it — ds1 is the source and already carries a
+// join_zone (routine, since it is what an earlier spatial join leaves behind),
+// while ds2 is the join layer offering a plain `zone`.
 vi.mock('@/components/dataset/hooks/use-dataset', () => ({
-  useDataset: vi.fn(() => ({
+  useDataset: vi.fn((datasetId?: string) => ({
     data: {
-      column_info: [
-        { name: 'name', type: 'text' },
-        // Must be filtered out — collides with the generated output column.
-        { name: 'source_count', type: 'integer' },
-        // fix(#1097 review): every remaining shape the server refuses. GDAL
-        // launders only case, '-' and '#', so ingested tables hold names like
-        // these routinely; they are carried into analysis output but cannot be
-        // NAMED in a request, because _SAFE_COLUMN_RE gates group keys and
-        // transferred fields.
-        { name: 'Área', type: 'text' },
-        { name: '2020_pop', type: 'integer' },
-        // Prefixes to the generated join_count column.
-        { name: 'count', type: 'integer' },
-        // No equality operator, so it cannot be a group key.
-        { name: 'props', type: 'json' },
-      ],
+      column_info:
+        datasetId === 'ds1'
+          ? [...SHARED_COLUMNS, { name: 'join_zone', type: 'text' }]
+          : SHARED_COLUMNS,
     },
   })),
 }));
@@ -2264,6 +2276,11 @@ describe('AnalysisPanel spatial join (feat(#953))', () => {
     for (const refused of ['count', 'Área', '2020_pop']) {
       expect(screen.queryByRole('option', { name: refused })).toBeNull();
     }
+    // fix(#1097 review): and the one that depends on the OTHER layer. `zone`
+    // is transferable in itself; it is refused because the source already has
+    // a join_zone, so the transfer would arrive twice. A picker that reads
+    // only the join layer cannot see this.
+    expect(screen.queryByRole('option', { name: 'zone' })).toBeNull();
   });
 
   it('cannot preview until a join layer is picked', async () => {
