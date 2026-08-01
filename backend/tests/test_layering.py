@@ -1391,7 +1391,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1103): +10 — the STAC item's lineage property is gated the same way
     # as its derived_from link, on the user/user_roles already threaded here.
     # Cap 1833 -> 1843, still exact.
-    "backend/app/standards/stac/router.py": 1843,
+    # fix(#1108 review): +27 — the two item-page loops precompute lineage
+    # visibility for the whole page (one query, mirroring PERF-5's
+    # spatial_extent_geojson) instead of one round trip per item at limit=200.
+    # Cap 1843 -> 1870, still exact.
+    "backend/app/standards/stac/router.py": 1870,
     # Central tenant-bound scope resolution replaced duplicated inline logic.
     # fix(#836): +1 — the RASTER_FAMILY_RECORD_TYPES import that replaces four
     # pasted family literals. Same +1 on the stac and search routers.

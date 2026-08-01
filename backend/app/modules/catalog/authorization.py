@@ -334,16 +334,19 @@ def _redact_quoted_titles(
 
     Slots are positional: the generator emits the source's title first and the
     second layer's after it, so span N belongs to ``dataset_ids[N]``. That
-    alignment only holds while the sentence has exactly one quoted span per
-    referenced dataset — a source whose title was already unreadable renders as
-    a bare phrase and shifts every later span onto the wrong dataset, and a
-    title that itself contains ``"`` splits into several spans with its middle
-    OUTSIDE them. When the counts disagree the sentence has no boundary the
-    redaction can trust — replacing only the detected spans would leave those
-    stranded fragments readable — so the entire sentence is replaced.
+    alignment only holds while every referenced dataset contributed exactly one
+    clean quoted span, and the check for it counts quote CHARACTERS, not spans:
+    the generator writes two quotes per title, and an embedded quote can only
+    add, so ``count('"') == 2 * len(dataset_ids)`` holds iff no title contained
+    a quote and no title fell back to a bare unnamed phrase. A span count is
+    not the same test — fix(#1108 review): a title with an ODD number of
+    embedded quotes (``Flood "Zone``) yields exactly one span per dataset, so
+    the span counts agree while the span boundaries sit inside the hidden
+    title, and slot-by-slot replacement strands part of it in the clear.
+    Unalignable prose has no boundary the redaction can trust, so the entire
+    sentence is replaced.
     """
-    span_count = len(_QUOTED_TITLE_RE.findall(summary))
-    if span_count != len(dataset_ids):
+    if summary.count('"') != 2 * len(dataset_ids):
         return _REDACTED_SUMMARY
 
     slot = -1

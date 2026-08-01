@@ -1020,6 +1020,27 @@ class TestLineageSummaryVisibility:
         assert "Zone" not in redacted
         assert "Flood" not in redacted
 
+    def test_an_odd_quote_count_cannot_fake_alignment(self):
+        """fix(#1108 review): an odd embedded quote makes the SPAN counts agree.
+
+        ``"Flood "Zone`` wraps to ``"Flood "Zone"`` — the scan sees ``"Roads"``
+        and ``"Flood "`` and counts two spans for two datasets, so a span-count
+        guard passes while slot 1's replacement strands ``Zone"`` in the clear.
+        Counting quote CHARACTERS (two per clean title, embedded ones only add)
+        is the test that cannot coincide.
+        """
+        from app.modules.catalog.authorization import (
+            _REDACTED_SUMMARY,
+            _redact_quoted_titles,
+        )
+
+        sentence = (
+            'Clipped from "Roads" to "Flood "Zone", created by admin on 2026-07-31.'
+        )
+        redacted = _redact_quoted_titles(sentence, [uuid.uuid4(), uuid.uuid4()], {1})
+        assert redacted == _REDACTED_SUMMARY
+        assert "Zone" not in redacted
+
     async def test_a_record_with_no_provenance_costs_no_query(self):
         """Hand-written lineage is not assembled from other datasets' titles.
 
