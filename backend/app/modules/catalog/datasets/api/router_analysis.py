@@ -33,6 +33,7 @@ from app.platform.analysis_sql import (
     INTERSECT_OUTPUT_COLUMNS,
     MAX_MASK_LAYER_FEATURES,
     MAX_SOURCE_FEATURES,
+    INTERNAL_ALIAS_PREFIX,
     MEASURE_OUTPUT_COLUMNS,
     NON_GROUPABLE_COLUMN_TYPES,
     render_mask_expr,
@@ -312,6 +313,27 @@ def _validate_intersect_columns(source, overlay) -> None:
     # needs the aggregate to group by the two gids alone and join the overlay's
     # attributes back afterwards, which is a change to this query's shape
     # rather than a guard. Tracked separately.
+    # fix(#1097 review): a carried column may not sit in the alias namespace.
+    # Both layers, because an overlay carries columns from both and the inner
+    # aggregate names them in one select list alongside _gl_src_type; the
+    # overlay's are additionally re-listed inside _mask_pieces beside
+    # _gl_mask_gid and _gl_g. Checked against the PREFIX rather than the three
+    # alias names, so an alias added to that query later is covered without a
+    # second place to update.
+    reserved = sorted(
+        name
+        for name in (_column_names(source) | _column_names(overlay))
+        if name and name.startswith(INTERNAL_ALIAS_PREFIX)
+    )
+    if reserved:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Column {reserved[0]!r} uses the {INTERNAL_ALIAS_PREFIX!r} "
+                "prefix, which this operation reserves for its own internal "
+                "columns. Rename it, or choose a different layer."
+            ),
+        )
     ungroupable = sorted(
         (col.get("name"), str(col.get("type") or "").lower())
         for col in (overlay.column_info or [])

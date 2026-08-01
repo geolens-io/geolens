@@ -640,6 +640,24 @@ def render_clip_layer_join(mask_table_ref: str, *, src: str) -> tuple[str, str, 
 INTERSECT_SOURCE_GID_COLUMN = "source_gid"
 INTERSECT_OUTPUT_COLUMNS = (INTERSECT_SOURCE_GID_COLUMN,)
 
+# fix(#1097 review): the prefix every INTERNAL column alias in a rendered
+# statement carries, and which a carried column may therefore not start with.
+#
+# The output-collision guards reserve names that reach the OUTPUT — join_count,
+# source_gid. They said nothing about the aliases a query invents on the way
+# there, so an overlay attribute named `_mask_gid`, `g` or `_src_type` landed in
+# the same select list as the alias of that name: `SELECT _o.gid AS _mask_gid,
+# "_mask_gid"`. The later `_mp._mask_gid` is then ambiguous and the CTAS fails,
+# after the queue wait, quoting a name the user never chose.
+#
+# A reserved PREFIX rather than a list of the three names. A list is correct
+# only for the aliases that exist when it is written, and this PR has already
+# watched two such lists fall behind (the provenance redaction, the picker
+# filters). Renaming the aliases into a namespace and reserving the namespace
+# means an alias added later is covered by construction, with no second place
+# to remember to update.
+INTERNAL_ALIAS_PREFIX = "_gl_"
+
 # Column types PostgreSQL cannot group by, because they have no equality
 # operator. Grouping on one fails with SQLSTATE 42883.
 #
@@ -706,18 +724,18 @@ def render_intersect_pairs(
     outer_cols = "".join(f", _p.{c}" for c in (*src_columns, *mask_columns))
     return (
         f"WITH _mask_pieces AS MATERIALIZED ("
-        f"SELECT _o.gid AS _mask_gid{mask_pick},"
-        f" ST_Subdivide(_o.g, {MASK_SUBDIVIDE_MAX_VERTICES}) AS geom"
+        f"SELECT _o.gid AS _gl_mask_gid{mask_pick},"
+        f" ST_Subdivide(_o._gl_g, {MASK_SUBDIVIDE_MAX_VERTICES}) AS geom"
         f" FROM (SELECT gid{mask_pick},"
-        f" ST_CollectionExtract(ST_MakeValid(geom_4326), 3) AS g"
+        f" ST_CollectionExtract(ST_MakeValid(geom_4326), 3) AS _gl_g"
         f" FROM {mask_table_ref} WHERE geom_4326 IS NOT NULL OFFSET 0) AS _o"
-        f" WHERE NOT ST_IsEmpty(_o.g))"
+        f" WHERE NOT ST_IsEmpty(_o._gl_g))"
         f" SELECT (row_number() OVER ())::integer AS gid,"
         f" _p.{INTERSECT_SOURCE_GID_COLUMN}{outer_cols},"
-        f" CASE WHEN _p._src_type = 'LINESTRING'"
+        f" CASE WHEN _p._gl_src_type = 'LINESTRING'"
         f" THEN ST_LineMerge(_p.geom) ELSE _p.geom END AS geom"
         f" FROM (SELECT _src.gid AS {INTERSECT_SOURCE_GID_COLUMN},"
-        f" GeometryType(_src.geom_4326) AS _src_type"
+        f" GeometryType(_src.geom_4326) AS _gl_src_type"
         f"{src_sel}{mask_sel},"
         f" ST_Union(ST_CollectionExtract("
         f"ST_Intersection(_sv.g, _mp.geom),"
@@ -728,7 +746,7 @@ def render_intersect_pairs(
         f" JOIN _mask_pieces AS _mp"
         f" ON _mp.geom && _src.geom_4326"
         f" AND ST_Intersects(_mp.geom, _sv.g)"
-        f" GROUP BY _src.gid, _mp._mask_gid{mask_group}) AS _p"
+        f" GROUP BY _src.gid, _mp._gl_mask_gid{mask_group}) AS _p"
         f" WHERE _p.geom IS NOT NULL AND NOT ST_IsEmpty(_p.geom)"
     )
 

@@ -472,6 +472,104 @@ class TestColumnCollisions:
         assert "props" in resp.text
         assert "json" in resp.text
 
+    async def test_an_overlay_column_in_the_alias_namespace_is_rejected(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#1097 review): the output guards reserved OUTPUT names only.
+
+        render_intersect_pairs invents internal aliases on the way to that
+        output, and a carried column of the same name lands in the same select
+        list: `SELECT _o.gid AS _gl_mask_gid, "_gl_mask_gid"`. The later
+        reference is then ambiguous and the CTAS fails after the queue wait,
+        quoting a name the user never chose.
+
+        The aliases live in a reserved PREFIX now and the prefix is what is
+        rejected, so an alias added to that query later is covered without a
+        list to keep in step.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        bar = await _create_bar(test_db_session, created_by=admin_id)
+        zones = await _create_zones(test_db_session, created_by=admin_id)
+        zones.column_info = [
+            {"name": "zone", "type": "text"},
+            {"name": "_gl_mask_gid", "type": "integer"},
+        ]
+        await test_db_session.commit()
+
+        resp = await client.post(
+            _materialize_url(bar.id),
+            json={
+                "operation": "intersect",
+                "mask_dataset_id": str(zones.id),
+                "title": "Nope",
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422
+        assert "_gl_" in resp.text
+
+    async def test_the_alias_prefix_guard_runs_again_on_live_columns(
+        self, test_db_session: AsyncSession
+    ):
+        """The worker half, for the re-upload window. Same reasoning as the
+        ungroupable-type recheck below it: the router read a snapshot.
+
+        Driven through _resolve_and_validate_columns rather than the leaf
+        guard. Calling the guard directly proves it rejects a bad list and
+        proves nothing about whether anything hands it one — deleting the call
+        site left such a test green, which is how this test was written the
+        first time.
+        """
+        from app.processing.analysis.tasks import _resolve_and_validate_columns
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        bar = await _create_bar(test_db_session, created_by=admin_id)
+        zones = await _create_zones(test_db_session, created_by=admin_id)
+        await test_db_session.execute(
+            text(
+                f"ALTER TABLE data.{zones.table_name} "  # noqa: S608
+                f"ADD COLUMN _gl_src_type TEXT"
+            )
+        )
+        await test_db_session.commit()
+
+        with pytest.raises(ValueError) as excinfo:
+            await _resolve_and_validate_columns(
+                test_db_session,
+                schema="data",
+                operation="intersect",
+                src_table_name=bar.table_name,
+                mask_table_name=zones.table_name,
+                join_table_name=None,
+                join_fields=None,
+            )
+        assert "_gl_" in str(excinfo.value)
+
+    async def test_ordinary_overlay_columns_pass_the_alias_guard(
+        self, test_db_session: AsyncSession
+    ):
+        """The negative control, through the same entry point."""
+        from app.processing.analysis.tasks import _resolve_and_validate_columns
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        bar = await _create_bar(test_db_session, created_by=admin_id)
+        zones = await _create_zones(test_db_session, created_by=admin_id)
+
+        carry, mask_carry = await _resolve_and_validate_columns(
+            test_db_session,
+            schema="data",
+            operation="intersect",
+            src_table_name=bar.table_name,
+            mask_table_name=zones.table_name,
+            join_table_name=None,
+            join_fields=None,
+        )
+        assert carry == ["parcel"]
+        assert mask_carry == ["zone"]
+
     async def test_an_overlay_that_gains_a_json_column_after_enqueue_is_caught(
         self, test_db_session: AsyncSession
     ):

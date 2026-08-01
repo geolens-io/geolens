@@ -11,6 +11,7 @@ Requirements:
 import uuid
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -577,6 +578,73 @@ class TestSpatialJoinEnqueueValidation:
         )
         assert resp.status_code == 422
         assert "must not repeat a column" in resp.text
+
+    async def test_a_join_field_dropped_after_enqueue_is_caught_before_the_ctas(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#1097 review): the transferred fields were validated at enqueue
+        against column_info and never again.
+
+        The worker re-resolved the join layer's TABLE but not its COLUMNS, so a
+        re-upload that drops or renames a requested field left
+        render_spatial_join referencing a column that no longer exists — and
+        the CTAS failed after the whole queue wait, naming a column the user
+        had legitimately selected when they asked for it.
+
+        The sibling live rechecks beside this one exist for exactly that
+        window. This one was the gap in the set.
+        """
+        from app.processing.analysis.tasks import _resolve_and_validate_columns
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        points = await _create_probe_points(test_db_session, created_by=admin_id)
+        polys = await _create_two_overlapping_polygons(
+            test_db_session, created_by=admin_id
+        )
+        # Present at enqueue, gone by the time the job runs.
+        await test_db_session.execute(
+            text(f"ALTER TABLE data.{polys.table_name} DROP COLUMN pop")  # noqa: S608
+        )
+        await test_db_session.commit()
+
+        # Through the composition point, not the leaf guard: a test that calls
+        # the guard directly stays green when the call site is deleted.
+        with pytest.raises(ValueError) as excinfo:
+            await _resolve_and_validate_columns(
+                test_db_session,
+                schema="data",
+                operation="spatial_join",
+                src_table_name=points.table_name,
+                mask_table_name=None,
+                join_table_name=polys.table_name,
+                join_fields=["name", "pop"],
+            )
+        assert "pop" in str(excinfo.value)
+
+    async def test_join_fields_that_still_exist_pass_the_live_recheck(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """The negative control: the recheck must not refuse an unchanged join
+        layer, or every attribute transfer would fail at the worker."""
+        from app.processing.analysis.tasks import _resolve_and_validate_columns
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        points = await _create_probe_points(test_db_session, created_by=admin_id)
+        polys = await _create_two_overlapping_polygons(
+            test_db_session, created_by=admin_id
+        )
+        for fields in (["name", "pop"], None):
+            await _resolve_and_validate_columns(
+                test_db_session,
+                schema="data",
+                operation="spatial_join",
+                src_table_name=points.table_name,
+                mask_table_name=None,
+                join_table_name=polys.table_name,
+                join_fields=fields,
+            )
 
     async def test_oversized_source_rejected_at_enqueue(
         self,

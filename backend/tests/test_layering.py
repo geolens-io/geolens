@@ -1234,7 +1234,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # queue wait — and the worker must not import from the API layer. Putting
     # it in either caller would have meant duplicating the set, which is how
     # the two halves of a guard drift apart.
-    "backend/app/platform/analysis_sql.py": 1173,
+    #
+    # fix(#1097 review): +18 for INTERNAL_ALIAS_PREFIX and its reasoning. The
+    # output-collision guards reserved names that reach the OUTPUT and said
+    # nothing about the aliases a query invents on the way there, so an overlay
+    # column named `_mask_gid` landed in the same select list as that alias. The
+    # aliases moved into a namespace and the namespace is reserved, which is
+    # what makes an alias added later safe without a list to keep in step.
+    "backend/app/platform/analysis_sql.py": 1191,
     # tasks.py carries growth from BOTH sides of this rebase, so the number is
     # re-measured rather than taken from either. #1012 added the scoped
     # work_mem (the SET LOCAL, its budget arithmetic and the boot-time
@@ -1249,7 +1256,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # _reject_output_column_collision beside it exists for. Types rather than
     # names, because the live name list was already read there and would not
     # have caught it: the column that breaks the CTAS has an ordinary name.
-    "backend/app/processing/analysis/tasks.py": 1231,
+    #
+    # fix(#1097 review): +91 for the live-schema rechecks. Two more guards (the
+    # reserved-alias prefix, and re-checking transferred join fields against the
+    # join layer's live columns) plus _resolve_and_validate_columns, which the
+    # set moved into rather than raising _materialize's C901 threshold: five
+    # checks over two layers share a subject the surrounding job bookkeeping
+    # does not.
+    "backend/app/processing/analysis/tasks.py": 1322,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.

@@ -31,6 +31,7 @@ from app.core.db.tenant_schema import tenant_data_schema
 from app.core.db.tenant_session import current_tenant_var, tenant_task
 from app.core.tenancy import is_multi_tenant
 from app.platform.analysis_sql import (
+    INTERNAL_ALIAS_PREFIX,
     INTERSECT_OUTPUT_COLUMNS,
     MAX_MASK_LAYER_FEATURES,
     MAX_SOURCE_FEATURES,
@@ -394,6 +395,110 @@ def _reject_output_column_collision(
             "The source dataset already has a column named "
             f"{clashes[0]!r}, which this operation would overwrite. "
             "Rename it, or choose a different operation."
+        )
+
+
+async def _resolve_and_validate_columns(
+    session: AsyncSession,
+    *,
+    schema: str,
+    operation: str,
+    src_table_name: str,
+    mask_table_name: str | None,
+    join_table_name: str | None,
+    join_fields: list[str] | None,
+) -> tuple[list[str], list[str]]:
+    """The live-schema rechecks, run together after the queue wait.
+
+    Every guard in here has an enqueue-time twin in the router that reads
+    ``column_info``, a catalog SNAPSHOT. The queue wait sits between the two and
+    a re-upload can replace either layer in that window, so each one runs again
+    against the real columns. Returns the carried column lists the CTAS is
+    built from, because resolving them is how most of these are checked.
+
+    Extracted in fix(#1097 review) rather than raising the C901 threshold on
+    ``_materialize``: the set has grown to five checks over two layers, and
+    they share a subject that the surrounding job bookkeeping does not.
+    """
+    carry_cols = (
+        await _list_carry_columns(session, schema, src_table_name)
+        if operation != "dissolve"
+        else []
+    )
+    _reject_output_column_collision(
+        carry_cols, _generated_columns(operation, join_fields)
+    )
+    if operation == "intersect":
+        _reject_reserved_alias_columns(carry_cols)
+    if operation == "spatial_join" and join_table_name is not None:
+        await _reject_missing_join_fields(session, schema, join_table_name, join_fields)
+    # fix(#956): an overlay carries columns from BOTH inputs, so it is the only
+    # operation that also needs the second layer's live column list — and the
+    # only one where two same-named columns are likely rather than exotic.
+    mask_carry_cols: list[str] = []
+    if operation == "intersect" and mask_table_name is not None:
+        mask_carry_cols = await _list_carry_columns(session, schema, mask_table_name)
+        _reject_output_column_collision(
+            carry_cols, (*mask_carry_cols, *INTERSECT_OUTPUT_COLUMNS)
+        )
+        _reject_output_column_collision(mask_carry_cols, INTERSECT_OUTPUT_COLUMNS)
+        _reject_reserved_alias_columns(mask_carry_cols)
+        await _reject_ungroupable_overlay_columns(session, schema, mask_table_name)
+    return carry_cols, mask_carry_cols
+
+
+def _reject_reserved_alias_columns(carry_cols: list[str]) -> None:
+    """Worker-side half of the reserved-alias guard.
+
+    fix(#1097 review): the router checked a catalog snapshot; a re-upload can
+    introduce a column in the alias namespace before the job runs. Same window
+    as the two rechecks below, and cheap, because the live column list is
+    already in hand here.
+    """
+    reserved = sorted(c for c in carry_cols if c.startswith(INTERNAL_ALIAS_PREFIX))
+    if reserved:
+        raise ValueError(
+            f"Column {reserved[0]!r} uses the {INTERNAL_ALIAS_PREFIX!r} prefix, "
+            "which this operation reserves for its own internal columns. "
+            "Rename it, or choose a different layer."
+        )
+
+
+async def _reject_missing_join_fields(
+    session: AsyncSession, schema: str, table_name: str, join_fields: list[str] | None
+) -> None:
+    """The transferred fields must still exist on the join layer.
+
+    fix(#1097 review): the router validated them against column_info at
+    enqueue, and the worker re-resolved the join layer's TABLE without ever
+    re-checking its COLUMNS. A re-upload that drops or renames a requested
+    field left render_spatial_join referencing a column that is no longer
+    there, so the CTAS failed after the whole queue wait with a database error
+    naming a column the user had legitimately selected when they asked.
+
+    The sibling rechecks beside this one exist for exactly that window; this
+    one was the gap in the set.
+    """
+    if not join_fields:
+        return
+    live = set(
+        (
+            await session.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema = :schema AND table_name = :table_name"
+                ).bindparams(schema=schema, table_name=table_name)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    missing = sorted(set(join_fields) - live)
+    if missing:
+        raise ValueError(
+            f"The join layer no longer has a column named {missing[0]!r}. It "
+            "may have been re-uploaded since this analysis was queued. Choose "
+            "the fields again."
         )
 
 
@@ -962,8 +1067,13 @@ async def _materialize(
                     session, Dataset, mask_dataset_id, _schema, label="mask"
                 )
             join_table_ref: str | None = None
+            # fix(#1097 review): the plain name is kept now, not discarded. The
+            # transferred fields have to be re-checked against this layer's
+            # LIVE columns, and information_schema takes a name rather than the
+            # quoted ref.
+            join_table_name: str | None = None
             if join_dataset_id is not None:
-                join_table_ref, _ = await _resolve_layer_table_ref(
+                join_table_ref, join_table_name = await _resolve_layer_table_ref(
                     session, Dataset, join_dataset_id, _schema, label="join"
                 )
 
@@ -995,34 +1105,15 @@ async def _materialize(
             # same row) for the entire build.
             out_ref = f'"{_schema}"."{out_table}"'
 
-            carry_cols = (
-                await _list_carry_columns(session, _schema, src.table_name)
-                if operation != "dissolve"
-                else []
+            carry_cols, mask_carry_cols = await _resolve_and_validate_columns(
+                session,
+                schema=_schema,
+                operation=operation,
+                src_table_name=src.table_name,
+                mask_table_name=mask_table_name,
+                join_table_name=join_table_name,
+                join_fields=join_fields,
             )
-            _reject_output_column_collision(
-                carry_cols, _generated_columns(operation, join_fields)
-            )
-            # fix(#956): an overlay carries columns from BOTH inputs, so it is
-            # the only operation that also needs the second layer's live column
-            # list — and the only one where two same-named columns are likely
-            # rather than exotic. Same two-sided story as the guard above: the
-            # router checked the catalog snapshot at enqueue, this re-checks the
-            # real columns after the queue wait.
-            mask_carry_cols: list[str] = []
-            if operation == "intersect" and mask_table_name is not None:
-                mask_carry_cols = await _list_carry_columns(
-                    session, _schema, mask_table_name
-                )
-                _reject_output_column_collision(
-                    carry_cols, (*mask_carry_cols, *INTERSECT_OUTPUT_COLUMNS)
-                )
-                _reject_output_column_collision(
-                    mask_carry_cols, INTERSECT_OUTPUT_COLUMNS
-                )
-                await _reject_ungroupable_overlay_columns(
-                    session, _schema, mask_table_name
-                )
             select_sql = _build_materialize_select(
                 src_ref,
                 operation,
