@@ -102,6 +102,23 @@ export default defineConfig({
     // Only narrow the host allowlist when values are provided (tunnel/proxy
     // deployments); otherwise leave Vite's default behavior intact.
     ...(allowedHosts.length > 0 ? { allowedHosts } : {}),
+    // The API owns CORS policy for /api (CORS_ALLOWED_ORIGINS -> the FastAPI
+    // CORSMiddleware). Vite's own CORS middleware runs BEFORE the `/api` proxy
+    // below and short-circuits every preflight, so leaving it enabled means an
+    // OPTIONS never reaches the API: Vite answers 204 with no
+    // Access-Control-Allow-Origin and the browser blocks the real request.
+    //
+    // Since Vite 6 the `server.cors` default only allows localhost origins, so
+    // a dev server published behind a tunnel (see FRONTEND_ALLOWED_HOSTS above)
+    // breaks exactly the cross-origin callers it is meant to serve. The failure
+    // is invisible for simple GETs — those skip the preflight, get proxied, and
+    // come back with the API's correct headers — and only bites requests that
+    // carry an Authorization/X-Api-Key header and are therefore preflighted.
+    //
+    // `false` disables Vite's middleware entirely so OPTIONS is proxied to the
+    // API like any other method. This only ever removes CORS headers, never
+    // adds them, so it cannot loosen the dev server's exposure.
+    cors: false,
     fs: {
       allow: fsAllow,
     },
