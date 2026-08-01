@@ -37,7 +37,11 @@ dependencies = [
   # geolens.api.datasets_analysis; `geolens analysis` raises
   # ModuleNotFoundError against anything older, and 1.2.0 satisfied the old
   # floor.
-  "geolens>=1.5.0,<2.0.0",
+  # fix(#1107 review): 1.7.0 is the first SDK whose analysis request models
+  # define join_dataset_id/join_fields; the builders pass those keywords
+  # unconditionally, so a 1.5/1.6 SDK raises TypeError on every analysis
+  # command, not just spatial_join.
+  "geolens>=1.7.0,<2.0.0",
 ]
 
 [project.optional-dependencies]

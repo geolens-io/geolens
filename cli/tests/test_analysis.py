@@ -90,11 +90,149 @@ class TestRequestBuilders:
     def test_an_unknown_operation_is_passed_through_untouched(self) -> None:
         """The SDK's generated enum is the authority (#685). A CLI-side list
         would have to be updated for every new backend operation, and would
-        reject one the server already supports."""
+        reject one the server already supports.
+
+        The operation named here is deliberately one no enum has: it used to
+        be spatial_join, which the server has since gained, so the test stopped
+        exercising the pass-through it is named for (#1105)."""
         from geolens_cli.analysis import build_preview_request
 
-        body = build_preview_request("spatial_join").to_dict()
-        assert body["operation"] == "spatial_join"
+        body = build_preview_request("voronoi").to_dict()
+        assert body["operation"] == "voronoi"
+
+    def test_spatial_join_preview_sends_the_join_layer_and_its_columns(self) -> None:
+        from geolens_cli.analysis import build_preview_request
+
+        join = "0f0f0f0f-1111-4222-8333-444444444444"
+        body = build_preview_request(
+            "spatial_join", join_dataset_id=join, join_fields="name, pop_2020"
+        ).to_dict()
+        assert body == {
+            "operation": "spatial_join",
+            "join_dataset_id": join,
+            "join_fields": ["name", "pop_2020"],
+        }
+
+    def test_spatial_join_materialize_sends_the_join_layer(self) -> None:
+        from geolens_cli.analysis import build_materialize_request
+
+        join = "0f0f0f0f-1111-4222-8333-444444444444"
+        body = build_materialize_request(
+            "spatial_join", "Parcels with tracts", join_dataset_id=join
+        ).to_dict()
+        assert body == {
+            "operation": "spatial_join",
+            "title": "Parcels with tracts",
+            "join_dataset_id": join,
+        }
+
+    def test_the_join_layer_is_omitted_for_every_other_operation(self) -> None:
+        """Unset beats null — see build_preview_request."""
+        from geolens_cli.analysis import build_preview_request
+
+        body = build_preview_request("centroid").to_dict()
+        assert "join_dataset_id" not in body
+        assert "join_fields" not in body
+
+    def test_a_spatial_join_without_a_join_dataset_is_rejected(self) -> None:
+        """fix(#1105): the server answers this 422, which unwrap reports as a
+        generic failure naming a JSON field the user never typed."""
+        from geolens_cli.analysis import (
+            build_materialize_request,
+            build_preview_request,
+        )
+
+        with pytest.raises(ValueError, match="--join-dataset-id"):
+            build_preview_request("spatial_join")
+        with pytest.raises(ValueError, match="--join-dataset-id"):
+            build_materialize_request("spatial_join", "Joined")
+
+    def test_a_malformed_join_dataset_id_names_its_own_flag(self) -> None:
+        from geolens_cli.analysis import build_preview_request
+
+        with pytest.raises(ValueError, match=r"--join-dataset-id is not a valid id"):
+            build_preview_request("spatial_join", join_dataset_id="not-a-uuid")
+
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("name", ["name"]),
+            (" name , pop ", ["name", "pop"]),
+            ("name,,pop", ["name", "pop"]),
+        ],
+    )
+    def test_join_fields_split_on_commas(self, raw: str, expected: list) -> None:
+        from geolens_cli.analysis import parse_join_fields
+
+        assert parse_join_fields(raw) == expected
+
+    def test_join_fields_with_no_column_names_is_rejected(self) -> None:
+        from geolens_cli.analysis import parse_join_fields
+
+        with pytest.raises(ValueError, match="at least one column"):
+            parse_join_fields(" , ")
+
+
+# ---------------------------------------------------------------------------
+# Operation help text
+# ---------------------------------------------------------------------------
+
+
+class TestOperationHelp:
+    """fix(#1105): `--operation` help named three operations while the server
+    took eight, so spatial_join and measure were invisible from the CLI.
+
+    The list stays a literal rather than being derived from the generated enum,
+    because Typer resolves help at import time and reading the enum there would
+    make every `geolens --help` pay for an eager SDK import. These tests are
+    what keeps the literal honest instead: adding a backend operation fails
+    here until the help names it.
+    """
+
+    def _operation_help(self, command_name: str) -> str:
+        from typer.main import get_command
+
+        from geolens_cli.main import app
+
+        analysis = get_command(app).commands["analysis"]
+        command = analysis.commands[command_name]
+        param = next(p for p in command.params if p.name == "operation")
+        return param.help or ""
+
+    def test_preview_help_names_every_operation_the_sdk_accepts(self) -> None:
+        from geolens.models.analysis_preview_request_operation import (
+            ANALYSIS_PREVIEW_REQUEST_OPERATION_VALUES,
+        )
+
+        help_text = self._operation_help("preview")
+        missing = [
+            op
+            for op in sorted(ANALYSIS_PREVIEW_REQUEST_OPERATION_VALUES)
+            if op not in help_text
+        ]
+        assert not missing, f"--operation help omits {missing}: {help_text}"
+
+    def test_materialize_help_names_every_operation_the_sdk_accepts(self) -> None:
+        from geolens.models.analysis_materialize_request_operation import (
+            ANALYSIS_MATERIALIZE_REQUEST_OPERATION_VALUES,
+        )
+
+        help_text = self._operation_help("materialize")
+        missing = [
+            op
+            for op in sorted(ANALYSIS_MATERIALIZE_REQUEST_OPERATION_VALUES)
+            if op not in help_text
+        ]
+        assert not missing, f"--operation help omits {missing}: {help_text}"
+
+    def test_preview_help_does_not_offer_the_materialize_only_operation(self) -> None:
+        """dissolve creates a dataset; there is no preview endpoint for it."""
+        from geolens.models.analysis_preview_request_operation import (
+            ANALYSIS_PREVIEW_REQUEST_OPERATION_VALUES,
+        )
+
+        assert "dissolve" not in ANALYSIS_PREVIEW_REQUEST_OPERATION_VALUES
+        assert "materialize-only" in self._operation_help("preview")
 
     def test_a_malformed_mask_dataset_id_is_rejected_before_the_request(self) -> None:
         from geolens_cli.analysis import build_preview_request
@@ -219,6 +357,62 @@ class TestAnalysisPreviewCli:
         )
         assert result.exit_code == 2, result.output
 
+    def test_a_spatial_join_without_a_join_dataset_exits_2_naming_the_flag(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """fix(#1105): the flag exists now, so the miss is a usage error the
+        CLI can name rather than a 422 that exits 1."""
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com", mock_keyring)
+
+        def _must_not_post(*args, **kwargs):  # pragma: no cover - failure path
+            raise AssertionError("the request must not reach the server")
+
+        monkeypatch.setattr("geolens_cli.analysis.run_preview", _must_not_post)
+
+        result = runner.invoke(
+            app,
+            ["analysis", "preview", "ds-1", "--operation", "spatial_join"],
+        )
+        assert result.exit_code == 2, result.output
+        assert "--join-dataset-id" in result.output
+
+    def test_a_spatial_join_sends_the_join_layer_and_its_columns(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com", mock_keyring)
+        sent: dict = {}
+
+        def _capture(client, dataset_id, request):
+            sent.update(request.to_dict())
+            return _FakePreview()
+
+        monkeypatch.setattr("geolens_cli.analysis.run_preview", _capture)
+
+        join = "0f0f0f0f-1111-4222-8333-444444444444"
+        result = runner.invoke(
+            app,
+            [
+                "analysis",
+                "preview",
+                "ds-1",
+                "--operation",
+                "spatial_join",
+                "--join-dataset-id",
+                join,
+                "--join-fields",
+                "name,pop_2020",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert sent == {
+            "operation": "spatial_join",
+            "join_dataset_id": join,
+            "join_fields": ["name", "pop_2020"],
+        }
 
     def test_no_instance_exits_with_the_auth_code(
         self, runner, tmp_xdg_home, mock_keyring
@@ -263,6 +457,77 @@ class TestAnalysisMaterializeCli:
         )
         assert result.exit_code == 0, result.output
         assert "/datasets/ds-new" in result.output
+
+    def test_a_spatial_join_reaches_the_materialize_endpoint(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """fix(#1105): spatial_join was undrivable from the CLI — there was no
+        flag to carry the join layer."""
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com/api", mock_keyring)
+        sent: dict = {}
+
+        def _capture(client, dataset_id, request):
+            sent.update(request.to_dict())
+            return _FakeJob()
+
+        monkeypatch.setattr("geolens_cli.analysis.run_materialize", _capture)
+        monkeypatch.setattr(
+            "geolens_cli.publish.resolve_dataset_id", lambda c, j, **kw: "ds-new"
+        )
+
+        join = "0f0f0f0f-1111-4222-8333-444444444444"
+        result = runner.invoke(
+            app,
+            [
+                "analysis",
+                "materialize",
+                "ds-1",
+                "--operation",
+                "spatial_join",
+                "--title",
+                "Parcels with tracts",
+                "--join-dataset-id",
+                join,
+                "--join-fields",
+                "name",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert sent == {
+            "operation": "spatial_join",
+            "title": "Parcels with tracts",
+            "join_dataset_id": join,
+            "join_fields": ["name"],
+        }
+
+    def test_a_spatial_join_without_a_join_dataset_exits_2(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com/api", mock_keyring)
+
+        def _must_not_post(*args, **kwargs):  # pragma: no cover - failure path
+            raise AssertionError("the request must not reach the server")
+
+        monkeypatch.setattr("geolens_cli.analysis.run_materialize", _must_not_post)
+
+        result = runner.invoke(
+            app,
+            [
+                "analysis",
+                "materialize",
+                "ds-1",
+                "--operation",
+                "spatial_join",
+                "--title",
+                "Joined",
+            ],
+        )
+        assert result.exit_code == 2, result.output
+        assert "--join-dataset-id" in result.output
 
     def test_no_wait_reports_the_job_id_without_polling(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch

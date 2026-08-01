@@ -811,7 +811,11 @@ def analysis_preview(
         str,
         typer.Option(
             "--operation",
-            help="buffer, centroid or clip (the server rejects anything else)",
+            help=(
+                "buffer, centroid, clip, spatial_join, measure, "
+                "select_by_location or intersect (the server rejects anything "
+                "else; dissolve is materialize-only)"
+            ),
         ),
     ],
     distance: Annotated[
@@ -822,7 +826,27 @@ def analysis_preview(
         Optional[str],
         typer.Option(
             "--mask-dataset",
-            help="Polygon dataset id whose features form the clip mask (clip only)",
+            help=(
+                "Polygon dataset id supplying the second layer (clip and "
+                "select_by_location; required for intersect)"
+            ),
+        ),
+    ] = None,
+    join_dataset_id: Annotated[
+        Optional[str],
+        typer.Option(
+            "--join-dataset-id",
+            help="Dataset id to join against (spatial_join only; required for it)",
+        ),
+    ] = None,
+    join_fields: Annotated[
+        Optional[str],
+        typer.Option(
+            "--join-fields",
+            help=(
+                "Comma-separated columns to copy from the matched join "
+                "feature, prefixed 'join_' in the output (spatial_join only)"
+            ),
         ),
     ] = None,
     compact: Annotated[
@@ -850,6 +874,8 @@ def analysis_preview(
             operation,
             distance_meters=distance,
             mask_dataset_id=mask_dataset,
+            join_dataset_id=join_dataset_id,
+            join_fields=join_fields,
         )
     except ValueError as exc:
         state.output.error(str(exc))
@@ -875,7 +901,11 @@ def analysis_materialize(
         str,
         typer.Option(
             "--operation",
-            help="buffer, centroid, clip or dissolve (the server rejects anything else)",
+            help=(
+                "buffer, centroid, clip, dissolve, spatial_join, measure, "
+                "select_by_location or intersect (the server rejects anything "
+                "else)"
+            ),
         ),
     ],
     title: Annotated[
@@ -889,12 +919,32 @@ def analysis_materialize(
         Optional[str],
         typer.Option(
             "--mask-dataset",
-            help="Polygon dataset id whose features form the clip mask (clip only)",
+            help=(
+                "Polygon dataset id supplying the second layer (clip and "
+                "select_by_location; required for intersect)"
+            ),
         ),
     ] = None,
     by_field: Annotated[
         Optional[str],
         typer.Option("--by-field", help="Group-by column (dissolve only)"),
+    ] = None,
+    join_dataset_id: Annotated[
+        Optional[str],
+        typer.Option(
+            "--join-dataset-id",
+            help="Dataset id to join against (spatial_join only; required for it)",
+        ),
+    ] = None,
+    join_fields: Annotated[
+        Optional[str],
+        typer.Option(
+            "--join-fields",
+            help=(
+                "Comma-separated columns to copy from the matched join "
+                "feature, prefixed 'join_' in the output (spatial_join only)"
+            ),
+        ),
     ] = None,
     wait: Annotated[
         bool,
@@ -943,6 +993,8 @@ def analysis_materialize(
             distance_meters=distance,
             mask_dataset_id=mask_dataset,
             by_field=by_field,
+            join_dataset_id=join_dataset_id,
+            join_fields=join_fields,
         )
     except ValueError as exc:
         state.output.error(str(exc))
