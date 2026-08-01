@@ -257,6 +257,38 @@ class Settings(BaseSettings):
     # someone an afternoon.
     analysis_registration_timeout_seconds: int = Field(default=600, gt=0)
 
+    # fix(#1012): per-slot work_mem budget for the materialize CTAS, in MB.
+    #
+    # Configurable because the safe value depends on two things this process
+    # cannot see. DB_MEM_LIMIT is a compose `mem_limit` and is never passed into
+    # the api or worker environment, so the backend cannot read the database's
+    # actual ceiling — and it is operator-tunable (docker-compose.prod.yml
+    # documents 1.5g, and an external PostgreSQL may be smaller still). Nor can
+    # a per-process divisor bound a deployment that runs more than one worker
+    # service against the `ingest` queue: each replica would claim this budget
+    # independently.
+    #
+    # The default is deliberately conservative rather than optimal. work_mem is
+    # per operation AND per backend, so one materialize can allocate this value
+    # times the memory-hungry nodes in its plan (at most 2 for these shapes)
+    # times the backends running it (2, since max_parallel_workers_per_gather is
+    # 1). At 64MB that is 256MB per worker replica, so even two replicas stay
+    # inside the default 2 GB alongside shared_buffers (512MB) and
+    # maintenance_work_mem (128MB).
+    #
+    # RAISE IT only with headroom you have checked: a larger DB_MEM_LIMIT, or a
+    # single worker service. LOWER IT for a smaller database container or more
+    # worker replicas.
+    #
+    # 0 disables the override: no SET LOCAL is issued and the CTAS runs on
+    # whatever work_mem the cluster is configured with, which is the pre-#1012
+    # behaviour. That sentinel exists because this process cannot read the
+    # connected cluster's work_mem, so it cannot know whether any particular
+    # floor would preserve that value or quietly raise it — an external cluster
+    # tuned below the bundled 8MB would have been raised by a clamp that
+    # claimed to leave it alone. Positive values are applied as given.
+    analysis_materialize_work_mem_mb: int = Field(default=64, ge=0)
+
     # fix(#434): finished ingest_jobs rows previously lived forever, so the
     # admin Jobs page accumulated stale test junk with no cleanup affordance.
     # Terminal jobs (complete/failed/cancelled/fanned_out) older than this many
@@ -521,6 +553,46 @@ class Settings(BaseSettings):
         if len(queues) != len(set(queues)):
             raise ValueError("WORKER_QUEUES must not contain duplicate queue names")
         return ",".join(queues)
+
+    @model_validator(mode="after")
+    def validate_materialize_work_mem_budget(self) -> "Settings":
+        """fix(#1012): refuse a budget that cannot be divided into legal shares.
+
+        The budget is split across WORKER_CONCURRENCY slots. If a share falls
+        below PostgreSQL's 64kB minimum for work_mem there is no honest
+        outcome at run time: issuing the minimum exceeds the budget, and
+        skipping the override leaves the cluster's own work_mem — usually
+        LARGER — in force for every slot, which overshoots by more still. A
+        1MB budget across 32 slots wants 32kB each; falling back to a bundled
+        8MB default would expose 256MB. Neither is what the operator asked
+        for, so the configuration is rejected at boot instead.
+        """
+        budget_kb = self.analysis_materialize_work_mem_mb * 1024
+        if budget_kb <= 0:
+            return self
+        per_slot_kb = budget_kb // max(1, self.worker_concurrency)
+        # PostgreSQL's own ceiling for work_mem. A share above it fails at
+        # SET LOCAL, so every materialize would be recorded as a failed job —
+        # a boot failure names the cause once instead.
+        if per_slot_kb > 2147483647:
+            raise ValueError(
+                f"ANALYSIS_MATERIALIZE_WORK_MEM_MB="
+                f"{self.analysis_materialize_work_mem_mb} divided across "
+                f"WORKER_CONCURRENCY={self.worker_concurrency} is "
+                f"{per_slot_kb}kB per slot, above PostgreSQL's work_mem maximum "
+                "of 2147483647kB."
+            )
+        if per_slot_kb < 64:
+            raise ValueError(
+                f"ANALYSIS_MATERIALIZE_WORK_MEM_MB="
+                f"{self.analysis_materialize_work_mem_mb} divided across "
+                f"WORKER_CONCURRENCY={self.worker_concurrency} is "
+                f"{per_slot_kb}kB per slot, below PostgreSQL's 64kB minimum "
+                "for work_mem. Raise the budget, lower WORKER_CONCURRENCY, or "
+                "set ANALYSIS_MATERIALIZE_WORK_MEM_MB=0 to leave work_mem at "
+                "the cluster's own value."
+            )
+        return self
 
     @model_validator(mode="after")
     def validate_provider_settings(self) -> "Settings":

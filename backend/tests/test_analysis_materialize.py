@@ -27,6 +27,7 @@ from app.platform.jobs.models import IngestJob
 from app.processing.analysis.tasks import (
     materialize_timeout,
     _complete_job_for_attempt,
+    _materialize_work_mem,
     _enforce_output_size,
     _fail_cancelled_job,
     _mark_job_failed,
@@ -2611,6 +2612,167 @@ class TestMaterializeWorker:
         monkeypatch.setattr(settings, "analysis_registration_timeout_seconds", 1800)
         assert materialize_timeout() == "1200s"
         assert registration_timeout() == "1800s"
+
+    async def test_ctas_scopes_work_mem_to_its_transaction(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#1012): the CTAS gets a raised work_mem, SET LOCAL so it reverts
+        with the transaction and the other connections keep the 8MB default.
+
+        Paired with the dissolve case below, which is the shape that most needs
+        it: #694's `enable_hashagg = off` forces sorted aggregation, and sorting
+        is exactly what work_mem governs.
+        """
+        executed: list[str] = []
+        from sqlalchemy.ext.asyncio import AsyncSession as _AS
+
+        real_execute = _AS.execute
+
+        async def spying_execute(self, statement, *args, **kwargs):
+            executed.append(str(statement))
+            return await real_execute(self, statement, *args, **kwargs)
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        job = await _create_job(test_db_session, admin_id)
+
+        with patch.object(_AS, "execute", spying_execute):
+            await _materialize(
+                job_id=str(job.id),
+                dataset_id=str(ds.id),
+                user_id=str(admin_id),
+                operation="dissolve",
+                title=f"WorkMem {uuid.uuid4().hex[:6]}",
+            )
+
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+
+        work_mems = [s for s in executed if "work_mem" in s]
+        assert len(work_mems) == 1, f"expected one work_mem statement, got {work_mems}"
+        # Nothing is issued when the operator opts out — asserted separately in
+        # test_work_mem_override_can_be_disabled below.
+        # SET LOCAL, never a plain SET: a session-level bump would outlive the
+        # transaction and follow the pooled connection to unrelated queries.
+        assert work_mems[0].startswith("SET LOCAL work_mem"), work_mems[0]
+        assert _materialize_work_mem() in work_mems[0]
+
+        ctas = [s for s in executed if s.startswith("CREATE TABLE")]
+        hashaggs = [s for s in executed if "enable_hashagg" in s]
+        # Ahead of the CTAS it is meant to serve, and in the same transaction as
+        # the hashagg flip whose sort it pays for.
+        assert executed.index(work_mems[0]) < executed.index(ctas[0])
+        assert executed.index(hashaggs[0]) < executed.index(ctas[0])
+        # fix(#1012 review): parallelism is pinned alongside it, so the "x2
+        # backends" the budget is sized for is guaranteed rather than assumed
+        # from db/postgresql.conf — which says nothing about an external server.
+        par = [s for s in executed if "max_parallel_workers_per_gather" in s]
+        assert len(par) == 1, par
+        # LEAST, never a plain assignment: an operator who set 0 has disabled
+        # parallel query, and raising them to 1 would hand this statement a
+        # worker they said no to. set_config(..., true) is transaction-scoped.
+        assert "LEAST" in par[0], par[0]
+        assert "set_config" in par[0] and ", true)" in par[0], par[0]
+        assert executed.index(par[0]) < executed.index(ctas[0])
+
+    async def test_work_mem_override_can_be_disabled(
+        self,
+        test_db_session: AsyncSession,
+        monkeypatch,
+    ):
+        """fix(#1012 review): 0 must issue NO statement, not a small one.
+
+        An operator who has tuned their own cluster needs a way to say "leave
+        work_mem alone"; a clamped small value would still raise the session
+        above a cluster configured below the bundled default.
+        """
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "analysis_materialize_work_mem_mb", 0)
+
+        executed: list[str] = []
+        from sqlalchemy.ext.asyncio import AsyncSession as _AS
+
+        real_execute = _AS.execute
+
+        async def spying_execute(self, statement, *args, **kwargs):
+            executed.append(str(statement))
+            return await real_execute(self, statement, *args, **kwargs)
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        job = await _create_job(test_db_session, admin_id)
+
+        with patch.object(_AS, "execute", spying_execute):
+            await _materialize(
+                job_id=str(job.id),
+                dataset_id=str(ds.id),
+                user_id=str(admin_id),
+                operation="dissolve",
+                title=f"NoWorkMem {uuid.uuid4().hex[:6]}",
+            )
+
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+        assert not [s for s in executed if "work_mem" in s], (
+            "work_mem was set despite the override being disabled"
+        )
+        # The parallelism pin exists to protect the work_mem ceiling, so it
+        # must not fire when there is no ceiling to protect.
+        assert not [s for s in executed if "max_parallel_workers_per_gather" in s]
+
+    def test_work_mem_is_divided_across_worker_slots(self, monkeypatch):
+        """fix(#1012): the budget is per worker PROCESS, so parallel job slots
+        share it — otherwise raising WORKER_CONCURRENCY silently multiplies the
+        db container's exposure."""
+        from app.core.config import settings
+
+        # Set the baseline rather than asserting the shipped default: settings
+        # is a module-level singleton, so ANALYSIS_MATERIALIZE_WORK_MEM_MB in
+        # the environment would otherwise decide this test's outcome.
+        monkeypatch.setattr(settings, "analysis_materialize_work_mem_mb", 64)
+        monkeypatch.setattr(settings, "worker_concurrency", 1)
+        assert _materialize_work_mem() == "64MB"
+        monkeypatch.setattr(settings, "worker_concurrency", 4)
+        assert _materialize_work_mem() == "16MB"
+        # Divided in kB so the budget is never exceeded by rounding: 64MB
+        # across 128 slots is 512kB each, not 1MB each (which would be 128MB
+        # against a 64MB budget). No clamp to the bundled 8MB default either —
+        # this process cannot read the connected cluster's work_mem, so it
+        # cannot know whether such a floor preserves that value or raises it.
+        monkeypatch.setattr(settings, "worker_concurrency", 128)
+        assert _materialize_work_mem() == "512kB"
+        # Sub-megabyte shares are expressed in kB rather than rounded.
+        monkeypatch.setattr(settings, "analysis_materialize_work_mem_mb", 1)
+        monkeypatch.setattr(settings, "worker_concurrency", 8)
+        assert _materialize_work_mem() == "128kB"
+        # A share below PostgreSQL's 64kB minimum cannot reach here: it is
+        # refused at boot (test_config.py), because neither the minimum nor
+        # falling back to the cluster's value honours the budget.
+
+    def test_work_mem_ceiling_is_operator_configurable(self, monkeypatch):
+        """fix(#1012 review): the safe value depends on DB_MEM_LIMIT and on how
+        many worker services consume the ingest queue, neither of which this
+        process can see — DB_MEM_LIMIT is a compose mem_limit and is never in
+        this container's environment. A hardcoded ceiling was therefore only
+        valid for the default 2 GB single-worker deployment, and could OOM a
+        smaller database or a scaled-out one."""
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "worker_concurrency", 1)
+        monkeypatch.setattr(settings, "analysis_materialize_work_mem_mb", 16)
+        assert _materialize_work_mem() == "16MB"
+        monkeypatch.setattr(settings, "analysis_materialize_work_mem_mb", 256)
+        assert _materialize_work_mem() == "256MB"
+        # A deliberately small value is honoured, not clamped up: an external
+        # cluster may be tuned below the bundled 8MB, and a floor advertised as
+        # "leaves the cluster value alone" would silently raise it.
+        monkeypatch.setattr(settings, "analysis_materialize_work_mem_mb", 4)
+        assert _materialize_work_mem() == "4MB"
+        # 0 is the opt-out: no override at all.
+        monkeypatch.setattr(settings, "analysis_materialize_work_mem_mb", 0)
+        assert _materialize_work_mem() is None
 
     async def test_worker_rechecks_size_caps_before_ctas(
         self,

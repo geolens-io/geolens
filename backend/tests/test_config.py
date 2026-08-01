@@ -420,6 +420,9 @@ class TestSettingsConstraints:
             ("analysis_registration_timeout_seconds", 0),
             ("analysis_registration_timeout_seconds", -1),
             ("analysis_registration_timeout_seconds", "not-a-number"),
+            # fix(#1012): 0 is a documented sentinel (leave work_mem alone),
+            # so only negatives are rejected.
+            ("analysis_materialize_work_mem_mb", -1),
             ("ingest_jobs_retention_days", -1),
             ("smtp_port", 0),
             ("smtp_port", 65536),
@@ -429,17 +432,56 @@ class TestSettingsConstraints:
         with pytest.raises(Exception):
             _make_settings(**{field: value})
 
+    def test_undividable_work_mem_budget_is_refused_at_boot(self):
+        """fix(#1012 review): a budget too small to split into legal shares has
+        no honest run-time outcome.
+
+        Issuing PostgreSQL's 64kB minimum exceeds the budget; skipping the
+        override leaves the cluster's own work_mem — usually LARGER — in force
+        for every slot, overshooting by more. So it fails at boot.
+        """
+        with pytest.raises(Exception) as exc_info:
+            _make_settings(analysis_materialize_work_mem_mb=1, worker_concurrency=32)
+        message = str(exc_info.value)
+        assert "32kB per slot" in message, message
+        assert "64kB minimum" in message, message
+
+        # And above PostgreSQL's own work_mem maximum, for the same reason:
+        # every materialize would fail at SET LOCAL and be recorded as a
+        # failed job.
+        with pytest.raises(Exception) as exc_info:
+            _make_settings(
+                analysis_materialize_work_mem_mb=2097152, worker_concurrency=1
+            )
+        assert "work_mem maximum" in str(exc_info.value), str(exc_info.value)
+
+        # The documented escape hatches both boot.
+        assert (
+            _make_settings(
+                analysis_materialize_work_mem_mb=0, worker_concurrency=32
+            ).analysis_materialize_work_mem_mb
+            == 0
+        )
+        assert (
+            _make_settings(
+                analysis_materialize_work_mem_mb=64, worker_concurrency=32
+            ).worker_concurrency
+            == 32
+        )
+
     def test_documented_zero_and_negative_sentinels_remain_supported(self):
         s = _make_settings(
             tile_cache_ttl=0,
             ingest_jobs_retention_days=0,
             db_max_overflow=-1,
             db_pool_recycle=-1,
+            analysis_materialize_work_mem_mb=0,
         )
         assert s.tile_cache_ttl == 0
         assert s.ingest_jobs_retention_days == 0
         assert s.db_max_overflow == -1
         assert s.db_pool_recycle == -1
+        assert s.analysis_materialize_work_mem_mb == 0
 
     def test_worker_queues_are_trimmed_and_normalized(self):
         s = _make_settings(worker_queues=" priority, ingest ,raster ")

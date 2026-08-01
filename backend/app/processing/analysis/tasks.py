@@ -81,6 +81,125 @@ def registration_timeout() -> str:
     return f"{settings.analysis_registration_timeout_seconds}s"
 
 
+# fix(#1012): per-statement work_mem for the materialize CTAS.
+#
+# The cluster-wide default is 8MB (db/postgresql.conf:93) — right for eighty
+# concurrent connections doing ordinary catalog queries, far too small for one
+# buffer or dissolve over hundreds of thousands of geometries, which spills to
+# pgsql_tmp long before it needs to. Dissolve wants it most: #694 turned off
+# hash aggregation there (it holds every group's union state in memory at once
+# and could OOM the shared db container), and the sorted aggregation that
+# replaces it is precisely what work_mem governs. Turning off hashagg without
+# raising work_mem trades an OOM risk for a guaranteed spill.
+#
+# WHICH BUDGET THIS COMES OUT OF. work_mem is allocated by the PostgreSQL
+# backend serving the session, so the memory lands in the `db` service, capped
+# by DB_MEM_LIMIT. That budget also holds shared_buffers (512MB),
+# maintenance_work_mem (128MB), and up to max_connections = 80 other backends
+# each entitled to their own work_mem. The worker's own WORKER_MEM_LIMIT is not
+# what constrains this; the Python side of materialize lives there, the sort
+# does not.
+#
+# work_mem is per OPERATION and per BACKEND, so one plan can allocate several
+# multiples of it: at most 2 memory-hungry nodes for these shapes (dissolve is
+# one Sort feeding a GroupAggregate; buffer and centroid have none; clip has a
+# join), times 2 backends. The second factor is guaranteed rather than assumed —
+# the override pins max_parallel_workers_per_gather to 1 for this transaction,
+# because db/postgresql.conf only governs the bundled database and says nothing
+# about an external one.
+#
+# THE CEILING IS AN OPERATOR SETTING, not a constant, because the two things
+# that decide what is safe are both invisible from here:
+#
+#   - DB_MEM_LIMIT is a compose `mem_limit` and is never passed into this
+#     container's environment, so this process cannot read the database's
+#     ceiling. It is also tunable (docker-compose.prod.yml documents 1.5g) and
+#     an external PostgreSQL may be smaller again.
+#   - The divisor below bounds concurrent materializes inside ONE worker
+#     process. It cannot bound a deployment running several worker services
+#     against the `ingest` queue; each replica would claim the budget
+#     independently. Bounding that needs a deployment-wide admission mechanism,
+#     which is #695's open question.
+#
+# So the setting defaults low enough to be safe under both unknowns rather than
+# optimal under neither: 64MB is 256MB worst case per worker replica, so even
+# two replicas sit inside the default 2 GB alongside shared_buffers and
+# maintenance_work_mem. An operator with a bigger database container and one
+# worker can raise it; one with a smaller container or more replicas must lower
+# it. config.py carries the arithmetic.
+#
+# Measured on a 60k-polygon grouped dissolve with enable_hashagg = off, the
+# leader's sort wanted 96MB: at the 8MB default it spilled 70MB to disk, and at
+# 128MB it stayed in memory. 64MB does not eliminate that spill, it shrinks it —
+# the conservative default trades some of the win for a ceiling that cannot OOM
+# the database on a deployment this process cannot measure.
+#
+# There is deliberately NO floor at the bundled 8MB default: that would be an
+# assumption about the connected cluster this process cannot check. An external
+# PostgreSQL tuned below 8MB would be RAISED by a clamp advertised as leaving it
+# alone, and an operator who wants less than 8MB per materialize could not have
+# it. ANALYSIS_MATERIALIZE_WORK_MEM_MB=0 is the honest way to say "do not touch
+# work_mem" — it skips the SET LOCAL entirely.
+#
+# The division is done in kB, not MB, so the budget is never exceeded by
+# rounding: a 64MB budget across 128 slots is 512kB each, not 1MB each. A
+# budget too small to divide into legal shares is rejected at boot rather than
+# resolved at run time — see validate_materialize_work_mem_budget.
+
+
+async def _apply_materialize_work_mem(session: AsyncSession) -> None:
+    """Raise work_mem for the CTAS transaction, unless the operator opted out.
+
+    SET LOCAL, so it applies to this statement and reverts with the
+    transaction — the other seventy-nine connections keep the cluster default.
+    A global bump would not be safe in the same way. Lives here rather than
+    inline in _materialize so the opt-out branch does not push that function
+    past its complexity cap.
+    """
+    work_mem = _materialize_work_mem()
+    if work_mem is None:
+        return
+    # Cap parallelism first, so the budget arithmetic is true by construction
+    # rather than by assuming the server's configuration. work_mem is granted to
+    # the leader AND to every parallel worker, so a server with
+    # max_parallel_workers_per_gather above 1 — a customised bundled conf, or
+    # any external PostgreSQL reached through DATABASE_URL_OVERRIDE, neither of
+    # which db/postgresql.conf:73 constrains — would multiply the ceiling by a
+    # number this process cannot see. One leader plus one worker is what the
+    # budget in config.py is sized for.
+    #
+    # LEAST, not a plain assignment: an operator who set 0 has DISABLED parallel
+    # query, and raising them to 1 would hand this statement a worker and the
+    # CPU and memory that comes with it. Only ever lower. set_config's third
+    # argument is is_local, so this is transaction-scoped exactly like SET LOCAL
+    # — which cannot take an expression.
+    await session.execute(
+        text(
+            "SELECT set_config('max_parallel_workers_per_gather', "
+            "LEAST(current_setting('max_parallel_workers_per_gather')::int, 1)"
+            "::text, true)"
+        )
+    )
+    await session.execute(text(f"SET LOCAL work_mem = '{work_mem}'"))
+
+
+def _materialize_work_mem() -> str | None:
+    """Per-slot work_mem for the CTAS, or None to leave the cluster's alone."""
+    from app.core.config import settings
+
+    budget_kb = settings.analysis_materialize_work_mem_mb * 1024
+    if budget_kb <= 0:
+        return None
+    # A share below PostgreSQL's 64kB minimum cannot happen: config.py's
+    # validate_materialize_work_mem_budget refuses to boot on it, because
+    # neither issuing the minimum (over budget) nor skipping the override
+    # (cluster's larger value, further over budget) honours the ceiling.
+    per_slot_kb = budget_kb // max(1, settings.worker_concurrency)
+    if per_slot_kb % 1024 == 0:
+        return f"{per_slot_kb // 1024}MB"
+    return f"{per_slot_kb}kB"
+
+
 # fix(#694): post-CTAS backstop on the built output's on-disk size. The
 # enqueue gates read the cached feature_count snapshot, which can be stale;
 # this is the enforcement that can't be. Buffer is the motivating case: it
@@ -725,6 +844,7 @@ async def _materialize(
             await session.execute(
                 text(f"SET LOCAL statement_timeout = '{materialize_timeout()}'")
             )
+            await _apply_materialize_work_mem(session)
             if operation == "dissolve":
                 # fix(#694): hash aggregation holds every group's union state
                 # in memory at once, so a grouped dissolve over enough
