@@ -12,6 +12,7 @@ Relocated from the deleted auth visibility module (Phase 213).
 
 import enum
 import uuid
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -238,6 +239,165 @@ async def visible_derived_from(
         for dependent in dependent_params:
             params.pop(dependent, None)
     return {**derived_from, "params": params}
+
+
+# fix(#1103): the sentence a restricted requester gets instead of the stored
+# prose. Deliberately not the dataset's id — _DATASET_ID_PARAMS above exists
+# because an id the requester cannot resolve is still a disclosure worth
+# withholding, and putting it in the prose would route around the redaction
+# that drops it from the reference.
+#
+# fix(#1108 review): the replacement is ALWAYS the whole sentence — the prose
+# is never edited span-by-span. Three review rounds each produced a working
+# forgery against in-place editing: an unnamed source shifts every quoted span
+# onto the wrong dataset; a title with embedded quotes (odd or even) corrupts
+# the span boundaries so fragments of the hidden title survive between them;
+# and quote characters in NON-title free text (an actor name) can compensate
+# for a missing title so even a quote-character count reads as aligned. The
+# sentence interleaves attacker-influenced free text with the secrets, so no
+# delimiter arithmetic over it is trustworthy. The unforgeable rule is binary:
+# a requester who can read every referenced dataset gets the prose verbatim,
+# and one who cannot gets this constant — never any byte of the stored text.
+_REDACTED_SUMMARY = "Derived from another dataset."
+
+
+def _provenance_dataset_ids(derived_from: dict) -> list[uuid.UUID | None]:
+    """The datasets a lineage sentence can name, in the order it names them.
+
+    The source first, then the second layer, mirroring how build_lineage_sentence
+    assembles the phrase. ``None`` marks an id that cannot be parsed, which the
+    caller treats as inaccessible.
+    """
+    params = derived_from.get("params") or {}
+    raw_ids = [derived_from.get("dataset_id")]
+    raw_ids += [
+        params[key] for key in _DATASET_ID_PARAMS if params.get(key) is not None
+    ]
+
+    parsed: list[uuid.UUID | None] = []
+    for raw in raw_ids:
+        try:
+            parsed.append(uuid.UUID(str(raw)))
+        except (TypeError, ValueError):
+            parsed.append(None)
+    return parsed
+
+
+async def _accessible_dataset_ids(
+    db: AsyncSession,
+    dataset_ids: Iterable[uuid.UUID],
+    user: Identity | None,
+    user_roles: set[str],
+) -> set[uuid.UUID]:
+    """The subset of ``dataset_ids`` this requester may read, in one query.
+
+    The list-shaped form of the same rule ``check_dataset_access`` applies per
+    dataset: both delegate to PermissionExtension, whose ``filter_visible`` and
+    ``can_access_dataset`` are written and changed as a pair (see #929/#930).
+    A batch is what makes the redaction affordable on a page of results — one
+    statement for the whole page rather than one per referenced dataset.
+
+    An id that no longer resolves to a dataset is simply absent from the result:
+    access to it cannot be established, so the caller withholds.
+    """
+    wanted = set(dataset_ids)
+    if not wanted:
+        return set()
+
+    from app.modules.catalog.datasets.domain.models import (
+        Dataset,
+        DatasetGrant,
+        Record,
+    )
+
+    stmt = (
+        select(Dataset.id)
+        .join(Record, Record.id == Dataset.record_id)
+        .where(Dataset.id.in_(wanted))
+    )
+    stmt = apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)
+    rows = await db.execute(stmt)
+    return {row for row in rows.scalars() if row in wanted}
+
+
+async def visible_lineage_summaries(
+    db: AsyncSession,
+    records: Sequence[Any],
+    user: Identity | None,
+    user_roles: set[str],
+) -> dict[uuid.UUID, str | None]:
+    """Lineage prose per record, with unreachable datasets' titles redacted.
+
+    fix(#1103): ``records.lineage_summary`` is written once at materialize time
+    and was served raw to everyone who could see the OUTPUT — the dataset
+    response, the OGC record properties, and the three DCAT exports all read the
+    column. For an analysis output the sentence names its source and, since
+    #765's clip and #1097's three overlay operations, the second layer's title
+    too. So a public clip of a public layer against a PRIVATE mask published
+    that mask's title, and the fact that it exists, to every viewer — the
+    disclosure ``visible_derived_from`` deliberately prevents for the mask's id,
+    arriving through a channel that had no redaction.
+
+    Prose has no per-requester form on its own, so this is the per-requester
+    form, and it is deliberately all-or-nothing (see _REDACTED_SUMMARY for the
+    three forgeries that killed span editing): a requester who can open every
+    dataset the provenance references gets the sentence exactly as stored, and
+    one who cannot gets the neutral constant. The entry itself survives either
+    way — that a derived dataset HAS provenance is not the secret.
+
+    Records with no ``derived_from`` are returned untouched. Their lineage is
+    hand-written or inherited from ingest rather than assembled from other
+    datasets' titles, which is also what keeps this cheap: the query below runs
+    only for the analysis outputs on the page.
+
+    The all-or-nothing rule is also what makes owner-edited prose safe to
+    serve: ``lineage_summary`` is editable metadata, and edited free text can
+    embed anything, so it is never partially rewritten — a full-access viewer
+    reads it verbatim (an owner who types a private layer's name into it has
+    published that name themselves, see apply_analysis_provenance), and a
+    restricted viewer gets the constant, because prose that CANNOT be verified
+    clean is withheld whole rather than edited by guesswork.
+    """
+    referenced: dict[uuid.UUID, list[uuid.UUID | None]] = {}
+    for record in records:
+        if record.lineage_summary and record.derived_from:
+            referenced[record.id] = _provenance_dataset_ids(record.derived_from)
+
+    accessible = await _accessible_dataset_ids(
+        db,
+        {
+            dataset_id
+            for ids in referenced.values()
+            for dataset_id in ids
+            if dataset_id is not None
+        },
+        user,
+        user_roles,
+    )
+
+    summaries: dict[uuid.UUID, str | None] = {}
+    for record in records:
+        summary = record.lineage_summary
+        dataset_ids = referenced.get(record.id)
+        if summary is None or not dataset_ids:
+            summaries[record.id] = summary
+            continue
+        any_hidden = any(
+            dataset_id is None or dataset_id not in accessible
+            for dataset_id in dataset_ids
+        )
+        summaries[record.id] = _REDACTED_SUMMARY if any_hidden else summary
+    return summaries
+
+
+async def visible_lineage_summary(
+    db: AsyncSession,
+    record: Any,
+    user: Identity | None,
+    user_roles: set[str],
+) -> str | None:
+    """One record's access-checked lineage prose. See visible_lineage_summaries."""
+    return (await visible_lineage_summaries(db, [record], user, user_roles))[record.id]
 
 
 async def check_dataset_write_access(

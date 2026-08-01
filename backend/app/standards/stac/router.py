@@ -14,6 +14,7 @@ import re
 import uuid
 from collections.abc import Sequence
 from datetime import datetime, timedelta
+from typing import Any
 
 from urllib.parse import urlencode
 
@@ -34,7 +35,12 @@ from app.modules.auth.dependencies import (
     get_optional_user_no_security_schema,
     get_optional_user_or_401,
 )
-from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
+from app.modules.catalog.authorization import (
+    apply_visibility_filter,
+    get_user_roles,
+    visible_lineage_summaries,
+    visible_lineage_summary,
+)
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
     DatasetGrant,
@@ -238,6 +244,11 @@ async def _fetch_raster_meta(
     return await fetch_raster_meta_bulk(db, dataset_ids, include_vrt=False)
 
 
+# fix(#1108 review): sentinel distinguishing "the page loop did not precompute
+# lineage" from a precomputed None (a record with no lineage at all).
+_LINEAGE_UNRESOLVED: Any = object()
+
+
 async def _dataset_to_stac_item(
     db: AsyncSession,
     dataset: Dataset,
@@ -252,6 +263,7 @@ async def _dataset_to_stac_item(
     preferred_languages: Sequence[str] | None = None,
     user: Identity | None = None,
     user_roles: set[str] | None = None,
+    lineage_summary: Any = _LINEAGE_UNRESOLVED,
 ) -> dict:
     """Convert a Dataset ORM object to a STAC Item dict with presigned URLs.
 
@@ -275,6 +287,17 @@ async def _dataset_to_stac_item(
         spatial_extent_geojson=spatial_extent_geojson,
         public_app_url=public_app_url,
         preferred_languages=preferred_languages,
+        # fix(#1103): the prose names the same datasets the derived_from link
+        # below points at, and is gated the same way — per requester, on each
+        # referenced dataset rather than on the output they can already see.
+        # fix(#1108 review): page loops precompute the whole page through
+        # visible_lineage_summaries (one query per page, mirroring PERF-5's
+        # spatial_extent_geojson); only single-item callers resolve here.
+        lineage_summary=(
+            await visible_lineage_summary(db, record, user, user_roles or set())
+            if lineage_summary is _LINEAGE_UNRESOLVED
+            else lineage_summary
+        ),
     )
 
     # Re-build assets with storage_provider for presigned URLs
@@ -1067,6 +1090,12 @@ async def get_collection_items(
         _assets(), _raster(), _extents()
     )
 
+    # fix(#1108 review): lineage visibility for the whole page in one query
+    # instead of one visible_lineage_summary round trip per item.
+    lineage_map = await visible_lineage_summaries(
+        db, [d.record for d in datasets], user, user_roles or set()
+    )
+
     features = []
     coll_id_str = str(collection_id)
     for dataset in datasets:
@@ -1083,6 +1112,7 @@ async def get_collection_items(
             preferred_languages=parse_accept_languages(request),
             user=user,
             user_roles=user_roles,
+            lineage_summary=lineage_map[dataset.record.id],
         )
         features.append(item)
 
@@ -1567,6 +1597,12 @@ async def _execute_search(
         _assets(), _raster(), _coll_membership()
     )
 
+    # fix(#1108 review): lineage visibility for the whole page in one query
+    # instead of one visible_lineage_summary round trip per item.
+    lineage_map = await visible_lineage_summaries(
+        db, [d.record for d in datasets], user, user_roles or set()
+    )
+
     # Convert to STAC Items
     features = []
     for dataset in datasets:
@@ -1584,6 +1620,7 @@ async def _execute_search(
             preferred_languages=preferred_languages,
             user=user,
             user_roles=user_roles,
+            lineage_summary=lineage_map[dataset.record.id],
         )
         features.append(item)
 

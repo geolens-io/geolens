@@ -15,6 +15,8 @@ References:
 from __future__ import annotations
 
 import structlog
+import uuid
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -78,6 +80,7 @@ def record_to_geodcat_ap(
     base_url: str,
     *,
     include_context: bool = True,
+    lineage_summary: str | None = None,
 ) -> dict:
     """Serialize a GeoLens dataset to GeoDCAT-AP 2.0.0 JSON-LD.
 
@@ -87,6 +90,11 @@ def record_to_geodcat_ap(
         base_url: Absolute base URL (e.g. ``http://localhost:8000``).
         include_context: Include ``@context``. Set to False for entries nested
             inside a catalog feed to avoid duplicating the context.
+        lineage_summary: ``dcterms:provenance``, already access-checked by the
+            caller (``visible_lineage_summary``). fix(#1103): not read off the
+            record — an analysis output's lineage names the titles of the
+            datasets it was derived from, and this feed is served to anonymous
+            requesters.
 
     Returns:
         A plain dict suitable for JSON serialization as JSON-LD.
@@ -128,10 +136,10 @@ def record_to_geodcat_ap(
         result["dcterms:license"] = record.license
 
     # Lineage → provenance (GeoDCAT-AP: dcterms:provenance / prov:Activity).
-    if record.lineage_summary is not None:
+    if lineage_summary is not None:
         result["dcterms:provenance"] = {
             "@type": "dcterms:ProvenanceStatement",
-            "rdfs:label": {"@value": record.lineage_summary, "@language": lang},
+            "rdfs:label": {"@value": lineage_summary, "@language": lang},
         }
 
     # Maintenance / update frequency (ISO MD_MaintenanceFrequencyCode).
@@ -193,7 +201,12 @@ def record_to_geodcat_ap(
     return {k: v for k, v in result.items() if v is not None}
 
 
-def catalog_to_geodcat_ap(datasets: list[Dataset], base_url: str) -> dict:
+def catalog_to_geodcat_ap(
+    datasets: list[Dataset],
+    base_url: str,
+    *,
+    lineage_by_record_id: Mapping[uuid.UUID, str | None] | None = None,
+) -> dict:
     """Serialize a list of visible datasets to a GeoDCAT-AP Catalog JSON-LD dict.
 
     Args:
@@ -208,8 +221,15 @@ def catalog_to_geodcat_ap(datasets: list[Dataset], base_url: str) -> dict:
     same deterministic title-based fallback as the per-dataset serializer, so
     catalog validation cannot hide published records by filtering them first.
     """
+    lineage = lineage_by_record_id or {}
     entries = [
-        record_to_geodcat_ap(ds, base_url, include_context=False) for ds in datasets
+        record_to_geodcat_ap(
+            ds,
+            base_url,
+            include_context=False,
+            lineage_summary=lineage.get(ds.record_id),
+        )
+        for ds in datasets
     ]
 
     return {

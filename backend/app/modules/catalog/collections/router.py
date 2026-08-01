@@ -14,7 +14,11 @@ from app.platform.cache.tiles import invalidate_catalog_cache
 from app.core.identity import Identity
 from app.modules.auth.dependencies import get_optional_user, require_permission
 from app.modules.auth.models import User
-from app.modules.catalog.authorization import check_dataset_access, get_user_roles
+from app.modules.catalog.authorization import (
+    check_dataset_access,
+    get_user_roles,
+    visible_lineage_summaries,
+)
 from app.modules.catalog.collections.schemas import (
     AddDatasetsResponse,
     CollectionAddDatasetsRequest,
@@ -437,7 +441,17 @@ async def get_collection_datasets_endpoint(
         rows = await db.execute(select(User).where(User.id.in_(actor_ids)))
         actor_map = {u.id: u for u in rows.scalars()}
 
+    # fix(#1103): one visibility query for the page, not one per row.
+    lineage = await visible_lineage_summaries(
+        db, [d.record for d in datasets], user, user_roles
+    )
+
     return DatasetListResponse(
-        datasets=[dataset_to_response(d, actors_by_id=actor_map) for d in datasets],
+        datasets=[
+            dataset_to_response(
+                d, actors_by_id=actor_map, lineage_summary=lineage[d.record_id]
+            )
+            for d in datasets
+        ],
         total=total,
     )

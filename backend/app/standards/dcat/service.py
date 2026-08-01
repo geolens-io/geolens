@@ -7,7 +7,8 @@ W3C DCAT 3 Recommendation: https://www.w3.org/TR/vocab-dcat-3/
 from __future__ import annotations
 
 import structlog
-from collections.abc import Sequence
+import uuid
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -247,6 +248,7 @@ def record_to_dcat(
     *,
     include_context: bool = True,
     preferred_languages: Sequence[str] | None = None,
+    lineage_summary: str | None = None,
 ) -> dict:
     """Serialize a Dataset (with loaded record relationships) to DCAT 3 JSON-LD.
 
@@ -255,6 +257,11 @@ def record_to_dcat(
         base_url: Absolute base URL (e.g. ``http://localhost:8000``).
         include_context: Include ``@context`` in output. Set to False for
             individual entries within a catalog feed to avoid duplication.
+        lineage_summary: ``dcterms:provenance``, already access-checked by the
+            caller (``visible_lineage_summary``). fix(#1103): not read off the
+            record — an analysis output's lineage names the titles of the
+            datasets it was derived from, and this feed is served to anonymous
+            requesters. Omitted when absent.
 
     Returns:
         A plain dict suitable for JSON serialization as JSON-LD.
@@ -312,9 +319,9 @@ def record_to_dcat(
     if record.license is not None:
         result["dcterms:license"] = record.license
 
-    if record.lineage_summary is not None:
+    if lineage_summary is not None:
         result["dcterms:provenance"] = {
-            "@value": record.lineage_summary,
+            "@value": lineage_summary,
             "@language": source_lang,
         }
 
@@ -427,6 +434,7 @@ def catalog_to_dcat(
     base_url: str,
     *,
     preferred_languages: Sequence[str] | None = None,
+    lineage_by_record_id: Mapping[uuid.UUID, str | None] | None = None,
 ) -> dict:
     """Serialize a list of visible datasets to a DCAT 3 Catalog JSON-LD dict.
 
@@ -441,12 +449,14 @@ def catalog_to_dcat(
     Returns:
         A DCAT Catalog dict with nested dataset entries (without individual @context).
     """
+    lineage = lineage_by_record_id or {}
     entries = [
         record_to_dcat(
             ds,
             base_url,
             include_context=False,
             preferred_languages=preferred_languages,
+            lineage_summary=lineage.get(ds.record_id),
         )
         for ds in datasets
     ]

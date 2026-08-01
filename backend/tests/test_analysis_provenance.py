@@ -9,8 +9,12 @@ Requirements:
   - Docker database must be running (docker compose up db)
 """
 
+import ast
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
+from types import SimpleNamespace
+from typing import NamedTuple
 
 import pytest
 from httpx import AsyncClient
@@ -18,7 +22,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.catalog.datasets.domain.models import Dataset, Record, RecordKeyword
-from app.processing.analysis.provenance import build_lineage_sentence
+from app.processing.analysis.provenance import (
+    build_derived_from,
+    build_lineage_sentence,
+)
 from app.processing.analysis.tasks import _materialize
 from app.standards.stac.serializer import _build_stac_links
 
@@ -755,3 +762,352 @@ class TestStacDerivedFromLink:
         assert (
             await _visible_derived_from_id(test_db_session, record, None, set())
         ) is None
+
+
+class _ClipOutput(NamedTuple):
+    """A published output whose stored lineage names two other datasets."""
+
+    source_id: uuid.UUID
+    source_title: str
+    mask_id: uuid.UUID
+    mask_title: str
+    output_id: uuid.UUID
+    sentence: str
+
+
+async def _published_clip_output(
+    session: AsyncSession,
+    owner_id: uuid.UUID,
+    *,
+    source_visibility: str = "public",
+    mask_visibility: str = "private",
+) -> _ClipOutput:
+    """Register the record state a clip materialize leaves behind.
+
+    The sentence and the reference come from the real generators rather than a
+    hand-typed string: the redaction is only worth anything against what
+    ``apply_analysis_provenance`` actually writes. The analysis itself is not
+    re-run here — the write path has its own tests above, and this is a read
+    path.
+    """
+    source = await _create_polygon_dataset(
+        session, created_by=owner_id, visibility=source_visibility
+    )
+    mask = await _create_polygon_dataset(
+        session, created_by=owner_id, visibility=mask_visibility
+    )
+    output = await _create_polygon_dataset(
+        session, created_by=owner_id, visibility="public"
+    )
+
+    source_title = f"Parcels {uuid.uuid4().hex[:6]}"
+    mask_title = f"Flood Zone {uuid.uuid4().hex[:6]}"
+    source_record = await _record_of(session, source)
+    mask_record = await _record_of(session, mask)
+    source_record.title = source_title
+    mask_record.title = mask_title
+
+    params = {"mask_source": "layer", "mask_dataset_id": str(mask.id)}
+    created_at = datetime(2026, 7, 31, tzinfo=timezone.utc)
+    sentence = build_lineage_sentence(
+        operation="clip",
+        source_title=source_title,
+        params=params,
+        actor="owner",
+        created_at=created_at,
+        mask_title=mask_title,
+    )
+    output_record = await _record_of(session, output)
+    output_record.lineage_summary = sentence
+    output_record.derived_from = build_derived_from(
+        source_dataset_id=str(source.id),
+        operation="clip",
+        params=params,
+        created_at=created_at,
+    )
+    await session.commit()
+
+    return _ClipOutput(
+        source_id=source.id,
+        source_title=source_title,
+        mask_id=mask.id,
+        mask_title=mask_title,
+        output_id=output.id,
+        sentence=sentence,
+    )
+
+
+class TestLineageSummaryVisibility:
+    """fix(#1103): the prose is stored once; the redaction is per requester.
+
+    ``lineage_summary`` names the TITLE of every dataset an analysis output was
+    built from, and it was served raw to everyone who could see the output — so
+    a published clip of a public layer against a private mask told every viewer
+    that mask's name and that it exists. That is the disclosure
+    ``visible_derived_from`` prevents for the mask's ID, arriving by a channel
+    that had no redaction.
+    """
+
+    async def test_a_private_masks_title_reaches_only_requesters_who_can_open_it(
+        self,
+        client: AsyncClient,
+        test_db_session: AsyncSession,
+        admin_auth_header: dict,
+        editor_auth_header: dict,
+        viewer_auth_header: dict,
+    ):
+        """Three requesters, one stored sentence.
+
+        The owner ran the analysis and can open both layers, so they get the
+        sentence as written. The viewer can open the output and the public
+        source but not the mask, so only the mask's title goes — and it is
+        replaced by the phrase the generator itself uses for a title it could
+        not read, not by the mask's id, which _DATASET_ID_PARAMS withholds for
+        the same reason. An admin is not filtered at all.
+        """
+        owner_id = uuid.UUID(
+            (await client.get("/auth/me/", headers=editor_auth_header)).json()["id"]
+        )
+        clip = await _published_clip_output(test_db_session, owner_id)
+
+        owner = await client.get(
+            f"/datasets/{clip.output_id}", headers=editor_auth_header
+        )
+        assert owner.status_code == 200, owner.text
+        assert owner.json()["lineage_summary"] == clip.sentence
+
+        other = await client.get(
+            f"/datasets/{clip.output_id}", headers=viewer_auth_header
+        )
+        assert other.status_code == 200, other.text
+        lineage = other.json()["lineage_summary"]
+        assert clip.mask_title not in lineage
+        assert str(clip.mask_id) not in lineage
+        # fix(#1108 review): all-or-nothing — the sentence interleaves
+        # attacker-influenced free text with the titles, so no in-place edit of
+        # it is trustworthy. A viewer missing ANY referenced dataset gets the
+        # constant; the source title they could look up stays available in the
+        # structured derived_from reference, not in prose.
+        assert lineage == "Derived from another dataset."
+        assert clip.source_title not in lineage
+
+        admin = await client.get(
+            f"/datasets/{clip.output_id}", headers=admin_auth_header
+        )
+        assert admin.status_code == 200, admin.text
+        assert admin.json()["lineage_summary"] == clip.sentence
+
+    async def test_a_private_source_title_goes_with_it(
+        self,
+        client: AsyncClient,
+        test_db_session: AsyncSession,
+        editor_auth_header: dict,
+        viewer_auth_header: dict,
+    ):
+        """The source is a dataset the requester may not reach either.
+
+        ``visible_derived_from`` already drops the whole reference in this case;
+        the prose keeps its shape and loses both titles.
+        """
+        owner_id = uuid.UUID(
+            (await client.get("/auth/me/", headers=editor_auth_header)).json()["id"]
+        )
+        clip = await _published_clip_output(
+            test_db_session, owner_id, source_visibility="private"
+        )
+
+        other = await client.get(
+            f"/datasets/{clip.output_id}", headers=viewer_auth_header
+        )
+        assert other.status_code == 200, other.text
+        payload = other.json()
+        assert payload["derived_from"] is None
+        lineage = payload["lineage_summary"]
+        assert clip.source_title not in lineage
+        assert clip.mask_title not in lineage
+        assert str(clip.source_id) not in lineage
+        assert lineage == "Derived from another dataset."
+
+        owner = await client.get(
+            f"/datasets/{clip.output_id}", headers=editor_auth_header
+        )
+        assert owner.json()["lineage_summary"] == clip.sentence
+
+    async def test_no_read_surface_serves_the_hidden_title(
+        self,
+        client: AsyncClient,
+        test_db_session: AsyncSession,
+        editor_auth_header: dict,
+        viewer_auth_header: dict,
+    ):
+        """Every payload that carries the sentence, not just the dataset page.
+
+        The issue is that ``lineage_summary`` is read by five serializers — the
+        dataset response, the OGC record properties, and the three DCAT
+        profiles — and a fix that only covers the one the bug was reported
+        against leaves the same title on a catalog feed an anonymous harvester
+        can pull.
+        """
+        owner_id = uuid.UUID(
+            (await client.get("/auth/me/", headers=editor_auth_header)).json()["id"]
+        )
+        clip = await _published_clip_output(test_db_session, owner_id)
+
+        for url in (
+            f"/datasets/{clip.output_id}",
+            f"/datasets/{clip.output_id}/dcat/",
+            f"/datasets/{clip.output_id}/geodcat-ap/",
+            f"/collections/datasets/items/{clip.output_id}",
+        ):
+            resp = await client.get(url, headers=viewer_auth_header)
+            assert resp.status_code == 200, f"{url}: {resp.text}"
+            assert clip.mask_title not in resp.text, url
+            assert str(clip.mask_id) not in resp.text, url
+            # Redacted, not dropped. Without this a surface that simply stopped
+            # serving the sentence would satisfy the two assertions above.
+            assert "Derived from another dataset." in resp.text, url
+
+        # The feeds carry every visible dataset, so only the negative holds.
+        for url in ("/datasets/", "/datasets/dcat/", "/datasets/geodcat-ap/"):
+            resp = await client.get(url, headers=viewer_auth_header)
+            assert resp.status_code == 200, f"{url}: {resp.text}"
+            assert clip.mask_title not in resp.text, url
+            assert str(clip.mask_id) not in resp.text, url
+
+        # ...and the owner still gets the prose on the same surfaces.
+        owner_detail = await client.get(
+            f"/datasets/{clip.output_id}/dcat/", headers=editor_auth_header
+        )
+        assert clip.mask_title in owner_detail.text
+
+    async def test_prose_is_never_edited_only_passed_or_replaced(self):
+        """fix(#1108 review): the forgery family that killed span editing.
+
+        Three review rounds each broke an in-place edit of the sentence: an
+        unnamed source shifted every span onto the wrong dataset; embedded
+        quotes in a hidden title (odd or even) corrupted the span boundaries so
+        fragments survived between them; and quote characters in NON-title free
+        text (an actor name) compensated for a missing title so even a
+        quote-character count read as aligned. The sentence interleaves
+        attacker-influenced free text with the secrets, so the rule is binary —
+        and this pins that no shape of stored prose changes it: whatever the
+        text contains, a restricted viewer gets the constant and nothing else.
+        """
+        from app.modules.catalog.authorization import (
+            _REDACTED_SUMMARY,
+            visible_lineage_summaries,
+        )
+
+        hidden_mask = uuid.uuid4()
+        adversarial_sentences = [
+            # round 1: even embedded quotes — fragments between spans
+            'Clipped from "Roads" to "Flood "Zone" map", created by admin.',
+            # round 2: odd embedded quote — span counts coincide
+            'Clipped from "Roads" to "Flood "Zone", created by admin.',
+            # round 3: unnamed source + quoted actor — char counts coincide
+            'Clipped from an unnamed dataset to "Secret Zone", created by "bob".',
+            # plain prose, nothing adversarial at all
+            'Clipped from "Roads" to "Secret Zone", created by admin.',
+        ]
+        for sentence in adversarial_sentences:
+            record = SimpleNamespace(
+                id=uuid.uuid4(),
+                lineage_summary=sentence,
+                derived_from={
+                    "operation": "clip",
+                    "dataset_id": str(uuid.uuid4()),
+                    "params": {"mask_dataset_id": str(hidden_mask)},
+                },
+            )
+            # No DB session needed: an unresolvable dataset id is unprovable,
+            # hence hidden — but _accessible_dataset_ids still runs, so give it
+            # a session-shaped refusal by making every id unparseable instead.
+            record.derived_from["dataset_id"] = "not-a-uuid"
+            record.derived_from["params"]["mask_dataset_id"] = "also-not-a-uuid"
+            result = await visible_lineage_summaries(None, [record], None, set())
+            assert result[record.id] == _REDACTED_SUMMARY, sentence
+            assert "Zone" not in result[record.id], sentence
+
+    async def test_a_record_with_no_provenance_costs_no_query(self):
+        """Hand-written lineage is not assembled from other datasets' titles.
+
+        It is also the common case by a wide margin: passing ``None`` for the
+        session proves the redaction never reaches the database for a record
+        with no ``derived_from``, which is what makes it affordable on a page
+        of results.
+        """
+        from app.modules.catalog.authorization import visible_lineage_summaries
+
+        record = Record(
+            id=uuid.uuid4(),
+            title="Plain",
+            lineage_summary="Compiled from the 2024 field survey.",
+        )
+        assert await visible_lineage_summaries(None, [record], None, set()) == {
+            record.id: "Compiled from the 2024 field survey."
+        }
+
+    def test_an_unparseable_provenance_id_counts_as_inaccessible(self):
+        """Access to it cannot be established, so its title is withheld."""
+        from app.modules.catalog.authorization import _provenance_dataset_ids
+
+        assert _provenance_dataset_ids({"dataset_id": "not-a-uuid"}) == [None]
+
+    def test_no_read_path_serves_lineage_summary_unchecked(self):
+        """Structural: only the redaction may read the column for a payload.
+
+        The failure mode is silence — a new serializer reads
+        ``record.lineage_summary``, the payload looks correct, and someone
+        else's private layer is named in it. Every serializer takes the prose as
+        an argument now, so a caller that forgets emits no lineage instead.
+
+        Additions to the allowlist are fine when the read is not a
+        requester-facing payload; say which, and why, in the value.
+        """
+        allowed = {
+            "app/modules/catalog/authorization.py": (
+                "the redaction itself — visible_lineage_summaries"
+            ),
+            "app/modules/catalog/search/service_filters.py": (
+                "Record.lineage_summary as a SQL expression in the FTS filter; "
+                "it selects rows, it does not serialize a value"
+            ),
+            "app/modules/catalog/validation/service.py": (
+                "VAL-01 completeness — tests presence, never emits the value"
+            ),
+            "app/processing/ingest/metadata.py": (
+                "metadata completeness scoring on the record's own fields"
+            ),
+            "app/processing/ai/metadata_service.py": (
+                "the suggestion prompt for the record's own editor, who is "
+                "owner-or-admin on it"
+            ),
+            "app/processing/embeddings/tasks.py": (
+                "embedding index text; the vector is not served back as prose"
+            ),
+            "app/processing/embeddings/backfill.py": (
+                "embedding index text; the vector is not served back as prose"
+            ),
+        }
+
+        app_root = Path(__file__).resolve().parents[1] / "app"
+        offenders: list[str] = []
+        for path in sorted(app_root.rglob("*.py")):
+            rel = f"app/{path.relative_to(app_root).as_posix()}"
+            if rel in allowed:
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, ast.Attribute)
+                    and node.attr == "lineage_summary"
+                    and isinstance(node.ctx, ast.Load)
+                ):
+                    offenders.append(f"{rel}:{node.lineno}")
+
+        assert not offenders, (
+            "these read lineage_summary off a record instead of taking the "
+            "access-checked value from visible_lineage_summary(), which is how "
+            "a private layer's title reaches a requester who cannot open it "
+            f"(#1103): {offenders}"
+        )

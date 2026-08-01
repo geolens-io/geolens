@@ -22,6 +22,8 @@ from app.modules.catalog.authorization import (
     apply_visibility_filter,
     check_dataset_access_or_anonymous,
     get_user_roles,
+    visible_lineage_summaries,
+    visible_lineage_summary,
 )
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
@@ -236,6 +238,11 @@ async def _handle_search(
         extent_geojson_map,
     ) = await _bulk_fetch_dataset_metadata(db, datasets)
 
+    # fix(#1103): one visibility query for the page, not one per row.
+    lineage = await visible_lineage_summaries(
+        db, [d.record for d in datasets], user, user_roles
+    )
+
     features = [
         dataset_to_ogc_record(
             d,
@@ -245,6 +252,7 @@ async def _handle_search(
             spatial_extent_geojson=extent_geojson_map.get(str(d.id)),
             public_app_url=public_app_url,
             preferred_languages=preferred_languages,
+            lineage_summary=lineage[d.record_id],
         )
         for d in datasets
     ]
@@ -1200,7 +1208,7 @@ async def get_collection_item(
         )
 
     # Single visibility check (raises 404 if access denied)
-    await check_dataset_access_or_anonymous(db, dataset, record_id, user)
+    user_roles = await check_dataset_access_or_anonymous(db, dataset, record_id, user)
 
     # Query DatasetAsset rows for STAC assets
     stac_asset_rows = [
@@ -1240,6 +1248,11 @@ async def get_collection_item(
         raster_meta=item_raster_meta,
         public_app_url=public_app_url,
         preferred_languages=parse_accept_languages(request),
+        # fix(#1103): the requester passed the check above; the datasets this
+        # one was derived from are checked on their own.
+        lineage_summary=await visible_lineage_summary(
+            db, dataset.record, user, user_roles
+        ),
     )
     return JSONResponse(
         content=content,

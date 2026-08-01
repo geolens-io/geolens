@@ -27,6 +27,7 @@ from app.modules.catalog.authorization import (
     check_dataset_access_or_anonymous,
     check_dataset_write_access,
     get_user_roles,
+    visible_lineage_summary,
 )
 from app.modules.catalog.datasets.domain.helpers import (
     dataset_to_response,
@@ -143,6 +144,13 @@ async def create_empty_dataset_endpoint(
         dataset,
         actors_by_id=actors_by_id,
         base_url=await get_dataset_service_url(db, request=request),
+        # fix(#1103): access-checked prose. A dataset created here has no
+        # provenance to redact, and the helper says so without a query — the
+        # point of routing every builder through it is that no call site gets
+        # to decide that for itself.
+        lineage_summary=await visible_lineage_summary(
+            db, dataset.record, user, await get_user_roles(db, user)
+        ),
     )
 
 
@@ -292,7 +300,7 @@ async def update_dataset_metadata(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dataset not found",
         )
-    await check_dataset_write_access(db, dataset, dataset_id, user)
+    user_roles = await check_dataset_write_access(db, dataset, dataset_id, user)
 
     # fix(#458 E-48): capture the pre-update value so a PATCH that echoes the
     # same tile_columns doesn't roll the tile version / purge the tile cache.
@@ -365,6 +373,12 @@ async def update_dataset_metadata(
         dataset,
         actors_by_id=actors_by_id,
         base_url=await get_dataset_service_url(db, request=request),
+        # fix(#1103): the editor is owner-or-admin here, but "owner of the
+        # output" does not imply access to what it was derived from — a grant
+        # on the source can be revoked after the analysis ran.
+        lineage_summary=await visible_lineage_summary(
+            db, dataset.record, user, user_roles
+        ),
     )
 
 
