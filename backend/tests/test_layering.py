@@ -1329,7 +1329,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # geometry columns (measure, spatial_join, select_by_location) so a curved
     # source row is stored linear — a curved geometry written into the derived
     # table would fail that layer's tiles and feature reads later.
-    "backend/app/processing/analysis/tasks.py": 1388,
+    #
+    # fix(#1097 review): +62 for the array-element half of the ungroupable
+    # guards. information_schema stores an array column's data_type as
+    # 'ARRAY', so json[]/xml[] passed the exact scalar comparison and failed
+    # the CTAS with 42883 after the queue wait; _ungroupable_type_name reads
+    # udt_name ('_json') as well, and the same check now also covers
+    # dissolve's by_field, which had the identical blind spot plus no live
+    # recheck at all.
+    "backend/app/processing/analysis/tasks.py": 1450,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.

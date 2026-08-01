@@ -334,6 +334,11 @@ def _validate_intersect_columns(source, overlay) -> None:
                 "columns. Rename it, or choose a different layer."
             ),
         )
+    # fix(#1097 review): SCALAR json/xml only. The snapshot stores an array
+    # column's type as 'ARRAY' with no element type, so json[]/xml[] are
+    # invisible here by construction; the worker's live-schema recheck
+    # (_ungroupable_type_name reads udt_name) is their sole guard, and the
+    # same applies to dissolve's by_field check above.
     ungroupable = sorted(
         (col.get("name"), str(col.get("type") or "").lower())
         for col in (overlay.column_info or [])

@@ -512,6 +512,27 @@ async def _reject_missing_join_fields(
         )
 
 
+def _ungroupable_type_name(data_type: str | None, udt_name: str | None) -> str | None:
+    """The display name of a non-groupable column type, or None if groupable.
+
+    fix(#1097 review): information_schema reports EVERY array column's
+    data_type as 'ARRAY'; the element type only surfaces in udt_name, with a
+    leading underscore ('_json' for json[]). An exact data_type comparison
+    therefore admitted json[]/xml[] columns straight into GROUP BY, where
+    PostgreSQL cannot apply equality to them (SQLSTATE 42883, verified) — and
+    the catalog snapshot has the same blind spot, so the failure landed after
+    the queue wait. Elements, not arrays: int[]/text[] have equality and group
+    fine, so rejecting 'ARRAY' wholesale would refuse layers that work.
+    """
+    dt = str(data_type or "").lower()
+    if dt in NON_GROUPABLE_COLUMN_TYPES:
+        return dt
+    udt = str(udt_name or "").lower()
+    if udt.startswith("_") and udt[1:] in NON_GROUPABLE_COLUMN_TYPES:
+        return f"{udt[1:]}[]"
+    return None
+
+
 async def _reject_ungroupable_overlay_columns(
     session: AsyncSession, schema: str, table_name: str
 ) -> None:
@@ -524,7 +545,9 @@ async def _reject_ungroupable_overlay_columns(
     than trusted from the snapshot. A replacement that introduces a json or xml
     column would otherwise reach ``render_intersect_pairs``, which names every
     carried overlay column in its GROUP BY, and fail the CTAS with SQLSTATE
-    42883.
+    42883. Array forms (json[]/xml[]) can ONLY be caught here: the snapshot
+    stores 'ARRAY' with no element type, so the router admits them and this
+    recheck is the sole guard (see _ungroupable_type_name).
 
     Types, not names: reading the live names already happens and would not have
     caught this, because the column that breaks the query is one whose NAME is
@@ -532,20 +555,55 @@ async def _reject_ungroupable_overlay_columns(
     """
     rows = await session.execute(
         text(
-            "SELECT column_name, data_type FROM information_schema.columns "
+            "SELECT column_name, data_type, udt_name "
+            "FROM information_schema.columns "
             "WHERE table_schema = :schema AND table_name = :table_name "
             "AND column_name NOT IN ('gid', 'geom', 'geom_4326') "
             "ORDER BY ordinal_position"
         ).bindparams(schema=schema, table_name=table_name)
     )
-    for name, data_type in rows:
-        if str(data_type or "").lower() in NON_GROUPABLE_COLUMN_TYPES:
+    for name, data_type, udt_name in rows:
+        bad = _ungroupable_type_name(data_type, udt_name)
+        if bad is not None:
             raise ValueError(
                 f"The overlay layer's column {name!r} has type "
-                f"{str(data_type).lower()!r}, which cannot be grouped, and an "
+                f"{bad!r}, which cannot be grouped, and an "
                 "overlay carries every overlay column onto its output. Choose "
                 "a different layer, or remove that column from it."
             )
+
+
+async def _reject_ungroupable_by_field(
+    session: AsyncSession, schema: str, table_name: str, by_field: str
+) -> None:
+    """Dissolve's GROUP BY column must be groupable on the LIVE schema.
+
+    fix(#1097 review): the same shape as the overlay recheck above, one
+    operation over — dissolve names ``by_field`` in its GROUP BY, the router
+    checked it against the snapshot, and the snapshot cannot see a json[]
+    element type ('ARRAY'). One query answers both failure modes: a column the
+    re-upload dropped, and one whose live type has no equality operator.
+    """
+    row = (
+        await session.execute(
+            text(
+                "SELECT data_type, udt_name FROM information_schema.columns "
+                "WHERE table_schema = :schema AND table_name = :table_name "
+                "AND column_name = :column_name"
+            ).bindparams(schema=schema, table_name=table_name, column_name=by_field)
+        )
+    ).first()
+    if row is None:
+        raise ValueError(
+            f"Column {by_field!r} no longer exists on the source layer. It "
+            "may have been re-uploaded since this analysis was queued."
+        )
+    bad = _ungroupable_type_name(row[0], row[1])
+    if bad is not None:
+        raise ValueError(
+            f"Column {by_field!r} has type {bad!r} and can't be used to "
+            "group features. Choose a column with comparable values."
+        )
 
 
 async def _resolve_layer_table_ref(
@@ -1096,8 +1154,12 @@ async def _materialize(
                 raise ValueError("Source dataset not found")
             if not _SAFE_TABLE.match(src.table_name):
                 raise ValueError("Invalid source table name")
-            if by_field is not None and not _SAFE_IDENT.match(by_field):
-                raise ValueError("Invalid dissolve column name")
+            if by_field is not None:
+                if not _SAFE_IDENT.match(by_field):
+                    raise ValueError("Invalid dissolve column name")
+                await _reject_ungroupable_by_field(
+                    session, _schema, src.table_name, by_field
+                )
             src_ref = f'"{_schema}"."{src.table_name}"'
 
             # Layer-sourced clip mask: re-resolve the table name at run time

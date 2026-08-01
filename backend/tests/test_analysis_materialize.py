@@ -1746,6 +1746,40 @@ class TestMaterializeWorker:
         assert new_ds is not None
         assert new_ds.feature_count == 1
 
+    async def test_dissolve_by_a_json_array_field_fails_with_a_clear_message(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#1097 review): the by_field guard has the overlay guard's array
+        blind spot. The router's snapshot says 'ARRAY' for a json[] column, so
+        enqueue admits it, and without the worker's live recheck the dissolve
+        CTAS dies on SQLSTATE 42883 after the queue wait with an error naming
+        nothing the user chose. Through _materialize rather than the helper,
+        so the test proves the recheck is actually wired into the job path.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        await test_db_session.execute(
+            text(f"ALTER TABLE data.{ds.table_name} ADD COLUMN props json[]")  # noqa: S608
+        )
+        await test_db_session.commit()
+        job = await _create_job(test_db_session, admin_id)
+
+        await _materialize(
+            job_id=str(job.id),
+            dataset_id=str(ds.id),
+            user_id=str(admin_id),
+            operation="dissolve",
+            by_field="props",
+            title=f"Dissolved {uuid.uuid4().hex[:6]}",
+        )
+
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert "props" in (job.error_message or "")
+        assert "json[]" in (job.error_message or "")
+        assert "42883" not in (job.error_message or "")
+
     async def test_missing_source_marks_job_failed(
         self,
         test_db_session: AsyncSession,

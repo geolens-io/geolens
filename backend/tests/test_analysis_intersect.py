@@ -686,6 +686,49 @@ class TestColumnCollisions:
             test_db_session, "data", zones.table_name
         )
 
+    async def test_a_json_array_overlay_column_is_rejected_with_its_real_type(
+        self, test_db_session: AsyncSession
+    ):
+        """fix(#1097 review): arrays hide their element type from data_type.
+
+        information_schema reports a json[] column's data_type as 'ARRAY', so
+        the exact comparison the scalar guard makes never fires, and the
+        snapshot the router reads has the same blind spot — this recheck is
+        the ONLY layer that can see the element type (udt_name '_json').
+        GROUP BY on json[] fails with SQLSTATE 42883 exactly like scalar json.
+        int[] has equality and must still pass, so the check names elements,
+        not arrays.
+        """
+        from app.processing.analysis.tasks import (
+            _reject_ungroupable_overlay_columns,
+        )
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        zones = await _create_zones(test_db_session, created_by=admin_id)
+        await test_db_session.execute(
+            text(
+                f"ALTER TABLE data.{zones.table_name} "  # noqa: S608
+                f"ADD COLUMN props json[], ADD COLUMN tags int[]"
+            )
+        )
+        await test_db_session.commit()
+
+        with pytest.raises(ValueError) as excinfo:
+            await _reject_ungroupable_overlay_columns(
+                test_db_session, "data", zones.table_name
+            )
+        assert "props" in str(excinfo.value)
+        assert "json[]" in str(excinfo.value)
+
+        # int[] alone passes: drop the hostile column and the layer is fine.
+        await test_db_session.execute(
+            text(f"ALTER TABLE data.{zones.table_name} DROP COLUMN props")  # noqa: S608
+        )
+        await test_db_session.commit()
+        await _reject_ungroupable_overlay_columns(
+            test_db_session, "data", zones.table_name
+        )
+
     def test_an_ungroupable_SOURCE_column_is_still_allowed(self):
         """The guard is deliberately one-sided, so pin the side it lets through.
 
