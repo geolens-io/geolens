@@ -7,6 +7,72 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-08-01
+
+### Added
+
+- **Four new analysis operations: spatial join, measure, select by location,
+  and intersect.** They join buffer, centroid, clip, and dissolve in the
+  builder's analysis panel: preview the result on the map, then materialize it
+  as a new dataset. Spatial join and select by location take a predicate
+  (intersects, contains, within, and friends); measure adds computed
+  area/length/perimeter columns; intersect writes the pairwise overlay with
+  attributes from both sides. (#1097)
+- **Materialized analysis outputs record where they came from.** Each output
+  dataset carries the operation, its parameters, and the source dataset ids it
+  was derived from, visible in the dataset detail. (#1045)
+- **An analysis job started in one tab is visible in all of them**, and its
+  completion notifies once instead of once per tab. (#1043)
+- **The CLI can run analyses**: `geolens analysis preview` and
+  `geolens analysis materialize` cover the server's operations from scripts.
+  (#1050)
+- **Builder chat can clip a layer by another layer** ("clip roads to the city
+  boundary") through the same analysis pipeline. (#1071)
+- **API keys now carry a scope.** A key is minted as `full` or `read_only`;
+  read-only keys can fetch data but not mutate it. Existing keys keep full
+  access. (#1055)
+- **Raster tiles work for API-key clients.** The tile template returned by the
+  token endpoint is signed, so private rasters render outside a browser
+  session (QGIS, scripts, embeds driven by a key). (#1059)
+- **Datasets can be internal**: visible to any signed-in user without a
+  per-user grant, sitting between private and public. Visibility is edited
+  from the dataset's Access tab, and a change that would break a shared map
+  is blocked with a message naming the map. (#1029, #976, #1056)
+- **Fill patterns pick up the layer's fill color** instead of rendering only
+  in their baked-in color, and the pattern shows on the legend chip and
+  layer-list swatch. (#1091, #979)
+- **Backups now capture cluster roles.** Each cycle writes a
+  `globals-<timestamp>.sql` next to the dump (`pg_dumpall --globals-only`),
+  which is what makes a restore onto a fresh cluster able to rebuild roles
+  and their passwords. The backup service also warns at startup when offsite
+  upload is disabled. (#1027, #1062)
+- **Parquet ingest is bounded**: a file that expands past the total row or
+  cell cap is refused up front instead of exhausting the worker. (#1038)
+
+### Changed
+
+- **Extents that cross the antimeridian are now served in RFC 7946 spec
+  form** — a bbox with west > east (e.g. `[178, -19, -178, -17]` for Fiji)
+  at the dataset and collection endpoints, instead of a flattened
+  `[-180, …, 180]` span. Clients that assume west ≤ east need to handle the
+  wrap. (#1040, #1060)
+- **Antimeridian handling was reworked end to end**: ingest shifts 0..360
+  sources into ±180 and reports Mercator-clamp drops in the job result
+  (#899), crossing extents are stored as two rings (#901), extent rollups
+  fold on the circle instead of across the globe (#925, #928, #980), exports
+  filter a crossing bbox server-side (#898, #969), buffers project each
+  component in its own planar projection and split output at ±180 (#883,
+  #900, #990, #986), and COG/VRT bounds are normalized (#924).
+- **Analysis is bounded under load**: a per-tenant cap on active materialize
+  jobs (#1053), a global bound on concurrent previews (#1061), statement
+  timeouts configurable via environment settings (#1057), materialize
+  `work_mem` scoped to the session with a justified ceiling (#1048), and the
+  per-user materialize slot held on a heartbeat lease so a dead worker frees
+  it (#972).
+- **A runaway query can no longer fill the database volume**: the bundled
+  Postgres sets `temp_file_limit`, so a spill fails that query instead of
+  the cluster. (#962)
+
 ### Removed
 
 - **`GET /tiles/raster-auth-check/` is gone from the API contract and both
@@ -31,6 +97,76 @@ and releases use semantic versioning.
   fetches, and fetching only managed storage in the raster pipeline;
   deployments that need a hard redirect bound for user-supplied service
   URLs should enforce it with worker egress rules. (#937)
+
+### Security
+
+- **The SQL sandbox validator was tightened**: nested DML inside CTEs is
+  rejected, `timeout_ms` is threaded through the execution wrapper (#1026),
+  EXISTS subqueries are admitted rather than forcing raw-SQL fallbacks
+  (#1024), and the canonical geodesic buffer template is matched whole
+  (#1036).
+- **A dataset owner setting restricted visibility no longer needs a grant to
+  their own dataset** — the creator is exempt from the grant check that
+  otherwise locks everyone out. (#970)
+
+### Fixed
+
+- **The style editor keeps fill color and fill pattern mutually exclusive in
+  both directions** — picking one clears the other, instead of a pattern
+  silently deleting the stored color. (#1022)
+- **Clearing the builder actually clears it**: the style editor no longer
+  resurrects the cleared layer's persisted state. (#1092)
+- **The unsaved-changes flag tells the truth**: a style Revert that restores
+  the saved state clears it, and four false-dirty verdicts in the clean-state
+  recheck are fixed. (#988, #999)
+- **Categorical styling reports the true category count** and scopes the
+  color ramp correctly on mixed-geometry layers. (#1058)
+- **Advanced JSON paint for symbol layers is validated as circle paint**
+  (#977), its errors are announced to screen readers, and the style-editor
+  selects have accessible names (#984). Per-value symbol icons are validated
+  and empty entries dropped (#982).
+- **Exports render a builtin fill pattern as a solid fill** instead of
+  dropping the layer's styling. (#1054)
+- **Map thumbnails update when the map changes** — the thumbnail carries its
+  own timestamp instead of riding the map's. (#1052)
+- **Tile tokens are re-minted when a backgrounded tab returns**, instead of
+  after a burst of 403s, and raster tile auth failures surface instead of
+  rendering blank. (#881, #897, #964)
+- **Cluster popups report the real split zoom** (`expansion_zoom`), so
+  click-to-expand lands where the cluster actually breaks apart. (#882)
+- **Degree CRSs are classified from the stored WKT** rather than assuming
+  only EPSG:4326 is geographic. (#963)
+- **A single-point dataset gets a padded extent** instead of a zero-area
+  ring that some consumers refused. (#1032)
+- **Builder chat discloses when a preview is capped** and the total row
+  count is unknown. (#1079)
+- **The dev server answers CORS preflights behind a tunnel**, so remote
+  development against the API works again. (#1102)
+
+### Upgrade notes
+
+- **Restart the backup container once after upgrading** (any full stack
+  restart covers it). The backup daemon reads its entrypoint at container
+  start, so an already-running daemon keeps the old cycle and will not
+  produce the new `globals-*.sql` role dump until it restarts.
+- Two endpoints changed shape as described above: antimeridian-crossing
+  extent bboxes are now spec-form (west > east), and
+  `GET /tiles/raster-auth-check/` is gone from the contract.
+
+### Known issues
+
+- Curved geometries (MultiSurface/CompoundCurve) break tiles, feature reads,
+  and analysis operations; ingest-time normalization is planned. (#1104)
+- `lineage_summary` on a materialized output can name a source layer the
+  requester cannot see. (#1103)
+- Intersect refuses layers with json/xml attribute columns instead of
+  carrying them through the overlay. (#1099)
+- Some frontend map surfaces still misrender a seam-crossing (west > east)
+  extent; the dataset-preview guard is bypassed by large extents. (#903)
+- Metrics report per-worker registries only; Prometheus multiprocess mode is
+  not yet adopted. (#651)
+- The CLI's analysis help text still lists only buffer, centroid, and clip.
+  (#1105)
 
 ## [1.6.1] - 2026-07-29
 
@@ -1468,7 +1604,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.6.1...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/geolens-io/geolens/compare/v1.6.1...v1.7.0
 [1.6.1]: https://github.com/geolens-io/geolens/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/geolens-io/geolens/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/geolens-io/geolens/compare/v1.5.0...v1.5.1
