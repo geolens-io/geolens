@@ -579,6 +579,77 @@ class TestSpatialJoinEnqueueValidation:
         assert resp.status_code == 422
         assert "must not repeat a column" in resp.text
 
+    async def test_join_fields_colliding_only_after_truncation_are_rejected(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#1097 review): the guards must compare what PostgreSQL compares.
+
+        max_identifier_length is 63 and a longer alias is TRUNCATED with a
+        notice rather than refused. Two join fields sharing their first 58
+        characters therefore prefix to strings that differ in Python and are
+        the same column in the output — so the uniqueness check passed and the
+        CTAS failed after the queue wait.
+
+        Preview did not catch it either: it consumes the values positionally,
+        so it succeeds on the very request Create cannot save.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        # 58 shared characters, then a difference that truncation eats.
+        base = "z" * 58
+        a, b = f"{base}_alpha", f"{base}_beta"
+        assert len(f"join_{a}") > 63 and f"join_{a}"[:63] == f"join_{b}"[:63]
+
+        points = await _create_probe_points(test_db_session, created_by=admin_id)
+        polys = await _create_layer(
+            test_db_session,
+            created_by=admin_id,
+            column_type="Geometry",
+            geometry_type="POLYGON",
+            extra_columns=f"{a} TEXT, {b} TEXT,",
+            values_sql=(
+                "('poly_a', 'x', 'y', ST_MakeEnvelope(0,0,1,1,4326),"
+                " ST_MakeEnvelope(0,0,1,1,4326))"
+            ),
+            column_info=[
+                {"name": "name", "type": "text"},
+                {"name": a, "type": "text"},
+                {"name": b, "type": "text"},
+            ],
+        )
+
+        resp = await client.post(
+            _materialize_url(points.id),
+            json={
+                "operation": "spatial_join",
+                "join_dataset_id": str(polys.id),
+                "join_fields": [a, b],
+                "title": "Nope",
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422, resp.text
+        assert "join_" in resp.text
+
+    def test_generated_join_names_never_exceed_the_identifier_limit(self):
+        """The property behind the test above, stated directly.
+
+        Asserted against the constant rather than a literal 63 so this stays
+        true if the server's NAMEDATALEN ever differs — and the constant itself
+        is checked against the live server in the SQL-rendering tests.
+        """
+        from app.platform.analysis_sql import (
+            MAX_IDENTIFIER_LENGTH,
+            spatial_join_output_columns,
+        )
+
+        generated = spatial_join_output_columns(["x" * 80, "short"])
+        assert all(len(name) <= MAX_IDENTIFIER_LENGTH for name in generated)
+        # Truncation must not damage names that already fit.
+        assert "join_short" in generated
+
     async def test_a_count_only_join_is_validated_on_the_preview_path_too(
         self,
         client: AsyncClient,

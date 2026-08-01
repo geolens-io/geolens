@@ -1246,7 +1246,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # column named `_mask_gid` landed in the same select list as that alias. The
     # aliases moved into a namespace and the namespace is reserved, which is
     # what makes an alias added later safe without a list to keep in step.
-    "backend/app/platform/analysis_sql.py": 1191,
+    #
+    # fix(#1097 review): +27 for MAX_IDENTIFIER_LENGTH and truncating the
+    # generated join names to it. PostgreSQL truncates an over-long identifier
+    # with a NOTICE rather than refusing it, so the uniqueness and
+    # source-collision guards were comparing strings the database would never
+    # see. The comment carries the empirical check (max_identifier_length is
+    # 63) and why source columns need no equivalent — they already exist in a
+    # table, so the server truncated them at creation.
+    "backend/app/platform/analysis_sql.py": 1218,
     # tasks.py carries growth from BOTH sides of this rebase, so the number is
     # re-measured rather than taken from either. #1012 added the scoped
     # work_mem (the SET LOCAL, its budget arithmetic and the boot-time

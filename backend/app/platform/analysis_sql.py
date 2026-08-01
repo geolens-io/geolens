@@ -914,6 +914,15 @@ def render_measure_columns(*, src: str = "") -> tuple[str, str]:
 SPATIAL_JOIN_COUNT_COLUMN = "join_count"
 SPATIAL_JOIN_FIELD_PREFIX = "join_"
 
+# PostgreSQL's NAMEDATALEN - 1. An identifier longer than this is truncated
+# with a NOTICE rather than refused, so a guard that compares untruncated names
+# is comparing strings the database will never see. Confirmed on the server
+# (SELECT current_setting('max_identifier_length')) rather than taken on faith.
+#
+# Bytes, strictly — but every name this bounds is ASCII, because
+# _SAFE_COLUMN_RE gates the join fields that can be named in a request.
+MAX_IDENTIFIER_LENGTH = 63
+
 # Transferred fields are capped because each one widens every output row and
 # the CTAS has a fixed time budget. Ten is well past the "which district is
 # this in" case the operation exists for.
@@ -937,9 +946,27 @@ def spatial_join_output_columns(join_fields: list[str] | None) -> list[str]:
     the same name: the CTAS would otherwise fail with "column specified more
     than once" after the queue wait, the same trap ``by_field`` hits on
     dissolve's generated ``source_count``.
+
+    fix(#1097 review): TRUNCATED to PostgreSQL's identifier limit, because that
+    is the name the CTAS will actually create. Verified against the server
+    rather than assumed: max_identifier_length is 63, and a longer alias is
+    silently truncated to it (a NOTICE, not an error), quoted or not.
+
+    Two join fields sharing their first 58 characters therefore prefix to
+    strings that differ here and are the SAME column in the output, so the
+    uniqueness check below passed and the CTAS failed after the queue wait. One
+    overlong alias can also truncate ONTO an existing source column without the
+    collision check noticing.
+
+    Truncating here rather than rejecting long names keeps the guards comparing
+    what the database will compare, and keeps every consumer — the router's two
+    checks, the worker's recheck, and this list's own uniqueness rule — reading
+    one set of names. Source columns need no such treatment: they already exist
+    in a table, so the server truncated them when it was created.
     """
     return [SPATIAL_JOIN_COUNT_COLUMN] + [
-        f"{SPATIAL_JOIN_FIELD_PREFIX}{name}" for name in (join_fields or [])
+        f"{SPATIAL_JOIN_FIELD_PREFIX}{name}"[:MAX_IDENTIFIER_LENGTH]
+        for name in (join_fields or [])
     ]
 
 
