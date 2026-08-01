@@ -28,6 +28,11 @@ from tests.factories import get_user_id
 from tests.test_analysis_materialize import _create_job
 from tests.test_analysis_spatial_join import _create_layer
 
+# fix(#1104): make the fixtures defined in test_tiles.py (especially
+# _init_tile_pool_for_tests) available to this module without duplicating the
+# fixture body — same pattern as test_tile_cache_cols_key.py.
+pytest_plugins = ["tests.test_tiles"]
+
 # A full circle of radius 0.5 centred on (0.5, 0), stored as the curved
 # MULTISURFACE/CURVEPOLYGON type a GeoServer WFS layer ingests as.
 CURVED_POLYGON = (
@@ -346,3 +351,56 @@ class TestBinaryJoinFields:
         assert len(features) == 1
         assert features[0]["properties"]["join_blob"] == "\\xdeadbeef"
         assert features[0]["properties"]["join_blobs"] == ["\\xdead", "\\xbeef"]
+
+
+class TestCurvedIngestNormalization:
+    """fix(#1104): ingest stores geom_4326 LINEAR, so every surface reads it.
+
+    The classes above pin the analysis operations. These pin the stored
+    invariant itself plus the two broken surfaces with no other curved
+    coverage: vector tiles (ST_AsMVTGeom raised ``lwgeom_get_basic_type:
+    Invalid type (12)``) and the features browse endpoint (ST_AsGeoJSON
+    raises because GeoJSON has no curved types).
+    """
+
+    async def test_ingest_stores_linear_geom_4326_and_curved_geom(
+        self, test_db_session: AsyncSession
+    ):
+        """add_4326_column linearizes geom_4326; `geom` keeps the curved source."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_layer(
+            test_db_session,
+            created_by=admin_id,
+            column_type="Geometry",
+            geometry_type="MULTIPOLYGON",
+            values_sql=(
+                f"('circle', {CURVED_POLYGON}, {CURVED_POLYGON}),"
+                f"('arc', {CURVED_LINE}, {CURVED_LINE})"
+            ),
+            feature_count=2,
+        )
+        rows = (
+            await test_db_session.execute(
+                text(
+                    f"SELECT GeometryType(geom), GeometryType(geom_4326)"  # noqa: S608
+                    f" FROM data.{ds.table_name} ORDER BY gid"
+                )
+            )
+        ).all()
+        assert [r[0] for r in rows] == ["MULTISURFACE", "COMPOUNDCURVE"]
+        assert [r[1] for r in rows] == ["MULTIPOLYGON", "LINESTRING"]
+
+    @pytest.mark.usefixtures("_init_tile_pool_for_tests")
+    async def test_vector_tile_renders_a_curved_source(
+        self,
+        client: AsyncClient,
+        test_db_session: AsyncSession,
+    ):
+        """The MVT endpoint serves bytes for a dataset ingested from curves."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_curved_polygon_layer(test_db_session, created_by=admin_id)
+        # The circle is centred on (0.5, 0), so tile 0/0/0 must contain it.
+        resp = await client.get(f"/tiles/data.{ds.table_name}/0/0/0.pbf")
+        assert resp.status_code == 200, resp.text
+        assert resp.headers["content-type"] == "application/vnd.mapbox-vector-tile"
+        assert len(resp.content) > 0

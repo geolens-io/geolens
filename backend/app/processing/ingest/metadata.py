@@ -1577,6 +1577,14 @@ async def add_4326_column(
     (e.g. SRID 4979 with elevation), `ST_Force2D` strips Z so the UPDATE
     doesn't fail with `Geometry has Z dimension but column does not`. Z is
     still preserved in the original `geom` column.
+
+    fix(#1104): the column is also always LINEAR. WFS ingest admits curved
+    geometries (MultiSurface/CompoundCurve), and every surface that reads
+    geom_4326 raises on them: ST_AsMVTGeom (vector tiles), ST_AsGeoJSON
+    (feature reads), ``::geography`` and ST_MakeValid (analysis).
+    `ST_CurveToLine` densifies arcs here, at the one boundary they all read
+    from; it is an exact no-op on already-linear input, and the curved
+    source stays in the original `geom` column, same as Z does.
     """
     tref = _qtable(table_name, schema=schema)
 
@@ -1588,13 +1596,12 @@ async def add_4326_column(
     )
 
     if source_srid == 4326:
-        await session.execute(
-            text(f"UPDATE {tref} SET geom_4326 = ST_Force2D(ST_SetSRID(geom, 4326))")
-        )
+        source_expr = "ST_SetSRID(geom, 4326)"
     else:
-        await session.execute(
-            text(f"UPDATE {tref} SET geom_4326 = ST_Force2D(ST_Transform(geom, 4326))")
-        )
+        source_expr = "ST_Transform(geom, 4326)"
+    await session.execute(
+        text(f"UPDATE {tref} SET geom_4326 = ST_Force2D(ST_CurveToLine({source_expr}))")
+    )
 
     await ensure_geom_4326_gist_index(session, table_name, schema=schema)
 

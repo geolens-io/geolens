@@ -1208,7 +1208,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#958): now five carve-outs deep, which is the ratchet taxing
     # correctness work on a module nobody has had time to split.
     # Decomposition tracked in #1042; the cap stays exact until then.
-    "backend/app/processing/ingest/metadata.py": 2031,
+    # fix(#1104): +7 — add_4326_column linearizes curved sources with
+    # ST_CurveToLine (an exact no-op on linear input), so geom_4326 can never
+    # hold a type that ST_AsMVTGeom/ST_AsGeoJSON/::geography/ST_MakeValid
+    # raise on. Most of the lines are the docstring recording that invariant.
+    # Ratchet stays exact.
+    "backend/app/processing/ingest/metadata.py": 2038,
     # ingest/router.py is also scanned by the router-glob gate; this exact
     # ratchet overrides its 1500 default so the remaining ~18-line runway to
     # the cliff cannot be spent silently.
