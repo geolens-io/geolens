@@ -263,6 +263,36 @@ describe('useBuilderLayers — handleBulkApplyStyle (ENH-03)', () => {
       expect(updated.paint['fill-color']).toBe('#abc');
     });
 
+    // fix(#923): the other paste direction. The pair is symmetric, and the merge that
+    // strands the loser is the same one, so both directions have to be pinned.
+    it('lets a pasted pattern displace the target solid colour', async () => {
+      const src = makeMockLayer({
+        id: 'src', dataset_geometry_type: 'Polygon',
+        paint: { 'fill-pattern': 'geolens-fill-dots' },
+        style_config: { builder: { fillColorSaved: '#ff0000' } } as StyleConfig, sort_order: 0,
+      });
+      const solid = makeMockLayer({
+        id: 'solid', dataset_geometry_type: 'Polygon',
+        paint: { 'fill-color': '#0000ff' }, style_config: null, sort_order: 1,
+      });
+      const { result } = renderBuilderLayers(makeMapData([src, solid]));
+      await waitForInit();
+
+      act(() => {
+        result.current.handleCopyStyle('src');
+      });
+      act(() => {
+        result.current.handlePasteStyle('solid');
+      });
+
+      const updated = result.current.localLayers.find((l) => l.id === 'solid')!;
+      expect('fill-color' in updated.paint).toBe(false);
+      expect(updated.paint['fill-pattern']).toBe('geolens-fill-dots');
+      // The copied source colour is the one None has to bring back, not the target's
+      // displaced blue.
+      expect(updated.style_config?.builder?.fillColorSaved).toBe('#ff0000');
+    });
+
     it('drops the target pattern when a data-driven colour style is applied over it', async () => {
       const src = makeMockLayer({
         id: 'src', dataset_geometry_type: 'Polygon',
