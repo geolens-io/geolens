@@ -25,10 +25,13 @@
  */
 
 import type { GeometryTypeName, MapLayerResponse, StyleConfig } from '@/types/api';
-// fix(#923): the EDIT-05 fill exclusions, imported rather than restated. `resolveFillExclusions`
-// is a pure function that happens to live beside the style-editor funnel's hook; a second copy of
-// the rule here is exactly how the paste end and the editor end drift apart again.
-import { resolveFillExclusions } from '@/components/builder/hooks/use-layer-map-sync';
+// fix(#923): the EDIT-05 fill exclusions, imported rather than restated. Both are pure functions
+// that happen to live beside the style-editor funnel's hook; a second copy of the rule here is
+// exactly how the paste end and the editor end drift apart again.
+import {
+  resolveFillExclusions,
+  stashExcludedFillColor,
+} from '@/components/builder/hooks/use-layer-map-sync';
 
 export type GeometryStyleClass = 'polygon' | 'line' | 'point' | 'other';
 
@@ -120,15 +123,19 @@ export function applyCopiedStyleToLayer(
     ...deepClone(copied.paint),
   };
   const styleConfig = copied.style_config ? deepClone(copied.style_config) : null;
+  // fix(#1110 review): stash in the same breath as the resolution. A copied style
+  // can carry BOTH an active pattern and a raw string colour (imported or
+  // API-authored, no fillColorSaved); the resolution drops that colour here, so
+  // this is the only place that still knows it. Deferring the stash to the write
+  // boundary loses it — the boundary re-resolves an already pattern-only paint
+  // against the TARGET's previous paint and would stash the target's old colour,
+  // so a later pattern→None click restores the wrong one. `stashExcludedFillColor`
+  // writes only when `fillColorSaved` is undefined, so a stash the copied style
+  // already carries wins, and the boundary's re-run cannot overwrite this one.
+  const resolution = resolveFillExclusions(styleConfig, mergedPaint, targetPaint);
   return {
     ...target,
-    // Only the resolved paint is taken here. The other two halves of the exclusions —
-    // stashing the displaced colour and reconciling a classification the paint no longer
-    // backs — belong to the write boundary that owns the layer's config (applyLayerUpdate
-    // for a paste, applyStyleExcludingFillCollisions for a bulk apply), and both still
-    // run on the way through. Re-resolving there is idempotent: this paint no longer
-    // collides, and the displaced colour is read back off the target's previous paint.
-    paint: resolveFillExclusions(styleConfig, mergedPaint, targetPaint).paint,
-    style_config: styleConfig,
+    paint: resolution.paint,
+    style_config: stashExcludedFillColor(styleConfig, resolution),
   };
 }

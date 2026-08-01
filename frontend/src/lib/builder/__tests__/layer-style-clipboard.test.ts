@@ -226,6 +226,53 @@ describe('layer-style-clipboard — applyCopiedStyleToLayer fill exclusions (#92
     expect(target.paint['fill-color']).toBe('#0000ff');
   });
 
+  it('stashes the SOURCE colour a copied pattern displaces, not the target colour (#1110 review)', () => {
+    // An imported or API-authored source can carry both an active pattern and a
+    // raw string colour with no fillColorSaved. The paste resolution is the only
+    // step that still sees that colour — if it is not stashed here, the write
+    // boundary re-resolves an already pattern-only paint and stashes the
+    // TARGET's old colour, so a later pattern→None restores the wrong one.
+    const copied = extractCopyableStyle(
+      makeLayer({
+        id: 'src',
+        dataset_geometry_type: 'Polygon',
+        paint: { 'fill-pattern': 'geolens-fill-dots', 'fill-color': '#ff0000' },
+        style_config: {},
+      }),
+    );
+    const target = makeLayer({
+      id: 'tgt',
+      dataset_geometry_type: 'Polygon',
+      paint: { 'fill-color': '#00ff00' },
+    });
+
+    const result = applyCopiedStyleToLayer(target, copied);
+
+    expect('fill-color' in result.paint).toBe(false);
+    expect(result.paint['fill-pattern']).toBe('geolens-fill-dots');
+    expect(result.style_config?.builder?.fillColorSaved).toBe('#ff0000');
+  });
+
+  it('keeps a fillColorSaved the copied style already carries (#1110 review)', () => {
+    const copied = extractCopyableStyle(
+      makeLayer({
+        id: 'src',
+        dataset_geometry_type: 'Polygon',
+        paint: { 'fill-pattern': 'geolens-fill-dots', 'fill-color': '#ff0000' },
+        style_config: { builder: { fillColorSaved: '#123456' } },
+      }),
+    );
+    const target = makeLayer({
+      id: 'tgt',
+      dataset_geometry_type: 'Polygon',
+      paint: { 'fill-color': '#00ff00' },
+    });
+
+    const result = applyCopiedStyleToLayer(target, copied);
+
+    expect(result.style_config?.builder?.fillColorSaved).toBe('#123456');
+  });
+
   it('drops the target fill-pattern when a solid-colour style is pasted over it', () => {
     const target = makeLayer({
       id: 'tgt',
