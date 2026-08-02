@@ -452,6 +452,61 @@ class TestCurvedIngestNormalization:
             ("MULTISURFACE", "MULTIPOLYGON"),
         ]
 
+    async def test_features_read_survives_a_socrata_colon_column(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#1113 review): a ``:id`` property must not read as a bind param.
+
+        Registered Socrata exports ship columns literally named ``:id``. The
+        projected select-list is interpolated into ``text()``, which parses
+        ``:name`` as a bind parameter even inside double quotes — unescaped,
+        every feature read on such a table fails before reaching PostgreSQL.
+        """
+        from types import SimpleNamespace
+
+        from app.processing.ingest.schemas import RegisterRequest
+        from app.processing.ingest.service import register_existing_table
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        table = f"byo_socrata_{uuid.uuid4().hex[:10]}"
+        # The test's own DDL needs the same escape the fix installs: text()
+        # would otherwise read ":id" here as a bind parameter too.
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table} ("  # noqa: S608
+                f'gid serial PRIMARY KEY, "\\:id" text, name text, '
+                f"geom geometry(Geometry, 4326), "
+                f"geom_4326 geometry(Geometry, 4326))"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f'INSERT INTO data.{table} ("\\:id", name, geom, geom_4326) '  # noqa: S608
+                f"VALUES ('row-1', 'first', "
+                f"ST_SetSRID(ST_MakePoint(1, 1), 4326), "
+                f"ST_SetSRID(ST_MakePoint(1, 1), 4326))"
+            )
+        )
+        await test_db_session.commit()
+
+        registered = await register_existing_table(
+            test_db_session,
+            RegisterRequest(table_name=table, title="Socrata colon column"),
+            SimpleNamespace(id=admin_id),
+        )
+        await test_db_session.commit()
+
+        resp = await client.get(
+            f"/datasets/{registered.id}/features/", headers=admin_auth_header
+        )
+        assert resp.status_code == 200, resp.text
+        props = resp.json()["features"][0]["properties"]
+        assert props[":id"] == "row-1"
+        assert props["name"] == "first"
+
     async def test_register_loosens_a_curved_geom_4326_typmod(
         self, test_db_session: AsyncSession
     ):

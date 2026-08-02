@@ -140,7 +140,12 @@ async def live_property_columns(db: AsyncSession, table_name: str) -> str:
 
     The live schema is authoritative here on purpose: ``Dataset.column_info``
     can drift from the table on re-upload, and a projected list must match
-    the table or the whole query fails. Names are double-quote escaped.
+    the table or the whole query fails. Names are double-quote escaped, and —
+    fix(#1113 review), same rule as _sql_quote_ident's fix(#640) — colons are
+    backslash-escaped because SQLAlchemy ``text()`` parses ``:name`` as a bind
+    parameter even inside double-quoted identifiers, and registered Socrata
+    exports ship columns literally named ``:id``. The output is therefore
+    only valid inside ``text()``.
 
     Returns a comma-separated quoted list, or "" when the table has no
     property columns.
@@ -157,7 +162,10 @@ async def live_property_columns(db: AsyncSession, table_name: str) -> str:
             "ORDER BY ordinal_position"
         ).bindparams(schema=schema, tn=table_name)
     )
-    return ", ".join('"' + name.replace('"', '""') + '"' for (name,) in result.all())
+    return ", ".join(
+        '"' + name.replace('"', '""').replace(":", "\\:") + '"'
+        for (name,) in result.all()
+    )
 
 
 async def _projected_row_source(
