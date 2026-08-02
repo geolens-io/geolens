@@ -165,6 +165,11 @@ CREDENTIALED_MALFORMED_URLS = [
     "https://user:hunter2\r\n@[::1]/cog.tif",
     "https://[::1?to\nken=hunter2",
     "ESRIJSON:https://user:hunter2\n@[::1",
+    # fix(#1119 review 3): urlsplit's _checknetloc refuses a netloc BECAUSE NFKC
+    # would introduce one of /?#@: — so these reach the fallback for a reason the
+    # ASCII patterns cannot see until the value is normalised the same way.
+    "https://user:hunter2＠example.com/path",
+    "https://example.com？token=hunter2",
 ]
 
 # fix(#1119 review 2): urlsplit ends an authority at `/?#` and parse_qsl ends a

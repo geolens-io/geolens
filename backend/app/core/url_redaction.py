@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from urllib.parse import parse_qsl, unquote_plus, urlencode, urlsplit, urlunsplit
 
 REDACTED_QUERY_VALUE = "<redacted>"
@@ -195,7 +196,24 @@ def _redact_without_parsing(value: str) -> str:
     Reusing ``_is_sensitive_query_param`` is what keeps this honest: the fallback
     leaks a credential only in a parameter the parsed path would also have kept,
     so it adds no leak class of its own.
+
+    fix(#1119 review 3): NFKC first, which CLOSES this class rather than adding
+    another character to it. ``urlsplit`` can only reach a ValueError here two
+    ways (CPython ``urllib/parse.py``): a bracket/IPvFuture/IPv4-in-brackets
+    problem, where the ASCII delimiters are already visible to the patterns
+    below, or ``_checknetloc`` (:441) refusing a netloc *because NFKC would
+    introduce one of* ``/?#@:``. So normalising exactly as that check does makes
+    every delimiter urlsplit objected to visible here too, and there is no third
+    source of divergence to be found later. Without it a fullwidth
+    ``＠`` or ``？`` sailed through: ``https://user:hunter2＠example.com/path``
+    came back whole.
+
+    The returned string is the normalised one — a fullwidth character reads as
+    its ASCII form in the log. That only affects strings that already failed to
+    parse, and mapping offsets back through a length-changing normalisation to
+    preserve them would be a far better way to introduce a bug than to avoid one.
     """
+    value = unicodedata.normalize("NFKC", value)
     scrubbed = _UNPARSED_USERINFO_RE.sub(
         lambda _match: f"//{REDACTED_USERINFO}@", value
     )
