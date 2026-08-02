@@ -913,7 +913,14 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # the stranded-viewer query mirrors only the default's grants+ladder,
         # so an additive overlay's viewers are invisible to it (#1068 tracks
         # the seam-aware answer). Cap 918 -> 937, exact.
-        "backend/app/modules/catalog/maps/service_public.py": 937,
+        # feat(#1068): -36. The rank table, its per-map reach function and the
+        # three named cut slices are gone: the audience seam answers "who could
+        # read this before, and who can after" directly, and a rank drop was
+        # only ever a proxy for that difference being non-empty. The guard is
+        # shorter than it was before #1111's stopgap and now asks the
+        # authority rather than restating the community ladder at it.
+        # Cap 937 -> 901, exact.
+        "backend/app/modules/catalog/maps/service_public.py": 901,
         "backend/app/modules/catalog/search/service_records.py": 500,
         # fix(#448): +~40 LOC — query-embedding hot-path deadline (asyncio.wait_for
         # wrapper) + the gated/approximated vector-only match COUNT in
@@ -961,7 +968,10 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # `new != public and old == public` gate — that gate is what hid the
         # internal-map case — and delegates the whole before/after audience
         # comparison to the maps helper. Cap 480 -> 489, exact.
-        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 489,
+        # feat(#1068): +1 — the guard call passes record_id, so the permission
+        # authority can key an audience on the record and not only its dataset.
+        # Cap 489 -> 490, exact.
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 490,
         # fix(#435 codex r1): +6 LOC in get_dataset_rows to probe schema existence
         # before degrading a 42P01 to an empty page. Postgres reports a missing
         # tenant data schema with the same code as a raster dataset's synthetic
@@ -1024,7 +1034,12 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # two functions, whose comments carry why the obvious stricter variant
         # is wrong (it hides an owner's own draft from the owner). Cap exact,
         # zero headroom.
-        "backend/app/platform/extensions/defaults_extensions.py": 372,
+        # feat(#1068): +61 — record_audience, the audience-shaped reading of
+        # the same ladder filter_visible applies per user. Roughly half the
+        # lines are the mapping between the two: which condition over there
+        # each branch here inverts, so the pair can be kept in step by reading
+        # rather than by running the equivalence suite. Cap 372 -> 433, exact.
+        "backend/app/platform/extensions/defaults_extensions.py": 433,
     }
 
     files_to_check = list(facade_line_budgets)

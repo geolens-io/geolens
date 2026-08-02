@@ -391,6 +391,48 @@ class EmbeddingProviderExtension(Protocol):
     async def resolve_runtime_config(self, db: AsyncSession) -> dict[str, object]: ...
 
 
+@dataclass(frozen=True)
+class RecordAudienceQuery:
+    """The record a caller is asking about, at a STATED visibility.
+
+    ``visibility`` and ``record_status`` are passed as values rather than read
+    off the record, so a caller can ask the counterfactual — "who would be able
+    to read this if it were private?" — which is the question neither
+    ``filter_visible`` nor ``can_access_dataset`` can answer: both take a
+    concrete user, and the answer is a set with no representative member.
+
+    ``dataset_id`` / ``record_id`` / ``owner_id`` stay ``Any`` for the same
+    reason ``WorkflowTransitionContext.dataset`` does — this platform-level
+    contract does not import catalog ORM classes at module load time. Both ids
+    are carried because grants key the DATASET while visibility lives on the
+    RECORD, so an overlay keying policy on either does not have to join.
+    """
+
+    dataset_id: Any
+    record_id: Any
+    owner_id: Any | None
+    visibility: str
+    record_status: str
+
+
+@dataclass(frozen=True)
+class RecordAudience:
+    """Who can read a record: the signed-in half as SQL, the anonymous half as a flag.
+
+    ``users`` is a SQLAlchemy boolean expression over the ``user_cls`` handed to
+    :meth:`PermissionExtension.record_audience` — a PREDICATE, not a result set.
+    That is what lets a caller compare two audiences inside one statement, and
+    lets an overlay widen with ``or_()`` rather than unioning queries.
+
+    Anonymous visitors are rows in no table, so they cannot appear in ``users``
+    and carry their own flag. A public map's audience includes them and an
+    internal map's does not, which is the distinction it exists for.
+    """
+
+    users: Any
+    includes_anonymous: bool
+
+
 @runtime_checkable
 class PermissionExtension(Protocol):
     """Policy seam for permission checks and catalog visibility filtering.
@@ -407,6 +449,27 @@ class PermissionExtension(Protocol):
     behavior MUST wrap the prior implementation retrieved via
     ``get_permission_extension()`` at construction time — never bare
     re-register the ``"permission"`` key (the slot-conflict guard rejects that).
+
+    **The stored matrix does not bound ``check_permission``.**
+    ``validate_permission_matrix`` refuses to persist some combinations
+    (``manage_tenants`` on any role, ``manage_users`` or ``manage_settings`` on
+    a non-admin one), which reads like a statement about what a caller can hold.
+    It is not: the seam is the authority and the matrix is only what the
+    database will store. An overlay may deny a stored grant or add one
+    out-of-band, and that is how a fleet operator gets ``manage_tenants`` at
+    all (see the constant's own note in ``app/core/permissions.py``). Any
+    argument of the form "the matrix cannot store X, so no caller has X" is
+    true of the table and false of the deployment. Two of us reasoned that way
+    on #1021 and both got it wrong.
+
+    **The three methods are one policy (feat(#1068), EXTENSION_API_VERSION 4).**
+    ``filter_visible`` and ``can_access_dataset`` were already a pair — the same
+    rule asked of a list and of one row (see #929/#930). ``record_audience`` is
+    the third reading of it: the same rule asked about a whole audience, for a
+    caller that has no user to pass. An overlay that changes either of the first
+    two and leaves this one on the community answer is reporting one policy and
+    serving another, and core cannot see the disagreement — so it treats such an
+    authority as unable to answer and takes the conservative refusal instead.
     """
 
     async def check_permission(
@@ -438,6 +501,36 @@ class PermissionExtension(Protocol):
         *,
         user_roles: set[str],
     ) -> bool: ...
+
+    async def record_audience(
+        self,
+        query: RecordAudienceQuery,
+        user_cls: Any,
+        *,
+        grant_cls: Any | None = None,
+    ) -> RecordAudience:
+        """Which principals can read the record described by ``query``.
+
+        ``user_cls`` is the ORM class the returned predicate must be written
+        against (core passes its ``User``); ``grant_cls`` is the dataset-grant
+        class, absent when the caller has no grant table to offer — mirroring
+        ``filter_visible``, where a missing ``grant_cls`` makes a restricted
+        record unreachable rather than ungated.
+
+        Implementations must agree with ``filter_visible`` exactly: a user the
+        predicate admits must be a user whose filtered query returns the record,
+        at the visibility and status named in ``query``. Core proves that
+        equivalence for the community default account by account and expects an
+        overlay to hold itself to the same standard. An overlay whose reads
+        reach further than the audience it reports makes the shared-map guard
+        permit a change that strands somebody, and nothing on the calling side
+        can see the gap.
+
+        Async so an overlay may resolve tenant or policy state before composing
+        the predicate, for the same reason ``can_access_dataset`` is async; the
+        community default performs no I/O.
+        """
+        ...
 
 
 @dataclass(frozen=True)

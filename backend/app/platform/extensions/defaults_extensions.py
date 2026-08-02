@@ -177,6 +177,67 @@ class DefaultPermissionExtension:
 
         return True
 
+    async def record_audience(self, query, user_cls, *, grant_cls=None):  # type: ignore[no-untyped-def]
+        """The same ladder as ``filter_visible``, read from the user end.
+
+        ``filter_visible`` asks which RECORDS a user may read; this asks which
+        USERS may read a record, at whatever visibility the caller names. One
+        rule, two directions, changed as a pair — ``test_permission_audience.py``
+        compares them account by account across every visibility, status and
+        role, so a change to one that is not mirrored here fails there instead of
+        quietly making the shared-map guard disagree with what viewers see.
+        """
+        from sqlalchemy import and_, false, or_, select, true
+
+        from app.modules.auth.models import Role, UserRole
+        from app.platform.extensions.protocols import RecordAudience
+
+        # `filter_visible` returns the statement unchanged for an admin, so an
+        # admin is in every audience. Resolved against the role table because
+        # there is no user here to read a `user_roles` set off.
+        is_admin = user_cls.id.in_(
+            select(UserRole.user_id)
+            .join(Role, Role.id == UserRole.role_id)
+            .where(Role.name == "admin")
+        )
+        # A record with no recorded owner matches no owner branch: over there
+        # `created_by == user.id` is NULL for every row.
+        is_owner = false() if query.owner_id is None else user_cls.id == query.owner_id
+
+        if query.visibility in ("public", "internal"):
+            # fix(#930): internal = any signed-in user. Bare, like `public`, for
+            # the reason spelled out over there — the status gate below is ANDed
+            # across every rung and already carries the published check.
+            reaches = true()
+        elif query.visibility == "private":
+            reaches = is_owner
+        elif query.visibility == "restricted" and grant_cls is not None:
+            # fix(#929): creator exemption, then the grant. `filter_visible`
+            # walks record -> dataset -> grant -> role -> user; this is the same
+            # edge traversed from the user end.
+            reaches = or_(
+                is_owner,
+                user_cls.id.in_(
+                    select(UserRole.user_id)
+                    .join(grant_cls, grant_cls.role_id == UserRole.role_id)
+                    .where(grant_cls.dataset_id == query.dataset_id)
+                ),
+            )
+        else:
+            # Restricted without a grant class, and any value the ladder does
+            # not name: both reach nobody in `filter_visible` too, where the
+            # condition is simply absent rather than denied.
+            reaches = false()
+
+        # `record_status == "published" OR created_by == <caller>`.
+        published = true() if query.record_status == "published" else is_owner
+        return RecordAudience(
+            users=or_(is_admin, and_(reaches, published)),
+            includes_anonymous=(
+                query.visibility == "public" and query.record_status == "published"
+            ),
+        )
+
 
 class DefaultWorkflowExtension:
     """Community-edition default publication workflow policy."""
