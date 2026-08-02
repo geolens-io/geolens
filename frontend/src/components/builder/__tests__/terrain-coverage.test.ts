@@ -62,6 +62,112 @@ describe('demViewportCoverage', () => {
   });
 });
 
+// fix(#1112 review): the antimeridian cases. `demBounds` here is the TILE
+// TOKEN's bounds (span form, from processing/tiles/router.py), not the map
+// layer's `dataset_extent_bbox`, so both forms are exercised: the span form is
+// what ships today, and the spec form is what a crossing extent looks like if
+// this input is ever sourced seam-aware.
+//
+// The rectangle that actually crosses is the VIEWPORT: MapLibre's getBounds()
+// takes min/max over unwrapped corner longitudes, so a viewport straddling the
+// seam reads e.g. [179.5, 182] rather than inverting.
+describe('demViewportCoverage across the antimeridian', () => {
+  // Fiji-shaped DEM: ~3 degrees wide, sitting on the seam.
+  const FIJI_SPEC = [178.5, -20, -178.5, -15];
+  const FIJI_SPAN = [-180, -20, 180, -15];
+  // Zoomed in over Fiji, straddling the seam. 2.5 x 2 degrees.
+  const SEAM_VIEW = [179.5, -18, 182, -16];
+  // Zoomed way out. 120 x 120 degrees.
+  const WIDE_VIEW = [120, -60, 240, 60];
+
+  it('reports a world-spanning DEM as fully covering a seam-straddling viewport', () => {
+    // The regression this fixes: clipping the DEM at +180 scored this 0.2 and
+    // warned about a "small DEM" that covers the entire screen.
+    expect(demViewportCoverage(FIJI_SPAN, SEAM_VIEW)).toBe(1);
+  });
+
+  it('scores a crossing DEM against the part of the viewport it really covers', () => {
+    // [178.5, 181.5] over a [179.5, 182] viewport → 2 of 2.5 degrees wide,
+    // full height → 0.8. The old code returned null (west > east was rejected).
+    expect(demViewportCoverage(FIJI_SPEC, SEAM_VIEW)).toBeCloseTo(0.8, 6);
+  });
+
+  it('still reports a crossing DEM as a sliver of a zoomed-out viewport', () => {
+    // 3 degrees wide, 5 of 120 degrees tall, in a 120x120 viewport.
+    expect(demViewportCoverage(FIJI_SPEC, WIDE_VIEW)).toBeCloseTo((3 * 5) / (120 * 120), 6);
+  });
+
+  it('does not credit a DEM on the far side of the globe', () => {
+    // Central France against a Fiji viewport: no turn of the globe overlaps.
+    expect(demViewportCoverage([1.5, -18, 2.5, -16], SEAM_VIEW)).toBe(0);
+  });
+
+  // fix(#1124 codex P2): `renderWorldCopies` is on by default, so getBounds()
+  // keeps running further out the more the user pans east or west. There is no
+  // bound on how far, which is why the scoring cannot enumerate a fixed set of
+  // turns. FAR_VIEW is SEAM_VIEW moved two whole turns east (+720) and must
+  // score identically; DEEP_VIEW is ten turns west (-3600) and so must the
+  // rest of the axis.
+  const FAR_VIEW = [899.5, -18, 902, -16];
+  const DEEP_VIEW = [-3420.5, -18, -3418, -16];
+
+  it('scores a far-panned viewport exactly like the equivalent one at the seam', () => {
+    expect(demViewportCoverage(FIJI_SPEC, FAR_VIEW)).toBeCloseTo(
+      demViewportCoverage(FIJI_SPEC, SEAM_VIEW) as number, 6,
+    );
+    expect(demViewportCoverage(FIJI_SPEC, DEEP_VIEW)).toBeCloseTo(
+      demViewportCoverage(FIJI_SPEC, SEAM_VIEW) as number, 6,
+    );
+  });
+
+  it('still reports a world-spanning DEM as full coverage after a far pan', () => {
+    expect(demViewportCoverage(FIJI_SPAN, FAR_VIEW)).toBe(1);
+    expect(demViewportCoverage(FIJI_SPAN, DEEP_VIEW)).toBe(1);
+  });
+
+  it('is turn-invariant for an ordinary DEM at any pan distance', () => {
+    // A plain non-crossing DEM, viewed from every turn out to ±20 world copies.
+    const dem = [10, -1, 20, 1];
+    const baseline = demViewportCoverage(dem, [12, -1, 18, 1]) as number;
+    expect(baseline).toBeGreaterThan(0);
+    for (let turn = -20; turn <= 20; turn++) {
+      const shifted = [12 + 360 * turn, -1, 18 + 360 * turn, 1];
+      expect(demViewportCoverage(dem, shifted)).toBeCloseTo(baseline, 6);
+    }
+  });
+});
+
+describe('shouldWarnSmallDemCoverage across the antimeridian', () => {
+  const FIJI_SPEC = [178.5, -20, -178.5, -15];
+  const FIJI_SPAN = [-180, -20, 180, -15];
+  const SEAM_VIEW = [179.5, -18, 182, -16];
+  const WIDE_VIEW = [120, -60, 240, 60];
+
+  it('does not warn when a crossing DEM genuinely covers the viewport', () => {
+    expect(shouldWarnSmallDemCoverage(FIJI_SPAN, SEAM_VIEW)).toBe(false);
+    expect(shouldWarnSmallDemCoverage(FIJI_SPEC, SEAM_VIEW)).toBe(false);
+  });
+
+  it('still warns when a crossing DEM genuinely covers only a sliver', () => {
+    expect(shouldWarnSmallDemCoverage(FIJI_SPEC, WIDE_VIEW)).toBe(true);
+    expect(shouldWarnSmallDemCoverage(FIJI_SPAN, WIDE_VIEW)).toBe(true);
+  });
+
+  // fix(#1124 codex P2): both directions again, but two turns east of the seam.
+  const FAR_VIEW = [899.5, -18, 902, -16];
+  const FAR_WIDE_VIEW = [840, -60, 960, 60];
+
+  it('does not warn about a covering DEM after the user pans past the seam', () => {
+    expect(shouldWarnSmallDemCoverage(FIJI_SPAN, FAR_VIEW)).toBe(false);
+    expect(shouldWarnSmallDemCoverage(FIJI_SPEC, FAR_VIEW)).toBe(false);
+  });
+
+  it('still warns about a sliver DEM after the user pans past the seam', () => {
+    expect(shouldWarnSmallDemCoverage(FIJI_SPEC, FAR_WIDE_VIEW)).toBe(true);
+    expect(shouldWarnSmallDemCoverage(FIJI_SPAN, FAR_WIDE_VIEW)).toBe(true);
+  });
+});
+
 describe('shouldWarnSmallDemCoverage', () => {
   it('warns below the threshold', () => {
     expect(shouldWarnSmallDemCoverage([-1, -1, 1, 1], WORLD_VIEW)).toBe(true);
