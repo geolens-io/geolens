@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, unquote_plus, urlencode, urlsplit, urlunsplit
 
 REDACTED_QUERY_VALUE = "<redacted>"
 REDACTED_USERINFO = "redacted"
@@ -110,6 +110,48 @@ def redact_query_credentials(query: str) -> str:
     )
 
 
+# fix(#1119): urlsplit raises ValueError on a malformed bracketed authority
+# ("https://.[::1]", "https://[::1"), and redact_url_credentials let it escape —
+# so a call whose whole contract is "return something safe to log" raised
+# instead. sources/preview.py and the three processing/ingest/validation.py sites
+# interpolate the result into an IngestionError, so a malformed authority in GDAL
+# stderr or in an uploaded VRT's <SourceFilename> became an unhandled 500.
+#
+# These two patterns are enough to cover the fallback, because urlsplit reaches
+# its bracket and NFKC checks only inside `if url[:2] == '//'`: a string that
+# raised always has a `//` authority for the userinfo pattern to anchor on.
+_UNPARSED_USERINFO_RE = re.compile(r"//[^/?#\s]*@")
+_UNPARSED_QUERY_PAIR_RE = re.compile(r"([?&])([^?&=#\s]+)=([^&#\s]*)")
+
+
+def _redact_unparsed_query_pair(match: re.Match[str]) -> str:
+    delimiter, name, _value = match.groups()
+    # unquote_plus mirrors what parse_qsl does on the parsed path, so an encoded
+    # name ("%74oken") is judged sensitive by both and cannot slip through here.
+    if not _is_sensitive_query_param(unquote_plus(name)):
+        return match.group(0)
+    return f"{delimiter}{name}={REDACTED_QUERY_VALUE}"
+
+
+def _redact_without_parsing(value: str) -> str:
+    """Redact a string ``urlsplit`` rejects, lexically and without recursing.
+
+    Deletes credentials in place instead of reconstructing the URL: the caller is
+    about to put this in a log line or an error message, and a string the parser
+    refused is most useful to whoever reads it unchanged apart from the secrets.
+    Handing it back to the URL_LIKE_RE fallback instead would recurse forever,
+    because the match would be the same substring that just failed to parse.
+
+    Reusing ``_is_sensitive_query_param`` is what keeps this honest: the fallback
+    leaks a credential only in a parameter the parsed path would also have kept,
+    so it adds no leak class of its own.
+    """
+    scrubbed = _UNPARSED_USERINFO_RE.sub(
+        lambda _match: f"//{REDACTED_USERINFO}@", value
+    )
+    return _UNPARSED_QUERY_PAIR_RE.sub(_redact_unparsed_query_pair, scrubbed)
+
+
 def redact_url_credentials(url: str) -> str:
     """Redact known credential query values and userinfo in a URL-like string."""
     prefixed = _split_prefixed_url(url)
@@ -117,7 +159,13 @@ def redact_url_credentials(url: str) -> str:
         prefix, nested_url = prefixed
         return prefix + redact_url_credentials(nested_url)
 
-    parts = urlsplit(url)
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        # fix(#1119): a malformed authority must not turn a redaction call into a
+        # raise. Reached both directly and from the URL_LIKE_RE.sub callback
+        # below, which recurses here on each matched substring of free text.
+        return _redact_without_parsing(url)
     # Only a scheme-less string (free text, GDAL stderr) goes to the regex
     # fallback. An http(s) URL with an EMPTY host (e.g. "https://?token=x") must
     # still be reconstructed below — routing it to the fallback would match the
