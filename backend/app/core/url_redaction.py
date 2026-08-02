@@ -7,7 +7,14 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 REDACTED_QUERY_VALUE = "<redacted>"
 REDACTED_USERINFO = "redacted"
-URL_LIKE_RE = re.compile(r"(?:(?:[A-Za-z0-9_+.-]+:)?https?://)[^\s\"'<>]+")
+# fix(#1116): the optional scheme prefix is bounded to 64 characters, which is
+# longer than any registered URI scheme. An unbounded `+` here is ambiguous
+# against the `https?` that follows, so a long run of prefix-class characters
+# that never completes a match made the engine retry every prefix length at
+# every start position — O(n²) on a fallback that is fed GDAL stderr and
+# uploaded-VRT paths. A longer prefix still redacts: the match simply starts
+# later in the string and still spans the whole URL.
+URL_LIKE_RE = re.compile(r"(?:(?:[A-Za-z0-9_+.-]{1,64}:)?https?://)[^\s\"'<>]+")
 
 SENSITIVE_QUERY_PARAMS = frozenset(
     {
