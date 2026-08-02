@@ -1654,7 +1654,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.7.1...HEAD
+[1.7.1]: https://github.com/geolens-io/geolens/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/geolens-io/geolens/compare/v1.6.1...v1.7.0
 [1.6.1]: https://github.com/geolens-io/geolens/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/geolens-io/geolens/compare/v1.5.1...v1.6.0
