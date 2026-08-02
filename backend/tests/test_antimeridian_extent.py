@@ -479,15 +479,18 @@ async def test_make_bbox_filter_finds_a_seam_extent_from_either_side(
 # ---------------------------------------------------------------------------
 
 
-def test_map_layer_response_bbox_stays_monotonic():
-    """fix(#892 codex P2): ``dataset_extent_bbox`` is documented as
-    ``[minx, miny, maxx, maxy]`` and feeds map viewers, not a standards
-    serializer.
+def test_map_layer_response_bbox_uses_the_spec_form():
+    """fix(#1112): ``dataset_extent_bbox`` carries the seam to the map builder.
 
-    A west > east pair there breaks three things at once. MapLibre bounds the
-    layer's tile source to no tiles at all (``map-sync.ts``), so a seam-crossing
-    layer renders blank; the builder's auto-fit and Zoom to Layer both reject an
-    inverted bbox and silently do nothing. Build the response for real, so this
+    Held the span form under #892, when all three consumers were seam-blind. The
+    two builder fit paths have since grown #903 guards that unwrap a crossing
+    pair past 180, and the span form made them unreachable — it flattens a Fiji
+    extent to the same ``[-180, s, 180, n]`` a genuinely global dataset
+    produces, so auto-fit and Zoom to Layer framed the whole world with nothing
+    left to detect. The third consumer still needs the span, because a MapLibre
+    source ``bounds`` matches no tile at all when inverted, but it converts at
+    that boundary (``normalizeRasterBounds`` in ``layer-adapters/shared.ts``)
+    instead of demanding it on the wire. Build the response for real, so this
     holds through any refactor of the helper.
     """
     from app.modules.catalog.maps._router_helpers import _build_layer_response
@@ -509,8 +512,8 @@ def test_map_layer_response_bbox_stays_monotonic():
         show_in_legend=True,
     )
     resp = _build_layer_response(layer, {"extent": _extent(SEAM_MULTIPOLYGON)})
-    assert resp.dataset_extent_bbox == [-180.0, -20.0, 180.0, -15.0]
-    assert resp.dataset_extent_bbox[0] < resp.dataset_extent_bbox[2]
+    assert resp.dataset_extent_bbox == [170.0, -20.0, -170.0, -15.0]
+    assert resp.dataset_extent_bbox[0] > resp.dataset_extent_bbox[2]
 
 
 def test_dataset_response_bbox_uses_the_spec_form():
@@ -522,8 +525,10 @@ def test_dataset_response_bbox_uses_the_spec_form():
     global dataset produces — so ``isLargeExtent`` fired first and the guards
     were unreachable. The seam has to survive the wire.
 
-    These two tests sit together deliberately: one column, two consumers with
-    opposite requirements. A refactor that unifies them fails here.
+    These two tests sit together deliberately: one column, two response fields
+    that reached opposite forms at different times (#1004, then #1112). Both are
+    the spec form now, and the span conversion has moved to the one consumer
+    that needs it, at that consumer's own boundary.
     """
     from app.modules.catalog.datasets.domain.helpers import dataset_to_response
     from app.modules.catalog.datasets.domain.models import Dataset, Record

@@ -183,10 +183,13 @@ def dataset_to_response(
         # extent to [-180, s, 180, n], which is bit-identical to a genuinely
         # global dataset, so isLargeExtent fired first and no client-side test
         # could tell the two apart. The seam information has to survive the
-        # wire. Do NOT flip the sibling `dataset_extent_bbox` in
-        # maps/_router_helpers.py: it bounds a vector tile source, where an
-        # inverted pair yields no tiles at all. One column, two contracts —
-        # both pinned in tests/test_antimeridian_extent.py.
+        # wire. fix(#1112): the sibling `dataset_extent_bbox` in
+        # maps/_router_helpers.py now serves the same form for the same reason.
+        # It reaches a MapLibre source `bounds`, where an inverted pair yields
+        # no tiles at all, but the span conversion belongs at that boundary
+        # (normalizeRasterBounds in layer-adapters/shared.ts) rather than on the
+        # wire, so the builder's fit paths still get the seam. One column, one
+        # contract — pinned in tests/test_antimeridian_extent.py.
         extent_bbox=extent_to_bbox(record.spatial_extent),
         column_info=dataset.column_info,
         quality_detail=dataset.quality_detail,

@@ -245,6 +245,13 @@ export function toSyncInput(layer: MapLayerResponse): SyncLayerInput {
     tile_version: layer.tile_version,
     // MVT-06: surface the dataset spatial extent so the vector source can bound
     // tile fetching to the data footprint (the raster path already passes bounds).
+    // fix(#1112): this is the RFC 7946 spec form now — `west > east` on an
+    // antimeridian crossing — and it is passed through unconverted on purpose.
+    // Every reader of `bounds` reaches a MapLibre source through
+    // `normalizeRasterBounds` (layer-adapters/shared.ts), which spans it there,
+    // at the one boundary that cannot express a crossing. Converting here would
+    // be a second copy of that rule and would discard the seam before anything
+    // downstream could use it.
     bounds: layer.dataset_extent_bbox ?? null,
   };
 }
