@@ -62,11 +62,11 @@ describe('demViewportCoverage', () => {
   });
 });
 
-// fix(#1112 review): the antimeridian cases. `demBounds` here is the TILE
-// TOKEN's bounds (span form, from processing/tiles/router.py), not the map
-// layer's `dataset_extent_bbox`, so both forms are exercised: the span form is
-// what ships today, and the spec form is what a crossing extent looks like if
-// this input is ever sourced seam-aware.
+// fix(#1128): the antimeridian cases, in both encodings a DEM can arrive in.
+// The spec form (`west > east`) is what BuilderMap passes today — the layer's
+// `dataset_extent_bbox`. The span form is what the tile token still carries and
+// what the builder used to pass; it survives as the no-extent fallback, and it
+// is the only encoding the viewer path has.
 //
 // The rectangle that actually crosses is the VIEWPORT: MapLibre's getBounds()
 // takes min/max over unwrapped corner longitudes, so a viewport straddling the
@@ -165,6 +165,41 @@ describe('shouldWarnSmallDemCoverage across the antimeridian', () => {
   it('still warns about a sliver DEM after the user pans past the seam', () => {
     expect(shouldWarnSmallDemCoverage(FIJI_SPEC, FAR_WIDE_VIEW)).toBe(true);
     expect(shouldWarnSmallDemCoverage(FIJI_SPAN, FAR_WIDE_VIEW)).toBe(true);
+  });
+});
+
+// fix(#1128): the issue's own table, pinned to the number. A Fiji-shaped DEM
+// and a globe-spanning one are THE SAME VALUE in the tile token's span form
+// ([-180, s, 180, n]), which is why the guard went silent for the first; the
+// spec form separates them. Both rows are pinned, because a fix that only
+// stops the false negative could regress into warning about the DEM that
+// genuinely fills the screen — the #1122 bug, back again from the other side.
+//
+// These are the pure scorers, so no `maybeWarnSmallDemCoverage` dedupe state
+// exists to bleed in and decide a result.
+describe('#1128 seam-crossing vs globe-spanning DEM in the same viewport', () => {
+  // [179.5, -20, 190, -15] — 10.5 x 5 degrees, straddling the seam.
+  const ISSUE_VIEW = [179.5, -20, 190, -15];
+  // The crossing footprint as `dataset_extent_bbox` delivers it (RFC 7946 §5.2,
+  // #1112): 3 degrees wide, 2 of them inside the viewport.
+  const CROSSING_SPEC = [178.5, -20, -178.5, -15];
+  // What BOTH a crossing DEM (via extent_to_span_bbox) and a genuinely global
+  // DEM look like on the tile token. Indistinguishable — that is the defect.
+  const GLOBAL_SPAN = [-180, -20, 180, -15];
+
+  it('scores the crossing DEM at the true 19%, not the token span 100%', () => {
+    // 2 of 10.5 degrees wide, full height: 10 / 52.5.
+    expect(demViewportCoverage(CROSSING_SPEC, ISSUE_VIEW)).toBeCloseTo(10 / 52.5, 6);
+    expect(demViewportCoverage(CROSSING_SPEC, ISSUE_VIEW) as number).toBeLessThan(0.2);
+  });
+
+  it('warns for the crossing DEM (the false negative this fixes)', () => {
+    expect(shouldWarnSmallDemCoverage(CROSSING_SPEC, ISSUE_VIEW)).toBe(true);
+  });
+
+  it('stays silent for a DEM that genuinely spans the globe', () => {
+    expect(demViewportCoverage(GLOBAL_SPAN, ISSUE_VIEW)).toBe(1);
+    expect(shouldWarnSmallDemCoverage(GLOBAL_SPAN, ISSUE_VIEW)).toBe(false);
   });
 });
 

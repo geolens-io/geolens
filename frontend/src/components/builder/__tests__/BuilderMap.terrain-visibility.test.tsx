@@ -12,8 +12,10 @@
 // the tokenMap has an entry and the attach path can run.
 
 import type { ReactNode } from 'react';
+import { toast } from 'sonner';
 import { act, render } from '@/test/test-utils';
 import { TERRAIN_SOURCE_ID, applyBasemapConfigToMap, syncLayersToMap } from '../map-sync';
+import { resetSmallDemWarning } from '../terrain-coverage';
 import type { MapBasemapConfig, MapLayerResponse, MapTerrainConfig } from '@/types/api';
 import type { RasterTileToken } from '@/api/tiles';
 import { BuilderMap } from '../BuilderMap';
@@ -96,6 +98,7 @@ type FakeMap = {
   getSource: ReturnType<typeof vi.fn>;
   getLayer: ReturnType<typeof vi.fn>;
   getStyle: ReturnType<typeof vi.fn>;
+  getBounds: ReturnType<typeof vi.fn>;
   fitBounds: ReturnType<typeof vi.fn>;
   getZoom: ReturnType<typeof vi.fn>;
   setZoom: ReturnType<typeof vi.fn>;
@@ -104,6 +107,13 @@ type FakeMap = {
 
 const mapState = vi.hoisted(() => {
   const handlers = new Map<string, Set<(payload?: unknown) => void>>();
+  // fix(#1128): the viewport the small-DEM coverage guard measures against.
+  // getBounds() used to be absent here, so the guard threw into its own
+  // try/catch and no-oped. It defaults to the DEM fixture's own extent — full
+  // coverage, no warning — so every test written while it was inert keeps the
+  // behavior it was written against. The #1128 cases override it.
+  const DEFAULT_VIEWPORT: [number, number, number, number] = [-113, 36, -111.5, 37];
+  let viewport = DEFAULT_VIEWPORT;
   const fakeMap: FakeMap = {
     on: vi.fn((event: string, handler: (payload?: unknown) => void) => {
       const existing = handlers.get(event) ?? new Set();
@@ -133,6 +143,12 @@ const mapState = vi.hoisted(() => {
     getSource: vi.fn((id: string) => (id === TERRAIN_SOURCE_ID ? { type: 'raster-dem' } : null)),
     getLayer: vi.fn(() => null),
     getStyle: vi.fn(() => ({ layers: [] })),
+    getBounds: vi.fn(() => ({
+      getWest: () => viewport[0],
+      getSouth: () => viewport[1],
+      getEast: () => viewport[2],
+      getNorth: () => viewport[3],
+    })),
     fitBounds: vi.fn(),
     getZoom: vi.fn(() => 2),
     setZoom: vi.fn(),
@@ -145,7 +161,11 @@ const mapState = vi.hoisted(() => {
 
   return {
     fakeMap,
+    setViewport: (next: [number, number, number, number]) => {
+      viewport = next;
+    },
     reset: () => {
+      viewport = DEFAULT_VIEWPORT;
       handlers.clear();
       fakeMap.on.mockClear();
       fakeMap.off.mockClear();
@@ -159,6 +179,7 @@ const mapState = vi.hoisted(() => {
       fakeMap.getSource.mockClear();
       fakeMap.getLayer.mockClear();
       fakeMap.getStyle.mockClear();
+      fakeMap.getBounds.mockClear();
       fakeMap.fitBounds.mockClear();
       fakeMap.getZoom.mockClear();
       fakeMap.setZoom.mockClear();
@@ -386,6 +407,62 @@ describe('BuilderMap BLDR-02: terrain attach/detach on DEM layer visibility togg
     const setTerrainCalls = mapState.fakeMap.setTerrain.mock.calls;
     expect(setTerrainCalls.length).toBeGreaterThan(0);
     expect(setTerrainCalls[setTerrainCalls.length - 1][0]).toMatchObject({ source: TERRAIN_SOURCE_ID });
+  });
+});
+
+// fix(#1128): the small-DEM coverage guard must measure the DEM LAYER's
+// `dataset_extent_bbox`, not the tile token's `bounds`. The token carries the
+// span form (extent_to_span_bbox, processing/tiles/router.py), which widens a
+// seam-crossing footprint to exactly [-180, s, 180, n] — byte-identical to a
+// genuinely global DEM. Measuring from it read 100% coverage and said nothing
+// about a DEM occupying a fifth of the screen.
+//
+// Both directions are pinned. A fix that only stops the false negative could
+// regress into warning about the DEM that visibly fills the screen, which is
+// the #1122 bug arriving from the other side.
+describe('BuilderMap #1128: small-DEM coverage reads the layer extent, not the token span', () => {
+  // The issue's viewport: 10.5 x 5 degrees, straddling the antimeridian.
+  const SEAM_VIEW: [number, number, number, number] = [179.5, -20, 190, -15];
+  // What the token carries for EITHER dataset below — the ambiguity itself.
+  const TOKEN_SPAN = [-180, -20, 180, -15];
+
+  beforeEach(() => {
+    mapState.reset();
+    mapState.setViewport(SEAM_VIEW);
+    vi.mocked(toast.warning).mockClear();
+    // The dedupe store is a module-level WeakMap keyed on the map object, and
+    // every test in this file shares the one hoisted fakeMap. Clear it, or the
+    // second case below is decided by the first case's leftover key rather
+    // than by its own coverage.
+    resetSmallDemWarning(mapState.fakeMap);
+    tileTokenState.tokens = [
+      { data: { ...rasterToken, bounds: [...TOKEN_SPAN] }, isLoading: false, isError: false },
+    ];
+  });
+
+  async function renderWithExtent(extent: number[]) {
+    const demLayer: MapLayerResponse = { ...makeDemLayer(true), dataset_extent_bbox: extent };
+    await act(async () => {
+      render(
+        <BuilderMap
+          layers={[demLayer]}
+          basemapStyle="openfreemap-positron"
+          terrainConfig={terrainConfig}
+        />,
+      );
+    });
+  }
+
+  it('warns for a seam-crossing DEM the token span reports as global', async () => {
+    // RFC 7946 §5.2 spec form (#1112): 3 degrees wide, 2 of them inside the
+    // viewport → 19% coverage, under the 25% threshold.
+    await renderWithExtent([178.5, -20, -178.5, -15]);
+    expect(toast.warning).toHaveBeenCalledTimes(1);
+  });
+
+  it('stays silent for a DEM that genuinely spans the globe', async () => {
+    await renderWithExtent([-180, -20, 180, -15]);
+    expect(toast.warning).not.toHaveBeenCalled();
   });
 });
 

@@ -143,6 +143,13 @@ export function useViewerTerrain({
     // the viewport. demBounds come from the raster token (the only bounds source
     // available here; SharedLayerResponse carries no bounds). When the terrain is
     // driven by a non-raster token (no bounds), the guard simply no-ops.
+    //
+    // fix(#1128): BuilderMap switched to the layer's `dataset_extent_bbox`,
+    // because the token span cannot distinguish a seam-crossing DEM from a
+    // global one. This site deliberately did NOT follow: `SharedLayerResponse`
+    // has no extent field, and adding one would buy nothing — `audience:
+    // 'viewer'` below suppresses the toast before `demBounds` is read (#430
+    // V-06), so there is no under-warning here to fix.
     const demBounds = terrainToken?.kind === 'raster' ? terrainToken.bounds : null;
     resetSmallDemWarning(map, terrainDatasetId);
     // fix(#430 V-06): suppress the builder-oriented small-DEM advice toast for viewers —
