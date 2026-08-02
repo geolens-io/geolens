@@ -1241,7 +1241,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1113 review r8): +24 — a generated column whose CURRENT rows are
     # curved refuses registration with the actionable cause, instead of
     # admitting a dataset broken on every surface. Cap 2119 -> 2143, exact.
-    "backend/app/processing/ingest/metadata.py": 2143,
+    # fix(#1113 review r9): +4 — the reject test becomes "would linearization
+    # change the value" (byte-compare), catching curve containers nested in a
+    # GEOMETRYCOLLECTION without over-rejecting all-linear collections.
+    # Cap 2143 -> 2147, still exact.
+    "backend/app/processing/ingest/metadata.py": 2147,
     # ingest/router.py is also scanned by the router-glob gate; this exact
     # ratchet overrides its 1500 default so the remaining ~18-line runway to
     # the cliff cannot be spent silently.

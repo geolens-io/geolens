@@ -599,6 +599,75 @@ class TestCurvedIngestNormalization:
                 SimpleNamespace(id=admin_id),
             )
 
+    async def test_generated_reject_sees_nested_curves_but_not_linear_gcs(
+        self, test_db_session: AsyncSession
+    ):
+        """fix(#1113 review r9): the reject test is 'would conversion change it'.
+
+        A curve container nested in a GEOMETRYCOLLECTION has no arc and a
+        collection top-level type, so any type-list predicate misses it; an
+        all-LINEAR collection must still register. The byte-compare against
+        ST_CurveToLine's output answers both with one test.
+        """
+        from types import SimpleNamespace
+
+        import pytest as _pytest
+
+        from app.processing.ingest.schemas import RegisterRequest
+        from app.processing.ingest.service import register_existing_table
+
+        admin_id = await get_user_id(test_db_session, "admin")
+
+        nested = f"byo_gennested_{uuid.uuid4().hex[:10]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{nested} ("  # noqa: S608
+                f"gid serial PRIMARY KEY, name text, "
+                f"geom geometry(Geometry, 4326), "
+                f"geom_4326 geometry GENERATED ALWAYS AS (geom) STORED)"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{nested} (name, geom) VALUES "  # noqa: S608
+                f"('hidden', ST_GeomFromText("
+                f"'GEOMETRYCOLLECTION(MULTISURFACE(((0 0,1 0,1 1,0 1,0 0))))'"
+                f", 4326))"
+            )
+        )
+        await test_db_session.commit()
+        with _pytest.raises(ValueError, match="generated column.*curved"):
+            await register_existing_table(
+                test_db_session,
+                RegisterRequest(table_name=nested, title="Nested curved"),
+                SimpleNamespace(id=admin_id),
+            )
+        await test_db_session.rollback()
+
+        linear_gc = f"byo_genlingc_{uuid.uuid4().hex[:10]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{linear_gc} ("  # noqa: S608
+                f"gid serial PRIMARY KEY, name text, "
+                f"geom geometry(Geometry, 4326), "
+                f"geom_4326 geometry GENERATED ALWAYS AS (geom) STORED)"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{linear_gc} (name, geom) VALUES "  # noqa: S608
+                f"('plain', ST_GeomFromText("
+                f"'GEOMETRYCOLLECTION(POINT(1 1),LINESTRING(0 0,1 1))', 4326))"
+            )
+        )
+        await test_db_session.commit()
+        registered = await register_existing_table(
+            test_db_session,
+            RegisterRequest(table_name=linear_gc, title="Linear GC generated"),
+            SimpleNamespace(id=admin_id),
+        )
+        assert registered is not None
+
     async def test_register_loosens_a_curved_geom_4326_typmod(
         self, test_db_session: AsyncSession
     ):

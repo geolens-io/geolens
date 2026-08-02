@@ -1662,14 +1662,18 @@ async def linearize_existing_4326(
         # instead. An empty or linear generated column registers fine; an
         # expression that only yields curves for FUTURE rows is #1114's
         # residue, same as any post-registration external write.
+        # fix(#1113 review r9): the test is "would linearization change the
+        # value", byte-for-byte — it catches arcs, top-level curve types, AND
+        # curve containers nested inside a GEOMETRYCOLLECTION with one
+        # comparison, while an all-linear collection (which ST_CurveToLine
+        # returns unchanged) stays registrable. A type list here would either
+        # miss the nested case or over-reject linear collections.
         curved = (
             await session.execute(
                 text(
                     f"SELECT 1 FROM {tref} "  # noqa: S608
-                    f"WHERE ST_HasArc(geom_4326) "
-                    f"   OR rtrim(GeometryType(geom_4326), 'M') IN "
-                    f"      ('CIRCULARSTRING','COMPOUNDCURVE','CURVEPOLYGON',"
-                    f"       'MULTICURVE','MULTISURFACE') "
+                    f"WHERE ST_AsBinary(ST_CurveToLine(geom_4326)) "
+                    f"      <> ST_AsBinary(geom_4326) "
                     f"LIMIT 1"
                 )
             )

@@ -51,6 +51,9 @@ def _quote_ident(name: str) -> str:
 
 
 def upgrade() -> None:
+    import logging
+
+    log = logging.getLogger("alembic.runtime.migration")
     conn = op.get_bind()
     tables = conn.execute(
         sa.text(
@@ -140,6 +143,51 @@ def upgrade() -> None:
                 f"   OR rtrim(GeometryType(geom_4326), 'M') = 'GEOMETRYCOLLECTION'"
             )
         )
+
+    # fix(#1113 review r9): the loop above must SKIP stored generated columns
+    # (any UPDATE against one aborts at parse time), but an already-registered
+    # dataset whose generated expression yields curves stays broken with no
+    # signal. Surface those tables to the operator — a SELECT cannot abort the
+    # migration — and point at the tracking issue; repairing a column someone
+    # else's expression owns is not this migration's call (#1114).
+    generated = conn.execute(
+        sa.text(
+            """
+            SELECT c.table_schema, c.table_name
+            FROM information_schema.columns AS c
+            JOIN information_schema.tables AS t
+              ON t.table_schema = c.table_schema
+             AND t.table_name = c.table_name
+            WHERE c.column_name = 'geom_4326'
+              AND c.udt_name = 'geometry'
+              AND t.table_type = 'BASE TABLE'
+              AND c.is_generated = 'ALWAYS'
+              AND (c.table_schema = 'data'
+                   OR c.table_schema IN (
+                       SELECT 'data_t_' || pg_catalog.replace(id::text, '-', '_')
+                       FROM catalog.tenants
+                   ))
+            """
+        )
+    ).all()
+    for schema, table in generated:
+        curved = conn.execute(
+            sa.text(
+                f"SELECT 1 FROM {_quote_ident(schema)}.{_quote_ident(table)} "
+                f"WHERE ST_AsBinary(ST_CurveToLine(geom_4326)) "
+                f"      <> ST_AsBinary(geom_4326) LIMIT 1"
+            )
+        ).first()
+        if curved is not None:
+            log.warning(
+                "%s.%s: geom_4326 is a GENERATED column whose expression "
+                "yields curved geometries; this backfill cannot repair it and "
+                "tiles/feature reads/analysis will fail for that dataset. "
+                "Adjust the generation expression to apply ST_CurveToLine "
+                "(tracked in geolens#1114).",
+                schema,
+                table,
+            )
 
 
 def downgrade() -> None:
