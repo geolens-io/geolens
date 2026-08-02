@@ -27,7 +27,11 @@ from app.modules.catalog.maps.service_shared import (
 )
 from app.modules.embed_tokens.models import EmbedToken
 from app.modules.embed_tokens.service import resolve_embed_scope_for_map
-from app.platform.extensions import get_catalog_port
+from app.platform.extensions import (
+    DefaultPermissionExtension,
+    get_catalog_port,
+    get_permission_extension,
+)
 
 if TYPE_CHECKING:
     from fastapi import Request
@@ -95,12 +99,28 @@ _SHARED_MAP_AUDIENCES = ("public", "internal")
 # properly needs a new protocol method and an EXTENSION_API_VERSION bump, so it
 # is tracked separately rather than folded into a visibility fix.
 #
-# The failure direction is why deferring it is safe. Narrowing the real audience
-# only ever makes this guard MORE conservative: it can refuse a move that
-# strands nobody, never permit one that strands someone. So an overlay inherits
-# a refusal that lies, not a silent break — the same class as the grant and
-# publication-status cases above, and the reason those were worth fixing rather
-# than urgent. See #1068 for the shape of the seam change.
+# The two overlay directions do NOT fail the same way, and this paragraph said
+# they did until the guard stopped being rank-only. `_stranded_viewer_exists`
+# reads `users`/`user_roles` directly rather than going through
+# `filter_visible`, and its answer is what makes this function `return []`, so
+# the community answer can now be permissive as well as conservative:
+#
+#   NARROWING overlay (ABAC excluding some active non-owner users) — the query
+#   finds a user the overlay would have excluded, the guard refuses, and nobody
+#   was actually stranded. A refusal that lies, which is the safe direction and
+#   the same class as the grant and publication-status cases above.
+#
+#   WIDENING overlay (extra visible rows OR'd in — the additive shape SLOT-02's
+#   wrap-don't-replace rule is written for, and what `PermissionExtension`'s own
+#   docstring offers as "advanced RBAC, ABAC, or row-level filters") — the
+#   community query finds nobody stranded, the guard returns [], the change
+#   applies, and a user the overlay HAD granted access to silently loses the
+#   layer. That is the break this guard exists to prevent, reappearing one level
+#   up.
+#
+# Both need the seam, and neither is fixable here: `filter_visible` and
+# `can_access_dataset` take a CONCRETE user, and a map's audience is a set with
+# no representative member to pass them. See #1068 for the protocol method.
 #
 # fix(#931 codex r1): `restricted` is a PARTIAL audience, not an absent one.
 # Treating it as unreachable made `restricted -> private` look like it stranded
@@ -108,45 +128,55 @@ _SHARED_MAP_AUDIENCES = ("public", "internal")
 _DATASET_AUDIENCE_RANK = {"private": 0, "restricted": 1, "internal": 2, "public": 3}
 
 
-def _reach_rank(
-    map_visibility: str, dataset_visibility: str, *, restricted_has_grants: bool
-) -> int:
-    """How much of ``map_visibility``'s audience the dataset reaches.
+def _reach_rank(map_visibility: str, dataset_visibility: str) -> int:
+    """How much of ``map_visibility``'s audience the dataset COULD reach.
 
     An internal map's audience is every signed-in user, and both ``internal``
     and ``public`` reach all of them — so the two tie there, which is what makes
     the public-to-internal move safe on an internal map and not on a public one.
 
-    fix(#931 codex r2): ``restricted`` only outranks ``private`` when grants
-    actually exist. A restricted dataset with no ``DatasetGrant`` rows — the
-    state you land in by flipping an ungranted dataset to restricted — reaches
-    nobody beyond its owner and admins, who keep access afterwards either way.
-    Ranking it 1 unconditionally blocked ``restricted -> private`` on a map
-    nothing was stranded on, which is a refusal that lies to the user.
+    This is the upper bound, not the answer. A drop here says the audience
+    narrows; whether anyone is standing in the part being cut is a separate
+    question that :func:`_stranded_viewer_exists` asks against real accounts.
     """
     rank = _DATASET_AUDIENCE_RANK.get(dataset_visibility, 0)
-    if dataset_visibility == "restricted" and not restricted_has_grants:
-        rank = _DATASET_AUDIENCE_RANK["private"]
     if map_visibility == "internal":
         return min(rank, _DATASET_AUDIENCE_RANK["internal"])
     return rank
 
 
-async def _has_affected_grant_holders(
-    session: AsyncSession, dataset_id: uuid.UUID, owner_id: uuid.UUID | None
+async def _stranded_viewer_exists(
+    session: AsyncSession,
+    dataset_id: uuid.UUID,
+    owner_id: uuid.UUID | None,
+    *,
+    slice_: str,
 ) -> bool:
-    """Whether a grant on this dataset reaches anyone who would LOSE access.
+    """Does a real viewer sit in the audience a change is about to remove?
 
-    fix(#931 codex r3): a grant row is not an audience. A grant to an empty
-    role reaches nobody, and a grant whose only members are the dataset's owner
-    or an admin reaches nobody who loses anything — the owner keeps access
-    through the creator exemption and an admin bypasses the filter entirely. So
-    the question is not "does a grant exist" but "does a grant reach a user who
-    is neither", and only that user can be stranded by a move to private.
+    fix(#931 codex r5): a rank DROP is not the same as someone losing access.
+    The rank says how wide the audience could be; this asks whether anyone is
+    actually in the part being cut. Both directions were wrong without it:
+    `internal -> restricted` was refused even when every active user is in a
+    granted role, and `internal -> private` was refused on an instance whose
+    only other accounts are admins.
 
-    fix(#931 codex r2): queried only when ``restricted`` is one of the two
-    visibilities in play, so the ordinary public/internal/private moves cost
-    nothing extra.
+    ``slice_`` names the part being cut, and there are three:
+    ``"granted"`` for `restricted -> private`, which drops the grant holders;
+    ``"ungranted"`` for `internal -> restricted`, which drops everyone no grant
+    reaches; and ``"any"`` for `internal -> private`, which drops all of them.
+
+    The exclusions are the same in both cases and are what make this a question
+    about real viewers. The owner keeps access through the creator exemption
+    and an admin bypasses the filter, so neither is ever stranded. And the
+    account must be able to authenticate at all: `get_optional_user` rejects a
+    non-active user before they can render a layer, so pending, suspended and
+    deactivated accounts are not an audience. Both columns are tested,
+    mirroring `auth/dependencies.py`'s
+    `not user.is_active or user.status != "active"` — the
+    `chk_users_status_active_consistency` CHECK keeps them equal, so this is one
+    test written the way the gate writes it rather than two, and the mirror
+    cannot drift.
     """
     from app.modules.auth.models import Role, User, UserRole
     from app.modules.catalog.datasets.domain.models import DatasetGrant
@@ -156,28 +186,23 @@ async def _has_affected_grant_holders(
         .join(Role, Role.id == UserRole.role_id)
         .where(Role.name == "admin")
     )
-    stmt = (
+    granted_user_ids = (
         select(UserRole.user_id)
         .join(DatasetGrant, DatasetGrant.role_id == UserRole.role_id)
-        # fix(#931 codex r4): the grant holder must be an account that can
-        # actually authenticate. `get_optional_user` rejects an inactive user
-        # before they can render a layer, so a grant whose only members are
-        # pending, suspended or deactivated reaches nobody — counting them made
-        # the guard block a move that strands no current viewer.
-        #
-        # Both columns, mirroring `auth/dependencies.py`'s
-        # `not user.is_active or user.status != "active"` exactly. The
-        # `chk_users_status_active_consistency` CHECK keeps them equal, so this
-        # is not two tests today — it is one test written the way the gate
-        # writes it, so the two cannot drift apart later.
-        .join(User, User.id == UserRole.user_id)
+        .where(DatasetGrant.dataset_id == dataset_id)
+    )
+    stmt = (
+        select(User.id)
         .where(User.is_active.is_(True))
         .where(User.status == "active")
-        .where(DatasetGrant.dataset_id == dataset_id)
-        .where(UserRole.user_id.notin_(admin_user_ids))
+        .where(User.id.notin_(admin_user_ids))
     )
+    if slice_ == "granted":
+        stmt = stmt.where(User.id.in_(granted_user_ids))
+    elif slice_ == "ungranted":
+        stmt = stmt.where(User.id.notin_(granted_user_ids))
     if owner_id is not None:
-        stmt = stmt.where(UserRole.user_id != owner_id)
+        stmt = stmt.where(User.id != owner_id)
     return (await session.execute(stmt.limit(1))).scalar_one_or_none() is not None
 
 
@@ -213,23 +238,59 @@ async def find_maps_broken_by_dataset_visibility(
     # rank comparison here would invent a 422 for a move that costs nothing.
     if record_status != "published":
         return []
-    restricted_has_grants = False
-    if "restricted" in (old_visibility, new_visibility):
-        restricted_has_grants = await _has_affected_grant_holders(
-            session, dataset_id, owner_id
-        )
     audiences = [
         visibility
         for visibility in _SHARED_MAP_AUDIENCES
-        if _reach_rank(
-            visibility, new_visibility, restricted_has_grants=restricted_has_grants
-        )
-        < _reach_rank(
-            visibility, old_visibility, restricted_has_grants=restricted_has_grants
-        )
+        if _reach_rank(visibility, new_visibility)
+        < _reach_rank(visibility, old_visibility)
     ]
     if not audiences:
         return []
+    # fix(#931 codex r5): the rank narrowing says the audience COULD shrink;
+    # whether anyone is standing in the part being cut is a separate question.
+    #
+    # fix(#931 codex r6): asked PER AUDIENCE. A public map losing a public
+    # dataset always strands its anonymous visitors — they see nothing else,
+    # always exist, and are never a row in `users` — but that says nothing about
+    # the internal map beside it, whose viewers may all hold grants. Answering
+    # once for both listed maps that were not stranded, sending the operator to
+    # remove a layer from a map that renders fine.
+    signed_in_stranded: bool | None = None
+    stranded: list[str] = []
+    for visibility in audiences:
+        if visibility == "public" and old_visibility == "public":
+            stranded.append(visibility)
+            continue
+        if signed_in_stranded is None:
+            # fix(#1111 review): the community query below mirrors
+            # DefaultPermissionExtension's grants+ladder exactly, so its answer
+            # is authoritative only while that default IS the permission
+            # authority. A registered overlay can additively widen a dataset's
+            # audience (the SLOT-02 wrap shape), and a viewer only the overlay
+            # admits is invisible to this query — under the rank-only #1056
+            # guard such a viewer was protected by the over-refusal, so
+            # permitting on community math here would strip that accidental
+            # protection. Until #1068 lets the seam answer audience questions,
+            # a non-default authority keeps the conservative refusal.
+            # `type(...) is` on purpose: a subclassing overlay must not read
+            # as the default.
+            if type(get_permission_extension()) is not DefaultPermissionExtension:
+                signed_in_stranded = True
+            else:
+                # The same question whichever map asks it: the dataset's own
+                # audience, so it is resolved once and reused.
+                if old_visibility in ("public", "internal"):
+                    cut = "ungranted" if new_visibility == "restricted" else "any"
+                else:
+                    cut = "granted"
+                signed_in_stranded = await _stranded_viewer_exists(
+                    session, dataset_id, owner_id, slice_=cut
+                )
+        if signed_in_stranded:
+            stranded.append(visibility)
+    if not stranded:
+        return []
+    audiences = stranded
     stmt = (
         select(Map.name)
         .select_from(MapLayer)

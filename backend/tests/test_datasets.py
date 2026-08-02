@@ -10,6 +10,7 @@ Requirements:
 """
 
 import uuid
+from contextlib import asynccontextmanager
 
 import pytest
 from httpx import AsyncClient
@@ -676,6 +677,267 @@ class TestUpdateMetadata:
         )
         assert allowed.status_code == 200, allowed.text
 
+    @staticmethod
+    @asynccontextmanager
+    async def _only_admins_active(test_db_session, keep: set | None = None):
+        """Temporarily leave the admin accounts as the only active users.
+
+        The per-worker DB persists across tests, so earlier ones leave live
+        `viewer_<hex>` accounts behind. A test asserting "nobody else is in the
+        audience" has to remove them — and RESTORE them, or it silently rewrites
+        the world for every test that runs after it in the same worker. Ask me
+        how I know.
+
+        ``keep`` spares the named user ids, for a test whose claim is "the only
+        active non-admins are these" rather than "there are none".
+        """
+        from app.modules.auth.models import Role, User, UserRole
+
+        admin_ids = (
+            select(UserRole.user_id)
+            .join(Role, Role.id == UserRole.role_id)
+            .where(Role.name == "admin")
+        )
+        stray_stmt = select(User).where(
+            User.is_active.is_(True), User.id.notin_(admin_ids)
+        )
+        if keep:
+            stray_stmt = stray_stmt.where(User.id.notin_(keep))
+        strays = (await test_db_session.execute(stray_stmt)).scalars().all()
+        saved = [(u, u.is_active, u.status) for u in strays]
+        for user, _, _ in saved:
+            user.is_active = False
+            user.status = "suspended"
+        await test_db_session.commit()
+        try:
+            yield
+        finally:
+            for user, was_active, was_status in saved:
+                user.is_active = was_active
+                user.status = was_status
+            await test_db_session.commit()
+
+    async def test_internal_to_private_does_not_block_when_no_one_else_is_active(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """fix(#931 codex r5): a rank drop is not the same as someone losing access.
+
+        No `viewer_auth_header` here, so the only accounts are the admin owner
+        and other admins — all of whom keep access either way. The internal
+        audience the move removes is empty, so refusing would be a refusal that
+        lies. Deactivate any stray non-admin left by an earlier test in this
+        worker, since the per-worker DB persists.
+        """
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await self._dataset_on_map(
+            test_db_session,
+            admin_id,
+            dataset_visibility="internal",
+            map_visibility="internal",
+            map_name="No Other Viewers Map",
+        )
+
+        async with self._only_admins_active(test_db_session):
+            resp = await client.patch(
+                f"/datasets/{ds.id}",
+                json={"visibility": "private"},
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 200, resp.text
+
+    async def test_internal_to_restricted_does_not_block_when_everyone_is_granted(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        viewer_auth_header: dict,
+        test_db_session,
+    ):
+        """fix(#1073): `internal -> restricted` when every active user holds a grant.
+
+        The slice this move cuts is the users no grant reaches. Once the
+        context manager suspends the strays, the fixture viewer is the only
+        active non-admin — and the grant below reaches them, so the cut slice
+        is empty and a refusal would strand nobody. The mirror below is the
+        same move with the same viewer ungranted, and it must still block.
+        """
+        from app.modules.auth.models import Role, UserRole
+        from app.modules.catalog.datasets.domain.models import DatasetGrant
+
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await self._dataset_on_map(
+            test_db_session,
+            admin_id,
+            dataset_visibility="internal",
+            map_visibility="internal",
+            map_name="Everyone Granted Map",
+        )
+        viewer_id = uuid.UUID(
+            (await client.get("/auth/me/", headers=viewer_auth_header)).json()["id"]
+        )
+        role = Role(name=f"granted-all-{uuid.uuid4().hex[:8]}")
+        test_db_session.add(role)
+        await test_db_session.flush()
+        test_db_session.add(UserRole(user_id=viewer_id, role_id=role.id))
+        test_db_session.add(DatasetGrant(dataset_id=ds.id, role_id=role.id))
+        await test_db_session.commit()
+
+        async with self._only_admins_active(test_db_session, keep={viewer_id}):
+            resp = await client.patch(
+                f"/datasets/{ds.id}",
+                json={"visibility": "restricted"},
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 200, resp.text
+
+    async def test_precision_yields_to_conservative_under_a_permission_overlay(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        viewer_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """fix(#1111 review): a non-default permission authority disables precision.
+
+        The stranded-viewer query mirrors DefaultPermissionExtension's
+        grants+ladder, so its answer is authoritative only while that default IS
+        the permission authority. An overlay that additively widens a dataset's
+        audience (the SLOT-02 wrap shape) admits viewers the query cannot see —
+        under the rank-only #1056 guard they were protected by the
+        over-refusal, and permitting on community math would strip that.
+        Same setup as the everyone-granted permit above; the only difference is
+        a registered non-default authority, and the move must refuse again.
+        `type(...) is` gates it, so even a subclass of the default counts as an
+        overlay.
+        """
+        from app.modules.auth.models import Role, UserRole
+        from app.modules.catalog.datasets.domain.models import DatasetGrant
+        from app.modules.catalog.maps import service_public
+        from app.platform.extensions import DefaultPermissionExtension
+
+        class _WrappedAuthority(DefaultPermissionExtension):
+            """Stand-in for an enterprise wrap of the default authority."""
+
+        monkeypatch.setattr(
+            service_public,
+            "get_permission_extension",
+            lambda: _WrappedAuthority(),
+        )
+
+        admin_id = await _get_user_id(test_db_session, "admin")
+        map_name = f"Overlay Conservative Map {uuid.uuid4().hex[:6]}"
+        ds = await self._dataset_on_map(
+            test_db_session,
+            admin_id,
+            dataset_visibility="internal",
+            map_visibility="internal",
+            map_name=map_name,
+        )
+        viewer_id = uuid.UUID(
+            (await client.get("/auth/me/", headers=viewer_auth_header)).json()["id"]
+        )
+        role = Role(name=f"granted-all-{uuid.uuid4().hex[:8]}")
+        test_db_session.add(role)
+        await test_db_session.flush()
+        test_db_session.add(UserRole(user_id=viewer_id, role_id=role.id))
+        test_db_session.add(DatasetGrant(dataset_id=ds.id, role_id=role.id))
+        await test_db_session.commit()
+
+        async with self._only_admins_active(test_db_session, keep={viewer_id}):
+            resp = await client.patch(
+                f"/datasets/{ds.id}",
+                json={"visibility": "restricted"},
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 422, resp.text
+        assert map_name in resp.text
+
+    async def test_internal_to_restricted_blocks_when_someone_is_ungranted(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        viewer_auth_header: dict,
+        test_db_session,
+    ):
+        """The mirror: an active user no grant reaches DOES lose the layer.
+
+        `viewer_auth_header` mints an active non-admin with no grant on this
+        dataset, so narrowing `internal -> restricted` strands them and the
+        refusal is honest.
+        """
+        assert viewer_auth_header  # the fixture's account is the stranded viewer
+        admin_id = await _get_user_id(test_db_session, "admin")
+        map_name = "Ungranted Viewer Map"
+        ds = await self._dataset_on_map(
+            test_db_session,
+            admin_id,
+            dataset_visibility="internal",
+            map_visibility="internal",
+            map_name=map_name,
+        )
+
+        resp = await client.patch(
+            f"/datasets/{ds.id}",
+            json={"visibility": "restricted"},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 422
+        assert map_name in resp.json()["detail"]
+
+    async def test_only_the_stranded_map_is_named_when_audiences_differ(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """fix(#931 codex r6): each audience is judged on its own.
+
+        A public dataset on BOTH a public and an internal map, moving to
+        private. The public map strands its anonymous visitors and must be
+        named. The internal map strands nobody — the only active accounts here
+        are the admin owner and other admins, all of whom keep access — so
+        naming it would send the operator to remove a layer from a map that
+        renders fine.
+        """
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await self._dataset_on_map(
+            test_db_session,
+            admin_id,
+            dataset_visibility="public",
+            map_visibility="public",
+            map_name="Anonymous Strands Here",
+        )
+        internal_map = Map(
+            name="Internal Strands Nobody",
+            visibility="internal",
+            created_by=admin_id,
+        )
+        test_db_session.add(internal_map)
+        await test_db_session.flush()
+        test_db_session.add(
+            MapLayer(map_id=internal_map.id, dataset_id=ds.id, sort_order=0)
+        )
+        await test_db_session.commit()
+
+        async with self._only_admins_active(test_db_session):
+            resp = await client.patch(
+                f"/datasets/{ds.id}",
+                json={"visibility": "private"},
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 422
+        detail = resp.json()["detail"]
+        assert "Anonymous Strands Here" in detail
+        assert "Internal Strands Nobody" not in detail
+
     async def test_an_unpublished_dataset_never_blocks(
         self,
         client: AsyncClient,
@@ -742,6 +1004,7 @@ class TestUpdateMetadata:
         self,
         client: AsyncClient,
         admin_auth_header: dict,
+        viewer_auth_header: dict,
         test_db_session,
         dataset_visibility: str,
         map_visibility: str,
@@ -755,7 +1018,16 @@ class TestUpdateMetadata:
         only, and its caller gated on ``old == public``, so an internal map was
         invisible to both halves. Once #930 made ``internal`` a real dataset
         rung the rule became a matrix, and each row here is one cell of it.
+
+        fix(#1073): the guard stopped refusing on a rank drop alone, so a
+        blocked row needs a real viewer standing in the slice being cut.
+        Without this fixture the rows borrowed whatever active accounts earlier
+        tests left on the worker DB — true in file order, false when a row runs
+        first on a fresh worker. The permit rows are indifferent to one more
+        ungranted viewer: their maps are unshared, their grants unreachable, or
+        their ranks never drop.
         """
+        assert viewer_auth_header  # the fixture's account is the stranded viewer
         admin_id = await _get_user_id(test_db_session, "admin")
         map_name = f"Strand {map_visibility} {dataset_visibility} {new_visibility}"
         ds = await self._dataset_on_map(
