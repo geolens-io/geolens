@@ -7,7 +7,9 @@ test asserts the guard cleaned it up. A leak that stopped reproducing would go
 red here instead of turning the guard into untested dead code.
 """
 
+import io
 import logging
+import sys
 
 import pytest
 import structlog
@@ -92,6 +94,36 @@ def test_mid_test_setup_logging_does_not_blind_capture_logs():
     assert [e["event"] for e in events] == ["sentinel"], (
         "capture_logs() went blind: the proxy froze against a stale processor "
         "list, so a log assertion here could never fail"
+    )
+
+
+def test_app_logging_never_reaches_stdout():
+    """stdout belongs to the code under test, at every point in the session.
+
+    structlog's unconfigured default builds a ``PrintLogger`` on ``sys.stdout``
+    at emission time, so an uncached module-level logger writes a
+    console-rendered line into whatever has captured stdout. That is how a
+    ``CliRunner`` invocation in ``test_cli_round_trip.py`` ends up parsing
+    ``2026-08-02 ... [info ]`` as JSON and failing with "Extra data".
+
+    Asserted after a ``setup_logging()`` round trip through the guard, since it
+    is the RESTORED baseline that has to be stdout-safe, not just the initial
+    one.
+    """
+    with _global_logging_repair():
+        setup_logging(json_logs=True, log_level="DEBUG")
+
+    captured = io.StringIO()
+    real_stdout = sys.stdout
+    sys.stdout = captured
+    try:
+        module_logger.info("this belongs on a log stream, not on stdout")
+    finally:
+        sys.stdout = real_stdout
+
+    assert captured.getvalue() == "", (
+        "application log output reached sys.stdout, which the code under test "
+        f"owns: {captured.getvalue()!r}"
     )
 
 

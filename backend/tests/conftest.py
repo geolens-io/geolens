@@ -426,6 +426,47 @@ def _configure_without_caching(*args, **kwargs):
 structlog.configure = _configure_without_caching
 
 
+def _install_stdout_safe_structlog_baseline():
+    """Route the session's structlog baseline through stdlib, off ``sys.stdout``.
+
+    structlog's UNCONFIGURED default is ``PrintLoggerFactory(file=None)`` plus
+    ``ConsoleRenderer``, and ``PrintLogger(None)`` resolves ``sys.stdout`` when
+    the logger is CONSTRUCTED, which for an uncached proxy is every call. So
+    the out-of-the-box baseline writes application log lines to whatever
+    ``sys.stdout`` happens to be at emission time.
+
+    In a test process stdout belongs to the code under test.
+    ``tests/test_cli_round_trip.py`` runs a CLI through click's ``CliRunner``
+    and parses its stdout as JSON; a console-rendered line landing there fails
+    as ``JSONDecodeError: Extra data: line 1 column 5 (char 4)``, because the
+    timestamp's ``2026`` parses as a JSON number and the rest is trailing junk.
+
+    The guard below made that reachable and this is where it gets paid for. The
+    app configures structlog at import (stdlib routing, off stdout), the guard
+    faithfully restores the arrival snapshot, and the arrival snapshot is the
+    stdout-writing default — so from the second test onward the process sits in
+    a state it would never otherwise be in. Caching previously hid it: a frozen
+    proxy kept the ONE ``PrintLogger`` it built at freeze time, so later
+    emissions went wherever that first one pointed rather than into the
+    CliRunner buffer of the moment. Removing the freeze (correctly) removed the
+    accident that was covering this.
+
+    Fixing it by rebasing the BASELINE rather than by loosening the restore
+    keeps the ABSOLUTE/RELATIVE split intact: the floor is established once,
+    before any snapshot is taken, and the guard stays perfectly faithful to it.
+    "Application logs never reach stdout" is an absolute the whole session
+    needs, exactly like the caching flag, not something each stdout-parsing
+    module should have to defend for itself.
+
+    stdlib routing is also what ``setup_logging()`` installs, so the baseline
+    now matches production instead of diverging from it.
+    """
+    structlog.configure(logger_factory=structlog.stdlib.LoggerFactory())
+
+
+_install_stdout_safe_structlog_baseline()
+
+
 # Every logger setup_logging() reaches, read off app/core/logging_config.py:102-112.
 # "" is the root logger. tests/_logging_state.py keeps the same list for the
 # per-test helper; both are derived from that source, not from each other.
