@@ -1641,6 +1641,22 @@ async def linearize_existing_4326(
     base curve name ends in M.
     """
     tref = _qtable(table_name, schema=schema)
+    # fix(#1113 review r7): a STORED GENERATED geom_4326 rejects any UPDATE at
+    # parse time (even one whose WHERE matches nothing), and its values are
+    # decided by its generation expression, so it can be neither repaired nor
+    # safely retyped here — skip it (#1114 tracks expressions that yield
+    # curves).
+    generated = (
+        await session.execute(
+            text(
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_schema = :schema AND table_name = :table "
+                "  AND column_name = 'geom_4326' AND is_generated = 'ALWAYS'"
+            ).bindparams(schema=schema, table=table_name)
+        )
+    ).first()
+    if generated is not None:
+        return
     typmod = (
         await session.execute(
             text(

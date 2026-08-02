@@ -63,6 +63,13 @@ def upgrade() -> None:
             WHERE c.column_name = 'geom_4326'
               AND c.udt_name = 'geometry'
               AND t.table_type = 'BASE TABLE'
+              -- fix(#1113 review r7): a STORED GENERATED geom_4326 rejects
+              -- any UPDATE at parse time (even WHERE false), which would
+              -- abort this whole migration. It also cannot be fixed by
+              -- UPDATE — its values are decided by its generation
+              -- expression — so it is skipped, not repaired (#1114 tracks
+              -- externally-defined columns whose expressions yield curves).
+              AND c.is_generated = 'NEVER'
               -- fix(#1113 review): only GeoLens-owned data schemas — 'data'
               -- (single-tenant) or the EXACT per-tenant schemas derived from
               -- catalog.tenants, the same construction as tenant_data_schema()

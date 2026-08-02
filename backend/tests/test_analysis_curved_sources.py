@@ -507,6 +507,56 @@ class TestCurvedIngestNormalization:
         assert props[":id"] == "row-1"
         assert props["name"] == "first"
 
+    async def test_register_skips_a_generated_geom_4326(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#1113 review r7): a STORED GENERATED column must not abort.
+
+        PostgreSQL rejects any UPDATE against a generated column at parse
+        time — even one whose WHERE matches nothing — so the enforcement
+        UPDATE itself would fail registration. Such a column's values are
+        decided by its generation expression, so it is skipped, not repaired
+        (#1114 tracks expressions that yield curves).
+        """
+        from types import SimpleNamespace
+
+        from app.processing.ingest.schemas import RegisterRequest
+        from app.processing.ingest.service import register_existing_table
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        table = f"byo_generated_{uuid.uuid4().hex[:10]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table} ("  # noqa: S608
+                f"gid serial PRIMARY KEY, name text, "
+                f"geom geometry(Geometry, 4326), "
+                f"geom_4326 geometry GENERATED ALWAYS AS (ST_Force2D(geom)) STORED)"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table} (name, geom) VALUES "  # noqa: S608
+                f"('pt', ST_SetSRID(ST_MakePoint(2, 2), 4326))"
+            )
+        )
+        await test_db_session.commit()
+
+        registered = await register_existing_table(
+            test_db_session,
+            RegisterRequest(table_name=table, title="Generated geom_4326"),
+            SimpleNamespace(id=admin_id),
+        )
+        await test_db_session.commit()
+
+        resp = await client.get(
+            f"/datasets/{registered.id}/features/", headers=admin_auth_header
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["features"][0]["properties"]["name"] == "pt"
+
     async def test_register_loosens_a_curved_geom_4326_typmod(
         self, test_db_session: AsyncSession
     ):

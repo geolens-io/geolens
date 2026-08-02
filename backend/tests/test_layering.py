@@ -1234,7 +1234,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # (plain Geometry rejects Z values), and rtrim(...,'M') matching catches
     # the M-suffixed curve names in both the typmod lookup and the UPDATE
     # predicate. Cap 2091 -> 2103, still exact.
-    "backend/app/processing/ingest/metadata.py": 2103,
+    # fix(#1113 review r7): +16 — a STORED GENERATED geom_4326 rejects any
+    # UPDATE at parse time and cannot be repaired in place, so the enforcer
+    # skips it (#1114 tracks generation expressions that yield curves).
+    # Cap 2103 -> 2119, still exact.
+    "backend/app/processing/ingest/metadata.py": 2119,
     # ingest/router.py is also scanned by the router-glob gate; this exact
     # ratchet overrides its 1500 default so the remaining ~18-line runway to
     # the cliff cannot be spent silently.
