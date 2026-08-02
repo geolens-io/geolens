@@ -81,6 +81,16 @@ function doCapture(map: MaplibreMap, mapId: string, queryClient: ReturnType<type
       // 400×250 thumbnail — unchanged behavior
       const thumb = cropResize(srcCanvas, 400, 250);
       uploadThumbnail(mapId, thumb.toDataURL('image/jpeg', 0.7)).then(() => {
+        // chore(#1021): this refetches nothing on the builder route, and that is
+        // expected rather than a bug. maps.all is ['maps'] while the builder mounts
+        // useMap, which is ['map', id], a different root string. The target is the
+        // MapsPage browse list (['maps', params]), whose MapCard renders
+        // thumbnail_url/thumbnail_updated_at: that entry is cached but unmounted
+        // while you are in the builder, so marking it stale here is what gets the new
+        // thumbnail on screen when the user navigates back. Do not "helpfully" add
+        // maps.detail. The builder reads thumbnail_url only as the hasThumbnail
+        // auto-capture gate, which shouldAutoCapture's module-level LRU has already
+        // settled by the time this upload resolves.
         queryClient.invalidateQueries({ queryKey: queryKeys.maps.all });
       }).catch(() => {
         // Silent failure for thumbnails
