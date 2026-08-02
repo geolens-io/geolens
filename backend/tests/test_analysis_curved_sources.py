@@ -668,6 +668,29 @@ class TestCurvedIngestNormalization:
         )
         assert registered is not None
 
+    async def test_relationship_fetch_may_target_a_projected_out_column(
+        self, test_db_session: AsyncSession
+    ):
+        """fix(#1113 review r10): the match runs against the base table.
+
+        Safe-column validation accepts ``geom_4326`` as a relationship target,
+        and the projection deliberately drops it — predicating on the
+        projected alias made such a fetch an undefined-column error. A NULL
+        probe is enough to pin the regression: it must return no rows, not
+        raise.
+        """
+        from app.modules.catalog.datasets.domain.service_relationships import (
+            _fetch_target_rows,
+        )
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_curved_polygon_layer(test_db_session, created_by=admin_id)
+
+        rows = await _fetch_target_rows(
+            test_db_session, ds.table_name, "geom_4326", None, 10, 0
+        )
+        assert rows == []
+
     async def test_register_loosens_a_curved_geom_4326_typmod(
         self, test_db_session: AsyncSession
     ):

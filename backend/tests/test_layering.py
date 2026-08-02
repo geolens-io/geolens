@@ -950,7 +950,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # (via live_property_columns) so the curved source `geom` column never
         # reaches the geometry→jsonb cast, which raises on curves. Cap
         # 620 -> 628, exact.
-        "backend/app/modules/catalog/datasets/domain/service_relationships.py": 628,
+        # fix(#1113 review r10): +7 — the FK match moved inside the projection
+        # against the base table (a relationship may target a column the
+        # projection drops), with the identifier colon-escaped for text().
+        # Cap 628 -> 635, exact.
+        "backend/app/modules/catalog/datasets/domain/service_relationships.py": 635,
         # fix(#474): reject primary-language updates that collide with a
         # translated variant. Cap 460 -> 480 (~9 LOC headroom above 471).
         # fix(#931): +7. _apply_visibility_change no longer carries its own

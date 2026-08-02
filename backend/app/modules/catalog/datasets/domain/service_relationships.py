@@ -512,12 +512,19 @@ async def _fetch_target_rows(
     prop_cols = await live_property_columns(session, target_table)
     prop_sel = f", {prop_cols}" if prop_cols else ""
     table_ref = get_catalog_port().quote_table(target_table)
+    # fix(#1113 review r10): the match runs against the BASE table, inside the
+    # projection — a relationship may legitimately target a column the
+    # projection drops (safe-column validation accepts `geom`/`geom_4326`),
+    # and predicating on the projected alias made such a fetch an
+    # undefined-column error. Same colon escape as live_property_columns:
+    # the identifier is interpolated into text().
+    qcol = '"' + target_column.replace('"', '""').replace(":", "\\:") + '"'
     rows_result = await session.execute(
         text(
             f"SELECT gid, to_jsonb(t.*) - 'gid' AS properties "
-            f"FROM (SELECT gid{prop_sel} FROM {table_ref}) t "
-            f"WHERE t.{target_column} = :fk_val "
-            f"ORDER BY gid LIMIT :lim OFFSET :off"
+            f"FROM (SELECT gid{prop_sel} FROM {table_ref} "
+            f"      WHERE {qcol} = :fk_val "
+            f"      ORDER BY gid LIMIT :lim OFFSET :off) t"
         ).bindparams(fk_val=fk_value, lim=limit, off=after)
     )
     return [
