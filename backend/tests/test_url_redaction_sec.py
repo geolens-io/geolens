@@ -170,7 +170,18 @@ CREDENTIALED_MALFORMED_URLS = [
     # ASCII patterns cannot see until the value is normalised the same way.
     "https://user:hunter2＠example.com/path",
     "https://example.com？token=hunter2",
+    # fix(#1119 review 4): the other direction — NFKC INTRODUCES a delimiter
+    # mid-credential and truncates a match that was intact in the raw view.
+    "https://user:hunter2／@[::1",
+    "https://[::1?token=prefix＃hunter2",
 ]
+
+# fix(#1119 review 4): the two NFKC directions are one class, so sweep it rather
+# than pinning the four strings that happened to get reported. Each of these
+# characters normalises to a URL delimiter, so dropping one into a credential
+# either reveals a boundary the raw view cannot see or invents one that
+# truncates the raw view's match — and the fallback has to survive both.
+NFKC_DELIMITER_EQUIVALENTS = ["＠", "／", "？", "＃", "：", "＆", "＝"]
 
 # fix(#1119 review 2): urlsplit ends an authority at `/?#` and parse_qsl ends a
 # query value at `&`/`#` — neither stops at whitespace. Delimiting the fallback
@@ -227,6 +238,32 @@ def test_redact_url_credentials_masks_credentials_in_unparsable_free_text(
     value: str,
 ) -> None:
     assert "hunter2" not in redact_url_credentials(f"ogrinfo failed: {value} bad")
+
+
+@pytest.mark.parametrize("delimiter", NFKC_DELIMITER_EQUIVALENTS)
+@pytest.mark.parametrize(
+    "template",
+    [
+        "https://user:hunter{d}2@[::1",
+        "https://user:hunter2{d}@[::1",
+        "https://user{d}:hunter2@[::1",
+        "https://[::1?token=prefix{d}hunter2",
+        # NOT tested: a delimiter inside the parameter NAME ("to{d}ken"). None of
+        # these characters vanishes under NFKC, so "to＠ken" normalises to
+        # "to@ken" and is a genuinely different parameter from "token" — the
+        # PARSED path keeps it too, measured: redact_url_credentials(
+        # "https://example.com?to＠ken=hunter2") returns it unchanged. Asserting
+        # on it would demand the fallback out-redact the reference it is defined
+        # against, which is how a redactor starts destroying valid data.
+    ],
+)
+def test_redact_url_credentials_survives_nfkc_delimiters_anywhere(
+    template: str, delimiter: str
+) -> None:
+    value = template.format(d=delimiter)
+    redacted = redact_url_credentials(value)
+    assert "hunter" not in redacted, f"{value!r} -> {redacted!r}"
+    assert "hunter" not in redact_url_credentials(f"ogrinfo failed: {value} bad")
 
 
 @pytest.mark.parametrize("value", WHITESPACE_CREDENTIALED_MALFORMED_URLS)

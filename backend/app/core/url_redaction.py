@@ -197,27 +197,44 @@ def _redact_without_parsing(value: str) -> str:
     leaks a credential only in a parameter the parsed path would also have kept,
     so it adds no leak class of its own.
 
-    fix(#1119 review 3): NFKC first, which CLOSES this class rather than adding
-    another character to it. ``urlsplit`` can only reach a ValueError here two
-    ways (CPython ``urllib/parse.py``): a bracket/IPvFuture/IPv4-in-brackets
-    problem, where the ASCII delimiters are already visible to the patterns
-    below, or ``_checknetloc`` (:441) refusing a netloc *because NFKC would
-    introduce one of* ``/?#@:``. So normalising exactly as that check does makes
-    every delimiter urlsplit objected to visible here too, and there is no third
-    source of divergence to be found later. Without it a fullwidth
-    ``＠`` or ``？`` sailed through: ``https://user:hunter2＠example.com/path``
-    came back whole.
+    fix(#1119 reviews 3+4): scrub BOTH lexical views, raw first and NFKC second,
+    because normalisation cuts both ways and one pass is blind in one direction:
+
+    - normalising REVEALS a delimiter, which is why the fallback is reached at
+      all. ``urlsplit``'s ``_checknetloc`` (CPython ``urllib/parse.py:441``)
+      refuses a netloc precisely because NFKC would introduce one of ``/?#@:``.
+      The raw view cannot see it, so ``https://user:hunter2＠example.com/path``
+      shows no ASCII ``@`` and comes back whole.
+    - normalising also INTRODUCES a delimiter mid-credential, which truncates a
+      match that was intact before. ``https://user:hunter2／@[::1`` normalises to
+      ``…hunter2/@…``, and the userinfo pattern then stops at the new ``/``.
+      Same for ``?token=prefix＃hunter2``, where only ``prefix`` gets redacted.
+
+    Two passes, so a credential is redacted when EITHER view shows its bounds.
+    Evading both needs a delimiter at the same position in both views — and a
+    delimiter present in the RAW view is ASCII, so urlsplit draws that same
+    boundary and the parsed path (the reference this fallback is measured
+    against) treats it identically. The invariant therefore still holds: the
+    fallback never keeps more than the parsed path would.
 
     The returned string is the normalised one — a fullwidth character reads as
     its ASCII form in the log. That only affects strings that already failed to
     parse, and mapping offsets back through a length-changing normalisation to
     preserve them would be a far better way to introduce a bug than to avoid one.
     """
-    value = unicodedata.normalize("NFKC", value)
-    scrubbed = _UNPARSED_USERINFO_RE.sub(
+    # Pass 2 normalises the OUTPUT of pass 1, not the original: chaining is what
+    # keeps pass 1's redactions: `//redacted@` survives NFKC unchanged, so the
+    # second pass adds to the first rather than replacing it.
+    scrubbed = _scrub_one_view(value)
+    return _scrub_one_view(unicodedata.normalize("NFKC", scrubbed))
+
+
+def _scrub_one_view(value: str) -> str:
+    """Apply both fallback patterns to a single lexical view of the string."""
+    userinfo_scrubbed = _UNPARSED_USERINFO_RE.sub(
         lambda _match: f"//{REDACTED_USERINFO}@", value
     )
-    return _UNPARSED_QUERY_PAIR_RE.sub(_redact_unparsed_query_pair, scrubbed)
+    return _UNPARSED_QUERY_PAIR_RE.sub(_redact_unparsed_query_pair, userinfo_scrubbed)
 
 
 def redact_url_credentials(url: str) -> str:
