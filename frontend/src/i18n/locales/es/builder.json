@@ -1030,6 +1030,7 @@
     "saveHintNeedsName": "Introduce un nombre para el nuevo conjunto de datos para activar Crear conjunto de datos.",
     "saveHintNeedsParams": "Completa los ajustes de la operación de arriba para activar Crear conjunto de datos.",
     "addedToMap": "Añadido al mapa",
+    "chainOnResult": "Ejecutar otra operación sobre este resultado",
     "openMap": "Abrir mapa",
     "joinLayerLabel": "Unir con la capa",
     "joinLayerPlaceholder": "Elige una capa",

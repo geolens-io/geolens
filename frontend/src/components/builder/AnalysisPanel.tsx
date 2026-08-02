@@ -591,6 +591,15 @@ export function AnalysisPanel({
 
   const datasetLayers = layers.filter(isAnalysableLayer);
   const selectedLayer = datasetLayers.find((l) => l.id === layerId);
+  // feat(#790): the layer a finished materialize produced, once it is on the
+  // map. The operation input is a LAYER id (the select below resolves it to
+  // dataset_id), so the result has to be on the stack before it can be
+  // chained — which is why the affordance appears alongside "Add to map"
+  // rather than replacing it.
+  const resultLayer =
+    job?.status === 'complete' && job.dataset_id
+      ? datasetLayers.find((l) => l.dataset_id === job.dataset_id)
+      : undefined;
   // Candidate clip-mask layers. ux(#698): filtered to polygonal layers rather
   // than deferring to the server's 422 — dataset_geometry_type is already here,
   // so offering a point or line layer only buys the user a failed request.
@@ -790,6 +799,32 @@ export function AnalysisPanel({
       setOutputTitle('');
     }
   }, [onClearPreview]);
+
+  // feat(#790): switching the source layer is now reachable from two places —
+  // the Layer select below and the chain affordance in the completion state —
+  // so the resets live here rather than being spelled twice. A second copy
+  // would drift: every one of these lines is a fix for a field that outlived
+  // the layer it belonged to (#680, #1097).
+  const selectSourceLayer = (nextLayerId: string) => {
+    handleInputsChanged();
+    setLayerId(nextLayerId);
+    // A mask layer can't clip itself.
+    if (nextLayerId === maskLayerId) setMaskLayerId(MASK_LAYER_NONE);
+    // fix(#680): a group-by column chosen for one dataset must not carry to
+    // another — it may not exist there (422 from the API) or silently group by
+    // a same-named field.
+    setByField(BY_FIELD_NONE);
+    // fix(#1097 review): the transferred field is the same problem and was
+    // left out of this reset. It belongs to the JOIN layer, so it survives a
+    // source change intact — but whether it is usable depends on the SOURCE,
+    // since join_<name> has to not collide with a source column. Picking
+    // `zone` against a source with no join_zone and then switching to one that
+    // has it left the menu filtering `zone` out while the state still held it,
+    // and the request still went (and earned a 422). A join layer can't join
+    // against itself either, so the layer goes with the field.
+    if (nextLayerId === joinLayerId) setJoinLayerId(MASK_LAYER_NONE);
+    setJoinField(BY_FIELD_NONE);
+  };
 
   // fix(#793 review), mount half: see staleRestoreRef above.
   useEffect(() => {
@@ -1214,30 +1249,7 @@ export function AnalysisPanel({
         <Label className="text-xs" htmlFor="analysis-layer">
           {t('analysisTools.layerLabel', { defaultValue: 'Layer' })}
         </Label>
-        <Select
-          value={layerId}
-          onValueChange={(v) => {
-            handleInputsChanged();
-            setLayerId(v);
-            // A mask layer can't clip itself.
-            if (v === maskLayerId) setMaskLayerId(MASK_LAYER_NONE);
-            // fix(#680): a group-by column chosen for one dataset must not
-            // carry to another — it may not exist there (422 from the API) or
-            // silently group by a same-named field.
-            setByField(BY_FIELD_NONE);
-            // fix(#1097 review): the transferred field is the same problem and
-            // was left out of this reset. It belongs to the JOIN layer, so it
-            // survives a source change intact — but whether it is usable
-            // depends on the SOURCE, since join_<name> has to not collide with
-            // a source column. Picking `zone` against a source with no
-            // join_zone and then switching to one that has it left the menu
-            // filtering `zone` out while the state still held it, and the
-            // request still went (and earned a 422). A join layer can't join
-            // against itself either, so the layer goes with the field.
-            if (v === joinLayerId) setJoinLayerId(MASK_LAYER_NONE);
-            setJoinField(BY_FIELD_NONE);
-          }}
-        >
+        <Select value={layerId} onValueChange={selectSourceLayer}>
           <SelectTrigger id="analysis-layer" className="w-full">
             <SelectValue
               placeholder={t('analysisTools.layerPlaceholder', {
@@ -1826,6 +1838,38 @@ export function AnalysisPanel({
                         name: lastRunTitle,
                       })
                     : t('analysisTools.addToMap', { defaultValue: 'Add to map' })}
+              </Button>
+            )}
+            {/* feat(#790): chain a second operation onto the result without
+                leaving the panel. Before this, running one was materialize →
+                wait → Add to map → scroll back up and hunt the new layer out
+                of the source picker.
+
+                The target is the MATERIALIZED dataset's layer, and only ever
+                that. An ephemeral preview is NOT an operation input and is not
+                going to become one: making an explicitly ephemeral result
+                addressable is a new concept the builder would have to honour
+                on every surface that can hold one (the preview stack row in
+                #1009, select-by-location in #955, the shared overlay slot the
+                chat also writes to), whereas chaining on the materialized half
+                needs no new concepts and covers the workflow complaint that
+                motivated the request. Decided on #790 — read that thread
+                before proposing preview-as-input again. */}
+            {resultLayer && resultLayer.id !== layerId && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full"
+                // Goes through the same reset path as the Layer select: this
+                // is a source change, so the finished run's status line and
+                // its name clear with it (handleInputsChanged), and the
+                // completion block collapses back to a fresh form.
+                onClick={() => selectSourceLayer(resultLayer.id)}
+              >
+                {t('analysisTools.chainOnResult', {
+                  defaultValue: 'Run another operation on this result',
+                })}
               </Button>
             )}
           </div>
