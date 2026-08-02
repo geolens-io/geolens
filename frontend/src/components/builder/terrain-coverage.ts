@@ -27,6 +27,23 @@ interface MapWithBounds {
  * Coverage = (DEM bounds ∩ viewport area) / viewport area, computed in the
  * lng/lat degree plane. This is an approximation (it ignores Mercator area
  * distortion), which is fine for a UX threshold check.
+ *
+ * fix(#1112 review): where `demBounds` comes from, because it is easy to get
+ * wrong. It is the tile token's `bounds` (`RasterTileToken.bounds`, built by
+ * `extent_to_span_bbox` at processing/tiles/router.py), NOT the map layer's
+ * `dataset_extent_bbox`. Both call sites read it from a token map fed only by
+ * the tile-token API, so #1112's flip of `dataset_extent_bbox` to the RFC 7946
+ * spec form does not reach here.
+ *
+ * The seam still matters, for the other rectangle. `map.getBounds()` is always
+ * monotonic — MapLibre takes min/max over four UNWRAPPED corner longitudes —
+ * but it runs past ±180 when the viewport straddles the antimeridian, e.g.
+ * `[179.5, …, 182, …]`. A planar `Math.min(ve, demEast)` then clipped the DEM
+ * at +180 and reported a fifth of the coverage a world-spanning DEM really
+ * has, firing the "small DEM" toast for a DEM that covers the whole screen.
+ * So the longitude axis is measured on the circle: each rectangle becomes an
+ * unwrapped interval (a crossing pair unwraps past 180) and the DEM is scored
+ * as the repeating pattern it is. Latitude needs none of this.
  */
 
 /** Default coverage threshold below which the warning fires. */
@@ -38,8 +55,80 @@ function isFiniteBounds4(bounds: number[] | null | undefined): bounds is Bounds4
   return Array.isArray(bounds)
     && bounds.length === 4
     && bounds.every((v) => Number.isFinite(v))
-    && bounds[0] < bounds[2]
+    // West may exceed east: that is the RFC 7946 §5.2 encoding of a crossing
+    // box, not a malformed one. Only a zero-width longitude span is degenerate.
+    && bounds[0] !== bounds[2]
     && bounds[1] < bounds[3];
+}
+
+/** A longitude pair as an increasing interval, unwrapping a seam-crossing pair
+ *  past 180 (`[178.5, -178.5]` → `[178.5, 181.5]`). */
+function lonInterval(west: number, east: number): [number, number] {
+  return [west, east < west ? east + 360 : east];
+}
+
+/**
+ * Length of the repeating DEM covered between the DEM's own west edge and `t`
+ * degrees east of it, where the DEM is `width` wide and repeats every 360.
+ *
+ * Whole turns contribute a full `width` each; the partial turn contributes
+ * however far into it the DEM reaches. Defined for negative `t` too, because
+ * the viewport can sit west of the DEM's west edge.
+ *
+ * Continuous across turn boundaries by construction: approaching a boundary
+ * from below gives `q * width + width`, and from above `(q + 1) * width + 0`.
+ * Float noise near a boundary therefore cannot jump the result by a period.
+ */
+function coveredLength(t: number, width: number): number {
+  const turns = Math.floor(t / 360);
+  return turns * width + Math.min(t - turns * 360, width);
+}
+
+/**
+ * Longitudinal overlap of the DEM with the viewport, measured on the circle.
+ *
+ * fix(#1124 codex P2): this used to score the DEM against a fixed `[-360, 0,
+ * 360]` shift list. `renderWorldCopies` is on by default, so `getBounds()` runs
+ * further out the more the user pans and a Fiji DEM can legitimately be viewed
+ * at `[899.5, 902]`, two whole turns east. A fixed list answers "how many
+ * turns?" with a guess, and one pan past the last entry reported zero coverage
+ * and warned about a DEM that fills the screen — the same class of bug this
+ * function exists to fix, one level out.
+ *
+ * So don't enumerate turns at all. The DEM is a pattern repeating every 360
+ * degrees, and `coveredLength` measures that pattern from the DEM's west edge
+ * to any point; the overlap is that measured at the viewport's two edges and
+ * subtracted. Exact for any pan distance, and the same cost at 2 turns as at
+ * 2000. The result cannot exceed the viewport width because `coveredLength`
+ * grows at most 1:1 with its argument.
+ */
+function lonOverlap(dem: [number, number], view: [number, number]): number {
+  const demWidth = dem[1] - dem[0];
+  // A DEM spanning the globe covers every longitude, at every pan distance.
+  //
+  // KNOWINGLY OPTIMISTIC for a seam-crossing DEM, and not fixable here (#1128).
+  // `extent_to_span_bbox` (processing/tiles/router.py) widens a crossing extent
+  // to exactly [-180, s, 180, n], which is the same value a genuinely global
+  // raster produces. The two are indistinguishable by the time they reach this
+  // function, so no arithmetic on `dem` can tell them apart and this branch has
+  // to guess. It guesses "global", which under-warns rather than crying wolf.
+  //
+  // Concretely, a Fiji footprint in viewport [179.5, -20, 190, -15]: the true
+  // coverage is 19% (warn), this returns 100% (silent). The pre-#1122 planar
+  // math happened to return 4.8% and warn, but only as a side effect of the
+  // +180 clipping bug that produced the far worse false alarm this module was
+  // changed to fix; it was not reading the seam correctly either.
+  //
+  // The fix is a change of DATA SOURCE, not of this math: feed `demBounds` from
+  // the layer's `dataset_extent_bbox`, which became RFC 7946 spec form in
+  // #1112, and the crossing case arrives as [178.5, …, -178.5, …]. This
+  // function then already returns the correct 19% with no edit, because the
+  // interval is a real 3 degrees wide and never reaches this branch. #1128.
+  if (demWidth >= 360) return view[1] - view[0];
+  return Math.max(
+    0,
+    coveredLength(view[1] - dem[0], demWidth) - coveredLength(view[0] - dem[0], demWidth),
+  );
 }
 
 /**
@@ -54,10 +143,12 @@ export function demViewportCoverage(
   if (!isFiniteBounds4(demBounds) || !isFiniteBounds4(viewport)) return null;
 
   const [vw, vs, ve, vn] = viewport;
-  const viewportArea = (ve - vw) * (vn - vs);
+  const view = lonInterval(vw, ve);
+  const viewWidth = view[1] - view[0];
+  const viewportArea = viewWidth * (vn - vs);
   if (!(viewportArea > 0)) return null;
 
-  const ix = Math.max(0, Math.min(ve, demBounds[2]) - Math.max(vw, demBounds[0]));
+  const ix = lonOverlap(lonInterval(demBounds[0], demBounds[2]), view);
   const iy = Math.max(0, Math.min(vn, demBounds[3]) - Math.max(vs, demBounds[1]));
   const intersection = ix * iy;
 
