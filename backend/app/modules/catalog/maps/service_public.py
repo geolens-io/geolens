@@ -225,6 +225,19 @@ async def find_maps_broken_by_dataset_visibility(
 
     Empty = safe to apply.
     """
+    # fix(#1126 codex P2): a change that changes nothing strands nobody, and
+    # that is true of every authority, which is why it is settled before asking
+    # one. `_apply_visibility_change` runs for any non-null `visibility` in the
+    # body without comparing it to the stored value, so a client that round
+    # trips the whole record resubmits the current one — and both branches
+    # below got that wrong. The fallback named every shared map using the
+    # dataset. The seam-answering branch was subtler: `before` and `after` are
+    # the same predicate for a no-op, and NULL passes `IS NOT false` and
+    # `IS NOT true` alike, so an overlay that cannot classify an account
+    # reported it as stranded by a move that did not happen. Until #1068 the
+    # rank comparison absorbed both, since `X < X` is false.
+    if old_visibility == new_visibility:
+        return []
     permission = get_permission_extension()
     if _answers_audience_questions(permission):
         query = RecordAudienceQuery(

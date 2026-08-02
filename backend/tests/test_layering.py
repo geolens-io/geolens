@@ -920,7 +920,14 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # shorter than it was before #1111's stopgap and now asks the
         # authority rather than restating the community ladder at it.
         # Cap 937 -> 901, exact.
-        "backend/app/modules/catalog/maps/service_public.py": 901,
+        # fix(#1126 codex P2): +13 — an unchanged visibility returns before the
+        # authority is asked at all. The rank comparison used to absorb the
+        # no-op (`X < X` is false); without it the fallback named every shared
+        # map, and the seam-answering branch reported an account the overlay
+        # could not classify as stranded by a move that did not happen. Most of
+        # the lines are why it sits above the branch rather than inside one.
+        # Cap 901 -> 914, exact.
+        "backend/app/modules/catalog/maps/service_public.py": 914,
         "backend/app/modules/catalog/search/service_records.py": 500,
         # fix(#448): +~40 LOC — query-embedding hot-path deadline (asyncio.wait_for
         # wrapper) + the gated/approximated vector-only match COUNT in

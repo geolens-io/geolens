@@ -984,6 +984,137 @@ class TestUpdateMetadata:
         assert resp.status_code == 422, resp.text
         assert map_name in resp.text
 
+    async def test_resubmitting_the_current_visibility_is_not_a_change(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        viewer_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """fix(#1126 codex P2): a PATCH that changes nothing strands nobody.
+
+        `_apply_visibility_change` runs for every non-null `visibility` in the
+        body without comparing it to the stored one, and any client that round
+        trips the whole record resubmits the current value. Under an authority
+        that cannot answer, the conservative fallback named every shared map
+        using the dataset, so that no-op 422'd with "this would strand
+        viewers". Before #1068 the rank comparison absorbed it: `X < X` is
+        false for both audiences, so an unchanged visibility returned [] on
+        its way past. Deleting the rank deleted that accident too.
+
+        Both directions under the SAME authority, because a fix that only
+        stopped the false 422 could equally have stopped the true one.
+        """
+        from app.modules.catalog.maps import service_public
+
+        class _PreSeamAuthority:
+            async def check_permission(self, db, user, capability, **kwargs):
+                return True
+
+            def filter_visible(
+                self, stmt, user, user_roles, record_cls, grant_cls=None
+            ):
+                return stmt
+
+            async def can_access_dataset(
+                self, db, dataset, dataset_id, user, *, user_roles
+            ):
+                return True
+
+        monkeypatch.setattr(
+            service_public,
+            "get_permission_extension",
+            lambda: _PreSeamAuthority(),
+        )
+
+        assert viewer_auth_header  # an active non-admin the real move strands
+        admin_id = await _get_user_id(test_db_session, "admin")
+        map_name = f"Unchanged Visibility Map {uuid.uuid4().hex[:6]}"
+        ds = await self._dataset_on_map(
+            test_db_session,
+            admin_id,
+            dataset_visibility="internal",
+            map_visibility="internal",
+            map_name=map_name,
+        )
+
+        unchanged = await client.patch(
+            f"/datasets/{ds.id}",
+            json={"visibility": "internal"},
+            headers=admin_auth_header,
+        )
+        assert unchanged.status_code == 200, unchanged.text
+        assert unchanged.json()["visibility"] == "internal"
+
+        # The guard still fires for a move that does narrow the audience.
+        narrowed = await client.patch(
+            f"/datasets/{ds.id}",
+            json={"visibility": "private"},
+            headers=admin_auth_header,
+        )
+        assert narrowed.status_code == 422, narrowed.text
+        assert map_name in narrowed.json()["detail"]
+
+    async def test_an_unchanged_visibility_never_consults_the_audience_predicate(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """fix(#1126 codex P2): the early return belongs ABOVE the authority split.
+
+        This pins the placement rather than the symptom. An overlay predicate
+        that reads a nullable column yields NULL for a row, and
+        `_stranded_viewer_exists` deliberately sends NULL to the refusing side
+        on BOTH halves of the difference: `NULL IS NOT false` and
+        `NULL IS NOT true` are each true, so an unclassifiable account counts
+        as stranded. That is the right answer for a real change and the wrong
+        one for a no-op, where the same predicate sits on both sides. An early
+        return scoped to the fallback branch would leave this 422 standing.
+        """
+        from sqlalchemy import Boolean, literal
+
+        from app.modules.catalog.maps import service_public
+        from app.platform.extensions import (
+            DefaultPermissionExtension,
+            RecordAudience,
+        )
+
+        class _CannotClassifyAnyone(DefaultPermissionExtension):
+            async def record_audience(self, query, user_cls, *, grant_cls=None):
+                base = await super().record_audience(
+                    query, user_cls, grant_cls=grant_cls
+                )
+                return RecordAudience(
+                    users=literal(None, Boolean),
+                    includes_anonymous=base.includes_anonymous,
+                )
+
+        monkeypatch.setattr(
+            service_public,
+            "get_permission_extension",
+            lambda: _CannotClassifyAnyone(),
+        )
+
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await self._dataset_on_map(
+            test_db_session,
+            admin_id,
+            dataset_visibility="internal",
+            map_visibility="internal",
+            map_name=f"Null Predicate Map {uuid.uuid4().hex[:6]}",
+        )
+
+        resp = await client.patch(
+            f"/datasets/{ds.id}",
+            json={"visibility": "internal"},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 200, resp.text
+
     async def test_an_overlay_that_answers_permits_what_its_own_audience_allows(
         self,
         client: AsyncClient,
