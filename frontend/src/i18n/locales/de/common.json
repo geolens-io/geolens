@@ -131,6 +131,7 @@
     "analysisSourceTooLarge": "Diese Ebene ist für diese Analyse zu groß (Grenzwert: {{limit}} Objekte). Sie muss zuerst auf einen kleineren Datensatz gefiltert werden.",
     "analysisMaskTooLarge": "Die Maskenebene hat zu viele Objekte zum Zuschneiden (Grenzwert: {{limit}}). Es muss eine kleinere Maskenebene gewählt oder die Maske auf der Karte gezeichnet werden.",
     "analysisJobAlreadyRunning": "Deine vorherige Analyse läuft noch. Warte, bis sie abgeschlossen ist, bevor du eine neue startest.",
+    "sharedQueryBusy": "Analysevorschauen und der KI-Chat teilen sich eine Datenabfrage, und eine läuft bereits. Warten Sie, bis sie abgeschlossen ist, und versuchen Sie es erneut.",
     "analysisVectorRequired": "Die Analyse benötigt einen Vektordatensatz – diese Ebene ist keiner.",
     "analysisMaskPolygonRequired": "Die Zuschneidemaske muss eine Polygon-Ebene sein.",
     "datasetVisibilityBlockedByMaps": "Diese Karten teilen den Datensatz mit einem Publikum, das ihn verlieren würde: {{maps}}. Entfernen Sie dort den Layer oder schränken Sie zuerst diese Karten ein.",

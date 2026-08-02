@@ -82,6 +82,13 @@ const EXACT_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
   'Tile service unavailable': 'errors.serviceUnavailable',
   'Export temporarily unavailable': 'errors.serviceUnavailable',
   'Task queue unavailable, please retry': 'errors.serviceUnavailable',
+  // fix(#790): the sandbox advisory lock (geolens:ai-sql:<user>) is SHARED
+  // between analysis previews and AI chat data queries — one expensive read
+  // per user across both, deliberately. Unmapped this 429 collapsed to the
+  // generic rateLimited fallback, so a busy chat query refused an analysis
+  // preview with no hint that another feature was holding the budget. The
+  // locale copy names both sides, because either can be the holder.
+  'Another data query is already running for this user': 'errors.sharedQueryBusy',
 };
 
 const STATUS_FALLBACK_KEYS: Record<number, ApiErrorDescriptor['key']> = {

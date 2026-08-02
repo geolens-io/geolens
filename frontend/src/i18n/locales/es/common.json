@@ -131,6 +131,7 @@
     "analysisSourceTooLarge": "Esta capa es demasiado grande para ese análisis (límite: {{limit}} entidades). Es necesario filtrarla primero a un conjunto de datos más pequeño.",
     "analysisMaskTooLarge": "La capa de máscara tiene demasiadas entidades para recortar (límite: {{limit}}). Se debe elegir una capa de máscara más pequeña o dibujar la máscara en el mapa.",
     "analysisJobAlreadyRunning": "Tu análisis anterior sigue en curso. Espera a que termine antes de iniciar otro.",
+    "sharedQueryBusy": "Las vistas previas de análisis y el chat con IA comparten una sola consulta de datos a la vez, y ya hay una en curso. Espera a que termine e inténtalo de nuevo.",
     "analysisVectorRequired": "El análisis necesita un conjunto de datos vectorial; esta capa no lo es.",
     "analysisMaskPolygonRequired": "La máscara de recorte debe ser una capa de polígonos.",
     "datasetVisibilityBlockedByMaps": "Estos mapas comparten el conjunto de datos con un público que lo perdería: {{maps}}. Quita la capa allí o restringe primero esos mapas.",

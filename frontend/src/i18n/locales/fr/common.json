@@ -131,6 +131,7 @@
     "analysisSourceTooLarge": "Cette couche est trop volumineuse pour cette analyse (limite : {{limit}} entités). Il faut d'abord la filtrer vers un jeu de données plus petit.",
     "analysisMaskTooLarge": "La couche de masque contient trop d’entités pour le découpage (limite : {{limit}}). Il faut choisir une couche de masque plus petite ou dessiner le masque sur la carte.",
     "analysisJobAlreadyRunning": "Votre analyse précédente est encore en cours. Attendez qu’elle se termine avant d’en lancer une autre.",
+    "sharedQueryBusy": "Les aperçus d’analyse et le chat IA partagent une seule requête de données à la fois, et une requête est déjà en cours. Attendez qu’elle se termine, puis réessayez.",
     "analysisVectorRequired": "L’analyse nécessite un jeu de données vectoriel — cette couche n’en est pas un.",
     "analysisMaskPolygonRequired": "Le masque de découpe doit être une couche de polygones.",
     "datasetVisibilityBlockedByMaps": "Ces cartes partagent le jeu de données avec un public qui le perdrait : {{maps}}. Supprimez-y la couche, ou restreignez d'abord ces cartes.",
