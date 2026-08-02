@@ -1595,13 +1595,17 @@ async def add_4326_column(
         )
     )
 
+    # fix(#1113 review r16): linearize IN THE SOURCE CRS, then reproject. An
+    # arc is defined by its control points, and CRS transforms are nonlinear:
+    # transforming the control points first and densifying after traces the
+    # arc in the wrong space, so ST_CurveToLine(ST_Transform(...)) yields a
+    # materially different shape from the correct
+    # ST_Transform(ST_CurveToLine(...)).
     if source_srid == 4326:
-        source_expr = "ST_SetSRID(geom, 4326)"
+        rewrite_expr = "ST_Force2D(ST_CurveToLine(ST_SetSRID(geom, 4326)))"
     else:
-        source_expr = "ST_Transform(geom, 4326)"
-    await session.execute(
-        text(f"UPDATE {tref} SET geom_4326 = ST_Force2D(ST_CurveToLine({source_expr}))")
-    )
+        rewrite_expr = "ST_Force2D(ST_Transform(ST_CurveToLine(geom), 4326))"
+    await session.execute(text(f"UPDATE {tref} SET geom_4326 = {rewrite_expr}"))
 
     await ensure_geom_4326_gist_index(session, table_name, schema=schema)
 

@@ -1242,6 +1242,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # UPDATE at parse time and cannot be repaired in place, so the enforcer
     # skips it (#1114 tracks generation expressions that yield curves).
     # Cap 2103 -> 2119, still exact.
+    # fix(#1113 review r16): +8 — linearize in the SOURCE CRS, then
+    # reproject: transforms are nonlinear, so densifying after ST_Transform
+    # traces the arc in the wrong space. Cap 2147 -> 2151 net (see r8/r9).
     # fix(#1113 review r8): +24 — a generated column whose CURRENT rows are
     # curved refuses registration with the actionable cause, instead of
     # admitting a dataset broken on every surface. Cap 2119 -> 2143, exact.
@@ -1249,7 +1252,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # change the value" (byte-compare), catching curve containers nested in a
     # GEOMETRYCOLLECTION without over-rejecting all-linear collections.
     # Cap 2143 -> 2147, still exact.
-    "backend/app/processing/ingest/metadata.py": 2147,
+    "backend/app/processing/ingest/metadata.py": 2151,
     # ingest/router.py is also scanned by the router-glob gate; this exact
     # ratchet overrides its 1500 default so the remaining ~18-line runway to
     # the cliff cannot be spent silently.

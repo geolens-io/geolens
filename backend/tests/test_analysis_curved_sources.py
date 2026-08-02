@@ -393,6 +393,54 @@ class TestCurvedIngestNormalization:
         assert [r[0] for r in rows] == ["MULTISURFACE", "COMPOUNDCURVE"]
         assert [r[1] for r in rows] == ["MULTIPOLYGON", "LINESTRING"]
 
+    async def test_reprojected_ingest_densifies_in_the_source_crs(
+        self, test_db_session: AsyncSession
+    ):
+        """fix(#1113 review r16): linearize before ST_Transform, not after.
+
+        An arc is defined by control points and CRS transforms are nonlinear,
+        so densifying after the transform traces the arc in the wrong space.
+        Pin the exact composition by comparing the column against the correct
+        expression, and pin materiality by requiring the wrong-order result
+        to differ.
+        """
+        from app.processing.ingest.metadata import add_4326_column
+
+        table = f"crs_curved_{uuid.uuid4().hex[:10]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table} ("  # noqa: S608
+                f"gid serial PRIMARY KEY, geom geometry(Geometry, 3857))"
+            )
+        )
+        # A large arc in web-mercator meters; big enough that projection
+        # nonlinearity is material.
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table} (geom) VALUES "  # noqa: S608
+                f"(ST_GeomFromText('CIRCULARSTRING(0 0, 2000000 6000000, "
+                f"4000000 0)', 3857))"
+            )
+        )
+        await add_4326_column(test_db_session, table, 3857)
+        row = (
+            await test_db_session.execute(
+                text(
+                    f"SELECT "  # noqa: S608
+                    f"ST_OrderingEquals(geom_4326, "
+                    f"  ST_Force2D(ST_Transform(ST_CurveToLine(geom), 4326))), "
+                    f"ST_OrderingEquals(geom_4326, "
+                    f"  ST_Force2D(ST_CurveToLine(ST_Transform(geom, 4326)))) "
+                    f"FROM data.{table}"
+                )
+            )
+        ).one()
+        assert row[0] is True, "column must equal the linearize-then-transform form"
+        assert row[1] is False, (
+            "wrong-order form should differ materially; if it stops differing "
+            "this test no longer discriminates"
+        )
+
     async def test_register_linearizes_a_preexisting_curved_geom_4326(
         self, test_db_session: AsyncSession
     ):
