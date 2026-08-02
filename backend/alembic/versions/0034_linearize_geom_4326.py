@@ -14,10 +14,17 @@ information_schema: every BASE TABLE with a geometry column named
 ``geom_4326`` in the ``data`` schema (single-tenant) or a ``data_t_%``
 tenant schema (multi-tenant, see tenant_data_schema).
 
-Idempotent: the UPDATE touches only rows where ST_HasArc still reports an
-arc, so a re-run matches nothing. ST_HasArc rather than a GeometryType IN
-(...) list because it also sees curves nested inside a
-GEOMETRYCOLLECTION, which GeometryType reports as the collection type.
+The predicate is the union of three tests, because each alone misses a
+stored shape — fix(#1113 review): a curve TYPE with no arc in it
+(``MULTISURFACE(((...)))``, a form the curved-sources suite itself uses)
+still breaks every curve-intolerant reader, and ST_HasArc alone skips
+it; a GeometryType list alone misses an arc nested inside a
+GEOMETRYCOLLECTION, which reports the collection type. So: any arc
+(ST_HasArc), any top-level curve type (the closed five-member list), or
+any GEOMETRYCOLLECTION (linear members pass through ST_CurveToLine
+unchanged; curve members cannot hide anywhere else — linear multi types
+cannot contain them). Idempotent: converted rows leave the predicate,
+and a GEOMETRYCOLLECTION re-converts to an identical value.
 
 Downgrade is a deliberate no-op: densifying arcs is not losslessly
 reversible, the curved source survives in ``geom``, and the catalog's
@@ -76,7 +83,11 @@ def upgrade() -> None:
             sa.text(
                 f"UPDATE {_quote_ident(schema)}.{_quote_ident(table)} "
                 f"SET geom_4326 = ST_CurveToLine(geom_4326) "
-                f"WHERE ST_HasArc(geom_4326)"
+                f"WHERE ST_HasArc(geom_4326) "
+                f"   OR GeometryType(geom_4326) IN "
+                f"      ('CIRCULARSTRING','COMPOUNDCURVE','CURVEPOLYGON',"
+                f"       'MULTICURVE','MULTISURFACE') "
+                f"   OR GeometryType(geom_4326) = 'GEOMETRYCOLLECTION'"
             )
         )
 
