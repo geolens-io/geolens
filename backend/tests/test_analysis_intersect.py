@@ -269,6 +269,170 @@ class TestPairwiseRows:
         assert out.feature_count == 1, "one mask FEATURE, one row, however it split"
 
 
+class TestOverlayAttributes:
+    """fix(#1099): the overlay's attributes are joined back, not grouped by.
+
+    Only observable at materialize. The preview carries gid and source_gid
+    alone, so it never named an overlay column in a GROUP BY and never saw the
+    failure this replaces — a unit test on the rendered SQL would have the same
+    blind spot, because the statement only breaks when PostgreSQL executes it.
+    """
+
+    async def test_a_json_overlay_column_survives_into_the_output(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """json and xml have no equality operator, so naming one in a GROUP BY
+        fails the CTAS with SQLSTATE 42883. Both used to make a layer unusable
+        as an overlay; both must now land in the output table with their type
+        and their values intact.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        zones = await _create_zones(test_db_session, created_by=admin_id)
+        bar = await _create_bar(test_db_session, created_by=admin_id)
+        # Physical columns only. The worker reads LIVE columns, and json is how
+        # nested GeoJSON properties actually arrive on an ingested layer.
+        await test_db_session.execute(
+            text(
+                f"ALTER TABLE data.{zones.table_name} "  # noqa: S608
+                "ADD COLUMN props json, ADD COLUMN doc xml"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"UPDATE data.{zones.table_name} SET"  # noqa: S608
+                " props = ('{\"code\": \"' || zone || '\"}')::json,"
+                " doc = ('<z>' || zone || '</z>')::xml"
+            )
+        )
+        await test_db_session.commit()
+        job = await _create_job(test_db_session, admin_id)
+
+        await _materialize(
+            job_id=str(job.id),
+            dataset_id=str(bar.id),
+            user_id=str(admin_id),
+            operation="intersect",
+            title=f"Overlay {uuid.uuid4().hex[:6]}",
+            mask_dataset_id=str(zones.id),
+        )
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+
+        from app.modules.catalog.datasets.domain.models import Dataset
+
+        out = await test_db_session.get(Dataset, job.dataset_id)
+        assert out is not None
+
+        # The columns survived AS json and xml — not stringified on the way.
+        types = dict(
+            (
+                await test_db_session.execute(
+                    text(
+                        "SELECT column_name, data_type FROM"
+                        " information_schema.columns WHERE table_schema = 'data'"
+                        " AND table_name = :t"
+                    ).bindparams(t=out.table_name)
+                )
+            ).all()
+        )
+        assert types.get("props") == "json"
+        assert types.get("doc") == "xml"
+
+        rows = (
+            await test_db_session.execute(
+                text(
+                    "SELECT zone, props->>'code', doc::text, source_gid"  # noqa: S608
+                    f" FROM data.{out.table_name} ORDER BY zone"
+                )
+            )
+        ).all()
+        # Three zones, three rows — the count the guard-era test could never
+        # reach, and the same count the plain-text overlay produces.
+        assert len(rows) == 3
+        assert out.feature_count == 3
+        assert [r[0] for r in rows] == ["A", "B", "C"]
+        # Values ride the right row. A join on the wrong key would still
+        # populate the column, so presence alone proves nothing.
+        assert [r[1] for r in rows] == ["A", "B", "C"]
+        assert [r[2] for r in rows] == ["<z>A</z>", "<z>B</z>", "<z>C</z>"]
+        assert {r[3] for r in rows} == {1}
+
+    async def test_the_join_back_does_not_multiply_rows(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """The fix's central safety claim, as an assertion.
+
+        The aggregate emits one row per (source gid, overlay gid) pair and the
+        outer query joins the overlay table back on its primary key, so the
+        count cannot change. The case that would expose a 1:many join is one
+        overlay feature matched by SEVERAL source features — two half-height
+        bars across three zones is six pairs, each zone looked up twice.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        zones = await _create_zones(test_db_session, created_by=admin_id)
+        halves = await _create_layer(
+            test_db_session,
+            created_by=admin_id,
+            column_type="Geometry",
+            geometry_type="POLYGON",
+            feature_count=2,
+            values_sql=(
+                "('lower', ST_MakeEnvelope(0, 0, 3, 0.5, 4326),"
+                " ST_MakeEnvelope(0, 0, 3, 0.5, 4326)),"
+                "('upper', ST_MakeEnvelope(0, 0.5, 3, 1, 4326),"
+                " ST_MakeEnvelope(0, 0.5, 3, 1, 4326))"
+            ),
+            column_info=[{"name": "parcel", "type": "text"}],
+        )
+        await test_db_session.execute(
+            text(
+                f"ALTER TABLE data.{halves.table_name} "  # noqa: S608
+                "RENAME COLUMN name TO parcel"
+            )
+        )
+        # A json column on the overlay, so the count is measured on the shape
+        # the join-back exists for rather than on a plain-text fallback.
+        await test_db_session.execute(
+            text(f"ALTER TABLE data.{zones.table_name} ADD COLUMN props json")  # noqa: S608
+        )
+        await test_db_session.commit()
+        job = await _create_job(test_db_session, admin_id)
+
+        await _materialize(
+            job_id=str(job.id),
+            dataset_id=str(halves.id),
+            user_id=str(admin_id),
+            operation="intersect",
+            title=f"Pairs {uuid.uuid4().hex[:6]}",
+            mask_dataset_id=str(zones.id),
+        )
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+
+        from app.modules.catalog.datasets.domain.models import Dataset
+
+        out = await test_db_session.get(Dataset, job.dataset_id)
+        pairs = (
+            await test_db_session.execute(
+                text(
+                    f"SELECT parcel, zone FROM data.{out.table_name}"  # noqa: S608
+                    " ORDER BY parcel, zone"
+                )
+            )
+        ).all()
+        assert [tuple(p) for p in pairs] == [
+            ("lower", "A"),
+            ("lower", "B"),
+            ("lower", "C"),
+            ("upper", "A"),
+            ("upper", "B"),
+            ("upper", "C"),
+        ]
+        assert out.feature_count == 6
+
+
 class TestPreview:
     async def test_preview_rows_carry_distinct_generated_gids(
         self,
@@ -428,50 +592,72 @@ class TestColumnCollisions:
         assert resp.status_code == 422
         assert "name" in resp.text
 
-    async def test_an_ungroupable_overlay_column_is_rejected_at_enqueue(
-        self,
-        client: AsyncClient,
-        admin_auth_header: dict,
-        test_db_session: AsyncSession,
-    ):
-        """fix(#1097 review): json and xml have no equality operator.
+    def test_an_ungroupable_overlay_column_is_admitted_at_enqueue(self):
+        """fix(#1099): the inverse of what #1097 pinned here.
 
-        render_intersect_pairs groups by the two gids plus every carried
-        OVERLAY column — the source's columns ride the functional dependency on
-        _src.gid, but _mask_pieces is a CTE with no key, so its columns must be
-        named in the GROUP BY. Grouping on json fails the CTAS with SQLSTATE
-        42883, and it fails only there: the preview carries gid and source_gid
-        alone, so it succeeds first and the operation dies after the queue wait
-        quoting a generated alias the user never wrote.
+        json and xml have no equality operator, and the aggregate used to name
+        every carried OVERLAY column in its GROUP BY, so a layer holding one
+        was refused outright — which took a real class of layer out of service,
+        since nested GeoJSON properties land as json routinely. The attributes
+        are joined back outside the aggregate now, where nothing groups, so the
+        type stops mattering.
+
+        Against the validator rather than the endpoint, for the reason the
+        SOURCE-side sibling below spells out: admitting the request means
+        enqueueing, and a 503 from the broker is not evidence about column
+        rules.
         """
-        admin_id = await get_user_id(test_db_session, "admin")
-        zones = await _create_zones(test_db_session, created_by=admin_id)
-        bar = await _create_bar(test_db_session, created_by=admin_id)
-        # Physical column AND catalog snapshot: the guard reads column_info,
-        # and the worker that would hit 42883 reads the live table.
-        await test_db_session.execute(
-            text(f"ALTER TABLE data.{zones.table_name} ADD COLUMN props json")  # noqa: S608
+        from app.modules.catalog.datasets.api.router_analysis import (
+            _validate_intersect_columns,
         )
-        zones.column_info = [
-            {"name": "zone", "type": "text"},
-            {"name": "props", "type": "json"},
-        ]
-        await test_db_session.commit()
 
-        resp = await client.post(
-            _materialize_url(bar.id),
-            json={
-                "operation": "intersect",
-                "mask_dataset_id": str(zones.id),
-                "title": "Nope",
-            },
-            headers=admin_auth_header,
+        source = SimpleNamespace(column_info=[{"name": "parcel", "type": "text"}])
+        overlay = SimpleNamespace(
+            column_info=[
+                {"name": "zone", "type": "text"},
+                {"name": "props", "type": "json"},
+                {"name": "doc", "type": "xml"},
+            ]
         )
-        assert resp.status_code == 422
-        # Names the column and its type: "cannot be grouped" with no referent
-        # sends the operator looking through both layers by hand.
-        assert "props" in resp.text
-        assert "json" in resp.text
+        _validate_intersect_columns(source, overlay)
+
+    def test_the_overlay_guards_still_refuse_what_actually_breaks(self):
+        """The other direction of #1099: admitting json admitted only json.
+
+        Each of these still fails the CTAS if it gets through, and none of them
+        is touched by moving the attributes out of the GROUP BY — so a fix that
+        pinned the admission alone would let a wholesale gutting of the guard
+        pass green.
+        """
+        from app.modules.catalog.datasets.api.router_analysis import (
+            _validate_dissolve_by_field,
+            _validate_intersect_columns,
+        )
+
+        source = SimpleNamespace(column_info=[{"name": "zone", "type": "text"}])
+        # A name in both layers: "column specified more than once".
+        with pytest.raises(HTTPException) as excinfo:
+            _validate_intersect_columns(
+                source, SimpleNamespace(column_info=[{"name": "zone", "type": "text"}])
+            )
+        assert "zone" in str(excinfo.value.detail)
+        # A name in the internal alias namespace: an ambiguous reference.
+        with pytest.raises(HTTPException) as excinfo:
+            _validate_intersect_columns(
+                source,
+                SimpleNamespace(column_info=[{"name": "_gl_src_type", "type": "text"}]),
+            )
+        assert "_gl_" in str(excinfo.value.detail)
+        # And dissolve, which shares NON_GROUPABLE_COLUMN_TYPES with the branch
+        # that came out. It really does GROUP BY a user-chosen column, so json
+        # stays fatal there — deleting the shared machinery must not read as
+        # this issue being fixed.
+        with pytest.raises(HTTPException) as excinfo:
+            _validate_dissolve_by_field(
+                SimpleNamespace(column_info=[{"name": "props", "type": "json"}]),
+                "props",
+            )
+        assert "props" in str(excinfo.value.detail)
 
     async def test_an_overlay_column_in_the_alias_namespace_is_rejected(
         self,
@@ -634,108 +820,23 @@ class TestColumnCollisions:
             test_db_session, Dataset, str(zones.id), "data", label="join"
         )
 
-    async def test_an_overlay_that_gains_a_json_column_after_enqueue_is_caught(
-        self, test_db_session: AsyncSession
-    ):
-        """fix(#1097 review): the enqueue guard reads a catalog SNAPSHOT.
-
-        A re-upload can replace the overlay between enqueue and the job
-        running, so a layer that passed the router can be grouping-hostile by
-        the time the worker builds the CTAS. That is the same window
-        _reject_output_column_collision exists for, and why the carry-column
-        list beside it is read live rather than trusted from column_info.
-
-        Types, not names: the live NAME list is already read here and would not
-        have caught this, because the column that breaks the query has a
-        perfectly ordinary name.
-        """
-        from app.processing.analysis.tasks import (
-            _reject_ungroupable_overlay_columns,
-        )
-
-        admin_id = await get_user_id(test_db_session, "admin")
-        zones = await _create_zones(test_db_session, created_by=admin_id)
-        # column_info still says text-only — the snapshot the router would read.
-        assert all(c.get("type") != "json" for c in (zones.column_info or [])), (
-            "fixture drifted: the snapshot must look clean for this to mean anything"
-        )
-        await test_db_session.execute(
-            text(f"ALTER TABLE data.{zones.table_name} ADD COLUMN props json")  # noqa: S608
-        )
-        await test_db_session.commit()
-
-        with pytest.raises(ValueError) as excinfo:
-            await _reject_ungroupable_overlay_columns(
-                test_db_session, "data", zones.table_name
-            )
-        assert "props" in str(excinfo.value)
-        assert "json" in str(excinfo.value)
-
-    async def test_a_groupable_overlay_passes_the_live_recheck(
-        self, test_db_session: AsyncSession
-    ):
-        """The negative control: the live recheck must not refuse ordinary
-        layers, or every intersect would fail at the worker."""
-        from app.processing.analysis.tasks import (
-            _reject_ungroupable_overlay_columns,
-        )
-
-        admin_id = await get_user_id(test_db_session, "admin")
-        zones = await _create_zones(test_db_session, created_by=admin_id)
-        await _reject_ungroupable_overlay_columns(
-            test_db_session, "data", zones.table_name
-        )
-
-    async def test_a_json_array_overlay_column_is_rejected_with_its_real_type(
-        self, test_db_session: AsyncSession
-    ):
-        """fix(#1097 review): arrays hide their element type from data_type.
-
-        information_schema reports a json[] column's data_type as 'ARRAY', so
-        the exact comparison the scalar guard makes never fires, and the
-        snapshot the router reads has the same blind spot — this recheck is
-        the ONLY layer that can see the element type (udt_name '_json').
-        GROUP BY on json[] fails with SQLSTATE 42883 exactly like scalar json.
-        int[] has equality and must still pass, so the check names elements,
-        not arrays.
-        """
-        from app.processing.analysis.tasks import (
-            _reject_ungroupable_overlay_columns,
-        )
-
-        admin_id = await get_user_id(test_db_session, "admin")
-        zones = await _create_zones(test_db_session, created_by=admin_id)
-        await test_db_session.execute(
-            text(
-                f"ALTER TABLE data.{zones.table_name} "  # noqa: S608
-                f"ADD COLUMN props json[], ADD COLUMN tags int[]"
-            )
-        )
-        await test_db_session.commit()
-
-        with pytest.raises(ValueError) as excinfo:
-            await _reject_ungroupable_overlay_columns(
-                test_db_session, "data", zones.table_name
-            )
-        assert "props" in str(excinfo.value)
-        assert "json[]" in str(excinfo.value)
-
-        # int[] alone passes: drop the hostile column and the layer is fine.
-        await test_db_session.execute(
-            text(f"ALTER TABLE data.{zones.table_name} DROP COLUMN props")  # noqa: S608
-        )
-        await test_db_session.commit()
-        await _reject_ungroupable_overlay_columns(
-            test_db_session, "data", zones.table_name
-        )
+    # fix(#1099): the worker-side ungroupable-overlay recheck and its two
+    # controls came out with the guard they exercised — the overlay's
+    # attributes never reach a GROUP BY now, so a re-upload that introduces a
+    # json column no longer has anything to break. _ungroupable_type_name's
+    # ARRAY branch (the json[] case those tests also covered) is still pinned,
+    # by dissolve's live recheck in
+    # test_analysis_materialize.py::test_dissolve_by_a_json_array_field_fails_with_a_clear_message.
 
     def test_an_ungroupable_SOURCE_column_is_still_allowed(self):
-        """The guard is deliberately one-sided, so pin the side it lets through.
+        """The source side never needed the guard, and still does not.
 
         A json column on the SOURCE never reaches the GROUP BY: _src.gid is a
         real table's primary key, so PostgreSQL licenses every other _src
-        column by functional dependency. Rejecting both sides would refuse
-        overlays that work.
+        column by functional dependency. Kept through fix(#1099) because it
+        pins a different fact from the overlay-side test above — that one is
+        about the join-back, this one about functional dependency, and either
+        could be broken without the other.
 
         Against the validator rather than the endpoint: enqueueing needs the
         task queue, so an HTTP assertion here would be reading a 503 from the
@@ -756,11 +857,12 @@ class TestColumnCollisions:
         overlay = SimpleNamespace(column_info=[{"name": "zone", "type": "text"}])
         _validate_intersect_columns(source, overlay)
 
-        # And the mirror image is refused, which is what makes the pass above
-        # a statement about WHICH side rather than about json in general.
-        with pytest.raises(HTTPException) as excinfo:
-            _validate_intersect_columns(overlay, source)
-        assert "props" in str(excinfo.value.detail)
+        # fix(#1099): the mirror image used to be refused, and that asymmetry
+        # is what this test was originally about. It is gone — the overlay side
+        # never needed the guard either, once its attributes stopped riding
+        # through the aggregate. Pinned here rather than dropped, because "the
+        # source side is fine" is only half the reason the sides now agree.
+        _validate_intersect_columns(overlay, source)
 
     async def test_a_source_column_named_source_gid_is_rejected(
         self,

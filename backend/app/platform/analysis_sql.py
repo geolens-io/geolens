@@ -667,9 +667,13 @@ INTERNAL_ALIAS_PREFIX = "_gl_"
 # Column types PostgreSQL cannot group by, because they have no equality
 # operator. Grouping on one fails with SQLSTATE 42883.
 #
-# Here rather than in either caller: dissolve's by_field guard (the router) and
-# intersect's overlay guards (the router at enqueue, the worker again after the
-# queue wait) all need it, and the worker must not import from the API layer.
+# Here rather than in either caller: dissolve's by_field guard needs it at
+# enqueue (the router) and again after the queue wait (the worker), and the
+# worker must not import from the API layer. Intersect used to be the other
+# caller — it grouped by every carried overlay column, so it inherited the same
+# limit. fix(#1099) moved those attributes out of the GROUP BY and the intersect
+# guards came out with them; only the operation that really groups by a
+# user-chosen column is left.
 NON_GROUPABLE_COLUMN_TYPES = frozenset({"json", "xml"})
 
 
@@ -706,10 +710,27 @@ def render_intersect_pairs(
       it runs once per source row rather than once per candidate pair. Inlined,
       it is #953's 28.4s-vs-0.2s trap, and worse here: this shape probes every
       piece of every overlapping mask feature.
-    - ``GROUP BY _src.gid`` alone licenses the ungrouped ``_src.*`` references
-      (PostgreSQL recognizes functional dependency on a real table's primary
-      key). ``_mp`` is a CTE and has no key, so every ``_mp`` column that is
-      selected has to be grouped explicitly.
+    - The aggregate groups by the two gids and NOTHING else (fix(#1099)).
+      ``_src.gid`` is a real table's primary key, so PostgreSQL licenses the
+      other ``_src`` columns by functional dependency; ``_mp`` is a CTE with no
+      key, so anything selected from it has to be grouped explicitly. The
+      overlay's ATTRIBUTES therefore do not travel through ``_mp`` at all — the
+      aggregate carries the overlay gid out and the outer query joins the
+      overlay table back on it. Routed through the CTE, each attribute had to
+      be named in the GROUP BY, and ``json``/``xml`` have no equality operator
+      (SQLSTATE 42883) — so a nested-GeoJSON properties column, which lands as
+      ``json`` routinely, made a layer unusable as an overlay rather than
+      merely awkward. The outer query does no aggregation, so no type is
+      off-limits there.
+
+      The join back cannot change the row count: the aggregate already emits
+      one row per (source gid, overlay gid) pair, and ``gid`` is the overlay
+      table's primary key, so it matches at most one row. LEFT, not INNER —
+      every ``_gl_mask_gid`` was read from that same table in this same
+      statement so a miss is impossible, and a join that cannot drop a row
+      keeps the count claim structural instead of resting on that argument.
+      Rendered only when there are overlay columns to fetch, so the preview
+      (which carries none) is the statement it always was.
     - ``ST_LineMerge`` on single-part LineString sources only, for the reason
       spelled out in ``render_clip_layer_join``: ``ST_Union`` re-dissolves
       adjacent polygons but does not sew line segments, so a line crossing a
@@ -724,15 +745,21 @@ def render_intersect_pairs(
     statement timeout rather than by the row limit.
     """
     src_sel = "".join(f", _src.{c}" for c in src_columns)
-    mask_sel = "".join(f", _mp.{c}" for c in mask_columns)
-    mask_pick = "".join(f", {c}" for c in mask_columns)
-    mask_group = "".join(f", _mp.{c}" for c in mask_columns)
-    outer_cols = "".join(f", _p.{c}" for c in (*src_columns, *mask_columns))
+    # The two sides come from different relations now, so the output order that
+    # was one comprehension is two: source columns off the aggregate, overlay
+    # columns off the joined-back overlay table.
+    outer_cols = "".join(f", _p.{c}" for c in src_columns)
+    outer_cols += "".join(f", _mo.{c}" for c in mask_columns)
+    mask_join = (
+        f" LEFT JOIN {mask_table_ref} AS _mo ON _mo.gid = _p._gl_mask_gid"
+        if mask_columns
+        else ""
+    )
     return (
         f"WITH _mask_pieces AS MATERIALIZED ("
-        f"SELECT _o.gid AS _gl_mask_gid{mask_pick},"
+        f"SELECT _o.gid AS _gl_mask_gid,"
         f" ST_Subdivide(_o._gl_g, {MASK_SUBDIVIDE_MAX_VERTICES}) AS geom"
-        f" FROM (SELECT gid{mask_pick},"
+        f" FROM (SELECT gid,"
         f" ST_CollectionExtract(ST_MakeValid(geom_4326), 3) AS _gl_g"
         f" FROM {mask_table_ref} WHERE geom_4326 IS NOT NULL OFFSET 0) AS _o"
         f" WHERE NOT ST_IsEmpty(_o._gl_g))"
@@ -741,8 +768,8 @@ def render_intersect_pairs(
         f" CASE WHEN _p._gl_src_type = 'LINESTRING'"
         f" THEN ST_LineMerge(_p.geom) ELSE _p.geom END AS geom"
         f" FROM (SELECT _src.gid AS {INTERSECT_SOURCE_GID_COLUMN},"
-        f" GeometryType(_src.geom_4326) AS _gl_src_type"
-        f"{src_sel}{mask_sel},"
+        f" GeometryType(_src.geom_4326) AS _gl_src_type,"
+        f" _mp._gl_mask_gid{src_sel},"
         f" ST_Union(ST_CollectionExtract("
         f"ST_Intersection(_sv.g, _mp.geom),"
         f" ST_Dimension(_src.geom_4326) + 1)) AS geom"
@@ -753,7 +780,8 @@ def render_intersect_pairs(
         f" JOIN _mask_pieces AS _mp"
         f" ON _mp.geom && _src.geom_4326"
         f" AND ST_Intersects(_mp.geom, _sv.g)"
-        f" GROUP BY _src.gid, _mp._gl_mask_gid{mask_group}) AS _p"
+        f" GROUP BY _src.gid, _mp._gl_mask_gid) AS _p"
+        f"{mask_join}"
         f" WHERE _p.geom IS NOT NULL AND NOT ST_IsEmpty(_p.geom)"
     )
 
