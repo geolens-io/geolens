@@ -12,7 +12,7 @@ import structlog
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.geo import extent_to_span_bbox
+from app.core.geo import extent_to_bbox
 from app.core.identity import Identity
 from app.modules.catalog.authorization import get_user_roles
 from app.modules.catalog.maps.models import Map, MapLayer
@@ -108,13 +108,18 @@ def _build_layer_response(
         dataset_name=meta.get("dataset_name", ""),
         dataset_geometry_type=meta.get("geometry_type"),
         dataset_table_name=meta.get("table_name", ""),
-        # fix(#892 codex P2): the SPAN, not the RFC 7946 spec bbox. Per MVT-06
-        # this value bounds tile fetching, and it lands in a MapLibre source
-        # `bounds` (map-sync.ts) where a west > east pair matches NO tile, so a
-        # seam-crossing layer would render blank. The two builder fit-bounds
-        # paths also skip an inverted bbox, which silently disables auto-fit and
-        # Zoom to Layer. -180..180 is over-broad but keeps all three working.
-        dataset_extent_bbox=extent_to_span_bbox(meta.get("extent")),
+        # fix(#1112): the RFC 7946 §5.2 spec bbox, west > east on a crossing.
+        # This was the span form under #892, when all three consumers below were
+        # seam-blind. They no longer are, and the span form defeated the guards
+        # they grew: it flattens a Fiji extent to [-180, s, 180, n], which is
+        # bit-identical to a genuinely global dataset, so auto-fit and Zoom to
+        # Layer framed the whole world with nothing left to detect. Each
+        # consumer now declares the form it wants: the two builder fit paths
+        # (BuilderMap.getVisibleLayerBounds, use-builder-layers.handleZoomToLayer)
+        # unwrap the crossing past 180 and fit the few degrees the data occupies,
+        # and normalizeRasterBounds (layer-adapters/shared.ts) spans it back at
+        # the MapLibre source boundary, where an inverted pair matches NO tile.
+        dataset_extent_bbox=extent_to_bbox(meta.get("extent")),
         dataset_column_info=meta.get("column_info"),
         dataset_feature_count=meta.get("feature_count"),
         dataset_sample_values=meta.get("sample_values"),
