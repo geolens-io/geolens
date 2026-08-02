@@ -792,6 +792,139 @@ def test_no_external_imports_of_search_private_service_modules() -> None:
         )
 
 
+_ANALYSIS_SQL_PACKAGE = "app.platform.analysis_sql"
+_ANALYSIS_SQL_FAMILIES = frozenset(
+    {"measure", "overlay", "shared", "spatial_join", "transform"}
+)
+
+# The seven modules that legitimately consume the façade. Named so the
+# both-directions test can prove the guard still LETS THEM THROUGH — a refusal
+# assertion cannot notice that a correct import started being rejected.
+_ANALYSIS_SQL_CALLERS = (
+    "app/modules/catalog/datasets/api/router_analysis.py",
+    "app/modules/catalog/datasets/domain/schemas.py",
+    "app/modules/catalog/datasets/domain/service_analysis.py",
+    "app/platform/extensions/defaults_processing_port.py",
+    "app/platform/sandbox/validator.py",
+    "app/processing/ai/sql_generator.py",
+    "app/processing/analysis/tasks.py",
+)
+
+
+def _dotted_name(node: ast.expr) -> str:
+    """Flatten an attribute chain to ``a.b.c``; ``""`` when it is not one."""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        base = _dotted_name(node.value)
+        return f"{base}.{node.attr}" if base else ""
+    return ""
+
+
+def _reaches_analysis_sql_family(dotted: str) -> str:
+    """The family a dotted path reaches (``…analysis_sql.overlay``), else ``""``.
+
+    Segment-wise so a RELATIVE ``from .analysis_sql.overlay import …`` is seen
+    too: the ast node carries that as ``analysis_sql.overlay``, with no package
+    prefix to anchor a string match on.
+    """
+    parts = dotted.split(".")
+    for parent, child in zip(parts, parts[1:]):
+        if parent == "analysis_sql" and child in _ANALYSIS_SQL_FAMILIES:
+            return child
+    return ""
+
+
+def _is_analysis_sql_package(dotted: str) -> bool:
+    """True for the façade itself, absolute or relative (``.analysis_sql``)."""
+    return bool(dotted) and dotted.split(".")[-1] == "analysis_sql"
+
+
+def _analysis_sql_family_bypasses(source: str, rel: str) -> list[str]:
+    """Every reference reaching a family module, as ``rel:lineno: detail``.
+
+    refactor(#1089 review): the first version of this matched ``node.module``
+    alone, so ``from app.platform.analysis_sql import overlay`` walked straight
+    past it — the module IS the façade (allowed) and the imported NAME was
+    never looked at. That import succeeds at runtime, because the façade
+    imports its submodules and they become package attributes, so a caller
+    could hold a family renderer with the architecture test still green.
+
+    Rather than patch the reported instance, every shape that reaches a family
+    from outside the package was enumerated and measured against the old
+    matcher; 9 of 14 were missed. Handled here:
+
+        from …analysis_sql.overlay import render_clip [as r]   caught before
+        import …analysis_sql.overlay [as ov]                   caught before
+        from .analysis_sql.overlay import render_clip          caught before
+        from …analysis_sql import overlay [as ov]              FIXED, reported
+        from …analysis_sql import render_geometry_expr, overlay  FIXED
+        from .analysis_sql import overlay                      FIXED
+        analysis_sql.overlay.render_clip(…)                    FIXED
+        app.platform.analysis_sql.transform.render_x(…)        FIXED
+
+    Two shapes are deliberately NOT branches, because a branch would read as
+    coverage it does not provide:
+
+    - ``from app.platform.analysis_sql import *`` cannot reach a family at all.
+      ``__init__`` defines ``__all__`` and no family name is in it, so the star
+      binds renderers only. That is a property of the FAÇADE, not of this
+      matcher, and it is pinned as one in the test below.
+    - ``importlib.import_module("…analysis_sql.overlay")`` is out of reach of
+      import analysis in general, since the name can be computed. A
+      string-literal check would cover only the spelled-out case, and nothing
+      under ``backend/app/`` loads a platform module that way. Recorded as
+      residue rather than half-covered.
+    """
+    offenders: list[str] = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if _reaches_analysis_sql_family(alias.name):
+                    offenders.append(f"  {rel}:{node.lineno}: import {alias.name}")
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            if _reaches_analysis_sql_family(module):
+                offenders.append(f"  {rel}:{node.lineno}: from {module} import …")
+            elif _is_analysis_sql_package(module):
+                # The reported gap: the module is the façade, so the imported
+                # NAMES are what decide it. `from … import overlay as ov` is
+                # the same bypass — alias.name is what was reached for.
+                for alias in node.names:
+                    if alias.name in _ANALYSIS_SQL_FAMILIES:
+                        offenders.append(
+                            f"  {rel}:{node.lineno}: from {module} import {alias.name}"
+                        )
+        elif isinstance(node, ast.Attribute) and node.attr in _ANALYSIS_SQL_FAMILIES:
+            # `analysis_sql.overlay.render_clip(…)` after a perfectly legal
+            # `from app.platform import analysis_sql`. No import statement
+            # names the family, and the caller is holding it just the same.
+            base = _dotted_name(node.value)
+            if _is_analysis_sql_package(base):
+                offenders.append(f"  {rel}:{node.lineno}: {base}.{node.attr}")
+    return sorted(set(offenders))
+
+
+def _analysis_sql_facade_all_names() -> set[str]:
+    """``__all__`` from the façade, read statically so no app import is needed."""
+    source = _backend_path("app/platform/analysis_sql/__init__.py")
+    for node in ast.parse(source.read_text(encoding="utf-8")).body:
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(
+            isinstance(target, ast.Name) and target.id == "__all__"
+            for target in node.targets
+        ):
+            continue
+        if isinstance(node.value, (ast.List, ast.Tuple)):
+            return {
+                element.value
+                for element in node.value.elts
+                if isinstance(element, ast.Constant)
+            }
+    pytest.fail("analysis_sql/__init__.py no longer declares __all__")
+
+
 @pytest.mark.architecture
 def test_no_external_imports_of_analysis_sql_family_modules() -> None:
     """refactor(#1089): analysis_sql's family modules are reached via the façade.
@@ -806,53 +939,141 @@ def test_no_external_imports_of_analysis_sql_family_modules() -> None:
 
     #1089 split it by operation family — overlay, measure, spatial_join,
     transform, over a shared core. That is safe only while the façade stays the
-    single import surface. The moment a caller reaches past it, "which
-    renderer does this path use" becomes a per-caller question again, which is
-    the same failure in a new shape. Cross-imports BETWEEN family modules are
-    fine (they are one package and use relative imports); only external
-    bypasses are forbidden.
+    single import surface. The moment a caller reaches past it, "which renderer
+    does this path use" becomes a per-caller question again, which is the same
+    failure in a new shape. Cross-imports BETWEEN family modules are fine (they
+    are one package and reach each other relatively); only external bypasses
+    are forbidden.
 
     Walks the tree rather than git-grepping, so an untracked new file is
     covered on the run that introduces it.
     """
-    import ast
-
-    package = "app.platform.analysis_sql"
-    families = {"measure", "overlay", "shared", "spatial_join", "transform"}
     package_dir = _backend_path("app/platform/analysis_sql")
 
     offenders: list[str] = []
     for path in sorted(_backend_path("app").rglob("*.py")):
         if package_dir in path.parents:
             continue
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.ImportFrom) and node.module:
-                names = [node.module]
-            elif isinstance(node, ast.Import):
-                names = [alias.name for alias in node.names]
-            else:
-                continue
-            for name in names:
-                # Segment-wise, so a RELATIVE `from .analysis_sql.overlay
-                # import ...` from elsewhere in platform/ is caught too — the
-                # ast node carries that as "analysis_sql.overlay", with no
-                # package prefix to match on.
-                parts = name.split(".")
-                if any(
-                    a == "analysis_sql" and b in families
-                    for a, b in zip(parts, parts[1:])
-                ):
-                    offenders.append(f"  {_repo_style_rel(path)}:{node.lineno}: {name}")
+        offenders.extend(
+            _analysis_sql_family_bypasses(
+                path.read_text(encoding="utf-8"), _repo_style_rel(path)
+            )
+        )
 
     if offenders:
         pytest.fail(
-            "A module outside the analysis_sql package imports one of its "
-            f"operation-family modules directly. Import from `{package}` "
+            "A module outside the analysis_sql package reaches one of its "
+            f"operation-family modules directly. Use `{_ANALYSIS_SQL_PACKAGE}` "
             "instead — it re-exports every renderer, and keeping it the single "
             "import surface is what stops the preview path and the materialize "
             "worker from drifting apart on what SQL they run (#1089).\n"
             + "\n".join(offenders)
         )
+
+
+@pytest.mark.architecture
+def test_analysis_sql_facade_guard_sees_every_bypass_shape() -> None:
+    """The guard above, pinned in BOTH directions.
+
+    A refusal assertion is half a test: it cannot notice that a legitimate
+    import started being rejected, and a guard nobody has fed a bypass to is
+    indistinguishable from one that matches nothing. So every shape that must
+    fail is listed beside every shape that must pass, and the near-miss cases
+    are in the table on purpose — ``spatial_join_output_columns`` is a real
+    export whose name starts with a family name, and ``from app.platform
+    import analysis_sql`` is how a caller legitimately holds the façade.
+    """
+    must_fail = {
+        "from-submodule": (
+            f"from {_ANALYSIS_SQL_PACKAGE}.overlay import render_clip_layer_join"
+        ),
+        "from-submodule aliased": (
+            f"from {_ANALYSIS_SQL_PACKAGE}.transform import render_geodesic_buffer as b"
+        ),
+        "from-package import family": f"from {_ANALYSIS_SQL_PACKAGE} import overlay",
+        "from-package import family aliased": (
+            f"from {_ANALYSIS_SQL_PACKAGE} import measure as m"
+        ),
+        "from-package mixed with a real export": (
+            f"from {_ANALYSIS_SQL_PACKAGE} import render_geometry_expr, shared"
+        ),
+        "plain dotted import": f"import {_ANALYSIS_SQL_PACKAGE}.spatial_join",
+        "plain dotted import aliased": f"import {_ANALYSIS_SQL_PACKAGE}.overlay as ov",
+        "relative from-submodule": (
+            "from .analysis_sql.overlay import render_intersect_pairs"
+        ),
+        "relative from-package import family": "from .analysis_sql import shared",
+        "attribute chain off the façade": (
+            "from app.platform import analysis_sql\n"
+            "x = analysis_sql.overlay.render_clip_layer_join('t', src='s')"
+        ),
+        "attribute chain, relative façade": (
+            "from . import analysis_sql\nx = analysis_sql.shared.MAX_SOURCE_FEATURES"
+        ),
+        "attribute chain off the full path": (
+            f"import {_ANALYSIS_SQL_PACKAGE}\n"
+            f"x = {_ANALYSIS_SQL_PACKAGE}.transform.render_geodesic_buffer('g', 1.0)"
+        ),
+    }
+    must_pass = {
+        "façade renderer": f"from {_ANALYSIS_SQL_PACKAGE} import render_clip_layer_join",
+        "façade constants": (
+            f"from {_ANALYSIS_SQL_PACKAGE} import MAX_SOURCE_FEATURES, "
+            "render_geometry_expr"
+        ),
+        "export whose name starts with a family name": (
+            f"from {_ANALYSIS_SQL_PACKAGE} import spatial_join_output_columns"
+        ),
+        "façade held as a module": "from app.platform import analysis_sql",
+        "façade held relatively": "from . import analysis_sql",
+        "plain façade import": f"import {_ANALYSIS_SQL_PACKAGE}",
+        "attribute off the façade, not a family": (
+            "from app.platform import analysis_sql\n"
+            "x = analysis_sql.render_geometry_expr('centroid')"
+        ),
+        "a family NAME on an unrelated package": (
+            "from app.platform.cache import shared"
+        ),
+    }
+
+    missed = [
+        label
+        for label, source in sorted(must_fail.items())
+        if not _analysis_sql_family_bypasses(source, "probe.py")
+    ]
+    assert not missed, (
+        "these bypass shapes reach a family module and the guard let them "
+        f"through: {missed}"
+    )
+
+    rejected = {
+        label: found
+        for label, source in sorted(must_pass.items())
+        if (found := _analysis_sql_family_bypasses(source, "probe.py"))
+    }
+    assert not rejected, f"the guard rejected legitimate façade usage: {rejected}"
+
+    # The seven real consumers, checked as themselves rather than as snippets:
+    # each must still reference the façade (so this is not vacuous) and none
+    # may trip the guard.
+    for rel in _ANALYSIS_SQL_CALLERS:
+        source = _backend_path(rel).read_text(encoding="utf-8")
+        assert _ANALYSIS_SQL_PACKAGE in source, (
+            f"{rel} no longer references {_ANALYSIS_SQL_PACKAGE}; either it "
+            "stopped being a caller or this list is stale"
+        )
+        assert not _analysis_sql_family_bypasses(source, rel)
+
+    # What makes `from … import *` safe, pinned where it is actually decided.
+    # Without __all__ the star would bind the submodules the façade imports,
+    # and no import-shape matcher could see it happen.
+    exported = _analysis_sql_facade_all_names()
+    assert exported, "the façade's __all__ is empty"
+    assert exported.isdisjoint(_ANALYSIS_SQL_FAMILIES), (
+        "a family module name is exported in the façade's __all__, so "
+        f"`from {_ANALYSIS_SQL_PACKAGE} import *` now reaches a family: "
+        f"{sorted(exported & _ANALYSIS_SQL_FAMILIES)}"
+    )
 
 
 @pytest.mark.architecture
