@@ -178,6 +178,7 @@ async def _apply_visibility_change(
         old_visibility=record.visibility,
         new_visibility=new_visibility,
         record_status=record.record_status,
+        record_id=record.id,
         owner_id=record.created_by,
     )
     if broken_maps:

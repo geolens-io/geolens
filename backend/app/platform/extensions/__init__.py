@@ -49,6 +49,11 @@ from app.platform.extensions.protocols import (
     ConnectorDefinition as ConnectorDefinition,
     ConnectorResource as ConnectorResource,
     NotificationSink,  # NEW (Phase 1229)
+    # feat(#1068): the audience seam's two DTOs. Runtime re-exports, not
+    # TYPE_CHECKING ones — an overlay implementing record_audience has to
+    # CONSTRUCT a RecordAudience, so the name must resolve at run time.
+    RecordAudience as RecordAudience,
+    RecordAudienceQuery as RecordAudienceQuery,
 )
 
 if TYPE_CHECKING:

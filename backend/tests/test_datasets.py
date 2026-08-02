@@ -794,7 +794,12 @@ class TestUpdateMetadata:
 
         assert resp.status_code == 200, resp.text
 
-    async def test_precision_yields_to_conservative_under_a_permission_overlay(
+    async def _viewer_id(self, client: AsyncClient, viewer_auth_header: dict):
+        return uuid.UUID(
+            (await client.get("/auth/me/", headers=viewer_auth_header)).json()["id"]
+        )
+
+    async def test_an_authority_that_answers_reads_but_not_audiences_refuses(
         self,
         client: AsyncClient,
         admin_auth_header: dict,
@@ -802,31 +807,30 @@ class TestUpdateMetadata:
         test_db_session,
         monkeypatch,
     ):
-        """fix(#1111 review): a non-default permission authority disables precision.
+        """feat(#1068): overriding reads while inheriting the community audience.
 
-        The stranded-viewer query mirrors DefaultPermissionExtension's
-        grants+ladder, so its answer is authoritative only while that default IS
-        the permission authority. An overlay that additively widens a dataset's
-        audience (the SLOT-02 wrap shape) admits viewers the query cannot see —
-        under the rank-only #1056 guard they were protected by the
-        over-refusal, and permitting on community math would strip that.
-        Same setup as the everyone-granted permit above; the only difference is
-        a registered non-default authority, and the move must refuse again.
-        `type(...) is` gates it, so even a subclass of the default counts as an
-        overlay.
+        Such an authority reports one policy and serves another, and core cannot
+        see the disagreement — so it counts as unable to answer and takes the
+        refusal. This is #1111's protection, re-keyed from "is this object
+        literally the default class" to "does this object still resolve reads
+        the way the audience it is borrowing assumes". Same setup as the
+        everyone-granted permit above, which returns 200 without the overlay.
         """
         from app.modules.auth.models import Role, UserRole
         from app.modules.catalog.datasets.domain.models import DatasetGrant
         from app.modules.catalog.maps import service_public
         from app.platform.extensions import DefaultPermissionExtension
 
-        class _WrappedAuthority(DefaultPermissionExtension):
-            """Stand-in for an enterprise wrap of the default authority."""
+        class _WidensReadsOnly(DefaultPermissionExtension):
+            def filter_visible(
+                self, stmt, user, user_roles, record_cls, grant_cls=None
+            ):
+                return stmt
 
         monkeypatch.setattr(
             service_public,
             "get_permission_extension",
-            lambda: _WrappedAuthority(),
+            lambda: _WidensReadsOnly(),
         )
 
         admin_id = await _get_user_id(test_db_session, "admin")
@@ -838,9 +842,7 @@ class TestUpdateMetadata:
             map_visibility="internal",
             map_name=map_name,
         )
-        viewer_id = uuid.UUID(
-            (await client.get("/auth/me/", headers=viewer_auth_header)).json()["id"]
-        )
+        viewer_id = await self._viewer_id(client, viewer_auth_header)
         role = Role(name=f"granted-all-{uuid.uuid4().hex[:8]}")
         test_db_session.add(role)
         await test_db_session.flush()
@@ -857,6 +859,424 @@ class TestUpdateMetadata:
 
         assert resp.status_code == 422, resp.text
         assert map_name in resp.text
+
+    async def test_an_authority_that_only_diverges_on_capabilities_keeps_precision(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        viewer_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """The mirror of the refusal above, and the reason `check_permission`
+        is not in the set that triggers it.
+
+        Capabilities and record readership are separate axes: an overlay can
+        grant `manage_settings` and `use_ai_chat` while withholding
+        `manage_users` without touching who may read a dataset. That
+        combination is unreachable in a STORED matrix, since
+        `validate_permission_matrix` rejects `manage_settings` on a non-admin
+        role, but the seam is the authority and the matrix is only what the
+        database will store (#1021). So it is a supported configuration, and
+        counting it as "cannot answer audience questions" would blanket-refuse
+        visibility changes on a deployment whose read policy is the community
+        one. Same setup as the everyone-granted permit, which returns 200.
+        """
+        from app.modules.auth.models import Role, UserRole
+        from app.modules.catalog.datasets.domain.models import DatasetGrant
+        from app.modules.catalog.maps import service_public
+        from app.platform.extensions import DefaultPermissionExtension
+
+        class _DivergesOnCapabilitiesOnly(DefaultPermissionExtension):
+            async def check_permission(self, db, user, capability, **kwargs):
+                return capability in ("manage_settings", "use_ai_chat")
+
+        monkeypatch.setattr(
+            service_public,
+            "get_permission_extension",
+            lambda: _DivergesOnCapabilitiesOnly(),
+        )
+
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await self._dataset_on_map(
+            test_db_session,
+            admin_id,
+            dataset_visibility="internal",
+            map_visibility="internal",
+            map_name=f"Capability Overlay Map {uuid.uuid4().hex[:6]}",
+        )
+        viewer_id = await self._viewer_id(client, viewer_auth_header)
+        role = Role(name=f"granted-all-{uuid.uuid4().hex[:8]}")
+        test_db_session.add(role)
+        await test_db_session.flush()
+        test_db_session.add(UserRole(user_id=viewer_id, role_id=role.id))
+        test_db_session.add(DatasetGrant(dataset_id=ds.id, role_id=role.id))
+        await test_db_session.commit()
+
+        async with self._only_admins_active(test_db_session, keep={viewer_id}):
+            resp = await client.patch(
+                f"/datasets/{ds.id}",
+                json={"visibility": "restricted"},
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["visibility"] == "restricted"
+
+    async def test_a_legacy_authority_refuses_even_a_widening_move(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """feat(#1068): an authority predating the seam cannot vouch for anything.
+
+        Only an overlay declaring no EXTENSION_API_VERSION gets here — a
+        declared-but-stale version fails the boot check outright. `restricted ->
+        public` strands nobody under the community ladder and 200s without an
+        overlay, but community math is exactly what an unknown authority is
+        free to contradict, so the refusal covers every shared map using the
+        dataset. This is stricter than #1111's stopgap, which pre-filtered on a
+        rank comparison and so let widening moves through on the same community
+        math it had just declared untrustworthy.
+        """
+        from app.modules.catalog.maps import service_public
+
+        class _PreSeamAuthority:
+            """Everything EXTENSION_API_VERSION 3 required, and nothing more."""
+
+            async def check_permission(self, db, user, capability, **kwargs):
+                return True
+
+            def filter_visible(
+                self, stmt, user, user_roles, record_cls, grant_cls=None
+            ):
+                return stmt
+
+            async def can_access_dataset(
+                self, db, dataset, dataset_id, user, *, user_roles
+            ):
+                return True
+
+        monkeypatch.setattr(
+            service_public,
+            "get_permission_extension",
+            lambda: _PreSeamAuthority(),
+        )
+
+        admin_id = await _get_user_id(test_db_session, "admin")
+        map_name = f"Legacy Authority Map {uuid.uuid4().hex[:6]}"
+        ds = await self._dataset_on_map(
+            test_db_session,
+            admin_id,
+            dataset_visibility="restricted",
+            map_visibility="internal",
+            map_name=map_name,
+        )
+
+        resp = await client.patch(
+            f"/datasets/{ds.id}",
+            json={"visibility": "public"},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 422, resp.text
+        assert map_name in resp.text
+
+    async def test_resubmitting_the_current_visibility_is_not_a_change(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        viewer_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """fix(#1126 codex P2): a PATCH that changes nothing strands nobody.
+
+        `_apply_visibility_change` runs for every non-null `visibility` in the
+        body without comparing it to the stored one, and any client that round
+        trips the whole record resubmits the current value. Under an authority
+        that cannot answer, the conservative fallback named every shared map
+        using the dataset, so that no-op 422'd with "this would strand
+        viewers". Before #1068 the rank comparison absorbed it: `X < X` is
+        false for both audiences, so an unchanged visibility returned [] on
+        its way past. Deleting the rank deleted that accident too.
+
+        Both directions under the SAME authority, because a fix that only
+        stopped the false 422 could equally have stopped the true one.
+        """
+        from app.modules.catalog.maps import service_public
+
+        class _PreSeamAuthority:
+            async def check_permission(self, db, user, capability, **kwargs):
+                return True
+
+            def filter_visible(
+                self, stmt, user, user_roles, record_cls, grant_cls=None
+            ):
+                return stmt
+
+            async def can_access_dataset(
+                self, db, dataset, dataset_id, user, *, user_roles
+            ):
+                return True
+
+        monkeypatch.setattr(
+            service_public,
+            "get_permission_extension",
+            lambda: _PreSeamAuthority(),
+        )
+
+        assert viewer_auth_header  # an active non-admin the real move strands
+        admin_id = await _get_user_id(test_db_session, "admin")
+        map_name = f"Unchanged Visibility Map {uuid.uuid4().hex[:6]}"
+        ds = await self._dataset_on_map(
+            test_db_session,
+            admin_id,
+            dataset_visibility="internal",
+            map_visibility="internal",
+            map_name=map_name,
+        )
+
+        unchanged = await client.patch(
+            f"/datasets/{ds.id}",
+            json={"visibility": "internal"},
+            headers=admin_auth_header,
+        )
+        assert unchanged.status_code == 200, unchanged.text
+        assert unchanged.json()["visibility"] == "internal"
+
+        # The guard still fires for a move that does narrow the audience.
+        narrowed = await client.patch(
+            f"/datasets/{ds.id}",
+            json={"visibility": "private"},
+            headers=admin_auth_header,
+        )
+        assert narrowed.status_code == 422, narrowed.text
+        assert map_name in narrowed.json()["detail"]
+
+    async def test_an_unchanged_visibility_never_consults_the_audience_predicate(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """fix(#1126 codex P2): the early return belongs ABOVE the authority split.
+
+        This pins the placement rather than the symptom. An overlay predicate
+        that reads a nullable column yields NULL for a row, and
+        `_stranded_viewer_exists` deliberately sends NULL to the refusing side
+        on BOTH halves of the difference: `NULL IS NOT false` and
+        `NULL IS NOT true` are each true, so an unclassifiable account counts
+        as stranded. That is the right answer for a real change and the wrong
+        one for a no-op, where the same predicate sits on both sides. An early
+        return scoped to the fallback branch would leave this 422 standing.
+        """
+        from sqlalchemy import Boolean, literal
+
+        from app.modules.catalog.maps import service_public
+        from app.platform.extensions import (
+            DefaultPermissionExtension,
+            RecordAudience,
+        )
+
+        class _CannotClassifyAnyone(DefaultPermissionExtension):
+            async def record_audience(self, query, user_cls, *, grant_cls=None):
+                base = await super().record_audience(
+                    query, user_cls, grant_cls=grant_cls
+                )
+                return RecordAudience(
+                    users=literal(None, Boolean),
+                    includes_anonymous=base.includes_anonymous,
+                )
+
+        monkeypatch.setattr(
+            service_public,
+            "get_permission_extension",
+            lambda: _CannotClassifyAnyone(),
+        )
+
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await self._dataset_on_map(
+            test_db_session,
+            admin_id,
+            dataset_visibility="internal",
+            map_visibility="internal",
+            map_name=f"Null Predicate Map {uuid.uuid4().hex[:6]}",
+        )
+
+        resp = await client.patch(
+            f"/datasets/{ds.id}",
+            json={"visibility": "internal"},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 200, resp.text
+
+    async def test_an_overlay_that_answers_permits_what_its_own_audience_allows(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        viewer_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """feat(#1068): the payoff — an overlay deployment stops being refused blind.
+
+        The overlay widens the `restricted` rung to reach the fixture viewer,
+        who holds no grant. That is exactly the viewer the community query
+        cannot see and that #1111 had to assume the worst about.
+
+        Both requests run against the same dataset in the same world and differ
+        only in who the permission authority is: the community answer refuses,
+        because the ungranted viewer really does lose the layer under the
+        community ladder, and the overlay's own answer permits, because under
+        its policy nobody is stranded. Asserting the pair inside one test is
+        what makes the 200 evidence of precision rather than of a guard that
+        stopped looking.
+        """
+        from sqlalchemy import or_
+
+        from app.modules.catalog.maps import service_public
+        from app.platform.extensions import (
+            DefaultPermissionExtension,
+            RecordAudience,
+        )
+
+        viewer_id = await self._viewer_id(client, viewer_auth_header)
+
+        class _WidensRestricted(DefaultPermissionExtension):
+            async def record_audience(self, query, user_cls, *, grant_cls=None):
+                base = await super().record_audience(
+                    query, user_cls, grant_cls=grant_cls
+                )
+                if query.visibility != "restricted":
+                    return base
+                return RecordAudience(
+                    users=or_(base.users, user_cls.id == viewer_id),
+                    includes_anonymous=base.includes_anonymous,
+                )
+
+        admin_id = await _get_user_id(test_db_session, "admin")
+        map_name = f"Overlay Precise Map {uuid.uuid4().hex[:6]}"
+        ds = await self._dataset_on_map(
+            test_db_session,
+            admin_id,
+            dataset_visibility="internal",
+            map_visibility="internal",
+            map_name=map_name,
+        )
+
+        async with self._only_admins_active(test_db_session, keep={viewer_id}):
+            refused = await client.patch(
+                f"/datasets/{ds.id}",
+                json={"visibility": "restricted"},
+                headers=admin_auth_header,
+            )
+            assert refused.status_code == 422, refused.text
+            assert map_name in refused.json()["detail"]
+
+            monkeypatch.setattr(
+                service_public,
+                "get_permission_extension",
+                lambda: _WidensRestricted(),
+            )
+            permitted = await client.patch(
+                f"/datasets/{ds.id}",
+                json={"visibility": "restricted"},
+                headers=admin_auth_header,
+            )
+
+        assert permitted.status_code == 200, permitted.text
+        assert permitted.json()["visibility"] == "restricted"
+
+    async def test_an_overlay_that_answers_still_refuses_a_real_stranding(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        viewer_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """The mirror of the permit above: answering is not the same as agreeing.
+
+        Same overlay shape — it implements ``record_audience`` and so is trusted
+        — but this one reports the community audience unchanged, and the
+        ungranted fixture viewer really does lose the layer. A fix that only
+        pinned the permit would let the guard degrade into "an overlay is
+        installed, therefore fine".
+        """
+        from app.modules.catalog.maps import service_public
+        from app.platform.extensions import DefaultPermissionExtension
+
+        class _DelegatesUnchanged(DefaultPermissionExtension):
+            async def record_audience(self, query, user_cls, *, grant_cls=None):
+                return await super().record_audience(
+                    query, user_cls, grant_cls=grant_cls
+                )
+
+        monkeypatch.setattr(
+            service_public,
+            "get_permission_extension",
+            lambda: _DelegatesUnchanged(),
+        )
+
+        assert viewer_auth_header  # the fixture's account is the stranded viewer
+        admin_id = await _get_user_id(test_db_session, "admin")
+        map_name = f"Overlay Honest Refusal Map {uuid.uuid4().hex[:6]}"
+        ds = await self._dataset_on_map(
+            test_db_session,
+            admin_id,
+            dataset_visibility="internal",
+            map_visibility="internal",
+            map_name=map_name,
+        )
+
+        resp = await client.patch(
+            f"/datasets/{ds.id}",
+            json={"visibility": "restricted"},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 422, resp.text
+        assert map_name in resp.json()["detail"]
+
+    async def test_a_non_admin_owner_is_never_stranded_by_their_own_change(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        viewer_auth_header: dict,
+        test_db_session,
+    ):
+        """feat(#1068): the owner exclusion is a consequence now, not a clause.
+
+        The old query excluded the owner and every admin by hand. Both fall out
+        of the audience difference instead — an account in BOTH audiences was
+        never stranded — and the owner's exemption travels with whatever policy
+        is in force rather than assuming the community one. Every other guard
+        test owns its dataset as the seeded admin, which makes "the owner keeps
+        access" and "an admin keeps access" the same assertion; here the owner
+        is the non-admin viewer, and they are the only active non-admin left.
+        """
+        viewer_id = await self._viewer_id(client, viewer_auth_header)
+        ds = await self._dataset_on_map(
+            test_db_session,
+            viewer_id,
+            dataset_visibility="internal",
+            map_visibility="internal",
+            map_name=f"Owner Keeps Access Map {uuid.uuid4().hex[:6]}",
+        )
+
+        async with self._only_admins_active(test_db_session, keep={viewer_id}):
+            resp = await client.patch(
+                f"/datasets/{ds.id}",
+                json={"visibility": "private"},
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 200, resp.text
 
     async def test_internal_to_restricted_blocks_when_someone_is_ungranted(
         self,

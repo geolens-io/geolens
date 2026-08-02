@@ -3,6 +3,7 @@
 import hashlib
 import secrets
 import uuid
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -29,6 +30,8 @@ from app.modules.embed_tokens.models import EmbedToken
 from app.modules.embed_tokens.service import resolve_embed_scope_for_map
 from app.platform.extensions import (
     DefaultPermissionExtension,
+    RecordAudience,
+    RecordAudienceQuery,
     get_catalog_port,
     get_permission_extension,
 )
@@ -79,131 +82,98 @@ async def validate_public_visibility(
     return [row[0] for row in result.all()]
 
 
-# fix(#931): the two shared map audiences and what a dataset must be to reach
-# each. A private map has no audience beyond its owner and grantees, so a
-# dataset visibility change can never strand it.
+# fix(#931): the two shared map audiences. A private map has no audience beyond
+# its owner and grantees, so a dataset visibility change can never strand it.
+# Who a MAP reaches is core's own rule (`_apply_map_visibility_filter`), not the
+# permission seam's, so this pair is not something an overlay narrows.
 _SHARED_MAP_AUDIENCES = ("public", "internal")
 
 
-# How much of a shared map's audience a dataset at each visibility reaches. The
-# four rungs nest — the owner is a grantee is a signed-in user is everyone — so
-# this is a total order, and "does this change strand someone" is a comparison
-# rather than a table of allowed moves.
-#
-# fix(#1068): this encodes the COMMUNITY ladder, matching
-# `DefaultPermissionExtension`. An overlay that narrows a rung — ABAC excluding
-# some active non-owner users from `internal`, say — makes the real audience
-# smaller than the rank assumes, and this guard cannot see that: the seam's
-# `filter_visible`/`can_access_dataset` both take a CONCRETE user, and a map's
-# audience is a set with no representative member to pass them. Answering it
-# properly needs a new protocol method and an EXTENSION_API_VERSION bump, so it
-# is tracked separately rather than folded into a visibility fix.
-#
-# The two overlay directions do NOT fail the same way, and this paragraph said
-# they did until the guard stopped being rank-only. `_stranded_viewer_exists`
-# reads `users`/`user_roles` directly rather than going through
-# `filter_visible`, and its answer is what makes this function `return []`, so
-# the community answer can now be permissive as well as conservative:
-#
-#   NARROWING overlay (ABAC excluding some active non-owner users) — the query
-#   finds a user the overlay would have excluded, the guard refuses, and nobody
-#   was actually stranded. A refusal that lies, which is the safe direction and
-#   the same class as the grant and publication-status cases above.
-#
-#   WIDENING overlay (extra visible rows OR'd in — the additive shape SLOT-02's
-#   wrap-don't-replace rule is written for, and what `PermissionExtension`'s own
-#   docstring offers as "advanced RBAC, ABAC, or row-level filters") — the
-#   community query finds nobody stranded, the guard returns [], the change
-#   applies, and a user the overlay HAD granted access to silently loses the
-#   layer. That is the break this guard exists to prevent, reappearing one level
-#   up.
-#
-# Both need the seam, and neither is fixable here: `filter_visible` and
-# `can_access_dataset` take a CONCRETE user, and a map's audience is a set with
-# no representative member to pass them. See #1068 for the protocol method.
-#
-# fix(#931 codex r1): `restricted` is a PARTIAL audience, not an absent one.
-# Treating it as unreachable made `restricted -> private` look like it stranded
-# nobody, when it drops the grant holders who could render the layer.
-_DATASET_AUDIENCE_RANK = {"private": 0, "restricted": 1, "internal": 2, "public": 3}
+def _answers_audience_questions(permission: object) -> bool:
+    """Can this permission authority say who a record's audience is?
 
+    feat(#1068): the guard used to rebuild the audience from the community
+    ladder — a rank over the four visibility rungs — and #1111 had to refuse
+    outright under ANY registered overlay, because that reconstruction is only
+    true while the community ladder IS the policy. Every overlay deployment
+    therefore got a blanket 422 on visibility changes touching a shared map.
+    ``record_audience`` lets the authority answer for itself, so the refusal
+    narrows to the authorities that still cannot:
 
-def _reach_rank(map_visibility: str, dataset_visibility: str) -> int:
-    """How much of ``map_visibility``'s audience the dataset COULD reach.
+    - No ``record_audience`` at all. Only a legacy overlay declaring no
+      EXTENSION_API_VERSION reaches this; a declared-but-stale version is a hard
+      boot failure, so anything loading against v4 has been updated.
+    - It inherits the community answer while overriding one of the two methods
+      that decide reads. Then the audience it reports and the rows its viewers
+      actually get are two policies, and the disagreement is invisible from
+      here. #1111 gated this with ``type(...) is DefaultPermissionExtension``,
+      which also refused a subclass that changes nothing about reads; keying on
+      the read methods themselves keeps a wrap cheap and still catches the case
+      the identity check was really aimed at.
 
-    An internal map's audience is every signed-in user, and both ``internal``
-    and ``public`` reach all of them — so the two tie there, which is what makes
-    the public-to-internal move safe on an internal map and not on a public one.
-
-    This is the upper bound, not the answer. A drop here says the audience
-    narrows; whether anyone is standing in the part being cut is a separate
-    question that :func:`_stranded_viewer_exists` asks against real accounts.
+    ``check_permission`` is deliberately not in the set: capabilities do not
+    decide which records a viewer can read.
     """
-    rank = _DATASET_AUDIENCE_RANK.get(dataset_visibility, 0)
-    if map_visibility == "internal":
-        return min(rank, _DATASET_AUDIENCE_RANK["internal"])
-    return rank
+    default = DefaultPermissionExtension
+    own = getattr(type(permission), "record_audience", None)
+    if own is None:
+        return False
+    if own is not default.record_audience:
+        return True
+    return all(
+        getattr(type(permission), name, None) is getattr(default, name)
+        for name in ("filter_visible", "can_access_dataset")
+    )
 
 
 async def _stranded_viewer_exists(
     session: AsyncSession,
-    dataset_id: uuid.UUID,
-    owner_id: uuid.UUID | None,
-    *,
-    slice_: str,
+    before: RecordAudience,
+    after: RecordAudience,
 ) -> bool:
-    """Does a real viewer sit in the audience a change is about to remove?
+    """Does a real account sit in the audience this change removes?
 
-    fix(#931 codex r5): a rank DROP is not the same as someone losing access.
-    The rank says how wide the audience could be; this asks whether anyone is
-    actually in the part being cut. Both directions were wrong without it:
-    `internal -> restricted` was refused even when every active user is in a
-    granted role, and `internal -> private` was refused on an instance whose
-    only other accounts are admins.
+    fix(#931 codex r5): a narrower audience is not the same as someone losing
+    access, so this asks whether anyone is actually standing in the part being
+    cut. Both directions were wrong without it: `internal -> restricted` was
+    refused even when every active user is in a granted role, and
+    `internal -> private` was refused on an instance whose only other accounts
+    are admins.
 
-    ``slice_`` names the part being cut, and there are three:
-    ``"granted"`` for `restricted -> private`, which drops the grant holders;
-    ``"ungranted"`` for `internal -> restricted`, which drops everyone no grant
-    reaches; and ``"any"`` for `internal -> private`, which drops all of them.
+    feat(#1068): the cut used to be a named slice (granted / ungranted / any)
+    with the owner and every admin excluded by hand, because the community
+    ladder was the only thing the guard could reason about. All of that falls
+    out of the difference now — an account the AUTHORITY puts in both audiences
+    is not stranded, and the community authority puts the owner and the admins
+    in every one of them. One less restatement of the ladder, and the
+    exclusions follow the policy instead of assuming "admin" is what bypasses
+    it.
 
-    The exclusions are the same in both cases and are what make this a question
-    about real viewers. The owner keeps access through the creator exemption
-    and an admin bypasses the filter, so neither is ever stranded. And the
-    account must be able to authenticate at all: `get_optional_user` rejects a
-    non-active user before they can render a layer, so pending, suspended and
-    deactivated accounts are not an audience. Both columns are tested,
-    mirroring `auth/dependencies.py`'s
+    The account must also be able to authenticate at all. That is the MAP's
+    audience rather than the dataset's, which is why it stays here and not in
+    the seam: `get_optional_user` rejects a non-active user before they can
+    render a layer, so pending, suspended and deactivated accounts are not an
+    audience. Both columns are tested, mirroring `auth/dependencies.py`'s
     `not user.is_active or user.status != "active"` — the
     `chk_users_status_active_consistency` CHECK keeps them equal, so this is one
     test written the way the gate writes it rather than two, and the mirror
     cannot drift.
-    """
-    from app.modules.auth.models import Role, User, UserRole
-    from app.modules.catalog.datasets.domain.models import DatasetGrant
 
-    admin_user_ids = (
-        select(UserRole.user_id)
-        .join(Role, Role.id == UserRole.role_id)
-        .where(Role.name == "admin")
-    )
-    granted_user_ids = (
-        select(UserRole.user_id)
-        .join(DatasetGrant, DatasetGrant.role_id == UserRole.role_id)
-        .where(DatasetGrant.dataset_id == dataset_id)
-    )
+    ``IS NOT false`` / ``IS NOT true`` rather than the predicate and its
+    negation: an overlay predicate reading a nullable column yields NULL for a
+    row, `NOT NULL` is NULL, and a NULL in a WHERE drops the row — answering
+    "nobody is stranded" for precisely the accounts the authority could not
+    classify. Both spellings send NULL to the refusing side instead.
+    """
     stmt = (
         select(User.id)
         .where(User.is_active.is_(True))
         .where(User.status == "active")
-        .where(User.id.notin_(admin_user_ids))
+        .where(before.users.is_not(False))
+        .where(after.users.is_not(True))
+        .limit(1)
     )
-    if slice_ == "granted":
-        stmt = stmt.where(User.id.in_(granted_user_ids))
-    elif slice_ == "ungranted":
-        stmt = stmt.where(User.id.notin_(granted_user_ids))
-    if owner_id is not None:
-        stmt = stmt.where(User.id != owner_id)
-    return (await session.execute(stmt.limit(1))).scalar_one_or_none() is not None
+    return (await session.execute(stmt)).scalar_one_or_none() is not None
 
 
 async def find_maps_broken_by_dataset_visibility(
@@ -213,6 +183,7 @@ async def find_maps_broken_by_dataset_visibility(
     old_visibility: str,
     new_visibility: str,
     record_status: str,
+    record_id: uuid.UUID,
     owner_id: uuid.UUID | None,
 ) -> list[str]:
     """Names of shared maps that work at ``old_visibility`` and would not at ``new``.
@@ -222,75 +193,81 @@ async def find_maps_broken_by_dataset_visibility(
     was not matched, so the flip succeeded and every signed-in viewer of that
     map silently lost the layer's tiles and features, with no signal to anyone.
 
-    Framed as a before/after comparison rather than a list of forbidden target
-    values, because #930 turned the rule into a matrix. An internal map keeps
-    working when its dataset moves from public to internal, and breaks only on
-    the move to private — a rule expressed against today's target value alone
-    would fire on a move that is in fact safe.
+    feat(#1068): the question is now asked of the permission authority instead
+    of reconstructed from the community ladder. "Who could read this before, and
+    who can read it after" is a set difference over real accounts, which is why
+    the rank table and its per-move slices are gone: a rank drop was only ever a
+    proxy for the difference being non-empty, and the proxy was community math
+    the authority is free to contradict. Both directions did contradict it, and
+    they failed in opposite ways, which is what made the old comment here wrong
+    for the widening half:
+
+      NARROWING overlay (ABAC excluding some active non-owner users from a rung)
+      — the community query found a user the overlay would have excluded, the
+      guard refused, and nobody was stranded. A refusal that lies: annoying,
+      visible, safe.
+
+      WIDENING overlay (extra visible rows OR'd in — the additive shape SLOT-02
+      is written for) — the community query found nobody stranded, the guard
+      returned [], the change applied, and a viewer the overlay HAD admitted
+      lost the layer in silence. That is the break this guard exists to prevent,
+      reappearing one level up, and it is why #1111 shipped a stopgap rather
+      than trusting the direction argument.
+
+    An authority that cannot answer (see :func:`_answers_audience_questions`)
+    still gets the conservative refusal, now naming every shared map that uses
+    the dataset rather than the ones a rank comparison happened to reach: an
+    unanswerable question is not evidence that the move is safe.
+
+    An unpublished record needs no special case either — the status gate lives
+    inside the audience, so a draft reaches only its owner and the admins both
+    before and after, and the difference is empty.
 
     Empty = safe to apply.
     """
-    # fix(#931 codex r3): an unpublished record is already invisible to every
-    # shared-map audience. `filter_visible`'s status gate is
-    # `published OR created_by == <caller>`, so a draft/ready/internal-status
-    # record reaches only its creator, and admins bypass the filter entirely —
-    # both keep access after any visibility change. Nobody is stranded, so a
-    # rank comparison here would invent a 422 for a move that costs nothing.
-    if record_status != "published":
+    # fix(#1126 codex P2): a change that changes nothing strands nobody, and
+    # that is true of every authority, which is why it is settled before asking
+    # one. `_apply_visibility_change` runs for any non-null `visibility` in the
+    # body without comparing it to the stored value, so a client that round
+    # trips the whole record resubmits the current one — and both branches
+    # below got that wrong. The fallback named every shared map using the
+    # dataset. The seam-answering branch was subtler: `before` and `after` are
+    # the same predicate for a no-op, and NULL passes `IS NOT false` and
+    # `IS NOT true` alike, so an overlay that cannot classify an account
+    # reported it as stranded by a move that did not happen. Until #1068 the
+    # rank comparison absorbed both, since `X < X` is false.
+    if old_visibility == new_visibility:
         return []
-    audiences = [
-        visibility
-        for visibility in _SHARED_MAP_AUDIENCES
-        if _reach_rank(visibility, new_visibility)
-        < _reach_rank(visibility, old_visibility)
-    ]
-    if not audiences:
-        return []
-    # fix(#931 codex r5): the rank narrowing says the audience COULD shrink;
-    # whether anyone is standing in the part being cut is a separate question.
-    #
-    # fix(#931 codex r6): asked PER AUDIENCE. A public map losing a public
-    # dataset always strands its anonymous visitors — they see nothing else,
-    # always exist, and are never a row in `users` — but that says nothing about
-    # the internal map beside it, whose viewers may all hold grants. Answering
-    # once for both listed maps that were not stranded, sending the operator to
-    # remove a layer from a map that renders fine.
-    signed_in_stranded: bool | None = None
-    stranded: list[str] = []
-    for visibility in audiences:
-        if visibility == "public" and old_visibility == "public":
-            stranded.append(visibility)
-            continue
-        if signed_in_stranded is None:
-            # fix(#1111 review): the community query below mirrors
-            # DefaultPermissionExtension's grants+ladder exactly, so its answer
-            # is authoritative only while that default IS the permission
-            # authority. A registered overlay can additively widen a dataset's
-            # audience (the SLOT-02 wrap shape), and a viewer only the overlay
-            # admits is invisible to this query — under the rank-only #1056
-            # guard such a viewer was protected by the over-refusal, so
-            # permitting on community math here would strip that accidental
-            # protection. Until #1068 lets the seam answer audience questions,
-            # a non-default authority keeps the conservative refusal.
-            # `type(...) is` on purpose: a subclassing overlay must not read
-            # as the default.
-            if type(get_permission_extension()) is not DefaultPermissionExtension:
-                signed_in_stranded = True
-            else:
-                # The same question whichever map asks it: the dataset's own
-                # audience, so it is resolved once and reused.
-                if old_visibility in ("public", "internal"):
-                    cut = "ungranted" if new_visibility == "restricted" else "any"
-                else:
-                    cut = "granted"
-                signed_in_stranded = await _stranded_viewer_exists(
-                    session, dataset_id, owner_id, slice_=cut
-                )
-        if signed_in_stranded:
-            stranded.append(visibility)
-    if not stranded:
-        return []
-    audiences = stranded
+    permission = get_permission_extension()
+    if _answers_audience_questions(permission):
+        query = RecordAudienceQuery(
+            dataset_id=dataset_id,
+            record_id=record_id,
+            owner_id=owner_id,
+            visibility=old_visibility,
+            record_status=record_status,
+        )
+        before = await permission.record_audience(query, User, grant_cls=DatasetGrant)
+        after = await permission.record_audience(
+            replace(query, visibility=new_visibility), User, grant_cls=DatasetGrant
+        )
+        # fix(#931 codex r6): asked PER AUDIENCE. A public map losing a public
+        # dataset strands its anonymous visitors — they see nothing else, always
+        # exist, and are never a row in `users` — but that says nothing about
+        # the internal map beside it, whose viewers may all hold grants.
+        # Answering once for both listed maps that were not stranded, sending
+        # the operator to remove a layer from a map that renders fine.
+        signed_in_stranded = await _stranded_viewer_exists(session, before, after)
+        anonymous_stranded = before.includes_anonymous and not after.includes_anonymous
+        audiences = [
+            visibility
+            for visibility in _SHARED_MAP_AUDIENCES
+            if signed_in_stranded or (visibility == "public" and anonymous_stranded)
+        ]
+        if not audiences:
+            return []
+    else:
+        audiences = list(_SHARED_MAP_AUDIENCES)
     stmt = (
         select(Map.name)
         .select_from(MapLayer)

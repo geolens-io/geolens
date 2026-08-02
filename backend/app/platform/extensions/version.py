@@ -50,7 +50,15 @@ logger = logging.getLogger(__name__)
 # is a signature change to a Protocol method and therefore a bump. The caller
 # also omits the keyword entirely when it is None, so a legacy overlay that
 # declares no version keeps working for buffer and centroid.
-EXTENSION_API_VERSION: int = 3
+# 3 -> 4 (feat(#1068)): PermissionExtension gained a required
+# ``record_audience`` method — the audience-shaped reading of the same policy
+# ``filter_visible`` and ``can_access_dataset`` already express per user. An
+# overlay that replaces the ``permission`` slot must implement it, and must
+# implement it whenever it changes either of those two: core cannot tell a
+# missing answer from a wrong one, so an authority that overrides reads while
+# inheriting the community audience is treated as unable to answer and gets the
+# conservative refusal (see find_maps_broken_by_dataset_visibility).
+EXTENSION_API_VERSION: int = 4
 
 
 def check_extension_api_version(name: str, declared_version: int | None) -> None:

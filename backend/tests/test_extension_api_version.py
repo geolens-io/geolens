@@ -52,13 +52,15 @@ class TestExtensionApiVersionConstant:
         (feat(#683), chat clip-by-layer) — the ``processing_port`` registry key
         is overlay-populated, so changing that method's signature changes the
         expected type of a registry key, which version.py's bump convention
-        names explicitly.
+        names explicitly. v4 adds the required ``record_audience`` method to
+        ``PermissionExtension`` (feat(#1068)), which the convention names
+        outright: a required method added to a Protocol.
 
         Update this pin, and the note above it, whenever the constant moves.
         """
         from app.platform.extensions.version import EXTENSION_API_VERSION
 
-        assert EXTENSION_API_VERSION == 3
+        assert EXTENSION_API_VERSION == 4
 
 
 class TestCheckExtensionApiVersion:
