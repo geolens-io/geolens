@@ -793,6 +793,69 @@ def test_no_external_imports_of_search_private_service_modules() -> None:
 
 
 @pytest.mark.architecture
+def test_no_external_imports_of_analysis_sql_family_modules() -> None:
+    """refactor(#1089): analysis_sql's family modules are reached via the façade.
+
+    ``app.platform.analysis_sql`` exists so the catalog preview path
+    (``datasets/domain/service_analysis.py``) and the processing materialize
+    worker (``processing/analysis/tasks.py``) render IDENTICAL SQL. Catalog
+    cannot import processing and processing cannot import catalog, so before
+    the module existed each path carried its own copy of every statement and
+    they drifted: an approved preview and the dataset it saved could disagree
+    about what the operation meant.
+
+    #1089 split it by operation family — overlay, measure, spatial_join,
+    transform, over a shared core. That is safe only while the façade stays the
+    single import surface. The moment a caller reaches past it, "which
+    renderer does this path use" becomes a per-caller question again, which is
+    the same failure in a new shape. Cross-imports BETWEEN family modules are
+    fine (they are one package and use relative imports); only external
+    bypasses are forbidden.
+
+    Walks the tree rather than git-grepping, so an untracked new file is
+    covered on the run that introduces it.
+    """
+    import ast
+
+    package = "app.platform.analysis_sql"
+    families = {"measure", "overlay", "shared", "spatial_join", "transform"}
+    package_dir = _backend_path("app/platform/analysis_sql")
+
+    offenders: list[str] = []
+    for path in sorted(_backend_path("app").rglob("*.py")):
+        if package_dir in path.parents:
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                names = [node.module]
+            elif isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            else:
+                continue
+            for name in names:
+                # Segment-wise, so a RELATIVE `from .analysis_sql.overlay
+                # import ...` from elsewhere in platform/ is caught too — the
+                # ast node carries that as "analysis_sql.overlay", with no
+                # package prefix to match on.
+                parts = name.split(".")
+                if any(
+                    a == "analysis_sql" and b in families
+                    for a, b in zip(parts, parts[1:])
+                ):
+                    offenders.append(f"  {_repo_style_rel(path)}:{node.lineno}: {name}")
+
+    if offenders:
+        pytest.fail(
+            "A module outside the analysis_sql package imports one of its "
+            f"operation-family modules directly. Import from `{package}` "
+            "instead — it re-exports every renderer, and keeping it the single "
+            "import surface is what stops the preview path and the materialize "
+            "worker from drifting apart on what SQL they run (#1089).\n"
+            + "\n".join(offenders)
+        )
+
+
+@pytest.mark.architecture
 def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     """Phase 238 BOUND-02 + Phase 269 H-05 + Phase 276 CODE-02: decomposed splits stay bounded.
 
