@@ -426,8 +426,9 @@ async def _resolve_and_validate_columns(
     built from, because resolving them is how most of these are checked.
 
     Extracted in fix(#1097 review) rather than raising the C901 threshold on
-    ``_materialize``: the set has grown to five checks over two layers, and
+    ``_materialize``: the set had grown to five checks over two layers, and
     they share a subject that the surrounding job bookkeeping does not.
+    fix(#1099) retired one of them, the overlay's ungroupable-type recheck.
     """
     carry_cols = (
         await _list_carry_columns(session, schema, src_table_name)
@@ -452,7 +453,6 @@ async def _resolve_and_validate_columns(
         )
         _reject_output_column_collision(mask_carry_cols, INTERSECT_OUTPUT_COLUMNS)
         _reject_reserved_alias_columns(mask_carry_cols)
-        await _reject_ungroupable_overlay_columns(session, schema, mask_table_name)
     return carry_cols, mask_carry_cols
 
 
@@ -532,56 +532,20 @@ def _ungroupable_type_name(data_type: str | None, udt_name: str | None) -> str |
     return None
 
 
-async def _reject_ungroupable_overlay_columns(
-    session: AsyncSession, schema: str, table_name: str
-) -> None:
-    """Worker-side half of the router's ungroupable-overlay guard.
-
-    fix(#1097 review): the enqueue guard reads ``column_info``, a catalog
-    snapshot, and a re-upload can replace the overlay between enqueue and the
-    job running — the same window ``_reject_output_column_collision`` exists
-    for, and the reason the carry-column list beside it is read live rather
-    than trusted from the snapshot. A replacement that introduces a json or xml
-    column would otherwise reach ``render_intersect_pairs``, which names every
-    carried overlay column in its GROUP BY, and fail the CTAS with SQLSTATE
-    42883. Array forms (json[]/xml[]) can ONLY be caught here: the snapshot
-    stores 'ARRAY' with no element type, so the router admits them and this
-    recheck is the sole guard (see _ungroupable_type_name).
-
-    Types, not names: reading the live names already happens and would not have
-    caught this, because the column that breaks the query is one whose NAME is
-    unremarkable.
-    """
-    rows = await session.execute(
-        text(
-            "SELECT column_name, data_type, udt_name "
-            "FROM information_schema.columns "
-            "WHERE table_schema = :schema AND table_name = :table_name "
-            "AND column_name NOT IN ('gid', 'geom', 'geom_4326') "
-            "ORDER BY ordinal_position"
-        ).bindparams(schema=schema, table_name=table_name)
-    )
-    for name, data_type, udt_name in rows:
-        bad = _ungroupable_type_name(data_type, udt_name)
-        if bad is not None:
-            raise ValueError(
-                f"The overlay layer's column {name!r} has type "
-                f"{bad!r}, which cannot be grouped, and an "
-                "overlay carries every overlay column onto its output. Choose "
-                "a different layer, or remove that column from it."
-            )
-
-
 async def _reject_ungroupable_by_field(
     session: AsyncSession, schema: str, table_name: str, by_field: str
 ) -> None:
     """Dissolve's GROUP BY column must be groupable on the LIVE schema.
 
-    fix(#1097 review): the same shape as the overlay recheck above, one
-    operation over — dissolve names ``by_field`` in its GROUP BY, the router
+    fix(#1097 review): dissolve names ``by_field`` in its GROUP BY, the router
     checked it against the snapshot, and the snapshot cannot see a json[]
     element type ('ARRAY'). One query answers both failure modes: a column the
     re-upload dropped, and one whose live type has no equality operator.
+
+    fix(#1099): the last caller. Intersect had a twin of this beside it, for
+    the overlay columns it named in the same GROUP BY; those attributes are
+    joined back outside the aggregate now, so the operation that actually
+    groups by a user-chosen column is the only one left needing it.
     """
     row = (
         await session.execute(

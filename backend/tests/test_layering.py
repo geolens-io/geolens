@@ -1366,7 +1366,19 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # linear (add_4326_column) and migration 0034 backfilled existing rows,
     # so the per-read wraps had nothing left to guard. The invariant is
     # recorded in the module docstring instead. Cap 1260 -> 1227, exact.
-    "backend/app/platform/analysis_sql.py": 1227,
+    #
+    # fix(#1099): +28 for regrouping render_intersect_pairs. The aggregate used
+    # to carry the overlay's attributes through the _mask_pieces CTE, which has
+    # no key, so each one had to be named in the GROUP BY — and json/xml have no
+    # equality operator, so a nested-GeoJSON properties column took a layer out
+    # of service as an overlay entirely. It groups by the two gids alone now and
+    # the outer query joins the overlay table back on its primary key, where no
+    # grouping applies. Six of the lines are the render (one more join fragment,
+    # and the output column list splitting in two because the sides come from
+    # different relations); the rest is the docstring bullet carrying why the
+    # join cannot change the row count and why it is LEFT rather than INNER.
+    # Cap 1227 -> 1255, exact.
+    "backend/app/platform/analysis_sql.py": 1255,
     # tasks.py carries growth from BOTH sides of this rebase, so the number is
     # re-measured rather than taken from either. #1012 added the scoped
     # work_mem (the SET LOCAL, its budget arithmetic and the boot-time
@@ -1423,7 +1435,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # udt_name ('_json') as well, and the same check now also covers
     # dissolve's by_field, which had the identical blind spot plus no live
     # recheck at all.
-    "backend/app/processing/analysis/tasks.py": 1449,
+    #
+    # fix(#1099): -36 — _reject_ungroupable_overlay_columns is retired, along
+    # with its call site in _resolve_and_validate_columns. The overlay's
+    # attributes are joined back outside the aggregate now, so a re-upload that
+    # introduces a json column has nothing left to break; leaving the recheck
+    # would have refused, after the queue wait, exactly the layers that issue
+    # set out to admit. _ungroupable_type_name and its ARRAY branch stay —
+    # dissolve's by_field really does group by a user-chosen column. Cap
+    # 1449 -> 1413, exact.
+    "backend/app/processing/analysis/tasks.py": 1413,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.

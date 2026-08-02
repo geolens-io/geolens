@@ -290,36 +290,11 @@ def _validate_intersect_columns(source, overlay) -> None:
                 "choose a different layer."
             ),
         )
-    # fix(#1097 review): the OVERLAY's columns, and only the overlay's.
-    #
-    # render_intersect_pairs groups by `_src.gid, _mp._mask_gid` plus every
-    # carried overlay column. The source's columns need no grouping — gid is a
-    # real table's primary key, so PostgreSQL licenses them by functional
-    # dependency — but `_mask_pieces` is a CTE with no key, so each overlay
-    # column it carries has to be named in the GROUP BY explicitly. json and
-    # xml have no equality operator, so grouping on one fails the CTAS with
-    # SQLSTATE 42883, and it fails there rather than in the preview: the
-    # preview carries gid and source_gid only, so it succeeds and the operation
-    # dies after the queue wait with an error naming a generated alias the user
-    # never wrote.
-    #
-    # Refused at enqueue instead, which is what NON_GROUPABLE_COLUMN_TYPES already
-    # does for dissolve's by_field. Refusing rather than silently dropping the
-    # column is the same choice the sibling guards above make: an overlay whose
-    # output columns depend on which of them happened to be groupable is worse
-    # for anyone scripting against the result than one that says no.
-    #
-    # Carrying these through an overlay is a real gap and is worth doing — it
-    # needs the aggregate to group by the two gids alone and join the overlay's
-    # attributes back afterwards, which is a change to this query's shape
-    # rather than a guard. Tracked separately.
     # fix(#1097 review): a carried column may not sit in the alias namespace.
-    # Both layers, because an overlay carries columns from both and the inner
-    # aggregate names them in one select list alongside _gl_src_type; the
-    # overlay's are additionally re-listed inside _mask_pieces beside
-    # _gl_mask_gid and _gl_g. Checked against the PREFIX rather than the three
-    # alias names, so an alias added to that query later is covered without a
-    # second place to update.
+    # Both layers, because an overlay carries columns from both and they share
+    # the statement with _gl_src_type and _gl_mask_gid. Checked against the
+    # PREFIX rather than the alias names, so an alias added to that query later
+    # is covered without a second place to update.
     reserved = sorted(
         name
         for name in (_column_names(source) | _column_names(overlay))
@@ -334,27 +309,14 @@ def _validate_intersect_columns(source, overlay) -> None:
                 "columns. Rename it, or choose a different layer."
             ),
         )
-    # fix(#1097 review): SCALAR json/xml only. The snapshot stores an array
-    # column's type as 'ARRAY' with no element type, so json[]/xml[] are
-    # invisible here by construction; the worker's live-schema recheck
-    # (_ungroupable_type_name reads udt_name) is their sole guard, and the
-    # same applies to dissolve's by_field check above.
-    ungroupable = sorted(
-        (col.get("name"), str(col.get("type") or "").lower())
-        for col in (overlay.column_info or [])
-        if col and str(col.get("type") or "").lower() in NON_GROUPABLE_COLUMN_TYPES
-    )
-    if ungroupable:
-        name, col_type = ungroupable[0]
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                f"The overlay layer's column {name!r} has type {col_type!r}, "
-                "which cannot be grouped, and an overlay carries every overlay "
-                "column onto its output. Choose a different layer, or remove "
-                "that column from it."
-            ),
-        )
+    # fix(#1099): no ungroupable-type branch here any more. The overlay's
+    # attributes used to ride through `_mask_pieces` and get named in the
+    # aggregate's GROUP BY, which meant json and xml — the types nested GeoJSON
+    # properties routinely land as — took an overlay layer out of service
+    # entirely. render_intersect_pairs groups by the two gids alone now and
+    # joins the overlay table back afterwards, where no grouping applies, so the
+    # column type stops mattering. Dissolve's by_field guard above stays: that
+    # one really does group by a user-chosen column.
 
 
 @router.post("/{dataset_id}/analysis/preview/", response_model=AnalysisPreviewResponse)
