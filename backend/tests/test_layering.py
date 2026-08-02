@@ -1221,7 +1221,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # hold a type that ST_AsMVTGeom/ST_AsGeoJSON/::geography/ST_MakeValid
     # raise on. Most of the lines are the docstring recording that invariant.
     # Ratchet stays exact.
-    "backend/app/processing/ingest/metadata.py": 2038,
+    # fix(#1113 review): +28 — linearize_existing_4326 enforces the same
+    # invariant on the register path, the one app-controlled writer of a
+    # geom_4326 the ingest normalizer never touched (a pre-existing column on
+    # a BYO table registered after migration 0034's backfill ran).
+    # Cap 2038 -> 2066, still exact.
+    "backend/app/processing/ingest/metadata.py": 2066,
     # ingest/router.py is also scanned by the router-glob gate; this exact
     # ratchet overrides its 1500 default so the remaining ~18-line runway to
     # the cliff cannot be spent silently.
@@ -1252,7 +1257,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_vrt.py": 1071,
     "backend/app/processing/ingest/tasks_vector.py": 1058,
     "backend/app/modules/auth/oauth/service.py": 1031,
-    "backend/app/processing/ingest/service.py": 1017,
+    # fix(#1113 review): +15 — register_existing_table linearizes a
+    # pre-existing geom_4326 (savepoint + error contract mirroring the
+    # add_4326_column branch beside it); see linearize_existing_4326.
+    # Cap 1017 -> 1032, still exact.
+    "backend/app/processing/ingest/service.py": 1032,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.

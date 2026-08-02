@@ -393,6 +393,65 @@ class TestCurvedIngestNormalization:
         assert [r[0] for r in rows] == ["MULTISURFACE", "COMPOUNDCURVE"]
         assert [r[1] for r in rows] == ["MULTIPOLYGON", "LINESTRING"]
 
+    async def test_register_linearizes_a_preexisting_curved_geom_4326(
+        self, test_db_session: AsyncSession
+    ):
+        """fix(#1113 review): the register path enforces the invariant too.
+
+        ``register_existing_table`` skips ``add_4326_column`` when the table
+        already carries geom_4326, and a table created in the data schema
+        AFTER migration 0034 ran is invisible to its backfill — so without
+        this boundary, registration would be the one app-controlled writer
+        that can re-admit curved values. Both curve shapes are pinned: an
+        arc-bearing surface AND an arc-free container (``MULTISURFACE`` of a
+        plain polygon), which ST_HasArc alone cannot see.
+        """
+        from types import SimpleNamespace
+
+        from app.processing.ingest.schemas import RegisterRequest
+        from app.processing.ingest.service import register_existing_table
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        table = f"byo_curved_{uuid.uuid4().hex[:10]}"
+        arc_free = "ST_GeomFromText('MULTISURFACE(((0 0,1 0,1 1,0 1,0 0)))', 4326)"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table} ("  # noqa: S608
+                f"gid serial PRIMARY KEY, name text, "
+                f"geom geometry(Geometry, 4326), "
+                f"geom_4326 geometry(Geometry, 4326))"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table} (name, geom, geom_4326) VALUES "  # noqa: S608
+                f"('circle', {CURVED_POLYGON}, {CURVED_POLYGON}), "
+                f"('flat', {arc_free}, {arc_free})"
+            )
+        )
+        await test_db_session.commit()
+
+        await register_existing_table(
+            test_db_session,
+            RegisterRequest(table_name=table, title="BYO curved table"),
+            SimpleNamespace(id=admin_id),
+        )
+        await test_db_session.commit()
+
+        rows = (
+            await test_db_session.execute(
+                text(
+                    f"SELECT name, GeometryType(geom), GeometryType(geom_4326) "  # noqa: S608
+                    f"FROM data.{table} ORDER BY gid"
+                )
+            )
+        ).all()
+        # geom keeps the curved source; geom_4326 is linear for BOTH shapes.
+        assert [(r[1], r[2]) for r in rows] == [
+            ("MULTISURFACE", "MULTIPOLYGON"),
+            ("MULTISURFACE", "MULTIPOLYGON"),
+        ]
+
     @pytest.mark.usefixtures("_init_tile_pool_for_tests")
     async def test_vector_tile_renders_a_curved_source(
         self,

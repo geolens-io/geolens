@@ -1616,6 +1616,34 @@ async def add_4326_column(
     # CREATE INDEX above atomically.
 
 
+async def linearize_existing_4326(
+    session: AsyncSession, table_name: str, *, schema: str = "data"
+) -> None:
+    """Enforce the geom_4326-is-always-linear invariant on a column we did not write.
+
+    fix(#1113 review): ``register_existing_table`` skips :func:`add_4326_column`
+    when the table already carries geom_4326, so a table created or copied into
+    the data schema AFTER migration 0034 ran could re-introduce curved values
+    the backfill can no longer see — and the per-read ST_CurveToLine wraps that
+    used to absorb them are gone. Registration is the app's write boundary for
+    such tables, so the invariant is enforced here, with the same predicate as
+    the migration: any arc, any top-level curve type, or any
+    GEOMETRYCOLLECTION (curve members cannot hide anywhere else — linear multi
+    types cannot contain them). Exact no-op on already-linear rows.
+    """
+    tref = _qtable(table_name, schema=schema)
+    await session.execute(
+        text(
+            f"UPDATE {tref} SET geom_4326 = ST_CurveToLine(geom_4326) "
+            f"WHERE ST_HasArc(geom_4326) "
+            f"   OR GeometryType(geom_4326) IN "
+            f"      ('CIRCULARSTRING','COMPOUNDCURVE','CURVEPOLYGON',"
+            f"       'MULTICURVE','MULTISURFACE') "
+            f"   OR GeometryType(geom_4326) = 'GEOMETRYCOLLECTION'"
+        )
+    )
+
+
 async def ensure_geom_4326_gist_index(
     session: AsyncSession, table_name: str, *, schema: str = "data"
 ) -> None:
