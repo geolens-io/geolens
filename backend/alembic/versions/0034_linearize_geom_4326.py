@@ -87,34 +87,50 @@ def upgrade() -> None:
         # their linear counterparts (abstract CURVE/SURFACE typmods accept
         # linear subtypes), and loosening is a no-op risk-wise where the
         # UPDATE would have succeeded anyway.
+        # fix(#1113 review r5): geometry_columns encodes dimensionality two
+        # ways — M as a suffix on ``type`` (CURVEPOLYGONM, coord_dimension 3),
+        # Z with NO suffix (coord_dimension 3), ZM with no suffix and
+        # coord_dimension 4 — and generic geometry(Geometry, srid) REJECTS Z
+        # values, so the loosened typmod must carry the original Z/M flags.
+        # rtrim(type,'M') matches both plain and M-suffixed curve typmods; no
+        # base curve name ends in M.
         typmod = conn.execute(
             sa.text(
-                "SELECT type, srid FROM public.geometry_columns "
+                "SELECT type, srid, coord_dimension "
+                "FROM public.geometry_columns "
                 "WHERE f_table_schema = :schema "
                 "  AND f_table_name = :table "
                 "  AND f_geometry_column = 'geom_4326' "
-                "  AND type IN ('CIRCULARSTRING','COMPOUNDCURVE',"
+                "  AND rtrim(type, 'M') IN ('CIRCULARSTRING','COMPOUNDCURVE',"
                 "               'CURVEPOLYGON','MULTICURVE','MULTISURFACE')"
             ),
             {"schema": schema, "table": table},
         ).first()
         if typmod is not None:
+            if typmod.coord_dimension == 4:
+                generic = "GeometryZM"
+            elif typmod.coord_dimension == 3:
+                generic = "GeometryM" if typmod.type.endswith("M") else "GeometryZ"
+            else:
+                generic = "Geometry"
             conn.execute(
                 sa.text(
                     f"ALTER TABLE {_quote_ident(schema)}.{_quote_ident(table)} "
                     f"ALTER COLUMN geom_4326 "
-                    f"TYPE geometry(Geometry, {int(typmod.srid)})"
+                    f"TYPE geometry({generic}, {int(typmod.srid)})"
                 )
             )
+        # rtrim on GeometryType for the same reason: an M curve reports
+        # CURVEPOLYGONM, so the bare list would skip an arc-free M container.
         conn.execute(
             sa.text(
                 f"UPDATE {_quote_ident(schema)}.{_quote_ident(table)} "
                 f"SET geom_4326 = ST_CurveToLine(geom_4326) "
                 f"WHERE ST_HasArc(geom_4326) "
-                f"   OR GeometryType(geom_4326) IN "
+                f"   OR rtrim(GeometryType(geom_4326), 'M') IN "
                 f"      ('CIRCULARSTRING','COMPOUNDCURVE','CURVEPOLYGON',"
                 f"       'MULTICURVE','MULTISURFACE') "
-                f"   OR GeometryType(geom_4326) = 'GEOMETRYCOLLECTION'"
+                f"   OR rtrim(GeometryType(geom_4326), 'M') = 'GEOMETRYCOLLECTION'"
             )
         )
 

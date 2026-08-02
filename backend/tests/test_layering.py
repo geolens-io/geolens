@@ -1230,7 +1230,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # (geometry(CurvePolygon, 4326)), which rejects the linear UPDATE result
     # outright; such a column is loosened to generic geometry first.
     # Cap 2066 -> 2091, still exact.
-    "backend/app/processing/ingest/metadata.py": 2091,
+    # fix(#1113 review r5): +12 — the loosened typmod preserves Z/M flags
+    # (plain Geometry rejects Z values), and rtrim(...,'M') matching catches
+    # the M-suffixed curve names in both the typmod lookup and the UPDATE
+    # predicate. Cap 2091 -> 2103, still exact.
+    "backend/app/processing/ingest/metadata.py": 2103,
     # ingest/router.py is also scanned by the router-glob gate; this exact
     # ratchet overrides its 1500 default so the remaining ~18-line runway to
     # the cliff cannot be spent silently.

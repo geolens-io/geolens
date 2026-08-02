@@ -1633,38 +1633,50 @@ async def linearize_existing_4326(
 
     A BYO column may also DECLARE a curved typmod — geometry(CurvePolygon,
     4326) — which would reject the linear UPDATE result outright; such a
-    column is loosened to generic geometry(Geometry, srid) first. Only the
+    column is loosened to a generic typmod first, PRESERVING its Z/M flags
+    (geometry_columns reports M as a type suffix and Z only via
+    coord_dimension, and a plain Geometry typmod rejects Z values). Only the
     concrete curve typmods need it (abstract CURVE/SURFACE accept their
-    linear subtypes).
+    linear subtypes); rtrim(type,'M') matches the M-suffixed variants — no
+    base curve name ends in M.
     """
     tref = _qtable(table_name, schema=schema)
     typmod = (
         await session.execute(
             text(
-                "SELECT type, srid FROM public.geometry_columns "
+                "SELECT type, srid, coord_dimension "
+                "FROM public.geometry_columns "
                 "WHERE f_table_schema = :schema "
                 "  AND f_table_name = :table "
                 "  AND f_geometry_column = 'geom_4326' "
-                "  AND type IN ('CIRCULARSTRING','COMPOUNDCURVE',"
+                "  AND rtrim(type, 'M') IN ('CIRCULARSTRING','COMPOUNDCURVE',"
                 "               'CURVEPOLYGON','MULTICURVE','MULTISURFACE')"
             ).bindparams(schema=schema, table=table_name)
         )
     ).first()
     if typmod is not None:
+        if typmod.coord_dimension == 4:
+            generic = "GeometryZM"
+        elif typmod.coord_dimension == 3:
+            generic = "GeometryM" if typmod.type.endswith("M") else "GeometryZ"
+        else:
+            generic = "Geometry"
         await session.execute(
             text(
                 f"ALTER TABLE {tref} ALTER COLUMN geom_4326 "
-                f"TYPE geometry(Geometry, {int(typmod.srid)})"
+                f"TYPE geometry({generic}, {int(typmod.srid)})"
             )
         )
+    # rtrim on GeometryType too: an M curve reports CURVEPOLYGONM, so the
+    # bare list would skip an arc-free M container.
     await session.execute(
         text(
             f"UPDATE {tref} SET geom_4326 = ST_CurveToLine(geom_4326) "
             f"WHERE ST_HasArc(geom_4326) "
-            f"   OR GeometryType(geom_4326) IN "
+            f"   OR rtrim(GeometryType(geom_4326), 'M') IN "
             f"      ('CIRCULARSTRING','COMPOUNDCURVE','CURVEPOLYGON',"
             f"       'MULTICURVE','MULTISURFACE') "
-            f"   OR GeometryType(geom_4326) = 'GEOMETRYCOLLECTION'"
+            f"   OR rtrim(GeometryType(geom_4326), 'M') = 'GEOMETRYCOLLECTION'"
         )
     )
 
