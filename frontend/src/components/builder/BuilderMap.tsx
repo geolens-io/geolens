@@ -550,9 +550,20 @@ export const BuilderMap = memo(function BuilderMap({
     // of the current viewport — a small high-res DEM zoomed out reads as a
     // pedestal. Keep the active dataset's dedupe key, drop any stale one.
     resetSmallDemWarning(map, currentTerrainConfig.source_dataset_id);
+    // fix(#1128): the LAYER's extent, not the token's bounds. Both come from
+    // `records.spatial_extent`, but the token applies `extent_to_span_bbox`
+    // (processing/tiles/router.py) because a tile source cannot be bounded by a
+    // west > east pair — which flattens a Fiji-shaped DEM to [-180, s, 180, n],
+    // bit-identical to a global one, and the guard then read 100% coverage for a
+    // DEM occupying a fifth of the screen. `dataset_extent_bbox` is the RFC 7946
+    // spec form since #1112, so the crossing survives; the math needs no change.
+    //
+    // The fallback is reachable only if the two conversions disagree about the
+    // same non-null column, and it keeps today's warning rather than silently
+    // deleting it — an absent hint is the exact failure #1128 is about.
     maybeWarnSmallDemCoverage({
       map,
-      demBounds: token.bounds,
+      demBounds: demLayer.dataset_extent_bbox ?? token.bounds,
       dedupeKey: currentTerrainConfig.source_dataset_id,
     });
   }, []);

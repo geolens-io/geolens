@@ -28,12 +28,22 @@ interface MapWithBounds {
  * lng/lat degree plane. This is an approximation (it ignores Mercator area
  * distortion), which is fine for a UX threshold check.
  *
- * fix(#1112 review): where `demBounds` comes from, because it is easy to get
- * wrong. It is the tile token's `bounds` (`RasterTileToken.bounds`, built by
- * `extent_to_span_bbox` at processing/tiles/router.py), NOT the map layer's
- * `dataset_extent_bbox`. Both call sites read it from a token map fed only by
- * the tile-token API, so #1112's flip of `dataset_extent_bbox` to the RFC 7946
- * spec form does not reach here.
+ * fix(#1128): where `demBounds` comes from, because it is easy to get wrong,
+ * and it is no longer the same on both call sites.
+ *
+ * BuilderMap passes the DEM layer's `dataset_extent_bbox` — the RFC 7946 §5.2
+ * spec form since #1112, so a seam-crossing footprint arrives as a `west > east`
+ * pair with its real width intact. It used to pass the tile token's `bounds`
+ * (`RasterTileToken.bounds`, built by `extent_to_span_bbox` at
+ * processing/tiles/router.py), which widens a crossing extent to exactly
+ * [-180, s, 180, n] and is therefore indistinguishable from a global DEM; see
+ * `lonOverlap` below for what that cost. The token span survives only as the
+ * fallback for a layer with no extent.
+ *
+ * use-viewer-terrain still passes the token bounds, because `SharedLayerResponse`
+ * carries no extent field (maps/schemas.py) — and it does not matter: that call
+ * site passes `audience: 'viewer'`, which returns below before `demBounds` is
+ * ever read (#430 V-06). The viewer emits no coverage toast at all.
  *
  * The seam still matters, for the other rectangle. `map.getBounds()` is always
  * monotonic — MapLibre takes min/max over four UNWRAPPED corner longitudes —
@@ -106,24 +116,23 @@ function lonOverlap(dem: [number, number], view: [number, number]): number {
   const demWidth = dem[1] - dem[0];
   // A DEM spanning the globe covers every longitude, at every pan distance.
   //
-  // KNOWINGLY OPTIMISTIC for a seam-crossing DEM, and not fixable here (#1128).
-  // `extent_to_span_bbox` (processing/tiles/router.py) widens a crossing extent
-  // to exactly [-180, s, 180, n], which is the same value a genuinely global
-  // raster produces. The two are indistinguishable by the time they reach this
-  // function, so no arithmetic on `dem` can tell them apart and this branch has
-  // to guess. It guesses "global", which under-warns rather than crying wolf.
+  // fix(#1128): this branch used to swallow every seam-crossing DEM too, and no
+  // arithmetic here could have separated them. `extent_to_span_bbox`
+  // (processing/tiles/router.py) widens a crossing extent to exactly
+  // [-180, s, 180, n] — the same value a genuinely global raster produces — so
+  // by the time the pair reached this function the footprint was already gone
+  // and the branch had to guess. It guessed "global", which under-warned: a
+  // Fiji footprint in viewport [179.5, -20, 190, -15] is truly 19% covered
+  // (warn) and this returned 100% (silent). The pre-#1122 planar math happened
+  // to return 4.8% and warn, but only as a side effect of the +180 clipping bug
+  // that produced the far worse false alarm this module was changed to fix.
   //
-  // Concretely, a Fiji footprint in viewport [179.5, -20, 190, -15]: the true
-  // coverage is 19% (warn), this returns 100% (silent). The pre-#1122 planar
-  // math happened to return 4.8% and warn, but only as a side effect of the
-  // +180 clipping bug that produced the far worse false alarm this module was
-  // changed to fix; it was not reading the seam correctly either.
-  //
-  // The fix is a change of DATA SOURCE, not of this math: feed `demBounds` from
-  // the layer's `dataset_extent_bbox`, which became RFC 7946 spec form in
-  // #1112, and the crossing case arrives as [178.5, …, -178.5, …]. This
-  // function then already returns the correct 19% with no edit, because the
-  // interval is a real 3 degrees wide and never reaches this branch. #1128.
+  // The cure was a change of DATA SOURCE, not of this math: BuilderMap now
+  // passes `dataset_extent_bbox`, so the crossing case arrives as
+  // [178.5, …, -178.5, …] — a real 3 degrees wide, never reaching this branch,
+  // and already scored at the correct 19% by the lines below. What is left here
+  // is the honest case it was always right about: a DEM that really does wrap
+  // the world. Do not point the builder back at the token span.
   if (demWidth >= 360) return view[1] - view[0];
   return Math.max(
     0,
