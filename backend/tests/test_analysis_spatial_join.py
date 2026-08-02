@@ -20,6 +20,7 @@ from app.modules.catalog.datasets.api import router_analysis
 from app.modules.catalog.datasets.domain.service_analysis import PREVIEW_FEATURE_CAP
 from app.platform.analysis_sql import MAX_SOURCE_FEATURES
 from app.processing.analysis.tasks import _materialize
+from app.processing.ingest.metadata import add_4326_column
 
 from tests.factories import create_dataset, get_user_id
 from tests.test_analysis_materialize import _create_job
@@ -73,6 +74,13 @@ async def _create_layer(
             f"VALUES {values_sql}"
         )
     )
+    # fix(#1104): regenerate geom_4326 through the real ingest normalizer so
+    # these fixtures uphold the invariant every read surface now assumes —
+    # geom_4326 is always linear. A byte-identical no-op for linear fixtures
+    # (which insert the same value into both columns); for the curved-source
+    # fixtures it stores the curved WKT in `geom` only, exactly as a real
+    # WFS ingest does.
+    await add_4326_column(session, table_name, 4326)
     await session.commit()
     return await create_dataset(
         session,

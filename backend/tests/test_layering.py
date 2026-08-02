@@ -874,7 +874,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # 500 (round-14 review). to_jsonb renders that as an array of hex
         # strings, so recursing with the same scalar encoding keeps the two
         # endpoints byte-identical.
-        "backend/app/modules/catalog/datasets/domain/service_analysis.py": 506,
+        #
+        # fix(#1104): -1 — the select-by-location identity lateral reads the
+        # bare column again; geom_4326 is linearized at ingest now, so the
+        # per-read ST_CurveToLine wrap is gone. Budget 506 -> 505, exact.
+        "backend/app/modules/catalog/datasets/domain/service_analysis.py": 505,
         "backend/app/modules/catalog/maps/service_crud.py": 550,
         # fix(#474, #475): localized ranking/eager loading plus the OGC
         # ids/externalIds filters cross the default by nine lines. Keep the
@@ -942,7 +946,15 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # list response returns dereferenceable ids. Smoke-residual follow-up (#315):
         # +try/except (ProgrammingError->503) around get_related_records table
         # queries (raster/missing-table guard). Cap 595 -> 620 (~3 LOC headroom).
-        "backend/app/modules/catalog/datasets/domain/service_relationships.py": 620,
+        # fix(#1104): +8 — _fetch_target_rows projects the row before to_jsonb
+        # (via live_property_columns) so the curved source `geom` column never
+        # reaches the geometry→jsonb cast, which raises on curves. Cap
+        # 620 -> 628, exact.
+        # fix(#1113 review r10): +7 — the FK match moved inside the projection
+        # against the base table (a relationship may target a column the
+        # projection drops), with the identifier colon-escaped for text().
+        # Cap 628 -> 635, exact.
+        "backend/app/modules/catalog/datasets/domain/service_relationships.py": 635,
         # fix(#474): reject primary-language updates that collide with a
         # translated variant. Cap 460 -> 480 (~9 LOC headroom above 471).
         # fix(#931): +7. _apply_visibility_change no longer carries its own
@@ -1208,7 +1220,39 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#958): now five carve-outs deep, which is the ratchet taxing
     # correctness work on a module nobody has had time to split.
     # Decomposition tracked in #1042; the cap stays exact until then.
-    "backend/app/processing/ingest/metadata.py": 2031,
+    # fix(#1104): +7 — add_4326_column linearizes curved sources with
+    # ST_CurveToLine (an exact no-op on linear input), so geom_4326 can never
+    # hold a type that ST_AsMVTGeom/ST_AsGeoJSON/::geography/ST_MakeValid
+    # raise on. Most of the lines are the docstring recording that invariant.
+    # Ratchet stays exact.
+    # fix(#1113 review): +28 — linearize_existing_4326 enforces the same
+    # invariant on the register path, the one app-controlled writer of a
+    # geom_4326 the ingest normalizer never touched (a pre-existing column on
+    # a BYO table registered after migration 0034's backfill ran).
+    # Cap 2038 -> 2066, still exact.
+    # fix(#1113 review r4): +25 — a BYO column can DECLARE a curved typmod
+    # (geometry(CurvePolygon, 4326)), which rejects the linear UPDATE result
+    # outright; such a column is loosened to generic geometry first.
+    # Cap 2066 -> 2091, still exact.
+    # fix(#1113 review r5): +12 — the loosened typmod preserves Z/M flags
+    # (plain Geometry rejects Z values), and rtrim(...,'M') matching catches
+    # the M-suffixed curve names in both the typmod lookup and the UPDATE
+    # predicate. Cap 2091 -> 2103, still exact.
+    # fix(#1113 review r7): +16 — a STORED GENERATED geom_4326 rejects any
+    # UPDATE at parse time and cannot be repaired in place, so the enforcer
+    # skips it (#1114 tracks generation expressions that yield curves).
+    # Cap 2103 -> 2119, still exact.
+    # fix(#1113 review r16): +8 — linearize in the SOURCE CRS, then
+    # reproject: transforms are nonlinear, so densifying after ST_Transform
+    # traces the arc in the wrong space. Cap 2147 -> 2151 net (see r8/r9).
+    # fix(#1113 review r8): +24 — a generated column whose CURRENT rows are
+    # curved refuses registration with the actionable cause, instead of
+    # admitting a dataset broken on every surface. Cap 2119 -> 2143, exact.
+    # fix(#1113 review r9): +4 — the reject test becomes "would linearization
+    # change the value" (byte-compare), catching curve containers nested in a
+    # GEOMETRYCOLLECTION without over-rejecting all-linear collections.
+    # Cap 2143 -> 2147, still exact.
+    "backend/app/processing/ingest/metadata.py": 2151,
     # ingest/router.py is also scanned by the router-glob gate; this exact
     # ratchet overrides its 1500 default so the remaining ~18-line runway to
     # the cliff cannot be spent silently.
@@ -1239,7 +1283,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_vrt.py": 1071,
     "backend/app/processing/ingest/tasks_vector.py": 1058,
     "backend/app/modules/auth/oauth/service.py": 1031,
-    "backend/app/processing/ingest/service.py": 1017,
+    # fix(#1113 review): +15 — register_existing_table linearizes a
+    # pre-existing geom_4326 (savepoint + error contract mirroring the
+    # add_4326_column branch beside it); see linearize_existing_4326.
+    # Cap 1017 -> 1032, still exact.
+    "backend/app/processing/ingest/service.py": 1032,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.
@@ -1310,16 +1358,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # 63) and why source columns need no equivalent — they already exist in a
     # table, so the server truncated them at creation.
     #
-    # fix(#1097 review): +42 for linearized() and its call sites. WFS sources
-    # can store curved geometries (MultiSurface/CompoundCurve) that ingest
-    # admits but ::geography, ST_MakeValid and ST_AsGeoJSON all raise on, so
-    # every geometry read feeding one of those — or passing through into
-    # preview GeoJSON or a CTAS — goes through one ST_CurveToLine wrapper. The
-    # bulk of the lines is the helper's docstring recording which functions
-    # raise, which tolerate curves, why WHERE predicates stay on the bare
-    # column (the GIST index), and that #1104 (ingest-level normalization)
-    # is what eventually retires the helper.
-    "backend/app/platform/analysis_sql.py": 1260,
+    # fix(#1097 review): +42 for linearized() and its call sites — WFS sources
+    # could store curved geometries that ::geography, ST_MakeValid and
+    # ST_AsGeoJSON all raise on, so every such read went through one
+    # ST_CurveToLine wrapper.
+    # fix(#1104): -33 — that wrapper is retired. Ingest now stores geom_4326
+    # linear (add_4326_column) and migration 0034 backfilled existing rows,
+    # so the per-read wraps had nothing left to guard. The invariant is
+    # recorded in the module docstring instead. Cap 1260 -> 1227, exact.
+    "backend/app/platform/analysis_sql.py": 1227,
     # tasks.py carries growth from BOTH sides of this rebase, so the number is
     # re-measured rather than taken from either. #1012 added the scoped
     # work_mem (the SET LOCAL, its budget arithmetic and the boot-time
@@ -1365,6 +1412,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # geometry columns (measure, spatial_join, select_by_location) so a curved
     # source row is stored linear — a curved geometry written into the derived
     # table would fail that layer's tiles and feature reads later.
+    # fix(#1104): -1 — those wraps are gone again; geom_4326 is linear at
+    # ingest, so the pass-through columns read the bare column. Cap
+    # 1450 -> 1449, exact.
     #
     # fix(#1097 review): +62 for the array-element half of the ungroupable
     # guards. information_schema stores an array column's data_type as
@@ -1373,7 +1423,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # udt_name ('_json') as well, and the same check now also covers
     # dissolve's by_field, which had the identical blind spot plus no live
     # recheck at all.
-    "backend/app/processing/analysis/tasks.py": 1450,
+    "backend/app/processing/analysis/tasks.py": 1449,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.

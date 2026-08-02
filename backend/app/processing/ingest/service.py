@@ -25,6 +25,7 @@ from app.core.db.tenant_session import defer_async_with_tenant
 from app.platform.extensions import get_processing_port
 from app.processing.ingest.metadata import (
     add_4326_column,
+    linearize_existing_4326,
     extract_metadata,
     get_sample_values,
     get_table_srid,
@@ -604,6 +605,20 @@ async def register_existing_table(
             except Exception as exc:  # broad: ALTER TABLE/CREATE INDEX inside savepoint can fail for schema/permission reasons
                 raise ValueError(
                     f"Failed to add geom_4326 column to '{table_name}': {exc}"
+                ) from exc
+        else:
+            # fix(#1113 review): a pre-existing geom_4326 was written by
+            # someone else, and a table registered AFTER migration 0034 ran is
+            # invisible to its backfill — curved values here would reach the
+            # readers with the per-read ST_CurveToLine wraps now gone.
+            # Registration is the write boundary for such tables, so the
+            # linear invariant is enforced on the way in.
+            try:
+                async with session.begin_nested():
+                    await linearize_existing_4326(session, table_name, schema=_schema)
+            except Exception as exc:  # broad: UPDATE inside savepoint can fail for schema/permission reasons
+                raise ValueError(
+                    f"Failed to linearize geom_4326 on '{table_name}': {exc}"
                 ) from exc
 
         await grant_reader_access(session, table_name, schema=_schema, role=_grant_role)

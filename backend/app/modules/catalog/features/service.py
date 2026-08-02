@@ -126,6 +126,67 @@ def parse_bbox(bbox_str: str) -> list[float]:
     return values
 
 
+async def live_property_columns(db: AsyncSession, table_name: str) -> str:
+    """Quoted select-list of the table's live columns minus gid/geom/geom_4326.
+
+    fix(#1104): feature properties used to be rendered as ``to_jsonb(t.*) -
+    'gid' - 'geom' - 'geom_4326'``, which serializes EVERY column before the
+    subtraction — and PostGIS's geometry→jsonb cast raises on curved input
+    (``lwgeom_to_geojson: 'MultiSurface' geometry type not supported``). The
+    original ``geom`` column deliberately preserves the curved source even
+    after ingest linearizes ``geom_4326``, so a curved dataset 500'd every
+    feature read through a column the response then discarded. Readers now
+    project the row to this list first, so the cast never sees ``geom``.
+
+    The live schema is authoritative here on purpose: ``Dataset.column_info``
+    can drift from the table on re-upload, and a projected list must match
+    the table or the whole query fails. Names are double-quote escaped, and —
+    fix(#1113 review), same rule as _sql_quote_ident's fix(#640) — colons are
+    backslash-escaped because SQLAlchemy ``text()`` parses ``:name`` as a bind
+    parameter even inside double-quoted identifiers, and registered Socrata
+    exports ship columns literally named ``:id``. The output is therefore
+    only valid inside ``text()``.
+
+    Returns a comma-separated quoted list, or "" when the table has no
+    property columns.
+    """
+    from app.core.db.tenant_schema import tenant_data_schema
+    from app.core.db.tenant_session import current_tenant_var
+
+    schema = tenant_data_schema(current_tenant_var.get())
+    result = await db.execute(
+        text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = :schema AND table_name = :tn "
+            "AND column_name NOT IN ('gid', 'geom', 'geom_4326') "
+            "ORDER BY ordinal_position"
+        ).bindparams(schema=schema, tn=table_name)
+    )
+    return ", ".join(
+        '"' + name.replace('"', '""').replace(":", "\\:") + '"'
+        for (name,) in result.all()
+    )
+
+
+async def _projected_row_source(
+    db: AsyncSession, table_name: str, *, with_geometry: bool
+) -> str:
+    """Render the projected FROM source feature readers serialize from.
+
+    See ``live_property_columns`` for why the row is projected before
+    ``to_jsonb``. ``geom_4326`` rides along when the table is spatial so
+    bbox predicates and the geometry select keep working; the planner
+    flattens the subquery, so index use is unchanged.
+    """
+    prop_cols = await live_property_columns(db, table_name)
+    prop_sel = f", {prop_cols}" if prop_cols else ""
+    geom_sel = ", geom_4326" if with_geometry else ""
+    return (
+        f"(SELECT gid{geom_sel}{prop_sel} "
+        f"FROM {get_catalog_port().quote_table(table_name)})"
+    )
+
+
 async def get_features(
     db: AsyncSession,
     table_name: str,
@@ -150,19 +211,21 @@ async def get_features(
     supported as a legacy fallback for clients that have not migrated to
     cursor pagination.
     """
-    # Build SELECT columns
+    # Build SELECT columns over the projected row (see live_property_columns
+    # for why geom must never reach to_jsonb).
     if has_geometry and include_geometry:
         select_cols = (
             "gid, ST_AsGeoJSON(geom_4326, 6)::json AS geometry, "
-            "to_jsonb(t.*) - 'gid' - 'geom' - 'geom_4326' AS properties"
+            "to_jsonb(t.*) - 'gid' - 'geom_4326' AS properties"
         )
     elif has_geometry:
         select_cols = (
             "gid, NULL::json AS geometry, "
-            "to_jsonb(t.*) - 'gid' - 'geom' - 'geom_4326' AS properties"
+            "to_jsonb(t.*) - 'gid' - 'geom_4326' AS properties"
         )
     else:
         select_cols = "gid, NULL::json AS geometry, to_jsonb(t.*) - 'gid' AS properties"
+    row_source = await _projected_row_source(db, table_name, with_geometry=has_geometry)
 
     # Build WHERE clauses
     where_clauses: list[str] = []
@@ -210,12 +273,12 @@ async def get_features(
     # Data query — keyset uses LIMIT only (no OFFSET); legacy uses LIMIT + OFFSET.
     if use_keyset:
         data_sql = (
-            f"SELECT {select_cols} FROM {get_catalog_port().quote_table(table_name)} t "
+            f"SELECT {select_cols} FROM {row_source} t "
             f"{where_sql} ORDER BY gid LIMIT :limit"
         )
     else:
         data_sql = (
-            f"SELECT {select_cols} FROM {get_catalog_port().quote_table(table_name)} t "
+            f"SELECT {select_cols} FROM {row_source} t "
             f"{where_sql} ORDER BY gid LIMIT :limit OFFSET :offset"
         )
         bind_values["offset"] = offset
@@ -269,13 +332,11 @@ async def get_features_geojson_z(
     """
     select_cols = (
         "gid, ST_AsGeoJSON(geom_4326, 6)::json AS geometry, "
-        "to_jsonb(t.*) - 'gid' - 'geom' - 'geom_4326' AS properties"
+        "to_jsonb(t.*) - 'gid' - 'geom_4326' AS properties"
     )
+    row_source = await _projected_row_source(db, table_name, with_geometry=True)
     # Fetch cap+1 to detect truncation without a separate COUNT query
-    data_sql = (
-        f"SELECT {select_cols} FROM {get_catalog_port().quote_table(table_name)} "
-        "t ORDER BY gid LIMIT :limit"
-    )
+    data_sql = f"SELECT {select_cols} FROM {row_source} t ORDER BY gid LIMIT :limit"
     result = await db.execute(text(data_sql).bindparams(limit=cap + 1))
     rows = [dict(row._mapping) for row in result.all()]
 
@@ -311,15 +372,13 @@ async def get_feature_by_id(
     if has_geometry:
         select_cols = (
             "gid, ST_AsGeoJSON(geom_4326, 6)::json AS geometry, "
-            "to_jsonb(t.*) - 'gid' - 'geom' - 'geom_4326' AS properties"
+            "to_jsonb(t.*) - 'gid' - 'geom_4326' AS properties"
         )
     else:
         select_cols = "gid, NULL::json AS geometry, to_jsonb(t.*) - 'gid' AS properties"
 
-    sql = (
-        f"SELECT {select_cols} FROM {get_catalog_port().quote_table(table_name)} "
-        "t WHERE gid = :gid"
-    )
+    row_source = await _projected_row_source(db, table_name, with_geometry=has_geometry)
+    sql = f"SELECT {select_cols} FROM {row_source} t WHERE gid = :gid"
     result = await db.execute(text(sql).bindparams(gid=gid))
     row = result.first()
     if row is None:
