@@ -1400,7 +1400,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # different relations); the rest is the docstring bullet carrying why the
     # join cannot change the row count and why it is LEFT rather than INNER.
     # Cap 1227 -> 1255, exact.
-    "backend/app/platform/analysis_sql.py": 1255,
+    #
+    # fix(#1089): the split this entry has been pointing at is underway. The
+    # module is now a package and the shared fences, ceilings, antimeridian
+    # helper and mask parser have moved to analysis_sql/shared.py, so what the
+    # ratchet tracks is the façade. -231, exact. The entry goes away once the
+    # last family is out and the façade drops under the inclusion threshold.
+    "backend/app/platform/analysis_sql/__init__.py": 1024,
     # tasks.py carries growth from BOTH sides of this rebase, so the number is
     # re-measured rather than taken from either. #1012 added the scoped
     # work_mem (the SET LOCAL, its budget arithmetic and the boot-time
