@@ -7,6 +7,54 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-08-02
+
+### Fixed
+
+- **Analysis provenance no longer names datasets the requester cannot see
+  (#1103).** `lineage_summary` is now access-checked per requester on every
+  read surface that serves it — dataset detail and lists, OGC records, STAC,
+  and the three DCAT feeds, including the anonymous ones. A requester who can
+  read every referenced dataset gets the stored sentence unchanged; anyone
+  else gets a neutral placeholder rather than any part of the stored text.
+- **Curved geometries work end to end (#1104).** `geom_4326` is now always
+  linear: ingest densifies arcs in the source CRS before reprojecting,
+  migration 0034 backfills existing rows for registered datasets, and
+  registering a table with a pre-existing `geom_4326` linearizes it on the
+  way in. Vector tiles, feature reads, and every analysis operation now work
+  on MultiSurface/CompoundCurve sources; the curved original stays in `geom`.
+  The migration skips columns it cannot rewrite (stored generated columns,
+  legacy constraint declarations) and names each one in an operator warning
+  instead of blocking the upgrade.
+- **A malformed paint value can no longer break a shared map (#1069).**
+  Legacy `stops` values are shape-checked at write time (422), and
+  `GET /maps/{id}/style.json` drops a bad stored layer with a warning instead
+  of failing the whole document. MapLibre expressions that merely contain a
+  `stops` key as data are unaffected.
+- **Dataset visibility changes are refused only when someone is actually
+  stranded (#1073).** The guard now judges each shared audience on its own
+  instead of over-refusing: narrowing visibility when every active user
+  already holds a grant, or when no one else is active, goes through. Under a
+  non-default permission extension the conservative refusal is kept, since
+  the community query cannot see viewers an overlay admits.
+- **Style copy/paste keeps fill-color and fill-pattern mutually exclusive
+  (#923).** The paste merge resolves the fill pair through the same rule the
+  editor applies, and the colour a pasted pattern displaces is stashed so a
+  later switch back to "None" restores the pasted style's colour, not the
+  target's old one.
+- Registered tables with Socrata-style column names (`:id`) read correctly
+  through feature endpoints, and registering a table whose generated
+  `geom_4326` yields curved values is refused with the cause.
+
+### Changed
+
+- **The CLI can drive spatial joins (#1105).** `geolens analysis preview` and
+  `materialize` gained `--join-dataset-id` and `--join-fields`, the
+  `--operation` help lists every server operation (dissolve is
+  materialize-only), and a missing `--join-dataset-id` fails fast with the
+  server's wording. The CLI now requires the 1.7.0 SDK, the first whose
+  analysis models carry the join fields.
+
 ## [1.7.0] - 2026-08-01
 
 ### Added
