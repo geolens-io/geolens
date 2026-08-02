@@ -266,6 +266,40 @@ def test_redact_url_credentials_survives_nfkc_delimiters_anywhere(
     assert "hunter" not in redact_url_credentials(f"ogrinfo failed: {value} bad")
 
 
+@pytest.mark.parametrize(
+    ("unparsable", "parsable_equivalent"),
+    [
+        # ＃ normalises to a fragment delimiter, so the tail is a FRAGMENT.
+        (
+            "https://[::1？token=prefix＃hunter2",
+            "https://example.com?token=prefix#hunter2",
+        ),
+        # ／ normalises to a path delimiter, so there is no userinfo at all:
+        # urlsplit reports username=None, password=None, netloc='user:hunter2'.
+        ("https://user:hunter2／＠[::1", "https://user:hunter2/@example.com"),
+    ],
+)
+def test_fallback_does_not_out_redact_the_parsed_path(
+    unparsable: str, parsable_equivalent: str
+) -> None:
+    """The fallback keeps exactly what the parsed path keeps — no more, no less.
+
+    fix(#1119 review 5): both shapes were reported as fallback leaks. They are
+    not. Once normalised, the tail of the first is a fragment and the second has
+    no userinfo for any client to resolve, so the PRIMARY path keeps them too —
+    asserted below so this stays a measurement rather than an argument.
+
+    This is the invariant the whole fallback is defined against, and it cuts both
+    ways. If the primary path is ever tightened to redact fragments or
+    port-position material, this test fails and the fallback must follow rather
+    than quietly diverge. Contrast the round-3 case, which WAS a real leak: there
+    ＠ normalises to a genuine `@`, so an NFKC-normalising client resolves real
+    userinfo, which is precisely why `_checknetloc` refuses the string.
+    """
+    assert "hunter2" in redact_url_credentials(parsable_equivalent)
+    assert "hunter2" in redact_url_credentials(unparsable)
+
+
 @pytest.mark.parametrize("value", WHITESPACE_CREDENTIALED_MALFORMED_URLS)
 def test_redact_url_credentials_masks_credentials_across_inner_whitespace(
     value: str,
