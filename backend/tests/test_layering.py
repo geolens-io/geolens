@@ -1238,7 +1238,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # UPDATE at parse time and cannot be repaired in place, so the enforcer
     # skips it (#1114 tracks generation expressions that yield curves).
     # Cap 2103 -> 2119, still exact.
-    "backend/app/processing/ingest/metadata.py": 2119,
+    # fix(#1113 review r8): +24 — a generated column whose CURRENT rows are
+    # curved refuses registration with the actionable cause, instead of
+    # admitting a dataset broken on every surface. Cap 2119 -> 2143, exact.
+    "backend/app/processing/ingest/metadata.py": 2143,
     # ingest/router.py is also scanned by the router-glob gate; this exact
     # ratchet overrides its 1500 default so the remaining ~18-line runway to
     # the cliff cannot be spent silently.

@@ -1656,6 +1656,30 @@ async def linearize_existing_4326(
         )
     ).first()
     if generated is not None:
+        # fix(#1113 review r8): a generated column whose CURRENT rows are
+        # curved would register a dataset broken on every surface, and no
+        # later write of ours can fix it — refuse with the actionable cause
+        # instead. An empty or linear generated column registers fine; an
+        # expression that only yields curves for FUTURE rows is #1114's
+        # residue, same as any post-registration external write.
+        curved = (
+            await session.execute(
+                text(
+                    f"SELECT 1 FROM {tref} "  # noqa: S608
+                    f"WHERE ST_HasArc(geom_4326) "
+                    f"   OR rtrim(GeometryType(geom_4326), 'M') IN "
+                    f"      ('CIRCULARSTRING','COMPOUNDCURVE','CURVEPOLYGON',"
+                    f"       'MULTICURVE','MULTISURFACE') "
+                    f"LIMIT 1"
+                )
+            )
+        ).first()
+        if curved is not None:
+            raise ValueError(
+                "geom_4326 is a generated column whose expression yields "
+                "curved geometries; adjust it to apply ST_CurveToLine "
+                "(curved types break tiles, feature reads, and analysis)"
+            )
         return
     typmod = (
         await session.execute(

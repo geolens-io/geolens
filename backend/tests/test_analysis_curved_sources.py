@@ -557,6 +557,48 @@ class TestCurvedIngestNormalization:
         assert resp.status_code == 200, resp.text
         assert resp.json()["features"][0]["properties"]["name"] == "pt"
 
+    async def test_register_refuses_a_generated_column_that_yields_curves(
+        self, test_db_session: AsyncSession
+    ):
+        """fix(#1113 review r8): curved generated values refuse registration.
+
+        No write of ours can repair a generated column, so admitting one whose
+        rows are already curved registers a dataset broken on every surface.
+        The refusal names the cause; an empty or linear generated column
+        (previous test) registers fine.
+        """
+        from types import SimpleNamespace
+
+        import pytest as _pytest
+
+        from app.processing.ingest.schemas import RegisterRequest
+        from app.processing.ingest.service import register_existing_table
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        table = f"byo_gencurved_{uuid.uuid4().hex[:10]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table} ("  # noqa: S608
+                f"gid serial PRIMARY KEY, name text, "
+                f"geom geometry(Geometry, 4326), "
+                f"geom_4326 geometry GENERATED ALWAYS AS (geom) STORED)"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table} (name, geom) VALUES "  # noqa: S608
+                f"('circle', {CURVED_POLYGON})"
+            )
+        )
+        await test_db_session.commit()
+
+        with _pytest.raises(ValueError, match="generated column.*curved"):
+            await register_existing_table(
+                test_db_session,
+                RegisterRequest(table_name=table, title="Curved generated"),
+                SimpleNamespace(id=admin_id),
+            )
+
     async def test_register_loosens_a_curved_geom_4326_typmod(
         self, test_db_session: AsyncSession
     ):
