@@ -84,6 +84,15 @@ def upgrade() -> None:
                        SELECT 'data_t_' || pg_catalog.replace(id::text, '-', '_')
                        FROM catalog.tenants
                    ))
+              -- fix(#1113 review r11): REGISTERED datasets only. An operator
+              -- can copy a table into a data schema before registering it
+              -- (discover_unregistered_tables exists for exactly that state);
+              -- GeoLens serves nothing from it yet, registration now runs its
+              -- own linearization, and densifying it here would be
+              -- irreversible harm with no surface fixed. table_name is
+              -- globally unique across tenants (registration's duplicate
+              -- check), so the name join is the tenant-safe scope.
+              AND c.table_name IN (SELECT table_name FROM catalog.datasets)
             ORDER BY c.table_schema, c.table_name
             """
         )
@@ -167,6 +176,10 @@ def upgrade() -> None:
                        SELECT 'data_t_' || pg_catalog.replace(id::text, '-', '_')
                        FROM catalog.tenants
                    ))
+              -- fix(#1113 review r11): warn only about datasets GeoLens
+              -- actually serves; an unregistered table's generated column is
+              -- registration's problem when (if) it registers.
+              AND c.table_name IN (SELECT table_name FROM catalog.datasets)
             """
         )
     ).all()
