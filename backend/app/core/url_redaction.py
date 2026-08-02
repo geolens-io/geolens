@@ -120,8 +120,26 @@ def redact_query_credentials(query: str) -> str:
 # These two patterns are enough to cover the fallback, because urlsplit reaches
 # its bracket and NFKC checks only inside `if url[:2] == '//'`: a string that
 # raised always has a `//` authority for the userinfo pattern to anchor on.
-_UNPARSED_USERINFO_RE = re.compile(r"//[^/?#\s]*@")
-_UNPARSED_QUERY_PAIR_RE = re.compile(r"([?&])([^?&=#\s]+)=([^&#\s]*)")
+#
+# fix(#1119 review 2): they delimit on URL syntax — `/?#` for the authority,
+# `&#` for a query value — and NOT on whitespace. An earlier `\s` in these
+# classes made the fallback stop at a space that the parser keeps, so it leaked
+# strictly MORE than the parsed path, breaking this module's own invariant that
+# the fallback only ever keeps what the parsed path would have kept:
+#
+#   https://user:hunter 2@[::1        returned verbatim; urlsplit ends a netloc
+#                                     at `/?#`, never at a space, so the parsed
+#                                     path would have redacted the whole userinfo
+#   https://[::1?token=prefix hunter2  became `token=<redacted> hunter2`; parse_qsl
+#                                     takes the value to the next `&`/`#`, so the
+#                                     parsed path would have redacted all of it
+#
+# Widening is the safe direction for a redactor and the reason is asymmetric:
+# over-redaction costs a less informative log line, under-redaction leaks a
+# credential and does it silently. Greedy is also correct here rather than
+# incidental — urlsplit takes userinfo to the LAST `@` in the authority.
+_UNPARSED_USERINFO_RE = re.compile(r"//[^/?#]*@")
+_UNPARSED_QUERY_PAIR_RE = re.compile(r"([?&])([^?&=#]+)=([^&#]*)")
 
 # fix(#1119 review): urlsplit DELETES these three characters from anywhere in the
 # string before it parses (CPython's `_UNSAFE_URL_BYTES_TO_REMOVE`). Every reader

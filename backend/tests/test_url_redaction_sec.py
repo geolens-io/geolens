@@ -167,6 +167,29 @@ CREDENTIALED_MALFORMED_URLS = [
     "ESRIJSON:https://user:hunter2\n@[::1",
 ]
 
+# fix(#1119 review 2): urlsplit ends an authority at `/?#` and parse_qsl ends a
+# query value at `&`/`#` — neither stops at whitespace. Delimiting the fallback
+# patterns on `\s` made them keep MORE than the parsed path would, which is the
+# one thing the fallback is not allowed to do.
+#
+# These are DIRECT-CALL ONLY, and deliberately not in the list above. Inside free
+# text a space genuinely ends the URL: URL_LIKE_RE stops there, so the recursion
+# never receives the tail and no redactor downstream can. That is not a gap in
+# the fallback — the PARSED path is identical, measured:
+#
+#   "ogrinfo failed: https://example.com?token=prefix hunter2 bad"
+#     -> "...token=%3Credacted%3E hunter2 bad"     (well-formed URL, parsed path)
+#
+# so the invariant still holds in free text. Widening URL_LIKE_RE to span spaces
+# would swallow the remainder of every stderr sentence into "the URL" and reopen
+# the unbounded-quantifier backtracking #1116 exists to prevent.
+WHITESPACE_CREDENTIALED_MALFORMED_URLS = [
+    "https://user:hunter 2@[::1",
+    "https://[::1?token=prefix hunter2",
+    "https://user:hunter\x0c2@[::1",
+    "https://[::1?token=prefix\x0bhunter2",
+]
+
 
 @pytest.mark.parametrize("value", MALFORMED_AUTHORITY_URLS)
 def test_redact_url_credentials_never_raises_on_malformed_authority(
@@ -199,6 +222,36 @@ def test_redact_url_credentials_masks_credentials_in_unparsable_free_text(
     value: str,
 ) -> None:
     assert "hunter2" not in redact_url_credentials(f"ogrinfo failed: {value} bad")
+
+
+@pytest.mark.parametrize("value", WHITESPACE_CREDENTIALED_MALFORMED_URLS)
+def test_redact_url_credentials_masks_credentials_across_inner_whitespace(
+    value: str,
+) -> None:
+    # Assert on the stem, not on "hunter2"/"hunter 2": with a form feed or
+    # vertical tab between the halves the literal never appears in the output
+    # either way, so those two cases would pass vacuously and the RED check
+    # would look like proof while covering nothing.
+    assert "hunter" not in redact_url_credentials(value)
+
+
+@pytest.mark.parametrize(
+    ("value", "kept"),
+    [
+        # fix(#1119 review 2): the admission half of the widened delimiters. A
+        # refusal assertion cannot notice that a legitimate input started being
+        # destroyed, so the non-sensitive cases are pinned separately — widening
+        # `[^&#\s]` to `[^&#]` must not swallow a benign value or the text after
+        # it, and must not invent a userinfo where the string has no `@`.
+        ("https://[::1?f=json text", "json text"),
+        ("https://[::1?f=json&token=x", "f=json"),
+        ("ogrinfo failed: https://[::1 no credentials here", "no credentials here"),
+    ],
+)
+def test_redact_url_credentials_keeps_non_sensitive_text_in_unparsable_url(
+    value: str, kept: str
+) -> None:
+    assert kept in redact_url_credentials(value)
 
 
 def test_redact_url_credentials_keeps_free_text_around_an_unparsable_url() -> None:
