@@ -2562,8 +2562,13 @@ class TestMaterializeWorker:
         # list.index() would find the first one twice.
         size_pos = [i for i, s in enumerate(executed) if "pg_total_relation_size" in s]
         assert len(size_pos) == 2
+        # fix(#1113): registration now runs the linearize-enforcement UPDATE
+        # (uniquely marked by ST_HasArc) AFTER the probes; the position under
+        # test is the BUILD's last geom_4326 write, so exclude the enforcer.
         rewrite_pos = max(
-            i for i, s in enumerate(executed) if "geom_4326" in s and "UPDATE" in s
+            i
+            for i, s in enumerate(executed)
+            if "geom_4326" in s and "UPDATE" in s and "ST_HasArc" not in s
         )
         assert size_pos[1] > rewrite_pos
         assert size_pos[1] < executed.index(analyzes[0])
