@@ -155,6 +155,22 @@ describe('API error localization boundary', () => {
     });
   });
 
+  // fix(#790): the sandbox advisory lock is shared between analysis previews
+  // and AI chat data queries. Unmapped, this 429 collapsed to the generic
+  // rate-limit fallback, so a busy chat query refused an analysis preview
+  // without ever naming the feature holding the shared budget.
+  it('names the other feature when the shared query lock refuses a preview', () => {
+    expect(
+      classifyApiError('Another data query is already running for this user', 429),
+    ).toEqual({ key: 'errors.sharedQueryBusy' });
+    const rendered = translateApiErrorDetail(
+      'Another data query is already running for this user',
+      429,
+    );
+    expect(rendered).toContain('AI chat');
+    expect(rendered).not.toBe('Too many requests. Wait a moment and try again.');
+  });
+
   it('still falls back for an unmapped analysis-shaped message', () => {
     expect(
       translateApiErrorDetail('This dataset is too large for everything', 422),

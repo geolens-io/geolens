@@ -1030,6 +1030,7 @@
     "saveHintNeedsName": "Enter a name for the new dataset to enable Create dataset.",
     "saveHintNeedsParams": "Complete the operation settings above to enable Create dataset.",
     "addedToMap": "Added to map",
+    "chainOnResult": "Run another operation on this result",
     "openMap": "Open map",
     "joinLayerLabel": "Join with layer",
     "joinLayerPlaceholder": "Choose a layer",

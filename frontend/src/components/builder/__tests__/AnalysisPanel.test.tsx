@@ -2137,6 +2137,60 @@ describe('AnalysisPanel — audit remediation (v1.6.0)', () => {
     expect(useAnalysisAddedStore.getState().pendingAddIds).not.toContain('out1');
   });
 
+  // feat(#790): chaining a second operation onto a finished run. The target is
+  // always the MATERIALIZED result's layer — an ephemeral preview is not an
+  // operation input (the reasoning lives at the completion-state call site).
+  describe('chain on the materialized result (#790)', () => {
+    const completeRun = async (datasetId: string, layers: MapLayerResponse[]) => {
+      mockJobStatus.value = { status: 'complete', dataset_id: datasetId };
+      renderPanel(layers, {
+        mapId: 'm1',
+        layerActions: { onAddDataset: vi.fn() } as never,
+      });
+      fireEvent.change(screen.getByLabelText('New dataset name'), {
+        target: { value: 'Out' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Create dataset' }));
+      await screen.findByText('Dataset created');
+    };
+
+    it('withholds the affordance until the result is on the map', async () => {
+      // out1 was created but never added, so there is no layer to chain onto.
+      await completeRun('out1', [datasetLayer]);
+      expect(
+        screen.queryByRole('button', {
+          name: 'Run another operation on this result',
+        }),
+      ).not.toBeInTheDocument();
+    });
+
+    it('retargets the source picker at the result layer', async () => {
+      // ds2/Roads stands in for the result, already added to the map.
+      await completeRun('ds2', [datasetLayer, datasetLayer2]);
+      fireEvent.click(
+        screen.getByRole('button', {
+          name: 'Run another operation on this result',
+        }),
+      );
+
+      expect(screen.getByLabelText('Layer')).toHaveTextContent('Roads');
+      // Chaining is a source change like any other, so the finished run's
+      // status line and its name go with it (fix(#764)) — otherwise one more
+      // click would create an identically-named dataset from new parameters.
+      expect(screen.queryByText('Dataset created')).not.toBeInTheDocument();
+      expect(screen.getByLabelText('New dataset name')).toHaveValue('');
+    });
+
+    it('withholds the affordance when the result is already the source', async () => {
+      await completeRun('ds1', [datasetLayer]);
+      expect(
+        screen.queryByRole('button', {
+          name: 'Run another operation on this result',
+        }),
+      ).not.toBeInTheDocument();
+    });
+  });
+
   it('sets aria-busy on the pending Preview button', async () => {
     let resolvePreview!: (v: unknown) => void;
     vi.mocked(previewAnalysis).mockImplementationOnce(

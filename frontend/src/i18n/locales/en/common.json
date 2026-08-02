@@ -256,6 +256,7 @@
     "analysisSourceTooLarge": "This layer is too large for that analysis (limit {{limit}} features). Filter it to a smaller dataset first.",
     "analysisMaskTooLarge": "The mask layer has too many features to clip with (limit {{limit}}). Choose a smaller mask layer, or draw the mask on the map.",
     "analysisJobAlreadyRunning": "Your previous analysis is still running. Wait for it to finish before starting another.",
+    "sharedQueryBusy": "Analysis previews and AI chat share one data query at a time, and one is already running. Wait for it to finish and try again.",
     "analysisVectorRequired": "Analysis needs a vector dataset — this layer is not one.",
     "analysisMaskPolygonRequired": "The clip mask must be a polygon layer.",
     "datasetVisibilityBlockedByMaps": "These maps share the dataset with an audience that would lose it: {{maps}}. Remove the layer there, or narrow those maps first.",

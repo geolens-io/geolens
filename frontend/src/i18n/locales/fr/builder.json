@@ -1030,6 +1030,7 @@
     "saveHintNeedsName": "Saisissez un nom pour le nouveau jeu de données pour activer Créer un jeu de données.",
     "saveHintNeedsParams": "Renseignez les paramètres de l’opération ci-dessus pour activer Créer un jeu de données.",
     "addedToMap": "Ajouté à la carte",
+    "chainOnResult": "Lancer une autre opération sur ce résultat",
     "openMap": "Ouvrir la carte",
     "joinLayerLabel": "Joindre à la couche",
     "joinLayerPlaceholder": "Choisissez une couche",
