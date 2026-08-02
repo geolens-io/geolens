@@ -1877,7 +1877,7 @@ jobs:
       - name: Run migrations
         run: uv run alembic upgrade heads
 
-      - name: Run live NL→SQL evals
+      - name: Run live AI evals (NL→SQL and tool choice)
         run: uv run pytest tests/evals/ -v --tb=short
 
   # ---- E2E / A11Y trigger matrix (REL-03) ----
