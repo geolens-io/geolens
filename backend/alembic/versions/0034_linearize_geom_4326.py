@@ -56,8 +56,17 @@ def upgrade() -> None:
             WHERE c.column_name = 'geom_4326'
               AND c.udt_name = 'geometry'
               AND t.table_type = 'BASE TABLE'
+              -- fix(#1113 review): only GeoLens-owned data schemas — 'data'
+              -- (single-tenant) or the EXACT per-tenant schemas derived from
+              -- catalog.tenants, the same construction as tenant_data_schema()
+              -- and migrations 0024/0026. A co-hosted schema that merely
+              -- starts with 'data_t_' could hold a geom_4326 column whose
+              -- curves this UPDATE would irreversibly densify.
               AND (c.table_schema = 'data'
-                   OR c.table_schema LIKE 'data\\_t\\_%')
+                   OR c.table_schema IN (
+                       SELECT 'data_t_' || pg_catalog.replace(id::text, '-', '_')
+                       FROM catalog.tenants
+                   ))
             ORDER BY c.table_schema, c.table_name
             """
         )
