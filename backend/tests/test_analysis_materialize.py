@@ -231,6 +231,12 @@ class TestMaterializeEndpoint:
         job = await test_db_session.get(IngestJob, uuid.UUID(data["job_id"]))
         assert job is not None
         assert job.status == "pending"
+        # fix(#789): the enqueue stamps a step (ux(#698)) so a pending job reads
+        # as "queued" rather than as a broken one. Load-bearing since #703 put
+        # analysis below the default priority: a queued job now waits behind
+        # uploads by design, sometimes for minutes, and this stamp is the only
+        # honest "waiting" signal the UI has to distinguish that from a stall.
+        assert job.current_step == "queued"
         # Request params ride the job row so Admin → Jobs can diagnose runs.
         meta = (job.user_metadata or {}).get("analysis", {})
         assert meta["operation"] == "buffer"
@@ -2610,48 +2616,6 @@ class TestMaterializeWorker:
         # Same transaction, ahead of the CTAS it protects.
         assert executed.index(hashaggs[0]) < executed.index(ctas[0])
 
-    def test_timeout_message_names_the_budget_that_fired(self, monkeypatch):
-        """fix(#1013 review): the two budgets are independently configurable
-        now, so a registration timeout quoting the materialize budget would
-        send an operator to tune the setting that did not fire."""
-        from sqlalchemy.exc import OperationalError
-
-        from app.core.config import settings
-        from app.processing.analysis.tasks import _user_error_message
-
-        monkeypatch.setattr(settings, "analysis_materialize_timeout_seconds", 300)
-        monkeypatch.setattr(settings, "analysis_registration_timeout_seconds", 900)
-        exc = OperationalError(
-            "SELECT 1", {}, Exception("canceling statement due to statement timeout")
-        )
-
-        assert "300s" in _user_error_message(exc)
-        assert "900s" not in _user_error_message(exc)
-        assert "900s" in _user_error_message(exc, registered=True)
-        assert "300s" not in _user_error_message(exc, registered=True)
-
-    def test_analysis_timeouts_track_their_settings(self, monkeypatch):
-        """fix(#1013): the budgets are operator settings now, and they are read
-        at call time — a module-level snapshot would freeze whatever the
-        settings object held when this module was first imported."""
-        from app.core.config import settings
-
-        from app.processing.analysis.tasks import registration_timeout
-
-        # Set the baseline rather than asserting the shipped defaults: settings
-        # is a module-level singleton, so an ANALYSIS_*_TIMEOUT_SECONDS in the
-        # environment or the root .env would already have overridden them and
-        # the "before" assertions would fail for a reason unrelated to the
-        # behaviour under test.
-        monkeypatch.setattr(settings, "analysis_materialize_timeout_seconds", 300)
-        monkeypatch.setattr(settings, "analysis_registration_timeout_seconds", 600)
-        assert materialize_timeout() == "300s"
-        assert registration_timeout() == "600s"
-        monkeypatch.setattr(settings, "analysis_materialize_timeout_seconds", 1200)
-        monkeypatch.setattr(settings, "analysis_registration_timeout_seconds", 1800)
-        assert materialize_timeout() == "1200s"
-        assert registration_timeout() == "1800s"
-
     async def test_ctas_scopes_work_mem_to_its_transaction(
         self,
         test_db_session: AsyncSession,
@@ -2760,58 +2724,6 @@ class TestMaterializeWorker:
         # The parallelism pin exists to protect the work_mem ceiling, so it
         # must not fire when there is no ceiling to protect.
         assert not [s for s in executed if "max_parallel_workers_per_gather" in s]
-
-    def test_work_mem_is_divided_across_worker_slots(self, monkeypatch):
-        """fix(#1012): the budget is per worker PROCESS, so parallel job slots
-        share it — otherwise raising WORKER_CONCURRENCY silently multiplies the
-        db container's exposure."""
-        from app.core.config import settings
-
-        # Set the baseline rather than asserting the shipped default: settings
-        # is a module-level singleton, so ANALYSIS_MATERIALIZE_WORK_MEM_MB in
-        # the environment would otherwise decide this test's outcome.
-        monkeypatch.setattr(settings, "analysis_materialize_work_mem_mb", 64)
-        monkeypatch.setattr(settings, "worker_concurrency", 1)
-        assert _materialize_work_mem() == "64MB"
-        monkeypatch.setattr(settings, "worker_concurrency", 4)
-        assert _materialize_work_mem() == "16MB"
-        # Divided in kB so the budget is never exceeded by rounding: 64MB
-        # across 128 slots is 512kB each, not 1MB each (which would be 128MB
-        # against a 64MB budget). No clamp to the bundled 8MB default either —
-        # this process cannot read the connected cluster's work_mem, so it
-        # cannot know whether such a floor preserves that value or raises it.
-        monkeypatch.setattr(settings, "worker_concurrency", 128)
-        assert _materialize_work_mem() == "512kB"
-        # Sub-megabyte shares are expressed in kB rather than rounded.
-        monkeypatch.setattr(settings, "analysis_materialize_work_mem_mb", 1)
-        monkeypatch.setattr(settings, "worker_concurrency", 8)
-        assert _materialize_work_mem() == "128kB"
-        # A share below PostgreSQL's 64kB minimum cannot reach here: it is
-        # refused at boot (test_config.py), because neither the minimum nor
-        # falling back to the cluster's value honours the budget.
-
-    def test_work_mem_ceiling_is_operator_configurable(self, monkeypatch):
-        """fix(#1012 review): the safe value depends on DB_MEM_LIMIT and on how
-        many worker services consume the ingest queue, neither of which this
-        process can see — DB_MEM_LIMIT is a compose mem_limit and is never in
-        this container's environment. A hardcoded ceiling was therefore only
-        valid for the default 2 GB single-worker deployment, and could OOM a
-        smaller database or a scaled-out one."""
-        from app.core.config import settings
-
-        monkeypatch.setattr(settings, "worker_concurrency", 1)
-        monkeypatch.setattr(settings, "analysis_materialize_work_mem_mb", 16)
-        assert _materialize_work_mem() == "16MB"
-        monkeypatch.setattr(settings, "analysis_materialize_work_mem_mb", 256)
-        assert _materialize_work_mem() == "256MB"
-        # A deliberately small value is honoured, not clamped up: an external
-        # cluster may be tuned below the bundled 8MB, and a floor advertised as
-        # "leaves the cluster value alone" would silently raise it.
-        monkeypatch.setattr(settings, "analysis_materialize_work_mem_mb", 4)
-        assert _materialize_work_mem() == "4MB"
-        # 0 is the opt-out: no override at all.
-        monkeypatch.setattr(settings, "analysis_materialize_work_mem_mb", 0)
-        assert _materialize_work_mem() is None
 
     async def test_worker_rechecks_size_caps_before_ctas(
         self,
@@ -4277,3 +4189,109 @@ class TestUserErrorMessage:
     def test_domain_errors_pass_through(self):
         msg = _user_error_message(ValueError("Analysis produced no features to save"))
         assert "no features" in msg
+
+    def test_timeout_message_names_the_budget_that_fired(self, monkeypatch):
+        """fix(#1013 review): the two budgets are independently configurable
+        now, so a registration timeout quoting the materialize budget would
+        send an operator to tune the setting that did not fire."""
+        from sqlalchemy.exc import OperationalError
+
+        from app.core.config import settings
+        from app.processing.analysis.tasks import _user_error_message
+
+        monkeypatch.setattr(settings, "analysis_materialize_timeout_seconds", 300)
+        monkeypatch.setattr(settings, "analysis_registration_timeout_seconds", 900)
+        exc = OperationalError(
+            "SELECT 1", {}, Exception("canceling statement due to statement timeout")
+        )
+
+        assert "300s" in _user_error_message(exc)
+        assert "900s" not in _user_error_message(exc)
+        assert "900s" in _user_error_message(exc, registered=True)
+        assert "300s" not in _user_error_message(exc, registered=True)
+
+    def test_analysis_timeouts_track_their_settings(self, monkeypatch):
+        """fix(#1013): the budgets are operator settings now, and they are read
+        at call time — a module-level snapshot would freeze whatever the
+        settings object held when this module was first imported."""
+        from app.core.config import settings
+
+        from app.processing.analysis.tasks import registration_timeout
+
+        # Set the baseline rather than asserting the shipped defaults: settings
+        # is a module-level singleton, so an ANALYSIS_*_TIMEOUT_SECONDS in the
+        # environment or the root .env would already have overridden them and
+        # the "before" assertions would fail for a reason unrelated to the
+        # behaviour under test.
+        monkeypatch.setattr(settings, "analysis_materialize_timeout_seconds", 300)
+        monkeypatch.setattr(settings, "analysis_registration_timeout_seconds", 600)
+        assert materialize_timeout() == "300s"
+        assert registration_timeout() == "600s"
+        monkeypatch.setattr(settings, "analysis_materialize_timeout_seconds", 1200)
+        monkeypatch.setattr(settings, "analysis_registration_timeout_seconds", 1800)
+        assert materialize_timeout() == "1200s"
+        assert registration_timeout() == "1800s"
+
+
+# ---------------------------------------------------------------------------
+# work_mem budgeting (pure, no DB)
+# ---------------------------------------------------------------------------
+
+
+class TestMaterializeWorkMem:
+    """fix(#1085): the sync half of the #1012 work_mem tests. Their async
+    siblings stay in TestMaterializeWorker, which runs _materialize against a
+    real table; these only read settings, so they belong beside the other
+    pure ones rather than in a class of DB-backed tests."""
+
+    def test_work_mem_is_divided_across_worker_slots(self, monkeypatch):
+        """fix(#1012): the budget is per worker PROCESS, so parallel job slots
+        share it — otherwise raising WORKER_CONCURRENCY silently multiplies the
+        db container's exposure."""
+        from app.core.config import settings
+
+        # Set the baseline rather than asserting the shipped default: settings
+        # is a module-level singleton, so ANALYSIS_MATERIALIZE_WORK_MEM_MB in
+        # the environment would otherwise decide this test's outcome.
+        monkeypatch.setattr(settings, "analysis_materialize_work_mem_mb", 64)
+        monkeypatch.setattr(settings, "worker_concurrency", 1)
+        assert _materialize_work_mem() == "64MB"
+        monkeypatch.setattr(settings, "worker_concurrency", 4)
+        assert _materialize_work_mem() == "16MB"
+        # Divided in kB so the budget is never exceeded by rounding: 64MB
+        # across 128 slots is 512kB each, not 1MB each (which would be 128MB
+        # against a 64MB budget). No clamp to the bundled 8MB default either —
+        # this process cannot read the connected cluster's work_mem, so it
+        # cannot know whether such a floor preserves that value or raises it.
+        monkeypatch.setattr(settings, "worker_concurrency", 128)
+        assert _materialize_work_mem() == "512kB"
+        # Sub-megabyte shares are expressed in kB rather than rounded.
+        monkeypatch.setattr(settings, "analysis_materialize_work_mem_mb", 1)
+        monkeypatch.setattr(settings, "worker_concurrency", 8)
+        assert _materialize_work_mem() == "128kB"
+        # A share below PostgreSQL's 64kB minimum cannot reach here: it is
+        # refused at boot (test_config.py), because neither the minimum nor
+        # falling back to the cluster's value honours the budget.
+
+    def test_work_mem_ceiling_is_operator_configurable(self, monkeypatch):
+        """fix(#1012 review): the safe value depends on DB_MEM_LIMIT and on how
+        many worker services consume the ingest queue, neither of which this
+        process can see — DB_MEM_LIMIT is a compose mem_limit and is never in
+        this container's environment. A hardcoded ceiling was therefore only
+        valid for the default 2 GB single-worker deployment, and could OOM a
+        smaller database or a scaled-out one."""
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "worker_concurrency", 1)
+        monkeypatch.setattr(settings, "analysis_materialize_work_mem_mb", 16)
+        assert _materialize_work_mem() == "16MB"
+        monkeypatch.setattr(settings, "analysis_materialize_work_mem_mb", 256)
+        assert _materialize_work_mem() == "256MB"
+        # A deliberately small value is honoured, not clamped up: an external
+        # cluster may be tuned below the bundled 8MB, and a floor advertised as
+        # "leaves the cluster value alone" would silently raise it.
+        monkeypatch.setattr(settings, "analysis_materialize_work_mem_mb", 4)
+        assert _materialize_work_mem() == "4MB"
+        # 0 is the opt-out: no override at all.
+        monkeypatch.setattr(settings, "analysis_materialize_work_mem_mb", 0)
+        assert _materialize_work_mem() is None
