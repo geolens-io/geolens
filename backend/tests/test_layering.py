@@ -1339,74 +1339,29 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the wrong text shipped into both SDKs.
     "backend/app/modules/catalog/datasets/domain/schemas.py": 1138,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
-    # Both cross 1000 for the first time here, and both cross it for the same
-    # reason: the four operations are deliberately concentrated rather than
-    # spread. Every rendered statement lives in analysis_sql (662 -> 1173) so
-    # the preview path and the materialize worker cannot drift apart on what
-    # SQL they run, which is the whole reason the module exists in platform/
-    # instead of in either caller. tasks.py grows by one branch per operation
-    # for the same reason: the CTAS shape is decided in one place. Splitting
-    # either one per-operation would trade this module's size for the drift it
-    # was built to prevent, so the growth is the design working.
+    # tasks.py crossed 1000 for the first time here because the four operations
+    # are deliberately concentrated rather than spread: it grows by one branch
+    # per operation so the CTAS shape is decided in one place, the same reason
+    # every rendered statement lives in analysis_sql rather than in the preview
+    # path and the worker separately. Splitting either one PER CALLER would
+    # trade size for the drift both were built to prevent, so the growth is the
+    # design working.
     #
-    # What that costs, stated plainly rather than left for the next reader:
-    # analysis_sql is now the largest module under platform/ and roughly 40%
-    # of it is the four operations added here. The split is filed as #1089 —
-    # by OPERATION FAMILY (overlay, measure, transform), with the shared
-    # fences, ceilings and antimeridian helpers staying central. Never by
-    # CALLER: giving the preview path and the worker their own rendering
-    # modules recreates exactly the drift this module exists to prevent, so
-    # #1089 says to reject that proposal on sight.
-    #
-    # fix(#1097 review): +8 for NON_GROUPABLE_COLUMN_TYPES. It lives here
-    # because three guards need it — dissolve's by_field in the router,
-    # intersect's overlay at enqueue, and the worker's live recheck after the
-    # queue wait — and the worker must not import from the API layer. Putting
-    # it in either caller would have meant duplicating the set, which is how
-    # the two halves of a guard drift apart.
-    #
-    # fix(#1097 review): +18 for INTERNAL_ALIAS_PREFIX and its reasoning. The
-    # output-collision guards reserved names that reach the OUTPUT and said
-    # nothing about the aliases a query invents on the way there, so an overlay
-    # column named `_mask_gid` landed in the same select list as that alias. The
-    # aliases moved into a namespace and the namespace is reserved, which is
-    # what makes an alias added later safe without a list to keep in step.
-    #
-    # fix(#1097 review): +27 for MAX_IDENTIFIER_LENGTH and truncating the
-    # generated join names to it. PostgreSQL truncates an over-long identifier
-    # with a NOTICE rather than refusing it, so the uniqueness and
-    # source-collision guards were comparing strings the database would never
-    # see. The comment carries the empirical check (max_identifier_length is
-    # 63) and why source columns need no equivalent — they already exist in a
-    # table, so the server truncated them at creation.
-    #
-    # fix(#1097 review): +42 for linearized() and its call sites — WFS sources
-    # could store curved geometries that ::geography, ST_MakeValid and
-    # ST_AsGeoJSON all raise on, so every such read went through one
-    # ST_CurveToLine wrapper.
-    # fix(#1104): -33 — that wrapper is retired. Ingest now stores geom_4326
-    # linear (add_4326_column) and migration 0034 backfilled existing rows,
-    # so the per-read wraps had nothing left to guard. The invariant is
-    # recorded in the module docstring instead. Cap 1260 -> 1227, exact.
-    #
-    # fix(#1099): +28 for regrouping render_intersect_pairs. The aggregate used
-    # to carry the overlay's attributes through the _mask_pieces CTE, which has
-    # no key, so each one had to be named in the GROUP BY — and json/xml have no
-    # equality operator, so a nested-GeoJSON properties column took a layer out
-    # of service as an overlay entirely. It groups by the two gids alone now and
-    # the outer query joins the overlay table back on its primary key, where no
-    # grouping applies. Six of the lines are the render (one more join fragment,
-    # and the output column list splitting in two because the sides come from
-    # different relations); the rest is the docstring bullet carrying why the
-    # join cannot change the row count and why it is LEFT rather than INNER.
-    # Cap 1227 -> 1255, exact.
-    #
-    # fix(#1089): the split this entry has been pointing at is underway. The
-    # module is now a package and the shared fences, ceilings, antimeridian
-    # helper and mask parser have moved to analysis_sql/shared.py, so what the
-    # ratchet tracks is the façade. -231, exact. The entry goes away once the
-    # last family is out and the façade drops under the inclusion threshold.
-    "backend/app/platform/analysis_sql/__init__.py": 1024,
+    # refactor(#1089): analysis_sql left this dict. It crossed 1000 in the same
+    # batch (662 -> 1173, later 1255) and carried the follow-up note this entry
+    # used to hold; the split has now happened. It is a package split by
+    # OPERATION FAMILY — overlay, measure, spatial_join, transform, over a
+    # shared core holding the OFFSET 0 fence, the measured ceilings, the
+    # antimeridian helper and the mask parser — and no file in it reaches the
+    # inclusion threshold, so nothing needs a cap. What survived the move and
+    # still binds: never split it by CALLER. Giving the preview path and the
+    # materialize worker their own rendering modules recreates exactly the
+    # drift the module exists to prevent, and the package docstring says to
+    # reject that proposal on sight. The per-family reasoning the #1097 review
+    # entries recorded here — NON_GROUPABLE_COLUMN_TYPES, INTERNAL_ALIAS_PREFIX
+    # and MAX_IDENTIFIER_LENGTH each landing where more than one guard reads
+    # them — now sits beside the constants themselves in analysis_sql/shared.py
+    # and analysis_sql/spatial_join.py, which is where an edit to them starts.
     # tasks.py carries growth from BOTH sides of this rebase, so the number is
     # re-measured rather than taken from either. #1012 added the scoped
     # work_mem (the SET LOCAL, its budget arithmetic and the boot-time
