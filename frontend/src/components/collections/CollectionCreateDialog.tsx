@@ -48,6 +48,13 @@ export function CollectionCreateDialog({ open, onOpenChange }: CollectionCreateD
       // Invalidate + refetch all collection queries so the list updates
       // before the dialog closes. Use predicate to match any key starting
       // with 'collections' since prefix matching may not catch parameterized keys.
+      // chore(#1021): the sweep itself duplicates the identical predicate that
+      // useCreateCollection already runs in its own onSuccess, so the marking-stale
+      // half is redundant wherever this dialog is mounted. What this call adds is the
+      // `await`, which holds the dialog open until the refetch lands, and that only
+      // does work on CollectionsPage where a collections query is active. This dialog
+      // is also mounted globally from Navbar, where nothing is active and the await
+      // resolves immediately. Keep it for the CollectionsPage path.
       await qc.invalidateQueries({
         predicate: (query) =>
           Array.isArray(query.queryKey) && query.queryKey[0] === 'collections',
