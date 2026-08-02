@@ -110,60 +110,86 @@ def upgrade() -> None:
         )
     ).all()
     for schema, table in tables:
-        # fix(#1113 review): a BYO table can declare geom_4326 with a curved
-        # TYPMOD — geometry(CurvePolygon, 4326) — and the linear UPDATE result
-        # then violates the declared column type, aborting the whole
-        # migration. Loosen such a column to generic geometry(Geometry, srid)
-        # first; the concrete curve typmods are the only ones that reject
-        # their linear counterparts (abstract CURVE/SURFACE typmods accept
-        # linear subtypes), and loosening is a no-op risk-wise where the
-        # UPDATE would have succeeded anyway.
-        # fix(#1113 review r5): geometry_columns encodes dimensionality two
-        # ways — M as a suffix on ``type`` (CURVEPOLYGONM, coord_dimension 3),
-        # Z with NO suffix (coord_dimension 3), ZM with no suffix and
-        # coord_dimension 4 — and generic geometry(Geometry, srid) REJECTS Z
-        # values, so the loosened typmod must carry the original Z/M flags.
-        # rtrim(type,'M') matches both plain and M-suffixed curve typmods; no
-        # base curve name ends in M.
-        typmod = conn.execute(
-            sa.text(
-                "SELECT type, srid, coord_dimension "
-                "FROM public.geometry_columns "
-                "WHERE f_table_schema = :schema "
-                "  AND f_table_name = :table "
-                "  AND f_geometry_column = 'geom_4326' "
-                "  AND rtrim(type, 'M') IN ('CIRCULARSTRING','COMPOUNDCURVE',"
-                "               'CURVEPOLYGON','MULTICURVE','MULTISURFACE')"
-            ),
-            {"schema": schema, "table": table},
-        ).first()
-        if typmod is not None:
-            if typmod.coord_dimension == 4:
-                generic = "GeometryZM"
-            elif typmod.coord_dimension == 3:
-                generic = "GeometryM" if typmod.type.endswith("M") else "GeometryZ"
-            else:
-                generic = "Geometry"
-            conn.execute(
-                sa.text(
-                    f"ALTER TABLE {_quote_ident(schema)}.{_quote_ident(table)} "
-                    f"ALTER COLUMN geom_4326 "
-                    f"TYPE geometry({generic}, {int(typmod.srid)})"
+        # fix(#1113 review r14): EVERY table converts inside its own savepoint.
+        # Review found four distinct DDL shapes that abort the naive loop —
+        # a curved typmod (r4), a dimensional curved typmod (r5), a STORED
+        # GENERATED column (r7, excluded above), and a legacy CHECK-constraint
+        # declaration (r14: geometry_columns reports the constraint-derived
+        # type, the typmod ALTER cannot remove the CHECK, and the linear
+        # UPDATE then violates it) — and that family is open-ended. One
+        # hostile table must degrade to a named skip, never block the
+        # deployment; the operator warning carries the cause and the fix
+        # stays with the table's owner (#1114).
+        try:
+            with conn.begin_nested():
+                # fix(#1113 review): a BYO table can declare geom_4326 with a
+                # curved TYPMOD — geometry(CurvePolygon, 4326) — and the
+                # linear UPDATE result then violates the declared column
+                # type. Loosen such a column first; only the concrete curve
+                # typmods reject their linear counterparts (abstract
+                # CURVE/SURFACE typmods accept linear subtypes).
+                # fix(#1113 review r5): geometry_columns encodes
+                # dimensionality two ways — M as a suffix on ``type``
+                # (CURVEPOLYGONM, coord_dimension 3), Z with NO suffix
+                # (coord_dimension 3), ZM with no suffix and coord_dimension
+                # 4 — and generic geometry(Geometry, srid) REJECTS Z values,
+                # so the loosened typmod must carry the original Z/M flags.
+                # rtrim(type,'M') matches both plain and M-suffixed curve
+                # typmods; no base curve name ends in M.
+                typmod = conn.execute(
+                    sa.text(
+                        "SELECT type, srid, coord_dimension "
+                        "FROM public.geometry_columns "
+                        "WHERE f_table_schema = :schema "
+                        "  AND f_table_name = :table "
+                        "  AND f_geometry_column = 'geom_4326' "
+                        "  AND rtrim(type, 'M') IN "
+                        "      ('CIRCULARSTRING','COMPOUNDCURVE',"
+                        "       'CURVEPOLYGON','MULTICURVE','MULTISURFACE')"
+                    ),
+                    {"schema": schema, "table": table},
+                ).first()
+                if typmod is not None:
+                    if typmod.coord_dimension == 4:
+                        generic = "GeometryZM"
+                    elif typmod.coord_dimension == 3:
+                        generic = (
+                            "GeometryM" if typmod.type.endswith("M") else "GeometryZ"
+                        )
+                    else:
+                        generic = "Geometry"
+                    conn.execute(
+                        sa.text(
+                            f"ALTER TABLE "
+                            f"{_quote_ident(schema)}.{_quote_ident(table)} "
+                            f"ALTER COLUMN geom_4326 "
+                            f"TYPE geometry({generic}, {int(typmod.srid)})"
+                        )
+                    )
+                # rtrim on GeometryType too: an M curve reports CURVEPOLYGONM,
+                # so the bare list would skip an arc-free M container.
+                conn.execute(
+                    sa.text(
+                        f"UPDATE {_quote_ident(schema)}.{_quote_ident(table)} "
+                        f"SET geom_4326 = ST_CurveToLine(geom_4326) "
+                        f"WHERE ST_HasArc(geom_4326) "
+                        f"   OR rtrim(GeometryType(geom_4326), 'M') IN "
+                        f"      ('CIRCULARSTRING','COMPOUNDCURVE',"
+                        f"       'CURVEPOLYGON','MULTICURVE','MULTISURFACE') "
+                        f"   OR rtrim(GeometryType(geom_4326), 'M') "
+                        f"      = 'GEOMETRYCOLLECTION'"
+                    )
                 )
+        except Exception as exc:  # noqa: BLE001 — any DDL shape may refuse; skip THAT table only
+            log.warning(
+                "%s.%s: could not linearize geom_4326 (%s). The table keeps "
+                "its curved values and tiles/feature reads/analysis will fail "
+                "for that dataset until its geometry declaration is fixed "
+                "(tracked in geolens#1114).",
+                schema,
+                table,
+                exc,
             )
-        # rtrim on GeometryType for the same reason: an M curve reports
-        # CURVEPOLYGONM, so the bare list would skip an arc-free M container.
-        conn.execute(
-            sa.text(
-                f"UPDATE {_quote_ident(schema)}.{_quote_ident(table)} "
-                f"SET geom_4326 = ST_CurveToLine(geom_4326) "
-                f"WHERE ST_HasArc(geom_4326) "
-                f"   OR rtrim(GeometryType(geom_4326), 'M') IN "
-                f"      ('CIRCULARSTRING','COMPOUNDCURVE','CURVEPOLYGON',"
-                f"       'MULTICURVE','MULTISURFACE') "
-                f"   OR rtrim(GeometryType(geom_4326), 'M') = 'GEOMETRYCOLLECTION'"
-            )
-        )
 
     # fix(#1113 review r9): the loop above must SKIP stored generated columns
     # (any UPDATE against one aborts at parse time), but an already-registered

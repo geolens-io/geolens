@@ -691,6 +691,61 @@ class TestCurvedIngestNormalization:
         )
         assert rows == []
 
+    async def test_register_refuses_a_constraint_declared_curved_column(
+        self, test_db_session: AsyncSession
+    ):
+        """fix(#1113 review r14): legacy CHECK declarations fail closed.
+
+        An old-style PostGIS table declares its type through
+        ``enforce_geotype_*`` CHECK constraints on a bare geometry column;
+        the typmod loosening cannot remove the CHECK, so the linearizing
+        UPDATE violates it. Registration must refuse with the cause rather
+        than admit the table un-normalized (the migration, by contrast,
+        skips-and-warns — it cannot refuse history).
+        """
+        from types import SimpleNamespace
+
+        import pytest as _pytest
+
+        from app.processing.ingest.schemas import RegisterRequest
+        from app.processing.ingest.service import register_existing_table
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        table = f"byo_legacy_{uuid.uuid4().hex[:10]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table} ("  # noqa: S608
+                f"gid serial PRIMARY KEY, name text, "
+                f"geom geometry(Geometry, 4326), geom_4326 geometry)"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"ALTER TABLE data.{table} ADD CONSTRAINT "  # noqa: S608
+                f"enforce_geotype_geom_4326 CHECK "
+                f"(geometrytype(geom_4326) = 'CURVEPOLYGON'::text "
+                f" OR geom_4326 IS NULL)"
+            )
+        )
+        curve_poly = (
+            "ST_GeomFromText('CURVEPOLYGON(CIRCULARSTRING("
+            "0 0,0.5 0.5,1 0,0.5 -0.5,0 0))', 4326)"
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table} (name, geom, geom_4326) VALUES "  # noqa: S608
+                f"('legacy', {CURVED_POLYGON}, {curve_poly})"
+            )
+        )
+        await test_db_session.commit()
+
+        with _pytest.raises(ValueError, match="Failed to linearize"):
+            await register_existing_table(
+                test_db_session,
+                RegisterRequest(table_name=table, title="Legacy constrained"),
+                SimpleNamespace(id=admin_id),
+            )
+
     async def test_register_loosens_a_curved_geom_4326_typmod(
         self, test_db_session: AsyncSession
     ):
