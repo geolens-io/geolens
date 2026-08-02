@@ -1630,8 +1630,33 @@ async def linearize_existing_4326(
     the migration: any arc, any top-level curve type, or any
     GEOMETRYCOLLECTION (curve members cannot hide anywhere else — linear multi
     types cannot contain them). Exact no-op on already-linear rows.
+
+    A BYO column may also DECLARE a curved typmod — geometry(CurvePolygon,
+    4326) — which would reject the linear UPDATE result outright; such a
+    column is loosened to generic geometry(Geometry, srid) first. Only the
+    concrete curve typmods need it (abstract CURVE/SURFACE accept their
+    linear subtypes).
     """
     tref = _qtable(table_name, schema=schema)
+    typmod = (
+        await session.execute(
+            text(
+                "SELECT type, srid FROM public.geometry_columns "
+                "WHERE f_table_schema = :schema "
+                "  AND f_table_name = :table "
+                "  AND f_geometry_column = 'geom_4326' "
+                "  AND type IN ('CIRCULARSTRING','COMPOUNDCURVE',"
+                "               'CURVEPOLYGON','MULTICURVE','MULTISURFACE')"
+            ).bindparams(schema=schema, table=table_name)
+        )
+    ).first()
+    if typmod is not None:
+        await session.execute(
+            text(
+                f"ALTER TABLE {tref} ALTER COLUMN geom_4326 "
+                f"TYPE geometry(Geometry, {int(typmod.srid)})"
+            )
+        )
     await session.execute(
         text(
             f"UPDATE {tref} SET geom_4326 = ST_CurveToLine(geom_4326) "

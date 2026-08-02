@@ -1226,7 +1226,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # geom_4326 the ingest normalizer never touched (a pre-existing column on
     # a BYO table registered after migration 0034's backfill ran).
     # Cap 2038 -> 2066, still exact.
-    "backend/app/processing/ingest/metadata.py": 2066,
+    # fix(#1113 review r4): +25 — a BYO column can DECLARE a curved typmod
+    # (geometry(CurvePolygon, 4326)), which rejects the linear UPDATE result
+    # outright; such a column is loosened to generic geometry first.
+    # Cap 2066 -> 2091, still exact.
+    "backend/app/processing/ingest/metadata.py": 2091,
     # ingest/router.py is also scanned by the router-glob gate; this exact
     # ratchet overrides its 1500 default so the remaining ~18-line runway to
     # the cliff cannot be spent silently.

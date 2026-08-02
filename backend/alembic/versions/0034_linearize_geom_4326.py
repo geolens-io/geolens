@@ -79,6 +79,33 @@ def upgrade() -> None:
         )
     ).all()
     for schema, table in tables:
+        # fix(#1113 review): a BYO table can declare geom_4326 with a curved
+        # TYPMOD — geometry(CurvePolygon, 4326) — and the linear UPDATE result
+        # then violates the declared column type, aborting the whole
+        # migration. Loosen such a column to generic geometry(Geometry, srid)
+        # first; the concrete curve typmods are the only ones that reject
+        # their linear counterparts (abstract CURVE/SURFACE typmods accept
+        # linear subtypes), and loosening is a no-op risk-wise where the
+        # UPDATE would have succeeded anyway.
+        typmod = conn.execute(
+            sa.text(
+                "SELECT type, srid FROM public.geometry_columns "
+                "WHERE f_table_schema = :schema "
+                "  AND f_table_name = :table "
+                "  AND f_geometry_column = 'geom_4326' "
+                "  AND type IN ('CIRCULARSTRING','COMPOUNDCURVE',"
+                "               'CURVEPOLYGON','MULTICURVE','MULTISURFACE')"
+            ),
+            {"schema": schema, "table": table},
+        ).first()
+        if typmod is not None:
+            conn.execute(
+                sa.text(
+                    f"ALTER TABLE {_quote_ident(schema)}.{_quote_ident(table)} "
+                    f"ALTER COLUMN geom_4326 "
+                    f"TYPE geometry(Geometry, {int(typmod.srid)})"
+                )
+            )
         conn.execute(
             sa.text(
                 f"UPDATE {_quote_ident(schema)}.{_quote_ident(table)} "

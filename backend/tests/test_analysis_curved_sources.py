@@ -452,6 +452,68 @@ class TestCurvedIngestNormalization:
             ("MULTISURFACE", "MULTIPOLYGON"),
         ]
 
+    async def test_register_loosens_a_curved_geom_4326_typmod(
+        self, test_db_session: AsyncSession
+    ):
+        """fix(#1113 review): a curved column TYPMOD must not abort the write.
+
+        ``geometry(CurvePolygon, 4326)`` rejects the linear result of
+        ST_CurveToLine outright, so without the retype the enforcement UPDATE
+        itself fails. The column is loosened to generic geometry first, then
+        linearized.
+        """
+        from types import SimpleNamespace
+
+        from app.processing.ingest.schemas import RegisterRequest
+        from app.processing.ingest.service import register_existing_table
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        table = f"byo_typmod_{uuid.uuid4().hex[:10]}"
+        curve_poly = (
+            "ST_GeomFromText('CURVEPOLYGON(CIRCULARSTRING("
+            "0 0,0.5 0.5,1 0,0.5 -0.5,0 0))', 4326)"
+        )
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table} ("  # noqa: S608
+                f"gid serial PRIMARY KEY, name text, "
+                f"geom geometry(Geometry, 4326), "
+                f"geom_4326 geometry(CurvePolygon, 4326))"
+            )
+        )
+        # geom carries the MULTISURFACE form the metadata classifier already
+        # maps to a concrete linear type; the curved TYPMOD under test lives
+        # on geom_4326 alone.
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table} (name, geom, geom_4326) VALUES "  # noqa: S608
+                f"('circle', {CURVED_POLYGON}, {curve_poly})"
+            )
+        )
+        await test_db_session.commit()
+
+        await register_existing_table(
+            test_db_session,
+            RegisterRequest(table_name=table, title="BYO curved typmod"),
+            SimpleNamespace(id=admin_id),
+        )
+        await test_db_session.commit()
+
+        row = (
+            await test_db_session.execute(
+                text(
+                    f"SELECT GeometryType(geom_4326), "  # noqa: S608
+                    f"(SELECT type FROM public.geometry_columns "
+                    f" WHERE f_table_schema = 'data' "
+                    f"   AND f_table_name = '{table}' "
+                    f"   AND f_geometry_column = 'geom_4326') "
+                    f"FROM data.{table}"
+                )
+            )
+        ).one()
+        assert row[0] == "POLYGON"
+        assert row[1] == "GEOMETRY"
+
     @pytest.mark.usefixtures("_init_tile_pool_for_tests")
     async def test_vector_tile_renders_a_curved_source(
         self,
