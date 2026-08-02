@@ -231,6 +231,12 @@ class TestMaterializeEndpoint:
         job = await test_db_session.get(IngestJob, uuid.UUID(data["job_id"]))
         assert job is not None
         assert job.status == "pending"
+        # fix(#789): the enqueue stamps a step (ux(#698)) so a pending job reads
+        # as "queued" rather than as a broken one. Load-bearing since #703 put
+        # analysis below the default priority: a queued job now waits behind
+        # uploads by design, sometimes for minutes, and this stamp is the only
+        # honest "waiting" signal the UI has to distinguish that from a stall.
+        assert job.current_step == "queued"
         # Request params ride the job row so Admin → Jobs can diagnose runs.
         meta = (job.user_metadata or {}).get("analysis", {})
         assert meta["operation"] == "buffer"

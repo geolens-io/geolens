@@ -778,6 +778,12 @@ class TestAnalysisPreviewEndpoint:
             # so a preview fired while a chat query holds it must read as
             # "try again", not as a server fault.
             ("query_busy", 429),
+            # fix(#789): #1014 added a second 429 category after this test
+            # landed covering only four. Server-at-capacity is deliberately
+            # distinct from query_busy so the message is not relabelled as the
+            # per-user one — same status, different text, so the pair only
+            # stays honest if both are exercised.
+            ("query_at_capacity", 429),
             ("query_timeout", 422),
             ("query_data_error", 422),
             # Anything unmapped falls through the .get default. query_failed
@@ -819,6 +825,18 @@ class TestAnalysisPreviewEndpoint:
         # user_message is the sandbox's already-sanitized text, so it is what
         # the caller reads on every branch including the 500 fallback.
         assert resp.json()["detail"] == message
+
+    def test_every_sandbox_status_category_is_parametrized(self):
+        """fix(#789): the parametrize above is a hand-kept list, so #1014's new
+        category joined the mapping and simply went untested — four of five,
+        still green. Pin the mapping's key set: adding a category now fails
+        here until it is given a case above."""
+        assert set(router_analysis._SANDBOX_STATUS) == {
+            "query_busy",
+            "query_at_capacity",
+            "query_timeout",
+            "query_data_error",
+        }
 
     async def test_truncation_at_feature_cap(
         self,
