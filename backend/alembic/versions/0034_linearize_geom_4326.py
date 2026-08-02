@@ -89,10 +89,22 @@ def upgrade() -> None:
               -- (discover_unregistered_tables exists for exactly that state);
               -- GeoLens serves nothing from it yet, registration now runs its
               -- own linearization, and densifying it here would be
-              -- irreversible harm with no surface fixed. table_name is
-              -- globally unique across tenants (registration's duplicate
-              -- check), so the name join is the tenant-safe scope.
-              AND c.table_name IN (SELECT table_name FROM catalog.datasets)
+              -- irreversible harm with no surface fixed.
+              -- fix(#1113 review r12): the join is TENANT-SCOPED — migration
+              -- 0020's (tenant_id, table_name) unique index permits the same
+              -- table name in different tenants, so a name-only join would
+              -- sweep tenant B's unregistered twin of tenant A's registered
+              -- table. A dataset owns exactly the table in ITS tenant's
+              -- schema ('data' for tenant_id IS NULL).
+              AND EXISTS (
+                  SELECT 1 FROM catalog.datasets d
+                  WHERE d.table_name = c.table_name
+                    AND (
+                      (d.tenant_id IS NULL AND c.table_schema = 'data')
+                      OR c.table_schema =
+                         'data_t_' || pg_catalog.replace(d.tenant_id::text, '-', '_')
+                    )
+              )
             ORDER BY c.table_schema, c.table_name
             """
         )
@@ -179,7 +191,16 @@ def upgrade() -> None:
               -- fix(#1113 review r11): warn only about datasets GeoLens
               -- actually serves; an unregistered table's generated column is
               -- registration's problem when (if) it registers.
-              AND c.table_name IN (SELECT table_name FROM catalog.datasets)
+              -- fix(#1113 review r12): tenant-scoped, same as the backfill.
+              AND EXISTS (
+                  SELECT 1 FROM catalog.datasets d
+                  WHERE d.table_name = c.table_name
+                    AND (
+                      (d.tenant_id IS NULL AND c.table_schema = 'data')
+                      OR c.table_schema =
+                         'data_t_' || pg_catalog.replace(d.tenant_id::text, '-', '_')
+                    )
+              )
             """
         )
     ).all()
