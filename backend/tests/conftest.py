@@ -375,10 +375,72 @@ def _restore_process_global_config():
             os.environ.pop(_MODE_KEY, None)
 
 
+_UNCLAMPED_STRUCTLOG_CONFIGURE = structlog.configure
+
+
+def _configure_without_caching(*args, **kwargs):
+    """``structlog.configure()`` with ``cache_logger_on_first_use`` forced off.
+
+    Installed process-wide below. This is the primary fix for the freeze class
+    (#1066 / PR #1127 codex P1); the per-test clears in the guard are a
+    backstop, not the mechanism.
+
+    ``setup_logging()`` sets the flag True unconditionally
+    (``app/core/logging_config.py:82``), so clearing it around each test cannot
+    hold: a test that imports an entrypoint, or calls ``setup_logging()``
+    directly, re-arms it MID-BODY. A ``BoundLoggerLazyProxy`` that emits while
+    it is armed replaces its own ``bind`` with a closure over the processor
+    list in force at that moment (``structlog/_config.py``), and no later
+    restore can thaw it.
+
+    That freeze is only half of the failure. Measured on structlog 25.5.0:
+
+        frozen proxy, processor list kept as the same object -> captured 1
+        frozen proxy, processor list REBOUND to a copy       -> captured 0
+        unfrozen proxy, list rebound                         -> captured 1
+
+    ``capture_logs()`` clears and extends the live list in place precisely "to
+    not break references held by bound loggers", so a freeze alone no longer
+    blinds it the way the older notes at ``test_tile_signing.py:648-656`` and
+    ``test_sec025_sandbox_allowlist.py:52-71`` describe. Blindness now needs a
+    freeze AND a processor-list identity change, and ``setup_logging()`` builds
+    a fresh list on every call, so a second call after a freeze supplies one.
+    Keeping the proxy unfrozen makes the whole conjunction unreachable: an
+    unfrozen proxy re-binds per call and survives any list rebind.
+
+    Clamping here rather than in ``setup_logging()`` keeps production code
+    test-unaware, which ``backend/app/`` is throughout (no PYTEST/sys.modules
+    branch anywhere in it). Clamping ``structlog.configure`` rather than
+    wrapping ``setup_logging`` keys the invariant off the resolved STATE at the
+    single choke point instead of chasing call paths: ``logging_config.py`` is
+    the only non-test writer of the flag and reaches structlog by module
+    attribute lookup at call time, so this intercepts it whatever the import
+    order, including the import that happens during collection.
+    """
+    kwargs["cache_logger_on_first_use"] = False
+    return _UNCLAMPED_STRUCTLOG_CONFIGURE(*args, **kwargs)
+
+
+# Module level, so it is in force before the test modules are imported and
+# therefore before app/api/main.py's import-time setup_logging() call.
+structlog.configure = _configure_without_caching
+
+
 # Every logger setup_logging() reaches, read off app/core/logging_config.py:102-112.
 # "" is the root logger. tests/_logging_state.py keeps the same list for the
 # per-test helper; both are derived from that source, not from each other.
 _LOGGING_MUTATED_LOGGERS = ("", "uvicorn", "uvicorn.error", "uvicorn.access")
+
+
+def _is_pytest_owned_handler(handler: logging.Handler) -> bool:
+    """True for the capture handlers pytest attaches and detaches per phase.
+
+    pytest's live handlers (``LogCaptureHandler``, the live-log handlers) are
+    all defined under ``_pytest``; nothing a test or the app installs is. The
+    module of the handler's CLASS is the discriminator, so this reads pytest's
+    surface without importing its internals.
+    """
+    return type(handler).__module__.split(".")[0] == "_pytest"
 
 
 @contextmanager
@@ -398,53 +460,43 @@ def _global_logging_repair():
         never been able to fail. Injecting a real password leak made the old
         assertion report ``CAPLOG_RECORDS: 0`` and PASS.
 
-    ``setup_logging()`` mutates two independent globals, so this restores two
-    independent things. Measured across one leaking test with the guard off:
+    What closes the freeze class is ``_configure_without_caching`` above, not
+    this fixture. Read its docstring first; the flag clears here are a backstop
+    for the case where something bypasses that clamp. What this fixture owns is
+    everything else ``setup_logging()`` moves. Measured across one leaking test
+    with the guard off:
 
-      1. structlog config — ``cache_logger_on_first_use`` False -> True,
-         plus the chain/factory. **The caching flag is the protection that
-         carries the fix.** A ``BoundLoggerLazyProxy`` that emits while caching
-         is on freezes against the then-current chain ON THE PROXY OBJECT, and
-         no later restore can thaw it (#1063 mechanism, spelled out at
-         test_sec025_sandbox_allowlist.py:52-71). Preventing the freeze is the
-         only thing that closes the class, so the flag is forced back OFF
-         rather than restored: a faithfully restored ``True`` hands the next
-         test the exact global that makes its captures go blind. The rest of
-         the snapshot IS restored faithfully — a blanket
-         ``structlog.reset_defaults()`` would drop ``_redact_sensitive_fields``
-         and the stdlib routing that later tests rely on (caught on #1065).
+      1. structlog config — the processor chain, factory and wrapper. Restored
+         faithfully; a blanket ``structlog.reset_defaults()`` would drop
+         ``_redact_sensitive_fields`` and the stdlib routing that later tests
+         rely on (caught on #1065). The processor LIST OBJECT is restored by
+         identity rather than replaced, because bound loggers hold references
+         to it.
       2. stdlib loggers — root level 30 -> 10, and ``uvicorn.access.propagate``
          True -> False. Both survive into every later test on the worker.
 
-    The two halves normalise differently, and the difference is deliberate.
-    The caching flag is forced to a fixed value, so it is an ABSOLUTE invariant
-    every test can rely on: caching is off when any test body starts.
-    Everything else is restored RELATIVE to the snapshot this test arrived
-    with, because the app legitimately owns that state. Collection imports
-    ``app/api/main.py``, whose module-level ``setup_logging()`` call leaves
-    ``uvicorn.access.propagate`` False and root at LOG_LEVEL before any test
-    runs, and forcing those back would fight the app rather than the leak.
+    Only the caching flag is normalised to a fixed value. Everything else is
+    restored RELATIVE to the snapshot this test arrived with, because the app
+    legitimately owns that state. Collection imports ``app/api/main.py``, whose
+    module-level ``setup_logging()`` call leaves ``uvicorn.access.propagate``
+    False and root at LOG_LEVEL before any test runs, and forcing those back
+    would fight the app rather than the leak.
 
-    That same collection-time call arms caching before any test exists, which
-    is why the flag is cleared on the way IN as well as on the way out. A
-    teardown-only guard leaves it armed for the whole of a worker's first test;
-    measured under a shuffled run, the first test on a worker observed
-    ``cache_logger_on_first_use`` True. Nothing a per-test helper does can
-    reach that, since it predates every test.
+    Every branch is conditional, so the fixture does nothing at all for a test
+    that never touches logging: ``get_config()`` already equals the wanted
+    mapping, so ``configure()`` is not called and ``structlog.is_configured()``
+    is left as it was.
 
-    Every branch is conditional, so once the flag is clear the fixture does
-    nothing at all for a test that never touches logging: ``get_config()``
-    already equals the wanted mapping, so ``configure()`` is not called and
-    ``structlog.is_configured()`` is left as it was.
-
-    Handlers are only restored when a snapshotted handler actually went
-    MISSING, which is ``setup_logging()``'s ``handlers.clear()`` signature.
-    Assigning the snapshot unconditionally is wrong: pytest adds and removes
-    its own ``LogCaptureHandler``s around each phase, and on the first test of
-    a worker the session-scoped migration's ``fileConfig()`` clears them
-    mid-setup, so the setup-time snapshot can legitimately be SHORTER than the
-    teardown-time list. Restoring that verbatim would strip pytest's live
-    capture handlers from a test that leaked nothing.
+    Handlers are restored to the baseline plus whatever pytest currently owns.
+    Assigning the snapshot verbatim is wrong in one direction: pytest adds and
+    removes its own ``LogCaptureHandler``s around each phase, and on the first
+    test of a worker the session-scoped migration's ``fileConfig()`` clears
+    them mid-setup, so the setup-time snapshot can legitimately be SHORTER than
+    the teardown-time list, and restoring it flat would strip pytest's live
+    capture handlers from a test that leaked nothing. Keying off "a saved
+    handler went missing" instead is wrong in the other direction, which is
+    what ``_is_pytest_owned_handler`` exists to settle; see the comment at the
+    restore itself.
 
     Does not configure logging during setup, only after ``yield``: pytest swaps
     ``sys.stdout``/``sys.stderr`` for the call phase only, so a handler built in
@@ -469,26 +521,51 @@ def _global_logging_repair():
         for name in _LOGGING_MUTATED_LOGGERS
     }
     saved_structlog = dict(structlog.get_config())
-    # get_config() hands back the LIVE processor list; copy it so a test that
-    # mutates the chain in place cannot edit our snapshot too.
-    saved_structlog["processors"] = list(saved_structlog["processors"])
-    # Disarm BEFORE the body too, not only after it. Teardown alone leaves the
-    # collection-time True armed for the whole of a worker's first test, and a
-    # module-level logger that emits there freezes for the rest of the run.
-    # Flipping one flag creates no handler, so this does not trip the
-    # setup-phase stream problem described below.
+    # The processor list is restored by IDENTITY, not by value. get_config()
+    # hands back the live list, and a frozen bound logger holds a reference to
+    # that exact object, so handing structlog a copy is what actually blinds a
+    # later capture_logs() (measured above). Keep the object; snapshot its
+    # contents separately so a test mutating the chain in place cannot edit the
+    # snapshot too.
+    saved_processors_list = saved_structlog["processors"]
+    saved_processors = list(saved_processors_list)
+    # Backstop only; _configure_without_caching above is what keeps this False.
+    # Retained because it is the one thing that still repairs the flag if the
+    # clamp is ever bypassed, and clearing on the way in as well as out costs
+    # a comparison. Flipping the flag creates no handler, so this does not trip
+    # the setup-phase stream problem described above.
     if structlog.get_config()["cache_logger_on_first_use"]:
         structlog.configure(cache_logger_on_first_use=False)
     try:
         yield
     finally:
-        wanted = {**saved_structlog, "cache_logger_on_first_use": False}
+        if list(saved_processors_list) != saved_processors:
+            saved_processors_list[:] = saved_processors
+        wanted = {
+            **saved_structlog,
+            "processors": saved_processors_list,
+            "cache_logger_on_first_use": False,
+        }
         if structlog.get_config() != wanted:
             structlog.configure(**wanted)
         for name, (handlers, propagate, level) in saved_loggers.items():
             logger = logging.getLogger(name)
-            if any(h not in logger.handlers for h in handlers):
-                logger.handlers[:] = handlers
+            if logger.handlers != handlers:
+                # Put the baseline back and re-add only the capture handlers
+                # pytest itself attaches and detaches around each phase. Using
+                # "did a saved handler go missing" as the sole leak signal has
+                # a hole: pytest reattaches the SAME handler objects for the
+                # teardown phase before this finalizer runs, so in a run whose
+                # snapshot held only those handlers, every saved handler is
+                # present again and a StreamHandler the test installed rides
+                # along into later tests (PR #1127 codex P2). Ownership is the
+                # discriminator that closes it — pytest's live handlers are
+                # defined in _pytest, ours never are.
+                logger.handlers[:] = handlers + [
+                    h
+                    for h in logger.handlers
+                    if h not in handlers and _is_pytest_owned_handler(h)
+                ]
             if logger.propagate != propagate:
                 logger.propagate = propagate
             if logger.level != level:

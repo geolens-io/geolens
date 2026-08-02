@@ -11,9 +11,21 @@ import logging
 
 import pytest
 import structlog
+from structlog.testing import capture_logs
 
 from app.core.logging_config import setup_logging
-from tests.conftest import _global_logging_repair, _LOGGING_MUTATED_LOGGERS
+from tests.conftest import (
+    _UNCLAMPED_STRUCTLOG_CONFIGURE,
+    _global_logging_repair,
+    _is_pytest_owned_handler,
+    _LOGGING_MUTATED_LOGGERS,
+)
+
+# A module-level lazy proxy, the shape every app module's `logger` has. It is
+# what freezes: `structlog.get_logger()` returns a BoundLoggerLazyProxy, and
+# emitting through one while caching is armed replaces its `bind` with a
+# closure over the processor list in force at that moment.
+module_logger = structlog.get_logger("tests.logging_conftest_guard")
 
 
 def _snapshot():
@@ -37,6 +49,10 @@ def test_guard_repairs_a_setup_logging_leak():
     before = _snapshot()
     with _global_logging_repair():
         setup_logging(json_logs=True, log_level="DEBUG")
+        # Arm caching THROUGH the clamp, so the flag backstop still has
+        # coverage. Nothing reaches this state while the clamp is installed;
+        # the point is that the guard repairs it if anything ever does.
+        _UNCLAMPED_STRUCTLOG_CONFIGURE(cache_logger_on_first_use=True)
 
         # The leak is real: assert it INSIDE the window, so this test cannot
         # pass by the leak having quietly stopped happening.
@@ -51,6 +67,57 @@ def test_guard_repairs_a_setup_logging_leak():
         assert after[name] == before[name], f"{name or '<root>'} not restored"
 
 
+def test_mid_test_setup_logging_does_not_blind_capture_logs():
+    """The vacuous pass this whole issue exists to prevent (#1127 codex P1).
+
+    A test calls ``setup_logging()`` mid-body, emits through a module-level
+    logger, and something calls ``setup_logging()`` again. Without the clamp
+    the first call arms caching, the emit freezes the proxy against that call's
+    processor list, and the second call rebinds the live list to a fresh one,
+    so ``capture_logs()`` mutating the new list in place is invisible to the
+    frozen logger: the assertion below sees zero records and a credential-leak
+    check written this way would pass while asserting nothing.
+
+    Both halves are needed to reproduce it. On structlog 25.5.0 a freeze alone
+    does NOT blind ``capture_logs()``, because it clears and extends the live
+    list in place rather than replacing it.
+    """
+    setup_logging(json_logs=True, log_level="DEBUG")
+    module_logger.info("warm up")  # freezes the proxy if caching is armed
+    setup_logging(json_logs=True, log_level="DEBUG")  # rebinds the live list
+
+    with capture_logs() as events:
+        module_logger.info("sentinel", password="hunter2")
+
+    assert [e["event"] for e in events] == ["sentinel"], (
+        "capture_logs() went blind: the proxy froze against a stale processor "
+        "list, so a log assertion here could never fail"
+    )
+
+
+def test_configure_cannot_arm_caching_during_the_test_session():
+    """The clamp itself, at the choke point, independent of who calls it."""
+    structlog.configure(cache_logger_on_first_use=True)
+    assert structlog.get_config()["cache_logger_on_first_use"] is False
+
+    setup_logging(json_logs=True, log_level="DEBUG")
+    assert structlog.get_config()["cache_logger_on_first_use"] is False
+
+
+def test_guard_restores_the_processor_list_object_not_a_copy():
+    """Identity matters: bound loggers hold a reference to the live list.
+
+    Handing structlog a copy is itself the second half of the blinding
+    conjunction above, so the guard must put the same object back.
+    """
+    before = structlog.get_config()["processors"]
+    with _global_logging_repair():
+        setup_logging(json_logs=True, log_level="DEBUG")
+        assert structlog.get_config()["processors"] is not before
+
+    assert structlog.get_config()["processors"] is before
+
+
 def test_guard_clears_caching_before_the_body_runs():
     """Cover the entry-side clear, which the teardown-side one does not imply.
 
@@ -59,11 +126,36 @@ def test_guard_clears_caching_before_the_body_runs():
     import. A module-level logger that emits in that window freezes against the
     chain in force and goes invisible to every later capture on the worker.
     """
-    structlog.configure(cache_logger_on_first_use=True)
+    _UNCLAMPED_STRUCTLOG_CONFIGURE(cache_logger_on_first_use=True)
     assert structlog.get_config()["cache_logger_on_first_use"] is True
 
     with _global_logging_repair():
         assert structlog.get_config()["cache_logger_on_first_use"] is False
+
+
+def test_guard_drops_a_leaked_handler_pytest_reattached_around(monkeypatch):
+    """Presence of every saved handler is not proof nothing leaked.
+
+    Reproduces the run shape where the snapshot holds only pytest's own
+    capture handlers: the test clears them and installs its own, pytest
+    reattaches the same objects for the next phase, and a leak signal based on
+    "did a saved handler go missing" reports clean while the installed handler
+    survives (#1127 codex P2).
+    """
+    root = logging.getLogger()
+    pytest_owned = [h for h in root.handlers if _is_pytest_owned_handler(h)]
+    assert pytest_owned, "expected pytest's capture handlers on root"
+    monkeypatch.setattr(root, "handlers", list(pytest_owned))
+
+    leaked = logging.StreamHandler()
+    with _global_logging_repair():
+        root.handlers.clear()  # what setup_logging() does
+        root.addHandler(leaked)
+        for handler in pytest_owned:  # what pytest does for the next phase
+            root.addHandler(handler)
+
+    assert leaked not in root.handlers
+    assert root.handlers == pytest_owned
 
 
 # Recorded by the leaker so its partner can compare against the state THIS
@@ -94,9 +186,8 @@ def test_a_setup_logging_leaks_process_global_state():
     leaked = "ERROR" if _PRE_LEAK["root_level"] != logging.ERROR else "DEBUG"
     setup_logging(json_logs=True, log_level=leaked)
 
-    # Baseline-independent, unlike propagate: setup_logging() always turns
-    # caching on, and the guard always leaves it off again.
-    assert structlog.get_config()["cache_logger_on_first_use"] is True
+    # setup_logging() asks for caching, and the clamp refuses on its behalf.
+    assert structlog.get_config()["cache_logger_on_first_use"] is False
     assert logging.getLogger("uvicorn.access").propagate is False
     assert logging.getLogger().level != _PRE_LEAK["root_level"]
 
