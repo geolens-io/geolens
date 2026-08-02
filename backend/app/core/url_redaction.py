@@ -123,6 +123,38 @@ def redact_query_credentials(query: str) -> str:
 _UNPARSED_USERINFO_RE = re.compile(r"//[^/?#\s]*@")
 _UNPARSED_QUERY_PAIR_RE = re.compile(r"([?&])([^?&=#\s]+)=([^&#\s]*)")
 
+# fix(#1119 review): urlsplit DELETES these three characters from anywhere in the
+# string before it parses (CPython's `_UNSAFE_URL_BYTES_TO_REMOVE`). Every reader
+# in this module has to delete them too, or it is redacting a different string
+# from the one the parser saw — and that gap leaked a credential in THREE
+# positions, only one of which was reported:
+#
+#   https://user:hunter2\n@[::1      the fallback's `\s` stopped the userinfo
+#                                    match at the control character
+#   https://[::1?to\nken=hunter2     the same `\s` hid a sensitive parameter NAME
+#   ogrinfo failed: https://user:hunter2\n@[::1 bad
+#                                    URL_LIKE_RE stopped at the control character
+#                                    and handed the recursion `https://user:hunter2`,
+#                                    which has no `@` and so parses as host:port
+#                                    with no credential in it at all
+#
+# The third is the one that matters most (it is the GDAL-stderr path) and it is
+# not reachable from the fallback at all, so patching the fallback alone would
+# have left the widest hole open. Stripping once at the entry point is what
+# collapses the class: the direct parse, URL_LIKE_RE and the unparsable fallback
+# then all read the identical string.
+#
+# The cost, accepted deliberately: a multi-line stderr blob comes back as one
+# line. Replacing with a space instead would read better and would NOT fix this —
+# a space re-breaks the token for URL_LIKE_RE and the credential survives again.
+_URLSPLIT_STRIPS = ("\t", "\r", "\n")
+
+
+def _strip_urlsplit_removals(value: str) -> str:
+    for removed in _URLSPLIT_STRIPS:
+        value = value.replace(removed, "")
+    return value
+
 
 def _redact_unparsed_query_pair(match: re.Match[str]) -> str:
     delimiter, name, _value = match.groups()
@@ -154,6 +186,9 @@ def _redact_without_parsing(value: str) -> str:
 
 def redact_url_credentials(url: str) -> str:
     """Redact known credential query values and userinfo in a URL-like string."""
+    # fix(#1119 review): normalise to urlsplit's own view FIRST, so every reader
+    # below judges the same string the parser does. See _URLSPLIT_STRIPS.
+    url = _strip_urlsplit_removals(url)
     prefixed = _split_prefixed_url(url)
     if prefixed is not None:
         prefix, nested_url = prefixed

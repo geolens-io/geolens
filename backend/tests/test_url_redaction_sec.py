@@ -154,6 +154,17 @@ CREDENTIALED_MALFORMED_URLS = [
     # An encoded parameter name: parse_qsl unquotes on the parsed path, so the
     # unparsable path has to as well or the two disagree about what is sensitive.
     "https://[vZ.x]/x?%74oken=hunter2",
+    # fix(#1119 review): urlsplit deletes \t, \r and \n before parsing, so any
+    # reader that does not delete them is judging a different string. That gap
+    # leaked in three positions — the fallback's userinfo match, the fallback's
+    # query-NAME match, and (widest, and reachable only through the free-text
+    # wrapper below) URL_LIKE_RE truncating at the control character and handing
+    # the recursion a token with no `@` left in it.
+    "https://user:hunter2\n@[::1",
+    "https://user:hunter2\t@[::1",
+    "https://user:hunter2\r\n@[::1]/cog.tif",
+    "https://[::1?to\nken=hunter2",
+    "ESRIJSON:https://user:hunter2\n@[::1",
 ]
 
 
