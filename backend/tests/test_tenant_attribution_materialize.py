@@ -137,6 +137,53 @@ async def _deprovision_substrate(conn, tenant_id: str) -> None:
     await conn.execute(sa.text(f"DROP ROLE IF EXISTS {writer}"))
 
 
+# The tenant boundary, minus ``users`` (the harness deletes its own two seeded
+# rows).  Deleting by tenant is what makes this safe on a shared per-worker DB:
+# the harness mints both tenant UUIDs per test, so no row carrying one of them
+# belongs to anything else.  Listing the whole boundary rather than the three
+# tables this module happens to write today means a case added later that
+# creates a map or a collection is cleaned up too.
+#
+# Order is FK-derived, not alphabetical:
+#   - ``ingest_jobs.dataset_id -> datasets`` is ON DELETE SET NULL, so a job row
+#     SURVIVES a dataset delete with a nulled reference. It has to go first and
+#     explicitly. (Everything else hanging off records/datasets is CASCADE.)
+#   - ``maps``/``collections``/``embed_tokens`` reference datasets, so they
+#     precede it.
+#   - ``records`` last of the record graph: its CASCADEs take record_keywords
+#     (the provenance INSERT..SELECT writes there), record_translations,
+#     record_contacts, record_distributions, record_embeddings and
+#     dataset_relationships with it.
+_TENANT_SCOPED_CATALOG_TABLES = (
+    "ingest_jobs",
+    "embed_tokens",
+    "maps",
+    "collections",
+    "datasets",
+    "records",
+    "audit_logs",
+    "oauth_accounts",
+)
+
+
+async def _delete_tenant_catalog_rows(conn, tenant_ids: list[str]) -> None:
+    """Delete every committed catalog row belonging to *tenant_ids*.
+
+    ``_seed_source_dataset`` and ``_create_job`` commit before the worker even
+    starts, a successful materialize commits a second record/dataset pair plus
+    its provenance, and the missing-context case deliberately leaves a PENDING
+    job. The per-worker test DB is shared, so anything left behind outlives the
+    test: rows naming a table whose schema this fixture is about to drop, and a
+    pending job that later quota or stale-sweep tests would count.
+    """
+    for table in _TENANT_SCOPED_CATALOG_TABLES:
+        # Table name comes from the module-level tuple above, never from data.
+        await conn.execute(
+            sa.text(f"DELETE FROM catalog.{table} WHERE tenant_id = ANY(:tenant_ids)"),
+            {"tenant_ids": tenant_ids},
+        )
+
+
 @asynccontextmanager
 async def _admin_connection(db_url: str):
     """An AUTOCOMMIT superuser connection with NO tenant hooks installed.
@@ -220,6 +267,9 @@ async def tenant_analysis(multi_tenant_rls, monkeypatch):
             _dataset_cache.clear()
         await engine.dispose()
         async with _admin_connection(ctx.db_url) as conn:
+            # Committed rows first: a catalog row naming a table whose schema
+            # the next statement drops is worse than either alone.
+            await _delete_tenant_catalog_rows(conn, [ctx.tenant_a, ctx.tenant_b])
             await _deprovision_substrate(conn, ctx.tenant_a)
             await _deprovision_substrate(conn, ctx.tenant_b)
 
@@ -613,12 +663,14 @@ class TestSingleTenantUnchanged:
 
 
 def test_shared_engine_carries_the_tenant_begin_hook():
-    """The GUC re-issue is registered on the engine the worker actually uses.
+    """``app/core/db/session.py`` registers the GUC re-issue on its engine.
 
-    ``_materialize`` opens its session from ``app.core.db.async_session``,
-    which is built on ``app.core.db.session.engine``.  Installing the hook on
-    any other engine is the silent refactor the tests above simulate; this
-    asserts the production registration is where it has to be.
+    Half of the wiring: the hook exists on the engine that module builds. The
+    other half — that the worker's session factory is bound to THAT engine —
+    is the test below. Both are kept because they fail for different reasons
+    and the distinction is the whole diagnosis: a passing engine assertion
+    beside a failing factory assertion says the hook is installed but on the
+    wrong object.
     """
     from sqlalchemy import event
 
@@ -626,3 +678,32 @@ def test_shared_engine_carries_the_tenant_begin_hook():
     from app.core.db.tenant_session import _on_begin
 
     assert event.contains(engine.sync_engine, "begin", _on_begin)
+
+
+def test_worker_session_factory_is_bound_to_a_hooked_engine():
+    """fix(#1171 review): the assertion above does not imply this one.
+
+    Every DB test in this module monkeypatches ``app.core.db.async_session``
+    onto a factory it built itself, so none of them can observe the production
+    factory at all. And asserting the hook on ``app.core.db.session.engine``
+    proves nothing about what the factory is bound to: rebuild
+    ``async_session`` from a second, unhooked engine and the engine assertion
+    still passes while every materialize silently stops stamping.
+
+    So resolve the factory exactly the way ``_materialize`` does — ``from
+    app.core.db import async_session`` at call time, through the package
+    façade — and follow it to the engine its sessions would actually run on.
+    Constructing a session opens no connection, so this stays DB-free; the
+    bind it reports is the sync ``Engine`` the event listener lives on.
+    """
+    from sqlalchemy import event
+
+    from app.core.db import async_session
+    from app.core.db.tenant_session import _on_begin
+
+    bind = async_session().sync_session.get_bind()
+    assert event.contains(bind, "begin", _on_begin), (
+        "the session factory the analysis worker imports is bound to an engine "
+        "with no tenant begin-hook, so every insert it makes lands with a NULL "
+        f"tenant_id.\n  factory bind={bind!r}"
+    )
