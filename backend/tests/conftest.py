@@ -208,6 +208,9 @@ _TENANCY_GLOBAL_STATE_MODULES = {
     "test_tenant_rls_migration",
     "test_tenant_job_recovery",
     "test_tenant_session_guc",
+    # #1010: multi_tenant harness (1) PLUS per-tenant reader/writer role
+    # CREATE/DROP (2) — it belongs to both categories below.
+    "test_tenant_attribution_materialize",
     # (2) cluster-global geolens_reader role GRANT/REVOKE mutators — must not run
     #     concurrently with each other or the group above (pg_shdepend contention).
     "test_analysis_materialize",  # register_existing_table → grant_reader_access
