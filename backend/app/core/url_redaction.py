@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import re
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+import unicodedata
+from urllib.parse import parse_qsl, unquote_plus, urlencode, urlsplit, urlunsplit
 
 REDACTED_QUERY_VALUE = "<redacted>"
 REDACTED_USERINFO = "redacted"
@@ -110,14 +111,149 @@ def redact_query_credentials(query: str) -> str:
     )
 
 
+# fix(#1119): urlsplit raises ValueError on a malformed bracketed authority
+# ("https://.[::1]", "https://[::1"), and redact_url_credentials let it escape —
+# so a call whose whole contract is "return something safe to log" raised
+# instead. sources/preview.py and the three processing/ingest/validation.py sites
+# interpolate the result into an IngestionError, so a malformed authority in GDAL
+# stderr or in an uploaded VRT's <SourceFilename> became an unhandled 500.
+#
+# These two patterns are enough to cover the fallback, because urlsplit reaches
+# its bracket and NFKC checks only inside `if url[:2] == '//'`: a string that
+# raised always has a `//` authority for the userinfo pattern to anchor on.
+#
+# fix(#1119 review 2): they delimit on URL syntax — `/?#` for the authority,
+# `&#` for a query value — and NOT on whitespace. An earlier `\s` in these
+# classes made the fallback stop at a space that the parser keeps, so it leaked
+# strictly MORE than the parsed path, breaking this module's own invariant that
+# the fallback only ever keeps what the parsed path would have kept:
+#
+#   https://user:hunter 2@[::1        returned verbatim; urlsplit ends a netloc
+#                                     at `/?#`, never at a space, so the parsed
+#                                     path would have redacted the whole userinfo
+#   https://[::1?token=prefix hunter2  became `token=<redacted> hunter2`; parse_qsl
+#                                     takes the value to the next `&`/`#`, so the
+#                                     parsed path would have redacted all of it
+#
+# Widening is the safe direction for a redactor and the reason is asymmetric:
+# over-redaction costs a less informative log line, under-redaction leaks a
+# credential and does it silently. Greedy is also correct here rather than
+# incidental — urlsplit takes userinfo to the LAST `@` in the authority.
+_UNPARSED_USERINFO_RE = re.compile(r"//[^/?#]*@")
+_UNPARSED_QUERY_PAIR_RE = re.compile(r"([?&])([^?&=#]+)=([^&#]*)")
+
+# fix(#1119 review): urlsplit DELETES these three characters from anywhere in the
+# string before it parses (CPython's `_UNSAFE_URL_BYTES_TO_REMOVE`). Every reader
+# in this module has to delete them too, or it is redacting a different string
+# from the one the parser saw — and that gap leaked a credential in THREE
+# positions, only one of which was reported:
+#
+#   https://user:hunter2\n@[::1      the fallback's `\s` stopped the userinfo
+#                                    match at the control character
+#   https://[::1?to\nken=hunter2     the same `\s` hid a sensitive parameter NAME
+#   ogrinfo failed: https://user:hunter2\n@[::1 bad
+#                                    URL_LIKE_RE stopped at the control character
+#                                    and handed the recursion `https://user:hunter2`,
+#                                    which has no `@` and so parses as host:port
+#                                    with no credential in it at all
+#
+# The third is the one that matters most (it is the GDAL-stderr path) and it is
+# not reachable from the fallback at all, so patching the fallback alone would
+# have left the widest hole open. Stripping once at the entry point is what
+# collapses the class: the direct parse, URL_LIKE_RE and the unparsable fallback
+# then all read the identical string.
+#
+# The cost, accepted deliberately: a multi-line stderr blob comes back as one
+# line. Replacing with a space instead would read better and would NOT fix this —
+# a space re-breaks the token for URL_LIKE_RE and the credential survives again.
+_URLSPLIT_STRIPS = ("\t", "\r", "\n")
+
+
+def _strip_urlsplit_removals(value: str) -> str:
+    for removed in _URLSPLIT_STRIPS:
+        value = value.replace(removed, "")
+    return value
+
+
+def _redact_unparsed_query_pair(match: re.Match[str]) -> str:
+    delimiter, name, _value = match.groups()
+    # unquote_plus mirrors what parse_qsl does on the parsed path, so an encoded
+    # name ("%74oken") is judged sensitive by both and cannot slip through here.
+    if not _is_sensitive_query_param(unquote_plus(name)):
+        return match.group(0)
+    return f"{delimiter}{name}={REDACTED_QUERY_VALUE}"
+
+
+def _redact_without_parsing(value: str) -> str:
+    """Redact a string ``urlsplit`` rejects, lexically and without recursing.
+
+    Deletes credentials in place instead of reconstructing the URL: the caller is
+    about to put this in a log line or an error message, and a string the parser
+    refused is most useful to whoever reads it unchanged apart from the secrets.
+    Handing it back to the URL_LIKE_RE fallback instead would recurse forever,
+    because the match would be the same substring that just failed to parse.
+
+    Reusing ``_is_sensitive_query_param`` is what keeps this honest: the fallback
+    leaks a credential only in a parameter the parsed path would also have kept,
+    so it adds no leak class of its own.
+
+    fix(#1119 reviews 3+4): scrub BOTH lexical views, raw first and NFKC second,
+    because normalisation cuts both ways and one pass is blind in one direction:
+
+    - normalising REVEALS a delimiter, which is why the fallback is reached at
+      all. ``urlsplit``'s ``_checknetloc`` (CPython ``urllib/parse.py:441``)
+      refuses a netloc precisely because NFKC would introduce one of ``/?#@:``.
+      The raw view cannot see it, so ``https://user:hunter2＠example.com/path``
+      shows no ASCII ``@`` and comes back whole.
+    - normalising also INTRODUCES a delimiter mid-credential, which truncates a
+      match that was intact before. ``https://user:hunter2／@[::1`` normalises to
+      ``…hunter2/@…``, and the userinfo pattern then stops at the new ``/``.
+      Same for ``?token=prefix＃hunter2``, where only ``prefix`` gets redacted.
+
+    Two passes, so a credential is redacted when EITHER view shows its bounds.
+    Evading both needs a delimiter at the same position in both views — and a
+    delimiter present in the RAW view is ASCII, so urlsplit draws that same
+    boundary and the parsed path (the reference this fallback is measured
+    against) treats it identically. The invariant therefore still holds: the
+    fallback never keeps more than the parsed path would.
+
+    The returned string is the normalised one — a fullwidth character reads as
+    its ASCII form in the log. That only affects strings that already failed to
+    parse, and mapping offsets back through a length-changing normalisation to
+    preserve them would be a far better way to introduce a bug than to avoid one.
+    """
+    # Pass 2 normalises the OUTPUT of pass 1, not the original: chaining is what
+    # keeps pass 1's redactions: `//redacted@` survives NFKC unchanged, so the
+    # second pass adds to the first rather than replacing it.
+    scrubbed = _scrub_one_view(value)
+    return _scrub_one_view(unicodedata.normalize("NFKC", scrubbed))
+
+
+def _scrub_one_view(value: str) -> str:
+    """Apply both fallback patterns to a single lexical view of the string."""
+    userinfo_scrubbed = _UNPARSED_USERINFO_RE.sub(
+        lambda _match: f"//{REDACTED_USERINFO}@", value
+    )
+    return _UNPARSED_QUERY_PAIR_RE.sub(_redact_unparsed_query_pair, userinfo_scrubbed)
+
+
 def redact_url_credentials(url: str) -> str:
     """Redact known credential query values and userinfo in a URL-like string."""
+    # fix(#1119 review): normalise to urlsplit's own view FIRST, so every reader
+    # below judges the same string the parser does. See _URLSPLIT_STRIPS.
+    url = _strip_urlsplit_removals(url)
     prefixed = _split_prefixed_url(url)
     if prefixed is not None:
         prefix, nested_url = prefixed
         return prefix + redact_url_credentials(nested_url)
 
-    parts = urlsplit(url)
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        # fix(#1119): a malformed authority must not turn a redaction call into a
+        # raise. Reached both directly and from the URL_LIKE_RE.sub callback
+        # below, which recurses here on each matched substring of free text.
+        return _redact_without_parsing(url)
     # Only a scheme-less string (free text, GDAL stderr) goes to the regex
     # fallback. An http(s) URL with an EMPTY host (e.g. "https://?token=x") must
     # still be reconstructed below — routing it to the fallback would match the

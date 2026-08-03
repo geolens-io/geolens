@@ -1,5 +1,6 @@
 """Security tests for URL query credential rejection/redaction."""
 
+import random
 import time
 
 import pytest
@@ -111,6 +112,257 @@ def test_redact_url_credentials_masks_url_after_long_free_text_run() -> None:
     assert "t0ken" not in redacted
     assert "redacted@example.com" in redacted
     assert "token=%3Credacted%3E" in redacted
+
+
+# fix(#1119): urlsplit raises ValueError on a malformed bracketed authority and
+# redact_url_credentials let it escape, so a call whose entire contract is "return
+# something safe to log" raised instead. sources/preview.py and the three
+# processing/ingest/validation.py sites interpolate the result into an
+# IngestionError, so a malformed authority in GDAL stderr or in an uploaded VRT's
+# <SourceFilename> became an unhandled 500 rather than a clean ingest failure.
+#
+# Checked against CPython 3.13 (what CI pins) and 3.14, which agree on all of
+# these. Every entry makes urlsplit raise except ":notaport", which parses; there
+# the ValueError comes from SplitResult.port, read only when userinfo is present,
+# and _redacted_netloc already guards that read. It is in the list to keep that
+# guard pinned alongside the new one, not because it reproduces #1119.
+MALFORMED_AUTHORITY_URLS = [
+    "https://.[::1]",  # data before the opening bracket
+    "https://[::1",  # unclosed bracket
+    "https://]::1[",  # closing bracket before the opening one
+    "https://[]",  # empty bracketed host
+    "https://[::1]x",  # data after the bracket with no port delimiter
+    "https://[[::1]]",  # nested brackets
+    "https://[127.0.0.1]",  # IPv4 in brackets
+    "https://[vZ.x]",  # malformed IPvFuture
+    "https://[::1]:notaport",  # non-numeric port
+    "//[::1",  # scheme-less unclosed bracket
+]
+
+# Malformed authorities that also carry a credential. Making the function stop
+# raising is easy to get wrong in the one way that matters: a fallback returning
+# the input verbatim trades a 500 for a credential leak, which is strictly worse
+# than the bug. Every secret below is the same literal so the assertion is blunt.
+CREDENTIALED_MALFORMED_URLS = [
+    "https://user:hunter2@.[::1]/cog.tif",
+    "https://user:hunter2@[::1/cog.tif",
+    "https://user:hunter2@[[::1]]/cog.tif",
+    "https://user:hunter2@[::1]:notaport/cog.tif",
+    "https://.[::1]/wfs?f=json&token=hunter2",
+    "https://[::1/wfs?api_key=hunter2",
+    "https://[]/x?X-Amz-Signature=hunter2",
+    # An encoded parameter name: parse_qsl unquotes on the parsed path, so the
+    # unparsable path has to as well or the two disagree about what is sensitive.
+    "https://[vZ.x]/x?%74oken=hunter2",
+    # fix(#1119 review): urlsplit deletes \t, \r and \n before parsing, so any
+    # reader that does not delete them is judging a different string. That gap
+    # leaked in three positions — the fallback's userinfo match, the fallback's
+    # query-NAME match, and (widest, and reachable only through the free-text
+    # wrapper below) URL_LIKE_RE truncating at the control character and handing
+    # the recursion a token with no `@` left in it.
+    "https://user:hunter2\n@[::1",
+    "https://user:hunter2\t@[::1",
+    "https://user:hunter2\r\n@[::1]/cog.tif",
+    "https://[::1?to\nken=hunter2",
+    "ESRIJSON:https://user:hunter2\n@[::1",
+    # fix(#1119 review 3): urlsplit's _checknetloc refuses a netloc BECAUSE NFKC
+    # would introduce one of /?#@: — so these reach the fallback for a reason the
+    # ASCII patterns cannot see until the value is normalised the same way.
+    "https://user:hunter2＠example.com/path",
+    "https://example.com？token=hunter2",
+    # fix(#1119 review 4): the other direction — NFKC INTRODUCES a delimiter
+    # mid-credential and truncates a match that was intact in the raw view.
+    "https://user:hunter2／@[::1",
+    "https://[::1?token=prefix＃hunter2",
+]
+
+# fix(#1119 review 4): the two NFKC directions are one class, so sweep it rather
+# than pinning the four strings that happened to get reported. Each of these
+# characters normalises to a URL delimiter, so dropping one into a credential
+# either reveals a boundary the raw view cannot see or invents one that
+# truncates the raw view's match — and the fallback has to survive both.
+NFKC_DELIMITER_EQUIVALENTS = ["＠", "／", "？", "＃", "：", "＆", "＝"]
+
+# fix(#1119 review 2): urlsplit ends an authority at `/?#` and parse_qsl ends a
+# query value at `&`/`#` — neither stops at whitespace. Delimiting the fallback
+# patterns on `\s` made them keep MORE than the parsed path would, which is the
+# one thing the fallback is not allowed to do.
+#
+# These are DIRECT-CALL ONLY, and deliberately not in the list above. Inside free
+# text a space genuinely ends the URL: URL_LIKE_RE stops there, so the recursion
+# never receives the tail and no redactor downstream can. That is not a gap in
+# the fallback — the PARSED path is identical, measured:
+#
+#   "ogrinfo failed: https://example.com?token=prefix hunter2 bad"
+#     -> "...token=%3Credacted%3E hunter2 bad"     (well-formed URL, parsed path)
+#
+# so the invariant still holds in free text. Widening URL_LIKE_RE to span spaces
+# would swallow the remainder of every stderr sentence into "the URL" and reopen
+# the unbounded-quantifier backtracking #1116 exists to prevent.
+WHITESPACE_CREDENTIALED_MALFORMED_URLS = [
+    "https://user:hunter 2@[::1",
+    "https://[::1?token=prefix hunter2",
+    "https://user:hunter\x0c2@[::1",
+    "https://[::1?token=prefix\x0bhunter2",
+]
+
+
+@pytest.mark.parametrize("value", MALFORMED_AUTHORITY_URLS)
+def test_redact_url_credentials_never_raises_on_malformed_authority(
+    value: str,
+) -> None:
+    assert isinstance(redact_url_credentials(value), str)
+
+
+@pytest.mark.parametrize("value", MALFORMED_AUTHORITY_URLS)
+def test_redact_url_credentials_never_raises_on_malformed_authority_in_free_text(
+    value: str,
+) -> None:
+    # A different code path from the bare-URL form above: the free text parses
+    # fine and the ValueError surfaces from inside the URL_LIKE_RE.sub callback
+    # recursing on the matched substring. This is the shape GDAL/ogr2ogr stderr
+    # and source-preview text actually arrive in, so covering only the bare form
+    # would be narrower than it reads.
+    assert isinstance(redact_url_credentials(f"ogrinfo failed: {value} bad"), str)
+
+
+@pytest.mark.parametrize("value", CREDENTIALED_MALFORMED_URLS)
+def test_redact_url_credentials_masks_credentials_in_unparsable_url(
+    value: str,
+) -> None:
+    assert "hunter2" not in redact_url_credentials(value)
+
+
+@pytest.mark.parametrize("value", CREDENTIALED_MALFORMED_URLS)
+def test_redact_url_credentials_masks_credentials_in_unparsable_free_text(
+    value: str,
+) -> None:
+    assert "hunter2" not in redact_url_credentials(f"ogrinfo failed: {value} bad")
+
+
+@pytest.mark.parametrize("delimiter", NFKC_DELIMITER_EQUIVALENTS)
+@pytest.mark.parametrize(
+    "template",
+    [
+        "https://user:hunter{d}2@[::1",
+        "https://user:hunter2{d}@[::1",
+        "https://user{d}:hunter2@[::1",
+        "https://[::1?token=prefix{d}hunter2",
+        # NOT tested: a delimiter inside the parameter NAME ("to{d}ken"). None of
+        # these characters vanishes under NFKC, so "to＠ken" normalises to
+        # "to@ken" and is a genuinely different parameter from "token" — the
+        # PARSED path keeps it too, measured: redact_url_credentials(
+        # "https://example.com?to＠ken=hunter2") returns it unchanged. Asserting
+        # on it would demand the fallback out-redact the reference it is defined
+        # against, which is how a redactor starts destroying valid data.
+    ],
+)
+def test_redact_url_credentials_survives_nfkc_delimiters_anywhere(
+    template: str, delimiter: str
+) -> None:
+    value = template.format(d=delimiter)
+    redacted = redact_url_credentials(value)
+    assert "hunter" not in redacted, f"{value!r} -> {redacted!r}"
+    assert "hunter" not in redact_url_credentials(f"ogrinfo failed: {value} bad")
+
+
+@pytest.mark.parametrize(
+    ("unparsable", "parsable_equivalent"),
+    [
+        # ＃ normalises to a fragment delimiter, so the tail is a FRAGMENT.
+        (
+            "https://[::1？token=prefix＃hunter2",
+            "https://example.com?token=prefix#hunter2",
+        ),
+        # ／ normalises to a path delimiter, so there is no userinfo at all:
+        # urlsplit reports username=None, password=None, netloc='user:hunter2'.
+        ("https://user:hunter2／＠[::1", "https://user:hunter2/@example.com"),
+    ],
+)
+def test_fallback_does_not_out_redact_the_parsed_path(
+    unparsable: str, parsable_equivalent: str
+) -> None:
+    """The fallback keeps exactly what the parsed path keeps — no more, no less.
+
+    fix(#1119 review 5): both shapes were reported as fallback leaks. They are
+    not. Once normalised, the tail of the first is a fragment and the second has
+    no userinfo for any client to resolve, so the PRIMARY path keeps them too —
+    asserted below so this stays a measurement rather than an argument.
+
+    This is the invariant the whole fallback is defined against, and it cuts both
+    ways. If the primary path is ever tightened to redact fragments or
+    port-position material, this test fails and the fallback must follow rather
+    than quietly diverge. Contrast the round-3 case, which WAS a real leak: there
+    ＠ normalises to a genuine `@`, so an NFKC-normalising client resolves real
+    userinfo, which is precisely why `_checknetloc` refuses the string.
+    """
+    assert "hunter2" in redact_url_credentials(parsable_equivalent)
+    assert "hunter2" in redact_url_credentials(unparsable)
+
+
+@pytest.mark.parametrize("value", WHITESPACE_CREDENTIALED_MALFORMED_URLS)
+def test_redact_url_credentials_masks_credentials_across_inner_whitespace(
+    value: str,
+) -> None:
+    # Assert on the stem, not on "hunter2"/"hunter 2": with a form feed or
+    # vertical tab between the halves the literal never appears in the output
+    # either way, so those two cases would pass vacuously and the RED check
+    # would look like proof while covering nothing.
+    assert "hunter" not in redact_url_credentials(value)
+
+
+@pytest.mark.parametrize(
+    ("value", "kept"),
+    [
+        # fix(#1119 review 2): the admission half of the widened delimiters. A
+        # refusal assertion cannot notice that a legitimate input started being
+        # destroyed, so the non-sensitive cases are pinned separately — widening
+        # `[^&#\s]` to `[^&#]` must not swallow a benign value or the text after
+        # it, and must not invent a userinfo where the string has no `@`.
+        ("https://[::1?f=json text", "json text"),
+        ("https://[::1?f=json&token=x", "f=json"),
+        ("ogrinfo failed: https://[::1 no credentials here", "no credentials here"),
+    ],
+)
+def test_redact_url_credentials_keeps_non_sensitive_text_in_unparsable_url(
+    value: str, kept: str
+) -> None:
+    assert kept in redact_url_credentials(value)
+
+
+def test_redact_url_credentials_keeps_free_text_around_an_unparsable_url() -> None:
+    # The unparsable fallback deletes credentials in place rather than dropping
+    # the string, so the stderr line an operator needs is still readable and a
+    # non-sensitive parameter survives — same as on the parsed path.
+    redacted = redact_url_credentials(
+        "ogrinfo failed: https://user:hunter2@.[::1]/wfs?f=json&token=hunter2 exiting"
+    )
+
+    assert "hunter2" not in redacted
+    assert redacted.startswith("ogrinfo failed: ")
+    assert redacted.endswith(" exiting")
+    assert "redacted@" in redacted
+    assert "f=json" in redacted
+
+
+FUZZ_SEED = 1119
+FUZZ_ITERATIONS = 2_000
+FUZZ_ALPHABET = [*"ab:/[]@?&=.%#-_ +1", "https://", "http://", "::1", "token="]
+
+
+def test_redact_url_credentials_never_raises_on_randomized_input() -> None:
+    # The list above is a sample; the property callers depend on is "never
+    # raises, for any input". This is the differential fuzz that turned up #1119,
+    # seeded so a failure is reproducible. Against the unfixed function it raises
+    # ValueError on roughly one input in eight, so it is not a decorative test.
+    rng = random.Random(FUZZ_SEED)
+
+    for _ in range(FUZZ_ITERATIONS):
+        value = "".join(rng.choice(FUZZ_ALPHABET) for _ in range(rng.randint(1, 14)))
+        try:
+            redact_url_credentials(value)
+        except Exception as exc:
+            pytest.fail(f"redact_url_credentials({value!r}) raised {exc!r}")
 
 
 def test_redact_query_credentials_preserves_non_sensitive_query() -> None:
