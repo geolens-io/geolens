@@ -57,14 +57,33 @@ def query_has_credentials(query: str) -> bool:
 
 
 def has_url_credentials(url: str) -> bool:
-    """Return True if a URL carries credential-like userinfo or query params."""
+    """Return True if a URL carries credential-like userinfo or query params.
+
+    Also True when the authority is unparsable: callers use this to admit or
+    refuse a string, so "cannot tell" has to resolve to refusal, not to "no".
+    """
     # fix(#430 BA-04): strip GDAL-style prefixes (ESRIJSON:, WFS:, ...) before
     # inspecting userinfo — otherwise urlsplit sees no netloc and misses
     # `user:pass@` behind the prefix, mirroring redact_url_credentials.
     prefixed = _split_prefixed_url(url)
     if prefixed is not None:
         return has_url_credentials(prefixed[1])
-    parts = urlsplit(url)
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        # fix(#1132): the same malformed-authority raise #1119 fixed in
+        # redact_url_credentials — the mirror stopped at the happy path. The
+        # caller that makes it a bug is _metadata_contains_secret in
+        # modules/catalog/sources/router.py, which asks this question of every
+        # string in a connector config from OUTSIDE the handler's try block, so
+        # a raise there is an unhandled 500 instead of the gate's 400.
+        #
+        # True, not False, and the asymmetry is the whole point: this is a
+        # detector, so refusing an authority nobody can parse costs a rejected
+        # config that fails loudly and gets fixed, while admitting it makes the
+        # gate silently permissive on exactly the input an attacker controls.
+        # No credential is reported as absent because the parser gave up.
+        return True
     return bool(parts.username or parts.password) or query_has_credentials(parts.query)
 
 
