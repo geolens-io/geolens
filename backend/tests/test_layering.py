@@ -1143,6 +1143,24 @@ def test_analysis_sql_facade_surface_matches_its_declared_api() -> None:
     which is how the surface drifted twice without a failing test. This is that
     comparison. It imports the façade, which is cheap and needs no database —
     `app.core.geo` pulls only shapely and sqlalchemy.
+
+    The comparison is EXACT, and the exemptions are named one by one with a
+    reason. Resist relaxing it into a predicate — "ignore short names",
+    "ignore anything not callable" — because its whole value is that the next
+    accidental promotion has nowhere to land. An exemption forces someone to
+    write down why; a predicate quietly absorbs the thing it was meant to
+    catch.
+
+    THIS CHECK IS HALF OF THE INVARIANT. Python binds a submodule on its
+    parent package at import, so `analysis_sql.overlay` is a public attribute
+    no matter what this module does — it is exempt here because it is
+    unavoidable, not because it is harmless. What makes it harmless is
+    ``test_no_external_imports_of_analysis_sql_family_modules``, which fails
+    the build if anything outside the package reaches through it. So: this
+    test keeps the DECLARED surface honest, that one keeps the UNAVOIDABLE
+    surface unused, and "the façade is the only import surface" is true
+    because both hold. Neither is sufficient alone, and deleting either one
+    leaves a claim the remaining test does not support.
     """
     facade = importlib.import_module(_ANALYSIS_SQL_PACKAGE)
 
