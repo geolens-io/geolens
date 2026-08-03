@@ -1,10 +1,14 @@
+import { QueryClient } from '@tanstack/react-query';
 import { render, screen, waitFor, within } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { SettingsAuthTab } from '../SettingsAuthTab';
 import { buildOAuthEndpointFields } from '../oauth-endpoint-fields';
+import { queryKeys } from '@/lib/query-keys';
 import {
   listOAuthProviders,
+  createOAuthProvider,
   updateOAuthProvider,
+  deleteOAuthProvider,
   type OAuthProviderConfig,
   type SettingItem,
 } from '@/api/settings';
@@ -16,9 +20,30 @@ vi.mock('@/api/settings', async () => {
   return {
     ...actual,
     listOAuthProviders: vi.fn().mockResolvedValue([]),
+    createOAuthProvider: vi.fn(),
     updateOAuthProvider: vi.fn(),
+    deleteOAuthProvider: vi.fn(),
   };
 });
+
+const OIDC_PROVIDER: OAuthProviderConfig = {
+  id: 'provider-1',
+  slug: 'legacy-oidc',
+  display_name: 'Legacy OIDC',
+  provider_type: 'oidc',
+  client_id: 'client-id',
+  discovery_url: null,
+  authorize_url: 'https://idp.example.com/authorize',
+  token_url: 'https://idp.example.com/token',
+  userinfo_url: 'https://idp.example.com/userinfo',
+  scopes: 'openid profile email',
+  default_role: 'viewer',
+  group_claim: null,
+  group_role_mapping: null,
+  enabled: true,
+  created_at: '2026-07-10T00:00:00Z',
+  updated_at: '2026-07-10T00:00:00Z',
+};
 
 function makeSetting(key: string, value: unknown): SettingItem {
   return { key, value, source: 'overridden', label: key };
@@ -125,24 +150,7 @@ describe('SettingsAuthTab', () => {
     );
 
     it('retains explicit OIDC endpoints when saving an unrelated edit', async () => {
-      const provider: OAuthProviderConfig = {
-        id: 'provider-1',
-        slug: 'legacy-oidc',
-        display_name: 'Legacy OIDC',
-        provider_type: 'oidc',
-        client_id: 'client-id',
-        discovery_url: null,
-        authorize_url: 'https://idp.example.com/authorize',
-        token_url: 'https://idp.example.com/token',
-        userinfo_url: 'https://idp.example.com/userinfo',
-        scopes: 'openid profile email',
-        default_role: 'viewer',
-        group_claim: null,
-        group_role_mapping: null,
-        enabled: true,
-        created_at: '2026-07-10T00:00:00Z',
-        updated_at: '2026-07-10T00:00:00Z',
-      };
+      const provider = OIDC_PROVIDER;
       vi.mocked(listOAuthProviders).mockResolvedValueOnce([provider]);
       vi.mocked(updateOAuthProvider).mockResolvedValueOnce(provider);
       const user = userEvent.setup();
@@ -288,6 +296,93 @@ describe('SettingsAuthTab', () => {
       const payload = capturedCalls[0];
       expect(Array.isArray(payload.allowed_email_domains)).toBe(true);
       expect(payload.allowed_email_domains).toContain('corp.io');
+    });
+  });
+
+  // fix(#1117): every OAuth mutation has to refresh BOTH the admin table
+  // (settingsOAuth.providers, read here) and the login page's buttons
+  // (authConfig.oauthProviders, read by components/auth/OAuthButtons.tsx). Only the
+  // first was invalidated, so an admin who added or removed a provider and then
+  // logged out kept the stale button set for the rest of the session.
+  describe('OAuth provider mutations refresh the login page too', () => {
+    beforeEach(() => {
+      // Call history only — mockReset would drop listOAuthProviders' resolved value,
+      // which the module factory sets once.
+      vi.mocked(createOAuthProvider).mockClear();
+      vi.mocked(updateOAuthProvider).mockClear();
+      vi.mocked(deleteOAuthProvider).mockClear();
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    function spyOnInvalidate() {
+      return vi
+        .spyOn(QueryClient.prototype, 'invalidateQueries')
+        .mockResolvedValue(undefined);
+    }
+
+    function expectBothProviderCaches(
+      invalidateQueries: ReturnType<typeof spyOnInvalidate>,
+    ) {
+      expect(invalidateQueries).toHaveBeenCalledWith({
+        queryKey: queryKeys.settingsOAuth.providers,
+      });
+      expect(invalidateQueries).toHaveBeenCalledWith({
+        queryKey: queryKeys.authConfig.oauthProviders,
+      });
+    }
+
+    it('invalidates both provider caches after a create', async () => {
+      vi.mocked(createOAuthProvider).mockResolvedValueOnce(OIDC_PROVIDER);
+      const invalidateQueries = spyOnInvalidate();
+      const user = userEvent.setup();
+
+      renderTab();
+
+      await user.click(screen.getByRole('button', { name: /add provider/i }));
+      await user.type(await screen.findByLabelText('Client ID'), 'new-client-id');
+      await user.type(screen.getByLabelText('Client Secret'), 'new-client-secret');
+      await user.click(screen.getByRole('button', { name: 'Create Provider' }));
+
+      await waitFor(() => expect(createOAuthProvider).toHaveBeenCalledOnce());
+      expectBothProviderCaches(invalidateQueries);
+    });
+
+    it('invalidates both provider caches after an update', async () => {
+      vi.mocked(listOAuthProviders).mockResolvedValueOnce([OIDC_PROVIDER]);
+      vi.mocked(updateOAuthProvider).mockResolvedValueOnce(OIDC_PROVIDER);
+      const invalidateQueries = spyOnInvalidate();
+      const user = userEvent.setup();
+
+      renderTab();
+
+      const providerRow = (await screen.findByText('Legacy OIDC')).closest('tr');
+      await user.click(within(providerRow!).getAllByRole('button')[0]);
+      const displayName = await screen.findByLabelText('Display Name');
+      await user.clear(displayName);
+      await user.type(displayName, 'Renamed OIDC');
+      await user.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+      await waitFor(() => expect(updateOAuthProvider).toHaveBeenCalledOnce());
+      expectBothProviderCaches(invalidateQueries);
+    });
+
+    it('invalidates both provider caches after a delete', async () => {
+      vi.mocked(listOAuthProviders).mockResolvedValueOnce([OIDC_PROVIDER]);
+      vi.mocked(deleteOAuthProvider).mockResolvedValueOnce(undefined);
+      const invalidateQueries = spyOnInvalidate();
+      const user = userEvent.setup();
+
+      renderTab();
+
+      const providerRow = (await screen.findByText('Legacy OIDC')).closest('tr');
+      await user.click(within(providerRow!).getAllByRole('button')[1]);
+      await user.click(await screen.findByRole('button', { name: 'Delete' }));
+
+      await waitFor(() => expect(deleteOAuthProvider).toHaveBeenCalledWith(OIDC_PROVIDER.id));
+      expectBothProviderCaches(invalidateQueries);
     });
   });
 });

@@ -72,6 +72,7 @@ import {
   type SamlProviderUpdateData,
 } from '@/api/saml';
 import { queryKeys } from '@/lib/query-keys';
+import { useInvalidateAuthProviders } from '@/hooks/use-auth-providers';
 import { triggerDownload } from '@/lib/download';
 import { Textarea } from '@/components/ui/textarea';
 
@@ -111,6 +112,10 @@ const EMPTY_FORM: SamlFormData = {
 export function SamlProvidersSection() {
   const { t } = useTranslation('admin');
   const queryClient = useQueryClient();
+  // fix(#1117): SAML rows live in the same table as OAuth and are returned by the
+  // login page's /auth/oauth/providers/, so every mutation here also has to refresh
+  // the login buttons — see hooks/use-auth-providers.ts.
+  const invalidateAuthProviders = useInvalidateAuthProviders();
 
   const {
     data: providers = [],
@@ -132,7 +137,7 @@ export function SamlProvidersSection() {
     mutationFn: (data: SamlProviderCreateData) => createSamlProvider(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['saml', 'providers'] });
-      queryClient.invalidateQueries({ queryKey: queryKeys.settingsOAuth.providers });
+      invalidateAuthProviders();
       toast.success(t('saml.created'));
     },
     onError: () => {
@@ -145,7 +150,7 @@ export function SamlProvidersSection() {
       updateSamlProvider(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['saml', 'providers'] });
-      queryClient.invalidateQueries({ queryKey: queryKeys.settingsOAuth.providers });
+      invalidateAuthProviders();
       toast.success(t('saml.updated'));
     },
     onError: () => {
@@ -157,7 +162,7 @@ export function SamlProvidersSection() {
     mutationFn: (id: string) => deleteSamlProvider(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['saml', 'providers'] });
-      queryClient.invalidateQueries({ queryKey: queryKeys.settingsOAuth.providers });
+      invalidateAuthProviders();
       toast.success(t('saml.deleted'));
     },
     onError: () => {
