@@ -341,6 +341,18 @@ services:
       # fix(#448): parallel job slots (2-3 on multi-core hosts; keep 1 on
       # 2-vCPU boxes) and queue pinning for a dedicated raster worker.
       WORKER_CONCURRENCY: "${WORKER_CONCURRENCY:-1}"
+      # fix(#695): if you ever add a queue name here (e.g. a dedicated
+      # "analysis" queue), workers must subscribe BEFORE the API defers to it.
+      # A job deferred to a queue no worker listens on is NOT an error, and it
+      # is never auto-failed either: its procrastinate row stays 'todo', and
+      # both stale-sweep paths deliberately skip live 'todo' rows
+      # (no_live_procrastinate_job, backend/app/platform/jobs/router.py,
+      # fix(#724)) -- so it sits pending INDEFINITELY, silent, until a worker
+      # subscribes to the queue or the row is changed by hand. The
+      # queue name lives in the task decorator (backend/app/processing/analysis/
+      # tasks.py) and the subscription list is this var + worker_queues in
+      # backend/app/core/config.py — and this default is duplicated in BOTH
+      # compose files; changing one leaves prod and dev subscribing differently.
       WORKER_QUEUES: "${WORKER_QUEUES:-priority,ingest,raster}"
       INGEST_HTTP_TIMEOUT_SECONDS: "${INGEST_HTTP_TIMEOUT_SECONDS:-300}"
       PROCRASTINATE_SCHEMA: "${PROCRASTINATE_SCHEMA:-catalog}"
