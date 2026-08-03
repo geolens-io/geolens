@@ -122,7 +122,7 @@ export function SamlProvidersSection() {
     isLoading,
     isError,
   } = useQuery({
-    queryKey: ['saml', 'providers'] as const,
+    queryKey: queryKeys.saml.providers,
     queryFn: listSamlProviders,
   });
 
@@ -136,7 +136,7 @@ export function SamlProvidersSection() {
   const createMutation = useMutation({
     mutationFn: (data: SamlProviderCreateData) => createSamlProvider(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['saml', 'providers'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.saml.providers });
       invalidateAuthProviders();
       toast.success(t('saml.created'));
     },
@@ -149,7 +149,7 @@ export function SamlProvidersSection() {
     mutationFn: ({ id, data }: { id: string; data: SamlProviderUpdateData }) =>
       updateSamlProvider(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['saml', 'providers'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.saml.providers });
       invalidateAuthProviders();
       toast.success(t('saml.updated'));
     },
@@ -161,7 +161,7 @@ export function SamlProvidersSection() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteSamlProvider(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['saml', 'providers'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.saml.providers });
       invalidateAuthProviders();
       toast.success(t('saml.deleted'));
     },

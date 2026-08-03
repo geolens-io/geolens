@@ -315,6 +315,34 @@ describe('queryKeys factory', () => {
   });
 
   // -------------------------------------------------------------------------
+  // SAML providers
+  // -------------------------------------------------------------------------
+  describe('saml', () => {
+    it('providers returns expected key', () => {
+      // fix(#1164): pins the string the admin SAML list has always cached under.
+      // It used to live only in inline literals at the call sites, so nothing
+      // caught a typo that turned an invalidation into a no-op.
+      expect(queryKeys.saml.providers).toEqual(['saml', 'providers']);
+    });
+
+    it('does not prefix-match the OAuth provider families', () => {
+      // SamlProvidersSection invalidates this key AND both OAuth families on every
+      // mutation (via hooks/use-auth-providers.ts). Those are three separate calls
+      // because none of the keys covers another — TanStack matches by prefix, so
+      // re-rooting this one under 'settings' would silently make one of them
+      // redundant and the other over-broad.
+      const saml = queryKeys.saml.providers;
+      for (const other of [
+        queryKeys.settingsOAuth.providers,
+        queryKeys.authConfig.oauthProviders,
+      ]) {
+        expect(other.slice(0, saml.length)).not.toEqual([...saml]);
+        expect(saml.slice(0, other.length)).not.toEqual([...other]);
+      }
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // Relationships
   // -------------------------------------------------------------------------
   describe('relationships', () => {

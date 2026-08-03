@@ -62,6 +62,15 @@ const SAML_PROVIDER: SamlProviderConfig = {
 // mutation changes the login buttons too. This section invalidated its own list and
 // the admin OAuth list but never authConfig.oauthProviders.
 describe('SamlProvidersSection provider mutations', () => {
+  // Call history only — mockReset would drop the module factory's resolved value for
+  // listSamlProviders, which is set once. Mirrors the sibling SettingsAuthTab test.
+  beforeEach(() => {
+    vi.mocked(listSamlProviders).mockClear();
+    vi.mocked(createSamlProvider).mockClear();
+    vi.mocked(updateSamlProvider).mockClear();
+    vi.mocked(deleteSamlProvider).mockClear();
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -72,9 +81,15 @@ describe('SamlProvidersSection provider mutations', () => {
       .mockResolvedValue(undefined);
   }
 
-  function expectBothProviderCaches(
+  // fix(#1164): the SAML list key is asserted here too. It used to be an inline
+  // `['saml', 'providers']` literal repeated at all four call sites, so nothing
+  // bound the invalidations to the key the list actually reads.
+  function expectEveryProviderCache(
     invalidateQueries: ReturnType<typeof spyOnInvalidate>,
   ) {
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: queryKeys.saml.providers,
+    });
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: queryKeys.settingsOAuth.providers,
     });
@@ -83,13 +98,7 @@ describe('SamlProvidersSection provider mutations', () => {
     });
   }
 
-  it('invalidates both provider caches after a create', async () => {
-    vi.mocked(createSamlProvider).mockResolvedValueOnce(SAML_PROVIDER);
-    const invalidateQueries = spyOnInvalidate();
-    const user = userEvent.setup();
-
-    render(<SamlProvidersSection />);
-
+  async function fillAndSubmitCreateForm(user: ReturnType<typeof userEvent.setup>) {
     await user.click(screen.getByRole('button', { name: /add saml provider/i }));
     await user.type(await screen.findByLabelText('Display Name'), 'Okta');
     await user.type(
@@ -102,12 +111,22 @@ describe('SamlProvidersSection provider mutations', () => {
     );
     await user.type(screen.getByLabelText('IdP Signing Certificate (PEM)'), 'cert-pem');
     await user.click(screen.getByRole('button', { name: 'Create Provider' }));
+  }
+
+  it('invalidates every provider cache after a create', async () => {
+    vi.mocked(createSamlProvider).mockResolvedValueOnce(SAML_PROVIDER);
+    const invalidateQueries = spyOnInvalidate();
+    const user = userEvent.setup();
+
+    render(<SamlProvidersSection />);
+
+    await fillAndSubmitCreateForm(user);
 
     await waitFor(() => expect(createSamlProvider).toHaveBeenCalledOnce());
-    expectBothProviderCaches(invalidateQueries);
+    expectEveryProviderCache(invalidateQueries);
   });
 
-  it('invalidates both provider caches after an update', async () => {
+  it('invalidates every provider cache after an update', async () => {
     vi.mocked(listSamlProviders).mockResolvedValueOnce([SAML_PROVIDER]);
     vi.mocked(updateSamlProvider).mockResolvedValueOnce(SAML_PROVIDER);
     const invalidateQueries = spyOnInvalidate();
@@ -123,10 +142,10 @@ describe('SamlProvidersSection provider mutations', () => {
     await user.click(screen.getByRole('button', { name: 'Save Changes' }));
 
     await waitFor(() => expect(updateSamlProvider).toHaveBeenCalledOnce());
-    expectBothProviderCaches(invalidateQueries);
+    expectEveryProviderCache(invalidateQueries);
   });
 
-  it('invalidates both provider caches after a delete', async () => {
+  it('invalidates every provider cache after a delete', async () => {
     vi.mocked(listSamlProviders).mockResolvedValueOnce([SAML_PROVIDER]);
     vi.mocked(deleteSamlProvider).mockResolvedValueOnce(undefined);
     const invalidateQueries = spyOnInvalidate();
@@ -139,6 +158,25 @@ describe('SamlProvidersSection provider mutations', () => {
     await user.click(await screen.findByRole('button', { name: 'Delete' }));
 
     await waitFor(() => expect(deleteSamlProvider).toHaveBeenCalledWith(SAML_PROVIDER.id));
-    expectBothProviderCaches(invalidateQueries);
+    expectEveryProviderCache(invalidateQueries);
+  });
+
+  // fix(#1164): the three tests above stub invalidateQueries, so they prove the call
+  // was made with the right key but not that the LIST reads that same key. Those were
+  // two independent literals until now. This one lets the real invalidation run and
+  // watches for the refetch, so a read/invalidate mismatch surfaces as a list that
+  // never reloads — the silent no-op the issue is about.
+  it('refetches its own provider list after a mutation', async () => {
+    vi.mocked(createSamlProvider).mockResolvedValueOnce(SAML_PROVIDER);
+    const user = userEvent.setup();
+
+    render(<SamlProvidersSection />);
+
+    await waitFor(() => expect(listSamlProviders).toHaveBeenCalledOnce());
+
+    await fillAndSubmitCreateForm(user);
+
+    await waitFor(() => expect(createSamlProvider).toHaveBeenCalledOnce());
+    await waitFor(() => expect(listSamlProviders).toHaveBeenCalledTimes(2));
   });
 });
