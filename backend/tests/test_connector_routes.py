@@ -273,6 +273,53 @@ async def test_connector_routes_reject_nested_inline_secrets_before_validation(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "inline_config",
+    [
+        {"endpoint": "https://.[::1]/data"},
+        {"endpoint": "https://[::1/data"},
+        {"warehouse": {"endpoint": "https://user:do-not-log-this-value@.[::1]/x"}},
+        {"endpoints": [{"url": "https://[]/x?f=json"}]},
+    ],
+)
+async def test_connector_routes_answer_malformed_authority_config_with_400(
+    connector_context, inline_config
+):
+    """fix(#1132): the inline-secret gate must decide, not raise.
+
+    ``_reject_inline_connector_secrets`` walks every string in the config and
+    asks ``has_url_credentials``, which called ``urlsplit`` unguarded — and both
+    handlers call it BEFORE their try block, so a bracketed authority nothing
+    can parse escaped as an unhandled 500 instead of this gate's 400. Both
+    handlers are driven because both reach the gate at that same unprotected
+    point; covering one would leave the other free to regress.
+    """
+    router_module, extension, db, _audit = connector_context
+    user = SimpleNamespace(id=uuid.uuid4())
+
+    with pytest.raises(HTTPException) as discover_error:
+        await router_module.discover_connector_resources_endpoint(
+            "warehouse",
+            ConnectorDiscoverRequest(config=inline_config),
+            user,
+            db,
+        )
+    with pytest.raises(HTTPException) as ingest_error:
+        await router_module.dispatch_connector_ingest_endpoint(
+            "warehouse",
+            ConnectorIngestRequest(config=inline_config, resource_id="roads"),
+            user,
+            db,
+        )
+
+    assert discover_error.value.status_code == 400
+    assert ingest_error.value.status_code == 400
+    assert "do-not-log-this-value" not in str(discover_error.value.detail)
+    extension.validate_config.assert_not_awaited()
+    db.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_connector_ingest_dispatches_through_overlay(connector_context):
     router_module, extension, db, audit = connector_context
     user = SimpleNamespace(id=uuid.uuid4())

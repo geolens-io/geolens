@@ -2,6 +2,7 @@
 
 import random
 import time
+from urllib.parse import urlsplit
 
 import pytest
 from pydantic import ValidationError
@@ -389,6 +390,89 @@ def test_has_url_credentials_detects_userinfo_behind_gdal_prefix(url: str) -> No
     # .username/.password were None and the credential slipped through. The
     # validator must strip the GDAL prefix before inspecting userinfo.
     assert has_url_credentials(url)
+
+
+def _urlsplit_rejects(value: str) -> bool:
+    try:
+        urlsplit(value)
+    except ValueError:
+        return True
+    return False
+
+
+# fix(#1132): has_url_credentials carried the identical unguarded urlsplit — the
+# mirror #430 BA-04 established between these two functions never reached the
+# error path. It is therefore measured against the SAME inputs as its sibling
+# rather than a fresh list, so the two cannot drift apart again silently.
+#
+# The list is partitioned, not reused whole: ":notaport" parses, and its
+# ValueError comes from SplitResult.port, which this function never reads. So it
+# belongs on the admission side, and splitting by the guard's actual
+# precondition beats a hand-written exception that rots as the list grows.
+UNPARSABLE_AUTHORITY_URLS = [
+    value for value in MALFORMED_AUTHORITY_URLS if _urlsplit_rejects(value)
+]
+PARSABLE_MALFORMED_AUTHORITY_URLS = [
+    value for value in MALFORMED_AUTHORITY_URLS if not _urlsplit_rejects(value)
+]
+
+
+def test_malformed_authority_partition_has_both_halves() -> None:
+    # A partition computed at import time can quietly empty out, and an empty
+    # parametrize list is a test that passes while asserting nothing. Both of
+    # the two tests below depend on this, so assert it once rather than
+    # discovering it as a silently green suite.
+    assert UNPARSABLE_AUTHORITY_URLS
+    assert PARSABLE_MALFORMED_AUTHORITY_URLS
+
+
+@pytest.mark.parametrize("value", MALFORMED_AUTHORITY_URLS)
+def test_has_url_credentials_never_raises_on_malformed_authority(value: str) -> None:
+    assert isinstance(has_url_credentials(value), bool)
+
+
+@pytest.mark.parametrize("value", UNPARSABLE_AUTHORITY_URLS)
+def test_has_url_credentials_refuses_an_unparsable_authority(value: str) -> None:
+    """A detector that cannot parse must not answer "no".
+
+    fix(#1132): returning False is the smaller change and the worse answer. The
+    caller that matters is _metadata_contains_secret in
+    modules/catalog/sources/router.py, which asks this question of every string
+    in a caller-supplied connector config — so False makes the inline-secret gate
+    silently permissive on exactly the malformed input an attacker controls.
+    Refusing is self-correcting: it surfaces as a 400 somebody has to look at.
+    """
+    assert has_url_credentials(value) is True
+
+
+@pytest.mark.parametrize("value", PARSABLE_MALFORMED_AUTHORITY_URLS)
+def test_has_url_credentials_admits_what_the_parser_accepts(value: str) -> None:
+    # The admission half. A refusal assertion cannot notice the guard widening
+    # into "anything bracket-shaped is a credential" and starting to reject
+    # legitimate config, so the parsing entries are pinned separately.
+    assert has_url_credentials(value) is False
+
+
+@pytest.mark.parametrize("value", CREDENTIALED_MALFORMED_URLS)
+def test_has_url_credentials_detects_credentials_in_malformed_url(value: str) -> None:
+    # The property the gate actually depends on: no credential is ever reported
+    # as absent because the parser gave up on the string carrying it.
+    assert has_url_credentials(value) is True
+
+
+def test_has_url_credentials_never_raises_on_randomized_input() -> None:
+    # fix(#1132): the sibling of the #1119 differential fuzz, same seed and
+    # alphabet so both functions are held to the same "never raises, for any
+    # input" property over the same corpus. Against the unguarded function this
+    # raises ValueError; it is not a decorative test.
+    rng = random.Random(FUZZ_SEED)
+
+    for _ in range(FUZZ_ITERATIONS):
+        value = "".join(rng.choice(FUZZ_ALPHABET) for _ in range(rng.randint(1, 14)))
+        try:
+            has_url_credentials(value)
+        except Exception as exc:
+            pytest.fail(f"has_url_credentials({value!r}) raised {exc!r}")
 
 
 def test_redact_url_credentials_masks_userinfo_and_gcs_signature() -> None:
