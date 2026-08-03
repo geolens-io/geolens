@@ -60,6 +60,13 @@ updates:
       interval: "weekly"
     labels: ["dependencies", "ci"]
     open-pull-requests-limit: 5
+    groups:
+      # init/autobuild/analyze must move together. CodeQL fails with
+      # "CodeQL job status was configuration error" when init and analyze
+      # resolve to different versions, so a per-action PR is red the moment
+      # it opens — as #1147/#1150/#1155 each were for v3.37.4.
+      codeql-action:
+        patterns: ["github/codeql-action*"]
 
   # --- Docker images ---
   # Root multi-stage Dockerfile (python + node + nginx) — was MISSING; this is
