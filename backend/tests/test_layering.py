@@ -63,6 +63,7 @@ Markers:
 from __future__ import annotations
 
 import ast
+import importlib
 import re
 import subprocess
 from pathlib import Path
@@ -823,6 +824,12 @@ def _dotted_name(node: ast.expr) -> str:
     if isinstance(node, ast.Attribute):
         base = _dotted_name(node.value)
         return f"{base}.{node.attr}" if base else ""
+    if isinstance(node, ast.NamedExpr):
+        # A walrus EVALUATES to its value, so `(sql := analysis_sql).overlay`
+        # reaches the family through the assignment expression itself rather
+        # than through the name it binds. Seeing through it is the semantics,
+        # not a special case for that spelling.
+        return _dotted_name(node.value)
     return ""
 
 
@@ -891,14 +898,20 @@ def _analysis_sql_facade_bindings(tree: ast.Module) -> set[str]:
     # sql` and binds exactly the same thing. Iterated because rebinding can
     # chain; bounded because a fixpoint over a file's assignments is not worth
     # an unbounded loop in a test.
+    #
+    # fix(#1089 review r3): the rebind pass read ``ast.Assign`` only, so the
+    # ANNOTATED form ``sql: object = analysis_sql`` bound nothing — a
+    # statically resolvable path, so the contract below was overstating.
+    # Closed as a form-space rather than a case: every node that pairs a
+    # target with a value is handled, which is Assign, AnnAssign, the walrus,
+    # and element-wise tuple/list unpacking. Attribute targets fall out for
+    # free, so ``self.sql = analysis_sql`` then ``self.sql.overlay`` is seen.
     for _ in range(_BINDING_REBIND_ROUNDS):
         grew = False
         for node in ast.walk(tree):
-            if not isinstance(node, ast.Assign):
-                continue
-            if _dotted_name(node.value) not in bound:
-                continue
-            for target in node.targets:
+            for target, value in _binding_pairs(node):
+                if _dotted_name(value) not in bound:
+                    continue
                 name = _dotted_name(target)
                 if name and name not in bound:
                     bound.add(name)
@@ -906,6 +919,51 @@ def _analysis_sql_facade_bindings(tree: ast.Module) -> set[str]:
         if not grew:
             break
     return bound
+
+
+def _binding_pairs(node: ast.AST) -> list[tuple[ast.expr, ast.expr]]:
+    """``(target, value)`` pairs a node binds, for the forms worth modelling.
+
+    Handled: ``x = v``, ``x: T = v``, ``(x := v)``, and ``a, b = v1, v2``
+    element-wise when both sides are literal sequences of the same length.
+
+    NOT handled, and these are residue rather than oversights:
+
+    - ``for sql in (analysis_sql,)`` and ``with cm(analysis_sql) as sql``.
+      Both bind through a PROTOCOL — iteration, and ``__enter__`` — whose
+      result is only knowable for a literal container or a context manager
+      that happens to return its argument. A branch would be right for the
+      contrived literal and wrong for everything else, which is the kind of
+      coverage that reads as more than it is.
+    - a parameter default, ``def build(sql=analysis_sql)``. The default is
+      evaluated where the module is already bound, so the import itself is
+      visible; only the indirect use inside the body escapes, and pairing
+      defaults to arguments is index arithmetic in service of a shape nobody
+      writes.
+
+    Neither appears anywhere under ``backend/app/``.
+    """
+    if isinstance(node, ast.Assign):
+        pairs: list[tuple[ast.expr, ast.expr]] = []
+        for target in node.targets:
+            pairs.extend(_unpack_pair(target, node.value))
+        return pairs
+    if isinstance(node, ast.AnnAssign) and node.value is not None:
+        return _unpack_pair(node.target, node.value)
+    if isinstance(node, ast.NamedExpr):
+        return _unpack_pair(node.target, node.value)
+    return []
+
+
+def _unpack_pair(target: ast.expr, value: ast.expr) -> list[tuple[ast.expr, ast.expr]]:
+    """One pair, or the element-wise pairs of a same-length sequence unpack."""
+    if (
+        isinstance(target, (ast.Tuple, ast.List))
+        and isinstance(value, (ast.Tuple, ast.List))
+        and len(target.elts) == len(value.elts)
+    ):
+        return list(zip(target.elts, value.elts))
+    return [(target, value)]
 
 
 def _analysis_sql_family_bypasses(source: str, rel: str) -> list[str]:
@@ -948,7 +1006,9 @@ def _analysis_sql_family_bypasses(source: str, rel: str) -> list[str]:
     - ``importlib.import_module(path)`` — likewise, and the argument need not
       be a literal.
     - anything reached through a data flow this does not model (a family module
-      returned from a function, stashed in a dict, passed as a parameter).
+      returned from a function, stashed in a dict, passed as a parameter, or
+      bound by a ``for``/``with`` target — see ``_binding_pairs`` for why those
+      last two stay out).
 
     Nothing under ``backend/app/`` loads a platform module any of those ways.
 
@@ -1053,6 +1113,62 @@ def test_no_external_imports_of_analysis_sql_family_modules() -> None:
         )
 
 
+# Public attributes the façade is allowed to carry without declaring them in
+# __all__, each with the reason it cannot simply be made private.
+_ANALYSIS_SQL_SURFACE_EXEMPT = {
+    # Importing a submodule binds it on the parent package. Unavoidable for a
+    # package, and it is what `test_no_external_imports_of_analysis_sql_family_
+    # modules` exists to police instead.
+    **{
+        family: "submodule bound by the import machinery"
+        for family in ("measure", "overlay", "shared", "spatial_join", "transform")
+    },
+    "annotations": "`from __future__ import annotations`",
+    "Any": "typing import used in render_geometry_expr's signature",
+}
+
+
+@pytest.mark.architecture
+def test_analysis_sql_facade_surface_matches_its_declared_api() -> None:
+    """The IMPORTABLE surface equals __all__, exemptions named one by one.
+
+    fix(#1089 review r3): #1089 added six per-family `render_*_expr` helpers so
+    each family owns the branch that renders it, kept them out of `__all__`,
+    and imported them publicly anyway. `from app.platform.analysis_sql import
+    render_clip_expr` therefore worked on the branch and failed on main — an
+    API expansion the PR was simultaneously claiming not to make.
+
+    `__all__` was honest and irrelevant: it governs `import *` and states
+    intent, while callers bind to ATTRIBUTES. Nothing was comparing the two,
+    which is how the surface drifted twice without a failing test. This is that
+    comparison. It imports the façade, which is cheap and needs no database —
+    `app.core.geo` pulls only shapely and sqlalchemy.
+    """
+    facade = importlib.import_module(_ANALYSIS_SQL_PACKAGE)
+
+    public = {name for name in dir(facade) if not name.startswith("_")}
+    declared = set(facade.__all__)
+    unexpected = public - declared - set(_ANALYSIS_SQL_SURFACE_EXEMPT)
+    assert not unexpected, (
+        "these names are importable from the façade but are not in __all__ and "
+        "are not exempt. Either add them to __all__ deliberately — which grows "
+        "the public API and needs to be stated as such — or bind them under a "
+        f"_-prefixed name: {sorted(unexpected)}"
+    )
+
+    missing = declared - public
+    assert not missing, (
+        f"__all__ promises names the façade does not bind: {sorted(missing)}"
+    )
+
+    # The exemptions must stay live, or the list becomes a place stale entries
+    # hide and the next real expansion slips in behind one.
+    stale = set(_ANALYSIS_SQL_SURFACE_EXEMPT) - public
+    assert not stale, (
+        f"these surface exemptions no longer apply and should go: {sorted(stale)}"
+    )
+
+
 @pytest.mark.architecture
 def test_analysis_sql_facade_guard_sees_every_bypass_shape() -> None:
     """The guard above, pinned in BOTH directions.
@@ -1134,6 +1250,29 @@ def test_analysis_sql_facade_guard_sees_every_bypass_shape() -> None:
         "aliased façade plus a family import": (
             f"import {_ANALYSIS_SQL_PACKAGE} as sql\n"
             f"from {_ANALYSIS_SQL_PACKAGE} import shared"
+        ),
+        # --- r3: the binding FORMS, not just the binding names.
+        "attribute chain via ANNOTATED rebind": (
+            "from app.platform import analysis_sql\n"
+            "sql: object = analysis_sql\n"
+            "x = sql.overlay.render_clip_layer_join('t', src='s')"
+        ),
+        "attribute chain via walrus": (
+            "from app.platform import analysis_sql\n"
+            "x = (sql := analysis_sql).overlay.render_clip_layer_join('t', src='s')"
+        ),
+        "attribute chain via tuple unpack": (
+            "from app.platform import analysis_sql\n"
+            "sql, other = analysis_sql, 1\n"
+            "x = sql.shared.MAX_SOURCE_FEATURES"
+        ),
+        "attribute chain via an instance attribute": (
+            "from app.platform import analysis_sql\n"
+            "class R:\n"
+            "    def bind(self):\n"
+            "        self.sql = analysis_sql\n"
+            "    def build(self):\n"
+            "        return self.sql.transform.render_geodesic_buffer('g', 1.0)"
         ),
     }
     must_pass = {

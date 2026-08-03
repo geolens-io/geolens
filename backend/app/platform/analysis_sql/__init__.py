@@ -57,19 +57,30 @@ from .measure import (
     MEASURE_LENGTH_COLUMN,
     MEASURE_OUTPUT_COLUMNS,
     render_measure_columns,
-    render_measure_expr,
 )
+
+# fix(#1089 review r3): the six per-family expression renderers are bound
+# UNDER PRIVATE NAMES. They are #1089's own invention — the pre-split module
+# had no `render_clip_expr` and no sibling of it — so importing them publicly
+# here made `from app.platform.analysis_sql import render_clip_expr` succeed on
+# this branch and fail on main. That is an API expansion whatever `__all__`
+# says, because callers bind to ATTRIBUTES. Private names keep the promoted
+# surface exactly the 35 the single file defined, and
+# `test_analysis_sql_facade_surface_matches_its_declared_api` now enforces it.
+from .measure import render_measure_expr as _render_measure_expr
 from .overlay import (
     INTERSECT_OUTPUT_COLUMNS,
     INTERSECT_SOURCE_GID_COLUMN,
     MASK_SUBDIVIDE_MAX_VERTICES,
-    render_clip_expr,
     render_clip_layer_join,
     render_intersect_pairs,
     render_intersect_preview,
     render_select_by_location_count,
-    render_select_by_location_expr,
     render_select_by_location_where,
+)
+from .overlay import render_clip_expr as _render_clip_expr
+from .overlay import (
+    render_select_by_location_expr as _render_select_by_location_expr,
 )
 from .shared import (
     BUFFER_LOCAL_SRID_SPAN_DEG,
@@ -93,15 +104,13 @@ from .spatial_join import (
     SPATIAL_JOIN_COUNT_COLUMN,
     SPATIAL_JOIN_FIELD_PREFIX,
     render_spatial_join,
-    render_spatial_join_expr,
     render_spatial_join_match_count,
     spatial_join_output_columns,
 )
-from .transform import (
-    render_buffer_expr,
-    render_centroid_expr,
-    render_geodesic_buffer,
-)
+from .spatial_join import render_spatial_join_expr as _render_spatial_join_expr
+from .transform import render_buffer_expr as _render_buffer_expr
+from .transform import render_centroid_expr as _render_centroid_expr
+from .transform import render_geodesic_buffer
 
 
 def render_geometry_expr(
@@ -121,17 +130,17 @@ def render_geometry_expr(
     both the preview and the materialize worker use.
     """
     if operation == "buffer":
-        return render_buffer_expr(distance_meters)
+        return _render_buffer_expr(distance_meters)
     if operation == "centroid":
-        return render_centroid_expr()
+        return _render_centroid_expr()
     if operation == "measure":
-        return render_measure_expr()
+        return _render_measure_expr()
     if operation == "spatial_join":
-        return render_spatial_join_expr()
+        return _render_spatial_join_expr()
     if operation == "select_by_location":
-        return render_select_by_location_expr(mask)
+        return _render_select_by_location_expr(mask)
     if operation == "clip":
-        return render_clip_expr(mask)
+        return _render_clip_expr(mask)
     raise ValueError(f"Unsupported operation: {operation}")
 
 
@@ -150,10 +159,15 @@ def render_geometry_expr(
 #
 # So this is the pre-split API verbatim, 35 names, neither added to nor taken
 # from. The six per-family `render_*_expr` helpers `render_geometry_expr`
-# composes are #1089's own and are deliberately NOT here: they exist so each
-# family owns the branch that renders it, and promoting them would make the
-# diff against the old module read as an API change when nothing about the
-# caller-facing surface moved.
+# composes are #1089's own and are not here — and, since fix(#1089 review r3),
+# not importable either: they are bound above under `_`-prefixed names.
+#
+# The distinction matters, and missing it is what the review caught. `__all__`
+# governs `import *` and states intent; callers bind to ATTRIBUTES. Leaving the
+# six public made `from app.platform.analysis_sql import render_clip_expr`
+# succeed here and fail on main — an API expansion however honest `__all__`
+# was, and nothing compared the two.
+# `test_analysis_sql_facade_surface_matches_its_declared_api` does now.
 __all__ = [
     "BUFFER_LOCAL_SRID_SPAN_DEG",
     "BUFFER_SLICE_SEGMENTIZE_M",
