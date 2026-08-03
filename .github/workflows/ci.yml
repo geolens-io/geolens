@@ -324,7 +324,7 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: "3.13"
+          python-version: "3.14"
 
       - name: Install dependencies
         run: uv sync --locked --dev
@@ -356,7 +356,7 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: "3.13"
+          python-version: "3.14"
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
         with:
@@ -743,7 +743,7 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: "3.13"
+          python-version: "3.14"
 
       - name: Install dependencies
         run: uv sync --locked --dev
@@ -774,7 +774,7 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: "3.13"
+          python-version: "3.14"
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
         with:
@@ -807,7 +807,7 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: "3.13"
+          python-version: "3.14"
 
       - name: Check all version sites agree
         run: python scripts/check_version_coherence.py
@@ -835,7 +835,7 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: "3.13"
+          python-version: "3.14"
 
       - name: Check docs contract (install/ports/version + forbidden patterns)
         run: python scripts/check_docs_contract.py
@@ -902,7 +902,7 @@ jobs:
           cache-dependency-glob: "backend/uv.lock"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: "3.13"
+          python-version: "3.14"
 
       # Install backend + SDK + CLI editable into ONE shared venv
       # (backend/.venv). The round-trip test in backend/tests/ imports
@@ -992,7 +992,7 @@ jobs:
           cache-dependency-glob: "mcp/pyproject.toml"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: "3.13"
+          python-version: "3.14"
 
       # DB-less unit tests (httpx.MockTransport). The geolens SDK resolves from
       # the sibling tree via mcp/pyproject.toml [tool.uv.sources]; `mcp` comes
@@ -1101,7 +1101,7 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: "3.13"
+          python-version: "3.14"
 
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y gdal-bin xmlsec1
@@ -1239,7 +1239,7 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: "3.13"
+          python-version: "3.14"
 
       - name: Install backend dependencies
         working-directory: backend
@@ -1415,7 +1415,7 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: "3.13"
+          python-version: "3.14"
 
       - name: Install dependencies
         run: uv sync --locked --dev
@@ -1847,7 +1847,7 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: "3.13"
+          python-version: "3.14"
 
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y gdal-bin xmlsec1
