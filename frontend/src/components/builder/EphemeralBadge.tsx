@@ -1,8 +1,16 @@
-import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { ephemeralStatusLabel, useAnnouncedLabel } from '@/components/builder/ephemeral-preview';
 
+// fix(#1009): the builder's full stack panel now surfaces the preview as a row
+// (EphemeralPreviewRow), so this badge no longer renders there. It survives as
+// the surface for the two places that have NO layer stack to put a row in:
+//   - the public viewer (ViewerChatPanel — fix(#542) added it precisely because
+//     the viewer's overlay had no legend entry, badge, or dismissal), and
+//   - the builder below 1100px, where the sidebar collapses to SidebarRail.
+// One ephemeral object still gets exactly one surface; which surface depends on
+// whether a stack exists to host the row.
 interface EphemeralBadgeProps {
   featureCount: number;
   onDismiss: () => void;
@@ -21,39 +29,11 @@ interface EphemeralBadgeProps {
 export function EphemeralBadge({ featureCount, onDismiss, truncated, totalCount, onSaveAsDataset, className }: EphemeralBadgeProps) {
   const { t } = useTranslation('builder');
 
-  // fix(#1076): three cases, not two. A clip filters rows, so the server
-  // cannot report a source total for it — the honest answer to "of how many?"
-  // is unknown. Falling back to the plain count there presented a capped
-  // preview as the complete result, which is #674's concern through a new
-  // door. Capped-with-a-total keeps its "N of M"; capped-without says so
-  // without inventing one.
-  const countLabel = truncated
-    ? totalCount != null
-      ? t('ephemeralBadge.featureCountTruncated', {
-          count: featureCount,
-          // fix(#788): both numbers passed raw — the locale strings group them
-          // via {{count, number}}/{{total, number}} (one sentence, one
-          // grouping), and count keeps driving plural selection.
-          total: totalCount,
-          defaultValue: '{{count, number}} of {{total, number}} features',
-        })
-      : t('ephemeralBadge.featureCountCapped', {
-          count: featureCount,
-          defaultValue: 'first {{count, number}} features',
-        })
-    : t('ephemeralBadge.featureCount', { count: featureCount });
-  const statusLabel = `${t('ephemeralBadge.queryResult')} · ${countLabel}`;
-
-  // fix(#784): live regions only announce mutations made while the region is
-  // already in the accessibility tree — this badge mounts WITH its text, so
-  // role="status" on the wrapper alone would stay silent. Mount the region
-  // empty and populate it a frame later so the preview success (and any later
-  // count change) arrives as a mutation assistive tech actually reads.
-  const [announcedLabel, setAnnouncedLabel] = useState('');
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => setAnnouncedLabel(statusLabel));
-    return () => cancelAnimationFrame(frame);
-  }, [statusLabel]);
+  // fix(#1009): the count sentence and the announced-label pattern moved to
+  // ephemeral-preview.ts so this badge and the stack row cannot drift apart.
+  const counts = { featureCount, truncated, totalCount };
+  const statusLabel = ephemeralStatusLabel(t, counts);
+  const announcedLabel = useAnnouncedLabel(statusLabel);
 
   // fix(#787 item 1): z-20, above the z-10 PluginHost slots. The bottom-left slot
   // is offset to clear this badge, but a panel taller than that offset overlaps it

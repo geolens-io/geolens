@@ -1,6 +1,14 @@
 import { render, screen } from '@/test/test-utils';
 import { EphemeralBadge } from '../EphemeralBadge';
 
+// fix(#1009): still live, and every case below still load-bearing. The badge
+// stopped being the builder's wide-layout surface (that is the ephemeral stack
+// row now) but remains the surface for the public viewer and the builder's
+// <1100px rail, neither of which has a layer stack to host a row. Nothing here
+// was builder-specific: the count strings are shared with the row via
+// ephemeral-preview.ts, and the z-20 case still guards the rail layout, where
+// PluginHost's bottom-left slot is a real neighbour.
+//
 // fix(#788): the badge strings carry plural variants and locale-grouped
 // numbers ({{count, number}} / {{total, number}}) — these tests pin the
 // singular form and the grouping of BOTH numbers in the truncated sentence

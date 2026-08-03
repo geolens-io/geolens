@@ -1065,6 +1065,9 @@
     "featureCountCapped_other": "primeras {{count, number}} entidades",
     "saveAsDataset": "Guardar como conjunto de datos…"
   },
+  "previewRow": {
+    "ephemeralTag": "Efímero: sin guardar"
+  },
   "plugins": {
     "measurement": {
       "label": "Medir",

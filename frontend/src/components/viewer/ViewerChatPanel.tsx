@@ -275,6 +275,11 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
           badge, or dismissal — orange highlights persisted unexplained. Reuse
           the builder's badge; the viewer's bottom-left column is occupied by
           BasemapToggle (bottom-8) and the Map data button (bottom-20). */}
+      {/* fix(#1009): the builder moved this affordance into its layer stack
+          (EphemeralPreviewRow) and dropped the badge there. Do NOT finish the
+          deletion here: the viewer has no layer stack to host a row, so this
+          badge is #542's only dismissal surface. Removing it re-opens #542
+          verbatim — an orange overlay with no way to explain or dismiss it. */}
       {ephemeralResult && (
         <EphemeralBadge
           featureCount={ephemeralResult.geojson.features.length}

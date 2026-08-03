@@ -1065,6 +1065,9 @@
     "featureCountCapped_other": "{{count, number}} premières entités",
     "saveAsDataset": "Enregistrer comme jeu de données…"
   },
+  "previewRow": {
+    "ephemeralTag": "Éphémère — non enregistré"
+  },
   "plugins": {
     "measurement": {
       "label": "Mesurer",

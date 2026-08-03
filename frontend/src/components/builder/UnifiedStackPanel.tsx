@@ -21,6 +21,8 @@ import { SortableStackRow } from '@/components/builder/SortableStackRow';
 import { BasemapGroupRowWrapper } from '@/components/builder/BasemapGroupRowWrapper';
 import { FolderGroupRowWrapper } from '@/components/builder/FolderGroupRowWrapper';
 import { CatalogDragGhost } from '@/components/builder/CatalogDragGhost';
+// fix(#1009): the ephemeral analysis/chat preview as a non-persisting stack row.
+import { EphemeralPreviewRow, type EphemeralPreviewRowProps } from '@/components/builder/EphemeralPreviewRow';
 import { EmptyStackState, eyebrowClassName } from '@/components/builder/EmptyStackState';
 import { BulkActionBar } from '@/components/builder/BulkActionBar';
 // builder-audit #338 STACK-01: use the single typed helper instead of a local
@@ -157,6 +159,11 @@ interface UnifiedStackPanelProps {
    *  basemap row above data layers; 'bottom' (default) renders below. Persisted
    *  via MapBasemapConfig.basemap_position. */
   basemapPosition?: 'top' | 'bottom';
+  /** fix(#1009): the live ephemeral preview, rendered as a non-persisting row
+   *  pinned at the very top of the stack. Null/omitted when no preview is on
+   *  the map. It is NOT a layer: it never enters `layers`, never enters
+   *  `sortableIds`, and carries no sort_order — see the render site. */
+  preview?: EphemeralPreviewRowProps | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -364,6 +371,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   deletingCount,
   freshLayerId = null,
   basemapPosition = 'bottom',
+  preview = null,
 }: UnifiedStackPanelProps) {
   const { t } = useTranslation('builder');
 
@@ -720,6 +728,16 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
         className="flex-1 overflow-y-auto"
         aria-label={t('unifiedStack.listboxLabel', { defaultValue: 'Map layers' })}
       >
+        {/* fix(#1009): the ephemeral preview, pinned at the very top — the
+            overlay paints above every layer on the map, so any other position
+            would have the stack lying about what covers what. Rendered HERE,
+            before the SortableContext opens, so its id is structurally
+            incapable of reaching `sortableIds`; a "non-draggable" flag on the
+            sortable wrapper would still leave a member of the sortable
+            collection with no layer behind it for handleDragEnd to resolve.
+            Also outside the isEmpty branch, so a preview on a map with no
+            layers still has a dismiss affordance. */}
+        {preview && <EphemeralPreviewRow {...preview} />}
         {isEmpty ? (
           <>
             <EmptyStackState

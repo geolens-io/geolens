@@ -513,15 +513,20 @@ export function ChatPanel({
       if (minX < -180 || minY < -90 || maxX > 180 || maxY > 90) return;
       // fix(#527 B-054/C-06): inverted bounds also throw in fitBounds.
       if (minX > maxX || minY > maxY) return;
-      // fix(#674 audit): forward the truncation pair so EphemeralBadge can say
-      // "500 of 10,651 features". Both query_data and run_analysis emit them
-      // only when the server-side cap actually bit.
+      // fix(#674 audit): forward the truncation pair so the preview surface can
+      // say "500 of 10,651 features". Both query_data and run_analysis emit
+      // them only when the server-side cap actually bit.
+      // fix(#1009): that surface is the ephemeral stack row in this (builder)
+      // path — EphemeralPreviewRow, via UnifiedStackPanel's `preview` prop.
+      // The badge still consumes the same pair in the viewer and in the
+      // builder's <1100px rail layout.
       //
       // fix(#1076): the flag no longer waits for the total. A clip filters
       // rows, so the server reports no source total for it, and requiring one
       // dropped the disclosure entirely — a capped clip preview then read as
-      // complete. The total rides along when there is one; the badge picks its
-      // wording from whether it arrived.
+      // complete. The total rides along when there is one; the surface picks
+      // its wording from whether it arrived (ephemeralCountLabel in
+      // components/builder/ephemeral-preview.ts, shared by row and badge).
       //
       // The producer half is #1071: until that lands, collect_run_analysis_action
       // still omits `truncated` whenever the total is absent, so this branch is
@@ -531,7 +536,8 @@ export function ChatPanel({
         ? { truncated: true, ...(total != null ? { totalCount: total } : {}) }
         : undefined;
       // feat(#675): a run_analysis action carries its reconstruction params so
-      // the badge can offer "Save as dataset" (prefilled Analysis panel).
+      // the preview surface can offer "Save as dataset" (prefilled Analysis
+      // panel) — fix(#1009): the stack row in this path, the badge in the rail.
       const analysis: EphemeralAnalysisHandoff | undefined =
         (action.operation === 'buffer' || action.operation === 'centroid') && action.layer_id
           ? {
