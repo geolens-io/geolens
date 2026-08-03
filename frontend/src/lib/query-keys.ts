@@ -245,6 +245,27 @@ export const queryKeys = {
   },
 
   // -------------------------------------------------------------------------
+  // SAML providers
+  // -------------------------------------------------------------------------
+  /**
+   * fix(#1164): the admin SAML section read and invalidated its list through four
+   * independent `['saml', 'providers']` literals that agreed only by convention.
+   * A typo in any one of them produced an invalidation that silently did nothing.
+   * The key string is unchanged so existing cache entries still match (see the
+   * deployment rule at the top of this file).
+   *
+   * This gets its own root rather than sitting under `settingsOAuth` even though
+   * `listSamlProviders` (api/saml.ts) fetches the same `/settings/oauth-providers/`
+   * endpoint: it filters the response down to the SAML rows, so the two caches hold
+   * different payloads and must not prefix-match each other. Fanning a provider
+   * mutation out across both is `useInvalidateAuthProviders`
+   * (hooks/use-auth-providers.ts), which the SAML section calls alongside this key.
+   */
+  saml: {
+    providers: ['saml', 'providers'] as const,
+  },
+
+  // -------------------------------------------------------------------------
   // Relationships
   // -------------------------------------------------------------------------
   relationships: {
