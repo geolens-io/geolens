@@ -961,7 +961,7 @@ dev = [
     { name = "fakeredis", specifier = ">=2.37.0" },
     { name = "moto", extras = ["s3"], specifier = ">=5.2.2" },
     { name = "pip-audit", specifier = ">=2.10.1" },
-    { name = "pystac", specifier = ">=1.15.1" },
+    { name = "pystac", specifier = ">=1.15.2" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
@@ -1931,7 +1931,7 @@ wheels = [
 
 [[package]]
 name = "pystac"
-version = "1.15.1"
+version = "1.15.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pystac-core" },
@@ -1958,9 +1958,9 @@ dependencies = [
     { name = "pystac-ext-view" },
     { name = "pystac-ext-xarray-assets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e8/f8/d792facb89e85d1e7d7d94e819477296486e5d227c5b755fef827bc441c2/pystac-1.15.1.tar.gz", hash = "sha256:0975f78ac648b89f180378089fdd358006c0dc5d974db57c6f8fa81c4162f5d5", size = 5549, upload-time = "2026-06-30T21:48:54.603Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/83/38/300a9bc5bf30748c7bc768afd8564e0b6958810c8ca0c50f1c0847676a40/pystac-1.15.2.tar.gz", hash = "sha256:4c9a3b2352cad7eb3c226145251c65cbe5c1b04b25d4265b30c015dddf5f391d", size = 7595, upload-time = "2026-07-27T15:47:43.842Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f0/7d/b3a4dd7f5c7873c4e884c26bd6fd7b7791036b31ef82bb5eca7f12c3acaa/pystac-1.15.1-py3-none-any.whl", hash = "sha256:3a1be7a1d819a3dadfa6612be0035fec62ceb38d64acdc9cef66649d03eb84da", size = 5079, upload-time = "2026-06-30T21:48:53.3Z" },
+    { url = "https://files.pythonhosted.org/packages/34/54/81ca429d8ee0fa1ff78ad3102a612cfb8224aae4ba42ac625c726b13f81c/pystac-1.15.2-py3-none-any.whl", hash = "sha256:b006833253d7e5acd04d877bb7504e14aa1dc98dd0f0ab12f893595030dda2b3", size = 5694, upload-time = "2026-07-27T15:47:42.768Z" },
 ]
 
 [[package]]
