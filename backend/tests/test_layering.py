@@ -1892,7 +1892,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # pre-existing geom_4326 (savepoint + error contract mirroring the
     # add_4326_column branch beside it); see linearize_existing_4326.
     # Cap 1017 -> 1032, still exact.
-    "backend/app/processing/ingest/service.py": 1032,
+    # fix(#1114): +12 — register_existing_table docstring records the
+    # registered-table linear-geometry contract (linearize once at
+    # registration, no post-registration policing). Cap 1032 -> 1044.
+    "backend/app/processing/ingest/service.py": 1044,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.
