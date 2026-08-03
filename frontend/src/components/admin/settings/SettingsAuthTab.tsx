@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Pencil, Trash2, Plus, Copy } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -46,6 +46,7 @@ import {
   deleteOAuthProvider,
 } from '@/api/settings';
 import { queryKeys } from '@/lib/query-keys';
+import { useInvalidateAuthProviders } from '@/hooks/use-auth-providers';
 import { useTileConfig } from '@/hooks/use-settings';
 import { getPublicApiBaseUrl } from '@/lib/dataset-access';
 import { Textarea } from '@/components/ui/textarea';
@@ -132,7 +133,9 @@ const EMPTY_FORM: ProviderFormData = {
 function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
   const { t } = useTranslation('admin');
   const PROVIDER_TYPE_LABELS = useProviderTypeLabels();
-  const queryClient = useQueryClient();
+  // fix(#1117): invalidates the login page's provider buttons alongside this
+  // table — the two used to drift, see hooks/use-auth-providers.ts.
+  const invalidateAuthProviders = useInvalidateAuthProviders();
 
   const { data: providers = [], isLoading, isError } = useQuery({
     queryKey: queryKeys.settingsOAuth.providers,
@@ -142,7 +145,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
   const createMutation = useMutation({
     mutationFn: (data: OAuthProviderCreateData) => createOAuthProvider(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.settingsOAuth.providers });
+      invalidateAuthProviders();
       toast.success(t('settings.oauth.created'));
     },
     onError: () => {
@@ -154,7 +157,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
     mutationFn: ({ id, data }: { id: string; data: OAuthProviderUpdateData }) =>
       updateOAuthProvider(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.settingsOAuth.providers });
+      invalidateAuthProviders();
       toast.success(t('settings.oauth.updated'));
     },
     onError: () => {
@@ -165,7 +168,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteOAuthProvider(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.settingsOAuth.providers });
+      invalidateAuthProviders();
       toast.success(t('settings.oauth.deleted'));
     },
     onError: () => {

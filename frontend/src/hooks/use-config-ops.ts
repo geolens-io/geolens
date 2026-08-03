@@ -74,9 +74,11 @@ export function useImportConfig() {
       queryClient.invalidateQueries({ queryKey: queryKeys.settings.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.authConfig.config });
       // chore(#1021): the login page's OAuth buttons. The sibling admin surfaces that
-      // mutate the same providers (SettingsAuthTab, SamlProvidersSection) invalidate
-      // only settingsOAuth.providers and miss this key. That gap is #1117, the inverse
-      // of this issue, and is not fixed here.
+      // mutate the same providers (SettingsAuthTab, SamlProvidersSection) used to
+      // invalidate only settingsOAuth.providers and miss this key; fix(#1117) routes
+      // them through useInvalidateAuthProviders (hooks/use-auth-providers.ts), which
+      // hits both. This surface stays inline — it invalidates far more than the
+      // provider pair.
       queryClient.invalidateQueries({ queryKey: queryKeys.authConfig.oauthProviders });
       // chore(#1021): the two AI-readiness keys below are a mutually-exclusive PAIR,
       // not a duplicate. useAIAvailability mounts admin.aiStatus when
