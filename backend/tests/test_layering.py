@@ -63,6 +63,7 @@ Markers:
 from __future__ import annotations
 
 import ast
+import importlib
 import re
 import subprocess
 from pathlib import Path
@@ -792,6 +793,585 @@ def test_no_external_imports_of_search_private_service_modules() -> None:
         )
 
 
+_ANALYSIS_SQL_PACKAGE = "app.platform.analysis_sql"
+_ANALYSIS_SQL_FAMILIES = frozenset(
+    {"measure", "overlay", "shared", "spatial_join", "transform"}
+)
+
+# How many times to re-walk a file propagating `sql = analysis_sql` rebinds.
+# Three covers any chain a reviewer would let through; the loop exits early
+# when nothing new binds, so this is a ceiling rather than a cost.
+_BINDING_REBIND_ROUNDS = 3
+
+# The seven modules that legitimately consume the façade. Named so the
+# both-directions test can prove the guard still LETS THEM THROUGH — a refusal
+# assertion cannot notice that a correct import started being rejected.
+_ANALYSIS_SQL_CALLERS = (
+    "app/modules/catalog/datasets/api/router_analysis.py",
+    "app/modules/catalog/datasets/domain/schemas.py",
+    "app/modules/catalog/datasets/domain/service_analysis.py",
+    "app/platform/extensions/defaults_processing_port.py",
+    "app/platform/sandbox/validator.py",
+    "app/processing/ai/sql_generator.py",
+    "app/processing/analysis/tasks.py",
+)
+
+
+def _dotted_name(node: ast.expr) -> str:
+    """Flatten an attribute chain to ``a.b.c``; ``""`` when it is not one."""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        base = _dotted_name(node.value)
+        return f"{base}.{node.attr}" if base else ""
+    if isinstance(node, ast.NamedExpr):
+        # A walrus EVALUATES to its value, so `(sql := analysis_sql).overlay`
+        # reaches the family through the assignment expression itself rather
+        # than through the name it binds. Seeing through it is the semantics,
+        # not a special case for that spelling.
+        return _dotted_name(node.value)
+    return ""
+
+
+def _reaches_analysis_sql_family(dotted: str) -> str:
+    """The family a dotted path reaches (``…analysis_sql.overlay``), else ``""``.
+
+    Segment-wise so a RELATIVE ``from .analysis_sql.overlay import …`` is seen
+    too: the ast node carries that as ``analysis_sql.overlay``, with no package
+    prefix to anchor a string match on.
+    """
+    parts = dotted.split(".")
+    for parent, child in zip(parts, parts[1:]):
+        if parent == "analysis_sql" and child in _ANALYSIS_SQL_FAMILIES:
+            return child
+    return ""
+
+
+def _is_analysis_sql_package(dotted: str) -> bool:
+    """True for the façade spelled out in full, absolute or relative.
+
+    A LITERAL test, and only a fallback — ``_analysis_sql_facade_bindings``
+    below is what actually decides whether an expression denotes the façade.
+    This still earns its place for a handle re-exposed as an attribute
+    (``self.analysis_sql.overlay``), which no import-binding pass can see.
+    """
+    return bool(dotted) and dotted.split(".")[-1] == "analysis_sql"
+
+
+def _analysis_sql_facade_bindings(tree: ast.Module) -> set[str]:
+    """Expressions denoting the façade PACKAGE in this file, alias included.
+
+    refactor(#1089 review r2): the structural half of the fix. Round 1 compared
+    an attribute chain's base against the literal string ``analysis_sql``, so
+    ``from app.platform import analysis_sql as sql`` then ``sql.overlay.…``
+    walked past it. Chasing that as a missing case is unwinnable — every alias
+    spelling is a new literal and there are infinitely many. Resolving the name
+    to what it is BOUND to closes the class instead, which is why round 2's
+    table adds aliased twins and they need no new branches.
+
+    Bindings are collected FILE-WIDE rather than per scope, so a function-local
+    ``import … as sql`` is seen. That over-approximates: a name bound to the
+    façade in one function makes ``<name>.overlay`` suspicious anywhere in the
+    file. Deliberate — the error direction for a guard is to flag too much, and
+    the alternative silently under-reports.
+    """
+    bound: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if not _is_analysis_sql_package(alias.name):
+                    continue
+                # `import a.b.analysis_sql` binds `a`, and the module is reached
+                # through the whole chain, so the chain is the expression to
+                # record. `… as sql` binds `sql` to the module directly.
+                bound.add(alias.asname or alias.name)
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                # `from app.platform import analysis_sql [as sql]`, and the
+                # relative `from . import analysis_sql [as sql]`. The package
+                # name is unique in this tree, so not resolving the relative
+                # level over-approximates rather than misses.
+                if alias.name == "analysis_sql":
+                    bound.add(alias.asname or alias.name)
+
+    # One more hop: `sql = analysis_sql` is two characters from `import … as
+    # sql` and binds exactly the same thing. Iterated because rebinding can
+    # chain; bounded because a fixpoint over a file's assignments is not worth
+    # an unbounded loop in a test.
+    #
+    # fix(#1089 review r3): the rebind pass read ``ast.Assign`` only, so the
+    # ANNOTATED form ``sql: object = analysis_sql`` bound nothing — a
+    # statically resolvable path, so the contract below was overstating.
+    # Closed as a form-space rather than a case: every node that pairs a
+    # target with a value is handled, which is Assign, AnnAssign, the walrus,
+    # and element-wise tuple/list unpacking. Attribute targets fall out for
+    # free, so ``self.sql = analysis_sql`` then ``self.sql.overlay`` is seen.
+    for _ in range(_BINDING_REBIND_ROUNDS):
+        grew = False
+        for node in ast.walk(tree):
+            for target, value in _binding_pairs(node):
+                if _dotted_name(value) not in bound:
+                    continue
+                name = _dotted_name(target)
+                if name and name not in bound:
+                    bound.add(name)
+                    grew = True
+        if not grew:
+            break
+    return bound
+
+
+def _binding_pairs(node: ast.AST) -> list[tuple[ast.expr, ast.expr]]:
+    """``(target, value)`` pairs a node binds, for the forms worth modelling.
+
+    Handled: ``x = v``, ``x: T = v``, ``(x := v)``, and ``a, b = v1, v2``
+    element-wise when both sides are literal sequences of the same length.
+
+    NOT handled, and these are residue rather than oversights:
+
+    - ``for sql in (analysis_sql,)`` and ``with cm(analysis_sql) as sql``.
+      Both bind through a PROTOCOL — iteration, and ``__enter__`` — whose
+      result is only knowable for a literal container or a context manager
+      that happens to return its argument. A branch would be right for the
+      contrived literal and wrong for everything else, which is the kind of
+      coverage that reads as more than it is.
+    - a parameter default, ``def build(sql=analysis_sql)``. The default is
+      evaluated where the module is already bound, so the import itself is
+      visible; only the indirect use inside the body escapes, and pairing
+      defaults to arguments is index arithmetic in service of a shape nobody
+      writes.
+
+    Neither appears anywhere under ``backend/app/``.
+    """
+    if isinstance(node, ast.Assign):
+        pairs: list[tuple[ast.expr, ast.expr]] = []
+        for target in node.targets:
+            pairs.extend(_unpack_pair(target, node.value))
+        return pairs
+    if isinstance(node, ast.AnnAssign) and node.value is not None:
+        return _unpack_pair(node.target, node.value)
+    if isinstance(node, ast.NamedExpr):
+        return _unpack_pair(node.target, node.value)
+    return []
+
+
+def _unpack_pair(target: ast.expr, value: ast.expr) -> list[tuple[ast.expr, ast.expr]]:
+    """One pair, or the element-wise pairs of a same-length sequence unpack."""
+    if (
+        isinstance(target, (ast.Tuple, ast.List))
+        and isinstance(value, (ast.Tuple, ast.List))
+        and len(target.elts) == len(value.elts)
+    ):
+        return list(zip(target.elts, value.elts))
+    return [(target, value)]
+
+
+def _analysis_sql_family_bypasses(source: str, rel: str) -> list[str]:
+    """Every reference reaching a family module, as ``rel:lineno: detail``.
+
+    THE CONTRACT: this catches every path to a family module that is
+    STATICALLY RESOLVABLE. It is not, and cannot be, "catches everything" —
+    see the residue at the bottom.
+
+    Two review rounds shaped it, and both were the same mistake at different
+    depths: comparing literal text where a name had to be resolved.
+
+    - r1 matched ``node.module`` alone, so ``from app.platform.analysis_sql
+      import overlay`` walked past — the module IS the façade (allowed) and the
+      imported NAME was never read. That import succeeds at runtime, because
+      the façade imports its submodules and they become package attributes.
+    - r2 matched an attribute chain's base against the literal ``analysis_sql``,
+      so ``from app.platform import analysis_sql as sql`` then
+      ``sql.overlay.…`` walked past. Fixed by resolving bindings
+      (``_analysis_sql_facade_bindings``) rather than by adding alias cases,
+      because the set of spellings is unbounded.
+
+    What is checked, in three passes over one parse:
+
+    1. an import whose dotted path traverses a family — ``import
+       …analysis_sql.overlay``, ``from …analysis_sql.overlay import x``,
+       aliased or not, absolute or relative;
+    2. an import FROM the façade whose imported NAME is a family — ``from
+       …analysis_sql import overlay [as ov]``, mixed freely with real exports;
+    3. an attribute chain ``<expr>.<family>`` where ``<expr>`` is bound to the
+       façade in this file — under any alias, through a plain assignment, and
+       from a function-local import.
+
+    STRUCTURALLY OUT OF REACH, so the next review round can be answered by
+    pointing here instead of re-litigating. No static import analysis sees
+    these, and a branch for the spelled-out case would read as coverage it does
+    not provide:
+
+    - ``getattr(analysis_sql, name)`` — the attribute is a value, not a node.
+    - ``importlib.import_module(path)`` — likewise, and the argument need not
+      be a literal.
+    - anything reached through a data flow this does not model (a family module
+      returned from a function, stashed in a dict, passed as a parameter, or
+      bound by a ``for``/``with`` target — see ``_binding_pairs`` for why those
+      last two stay out).
+
+    Nothing under ``backend/app/`` loads a platform module any of those ways.
+
+    One shape looks like residue and is not: ``from …analysis_sql import *``
+    cannot reach a family at all, because ``__init__`` declares ``__all__`` and
+    no family name is in it. That is a property of the FAÇADE rather than of
+    this matcher, so it is pinned where it is decided — see the ``__all__``
+    assertion in ``test_analysis_sql_facade_guard_sees_every_bypass_shape``.
+    """
+    tree = ast.parse(source)
+    facade = _analysis_sql_facade_bindings(tree)
+
+    offenders: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if _reaches_analysis_sql_family(alias.name):
+                    offenders.append(f"  {rel}:{node.lineno}: import {alias.name}")
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            if _reaches_analysis_sql_family(module):
+                offenders.append(f"  {rel}:{node.lineno}: from {module} import …")
+            elif _is_analysis_sql_package(module):
+                for alias in node.names:
+                    if alias.name in _ANALYSIS_SQL_FAMILIES:
+                        offenders.append(
+                            f"  {rel}:{node.lineno}: from {module} import {alias.name}"
+                        )
+        elif isinstance(node, ast.Attribute) and node.attr in _ANALYSIS_SQL_FAMILIES:
+            # `sql.overlay.render_clip(…)` after a perfectly legal
+            # `from app.platform import analysis_sql as sql`. No import
+            # statement names the family; the caller holds it just the same.
+            base = _dotted_name(node.value)
+            if base and (base in facade or _is_analysis_sql_package(base)):
+                offenders.append(f"  {rel}:{node.lineno}: {base}.{node.attr}")
+    return sorted(set(offenders))
+
+
+def _analysis_sql_facade_all_names() -> set[str]:
+    """``__all__`` from the façade, read statically so no app import is needed."""
+    source = _backend_path("app/platform/analysis_sql/__init__.py")
+    for node in ast.parse(source.read_text(encoding="utf-8")).body:
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(
+            isinstance(target, ast.Name) and target.id == "__all__"
+            for target in node.targets
+        ):
+            continue
+        if isinstance(node.value, (ast.List, ast.Tuple)):
+            return {
+                element.value
+                for element in node.value.elts
+                if isinstance(element, ast.Constant)
+            }
+    pytest.fail("analysis_sql/__init__.py no longer declares __all__")
+
+
+@pytest.mark.architecture
+def test_no_external_imports_of_analysis_sql_family_modules() -> None:
+    """refactor(#1089): analysis_sql's family modules are reached via the façade.
+
+    ``app.platform.analysis_sql`` exists so the catalog preview path
+    (``datasets/domain/service_analysis.py``) and the processing materialize
+    worker (``processing/analysis/tasks.py``) render IDENTICAL SQL. Catalog
+    cannot import processing and processing cannot import catalog, so before
+    the module existed each path carried its own copy of every statement and
+    they drifted: an approved preview and the dataset it saved could disagree
+    about what the operation meant.
+
+    #1089 split it by operation family — overlay, measure, spatial_join,
+    transform, over a shared core. That is safe only while the façade stays the
+    single import surface. The moment a caller reaches past it, "which renderer
+    does this path use" becomes a per-caller question again, which is the same
+    failure in a new shape. Cross-imports BETWEEN family modules are fine (they
+    are one package and reach each other relatively); only external bypasses
+    are forbidden.
+
+    Walks the tree rather than git-grepping, so an untracked new file is
+    covered on the run that introduces it.
+    """
+    package_dir = _backend_path("app/platform/analysis_sql")
+
+    offenders: list[str] = []
+    for path in sorted(_backend_path("app").rglob("*.py")):
+        if package_dir in path.parents:
+            continue
+        offenders.extend(
+            _analysis_sql_family_bypasses(
+                path.read_text(encoding="utf-8"), _repo_style_rel(path)
+            )
+        )
+
+    if offenders:
+        pytest.fail(
+            "A module outside the analysis_sql package reaches one of its "
+            f"operation-family modules directly. Use `{_ANALYSIS_SQL_PACKAGE}` "
+            "instead — it re-exports every renderer, and keeping it the single "
+            "import surface is what stops the preview path and the materialize "
+            "worker from drifting apart on what SQL they run (#1089).\n"
+            + "\n".join(offenders)
+        )
+
+
+# Public attributes the façade is allowed to carry without declaring them in
+# __all__, each with the reason it cannot simply be made private.
+_ANALYSIS_SQL_SURFACE_EXEMPT = {
+    # Importing a submodule binds it on the parent package. Unavoidable for a
+    # package, and it is what `test_no_external_imports_of_analysis_sql_family_
+    # modules` exists to police instead.
+    **{
+        family: "submodule bound by the import machinery"
+        for family in ("measure", "overlay", "shared", "spatial_join", "transform")
+    },
+    "annotations": "`from __future__ import annotations`",
+    "Any": "typing import used in render_geometry_expr's signature",
+}
+
+
+@pytest.mark.architecture
+def test_analysis_sql_facade_surface_matches_its_declared_api() -> None:
+    """The IMPORTABLE surface equals __all__, exemptions named one by one.
+
+    fix(#1089 review r3): #1089 added six per-family `render_*_expr` helpers so
+    each family owns the branch that renders it, kept them out of `__all__`,
+    and imported them publicly anyway. `from app.platform.analysis_sql import
+    render_clip_expr` therefore worked on the branch and failed on main — an
+    API expansion the PR was simultaneously claiming not to make.
+
+    `__all__` was honest and irrelevant: it governs `import *` and states
+    intent, while callers bind to ATTRIBUTES. Nothing was comparing the two,
+    which is how the surface drifted twice without a failing test. This is that
+    comparison. It imports the façade, which is cheap and needs no database —
+    `app.core.geo` pulls only shapely and sqlalchemy.
+
+    The comparison is EXACT, and the exemptions are named one by one with a
+    reason. Resist relaxing it into a predicate — "ignore short names",
+    "ignore anything not callable" — because its whole value is that the next
+    accidental promotion has nowhere to land. An exemption forces someone to
+    write down why; a predicate quietly absorbs the thing it was meant to
+    catch.
+
+    THIS CHECK IS HALF OF THE INVARIANT. Python binds a submodule on its
+    parent package at import, so `analysis_sql.overlay` is a public attribute
+    no matter what this module does — it is exempt here because it is
+    unavoidable, not because it is harmless. What makes it harmless is
+    ``test_no_external_imports_of_analysis_sql_family_modules``, which fails
+    the build if anything outside the package reaches through it. So: this
+    test keeps the DECLARED surface honest, that one keeps the UNAVOIDABLE
+    surface unused, and "the façade is the only import surface" is true
+    because both hold. Neither is sufficient alone, and deleting either one
+    leaves a claim the remaining test does not support.
+    """
+    facade = importlib.import_module(_ANALYSIS_SQL_PACKAGE)
+
+    public = {name for name in dir(facade) if not name.startswith("_")}
+    declared = set(facade.__all__)
+    unexpected = public - declared - set(_ANALYSIS_SQL_SURFACE_EXEMPT)
+    assert not unexpected, (
+        "these names are importable from the façade but are not in __all__ and "
+        "are not exempt. Either add them to __all__ deliberately — which grows "
+        "the public API and needs to be stated as such — or bind them under a "
+        f"_-prefixed name: {sorted(unexpected)}"
+    )
+
+    missing = declared - public
+    assert not missing, (
+        f"__all__ promises names the façade does not bind: {sorted(missing)}"
+    )
+
+    # The exemptions must stay live, or the list becomes a place stale entries
+    # hide and the next real expansion slips in behind one.
+    stale = set(_ANALYSIS_SQL_SURFACE_EXEMPT) - public
+    assert not stale, (
+        f"these surface exemptions no longer apply and should go: {sorted(stale)}"
+    )
+
+
+@pytest.mark.architecture
+def test_analysis_sql_facade_guard_sees_every_bypass_shape() -> None:
+    """The guard above, pinned in BOTH directions.
+
+    A refusal assertion is half a test: it cannot notice that a legitimate
+    import started being rejected, and a guard nobody has fed a bypass to is
+    indistinguishable from one that matches nothing. So every shape that must
+    fail is listed beside every shape that must pass, and the near-miss cases
+    are in the table on purpose — ``spatial_join_output_columns`` is a real
+    export whose name starts with a family name, and ``from app.platform
+    import analysis_sql`` is how a caller legitimately holds the façade.
+    """
+    must_fail = {
+        "from-submodule": (
+            f"from {_ANALYSIS_SQL_PACKAGE}.overlay import render_clip_layer_join"
+        ),
+        "from-submodule aliased": (
+            f"from {_ANALYSIS_SQL_PACKAGE}.transform import render_geodesic_buffer as b"
+        ),
+        "from-package import family": f"from {_ANALYSIS_SQL_PACKAGE} import overlay",
+        "from-package import family aliased": (
+            f"from {_ANALYSIS_SQL_PACKAGE} import measure as m"
+        ),
+        "from-package mixed with a real export": (
+            f"from {_ANALYSIS_SQL_PACKAGE} import render_geometry_expr, shared"
+        ),
+        "plain dotted import": f"import {_ANALYSIS_SQL_PACKAGE}.spatial_join",
+        "plain dotted import aliased": f"import {_ANALYSIS_SQL_PACKAGE}.overlay as ov",
+        "relative from-submodule": (
+            "from .analysis_sql.overlay import render_intersect_pairs"
+        ),
+        "relative from-package import family": "from .analysis_sql import shared",
+        "attribute chain off the façade": (
+            "from app.platform import analysis_sql\n"
+            "x = analysis_sql.overlay.render_clip_layer_join('t', src='s')"
+        ),
+        "attribute chain, relative façade": (
+            "from . import analysis_sql\nx = analysis_sql.shared.MAX_SOURCE_FEATURES"
+        ),
+        "attribute chain off the full path": (
+            f"import {_ANALYSIS_SQL_PACKAGE}\n"
+            f"x = {_ANALYSIS_SQL_PACKAGE}.transform.render_geodesic_buffer('g', 1.0)"
+        ),
+        # --- r2: the aliased twin of every chain above. Each one is a fresh
+        # literal and a fresh miss for a text matcher; none needs a branch of
+        # its own once the base is resolved to its binding.
+        "attribute chain, from-import ALIAS": (
+            "from app.platform import analysis_sql as sql\n"
+            "x = sql.overlay.render_clip_layer_join('t', src='s')"
+        ),
+        "attribute chain, plain-import ALIAS": (
+            f"import {_ANALYSIS_SQL_PACKAGE} as sql\n"
+            "x = sql.overlay.render_clip_layer_join('t', src='s')"
+        ),
+        "attribute chain, relative ALIAS": (
+            "from . import analysis_sql as sql\nx = sql.shared.MAX_SOURCE_FEATURES"
+        ),
+        "attribute chain, underscore ALIAS": (
+            "from app.platform import analysis_sql as _s\n"
+            "x = _s.transform.render_geodesic_buffer('g', 1.0)"
+        ),
+        "attribute chain via plain rebind": (
+            "from app.platform import analysis_sql\n"
+            "sql = analysis_sql\n"
+            "x = sql.overlay.render_clip_layer_join('t', src='s')"
+        ),
+        "attribute chain, function-local ALIAS": (
+            "def build():\n"
+            "    from app.platform import analysis_sql as sql\n"
+            "    return sql.measure.render_measure_columns()"
+        ),
+        "attribute chain off a re-exposed handle": (
+            "class Renderer:\n"
+            "    def build(self):\n"
+            "        return self.analysis_sql.overlay.render_clip_layer_join(\n"
+            "            't', src='s'\n"
+            "        )"
+        ),
+        "aliased façade plus a family import": (
+            f"import {_ANALYSIS_SQL_PACKAGE} as sql\n"
+            f"from {_ANALYSIS_SQL_PACKAGE} import shared"
+        ),
+        # --- r3: the binding FORMS, not just the binding names.
+        "attribute chain via ANNOTATED rebind": (
+            "from app.platform import analysis_sql\n"
+            "sql: object = analysis_sql\n"
+            "x = sql.overlay.render_clip_layer_join('t', src='s')"
+        ),
+        "attribute chain via walrus": (
+            "from app.platform import analysis_sql\n"
+            "x = (sql := analysis_sql).overlay.render_clip_layer_join('t', src='s')"
+        ),
+        "attribute chain via tuple unpack": (
+            "from app.platform import analysis_sql\n"
+            "sql, other = analysis_sql, 1\n"
+            "x = sql.shared.MAX_SOURCE_FEATURES"
+        ),
+        "attribute chain via an instance attribute": (
+            "from app.platform import analysis_sql\n"
+            "class R:\n"
+            "    def bind(self):\n"
+            "        self.sql = analysis_sql\n"
+            "    def build(self):\n"
+            "        return self.sql.transform.render_geodesic_buffer('g', 1.0)"
+        ),
+    }
+    must_pass = {
+        "façade renderer": f"from {_ANALYSIS_SQL_PACKAGE} import render_clip_layer_join",
+        "façade constants": (
+            f"from {_ANALYSIS_SQL_PACKAGE} import MAX_SOURCE_FEATURES, "
+            "render_geometry_expr"
+        ),
+        "export whose name starts with a family name": (
+            f"from {_ANALYSIS_SQL_PACKAGE} import spatial_join_output_columns"
+        ),
+        "façade held as a module": "from app.platform import analysis_sql",
+        "façade held relatively": "from . import analysis_sql",
+        "plain façade import": f"import {_ANALYSIS_SQL_PACKAGE}",
+        "attribute off the façade, not a family": (
+            "from app.platform import analysis_sql\n"
+            "x = analysis_sql.render_geometry_expr('centroid')"
+        ),
+        "a family NAME on an unrelated package": (
+            "from app.platform.cache import shared"
+        ),
+        # --- r2: the must-pass twins. These are what prove the fix resolves
+        # BINDINGS rather than blacklisting whatever the alias happened to be
+        # called in the reported instance.
+        "ALIASED façade, ordinary renderer": (
+            "from app.platform import analysis_sql as sql\n"
+            "x = sql.render_geometry_expr('centroid')"
+        ),
+        "ALIASED façade, ordinary constant": (
+            f"import {_ANALYSIS_SQL_PACKAGE} as sql\nx = sql.MAX_SOURCE_FEATURES"
+        ),
+        # The discriminator: same alias, different module. A guard that had
+        # merely learned the word `sql` would flag this.
+        "a DIFFERENT module under the same alias": (
+            "from app.platform import cache as sql\nx = sql.shared"
+        ),
+        "an unrelated handle that happens to be sql": (
+            "import sqlalchemy\nsql = sqlalchemy.text('select 1')\nx = sql.compile()"
+        ),
+    }
+
+    missed = [
+        label
+        for label, source in sorted(must_fail.items())
+        if not _analysis_sql_family_bypasses(source, "probe.py")
+    ]
+    assert not missed, (
+        "these bypass shapes reach a family module and the guard let them "
+        f"through: {missed}"
+    )
+
+    rejected = {
+        label: found
+        for label, source in sorted(must_pass.items())
+        if (found := _analysis_sql_family_bypasses(source, "probe.py"))
+    }
+    assert not rejected, f"the guard rejected legitimate façade usage: {rejected}"
+
+    # The seven real consumers, checked as themselves rather than as snippets:
+    # each must still reference the façade (so this is not vacuous) and none
+    # may trip the guard.
+    for rel in _ANALYSIS_SQL_CALLERS:
+        source = _backend_path(rel).read_text(encoding="utf-8")
+        assert _ANALYSIS_SQL_PACKAGE in source, (
+            f"{rel} no longer references {_ANALYSIS_SQL_PACKAGE}; either it "
+            "stopped being a caller or this list is stale"
+        )
+        assert not _analysis_sql_family_bypasses(source, rel)
+
+    # What makes `from … import *` safe, pinned where it is actually decided.
+    # Without __all__ the star would bind the submodules the façade imports,
+    # and no import-shape matcher could see it happen.
+    exported = _analysis_sql_facade_all_names()
+    assert exported, "the façade's __all__ is empty"
+    assert exported.isdisjoint(_ANALYSIS_SQL_FAMILIES), (
+        "a family module name is exported in the façade's __all__, so "
+        f"`from {_ANALYSIS_SQL_PACKAGE} import *` now reaches a family: "
+        f"{sorted(exported & _ANALYSIS_SQL_FAMILIES)}"
+    )
+
+
 @pytest.mark.architecture
 def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     """Phase 238 BOUND-02 + Phase 269 H-05 + Phase 276 CODE-02: decomposed splits stay bounded.
@@ -1339,68 +1919,29 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the wrong text shipped into both SDKs.
     "backend/app/modules/catalog/datasets/domain/schemas.py": 1138,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
-    # Both cross 1000 for the first time here, and both cross it for the same
-    # reason: the four operations are deliberately concentrated rather than
-    # spread. Every rendered statement lives in analysis_sql (662 -> 1173) so
-    # the preview path and the materialize worker cannot drift apart on what
-    # SQL they run, which is the whole reason the module exists in platform/
-    # instead of in either caller. tasks.py grows by one branch per operation
-    # for the same reason: the CTAS shape is decided in one place. Splitting
-    # either one per-operation would trade this module's size for the drift it
-    # was built to prevent, so the growth is the design working.
+    # tasks.py crossed 1000 for the first time here because the four operations
+    # are deliberately concentrated rather than spread: it grows by one branch
+    # per operation so the CTAS shape is decided in one place, the same reason
+    # every rendered statement lives in analysis_sql rather than in the preview
+    # path and the worker separately. Splitting either one PER CALLER would
+    # trade size for the drift both were built to prevent, so the growth is the
+    # design working.
     #
-    # What that costs, stated plainly rather than left for the next reader:
-    # analysis_sql is now the largest module under platform/ and roughly 40%
-    # of it is the four operations added here. The split is filed as #1089 —
-    # by OPERATION FAMILY (overlay, measure, transform), with the shared
-    # fences, ceilings and antimeridian helpers staying central. Never by
-    # CALLER: giving the preview path and the worker their own rendering
-    # modules recreates exactly the drift this module exists to prevent, so
-    # #1089 says to reject that proposal on sight.
-    #
-    # fix(#1097 review): +8 for NON_GROUPABLE_COLUMN_TYPES. It lives here
-    # because three guards need it — dissolve's by_field in the router,
-    # intersect's overlay at enqueue, and the worker's live recheck after the
-    # queue wait — and the worker must not import from the API layer. Putting
-    # it in either caller would have meant duplicating the set, which is how
-    # the two halves of a guard drift apart.
-    #
-    # fix(#1097 review): +18 for INTERNAL_ALIAS_PREFIX and its reasoning. The
-    # output-collision guards reserved names that reach the OUTPUT and said
-    # nothing about the aliases a query invents on the way there, so an overlay
-    # column named `_mask_gid` landed in the same select list as that alias. The
-    # aliases moved into a namespace and the namespace is reserved, which is
-    # what makes an alias added later safe without a list to keep in step.
-    #
-    # fix(#1097 review): +27 for MAX_IDENTIFIER_LENGTH and truncating the
-    # generated join names to it. PostgreSQL truncates an over-long identifier
-    # with a NOTICE rather than refusing it, so the uniqueness and
-    # source-collision guards were comparing strings the database would never
-    # see. The comment carries the empirical check (max_identifier_length is
-    # 63) and why source columns need no equivalent — they already exist in a
-    # table, so the server truncated them at creation.
-    #
-    # fix(#1097 review): +42 for linearized() and its call sites — WFS sources
-    # could store curved geometries that ::geography, ST_MakeValid and
-    # ST_AsGeoJSON all raise on, so every such read went through one
-    # ST_CurveToLine wrapper.
-    # fix(#1104): -33 — that wrapper is retired. Ingest now stores geom_4326
-    # linear (add_4326_column) and migration 0034 backfilled existing rows,
-    # so the per-read wraps had nothing left to guard. The invariant is
-    # recorded in the module docstring instead. Cap 1260 -> 1227, exact.
-    #
-    # fix(#1099): +28 for regrouping render_intersect_pairs. The aggregate used
-    # to carry the overlay's attributes through the _mask_pieces CTE, which has
-    # no key, so each one had to be named in the GROUP BY — and json/xml have no
-    # equality operator, so a nested-GeoJSON properties column took a layer out
-    # of service as an overlay entirely. It groups by the two gids alone now and
-    # the outer query joins the overlay table back on its primary key, where no
-    # grouping applies. Six of the lines are the render (one more join fragment,
-    # and the output column list splitting in two because the sides come from
-    # different relations); the rest is the docstring bullet carrying why the
-    # join cannot change the row count and why it is LEFT rather than INNER.
-    # Cap 1227 -> 1255, exact.
-    "backend/app/platform/analysis_sql.py": 1255,
+    # refactor(#1089): analysis_sql left this dict. It crossed 1000 in the same
+    # batch (662 -> 1173, later 1255) and carried the follow-up note this entry
+    # used to hold; the split has now happened. It is a package split by
+    # OPERATION FAMILY — overlay, measure, spatial_join, transform, over a
+    # shared core holding the OFFSET 0 fence, the measured ceilings, the
+    # antimeridian helper and the mask parser — and no file in it reaches the
+    # inclusion threshold, so nothing needs a cap. What survived the move and
+    # still binds: never split it by CALLER. Giving the preview path and the
+    # materialize worker their own rendering modules recreates exactly the
+    # drift the module exists to prevent, and the package docstring says to
+    # reject that proposal on sight. The per-family reasoning the #1097 review
+    # entries recorded here — NON_GROUPABLE_COLUMN_TYPES, INTERNAL_ALIAS_PREFIX
+    # and MAX_IDENTIFIER_LENGTH each landing where more than one guard reads
+    # them — now sits beside the constants themselves in analysis_sql/shared.py
+    # and analysis_sql/spatial_join.py, which is where an edit to them starts.
     # tasks.py carries growth from BOTH sides of this rebase, so the number is
     # re-measured rather than taken from either. #1012 added the scoped
     # work_mem (the SET LOCAL, its budget arithmetic and the boot-time
