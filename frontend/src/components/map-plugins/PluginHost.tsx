@@ -10,7 +10,10 @@ import type { PluginContext, PluginAnchor, PluginDefinition } from './types';
 // Anchor offsets account for map overlay controls:
 // top-left: below MapToolbar (h-8 + top-3 = ~44px ≈ top-12)
 // top-right: below MapToolbar row
-// bottom-left: above ScaleControl (~24px) + EphemeralBadge (~32px)
+// bottom-left: above ScaleControl (~24px) + EphemeralBadge (~32px). fix(#1009):
+//   the badge now renders only below 1100px (above that the preview is a stack
+//   row), so this clearance is load-bearing in the rail layout and spare in the
+//   wide one — kept at one value rather than made responsive for a few pixels.
 // bottom-right: above NavigationControl
 const ANCHOR_POSITIONS: Record<PluginAnchor, string> = {
   'top-left': 'absolute top-12 left-3 z-10 flex flex-col gap-2',

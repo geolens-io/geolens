@@ -167,7 +167,9 @@ describe('ChatPanel', () => {
     });
   });
 
-  it('forwards the truncation pair so the badge can disclose "N of TOTAL" (#674 audit)', async () => {
+  // fix(#1009): "the preview surface" throughout, not "the badge" — the builder
+  // path this panel feeds now renders the ephemeral stack row.
+  it('forwards the truncation pair so the preview can disclose "N of TOTAL" (#674 audit)', async () => {
     const geojson = { type: 'FeatureCollection', features: [] };
     const bbox = [-74, 40, -73, 41];
 
@@ -197,7 +199,7 @@ describe('ChatPanel', () => {
 
   // fix(#1076): a clip filters rows, so run_analysis reports no source total —
   // the flag arrives alone. Requiring a total dropped it here and a capped
-  // clip preview reached the badge looking complete.
+  // clip preview reached the preview surface looking complete.
   it('forwards a cap that arrives without a total', async () => {
     const geojson = { type: 'FeatureCollection', features: [] };
     const bbox = [-74, 40, -73, 41];
@@ -225,8 +227,8 @@ describe('ChatPanel', () => {
     });
   });
 
-  // The other direction: an uncapped result must forward nothing, or the badge
-  // discloses a truncation that did not happen.
+  // The other direction: an uncapped result must forward nothing, or the
+  // preview discloses a truncation that did not happen.
   it('forwards no truncation for an uncapped result', async () => {
     const geojson = { type: 'FeatureCollection', features: [] };
     const bbox = [-74, 40, -73, 41];

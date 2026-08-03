@@ -1065,6 +1065,9 @@
     "dismiss": "Dismiss result",
     "saveAsDataset": "Save as dataset…"
   },
+  "previewRow": {
+    "ephemeralTag": "Ephemeral — not saved"
+  },
   "plugins": {
     "measurement": {
       "label": "Measure",

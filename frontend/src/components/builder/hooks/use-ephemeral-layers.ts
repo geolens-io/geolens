@@ -24,9 +24,11 @@ export function useEphemeralLayers(
   const [ephemeralResult, setEphemeralResult] = useState<{
     geojson: GeoJSON.FeatureCollection;
     bbox: [number, number, number, number];
-    /** fix(#674 audit): set when the server capped the result, so the badge
-     *  can disclose "N of TOTAL" instead of passing a capped preview off as
-     *  the whole answer. */
+    /** fix(#674 audit): set when the server capped the result, so the preview
+     *  surface can disclose "N of TOTAL" instead of passing a capped preview
+     *  off as the whole answer. fix(#1009): this hook feeds both surfaces —
+     *  the builder's stack row and the badge (viewer, and the builder's
+     *  <1100px rail) — so the field is deliberately surface-agnostic. */
     truncated?: boolean;
     totalCount?: number;
     /** feat(#675): present when the overlay came from a chat run_analysis

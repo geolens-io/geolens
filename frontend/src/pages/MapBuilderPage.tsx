@@ -929,7 +929,7 @@ export function MapBuilderPage() {
     };
   });
 
-  // feat(#675): "Save as dataset" on the ephemeral badge — open the Analysis
+  // feat(#675): "Save as dataset" on the ephemeral preview — open the Analysis
   // panel prefilled with the operation behind the chat preview.
   const ephemeralAnalysis = layers.ephemeralResult?.analysis;
   const handleSaveAnalysisPreview = useCallback(() => {
@@ -937,6 +937,21 @@ export function MapBuilderPage() {
     setAnalysisPrefill({ ...ephemeralAnalysis, nonce: Date.now() });
     setRailPanel('analysis');
   }, [ephemeralAnalysis]);
+
+  // fix(#1009): the preview's stack-row props. Memoized because a fresh object
+  // literal on the UnifiedStackPanel prop would defeat its memo() on every
+  // render of this (very large) page.
+  const previewRowProps = useMemo(() => {
+    const result = layers.ephemeralResult;
+    if (!result) return null;
+    return {
+      featureCount: result.geojson.features.length,
+      truncated: result.truncated,
+      totalCount: result.totalCount,
+      onDismiss: layers.handleDismissEphemeral,
+      onSaveAsDataset: ephemeralAnalysis ? handleSaveAnalysisPreview : undefined,
+    };
+  }, [layers.ephemeralResult, layers.handleDismissEphemeral, ephemeralAnalysis, handleSaveAnalysisPreview]);
 
   // ux(#772): stack-row kebab "Analyze this layer" — the same handoff path the
   // chat preview uses, so the panel opens (or remounts, via the prefill nonce
@@ -1939,6 +1954,10 @@ export function MapBuilderPage() {
               deletingCount={layers.deletingCount}
               freshLayerId={layers.freshLayerId}
               basemapPosition={basemapState.config.basemap_position ?? 'bottom'}
+              // fix(#1009): the ephemeral preview as a non-persisting row pinned
+              // above the sortable region. Not a member of `layers`, so it can
+              // never be reordered, styled, grouped, or saved into the map.
+              preview={previewRowProps}
             />
           )}
           {/* Sidebar-placement plugins render below the layer stack. No built-in
@@ -2058,13 +2077,19 @@ export function MapBuilderPage() {
               />
             </Suspense>
           </MapErrorBoundary>
-          {layers.ephemeralResult && (
+          {/* fix(#1009): the preview's surface is the stack row above — but the
+              stack panel only exists at ≥1100px; below that the sidebar
+              collapses to SidebarRail, which has no rows. Keep the badge for
+              exactly that case, so the narrow layout doesn't lose the count,
+              the dismiss, and the #675 hand-off altogether. Still one surface
+              at a time, never both. */}
+          {isRail && previewRowProps && (
             <EphemeralBadge
-              featureCount={layers.ephemeralResult.geojson.features.length}
-              onDismiss={layers.handleDismissEphemeral}
-              truncated={layers.ephemeralResult.truncated}
-              totalCount={layers.ephemeralResult.totalCount}
-              onSaveAsDataset={ephemeralAnalysis ? handleSaveAnalysisPreview : undefined}
+              featureCount={previewRowProps.featureCount}
+              onDismiss={previewRowProps.onDismiss}
+              truncated={previewRowProps.truncated}
+              totalCount={previewRowProps.totalCount}
+              onSaveAsDataset={previewRowProps.onSaveAsDataset}
             />
           )}
 

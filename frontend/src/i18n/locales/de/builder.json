@@ -1065,6 +1065,9 @@
     "featureCountCapped_other": "erste {{count, number}} Features",
     "saveAsDataset": "Als Datensatz speichern…"
   },
+  "previewRow": {
+    "ephemeralTag": "Flüchtig – nicht gespeichert"
+  },
   "plugins": {
     "measurement": {
       "label": "Messen",
