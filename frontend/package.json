@@ -52,7 +52,7 @@
     "maplibre-gl": "^5.24.0",
     "radix-ui": "^1.6.5",
     "react": "^19.2.8",
-    "react-colorful": "^5.7.0",
+    "react-colorful": "^5.8.0",
     "react-dom": "^19.2.8",
     "react-dropzone": "^19.1.1",
     "react-i18next": "^17.0.11",
