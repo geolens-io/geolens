@@ -1744,9 +1744,9 @@ async def ensure_geom_4326_gist_index(
     Called from both add_4326_column (staging load) and _apply_reupload_swap
     (post-swap belt-and-braces), so any re-ingest self-heals a missing index.
 
-    No-op when the table has no geom_4326 column: a dataset can carry a
-    geometry_type while only exposing the native ``geom`` column (the
-    effective_srid=None staging path skips add_4326_column).
+    The no-geom_4326 early return is defensive, not a reachable state (#1020):
+    add_4326_column has just added the column, and the swap call is gated on a
+    geometry_type that extract_metadata cannot report without reading geom_4326.
     """
     has_col = await session.execute(
         text(

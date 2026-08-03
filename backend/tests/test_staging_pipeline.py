@@ -946,7 +946,7 @@ class TestEnsureGeom4326GistIndex:
 
         await ensure_geom_4326_gist_index(session, "my_table")
 
-        # effective_srid=None staging path: geometry_type set, no geom_4326.
+        # Defensive branch (#1020): column probe only, no index DDL.
         assert session.execute.await_count == 1
 
     @pytest.mark.asyncio
