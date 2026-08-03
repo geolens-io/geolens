@@ -797,6 +797,11 @@ _ANALYSIS_SQL_FAMILIES = frozenset(
     {"measure", "overlay", "shared", "spatial_join", "transform"}
 )
 
+# How many times to re-walk a file propagating `sql = analysis_sql` rebinds.
+# Three covers any chain a reviewer would let through; the loop exits early
+# when nothing new binds, so this is a ceiling rather than a cost.
+_BINDING_REBIND_ROUNDS = 3
+
 # The seven modules that legitimately consume the façade. Named so the
 # both-directions test can prove the guard still LETS THEM THROUGH — a refusal
 # assertion cannot notice that a correct import started being rejected.
@@ -836,48 +841,128 @@ def _reaches_analysis_sql_family(dotted: str) -> str:
 
 
 def _is_analysis_sql_package(dotted: str) -> bool:
-    """True for the façade itself, absolute or relative (``.analysis_sql``)."""
+    """True for the façade spelled out in full, absolute or relative.
+
+    A LITERAL test, and only a fallback — ``_analysis_sql_facade_bindings``
+    below is what actually decides whether an expression denotes the façade.
+    This still earns its place for a handle re-exposed as an attribute
+    (``self.analysis_sql.overlay``), which no import-binding pass can see.
+    """
     return bool(dotted) and dotted.split(".")[-1] == "analysis_sql"
+
+
+def _analysis_sql_facade_bindings(tree: ast.Module) -> set[str]:
+    """Expressions denoting the façade PACKAGE in this file, alias included.
+
+    refactor(#1089 review r2): the structural half of the fix. Round 1 compared
+    an attribute chain's base against the literal string ``analysis_sql``, so
+    ``from app.platform import analysis_sql as sql`` then ``sql.overlay.…``
+    walked past it. Chasing that as a missing case is unwinnable — every alias
+    spelling is a new literal and there are infinitely many. Resolving the name
+    to what it is BOUND to closes the class instead, which is why round 2's
+    table adds aliased twins and they need no new branches.
+
+    Bindings are collected FILE-WIDE rather than per scope, so a function-local
+    ``import … as sql`` is seen. That over-approximates: a name bound to the
+    façade in one function makes ``<name>.overlay`` suspicious anywhere in the
+    file. Deliberate — the error direction for a guard is to flag too much, and
+    the alternative silently under-reports.
+    """
+    bound: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if not _is_analysis_sql_package(alias.name):
+                    continue
+                # `import a.b.analysis_sql` binds `a`, and the module is reached
+                # through the whole chain, so the chain is the expression to
+                # record. `… as sql` binds `sql` to the module directly.
+                bound.add(alias.asname or alias.name)
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                # `from app.platform import analysis_sql [as sql]`, and the
+                # relative `from . import analysis_sql [as sql]`. The package
+                # name is unique in this tree, so not resolving the relative
+                # level over-approximates rather than misses.
+                if alias.name == "analysis_sql":
+                    bound.add(alias.asname or alias.name)
+
+    # One more hop: `sql = analysis_sql` is two characters from `import … as
+    # sql` and binds exactly the same thing. Iterated because rebinding can
+    # chain; bounded because a fixpoint over a file's assignments is not worth
+    # an unbounded loop in a test.
+    for _ in range(_BINDING_REBIND_ROUNDS):
+        grew = False
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assign):
+                continue
+            if _dotted_name(node.value) not in bound:
+                continue
+            for target in node.targets:
+                name = _dotted_name(target)
+                if name and name not in bound:
+                    bound.add(name)
+                    grew = True
+        if not grew:
+            break
+    return bound
 
 
 def _analysis_sql_family_bypasses(source: str, rel: str) -> list[str]:
     """Every reference reaching a family module, as ``rel:lineno: detail``.
 
-    refactor(#1089 review): the first version of this matched ``node.module``
-    alone, so ``from app.platform.analysis_sql import overlay`` walked straight
-    past it — the module IS the façade (allowed) and the imported NAME was
-    never looked at. That import succeeds at runtime, because the façade
-    imports its submodules and they become package attributes, so a caller
-    could hold a family renderer with the architecture test still green.
+    THE CONTRACT: this catches every path to a family module that is
+    STATICALLY RESOLVABLE. It is not, and cannot be, "catches everything" —
+    see the residue at the bottom.
 
-    Rather than patch the reported instance, every shape that reaches a family
-    from outside the package was enumerated and measured against the old
-    matcher; 9 of 14 were missed. Handled here:
+    Two review rounds shaped it, and both were the same mistake at different
+    depths: comparing literal text where a name had to be resolved.
 
-        from …analysis_sql.overlay import render_clip [as r]   caught before
-        import …analysis_sql.overlay [as ov]                   caught before
-        from .analysis_sql.overlay import render_clip          caught before
-        from …analysis_sql import overlay [as ov]              FIXED, reported
-        from …analysis_sql import render_geometry_expr, overlay  FIXED
-        from .analysis_sql import overlay                      FIXED
-        analysis_sql.overlay.render_clip(…)                    FIXED
-        app.platform.analysis_sql.transform.render_x(…)        FIXED
+    - r1 matched ``node.module`` alone, so ``from app.platform.analysis_sql
+      import overlay`` walked past — the module IS the façade (allowed) and the
+      imported NAME was never read. That import succeeds at runtime, because
+      the façade imports its submodules and they become package attributes.
+    - r2 matched an attribute chain's base against the literal ``analysis_sql``,
+      so ``from app.platform import analysis_sql as sql`` then
+      ``sql.overlay.…`` walked past. Fixed by resolving bindings
+      (``_analysis_sql_facade_bindings``) rather than by adding alias cases,
+      because the set of spellings is unbounded.
 
-    Two shapes are deliberately NOT branches, because a branch would read as
-    coverage it does not provide:
+    What is checked, in three passes over one parse:
 
-    - ``from app.platform.analysis_sql import *`` cannot reach a family at all.
-      ``__init__`` defines ``__all__`` and no family name is in it, so the star
-      binds renderers only. That is a property of the FAÇADE, not of this
-      matcher, and it is pinned as one in the test below.
-    - ``importlib.import_module("…analysis_sql.overlay")`` is out of reach of
-      import analysis in general, since the name can be computed. A
-      string-literal check would cover only the spelled-out case, and nothing
-      under ``backend/app/`` loads a platform module that way. Recorded as
-      residue rather than half-covered.
+    1. an import whose dotted path traverses a family — ``import
+       …analysis_sql.overlay``, ``from …analysis_sql.overlay import x``,
+       aliased or not, absolute or relative;
+    2. an import FROM the façade whose imported NAME is a family — ``from
+       …analysis_sql import overlay [as ov]``, mixed freely with real exports;
+    3. an attribute chain ``<expr>.<family>`` where ``<expr>`` is bound to the
+       façade in this file — under any alias, through a plain assignment, and
+       from a function-local import.
+
+    STRUCTURALLY OUT OF REACH, so the next review round can be answered by
+    pointing here instead of re-litigating. No static import analysis sees
+    these, and a branch for the spelled-out case would read as coverage it does
+    not provide:
+
+    - ``getattr(analysis_sql, name)`` — the attribute is a value, not a node.
+    - ``importlib.import_module(path)`` — likewise, and the argument need not
+      be a literal.
+    - anything reached through a data flow this does not model (a family module
+      returned from a function, stashed in a dict, passed as a parameter).
+
+    Nothing under ``backend/app/`` loads a platform module any of those ways.
+
+    One shape looks like residue and is not: ``from …analysis_sql import *``
+    cannot reach a family at all, because ``__init__`` declares ``__all__`` and
+    no family name is in it. That is a property of the FAÇADE rather than of
+    this matcher, so it is pinned where it is decided — see the ``__all__``
+    assertion in ``test_analysis_sql_facade_guard_sees_every_bypass_shape``.
     """
+    tree = ast.parse(source)
+    facade = _analysis_sql_facade_bindings(tree)
+
     offenders: list[str] = []
-    for node in ast.walk(ast.parse(source)):
+    for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 if _reaches_analysis_sql_family(alias.name):
@@ -887,20 +972,17 @@ def _analysis_sql_family_bypasses(source: str, rel: str) -> list[str]:
             if _reaches_analysis_sql_family(module):
                 offenders.append(f"  {rel}:{node.lineno}: from {module} import …")
             elif _is_analysis_sql_package(module):
-                # The reported gap: the module is the façade, so the imported
-                # NAMES are what decide it. `from … import overlay as ov` is
-                # the same bypass — alias.name is what was reached for.
                 for alias in node.names:
                     if alias.name in _ANALYSIS_SQL_FAMILIES:
                         offenders.append(
                             f"  {rel}:{node.lineno}: from {module} import {alias.name}"
                         )
         elif isinstance(node, ast.Attribute) and node.attr in _ANALYSIS_SQL_FAMILIES:
-            # `analysis_sql.overlay.render_clip(…)` after a perfectly legal
-            # `from app.platform import analysis_sql`. No import statement
-            # names the family, and the caller is holding it just the same.
+            # `sql.overlay.render_clip(…)` after a perfectly legal
+            # `from app.platform import analysis_sql as sql`. No import
+            # statement names the family; the caller holds it just the same.
             base = _dotted_name(node.value)
-            if _is_analysis_sql_package(base):
+            if base and (base in facade or _is_analysis_sql_package(base)):
                 offenders.append(f"  {rel}:{node.lineno}: {base}.{node.attr}")
     return sorted(set(offenders))
 
@@ -1014,6 +1096,45 @@ def test_analysis_sql_facade_guard_sees_every_bypass_shape() -> None:
             f"import {_ANALYSIS_SQL_PACKAGE}\n"
             f"x = {_ANALYSIS_SQL_PACKAGE}.transform.render_geodesic_buffer('g', 1.0)"
         ),
+        # --- r2: the aliased twin of every chain above. Each one is a fresh
+        # literal and a fresh miss for a text matcher; none needs a branch of
+        # its own once the base is resolved to its binding.
+        "attribute chain, from-import ALIAS": (
+            "from app.platform import analysis_sql as sql\n"
+            "x = sql.overlay.render_clip_layer_join('t', src='s')"
+        ),
+        "attribute chain, plain-import ALIAS": (
+            f"import {_ANALYSIS_SQL_PACKAGE} as sql\n"
+            "x = sql.overlay.render_clip_layer_join('t', src='s')"
+        ),
+        "attribute chain, relative ALIAS": (
+            "from . import analysis_sql as sql\nx = sql.shared.MAX_SOURCE_FEATURES"
+        ),
+        "attribute chain, underscore ALIAS": (
+            "from app.platform import analysis_sql as _s\n"
+            "x = _s.transform.render_geodesic_buffer('g', 1.0)"
+        ),
+        "attribute chain via plain rebind": (
+            "from app.platform import analysis_sql\n"
+            "sql = analysis_sql\n"
+            "x = sql.overlay.render_clip_layer_join('t', src='s')"
+        ),
+        "attribute chain, function-local ALIAS": (
+            "def build():\n"
+            "    from app.platform import analysis_sql as sql\n"
+            "    return sql.measure.render_measure_columns()"
+        ),
+        "attribute chain off a re-exposed handle": (
+            "class Renderer:\n"
+            "    def build(self):\n"
+            "        return self.analysis_sql.overlay.render_clip_layer_join(\n"
+            "            't', src='s'\n"
+            "        )"
+        ),
+        "aliased façade plus a family import": (
+            f"import {_ANALYSIS_SQL_PACKAGE} as sql\n"
+            f"from {_ANALYSIS_SQL_PACKAGE} import shared"
+        ),
     }
     must_pass = {
         "façade renderer": f"from {_ANALYSIS_SQL_PACKAGE} import render_clip_layer_join",
@@ -1033,6 +1154,24 @@ def test_analysis_sql_facade_guard_sees_every_bypass_shape() -> None:
         ),
         "a family NAME on an unrelated package": (
             "from app.platform.cache import shared"
+        ),
+        # --- r2: the must-pass twins. These are what prove the fix resolves
+        # BINDINGS rather than blacklisting whatever the alias happened to be
+        # called in the reported instance.
+        "ALIASED façade, ordinary renderer": (
+            "from app.platform import analysis_sql as sql\n"
+            "x = sql.render_geometry_expr('centroid')"
+        ),
+        "ALIASED façade, ordinary constant": (
+            f"import {_ANALYSIS_SQL_PACKAGE} as sql\nx = sql.MAX_SOURCE_FEATURES"
+        ),
+        # The discriminator: same alias, different module. A guard that had
+        # merely learned the word `sql` would flag this.
+        "a DIFFERENT module under the same alias": (
+            "from app.platform import cache as sql\nx = sql.shared"
+        ),
+        "an unrelated handle that happens to be sql": (
+            "import sqlalchemy\nsql = sqlalchemy.text('select 1')\nx = sql.compile()"
         ),
     }
 
