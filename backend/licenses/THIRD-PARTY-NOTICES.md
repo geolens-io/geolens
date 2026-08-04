@@ -33,7 +33,7 @@ over it in a derived image:
 
 ```dockerfile
 FROM <geolens-backend-image>
-COPY my-psycopg/ /tmp/my-psycopg/
+COPY --chown=appuser:appgroup my-psycopg/ /tmp/my-psycopg/
 RUN uv pip install --python /app/.venv --force-reinstall /tmp/my-psycopg/
 ```
 
