@@ -586,6 +586,13 @@ def test_cross_domain_does_not_import_user_from_auth_models() -> None:
                                               for batched user resolution (Pitfall 1)
     - `catalog/search/service_semantic.py` - `select(User).where(User.id.in_(actor_ids))`
                                               for search-result enrichment (Pitfall 1)
+    - `catalog/records/inherited.py` - `record_audience` predicate target
+                                        (the ORM class the audience predicate
+                                        is written against) plus the
+                                        `select(User.id)` audience-difference
+                                        query (Pitfall 1, feat #1070) — the
+                                        same InstrumentedAttribute use the
+                                        maps service entries above cover
     - `tests/`          - fixtures construct `User(...)` directly; structurally
                           valid as Identity at the call site
 
@@ -619,6 +626,7 @@ def test_cross_domain_does_not_import_user_from_auth_models() -> None:
             ":!backend/app/modules/catalog/datasets/api/router_export.py",
             ":!backend/app/modules/catalog/datasets/domain/helpers.py",
             ":!backend/app/modules/catalog/search/service_semantic.py",
+            ":!backend/app/modules/catalog/records/inherited.py",
             ":!backend/tests/",
         ],
         cwd=REPO_ROOT,
@@ -1561,7 +1569,15 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # fix(#1170): -37 — delete the dead update_auto_metadata, the one
         # geometry_type writer that never probed for geom_4326 (refs #1020).
         # Cap 490 -> 453, exact.
-        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 453,
+        # feat(#1070): +30 — the inherited-keyword disclosure warning at the
+        # metadata chokepoint: after visibility/record_status resolve, one
+        # check of the resolved state warns (never blocks) when keywords
+        # inherited from the analysis source reach beyond that source's
+        # audience. Cap 453 -> 483, exact.
+        # fix(#1178 review): -5 — the check body moved into the shared
+        # inherited_keyword_disclosure_warning helper so the publication
+        # status endpoints run it too. Cap 483 -> 478, exact.
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 478,
         # fix(#435 codex r1): +6 LOC in get_dataset_rows to probe schema existence
         # before degrading a 42P01 to an empty page. Postgres reports a missing
         # tenant data schema with the same code as a raster dataset's synthetic
@@ -1923,7 +1939,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # frontend mirror are generated from or checked against, so it had been
     # corrected in the mirror and left wrong here — backwards, and the reason
     # the wrong text shipped into both SDKs.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1138,
+    # feat(#1070): +9 for DatasetResponse.metadata_warnings — the advisory
+    # warnings a metadata PATCH can attach (inherited-keyword disclosure at a
+    # visibility/status change). 1138 -> 1147.
+    # fix(#1178 review): +9 for the same field on StatusUpdateResponse — the
+    # publication status endpoints run the disclosure check too, so their
+    # response carries it. 1147 -> 1156.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1156,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch

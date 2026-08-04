@@ -256,8 +256,9 @@ async def apply_analysis_provenance(
       who already held access to the source, so an inherited keyword reaches
       anyone else only when that owner publishes or shares the dataset. That
       is their deliberate act, on ordinary editable record metadata they can
-      delete first. Warning an owner what they inherited before they publish
-      is #1070.
+      delete first. The inherited set is derived back out of ``derived_from``
+      at read time (records/inherited.py, feat #1070), which is what marks the
+      keywords in the UI and warns the owner at the publish moment.
     * The source (and mask) title inside the lineage sentence. The output is
       registered private and owned by that same caller, so the title only
       reaches anyone else if its owner publishes or shares the dataset —

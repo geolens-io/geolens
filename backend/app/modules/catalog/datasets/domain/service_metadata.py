@@ -271,12 +271,17 @@ async def update_user_metadata(
     *,
     actor_id: uuid.UUID | None = None,
     actor: "Identity | None" = None,
+    warnings_out: list[str] | None = None,
 ) -> Dataset:
     """Update user-editable fields including extended metadata.
 
     Accepts a DatasetMeta Pydantic model. Only updates fields that are
     explicitly set (not None). Raises ValueError if dataset not found.
     Does not commit; caller controls transaction scope.
+
+    ``warnings_out``, when provided, collects advisory (non-blocking) warnings
+    for the caller to surface — currently the inherited-keyword disclosure
+    check below (feat #1070).
 
     Decomposed into 5 step helpers for readability:
     simple field assignments, visibility, record_status, is_dem, embedding-defer.
@@ -317,6 +322,26 @@ async def update_user_metadata(
         )
     if meta.is_dem is not None:
         mutated_flags.append(await _apply_is_dem(session, dataset_id, meta.is_dem))
+
+    # feat(#1070): after the visibility/record_status helpers resolve, ask —
+    # of the RESOLVED state, so both widening axes route through this one
+    # check — whether keywords inherited from the analysis source now reach
+    # anyone who cannot open that source. Advisory, never blocking: exposure
+    # requires the owner's deliberate act on metadata they can already edit,
+    # so the owner is told, not stopped. fix(#1178 review): the check is a
+    # shared helper because the publication-status endpoints write
+    # record_status without coming through here — see its docstring for the
+    # writer enumeration.
+    if meta.visibility is not None or meta.record_status is not None:
+        from app.modules.catalog.records.inherited import (
+            inherited_keyword_disclosure_warning,
+        )
+
+        warning = await inherited_keyword_disclosure_warning(
+            session, record, dataset_id, actor=actor
+        )
+        if warning is not None and warnings_out is not None:
+            warnings_out.append(warning)
 
     if actor_id is not None and any(mutated_flags):
         record.updated_by = actor_id

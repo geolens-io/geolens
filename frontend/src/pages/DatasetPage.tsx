@@ -371,8 +371,14 @@ export function DatasetPage() {
       return;
     }
     try {
-      await setTargetStatus.mutateAsync({ datasetId: id, status: PUBLISH_TARGET });
+      const result = await setTargetStatus.mutateAsync({ datasetId: id, status: PUBLISH_TARGET });
       toast.success(t('publish.success'));
+      // fix(#1178 review): this toggle publishes through target-status, not
+      // the metadata PATCH, so it reads the same inherited-keyword disclosure
+      // warning from this response (feat #1070).
+      if (result.metadata_warnings?.length) {
+        toast.warning(result.metadata_warnings[0]);
+      }
     } catch {
       toast.error(t('publish.failed'));
     }

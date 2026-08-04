@@ -6,6 +6,8 @@ from typing import Any, TypeVar, TYPE_CHECKING
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..types import UNSET, Unset
+
 
 if TYPE_CHECKING:
     from ..models.keyword_response import KeywordResponse
@@ -20,10 +22,14 @@ class KeywordListResponse:
     Attributes:
         keywords (list[KeywordResponse]):
         total (int):
+        inherited_audience_gap (bool | Unset): True when at least one keyword is inherited AND this record's audience —
+            at its stored state, or at the counterfactual audience_visibility/audience_record_status query parameters —
+            includes someone who cannot open the source dataset (feat #1070). Default: False.
     """
 
     keywords: list[KeywordResponse]
     total: int
+    inherited_audience_gap: bool | Unset = False
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -34,6 +40,8 @@ class KeywordListResponse:
 
         total = self.total
 
+        inherited_audience_gap = self.inherited_audience_gap
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -42,6 +50,8 @@ class KeywordListResponse:
                 "total": total,
             }
         )
+        if inherited_audience_gap is not UNSET:
+            field_dict["inherited_audience_gap"] = inherited_audience_gap
 
         return field_dict
 
@@ -59,9 +69,12 @@ class KeywordListResponse:
 
         total = d.pop("total")
 
+        inherited_audience_gap = d.pop("inherited_audience_gap", UNSET)
+
         keyword_list_response = cls(
             keywords=keywords,
             total=total,
+            inherited_audience_gap=inherited_audience_gap,
         )
 
         keyword_list_response.additional_properties = d

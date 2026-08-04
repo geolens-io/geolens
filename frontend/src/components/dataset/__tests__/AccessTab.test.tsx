@@ -1,13 +1,20 @@
-import { fireEvent, render, screen } from '@/test/test-utils';
+import { fireEvent, render, screen, waitFor } from '@/test/test-utils';
 import { useDistributions } from '@/components/dataset/hooks/use-records';
 import { useUpdateDataset } from '@/components/dataset/hooks/use-dataset';
 import { useTileConfig } from '@/hooks/use-settings';
+import { listKeywords } from '@/api/records';
 import { toast } from 'sonner';
 import { AccessTab } from '../tabs/AccessTab';
 import type { DatasetResponse } from '@/types/api';
 
 vi.mock('@/components/dataset/hooks/use-records', () => ({
   useDistributions: vi.fn(),
+}));
+
+// feat(#1070): the visibility change probes the keywords endpoint for
+// inherited keywords before mutating.
+vi.mock('@/api/records', () => ({
+  listKeywords: vi.fn(),
 }));
 
 vi.mock('@/hooks/use-settings', () => ({
@@ -19,12 +26,13 @@ vi.mock('@/components/dataset/hooks/use-dataset', () => ({
 }));
 
 vi.mock('sonner', () => ({
-  toast: { success: vi.fn(), error: vi.fn() },
+  toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
 }));
 
 const mockUseDistributions = vi.mocked(useDistributions);
 const mockUseTileConfig = vi.mocked(useTileConfig);
 const mockUseUpdateDataset = vi.mocked(useUpdateDataset);
+const mockListKeywords = vi.mocked(listKeywords);
 const mutate = vi.fn();
 
 function makeDataset(overrides: Partial<DatasetResponse> = {}): DatasetResponse {
@@ -111,6 +119,12 @@ describe('AccessTab', () => {
       isLoading: false,
     } as unknown as ReturnType<typeof useDistributions>);
     mutate.mockReset();
+    mockListKeywords.mockReset();
+    mockListKeywords.mockResolvedValue({
+      keywords: [],
+      total: 0,
+      inherited_audience_gap: false,
+    });
     mockUseUpdateDataset.mockReturnValue({
       mutate,
       isPending: false,
@@ -182,13 +196,13 @@ describe('AccessTab', () => {
       expect(screen.getByText('Private')).toBeInTheDocument();
     });
 
-    it('lets an owner or admin move a dataset from private to public', () => {
+    it('lets an owner or admin move a dataset from private to public', async () => {
       render(<AccessTab dataset={makeDataset({ visibility: 'private' })} canEdit />);
 
       openVisibilitySelect();
       fireEvent.click(screen.getByRole('option', { name: 'Public' }));
 
-      expect(mutate).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
       expect(mutate.mock.calls[0][0]).toEqual({
         datasetId: 'ds-1',
         data: { visibility: 'public' },
@@ -205,7 +219,7 @@ describe('AccessTab', () => {
 
     // fix(#930): `internal` joined the ladder once its permission branches
     // landed. The import pickers deliberately stay at private/public.
-    it('offers internal as a move, between private and public', () => {
+    it('offers internal as a move, between private and public', async () => {
       render(<AccessTab dataset={makeDataset({ visibility: 'private' })} canEdit />);
 
       openVisibilitySelect();
@@ -217,7 +231,7 @@ describe('AccessTab', () => {
 
       fireEvent.click(screen.getByRole('option', { name: 'Internal' }));
 
-      expect(mutate).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
       expect(mutate.mock.calls[0][0]).toEqual({
         datasetId: 'ds-1',
         data: { visibility: 'internal' },
@@ -263,14 +277,244 @@ describe('AccessTab', () => {
     // The backend rejects public → private with a 422 while a public map uses
     // the dataset. #931 owns turning that prose into its own message; what must
     // not happen here is the select snapping back with nothing said.
-    it('surfaces a rejected change instead of swallowing it', () => {
+    it('surfaces a rejected change instead of swallowing it', async () => {
       mutate.mockImplementation((_vars, opts) => opts?.onError?.(new Error('nope')));
       render(<AccessTab dataset={makeDataset({ visibility: 'public' })} canEdit />);
 
       openVisibilitySelect();
       fireEvent.click(screen.getByRole('option', { name: 'Private' }));
 
-      expect(toast.error).toHaveBeenCalled();
+      await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    });
+
+    // feat(#1070): inherited keywords get a confirm/diff step before the
+    // audience widens past the source they came from.
+    describe('inherited-keyword confirm', () => {
+      const inheritedProbe = {
+        keywords: [
+          {
+            id: 'kw-1',
+            record_id: 'rec-1',
+            keyword: 'codename',
+            vocabulary_uri: null,
+            keyword_type: 'theme',
+            inherited: true,
+          },
+        ],
+        total: 1,
+        inherited_audience_gap: true,
+      };
+
+      it('holds the change behind a dialog naming the inherited keywords', async () => {
+        mockListKeywords.mockResolvedValue(inheritedProbe);
+        render(<AccessTab dataset={makeDataset({ visibility: 'private' })} canEdit />);
+
+        openVisibilitySelect();
+        fireEvent.click(screen.getByRole('option', { name: 'Public' }));
+
+        expect(await screen.findByText('Share inherited keywords?')).toBeInTheDocument();
+        expect(screen.getByText('codename')).toBeInTheDocument();
+        expect(mockListKeywords).toHaveBeenCalledWith('rec-1', {
+          audienceVisibility: 'public',
+        });
+        expect(mutate).not.toHaveBeenCalled();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Change visibility' }));
+        await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+        expect(mutate.mock.calls[0][0]).toEqual({
+          datasetId: 'ds-1',
+          data: { visibility: 'public' },
+        });
+      });
+
+      it('cancelling the dialog leaves the visibility untouched', async () => {
+        mockListKeywords.mockResolvedValue(inheritedProbe);
+        render(<AccessTab dataset={makeDataset({ visibility: 'private' })} canEdit />);
+
+        openVisibilitySelect();
+        fireEvent.click(screen.getByRole('option', { name: 'Public' }));
+
+        expect(await screen.findByText('Share inherited keywords?')).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+        await waitFor(() =>
+          expect(screen.queryByText('Share inherited keywords?')).not.toBeInTheDocument(),
+        );
+        expect(mutate).not.toHaveBeenCalled();
+      });
+
+      it('a failed probe never blocks the change', async () => {
+        mockListKeywords.mockRejectedValue(new Error('boom'));
+        render(<AccessTab dataset={makeDataset({ visibility: 'private' })} canEdit />);
+
+        openVisibilitySelect();
+        fireEvent.click(screen.getByRole('option', { name: 'Public' }));
+
+        await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+      });
+
+      // fix(#1178 r3): the probe asks an absolute question, so a NARROWING
+      // move (already-public output moving down the ladder) must not be
+      // blocked behind a dialog claiming a "wider audience" — that dialog
+      // was standing in front of the remediation.
+      it('a narrowing move skips the probe and the dialog entirely', async () => {
+        mockListKeywords.mockResolvedValue(inheritedProbe);
+        render(<AccessTab dataset={makeDataset({ visibility: 'public' })} canEdit />);
+
+        openVisibilitySelect();
+        fireEvent.click(screen.getByRole('option', { name: 'Internal' }));
+
+        await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+        expect(mockListKeywords).not.toHaveBeenCalled();
+        expect(
+          screen.queryByText('Share inherited keywords?'),
+        ).not.toBeInTheDocument();
+      });
+
+      // fix(#1178 r3): inherited_audience_gap is computed server-side over
+      // ALL keyword rows; the fetched page only supplies names. A page
+      // without the inherited entries must still produce the dialog.
+      it('shows the dialog on a gap even when no inherited names are on the page', async () => {
+        mockListKeywords.mockResolvedValue({
+          keywords: [
+            {
+              id: 'kw-2',
+              record_id: 'rec-1',
+              keyword: 'riverine',
+              vocabulary_uri: null,
+              keyword_type: 'theme',
+              inherited: false,
+            },
+          ],
+          total: 150,
+          inherited_audience_gap: true,
+        });
+        render(<AccessTab dataset={makeDataset({ visibility: 'private' })} canEdit />);
+
+        openVisibilitySelect();
+        fireEvent.click(screen.getByRole('option', { name: 'Public' }));
+
+        expect(await screen.findByText('Share inherited keywords?')).toBeInTheDocument();
+        expect(
+          screen.getByText(
+            'This dataset carries keywords inherited from its source. Review the full keyword list before sharing.',
+          ),
+        ).toBeInTheDocument();
+        expect(mutate).not.toHaveBeenCalled();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Change visibility' }));
+        await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+      });
+
+      // fix(#1178 r4): two quick selections leave both probes in flight, and
+      // the LAST response to arrive used to write pendingChange — possibly
+      // for the earlier, no-longer-intended value. Only the newest selection
+      // may produce anything.
+      it('a superseded probe response is discarded, even resolving last', async () => {
+        vi.mocked(toast.warning).mockClear();
+        const resolvers: Array<(v: unknown) => void> = [];
+        mockListKeywords.mockImplementation(
+          () =>
+            new Promise((res) => {
+              resolvers.push(res as (v: unknown) => void);
+            }) as ReturnType<typeof listKeywords>,
+        );
+        render(<AccessTab dataset={makeDataset({ visibility: 'private' })} canEdit />);
+
+        // First selection: Internal. Second selection: Public. Both widen.
+        openVisibilitySelect();
+        fireEvent.click(screen.getByRole('option', { name: 'Internal' }));
+        openVisibilitySelect();
+        fireEvent.click(screen.getByRole('option', { name: 'Public' }));
+        await waitFor(() => expect(resolvers).toHaveLength(2));
+
+        // The newest probe resolves FIRST with no gap: direct mutate for
+        // public. The stale probe resolves LAST claiming a gap: discarded.
+        resolvers[1]({ keywords: [], total: 0, inherited_audience_gap: false });
+        await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+        expect(mutate.mock.calls[0][0]).toEqual({
+          datasetId: 'ds-1',
+          data: { visibility: 'public' },
+        });
+
+        resolvers[0](inheritedProbe);
+        // Give the stale response a tick to (wrongly) act, then assert it
+        // produced nothing: no dialog, no extra mutate.
+        await waitFor(() =>
+          expect(
+            screen.queryByText('Share inherited keywords?'),
+          ).not.toBeInTheDocument(),
+        );
+        expect(mutate).toHaveBeenCalledTimes(1);
+      });
+
+      // fix(#1178 r4): a superseded FAILED probe must not fire the direct
+      // PATCH for its stale value.
+      it('a superseded failed probe does not mutate its stale value', async () => {
+        const handlers: Array<{ resolve: (v: unknown) => void; reject: (e: unknown) => void }> = [];
+        mockListKeywords.mockImplementation(
+          () =>
+            new Promise((resolve, reject) => {
+              handlers.push({ resolve: resolve as (v: unknown) => void, reject });
+            }) as ReturnType<typeof listKeywords>,
+        );
+        render(<AccessTab dataset={makeDataset({ visibility: 'private' })} canEdit />);
+
+        openVisibilitySelect();
+        fireEvent.click(screen.getByRole('option', { name: 'Internal' }));
+        openVisibilitySelect();
+        fireEvent.click(screen.getByRole('option', { name: 'Public' }));
+        await waitFor(() => expect(handlers).toHaveLength(2));
+
+        handlers[1].resolve({ keywords: [], total: 0, inherited_audience_gap: false });
+        await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+
+        // The stale probe FAILS after being superseded: without the guard the
+        // catch fell through to applyVisibility('internal').
+        handlers[0].reject(new Error('boom'));
+        await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+        expect(mutate.mock.calls[0][0]).toEqual({
+          datasetId: 'ds-1',
+          data: { visibility: 'public' },
+        });
+      });
+
+      // fix(#1178 review): the fallback is only a fallback if the PATCH
+      // response's warnings actually reach the user when the probe failed.
+      it('surfaces the PATCH warning when the probe failed', async () => {
+        mockListKeywords.mockRejectedValue(new Error('boom'));
+        mutate.mockImplementation((_vars, opts) =>
+          opts?.onSuccess?.({
+            metadata_warnings: [
+              'Keywords inherited from the source dataset are now visible: codename',
+            ],
+          }),
+        );
+        render(<AccessTab dataset={makeDataset({ visibility: 'private' })} canEdit />);
+
+        openVisibilitySelect();
+        fireEvent.click(screen.getByRole('option', { name: 'Public' }));
+
+        await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+        expect(toast.warning).toHaveBeenCalledWith(
+          'Keywords inherited from the source dataset are now visible: codename',
+        );
+      });
+
+      it('no warning toast when the response carries none', async () => {
+        // The toast mocks are module-level and survive the previous test.
+        vi.mocked(toast.warning).mockClear();
+        mutate.mockImplementation((_vars, opts) =>
+          opts?.onSuccess?.({ metadata_warnings: null }),
+        );
+        render(<AccessTab dataset={makeDataset({ visibility: 'private' })} canEdit />);
+
+        openVisibilitySelect();
+        fireEvent.click(screen.getByRole('option', { name: 'Public' }));
+
+        await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+        expect(toast.warning).not.toHaveBeenCalled();
+      });
     });
 
     it('does not fire a mutation when the value is unchanged', () => {

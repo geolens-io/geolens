@@ -19,6 +19,8 @@ def _get_kwargs(
     *,
     skip: int | Unset = 0,
     limit: int | Unset = 100,
+    audience_visibility: None | str | Unset = UNSET,
+    audience_record_status: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
@@ -26,6 +28,20 @@ def _get_kwargs(
     params["skip"] = skip
 
     params["limit"] = limit
+
+    json_audience_visibility: None | str | Unset
+    if isinstance(audience_visibility, Unset):
+        json_audience_visibility = UNSET
+    else:
+        json_audience_visibility = audience_visibility
+    params["audience_visibility"] = json_audience_visibility
+
+    json_audience_record_status: None | str | Unset
+    if isinstance(audience_record_status, Unset):
+        json_audience_record_status = UNSET
+    else:
+        json_audience_record_status = audience_record_status
+    params["audience_record_status"] = json_audience_record_status
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -116,15 +132,22 @@ def sync_detailed(
     client: AuthenticatedClient,
     skip: int | Unset = 0,
     limit: int | Unset = 100,
+    audience_visibility: None | str | Unset = UNSET,
+    audience_record_status: None | str | Unset = UNSET,
 ) -> Response[KeywordListResponse | ProblemDetail]:
     """List Keywords Endpoint
 
-     List all keywords for a record.
+     List all keywords for a record, marking analysis-inherited ones.
 
     Args:
         record_id (UUID):
         skip (int | Unset):  Default: 0.
         limit (int | Unset):  Default: 100.
+        audience_visibility (None | str | Unset): Compute inherited_audience_gap as if the record
+            had this visibility — the counterfactual an owner asks before widening access (feat
+            #1070). Keywords themselves are unaffected.
+        audience_record_status (None | str | Unset): Compute inherited_audience_gap as if the
+            record had this status — the counterfactual an owner asks before publishing (feat #1070).
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -138,6 +161,8 @@ def sync_detailed(
         record_id=record_id,
         skip=skip,
         limit=limit,
+        audience_visibility=audience_visibility,
+        audience_record_status=audience_record_status,
     )
 
     response = client.get_httpx_client().request(
@@ -153,15 +178,22 @@ def sync(
     client: AuthenticatedClient,
     skip: int | Unset = 0,
     limit: int | Unset = 100,
+    audience_visibility: None | str | Unset = UNSET,
+    audience_record_status: None | str | Unset = UNSET,
 ) -> KeywordListResponse | ProblemDetail | None:
     """List Keywords Endpoint
 
-     List all keywords for a record.
+     List all keywords for a record, marking analysis-inherited ones.
 
     Args:
         record_id (UUID):
         skip (int | Unset):  Default: 0.
         limit (int | Unset):  Default: 100.
+        audience_visibility (None | str | Unset): Compute inherited_audience_gap as if the record
+            had this visibility — the counterfactual an owner asks before widening access (feat
+            #1070). Keywords themselves are unaffected.
+        audience_record_status (None | str | Unset): Compute inherited_audience_gap as if the
+            record had this status — the counterfactual an owner asks before publishing (feat #1070).
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -176,6 +208,8 @@ def sync(
         client=client,
         skip=skip,
         limit=limit,
+        audience_visibility=audience_visibility,
+        audience_record_status=audience_record_status,
     ).parsed
 
 
@@ -185,15 +219,22 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     skip: int | Unset = 0,
     limit: int | Unset = 100,
+    audience_visibility: None | str | Unset = UNSET,
+    audience_record_status: None | str | Unset = UNSET,
 ) -> Response[KeywordListResponse | ProblemDetail]:
     """List Keywords Endpoint
 
-     List all keywords for a record.
+     List all keywords for a record, marking analysis-inherited ones.
 
     Args:
         record_id (UUID):
         skip (int | Unset):  Default: 0.
         limit (int | Unset):  Default: 100.
+        audience_visibility (None | str | Unset): Compute inherited_audience_gap as if the record
+            had this visibility — the counterfactual an owner asks before widening access (feat
+            #1070). Keywords themselves are unaffected.
+        audience_record_status (None | str | Unset): Compute inherited_audience_gap as if the
+            record had this status — the counterfactual an owner asks before publishing (feat #1070).
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -207,6 +248,8 @@ async def asyncio_detailed(
         record_id=record_id,
         skip=skip,
         limit=limit,
+        audience_visibility=audience_visibility,
+        audience_record_status=audience_record_status,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -220,15 +263,22 @@ async def asyncio(
     client: AuthenticatedClient,
     skip: int | Unset = 0,
     limit: int | Unset = 100,
+    audience_visibility: None | str | Unset = UNSET,
+    audience_record_status: None | str | Unset = UNSET,
 ) -> KeywordListResponse | ProblemDetail | None:
     """List Keywords Endpoint
 
-     List all keywords for a record.
+     List all keywords for a record, marking analysis-inherited ones.
 
     Args:
         record_id (UUID):
         skip (int | Unset):  Default: 0.
         limit (int | Unset):  Default: 100.
+        audience_visibility (None | str | Unset): Compute inherited_audience_gap as if the record
+            had this visibility — the counterfactual an owner asks before widening access (feat
+            #1070). Keywords themselves are unaffected.
+        audience_record_status (None | str | Unset): Compute inherited_audience_gap as if the
+            record had this status — the counterfactual an owner asks before publishing (feat #1070).
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -244,5 +294,7 @@ async def asyncio(
             client=client,
             skip=skip,
             limit=limit,
+            audience_visibility=audience_visibility,
+            audience_record_status=audience_record_status,
         )
     ).parsed
