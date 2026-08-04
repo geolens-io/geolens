@@ -33,7 +33,6 @@ __all__ = [
     "list_attributes",
     "reset_attribute",
     "update_attribute",
-    "update_auto_metadata",
     "update_user_metadata",
 ]
 
@@ -329,42 +328,6 @@ async def update_user_metadata(
     if {"title", "summary", "lineage_summary"} & meta.model_fields_set:
         await _maybe_defer_embedding(record.id, dataset.id)
 
-    return dataset
-
-
-async def update_auto_metadata(
-    session: AsyncSession,
-    dataset_id: uuid.UUID,
-    *,
-    srid: int | None = None,
-    geometry_type: str | None = None,
-    feature_count: int | None = None,
-    extent_wkt: str | None = None,
-    column_info: list[dict] | None = None,
-) -> Dataset:
-    """Update only auto-extracted fields. Never touches title/summary.
-
-    extent_wkt now updates Record.spatial_extent. srid, geometry_type,
-    feature_count, column_info stay on Dataset.
-    Only updates fields that are not None. Raises ValueError if dataset not found.
-    """
-    dataset = await get_dataset(session, dataset_id)
-    if dataset is None:
-        raise ValueError(f"Dataset {dataset_id} not found.")
-
-    if srid is not None:
-        dataset.srid = srid
-    if geometry_type is not None:
-        dataset.geometry_type = geometry_type
-    if feature_count is not None:
-        dataset.feature_count = feature_count
-    if extent_wkt is not None:
-        dataset.record.spatial_extent = func.ST_GeomFromText(extent_wkt, 4326)
-    if column_info is not None:
-        dataset.column_info = column_info
-
-    await session.commit()
-    await session.refresh(dataset)
     return dataset
 
 
