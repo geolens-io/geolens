@@ -1,5 +1,6 @@
-import { Fragment, useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useSearchParams } from 'react-router';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useAdminJobs, useRetryAdminJob, useUserNames } from '@/hooks/use-admin';
 import { formatDate } from '@/lib/format';
@@ -38,7 +39,28 @@ function formatDuration(startedAt: string | null, completedAt: string | null): s
 
 export function JobList() {
   const { t } = useTranslation('admin');
-  const [status, setStatus] = useState('');
+  // fix(#1185): the admin sidebar's failed-jobs badge links here as
+  // /admin/jobs?status=failed so the number the user clicked equals the number
+  // the list shows. Status therefore lives in the URL rather than in component
+  // state — that also makes a filtered view bookmarkable and the back button
+  // work. An unrecognized value falls back to "all statuses" instead of being
+  // forwarded to the API.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const statusParam = searchParams.get('status') ?? '';
+  const status = STATUS_OPTIONS.some((opt) => opt.value === statusParam) ? statusParam : '';
+  const setStatus = useCallback(
+    (next: string) => {
+      setSearchParams(
+        (params) => {
+          if (next) params.set('status', next);
+          else params.delete('status');
+          return params;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
   const [userId, setUserId] = useState('');
   const [page, setPage] = useState(0);
   const [expandedId, setExpandedId] = useState<string | null>(null);

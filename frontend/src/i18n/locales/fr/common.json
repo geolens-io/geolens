@@ -85,6 +85,8 @@
     "overview": "Vue d'ensemble",
     "users": "Utilisateurs",
     "jobs": "Tâches",
+    "failedJobs_one": "{{count}} tâche échouée",
+    "failedJobs_other": "{{count}} tâches échouées",
     "auditLog": "Journal d'audit",
     "sharedMaps": "Cartes Publiées",
     "saml": "SSO SAML",
