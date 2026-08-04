@@ -230,6 +230,7 @@ source = { editable = "../sdks/python" }
 dependencies = [
     { name = "attrs" },
     { name = "httpx" },
+    { name = "idna" },
     { name = "python-dateutil" },
 ]
 
@@ -237,6 +238,7 @@ dependencies = [
 requires-dist = [
     { name = "attrs", specifier = ">=22.2.0" },
     { name = "httpx", specifier = ">=0.23.0,<0.29.0" },
+    { name = "idna", specifier = ">=3.18" },
     { name = "python-dateutil", specifier = ">=2.8.0,<3.0.0" },
 ]
 
