@@ -468,15 +468,20 @@ async def ingest_raster(
         user_compression = um.get("compression") or "DEFLATE"
         user_resampling = um.get("resampling") or None
         user_nodata = um.get("nodata_override")
-        crs_missing = um.get("crs_missing", False)
+        # fix(#1186): derive this from the raster, not from an upload-time
+        # stamp. `user_metadata["crs_missing"]` was written only by the
+        # non-presigned upload endpoint, so it was absent for every S3
+        # (presigned) upload — and `assign_crs` below is gated on it, meaning
+        # a user-supplied srid_override was silently dropped and the COG came
+        # out with no CRS. `meta` is read from the file itself, which is the
+        # authority the flag was standing in for.
+        crs_missing = not meta.get("crs_wkt")
 
-        if not meta.get("crs_wkt") and not assign_crs:
-            if crs_missing:
-                raise ValueError(
-                    "Missing CRS: raster has no coordinate reference system. "
-                    "Provide a CRS override (EPSG code) at import time."
-                )
-            raise ValueError("Missing CRS: raster has no coordinate reference system.")
+        if crs_missing and not assign_crs:
+            raise ValueError(
+                "Missing CRS: raster has no coordinate reference system. "
+                "Provide a CRS override (EPSG code) at import time."
+            )
 
         # ING-07 / P2-09: strict-mode COG gating. When the user opted in via
         # RasterCommitRequest.strict_cog=True, reject non-COG TIFFs here
