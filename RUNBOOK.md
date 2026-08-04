@@ -636,7 +636,8 @@ and exports it as the Prometheus gauge `geolens_worker_rss_bytes` (labelled by
 `pid`) on the API `/metrics` endpoint. One caveat when running more than one
 worker: each process has its own metrics registry and a scrape is answered by
 whichever worker takes it, so a single scrape reports one worker's gauge and
-successive scrapes alternate pid series (multiprocess aggregation is tracked
+successive scrapes may alternate pid series — or keep reaching the same worker
+and never observe the one that is growing (multiprocess aggregation is tracked
 in #651). The structured log lines the same sampler writes are therefore the
 authoritative per-worker signal, and a growth curve exists in
 `docker compose logs api` even if `/metrics` is never scraped:
@@ -667,7 +668,11 @@ a brief API outage per recycle — direct image deployments that keep the baked
 `UVICORN_WORKERS=1` default must run under such a policy for recycling to be
 safe. If the watermark WARNING still fires between recycles, lower the
 value; the `UVICORN_MAX_REQUESTS` entry in `.env.example` documents the value
-rules. Recycling caps the blast radius — it does not explain what grows. That
+rules. Note that under production Compose an unset or empty value falls back
+to the compose default of 10000 — disabling recycling there means editing the
+`docker-compose.prod.yml` value, not blanking the variable (blanking works
+only for direct image runs). Recycling caps the blast radius — it does not
+explain what grows. That
 investigation is tracked in #643.
 
 ### Database temp-file ceiling (`temp_file_limit`)
