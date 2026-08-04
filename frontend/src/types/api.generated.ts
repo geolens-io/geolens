@@ -8402,7 +8402,7 @@ export interface components {
         KeywordListResponse: {
             /**
              * Inherited Audience Gap
-             * @description True when at least one keyword is inherited AND this record's audience — at its stored state, or at the counterfactual audience_visibility/audience_record_status query parameters — includes someone who cannot open the source dataset (feat #1070).
+             * @description True when at least one keyword is inherited AND this record's audience — at its stored state, or at the counterfactual audience_visibility/audience_record_status query parameters, which are honored only for the record's owner and admins — includes someone who cannot open the source dataset (feat #1070).
              * @default false
              */
             inherited_audience_gap: boolean;
@@ -33563,9 +33563,9 @@ export interface operations {
             query?: {
                 skip?: number;
                 limit?: number;
-                /** @description Compute inherited_audience_gap as if the record had this visibility — the counterfactual an owner asks before widening access (feat #1070). Keywords themselves are unaffected. */
+                /** @description Compute inherited_audience_gap as if the record had this visibility — the counterfactual an owner asks before widening access (feat #1070). Honored only for the record's owner and admins; ignored for everyone else, who get the gap at the record's stored state. Keywords themselves are unaffected. */
                 audience_visibility?: string | null;
-                /** @description Compute inherited_audience_gap as if the record had this status — the counterfactual an owner asks before publishing (feat #1070). */
+                /** @description Compute inherited_audience_gap as if the record had this status — the counterfactual an owner asks before publishing (feat #1070). Honored only for the record's owner and admins; ignored for everyone else, who get the gap at the record's stored state. Deliberately not pinned to an enum: the lifecycle statuses come from the workflow extension's status_order(), so an overlay may define its own. An unrecognized status is treated conservatively (it reaches only the owner, which errs toward warning) rather than rejected. */
                 audience_record_status?: string | null;
             };
             header?: never;

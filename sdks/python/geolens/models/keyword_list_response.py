@@ -23,8 +23,9 @@ class KeywordListResponse:
         keywords (list[KeywordResponse]):
         total (int):
         inherited_audience_gap (bool | Unset): True when at least one keyword is inherited AND this record's audience —
-            at its stored state, or at the counterfactual audience_visibility/audience_record_status query parameters —
-            includes someone who cannot open the source dataset (feat #1070). Default: False.
+            at its stored state, or at the counterfactual audience_visibility/audience_record_status query parameters, which
+            are honored only for the record's owner and admins — includes someone who cannot open the source dataset (feat
+            #1070). Default: False.
     """
 
     keywords: list[KeywordResponse]

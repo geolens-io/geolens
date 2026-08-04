@@ -182,7 +182,8 @@ class KeywordListResponse(BaseModel):
         description=(
             "True when at least one keyword is inherited AND this record's "
             "audience — at its stored state, or at the counterfactual "
-            "audience_visibility/audience_record_status query parameters — "
+            "audience_visibility/audience_record_status query parameters, "
+            "which are honored only for the record's owner and admins — "
             "includes someone who cannot open the source dataset (feat #1070)."
         ),
     )
