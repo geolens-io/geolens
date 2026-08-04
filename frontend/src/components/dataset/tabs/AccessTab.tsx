@@ -62,6 +62,12 @@ interface AccessTabProps {
  * the import pickers deliberately stay at private/public. */
 const SELECTABLE_VISIBILITIES = ['private', 'internal', 'public'] as const;
 
+/** fix(#1178 r3): the full ladder in widening order, for deciding whether a
+ * visibility move ADDS readers. `restricted` sits between private and
+ * internal even though this control cannot move TO it — a stored restricted
+ * dataset can still be moved FROM it, and that move's direction matters. */
+const VISIBILITY_LADDER = ['private', 'restricted', 'internal', 'public'] as const;
+
 /** Copy text to clipboard with textarea fallback for non-HTTPS contexts. */
 async function copyText(value: string): Promise<void> {
   try {
@@ -287,22 +293,41 @@ export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
   async function handleVisibilityChange(value: string) {
     if (value === dataset.visibility) return;
     const visibility = value as DatasetVisibility;
-    // feat(#1070): ask the counterfactual — "at this visibility, would
-    // inherited keywords reach someone who cannot open their source?" — and
-    // put the diff in front of the owner before the change applies. Advisory
-    // only: a failed probe never blocks the change (the backend PATCH response
-    // still carries the warning).
-    try {
-      const kw = await listKeywords(dataset.record_id, {
-        audienceVisibility: visibility,
-      });
-      const inherited = kw.keywords.filter((k) => k.inherited).map((k) => k.keyword);
-      if (kw.inherited_audience_gap && inherited.length > 0) {
-        setPendingChange({ visibility, keywords: inherited });
-        return;
+    // fix(#1178 r3): only a move that ADDS readers warrants the dialog. The
+    // probe asks an absolute question ("does this audience exceed the
+    // source?"), so running it on a narrowing move (public -> internal on an
+    // output already wider than its source) blocked the REMEDIATION behind a
+    // dialog claiming a wider audience. An unknown stored value indexes to
+    // -1 and counts as widening — over-warning is the safe direction.
+    const widens =
+      VISIBILITY_LADDER.indexOf(visibility as (typeof VISIBILITY_LADDER)[number]) >
+      VISIBILITY_LADDER.indexOf(
+        dataset.visibility as (typeof VISIBILITY_LADDER)[number],
+      );
+    if (widens) {
+      // feat(#1070): ask the counterfactual — "at this visibility, would
+      // inherited keywords reach someone who cannot open their source?" — and
+      // put the diff in front of the owner before the change applies.
+      // Advisory only: a failed probe never blocks the change (the backend
+      // PATCH response still carries the warning).
+      try {
+        const kw = await listKeywords(dataset.record_id, {
+          audienceVisibility: visibility,
+        });
+        // fix(#1178 r3): the gap flag is authoritative (computed server-side
+        // over ALL keyword rows); the fetched page only supplies display
+        // names. Keying the dialog on the page's inherited entries let a page
+        // boundary skip the confirmation entirely.
+        if (kw.inherited_audience_gap) {
+          setPendingChange({
+            visibility,
+            keywords: kw.keywords.filter((k) => k.inherited).map((k) => k.keyword),
+          });
+          return;
+        }
+      } catch {
+        // fall through to the plain mutate
       }
-    } catch {
-      // fall through to the plain mutate
     }
     applyVisibility(visibility);
   }
@@ -427,13 +452,22 @@ export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
               {t('keywords.inheritedConfirmBody')}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <div className="flex flex-wrap gap-1.5">
-            {pendingChange?.keywords.map((kw) => (
-              <Badge key={kw} variant="secondary">
-                {kw}
-              </Badge>
-            ))}
-          </div>
+          {/* fix(#1178 r3): the fetched page supplies display names only; a
+              gap with no inherited names on the page still gets the dialog,
+              with a generic line in place of the badges. */}
+          {pendingChange && pendingChange.keywords.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {pendingChange.keywords.map((kw) => (
+                <Badge key={kw} variant="secondary">
+                  {kw}
+                </Badge>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              {t('keywords.inheritedGeneric')}
+            </p>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common:cancel')}</AlertDialogCancel>
             <AlertDialogAction

@@ -549,7 +549,8 @@
     "inheritedGapHint": "Certains mots-clés ont été hérités d'un jeu de données source que tous les lecteurs ne peuvent pas ouvrir.",
     "inheritedConfirmTitle": "Partager les mots-clés hérités ?",
     "inheritedConfirmBody": "Ces mots-clés ont été copiés depuis un jeu de données source que le nouveau public ne peut pas ouvrir. Continuez pour les partager, ou annulez et supprimez-les d'abord.",
-    "inheritedConfirmContinue": "Changer la visibilité"
+    "inheritedConfirmContinue": "Changer la visibilité",
+    "inheritedGeneric": "Ce jeu de données contient des mots-clés hérités de sa source. Vérifiez la liste complète des mots-clés avant de partager."
   },
   "attributeMetadata": {
     "title": "Métadonnées des attributs",

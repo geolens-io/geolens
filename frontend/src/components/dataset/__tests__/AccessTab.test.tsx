@@ -353,6 +353,59 @@ describe('AccessTab', () => {
         await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
       });
 
+      // fix(#1178 r3): the probe asks an absolute question, so a NARROWING
+      // move (already-public output moving down the ladder) must not be
+      // blocked behind a dialog claiming a "wider audience" — that dialog
+      // was standing in front of the remediation.
+      it('a narrowing move skips the probe and the dialog entirely', async () => {
+        mockListKeywords.mockResolvedValue(inheritedProbe);
+        render(<AccessTab dataset={makeDataset({ visibility: 'public' })} canEdit />);
+
+        openVisibilitySelect();
+        fireEvent.click(screen.getByRole('option', { name: 'Internal' }));
+
+        await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+        expect(mockListKeywords).not.toHaveBeenCalled();
+        expect(
+          screen.queryByText('Share inherited keywords?'),
+        ).not.toBeInTheDocument();
+      });
+
+      // fix(#1178 r3): inherited_audience_gap is computed server-side over
+      // ALL keyword rows; the fetched page only supplies names. A page
+      // without the inherited entries must still produce the dialog.
+      it('shows the dialog on a gap even when no inherited names are on the page', async () => {
+        mockListKeywords.mockResolvedValue({
+          keywords: [
+            {
+              id: 'kw-2',
+              record_id: 'rec-1',
+              keyword: 'riverine',
+              vocabulary_uri: null,
+              keyword_type: 'theme',
+              inherited: false,
+            },
+          ],
+          total: 150,
+          inherited_audience_gap: true,
+        });
+        render(<AccessTab dataset={makeDataset({ visibility: 'private' })} canEdit />);
+
+        openVisibilitySelect();
+        fireEvent.click(screen.getByRole('option', { name: 'Public' }));
+
+        expect(await screen.findByText('Share inherited keywords?')).toBeInTheDocument();
+        expect(
+          screen.getByText(
+            'This dataset carries keywords inherited from its source. Review the full keyword list before sharing.',
+          ),
+        ).toBeInTheDocument();
+        expect(mutate).not.toHaveBeenCalled();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Change visibility' }));
+        await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+      });
+
       // fix(#1178 review): the fallback is only a fallback if the PATCH
       // response's warnings actually reach the user when the probe failed.
       it('surfaces the PATCH warning when the probe failed', async () => {

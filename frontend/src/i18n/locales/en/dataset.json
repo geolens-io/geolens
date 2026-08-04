@@ -440,7 +440,8 @@
     "inheritedGapHint": "Some keywords were inherited from a source dataset that not every reader here can open.",
     "inheritedConfirmTitle": "Share inherited keywords?",
     "inheritedConfirmBody": "These keywords were copied from a source dataset the wider audience cannot open. Continue to share them, or cancel and remove them first.",
-    "inheritedConfirmContinue": "Change visibility"
+    "inheritedConfirmContinue": "Change visibility",
+    "inheritedGeneric": "This dataset carries keywords inherited from its source. Review the full keyword list before sharing."
   },
   "validation": {
     "title": "Validation Status",

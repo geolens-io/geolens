@@ -549,7 +549,8 @@
     "inheritedGapHint": "Algunas palabras clave se heredaron de un conjunto de datos de origen que no todos los lectores pueden abrir.",
     "inheritedConfirmTitle": "¿Compartir las palabras clave heredadas?",
     "inheritedConfirmBody": "Estas palabras clave se copiaron de un conjunto de datos de origen que la nueva audiencia no puede abrir. Continúe para compartirlas, o cancele y elimínelas primero.",
-    "inheritedConfirmContinue": "Cambiar visibilidad"
+    "inheritedConfirmContinue": "Cambiar visibilidad",
+    "inheritedGeneric": "Este conjunto de datos contiene palabras clave heredadas de su origen. Revise la lista completa de palabras clave antes de compartir."
   },
   "attributeMetadata": {
     "title": "Metadatos de atributos",
