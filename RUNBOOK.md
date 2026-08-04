@@ -650,7 +650,10 @@ requests; the only trace outside these logs is host `dmesg` (#643).
 The backstop is bounded worker recycling via `UVICORN_MAX_REQUESTS`: when it is
 set, the api command appends uvicorn's `--limit-max-requests` (wired in the
 image CMD in `Dockerfile`; `docker-compose.prod.yml` does the same and defaults
-the value to 10000). A worker exits gracefully after that many requests and the
+the value to 10000). This applies to production deployments only — the
+development `docker-compose.yml` overrides that command with a `--reload`
+invocation that does not pass `--limit-max-requests`, so setting the variable
+there has no effect. A worker exits gracefully after that many requests and the
 uvicorn supervisor respawns it, so slow growth cannot ride one worker into the
 OOM killer. If the watermark WARNING still fires between recycles, lower the
 value; the `UVICORN_MAX_REQUESTS` entry in `.env.example` documents the value
