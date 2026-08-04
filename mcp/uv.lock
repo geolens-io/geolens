@@ -249,6 +249,7 @@ source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
     { name = "geolens" },
+    { name = "idna" },
     { name = "mcp" },
 ]
 
@@ -261,6 +262,7 @@ dev = [
 requires-dist = [
     { name = "cryptography", specifier = ">=50.0.0" },
     { name = "geolens", editable = "../sdks/python" },
+    { name = "idna", specifier = ">=3.18" },
     { name = "mcp", specifier = ">=1.28.1,<2.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.0,<10.0.0" },
 ]
