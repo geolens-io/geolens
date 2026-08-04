@@ -1558,7 +1558,10 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # feat(#1068): +1 — the guard call passes record_id, so the permission
         # authority can key an audience on the record and not only its dataset.
         # Cap 489 -> 490, exact.
-        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 490,
+        # fix(#1170): -37 — delete the dead update_auto_metadata, the one
+        # geometry_type writer that never probed for geom_4326 (refs #1020).
+        # Cap 490 -> 453, exact.
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 453,
         # fix(#435 codex r1): +6 LOC in get_dataset_rows to probe schema existence
         # before degrading a 42P01 to an empty page. Postgres reports a missing
         # tenant data schema with the same code as a raster dataset's synthetic

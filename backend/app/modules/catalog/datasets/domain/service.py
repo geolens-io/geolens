@@ -51,7 +51,6 @@ from app.modules.catalog.datasets.domain.service_metadata import (
     list_attributes,
     reset_attribute,
     update_attribute,
-    update_auto_metadata,
     update_user_metadata,
 )
 from app.modules.catalog.datasets.domain.service_query import (
@@ -99,6 +98,5 @@ __all__ = [
     "resolve_source_feature_count",
     "run_analysis_preview",
     "update_attribute",
-    "update_auto_metadata",
     "update_user_metadata",
 ]
