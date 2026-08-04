@@ -153,13 +153,66 @@ _PATHSPEC_MAGIC_REASON_GENERIC = (
 
 
 def _git_grep(pattern: str, path: str) -> subprocess.CompletedProcess[str]:
+    # fix(#1182): `-P` (PCRE), never `-E`. POSIX ERE has no `\s`/`\b`/`\w`;
+    # glibc accepts them as GNU extensions but macOS does not, so an `-E`
+    # pattern using them matches nothing there — and a forbidden-pattern
+    # guard reads a universal non-match as a clean pass.
     return subprocess.run(
-        ["git", "grep", "-n", "-E", pattern, "--", path],
+        ["git", "grep", "-n", "-P", pattern, "--", path],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
         check=False,
     )
+
+
+@pytest.mark.architecture
+@pytest.mark.skipif(not _GIT_METADATA_AVAILABLE, reason=_GIT_METADATA_REASON)
+def test_git_grep_guards_use_pcre_and_gnu_escapes_are_live() -> None:
+    """The grep-based guards in this file must be able to fail on this host.
+
+    fix(#1182): two halves, because either one alone passes vacuously.
+
+    1. No `git grep` argv in this file may use `-E`. Nearly every guard pattern
+       here relies on `\\s`, `\\b` or `\\w`, which POSIX ERE does not define;
+       under `-E` on macOS they match nothing and the guard is permanently,
+       silently green.
+    2. Those escapes must actually match under the flag we do use, asserted
+       against a line known to exist rather than assumed from the flag name.
+    """
+    source = Path(__file__).read_text(encoding="utf-8")
+    offenders: list[int] = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.List):
+            continue
+        items = [
+            e.value
+            for e in node.elts
+            if isinstance(e, ast.Constant) and isinstance(e.value, str)
+        ]
+        if items[:2] == ["git", "grep"] and "-E" in items:
+            offenders.append(node.lineno)
+    if offenders:
+        pytest.fail(
+            "git grep guard uses `-E`; POSIX ERE has no \\s/\\b/\\w, so the "
+            "pattern matches nothing on macOS and the guard cannot fail "
+            "locally. Use `-P`. Offending argv at line(s): "
+            + ", ".join(str(n) for n in offenders)
+        )
+
+    # Liveness: this import line exists, and the pattern reaching it needs all
+    # three escapes. A non-match means the regex engine, not the codebase.
+    probe = _git_grep(
+        r"^\s*from\s+pathlib\s+import\s+\bPath\b\w*",
+        "backend/tests/test_layering.py",
+    )
+    if probe.returncode != 0:
+        pytest.fail(
+            "git grep found no match for a pattern whose target line is known "
+            f"to exist (rc={probe.returncode}). The \\s/\\b/\\w escapes are "
+            "not being honored — grep-based guards in this file are vacuous. "
+            f"stderr: {probe.stderr}"
+        )
 
 
 def _iter_backend_app_python_files() -> list[Path]:
@@ -391,7 +444,7 @@ def test_no_auth_visibility_module_referenced() -> None:
             "git",
             "grep",
             "-n",
-            "-E",
+            "-P",
             r"app\.modules\.auth\.visibility|auth\.visibility",
             "--",
             "backend/",
@@ -608,7 +661,7 @@ def test_cross_domain_does_not_import_user_from_auth_models() -> None:
             "git",
             "grep",
             "-n",
-            "-E",
+            "-P",
             r"^\s*(from|import)\s+app\.modules\.auth\.models\s+import\s+.*\bUser\b",
             "--",
             "backend/",
@@ -2376,7 +2429,7 @@ def test_no_log_action_calls_outside_audit_service() -> None:
             "git",
             "grep",
             "-n",
-            "-E",
+            "-P",
             r"\bawait log_action\(",
             "--",
             "backend/app/",
@@ -2459,7 +2512,7 @@ def test_no_core_marketplace_import() -> None:
             "git",
             "grep",
             "-n",
-            "-E",
+            "-P",
             r"from app\.core\.marketplace|import app\.core\.marketplace",
             "--",
             "backend/app/",
@@ -2510,7 +2563,7 @@ def test_billing_dispatch_uses_hardcoded_timeout() -> None:
             "git",
             "grep",
             "-n",
-            "-E",
+            "-P",
             r"asyncio\.wait_for\(ext\.on_startup\(app\), timeout=10\.0\)",
             "--",
             # Phase 1206 (WORK-01) collapsed the API lifespan + worker bootstrap
@@ -2681,7 +2734,7 @@ def test_no_catalog_imports_processing() -> None:
             "git",
             "grep",
             "-n",
-            "-E",
+            "-P",
             r"(backend\.)?app\.processing",
             "--",
             "backend/app/modules/catalog/",
@@ -2797,7 +2850,7 @@ def test_no_module_level_provider_sdk_imports_in_processing() -> None:
             "git",
             "grep",
             "-n",
-            "-E",
+            "-P",
             r"^(from|import) (anthropic|openai)( |$)",
             "--",
             "backend/app/processing/",
@@ -3215,14 +3268,15 @@ def test_no_unjustified_broad_except_sites() -> None:
     """
     # Match `except Exception:` and `except Exception as foo:` lines
     # under backend/app/ only (tests/ is out of scope).
-    # Use `[ \t]+` instead of `\s+` for portable ERE — macOS (Apple Git)
-    # git grep -E does not treat `\s` as a whitespace character class.
+    # fix(#1182): runs under `-P`, so `\w` in the optional `as` group is a real
+    # word class. Under `-E` on macOS it matched nothing, so `except Exception
+    # as foo:` lines were invisible locally while CI caught them.
     result = subprocess.run(
         [
             "git",
             "grep",
             "-n",
-            "-E",
+            "-P",
             r"except Exception([ \t]+as[ \t]+\w+)?:",
             "--",
             "backend/app/",
