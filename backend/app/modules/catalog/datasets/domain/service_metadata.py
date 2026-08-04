@@ -338,7 +338,7 @@ async def update_user_metadata(
         )
 
         warning = await inherited_keyword_disclosure_warning(
-            session, record, dataset_id
+            session, record, dataset_id, actor=actor
         )
         if warning is not None and warnings_out is not None:
             warnings_out.append(warning)

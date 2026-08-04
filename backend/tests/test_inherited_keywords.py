@@ -17,6 +17,7 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.models import User
@@ -48,6 +49,7 @@ async def _derived_pair(
     source_keywords: tuple[str, ...] = ("codename",),
     copy_keywords: bool = True,
     own_keywords: tuple[str, ...] = (),
+    derived_owner_id: uuid.UUID | None = None,
 ) -> tuple[Dataset, Dataset, Record, Record]:
     """A source dataset and a dataset derived from it, keywords included.
 
@@ -64,7 +66,7 @@ async def _derived_pair(
     )
     derived = await create_dataset(
         session,
-        created_by=owner_id,
+        created_by=derived_owner_id if derived_owner_id is not None else owner_id,
         visibility=derived_visibility,
         record_status=derived_status,
         name=f"Derived {uuid.uuid4().hex[:6]}",
@@ -94,6 +96,11 @@ async def _derived_pair(
     }
     await session.commit()
     return source, derived, source_record, derived_record
+
+
+async def _user_row(session: AsyncSession, user_id: uuid.UUID) -> User:
+    """The concrete User row for an id — the actor the disclosure gate reads."""
+    return (await session.execute(select(User).where(User.id == user_id))).scalar_one()
 
 
 async def _add_plain_user(session: AsyncSession) -> User:
@@ -177,6 +184,7 @@ class TestDisclosureWarning:
             test_db_session,
             derived.id,
             DatasetMeta(visibility="public"),
+            actor=await _user_row(test_db_session, admin_id),
             warnings_out=warnings,
         )
         await test_db_session.commit()
@@ -198,6 +206,7 @@ class TestDisclosureWarning:
             test_db_session,
             derived.id,
             DatasetMeta(record_status="published"),
+            actor=await _user_row(test_db_session, admin_id),
             warnings_out=warnings,
         )
         await test_db_session.commit()
@@ -221,6 +230,7 @@ class TestDisclosureWarning:
             test_db_session,
             derived.id,
             DatasetMeta(visibility="public"),
+            actor=await _user_row(test_db_session, admin_id),
             warnings_out=warnings,
         )
         await test_db_session.commit()
@@ -242,6 +252,7 @@ class TestDisclosureWarning:
             test_db_session,
             derived.id,
             DatasetMeta(visibility="public"),
+            actor=await _user_row(test_db_session, admin_id),
             warnings_out=warnings,
         )
         await test_db_session.commit()
@@ -258,10 +269,59 @@ class TestDisclosureWarning:
             test_db_session,
             derived.id,
             DatasetMeta(title="Renamed, audience untouched"),
+            actor=await _user_row(test_db_session, admin_id),
             warnings_out=warnings,
         )
         await test_db_session.commit()
         assert warnings == []
+
+    async def test_no_warning_for_actor_without_source_access(
+        self, test_db_session: AsyncSession
+    ):
+        """fix(#1178 review r2): the warning must not be a membership oracle.
+
+        An output owner whose access to the now-private source was revoked
+        adds a GUESSED keyword to their own record and sends a no-op
+        visibility echo. Before the actor gate, the warning named the guess —
+        confirming it exists on a source the actor cannot open. The gate is
+        the same ``visible_derived_from`` rule the keywords endpoint applies,
+        so no access means silence, on the same grounds as the reference
+        redaction. This test constructs its own access loss: the derived
+        record's owner is a role-less account that never held a grant on the
+        admin's private source.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        outsider = await _add_plain_user(test_db_session)
+        _, derived, _, _ = await _derived_pair(
+            test_db_session,
+            admin_id,
+            derived_visibility="private",
+            derived_owner_id=outsider.id,
+        )
+        warnings: list[str] = []
+        await update_user_metadata(
+            test_db_session,
+            derived.id,
+            DatasetMeta(visibility="private"),  # no-op echo carrying the probe
+            actor=outsider,
+            warnings_out=warnings,
+        )
+        await test_db_session.commit()
+        assert warnings == []
+
+        # The same state read by an actor who CAN open the source still warns
+        # (outsider sits in the derived audience but not the source's), so the
+        # silence above is the gate, not a missing gap.
+        warnings_admin: list[str] = []
+        await update_user_metadata(
+            test_db_session,
+            derived.id,
+            DatasetMeta(visibility="private"),
+            actor=await _user_row(test_db_session, admin_id),
+            warnings_out=warnings_admin,
+        )
+        await test_db_session.commit()
+        assert warnings_admin and "codename" in warnings_admin[0]
 
     async def test_disclosed_list_survives_a_deleted_source(
         self, test_db_session: AsyncSession
@@ -274,7 +334,10 @@ class TestDisclosureWarning:
         await test_db_session.commit()
         assert (
             await disclosed_inherited_keywords(
-                test_db_session, derived_record, derived.id
+                test_db_session,
+                derived_record,
+                derived.id,
+                actor=await _user_row(test_db_session, admin_id),
             )
             == []
         )

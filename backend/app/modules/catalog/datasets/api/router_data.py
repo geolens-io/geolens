@@ -324,7 +324,9 @@ async def update_publication_status(
     # fix(#1178 review): this endpoint writes record_status without going
     # through update_user_metadata, so it must run the same resolved-state
     # inherited-keyword check or the ordinary publish flow warns nobody.
-    warning = await inherited_keyword_disclosure_warning(db, dataset.record, dataset_id)
+    warning = await inherited_keyword_disclosure_warning(
+        db, dataset.record, dataset_id, actor=user
+    )
     await db.commit()
     await db.refresh(dataset)
     return StatusUpdateResponse(
@@ -408,7 +410,9 @@ async def set_target_status(
     # fix(#1178 review): the ordinary publish flow (DatasetPage's publish
     # toggle) lands here, not in update_user_metadata — the resolved-state
     # inherited-keyword check has to run after the chain completes.
-    warning = await inherited_keyword_disclosure_warning(db, dataset.record, dataset_id)
+    warning = await inherited_keyword_disclosure_warning(
+        db, dataset.record, dataset_id, actor=user
+    )
     await db.commit()
     await db.refresh(dataset)
     return StatusUpdateResponse(

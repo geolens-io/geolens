@@ -38,7 +38,9 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.identity import Identity
 from app.modules.auth.models import User
+from app.modules.catalog.authorization import get_user_roles, visible_derived_from
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
     DatasetGrant,
@@ -179,7 +181,11 @@ async def audience_exceeds_source(
 
 
 async def disclosed_inherited_keywords(
-    session: AsyncSession, record: Record, dataset_id: uuid.UUID | None
+    session: AsyncSession,
+    record: Record,
+    dataset_id: uuid.UUID | None,
+    *,
+    actor: "Identity | None",
 ) -> list[str]:
     """Inherited keywords readable, at the record's CURRENT state, by someone
     who cannot open the source. Empty when there is nothing to warn about.
@@ -188,7 +194,27 @@ async def disclosed_inherited_keywords(
     visibility or record_status change resolves — keyed off resolved state, so
     both widening axes (visibility, and record_status to published) route
     through one check.
+
+    fix(#1178 review r2): gated on ``actor``'s access to the SOURCE, with the
+    same ``visible_derived_from`` rule the keywords endpoint applies. Without
+    it this function was a membership oracle: an output owner who had LOST
+    access to a now-private source could add a guessed keyword to their own
+    record, send a no-op metadata PATCH, and read the warning as confirmation
+    that the guess exists on the inaccessible source. An actor who cannot
+    access the source therefore gets no disclosure warning either — the
+    accepted consequence of the redaction rule, since warning them would
+    disclose the very association the redaction hides.
     """
+    # Settle "not derived at all" before any query — role resolution and the
+    # gate itself only make sense once there is a source to gate.
+    if not record.derived_from:
+        return []
+    actor_roles = set() if actor is None else await get_user_roles(session, actor)
+    source_ref = await visible_derived_from(
+        session, record.derived_from, actor, actor_roles
+    )
+    if source_ref is None:
+        return []
     source = await resolve_inherited_source(session, record)
     if source is None:
         return []
@@ -203,7 +229,11 @@ async def disclosed_inherited_keywords(
 
 
 async def inherited_keyword_disclosure_warning(
-    session: AsyncSession, record: Record, dataset_id: uuid.UUID | None
+    session: AsyncSession,
+    record: Record,
+    dataset_id: uuid.UUID | None,
+    *,
+    actor: "Identity | None",
 ) -> str | None:
     """The advisory warning every resolved-state audience writer emits, or None.
 
@@ -222,8 +252,15 @@ async def inherited_keyword_disclosure_warning(
     analysis-derived — ``derived_from`` and inherited keywords are written by
     ``apply_analysis_provenance`` on outputs registered private — and a
     worker has no owner on the wire to warn.
+
+    ``actor`` is the account making the change; the disclosure check reads
+    the source's keywords, so it is gated on the actor's access to the source
+    (see ``disclosed_inherited_keywords`` — fix #1178 review r2). No access,
+    no warning.
     """
-    disclosed = await disclosed_inherited_keywords(session, record, dataset_id)
+    disclosed = await disclosed_inherited_keywords(
+        session, record, dataset_id, actor=actor
+    )
     if not disclosed:
         return None
     logger.warning(
