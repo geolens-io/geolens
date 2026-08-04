@@ -451,8 +451,22 @@ services:
 
   titiler:
     # Pinned to 2.x stable (held back from 3.x without contract testing).
-    # 2.0.5 bump per the 2026-07 TiTiler assessment (patch-level, same contract).
-    image: ghcr.io/developmentseed/titiler:2.0.5
+    # 2.2.1 bump per the 2026-08 TiTiler reassessment (#1190). Upstream ships
+    # security fixes as ordinary bugfix releases with no advisory, and OSV and
+    # the GitHub advisory database carry nothing for rio-tiler or titiler.core,
+    # so Dependabot cannot see this drift — a deliberate bump is the only
+    # control. 2.1.0 -> 2.2.1 is additive against our surface (tileset min/max
+    # zoom params, a WMTS zooms param, httpx -> httpx2); the four endpoints we
+    # consume and all six query params were exercised against both images and
+    # returned identical status + content-type.
+    #
+    # NOTE: this does NOT move GDAL. The image installs rasterio from PyPI
+    # wheels, so the wheel pins GDAL, not the titiler tag — 2.0.5 and 2.2.1 both
+    # resolve rasterio 1.5.0 / GDAL 3.12.1 (measured). Only rio-tiler moves,
+    # 9.2.1 -> 9.4.2. CPL_VSIL_CURL_HEADER_FILE_KVP_ENABLED (the /vsicurl
+    # header_file clamp) needs GDAL >= 3.13.2, so it stays unavailable and the
+    # #1192 gap is gated on a rasterio wheel bump, not on a titiler tag.
+    image: ghcr.io/developmentseed/titiler:2.2.1
     init: true
     restart: unless-stopped
     stop_grace_period: 15s
