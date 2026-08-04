@@ -26,6 +26,9 @@ dependencies = [
   "httpx >=0.23.0,<0.29.0",
   "attrs >=22.2.0",
   "python-dateutil >=2.8.0,<3.0.0",
+  # PYSEC-2026-215 (idna.encode DoS, fixed 3.15): keep this floor in step with
+  # backend's; without it a re-lock resolves idna back to a vulnerable 3.13.
+  "idna>=3.18",
 ]
 
 [project.urls]

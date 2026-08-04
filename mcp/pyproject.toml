@@ -31,6 +31,14 @@ dependencies = [
   # GHSA-vj7q-gjh5-988w (1.28.1); <2 excludes the v2 alpha's FastMCP rename.
   "mcp>=1.28.1,<2.0.0",
   "geolens>=1.2.0,<2.0.0",
+  # CVE-2026-69247 (fixed 50.0.0), reached via mcp[crypto] -> pyjwt[crypto].
+  # The published wheel builds from these deps, not uv.lock, so the floor is
+  # what protects an install whose environment already satisfies 49.x.
+  "cryptography>=50.0.0",
+  # PYSEC-2026-215 (idna.encode DoS, fixed 3.15), reached via geolens ->
+  # httpx -> anyio. geolens>=1.2.0 admits SDK releases that carry no idna
+  # floor of their own, so this wheel states it directly, matching cli/sdk.
+  "idna>=3.18",
 ]
 
 [project.optional-dependencies]
