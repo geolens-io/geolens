@@ -633,9 +633,13 @@ targets just need network reach to `api:8000` and `worker:8001`.
 
 Each API worker samples its own RSS from `/proc/self/status` every 60 seconds
 and exports it as the Prometheus gauge `geolens_worker_rss_bytes` (labelled by
-`pid`) on the API `/metrics` endpoint. The same sampler writes structured log
-lines, so a growth curve exists in `docker compose logs api` even if `/metrics`
-is never scraped:
+`pid`) on the API `/metrics` endpoint. One caveat when running more than one
+worker: each process has its own metrics registry and a scrape is answered by
+whichever worker takes it, so a single scrape reports one worker's gauge and
+successive scrapes alternate pid series (multiprocess aggregation is tracked
+in #651). The structured log lines the same sampler writes are therefore the
+authoritative per-worker signal, and a growth curve exists in
+`docker compose logs api` even if `/metrics` is never scraped:
 
 | Log message | Level | Meaning |
 |---|---|---|
@@ -653,9 +657,15 @@ image CMD in `Dockerfile`; `docker-compose.prod.yml` does the same and defaults
 the value to 10000). This applies to production deployments only — the
 development `docker-compose.yml` overrides that command with a `--reload`
 invocation that does not pass `--limit-max-requests`, so setting the variable
-there has no effect. A worker exits gracefully after that many requests and the
-uvicorn supervisor respawns it, so slow growth cannot ride one worker into the
-OOM killer. If the watermark WARNING still fires between recycles, lower the
+there has no effect. A worker exits gracefully after that many requests. With
+more than one worker (the production Compose default is `UVICORN_WORKERS=2`)
+the uvicorn supervisor respawns it in place, so slow growth cannot ride one
+worker into the OOM killer. With a single worker there is no supervisor: the
+process exits at the threshold and the container's restart policy
+(`restart: unless-stopped` in `docker-compose.prod.yml`) restarts it, which is
+a brief API outage per recycle — direct image deployments that keep the baked
+`UVICORN_WORKERS=1` default must run under such a policy for recycling to be
+safe. If the watermark WARNING still fires between recycles, lower the
 value; the `UVICORN_MAX_REQUESTS` entry in `.env.example` documents the value
 rules. Recycling caps the blast radius — it does not explain what grows. That
 investigation is tracked in #643.
