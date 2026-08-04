@@ -264,7 +264,15 @@ export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
     updateDataset.mutate(
       { datasetId: dataset.id, data: { visibility } },
       {
-        onSuccess: () => toast.success(t('metadataEdit.visibilityUpdated')),
+        onSuccess: (result) => {
+          toast.success(t('metadataEdit.visibilityUpdated'));
+          // fix(#1178 review): when the preflight probe failed, the PATCH
+          // response is the only warning surface left — reading it is what
+          // makes "a failed probe never blocks" a fallback instead of a hole.
+          if (result?.metadata_warnings?.length) {
+            toast.warning(result.metadata_warnings[0]);
+          }
+        },
         // fix(#927): moving a dataset away from public while a public map uses
         // it is a 422 from `_apply_visibility_change`. This control is the
         // first UI that can trigger it, so the message has to reach the user

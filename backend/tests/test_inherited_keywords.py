@@ -342,6 +342,79 @@ class TestKeywordsEndpointShape:
         assert [k["inherited"] for k in resp.json()["keywords"]] == [True]
 
 
+class TestStatusEndpointWarningSurface:
+    """fix(#1178 review): the publication-status endpoints bypass
+    update_user_metadata, so they must run the same resolved-state check."""
+
+    async def test_target_status_publish_carries_the_warning(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """The ordinary publish flow (DatasetPage's toggle) lands here."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        _, derived, _, _ = await _derived_pair(
+            test_db_session,
+            admin_id,
+            derived_visibility="public",
+            derived_status="draft",
+        )
+        resp = await client.patch(
+            f"/datasets/{derived.id}/target-status/",
+            json={"status": "published"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["record_status"] == "published"
+        assert body["metadata_warnings"] and "codename" in body["metadata_warnings"][0]
+
+    async def test_single_step_status_publish_carries_the_warning(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        _, derived, _, _ = await _derived_pair(
+            test_db_session,
+            admin_id,
+            derived_visibility="public",
+            derived_status="internal",
+        )
+        resp = await client.patch(
+            f"/datasets/{derived.id}/status/",
+            json={"status": "published"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["metadata_warnings"] and "codename" in body["metadata_warnings"][0]
+
+    async def test_status_endpoint_silent_without_inheritance(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="public",
+            record_status="draft",
+            name=f"Plain {uuid.uuid4().hex[:6]}",
+        )
+        resp = await client.patch(
+            f"/datasets/{ds.id}/target-status/",
+            json={"status": "published"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["metadata_warnings"] is None
+
+
 class TestPatchWarningSurface:
     async def test_patch_response_carries_metadata_warnings(
         self,

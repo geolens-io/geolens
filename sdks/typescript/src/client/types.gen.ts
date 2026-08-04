@@ -9628,6 +9628,12 @@ export type StatusUpdateResponse = {
      */
     id: string;
     /**
+     * Metadata Warnings
+     *
+     * Advisory warnings from the status change — the same inherited-keyword disclosure check the metadata PATCH runs (feat #1070, fix #1178 review). The transition has already applied.
+     */
+    metadata_warnings?: Array<string> | null;
+    /**
      * Record Status
      */
     record_status: string;

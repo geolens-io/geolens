@@ -34,6 +34,9 @@ from app.modules.catalog.datasets.domain.schemas import (
     StatusUpdateResponse,
 )
 from app.modules.catalog.maps.schemas import MapListResponse
+from app.modules.catalog.records.inherited import (
+    inherited_keyword_disclosure_warning,
+)
 from app.modules.catalog.datasets.domain.service import (
     get_dataset,
     get_dataset_rows,
@@ -318,9 +321,17 @@ async def update_publication_status(
 
     dataset.record.record_status = target
     await workflow.on_transition(context)
+    # fix(#1178 review): this endpoint writes record_status without going
+    # through update_user_metadata, so it must run the same resolved-state
+    # inherited-keyword check or the ordinary publish flow warns nobody.
+    warning = await inherited_keyword_disclosure_warning(db, dataset.record, dataset_id)
     await db.commit()
     await db.refresh(dataset)
-    return StatusUpdateResponse(id=str(dataset.id), record_status=target)
+    return StatusUpdateResponse(
+        id=str(dataset.id),
+        record_status=target,
+        metadata_warnings=[warning] if warning else None,
+    )
 
 
 @router.patch("/{dataset_id}/target-status/", response_model=StatusUpdateResponse)
@@ -394,6 +405,14 @@ async def set_target_status(
         await workflow.on_transition(context)
         idx = next_idx
 
+    # fix(#1178 review): the ordinary publish flow (DatasetPage's publish
+    # toggle) lands here, not in update_user_metadata — the resolved-state
+    # inherited-keyword check has to run after the chain completes.
+    warning = await inherited_keyword_disclosure_warning(db, dataset.record, dataset_id)
     await db.commit()
     await db.refresh(dataset)
-    return StatusUpdateResponse(id=str(dataset.id), record_status=target)
+    return StatusUpdateResponse(
+        id=str(dataset.id),
+        record_status=target,
+        metadata_warnings=[warning] if warning else None,
+    )

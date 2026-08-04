@@ -328,25 +328,20 @@ async def update_user_metadata(
     # check — whether keywords inherited from the analysis source now reach
     # anyone who cannot open that source. Advisory, never blocking: exposure
     # requires the owner's deliberate act on metadata they can already edit,
-    # so the owner is told, not stopped.
+    # so the owner is told, not stopped. fix(#1178 review): the check is a
+    # shared helper because the publication-status endpoints write
+    # record_status without coming through here — see its docstring for the
+    # writer enumeration.
     if meta.visibility is not None or meta.record_status is not None:
         from app.modules.catalog.records.inherited import (
-            disclosed_inherited_keywords,
+            inherited_keyword_disclosure_warning,
         )
 
-        disclosed = await disclosed_inherited_keywords(session, record, dataset_id)
-        if disclosed:
-            logger.warning(
-                "dataset.inherited_keywords_reach_beyond_source",
-                dataset_id=str(dataset_id),
-                keywords=disclosed,
-            )
-            if warnings_out is not None:
-                warnings_out.append(
-                    "Keywords inherited from the source dataset are now "
-                    "visible to people who cannot open that source: "
-                    + ", ".join(disclosed)
-                )
+        warning = await inherited_keyword_disclosure_warning(
+            session, record, dataset_id
+        )
+        if warning is not None and warnings_out is not None:
+            warnings_out.append(warning)
 
     if actor_id is not None and any(mutated_flags):
         record.updated_by = actor_id

@@ -26,7 +26,7 @@ vi.mock('@/components/dataset/hooks/use-dataset', () => ({
 }));
 
 vi.mock('sonner', () => ({
-  toast: { success: vi.fn(), error: vi.fn() },
+  toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
 }));
 
 const mockUseDistributions = vi.mocked(useDistributions);
@@ -351,6 +351,43 @@ describe('AccessTab', () => {
         fireEvent.click(screen.getByRole('option', { name: 'Public' }));
 
         await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+      });
+
+      // fix(#1178 review): the fallback is only a fallback if the PATCH
+      // response's warnings actually reach the user when the probe failed.
+      it('surfaces the PATCH warning when the probe failed', async () => {
+        mockListKeywords.mockRejectedValue(new Error('boom'));
+        mutate.mockImplementation((_vars, opts) =>
+          opts?.onSuccess?.({
+            metadata_warnings: [
+              'Keywords inherited from the source dataset are now visible: codename',
+            ],
+          }),
+        );
+        render(<AccessTab dataset={makeDataset({ visibility: 'private' })} canEdit />);
+
+        openVisibilitySelect();
+        fireEvent.click(screen.getByRole('option', { name: 'Public' }));
+
+        await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+        expect(toast.warning).toHaveBeenCalledWith(
+          'Keywords inherited from the source dataset are now visible: codename',
+        );
+      });
+
+      it('no warning toast when the response carries none', async () => {
+        // The toast mocks are module-level and survive the previous test.
+        vi.mocked(toast.warning).mockClear();
+        mutate.mockImplementation((_vars, opts) =>
+          opts?.onSuccess?.({ metadata_warnings: null }),
+        );
+        render(<AccessTab dataset={makeDataset({ visibility: 'private' })} canEdit />);
+
+        openVisibilitySelect();
+        fireEvent.click(screen.getByRole('option', { name: 'Public' }));
+
+        await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+        expect(toast.warning).not.toHaveBeenCalled();
       });
     });
 

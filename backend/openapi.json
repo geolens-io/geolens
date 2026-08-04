@@ -16356,6 +16356,21 @@
             "title": "Id",
             "type": "string"
           },
+          "metadata_warnings": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Advisory warnings from the status change \u2014 the same inherited-keyword disclosure check the metadata PATCH runs (feat #1070, fix #1178 review). The transition has already applied.",
+            "title": "Metadata Warnings"
+          },
           "record_status": {
             "title": "Record Status",
             "type": "string"

@@ -194,7 +194,13 @@ class TestTargetStatus:
             headers=admin_auth_header,
         )
         assert resp.status_code == 200, resp.text
-        assert resp.json() == {"id": str(dataset.id), "record_status": "ready"}
+        # fix(#1178 review): metadata_warnings joined the response shape (the
+        # inherited-keyword disclosure check); a no-op change carries none.
+        assert resp.json() == {
+            "id": str(dataset.id),
+            "record_status": "ready",
+            "metadata_warnings": None,
+        }
 
 
 # ---------------------------------------------------------------------------

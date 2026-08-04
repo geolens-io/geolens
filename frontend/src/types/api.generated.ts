@@ -12143,6 +12143,11 @@ export interface components {
         StatusUpdateResponse: {
             /** Id */
             id: string;
+            /**
+             * Metadata Warnings
+             * @description Advisory warnings from the status change — the same inherited-keyword disclosure check the metadata PATCH runs (feat #1070, fix #1178 review). The transition has already applied.
+             */
+            metadata_warnings?: string[] | null;
             /** Record Status */
             record_status: string;
         };

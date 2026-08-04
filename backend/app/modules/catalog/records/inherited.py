@@ -18,6 +18,15 @@ Two questions, two audiences:
   answers rather than a restatement of the community ladder. This is what
   makes an inherited keyword worth warning about: it is only consequential
   when someone who cannot open the source can read it here.
+
+Accepted limitation (#1178 review): deleting a keyword on the SOURCE also
+empties the intersection here, so the copied row on the derived record loses
+its badge and stops triggering the publish-moment warning even though the
+copy still exists. That is the read-time route working as decided: row
+marking was rejected (it costs a migration and a backfill), and a source
+that no longer carries the keyword no longer has its association disclosed
+by it — the copy is just a word the owner can keep or delete. Revisit only
+if the read-time derivation route is itself replaced.
 """
 
 from __future__ import annotations
@@ -25,6 +34,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
+import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,6 +47,8 @@ from app.modules.catalog.datasets.domain.models import (
 )
 from app.platform.extensions import get_permission_extension
 from app.platform.extensions.protocols import RecordAudienceQuery
+
+logger = structlog.stdlib.get_logger(__name__)
 
 KeywordKey = tuple[str, str | None, str]
 """(keyword, vocabulary_uri, keyword_type) — the copied columns, so identity
@@ -188,3 +200,38 @@ async def disclosed_inherited_keywords(
     ):
         return []
     return sorted({key[0] for key in keys})
+
+
+async def inherited_keyword_disclosure_warning(
+    session: AsyncSession, record: Record, dataset_id: uuid.UUID | None
+) -> str | None:
+    """The advisory warning every resolved-state audience writer emits, or None.
+
+    fix(#1178 review): the check lived inline in ``update_user_metadata`` and
+    the ordinary publish flow bypassed it — ``set_target_status`` writes
+    ``record_status`` directly, so a draft public analysis output published
+    with no warning. One shared helper, called AFTER each writer resolves the
+    new state, is the boundary that keeps the next status writer from
+    reopening the gap. Current callers: ``update_user_metadata``
+    (metadata PATCH, both axes) and the two publication-status endpoints in
+    ``datasets/api/router_data.py``.
+
+    Creation-time writers are deliberately not callers: ingest finalize
+    (``processing/ingest/tasks_common.py``) and the registration paths assign
+    an initial status/visibility to a record that cannot yet be
+    analysis-derived — ``derived_from`` and inherited keywords are written by
+    ``apply_analysis_provenance`` on outputs registered private — and a
+    worker has no owner on the wire to warn.
+    """
+    disclosed = await disclosed_inherited_keywords(session, record, dataset_id)
+    if not disclosed:
+        return None
+    logger.warning(
+        "dataset.inherited_keywords_reach_beyond_source",
+        dataset_id=str(dataset_id),
+        keywords=disclosed,
+    )
+    return (
+        "Keywords inherited from the source dataset are now visible to "
+        "people who cannot open that source: " + ", ".join(disclosed)
+    )

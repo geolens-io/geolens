@@ -397,6 +397,15 @@ class DatasetResponse(BaseModel):
 class StatusUpdateResponse(BaseModel):
     id: str
     record_status: str
+    metadata_warnings: list[str] | None = Field(
+        default=None,
+        description=(
+            "Advisory warnings from the status change — the same "
+            "inherited-keyword disclosure check the metadata PATCH runs "
+            "(feat #1070, fix #1178 review). The transition has already "
+            "applied."
+        ),
+    )
 
     model_config = ConfigDict(
         json_schema_extra={
