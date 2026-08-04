@@ -6,3 +6,10 @@ See the LICENSE file for the full license text.
 
 "GeoLens" and the GeoLens logo are trademarks of Carto Concepts, LLC and are
 not licensed under Apache-2.0. See TRADEMARKS.md for permitted use.
+
+The backend and worker container images bundle third-party packages under
+LGPL-2.1, LGPL-3.0 and MPL-2.0. Their attributions, license texts and the
+Artistic-1.0 election for text-unidecode are in backend/licenses/, which ships
+at /app/licenses/ in those images. All published GeoLens artifacts — the CLI,
+the Python and TypeScript SDKs, the MCP server, and the frontend bundle — are
+permissively licensed and carry no such obligation.

@@ -133,11 +133,13 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
-      # Auto-fixers — generated/vendored trees excluded so they keep matching their generators.
+      # Auto-fixers — generated/vendored trees excluded so they keep matching
+      # their generators, and backend/licenses/ so verbatim third-party license
+      # texts stay byte-identical to what upstream published (#1180).
       - id: trailing-whitespace
-        exclude: '(^sdks/|^backend/openapi\.json$|^backend/tests/fixtures/|(^|/)package-lock\.json$|(^|/)uv\.lock$|(^|/)skills-lock\.json$|\.snap$)'
+        exclude: '(^sdks/|^backend/licenses/|^backend/openapi\.json$|^backend/tests/fixtures/|(^|/)package-lock\.json$|(^|/)uv\.lock$|(^|/)skills-lock\.json$|\.snap$)'
       - id: end-of-file-fixer
-        exclude: '(^sdks/|^backend/openapi\.json$|^backend/tests/fixtures/|(^|/)package-lock\.json$|(^|/)uv\.lock$|(^|/)skills-lock\.json$|\.snap$)'
+        exclude: '(^sdks/|^backend/licenses/|^backend/openapi\.json$|^backend/tests/fixtures/|(^|/)package-lock\.json$|(^|/)uv\.lock$|(^|/)skills-lock\.json$|\.snap$)'
       # Validity / safety checks (non-mutating).
       - id: check-added-large-files
         args: ['--maxkb=2048']
