@@ -7861,7 +7861,7 @@
         "properties": {
           "inherited_audience_gap": {
             "default": false,
-            "description": "True when at least one keyword is inherited AND this record's audience \u2014 at its stored state, or at the counterfactual audience_visibility/audience_record_status query parameters \u2014 includes someone who cannot open the source dataset (feat #1070).",
+            "description": "True when at least one keyword is inherited AND this record's audience \u2014 at its stored state, or at the counterfactual audience_visibility/audience_record_status query parameters, which are honored only for the record's owner and admins \u2014 includes someone who cannot open the source dataset (feat #1070).",
             "title": "Inherited Audience Gap",
             "type": "boolean"
           },
@@ -48320,7 +48320,7 @@
             }
           },
           {
-            "description": "Compute inherited_audience_gap as if the record had this visibility \u2014 the counterfactual an owner asks before widening access (feat #1070). Keywords themselves are unaffected.",
+            "description": "Compute inherited_audience_gap as if the record had this visibility \u2014 the counterfactual an owner asks before widening access (feat #1070). Honored only for the record's owner and admins; ignored for everyone else, who get the gap at the record's stored state. Keywords themselves are unaffected.",
             "in": "query",
             "name": "audience_visibility",
             "required": false,
@@ -48334,12 +48334,12 @@
                   "type": "null"
                 }
               ],
-              "description": "Compute inherited_audience_gap as if the record had this visibility \u2014 the counterfactual an owner asks before widening access (feat #1070). Keywords themselves are unaffected.",
+              "description": "Compute inherited_audience_gap as if the record had this visibility \u2014 the counterfactual an owner asks before widening access (feat #1070). Honored only for the record's owner and admins; ignored for everyone else, who get the gap at the record's stored state. Keywords themselves are unaffected.",
               "title": "Audience Visibility"
             }
           },
           {
-            "description": "Compute inherited_audience_gap as if the record had this status \u2014 the counterfactual an owner asks before publishing (feat #1070).",
+            "description": "Compute inherited_audience_gap as if the record had this status \u2014 the counterfactual an owner asks before publishing (feat #1070). Honored only for the record's owner and admins; ignored for everyone else, who get the gap at the record's stored state. Deliberately not pinned to an enum: the lifecycle statuses come from the workflow extension's status_order(), so an overlay may define its own. An unrecognized status is treated conservatively (it reaches only the owner, which errs toward warning) rather than rejected.",
             "in": "query",
             "name": "audience_record_status",
             "required": false,
@@ -48353,7 +48353,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Compute inherited_audience_gap as if the record had this status \u2014 the counterfactual an owner asks before publishing (feat #1070).",
+              "description": "Compute inherited_audience_gap as if the record had this status \u2014 the counterfactual an owner asks before publishing (feat #1070). Honored only for the record's owner and admins; ignored for everyone else, who get the gap at the record's stored state. Deliberately not pinned to an enum: the lifecycle statuses come from the workflow extension's status_order(), so an overlay may define its own. An unrecognized status is treated conservatively (it reaches only the owner, which errs toward warning) rather than rejected.",
               "title": "Audience Record Status"
             }
           }

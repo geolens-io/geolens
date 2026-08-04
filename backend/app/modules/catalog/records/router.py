@@ -199,6 +199,23 @@ async def _check_record_read_access(
     )
 
 
+async def _is_record_owner_or_admin(
+    db: AsyncSession, record: Record, user: Identity | None
+) -> bool:
+    """Return whether ``user`` owns ``record`` or is a global admin.
+
+    The non-raising twin of the predicate `_check_record_ownership` enforces
+    (and the same notion `check_dataset_write_access` uses on the dataset side):
+    creator match on `created_by`, else the `admin` role. Read endpoints that
+    need to branch on ownership without rejecting the request use this.
+    """
+    if user is None:
+        return False
+    if record.created_by is not None and record.created_by == user.id:
+        return True
+    return "admin" in await get_user_roles(db, user)
+
+
 async def _check_record_ownership(
     db: AsyncSession, record_id: uuid.UUID, user: Identity
 ) -> Record:
@@ -494,7 +511,9 @@ async def list_keywords_endpoint(
         description=(
             "Compute inherited_audience_gap as if the record had this "
             "visibility — the counterfactual an owner asks before widening "
-            "access (feat #1070). Keywords themselves are unaffected."
+            "access (feat #1070). Honored only for the record's owner and "
+            "admins; ignored for everyone else, who get the gap at the "
+            "record's stored state. Keywords themselves are unaffected."
         ),
     ),
     audience_record_status: str | None = Query(
@@ -502,7 +521,14 @@ async def list_keywords_endpoint(
         max_length=30,
         description=(
             "Compute inherited_audience_gap as if the record had this status — "
-            "the counterfactual an owner asks before publishing (feat #1070)."
+            "the counterfactual an owner asks before publishing (feat #1070). "
+            "Honored only for the record's owner and admins; ignored for "
+            "everyone else, who get the gap at the record's stored state. "
+            "Deliberately not pinned to an enum: the lifecycle statuses come "
+            "from the workflow extension's status_order(), so an overlay may "
+            "define its own. An unrecognized status is treated conservatively "
+            "(it reaches only the owner, which errs toward warning) rather "
+            "than rejected."
         ),
     ),
     user: Identity | None = Depends(get_optional_user),
@@ -535,13 +561,21 @@ async def list_keywords_endpoint(
                             select(Dataset.id).where(Dataset.record_id == record_id)
                         )
                     ).scalar_one_or_none()
+                    # fix(#1070 sec-audit): the counterfactual collapses the
+                    # derived audience to "the owner", turning the gap into an
+                    # oracle for whether that named owner holds a grant on a
+                    # restricted source — so honor the overrides only for the
+                    # owner (or an admin) and otherwise answer at stored state.
+                    counterfactual = await _is_record_owner_or_admin(db, record, user)
                     audience_gap = await audience_exceeds_source(
                         db,
                         record=record,
                         dataset_id=dataset_id,
                         source=source,
-                        visibility=audience_visibility,
-                        record_status=audience_record_status,
+                        visibility=audience_visibility if counterfactual else None,
+                        record_status=(
+                            audience_record_status if counterfactual else None
+                        ),
                     )
 
     def _to_response(k) -> KeywordResponse:

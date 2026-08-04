@@ -20,9 +20,10 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.auth.models import User
+from app.modules.auth.models import Role, User, UserRole
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
+    DatasetGrant,
     Record,
     RecordKeyword,
 )
@@ -34,6 +35,7 @@ from app.modules.catalog.records.inherited import (
     resolve_inherited_source,
 )
 
+from tests.conftest import _create_test_user
 from tests.factories import create_dataset, get_user_id
 
 pytestmark = pytest.mark.anyio
@@ -403,6 +405,117 @@ class TestKeywordsEndpointShape:
         )
         assert resp.status_code == 200, resp.text
         assert [k["inherited"] for k in resp.json()["keywords"]] == [True]
+
+    async def test_counterfactual_ignored_for_non_owner_with_source_access(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#1070 sec-audit): the counterfactual is an ownership oracle.
+
+        ``audience_visibility=private`` collapses the derived audience to
+        "the owner (plus admins)", so the returned gap reduces to "the output's
+        OWNER lacks access to the source" — and ``created_by`` is already on the
+        dataset response, so the attacker knows whose grant they are probing.
+        The live case is this one: a grant holder on a restricted+published
+        source, reading someone else's derived output. Grant lists are not
+        otherwise readable by non-owners, so the bit must not be answerable.
+
+        The state is built here rather than borrowed from a fixture role
+        because the whole point is the actor's exact position: a NON-owner who
+        DOES hold source access, the one actor the file did not previously
+        cover.
+        """
+        grant_role = Role(name=f"kw-audit-{uuid.uuid4().hex[:8]}")
+        test_db_session.add(grant_role)
+        await test_db_session.flush()
+
+        # Two accounts in that role: the derived output's owner, and the
+        # attacker. Both can open the source; only one owns the output.
+        owner_header, output_owner_id = await _create_test_user(
+            client, admin_auth_header, "viewer"
+        )
+        actor_header, actor_id = await _create_test_user(
+            client, admin_auth_header, "viewer"
+        )
+        for user_id in (output_owner_id, actor_id):
+            test_db_session.add(
+                UserRole(user_id=uuid.UUID(user_id), role_id=grant_role.id)
+            )
+        # An active account in NO role: inside the internal output's audience,
+        # outside the restricted source's. It is what makes the stored-state
+        # answer True, so the two answers can be told apart.
+        await _add_plain_user(test_db_session)
+
+        source_owner = await _add_plain_user(test_db_session)
+        source, _, _, derived_record = await _derived_pair(
+            test_db_session,
+            source_owner.id,
+            source_visibility="restricted",
+            derived_visibility="internal",
+            derived_status="published",
+            derived_owner_id=uuid.UUID(output_owner_id),
+        )
+        test_db_session.add(DatasetGrant(dataset_id=source.id, role_id=grant_role.id))
+        await test_db_session.commit()
+
+        probe = "?audience_visibility=private&audience_record_status=published"
+
+        # The attacker: identical answers with and without the overrides, so
+        # the response carries no information about the owner's grant.
+        stored = await client.get(
+            f"/records/{derived_record.id}/keywords/", headers=actor_header
+        )
+        assert stored.status_code == 200, stored.text
+        # Precondition: the actor really can resolve the inheritance, so a
+        # False below would be the gate and not a redaction.
+        assert [k["inherited"] for k in stored.json()["keywords"]] == [True]
+        assert stored.json()["inherited_audience_gap"] is True
+
+        probed = await client.get(
+            f"/records/{derived_record.id}/keywords/{probe}",
+            headers=actor_header,
+        )
+        assert probed.status_code == 200, probed.text
+        assert (
+            probed.json()["inherited_audience_gap"]
+            == stored.json()["inherited_audience_gap"]
+        )
+
+        # Positive control: the OWNER passing the SAME overrides still gets the
+        # counterfactual answer, and it differs from their stored-state one —
+        # narrowing to private closes the gap, because the only reader left is
+        # the owner and the owner does hold the source grant. The gate is what
+        # changed, not the feature.
+        owner_stored = await client.get(
+            f"/records/{derived_record.id}/keywords/", headers=owner_header
+        )
+        assert owner_stored.status_code == 200, owner_stored.text
+        assert owner_stored.json()["inherited_audience_gap"] is True
+
+        owner_view = await client.get(
+            f"/records/{derived_record.id}/keywords/{probe}",
+            headers=owner_header,
+        )
+        assert owner_view.status_code == 200, owner_view.text
+        assert owner_view.json()["inherited_audience_gap"] is False
+
+        # ADMISSION direction, pinned separately: `internal` is the fourth
+        # lifecycle status (DEFAULT_STATUS_ORDER in defaults_extensions.py) and
+        # the other transition this feature warns about. It must be answered,
+        # not rejected — a pattern pinned to the community default would 422
+        # here, and would also 422 a status an enterprise workflow overlay
+        # defines, since the set comes from `status_order()`.
+        owner_internal = await client.get(
+            f"/records/{derived_record.id}/keywords/"
+            "?audience_visibility=private&audience_record_status=internal",
+            headers=owner_header,
+        )
+        assert owner_internal.status_code == 200, owner_internal.text
+        # Not merely accepted — honored: the stored-state answer is True, so a
+        # False here means the override reached record_audience.
+        assert owner_internal.json()["inherited_audience_gap"] is False
 
 
 class TestStatusEndpointWarningSurface:
