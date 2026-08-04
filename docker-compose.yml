@@ -492,12 +492,24 @@ services:
           [ -n "$$ep" ] && export AWS_S3_ENDPOINT="$$ep"
         fi
         [ "$${S3_ADDRESSING_STYLE:-auto}" = "path" ] && export AWS_VIRTUAL_HOSTING="$${AWS_VIRTUAL_HOSTING:-FALSE}"
-        exec uvicorn titiler.application.main:app --host 0.0.0.0 --port 8000 --workers 1
+        exec uvicorn titiler.application.main:app --host 0.0.0.0 --port 8000 --workers $${TITILER_WORKERS:-1}
     environment:
       # fix(#579): inputs for the AWS_* derivation in the command wrapper above.
       S3_ENDPOINT: "${S3_ENDPOINT:-}"
       S3_ALLOW_HTTP: "${S3_ALLOW_HTTP:-}"
       S3_ADDRESSING_STYLE: "${S3_ADDRESSING_STYLE:-auto}"
+      # fix(#1193): tile rendering is CPU-bound under the GIL, so one worker
+      # renders one tile at a time and concurrent cache misses queue behind it.
+      # This is the first knob to reach for when raster feels slow. Default 1
+      # keeps existing installs byte-identical.
+      #
+      # RAISE TITILER_MEM_LIMIT WITH IT. GDAL_CACHEMAX below is per PROCESS, so
+      # N workers multiply the block-cache ceiling (N x 200 MB) on top of N
+      # Python interpreters, and the #678 RSS ratchet runs independently in
+      # every one of them. Leaving mem_limit at its 1g default while raising
+      # workers reaches OOMKill sooner, not later — budget roughly
+      # N x (GDAL_CACHEMAX + ~250 MB) and watch RSS before trusting it.
+      TITILER_WORKERS: "${TITILER_WORKERS:-1}"
       # fix(#678): TiTiler RSS ratchets well past GDAL_CACHEMAX under
       # concurrent tile reads — anonymous heap the allocator retains (0.3 ->
       # 1.8 GB over 20h on the demo). Capping glibc arenas slows that: an A/B
@@ -512,7 +524,50 @@ services:
       GDAL_CACHEMAX: "200"                              # GDAL block cache in MB (default 5 — raise for concurrent tile requests)
       GDAL_DISABLE_READDIR_ON_OPEN: "EMPTY_DIR"         # Skip directory listing on S3/HTTP — avoids slow LIST calls per tile
       CPL_VSIL_CURL_ALLOWED_EXTENSIONS: ".tif,.tiff,.cog,.vrt"  # Only fetch these extensions via /vsicurl
-      GDAL_VRT_RAWRASTERBAND_ALLOWED_SOURCE: "NETWORK_OR_LOCAL"  # Allow VRT bands to reference remote (S3) sources
+      # fix(#1192): VRTRawRasterBand is OFF. Titiler renders VRT mosaics
+      # normally — only the raw-binary band subclass, which nothing in GeoLens
+      # emits, is refused. ALLOWED_SOURCE below is the clamp that would apply if
+      # the subclass were ever re-enabled, pinned to GDAL's narrowest value.
+      #
+      # Both options are GDAL >= 3.12 and are pinned rather than inherited so a
+      # base-image bump cannot silently relax them.
+      #
+      # ALLOWED_SOURCE previously read "NETWORK_OR_LOCAL", labelled "allow VRT
+      # bands to reference remote (S3) sources". That is not one of the values
+      # GDAL accepts (SIBLING_OR_CHILD_OF_VRT_PATH | ONLY_REMOTE | ALL |
+      # <absolute path>), so GDAL parsed it as an absolute path and refused
+      # EVERY VRTRawRasterBand source. Measured 2026-08-04 in both the 2.0.5 and
+      # 2.2.1 images (rasterio 1.5.0 / GDAL 3.12.1):
+      #   "Invalid value for GDAL_VRT_RAWRASTERBAND_ALLOWED_SOURCE.
+      #    'NETWORK_OR_LOCAL' is not an absolute path"
+      # So the effective policy has always been deny-all, and the comment
+      # claiming otherwise was the only thing that read as permissive — the
+      # #937 shape again, a setting that looks like a decision and is not.
+      #
+      # Correcting the token ALONE would have been a LOOSENING, not a cleanup:
+      # the same fixture OPENED AND READ successfully under
+      # ALLOWED_SOURCE=SIBLING_OR_CHILD_OF_VRT_PATH, so switching only that
+      # value would start admitting sibling raw sources that are refused today.
+      # That is why ENABLE_RAWRASTERBAND=NO is set alongside it — it states the
+      # existing deny-all in a value GDAL accepts, and fails with an intentional
+      # message ("VRTRawRasterBand support has been disabled at run-time")
+      # instead of an accidental one.
+      #
+      # NO costs nothing: VRTRawRasterBand appears nowhere in this repo (the
+      # builder in processing/raster/vrt.py emits SimpleSource / ComplexSource /
+      # AveragedSource, as gdalbuildvrt does), and an ordinary SimpleSource VRT
+      # opens and reads unchanged under NO — also measured. ALLOWED_SOURCE stays
+      # pinned at GDAL's documented narrowest legitimate value so that flipping
+      # ENABLE back to YES lands on a sane clamp rather than whatever the base
+      # image defaults to that year.
+      GDAL_VRT_ENABLE_RAWRASTERBAND: "NO"
+      GDAL_VRT_RAWRASTERBAND_ALLOWED_SOURCE: "SIBLING_OR_CHILD_OF_VRT_PATH"
+      # fix(#1192): CPL_VSIL_CURL_HEADER_FILE_KVP_ENABLED restricts the
+      # /vsicurl/ header_file option and needs GDAL >= 3.13.2. NOT SET because
+      # it is not available yet: the image installs rasterio from PyPI wheels,
+      # so the rasterio wheel gates the GDAL version, not the titiler tag —
+      # titiler 2.0.5 and 2.2.1 both ship rasterio 1.5.0 / GDAL 3.12.1
+      # (measured 2026-08-04). Add it here when a wheel bump crosses 3.13.2.
       VSI_CACHE: "TRUE"                                  # Enable /vsicurl block caching for range-request reuse
       CPL_VSIL_CURL_CACHE_SIZE: "16777216"               # /vsicurl cache size in bytes (16 MB)
       GDAL_HTTP_MERGE_CONSECUTIVE_RANGES: "YES"          # Merge adjacent HTTP range requests into fewer round-trips
