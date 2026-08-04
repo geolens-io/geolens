@@ -526,6 +526,18 @@ async def register_existing_table(
     Verifies the table exists, checks for duplicate registration,
     ensures geom_4326 column and reader access, extracts metadata,
     and creates a Dataset record.
+
+    fix(#1114): registered-table linear-geometry contract. ``geom_4326``
+    on a registered table must stay linear -- curved geometry types
+    (CIRCULARSTRING, COMPOUNDCURVE, CURVEPOLYGON, MULTICURVE,
+    MULTISURFACE) are not supported. GeoLens linearizes the column once
+    at registration (``linearize_existing_4326`` below) and does not
+    police the table afterward: registration copies no data and serves
+    from the live table, so the owner keeps writing to it directly. A
+    curved row written that way degrades vector tiles, feature reads,
+    and analysis for that dataset only; other datasets are unaffected.
+    STORED GENERATED ``geom_4326`` columns fall under the same
+    contract -- their generation expression must produce linear output.
     """
     table_name = request.table_name
 
