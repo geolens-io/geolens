@@ -64,6 +64,9 @@ class DatasetResponse:
         last_edited_by_display (None | str | Unset):
         license_ (None | str | Unset):
         lineage_summary (None | str | Unset): Free-text provenance / lineage statement
+        metadata_warnings (list[str] | None | Unset): Advisory warnings produced by a metadata update — e.g. a
+            visibility or status change exposing keywords inherited from an analysis source the new audience cannot open
+            (feat #1070). Only ever set on the PATCH response; the change has already applied.
         n_dims (int | None | Unset): Number of coordinate dimensions (2, 3, or 4)
         original_srid (int | None | Unset): EPSG SRID of the uploaded source file
         owner_org (None | str | Unset): Owning organization name
@@ -120,6 +123,7 @@ class DatasetResponse:
     last_edited_by_display: None | str | Unset = UNSET
     license_: None | str | Unset = UNSET
     lineage_summary: None | str | Unset = UNSET
+    metadata_warnings: list[str] | None | Unset = UNSET
     n_dims: int | None | Unset = UNSET
     original_srid: int | None | Unset = UNSET
     owner_org: None | str | Unset = UNSET
@@ -294,6 +298,15 @@ class DatasetResponse:
             lineage_summary = UNSET
         else:
             lineage_summary = self.lineage_summary
+
+        metadata_warnings: list[str] | None | Unset
+        if isinstance(self.metadata_warnings, Unset):
+            metadata_warnings = UNSET
+        elif isinstance(self.metadata_warnings, list):
+            metadata_warnings = self.metadata_warnings
+
+        else:
+            metadata_warnings = self.metadata_warnings
 
         n_dims: int | None | Unset
         if isinstance(self.n_dims, Unset):
@@ -494,6 +507,8 @@ class DatasetResponse:
             field_dict["license"] = license_
         if lineage_summary is not UNSET:
             field_dict["lineage_summary"] = lineage_summary
+        if metadata_warnings is not UNSET:
+            field_dict["metadata_warnings"] = metadata_warnings
         if n_dims is not UNSET:
             field_dict["n_dims"] = n_dims
         if original_srid is not UNSET:
@@ -813,6 +828,23 @@ class DatasetResponse:
 
         lineage_summary = _parse_lineage_summary(d.pop("lineage_summary", UNSET))
 
+        def _parse_metadata_warnings(data: object) -> list[str] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                metadata_warnings_type_0 = cast(list[str], data)
+
+                return metadata_warnings_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[str] | None | Unset, data)
+
+        metadata_warnings = _parse_metadata_warnings(d.pop("metadata_warnings", UNSET))
+
         def _parse_n_dims(data: object) -> int | None | Unset:
             if data is None:
                 return data
@@ -1105,6 +1137,7 @@ class DatasetResponse:
             last_edited_by_display=last_edited_by_display,
             license_=license_,
             lineage_summary=lineage_summary,
+            metadata_warnings=metadata_warnings,
             n_dims=n_dims,
             original_srid=original_srid,
             owner_org=owner_org,

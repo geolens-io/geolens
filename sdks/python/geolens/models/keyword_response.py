@@ -6,6 +6,7 @@ from typing import Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..types import UNSET, Unset
 
 from typing import cast
 from uuid import UUID
@@ -23,6 +24,9 @@ class KeywordResponse:
         keyword_type (str):
         record_id (UUID):
         vocabulary_uri (None | str):
+        inherited (bool | Unset): True when this keyword also exists on the dataset this record was derived from (feat
+            #1070). Derived at read time from derived_from; only ever true for a requester who can access that source
+            dataset, so everyone else sees false — matching the derived_from redaction. Default: False.
     """
 
     id: UUID
@@ -30,6 +34,7 @@ class KeywordResponse:
     keyword_type: str
     record_id: UUID
     vocabulary_uri: None | str
+    inherited: bool | Unset = False
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -44,6 +49,8 @@ class KeywordResponse:
         vocabulary_uri: None | str
         vocabulary_uri = self.vocabulary_uri
 
+        inherited = self.inherited
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -55,6 +62,8 @@ class KeywordResponse:
                 "vocabulary_uri": vocabulary_uri,
             }
         )
+        if inherited is not UNSET:
+            field_dict["inherited"] = inherited
 
         return field_dict
 
@@ -76,12 +85,15 @@ class KeywordResponse:
 
         vocabulary_uri = _parse_vocabulary_uri(d.pop("vocabulary_uri"))
 
+        inherited = d.pop("inherited", UNSET)
+
         keyword_response = cls(
             id=id,
             keyword=keyword,
             keyword_type=keyword_type,
             record_id=record_id,
             vocabulary_uri=vocabulary_uri,
+            inherited=inherited,
         )
 
         keyword_response.additional_properties = d

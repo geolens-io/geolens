@@ -1561,7 +1561,12 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # fix(#1170): -37 — delete the dead update_auto_metadata, the one
         # geometry_type writer that never probed for geom_4326 (refs #1020).
         # Cap 490 -> 453, exact.
-        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 453,
+        # feat(#1070): +30 — the inherited-keyword disclosure warning at the
+        # metadata chokepoint: after visibility/record_status resolve, one
+        # check of the resolved state warns (never blocks) when keywords
+        # inherited from the analysis source reach beyond that source's
+        # audience. Cap 453 -> 483, exact.
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 483,
         # fix(#435 codex r1): +6 LOC in get_dataset_rows to probe schema existence
         # before degrading a 42P01 to an empty page. Postgres reports a missing
         # tenant data schema with the same code as a raster dataset's synthetic
@@ -1923,7 +1928,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # frontend mirror are generated from or checked against, so it had been
     # corrected in the mirror and left wrong here — backwards, and the reason
     # the wrong text shipped into both SDKs.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1138,
+    # feat(#1070): +9 for DatasetResponse.metadata_warnings — the advisory
+    # warnings a metadata PATCH can attach (inherited-keyword disclosure at a
+    # visibility/status change). 1138 -> 1147.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1147,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch

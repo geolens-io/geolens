@@ -1,13 +1,20 @@
-import { fireEvent, render, screen } from '@/test/test-utils';
+import { fireEvent, render, screen, waitFor } from '@/test/test-utils';
 import { useDistributions } from '@/components/dataset/hooks/use-records';
 import { useUpdateDataset } from '@/components/dataset/hooks/use-dataset';
 import { useTileConfig } from '@/hooks/use-settings';
+import { listKeywords } from '@/api/records';
 import { toast } from 'sonner';
 import { AccessTab } from '../tabs/AccessTab';
 import type { DatasetResponse } from '@/types/api';
 
 vi.mock('@/components/dataset/hooks/use-records', () => ({
   useDistributions: vi.fn(),
+}));
+
+// feat(#1070): the visibility change probes the keywords endpoint for
+// inherited keywords before mutating.
+vi.mock('@/api/records', () => ({
+  listKeywords: vi.fn(),
 }));
 
 vi.mock('@/hooks/use-settings', () => ({
@@ -25,6 +32,7 @@ vi.mock('sonner', () => ({
 const mockUseDistributions = vi.mocked(useDistributions);
 const mockUseTileConfig = vi.mocked(useTileConfig);
 const mockUseUpdateDataset = vi.mocked(useUpdateDataset);
+const mockListKeywords = vi.mocked(listKeywords);
 const mutate = vi.fn();
 
 function makeDataset(overrides: Partial<DatasetResponse> = {}): DatasetResponse {
@@ -111,6 +119,12 @@ describe('AccessTab', () => {
       isLoading: false,
     } as unknown as ReturnType<typeof useDistributions>);
     mutate.mockReset();
+    mockListKeywords.mockReset();
+    mockListKeywords.mockResolvedValue({
+      keywords: [],
+      total: 0,
+      inherited_audience_gap: false,
+    });
     mockUseUpdateDataset.mockReturnValue({
       mutate,
       isPending: false,
@@ -182,13 +196,13 @@ describe('AccessTab', () => {
       expect(screen.getByText('Private')).toBeInTheDocument();
     });
 
-    it('lets an owner or admin move a dataset from private to public', () => {
+    it('lets an owner or admin move a dataset from private to public', async () => {
       render(<AccessTab dataset={makeDataset({ visibility: 'private' })} canEdit />);
 
       openVisibilitySelect();
       fireEvent.click(screen.getByRole('option', { name: 'Public' }));
 
-      expect(mutate).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
       expect(mutate.mock.calls[0][0]).toEqual({
         datasetId: 'ds-1',
         data: { visibility: 'public' },
@@ -205,7 +219,7 @@ describe('AccessTab', () => {
 
     // fix(#930): `internal` joined the ladder once its permission branches
     // landed. The import pickers deliberately stay at private/public.
-    it('offers internal as a move, between private and public', () => {
+    it('offers internal as a move, between private and public', async () => {
       render(<AccessTab dataset={makeDataset({ visibility: 'private' })} canEdit />);
 
       openVisibilitySelect();
@@ -217,7 +231,7 @@ describe('AccessTab', () => {
 
       fireEvent.click(screen.getByRole('option', { name: 'Internal' }));
 
-      expect(mutate).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
       expect(mutate.mock.calls[0][0]).toEqual({
         datasetId: 'ds-1',
         data: { visibility: 'internal' },
@@ -263,14 +277,81 @@ describe('AccessTab', () => {
     // The backend rejects public → private with a 422 while a public map uses
     // the dataset. #931 owns turning that prose into its own message; what must
     // not happen here is the select snapping back with nothing said.
-    it('surfaces a rejected change instead of swallowing it', () => {
+    it('surfaces a rejected change instead of swallowing it', async () => {
       mutate.mockImplementation((_vars, opts) => opts?.onError?.(new Error('nope')));
       render(<AccessTab dataset={makeDataset({ visibility: 'public' })} canEdit />);
 
       openVisibilitySelect();
       fireEvent.click(screen.getByRole('option', { name: 'Private' }));
 
-      expect(toast.error).toHaveBeenCalled();
+      await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    });
+
+    // feat(#1070): inherited keywords get a confirm/diff step before the
+    // audience widens past the source they came from.
+    describe('inherited-keyword confirm', () => {
+      const inheritedProbe = {
+        keywords: [
+          {
+            id: 'kw-1',
+            record_id: 'rec-1',
+            keyword: 'codename',
+            vocabulary_uri: null,
+            keyword_type: 'theme',
+            inherited: true,
+          },
+        ],
+        total: 1,
+        inherited_audience_gap: true,
+      };
+
+      it('holds the change behind a dialog naming the inherited keywords', async () => {
+        mockListKeywords.mockResolvedValue(inheritedProbe);
+        render(<AccessTab dataset={makeDataset({ visibility: 'private' })} canEdit />);
+
+        openVisibilitySelect();
+        fireEvent.click(screen.getByRole('option', { name: 'Public' }));
+
+        expect(await screen.findByText('Share inherited keywords?')).toBeInTheDocument();
+        expect(screen.getByText('codename')).toBeInTheDocument();
+        expect(mockListKeywords).toHaveBeenCalledWith('rec-1', {
+          audienceVisibility: 'public',
+        });
+        expect(mutate).not.toHaveBeenCalled();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Change visibility' }));
+        await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+        expect(mutate.mock.calls[0][0]).toEqual({
+          datasetId: 'ds-1',
+          data: { visibility: 'public' },
+        });
+      });
+
+      it('cancelling the dialog leaves the visibility untouched', async () => {
+        mockListKeywords.mockResolvedValue(inheritedProbe);
+        render(<AccessTab dataset={makeDataset({ visibility: 'private' })} canEdit />);
+
+        openVisibilitySelect();
+        fireEvent.click(screen.getByRole('option', { name: 'Public' }));
+
+        expect(await screen.findByText('Share inherited keywords?')).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+        await waitFor(() =>
+          expect(screen.queryByText('Share inherited keywords?')).not.toBeInTheDocument(),
+        );
+        expect(mutate).not.toHaveBeenCalled();
+      });
+
+      it('a failed probe never blocks the change', async () => {
+        mockListKeywords.mockRejectedValue(new Error('boom'));
+        render(<AccessTab dataset={makeDataset({ visibility: 'private' })} canEdit />);
+
+        openVisibilitySelect();
+        fireEvent.click(screen.getByRole('option', { name: 'Public' }));
+
+        await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+      });
     });
 
     it('does not fire a mutation when the value is unchanged', () => {

@@ -311,6 +311,10 @@ async def update_dataset_metadata(
         list(dataset.tile_columns) if dataset.tile_columns is not None else None
     )
 
+    # feat(#1070): advisory warnings from the metadata chokepoint — e.g. a
+    # visibility/status change exposing inherited keywords beyond the analysis
+    # source's audience. Collected here, attached to the response below.
+    metadata_warnings: list[str] = []
     try:
         dataset = await update_user_metadata(
             db,
@@ -318,6 +322,7 @@ async def update_dataset_metadata(
             meta,
             actor_id=user.id,
             actor=user,
+            warnings_out=metadata_warnings,
         )
     except ValueError as e:
         msg = str(e)
@@ -369,7 +374,7 @@ async def update_dataset_metadata(
         db,
         [dataset.record.created_by, dataset.record.updated_by],
     )
-    return dataset_to_response(
+    response = dataset_to_response(
         dataset,
         actors_by_id=actors_by_id,
         base_url=await get_dataset_service_url(db, request=request),
@@ -380,6 +385,9 @@ async def update_dataset_metadata(
             db, dataset.record, user, user_roles
         ),
     )
+    if metadata_warnings:
+        response.metadata_warnings = metadata_warnings
+    return response
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and

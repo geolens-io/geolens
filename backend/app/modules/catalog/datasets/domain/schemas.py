@@ -381,6 +381,15 @@ class DatasetResponse(BaseModel):
     language: str | None = Field(
         default=None, description="ISO 639-1 language code, e.g. en, fr"
     )
+    metadata_warnings: list[str] | None = Field(
+        default=None,
+        description=(
+            "Advisory warnings produced by a metadata update — e.g. a "
+            "visibility or status change exposing keywords inherited from an "
+            "analysis source the new audience cannot open (feat #1070). Only "
+            "ever set on the PATCH response; the change has already applied."
+        ),
+    )
 
     model_config = ConfigDict(from_attributes=True)
 

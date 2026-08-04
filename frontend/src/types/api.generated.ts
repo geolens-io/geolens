@@ -3882,7 +3882,7 @@ export interface paths {
         };
         /**
          * List Keywords Endpoint
-         * @description List all keywords for a record.
+         * @description List all keywords for a record, marking analysis-inherited ones.
          */
         get: operations["list_keywords_endpoint_records__record_id__keywords__get"];
         put?: never;
@@ -7279,6 +7279,11 @@ export interface components {
              */
             lineage_summary?: string | null;
             /**
+             * Metadata Warnings
+             * @description Advisory warnings produced by a metadata update — e.g. a visibility or status change exposing keywords inherited from an analysis source the new audience cannot open (feat #1070). Only ever set on the PATCH response; the change has already applied.
+             */
+            metadata_warnings?: string[] | null;
+            /**
              * N Dims
              * @description Number of coordinate dimensions (2, 3, or 4)
              */
@@ -8395,6 +8400,12 @@ export interface components {
         };
         /** KeywordListResponse */
         KeywordListResponse: {
+            /**
+             * Inherited Audience Gap
+             * @description True when at least one keyword is inherited AND this record's audience — at its stored state, or at the counterfactual audience_visibility/audience_record_status query parameters — includes someone who cannot open the source dataset (feat #1070).
+             * @default false
+             */
+            inherited_audience_gap: boolean;
             /** Keywords */
             keywords: components["schemas"]["KeywordResponse"][];
             /** Total */
@@ -8407,6 +8418,12 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * Inherited
+             * @description True when this keyword also exists on the dataset this record was derived from (feat #1070). Derived at read time from derived_from; only ever true for a requester who can access that source dataset, so everyone else sees false — matching the derived_from redaction.
+             * @default false
+             */
+            inherited: boolean;
             /** Keyword */
             keyword: string;
             /** Keyword Type */
@@ -33541,6 +33558,10 @@ export interface operations {
             query?: {
                 skip?: number;
                 limit?: number;
+                /** @description Compute inherited_audience_gap as if the record had this visibility — the counterfactual an owner asks before widening access (feat #1070). Keywords themselves are unaffected. */
+                audience_visibility?: string | null;
+                /** @description Compute inherited_audience_gap as if the record had this status — the counterfactual an owner asks before publishing (feat #1070). */
+                audience_record_status?: string | null;
             };
             header?: never;
             path: {

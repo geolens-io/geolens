@@ -161,6 +161,15 @@ class KeywordResponse(BaseModel):
     keyword: str
     vocabulary_uri: str | None
     keyword_type: str
+    inherited: bool = Field(
+        default=False,
+        description=(
+            "True when this keyword also exists on the dataset this record was "
+            "derived from (feat #1070). Derived at read time from derived_from; "
+            "only ever true for a requester who can access that source dataset, "
+            "so everyone else sees false — matching the derived_from redaction."
+        ),
+    )
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -168,6 +177,15 @@ class KeywordResponse(BaseModel):
 class KeywordListResponse(BaseModel):
     keywords: list[KeywordResponse]
     total: int
+    inherited_audience_gap: bool = Field(
+        default=False,
+        description=(
+            "True when at least one keyword is inherited AND this record's "
+            "audience — at its stored state, or at the counterfactual "
+            "audience_visibility/audience_record_status query parameters — "
+            "includes someone who cannot open the source dataset (feat #1070)."
+        ),
+    )
 
 
 # --- Distributions ---

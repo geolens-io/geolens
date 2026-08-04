@@ -26,8 +26,17 @@ export async function deleteContact(recordId: string, contactId: string): Promis
 }
 
 // Keywords
-export async function listKeywords(recordId: string): Promise<KeywordListResponse> {
-  return apiFetch<KeywordListResponse>(`/records/${recordId}/keywords/`);
+export async function listKeywords(
+  recordId: string,
+  // feat(#1070): counterfactual audience for inherited_audience_gap — "would
+  // this visibility/status expose inherited keywords past their source?"
+  opts?: { audienceVisibility?: string; audienceRecordStatus?: string },
+): Promise<KeywordListResponse> {
+  const params = new URLSearchParams();
+  if (opts?.audienceVisibility) params.set('audience_visibility', opts.audienceVisibility);
+  if (opts?.audienceRecordStatus) params.set('audience_record_status', opts.audienceRecordStatus);
+  const qs = params.size > 0 ? `?${params.toString()}` : '';
+  return apiFetch<KeywordListResponse>(`/records/${recordId}/keywords/${qs}`);
 }
 
 export async function createKeyword(recordId: string, data: KeywordCreate): Promise<KeywordResponse> {

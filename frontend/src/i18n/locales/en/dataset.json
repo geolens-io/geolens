@@ -434,7 +434,13 @@
     "removeFailed": "Failed to remove keyword",
     "loadError": "Failed to load keywords.",
     "retry": "Retry",
-    "normalizeHelp": "Keywords are normalized to lowercase"
+    "normalizeHelp": "Keywords are normalized to lowercase",
+    "inherited": "inherited",
+    "inheritedTooltip": "Copied from the dataset this one was derived from",
+    "inheritedGapHint": "Some keywords were inherited from a source dataset that not every reader here can open.",
+    "inheritedConfirmTitle": "Share inherited keywords?",
+    "inheritedConfirmBody": "These keywords were copied from a source dataset the wider audience cannot open. Continue to share them, or cancel and remove them first.",
+    "inheritedConfirmContinue": "Change visibility"
   },
   "validation": {
     "title": "Validation Status",

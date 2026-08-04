@@ -4351,7 +4351,7 @@ export const updateDistributionEndpointRecordsRecordIdDistributionsDistributionI
 /**
  * List Keywords Endpoint
  *
- * List all keywords for a record.
+ * List all keywords for a record, marking analysis-inherited ones.
  */
 export const listKeywordsEndpointRecordsRecordIdKeywordsGet = <ThrowOnError extends boolean = false>(options: Options<ListKeywordsEndpointRecordsRecordIdKeywordsGetData, ThrowOnError>): RequestResult<ListKeywordsEndpointRecordsRecordIdKeywordsGetResponses, ListKeywordsEndpointRecordsRecordIdKeywordsGetErrors, ThrowOnError> => (options.client ?? client).get<ListKeywordsEndpointRecordsRecordIdKeywordsGetResponses, ListKeywordsEndpointRecordsRecordIdKeywordsGetErrors, ThrowOnError>({
     security: [

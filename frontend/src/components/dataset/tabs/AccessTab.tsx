@@ -5,7 +5,18 @@ import { Copy, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { useDatasetAccessEndpoints } from '@/components/dataset/hooks/use-dataset-access';
 import { useUpdateDataset } from '@/components/dataset/hooks/use-dataset';
+import { listKeywords } from '@/api/records';
 import type { DatasetResponse, DatasetVisibility } from '@/types/api';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -241,10 +252,17 @@ export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
     dataset.visibility as (typeof SELECTABLE_VISIBILITIES)[number],
   );
 
-  function handleVisibilityChange(value: string) {
-    if (value === dataset.visibility) return;
+  // feat(#1070): a visibility change held back while the owner confirms that
+  // keywords inherited from the analysis source may reach readers who cannot
+  // open that source.
+  const [pendingChange, setPendingChange] = useState<{
+    visibility: DatasetVisibility;
+    keywords: string[];
+  } | null>(null);
+
+  function applyVisibility(visibility: DatasetVisibility) {
     updateDataset.mutate(
-      { datasetId: dataset.id, data: { visibility: value as DatasetVisibility } },
+      { datasetId: dataset.id, data: { visibility } },
       {
         onSuccess: () => toast.success(t('metadataEdit.visibilityUpdated')),
         // fix(#927): moving a dataset away from public while a public map uses
@@ -256,6 +274,29 @@ export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
           toast.error(formatMutationError('dataset:metadataEdit.visibilityFailed', err)),
       },
     );
+  }
+
+  async function handleVisibilityChange(value: string) {
+    if (value === dataset.visibility) return;
+    const visibility = value as DatasetVisibility;
+    // feat(#1070): ask the counterfactual — "at this visibility, would
+    // inherited keywords reach someone who cannot open their source?" — and
+    // put the diff in front of the owner before the change applies. Advisory
+    // only: a failed probe never blocks the change (the backend PATCH response
+    // still carries the warning).
+    try {
+      const kw = await listKeywords(dataset.record_id, {
+        audienceVisibility: visibility,
+      });
+      const inherited = kw.keywords.filter((k) => k.inherited).map((k) => k.keyword);
+      if (kw.inherited_audience_gap && inherited.length > 0) {
+        setPendingChange({ visibility, keywords: inherited });
+        return;
+      }
+    } catch {
+      // fall through to the plain mutate
+    }
+    applyVisibility(visibility);
   }
   const isRaster = dataset.record_type === 'raster_dataset';
   const isVrt = dataset.record_type === 'vrt_dataset';
@@ -362,6 +403,42 @@ export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
           </p>
         </CardContent>
       </Card>
+
+      {/* feat(#1070): the publish-moment diff — which inherited keywords the
+          wider audience would see, with the option to back out and prune. */}
+      <AlertDialog
+        open={pendingChange !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingChange(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('keywords.inheritedConfirmTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('keywords.inheritedConfirmBody')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="flex flex-wrap gap-1.5">
+            {pendingChange?.keywords.map((kw) => (
+              <Badge key={kw} variant="secondary">
+                {kw}
+              </Badge>
+            ))}
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common:cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingChange) applyVisibility(pendingChange.visibility);
+                setPendingChange(null);
+              }}
+            >
+              {t('keywords.inheritedConfirmContinue')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

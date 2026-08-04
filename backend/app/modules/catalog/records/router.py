@@ -15,6 +15,7 @@ from app.modules.auth.dependencies import get_optional_user, require_permission
 from app.modules.catalog.authorization import (
     check_dataset_access_or_anonymous,
     get_user_roles,
+    visible_derived_from,
 )
 from app.core.dependencies import get_db
 from app.platform.cache.tiles import invalidate_catalog_cache
@@ -36,6 +37,11 @@ from app.modules.catalog.records.schemas import (
     TranslationResponse,
     TranslationUpsert,
     normalize_language_tag,
+)
+from app.modules.catalog.records.inherited import (
+    audience_exceeds_source,
+    inherited_keyword_keys,
+    resolve_inherited_source,
 )
 from app.modules.catalog.records.service import (
     create_contact,
@@ -482,18 +488,71 @@ async def list_keywords_endpoint(
     record_id: uuid.UUID,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
+    audience_visibility: str | None = Query(
+        None,
+        pattern="^(private|restricted|internal|public)$",
+        description=(
+            "Compute inherited_audience_gap as if the record had this "
+            "visibility — the counterfactual an owner asks before widening "
+            "access (feat #1070). Keywords themselves are unaffected."
+        ),
+    ),
+    audience_record_status: str | None = Query(
+        None,
+        max_length=30,
+        description=(
+            "Compute inherited_audience_gap as if the record had this status — "
+            "the counterfactual an owner asks before publishing (feat #1070)."
+        ),
+    ),
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> KeywordListResponse:
-    """List all keywords for a record."""
+    """List all keywords for a record, marking analysis-inherited ones."""
     await _check_record_read_access(db, record_id, user)
     keywords, total = (
         await list_keywords(db, record_id, skip=skip, limit=limit),
         await count_keywords(db, record_id),
     )
+
+    # feat(#1070): derive the inherited set from derived_from at read time.
+    # Gated exactly like the derived_from reference itself: a requester who
+    # cannot access the source gets all-false flags, so the flags cannot tell
+    # them "derived from something you cannot see" (#765's rule).
+    inherited_keys: set[tuple[str, str | None, str]] = set()
+    audience_gap = False
+    record = await get_record(db, record_id)
+    if record is not None and record.derived_from:
+        user_roles = await get_user_roles(db, user) if user is not None else set()
+        visible = await visible_derived_from(db, record.derived_from, user, user_roles)
+        if visible is not None:
+            source = await resolve_inherited_source(db, record)
+            if source is not None:
+                inherited_keys = await inherited_keyword_keys(db, record, source)
+                if inherited_keys:
+                    dataset_id = (
+                        await db.execute(
+                            select(Dataset.id).where(Dataset.record_id == record_id)
+                        )
+                    ).scalar_one_or_none()
+                    audience_gap = await audience_exceeds_source(
+                        db,
+                        record=record,
+                        dataset_id=dataset_id,
+                        source=source,
+                        visibility=audience_visibility,
+                        record_status=audience_record_status,
+                    )
+
+    def _to_response(k) -> KeywordResponse:
+        resp = KeywordResponse.model_validate(k)
+        resp.inherited = (k.keyword, k.vocabulary_uri, k.keyword_type) in inherited_keys
+        return resp
+
     return KeywordListResponse(
-        keywords=[KeywordResponse.model_validate(k) for k in keywords],
+        keywords=[_to_response(k) for k in keywords],
         total=total,
+        inherited_audience_gap=audience_gap,
     )
 
 

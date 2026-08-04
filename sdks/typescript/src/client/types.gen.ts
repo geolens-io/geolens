@@ -3132,6 +3132,12 @@ export type DatasetResponse = {
      */
     lineage_summary?: string | null;
     /**
+     * Metadata Warnings
+     *
+     * Advisory warnings produced by a metadata update — e.g. a visibility or status change exposing keywords inherited from an analysis source the new audience cannot open (feat #1070). Only ever set on the PATCH response; the change has already applied.
+     */
+    metadata_warnings?: Array<string> | null;
+    /**
      * N Dims
      *
      * Number of coordinate dimensions (2, 3, or 4)
@@ -4622,6 +4628,12 @@ export type KeywordCreate = {
  */
 export type KeywordListResponse = {
     /**
+     * Inherited Audience Gap
+     *
+     * True when at least one keyword is inherited AND this record's audience — at its stored state, or at the counterfactual audience_visibility/audience_record_status query parameters — includes someone who cannot open the source dataset (feat #1070).
+     */
+    inherited_audience_gap?: boolean;
+    /**
      * Keywords
      */
     keywords: Array<KeywordResponse>;
@@ -4639,6 +4651,12 @@ export type KeywordResponse = {
      * Id
      */
     id: string;
+    /**
+     * Inherited
+     *
+     * True when this keyword also exists on the dataset this record was derived from (feat #1070). Derived at read time from derived_from; only ever true for a requester who can access that source dataset, so everyone else sees false — matching the derived_from redaction.
+     */
+    inherited?: boolean;
     /**
      * Keyword
      */
@@ -23340,6 +23358,18 @@ export type ListKeywordsEndpointRecordsRecordIdKeywordsGetData = {
          * Limit
          */
         limit?: number;
+        /**
+         * Audience Visibility
+         *
+         * Compute inherited_audience_gap as if the record had this visibility — the counterfactual an owner asks before widening access (feat #1070). Keywords themselves are unaffected.
+         */
+        audience_visibility?: string | null;
+        /**
+         * Audience Record Status
+         *
+         * Compute inherited_audience_gap as if the record had this status — the counterfactual an owner asks before publishing (feat #1070).
+         */
+        audience_record_status?: string | null;
     };
     url: '/records/{record_id}/keywords/';
 };

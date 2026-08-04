@@ -543,7 +543,13 @@
     "removeFailed": "Error al eliminar palabra clave",
     "loadError": "Error al cargar palabras clave.",
     "retry": "Reintentar",
-    "normalizeHelp": "Las palabras clave se normalizan a minúsculas"
+    "normalizeHelp": "Las palabras clave se normalizan a minúsculas",
+    "inherited": "heredada",
+    "inheritedTooltip": "Copiada del conjunto de datos del que se derivó este",
+    "inheritedGapHint": "Algunas palabras clave se heredaron de un conjunto de datos de origen que no todos los lectores pueden abrir.",
+    "inheritedConfirmTitle": "¿Compartir las palabras clave heredadas?",
+    "inheritedConfirmBody": "Estas palabras clave se copiaron de un conjunto de datos de origen que la nueva audiencia no puede abrir. Continúe para compartirlas, o cancele y elimínelas primero.",
+    "inheritedConfirmContinue": "Cambiar visibilidad"
   },
   "attributeMetadata": {
     "title": "Metadatos de atributos",

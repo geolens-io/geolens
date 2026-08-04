@@ -254,6 +254,10 @@ export interface DatasetResponse {
   n_dims?: number | null;
   z_min?: number | null;
   z_max?: number | null;
+  /** feat(#1070): advisory warnings a metadata PATCH can attach — e.g. a
+   * visibility/status change exposing keywords inherited from an analysis
+   * source the new audience cannot open. PATCH responses only. */
+  metadata_warnings?: string[] | null;
 }
 
 export interface DatasetListResponse {
@@ -328,11 +332,19 @@ export interface KeywordResponse {
   keyword: string;
   vocabulary_uri: string | null;
   keyword_type: string;
+  /** feat(#1070): true when the keyword also exists on the dataset this record
+   * was derived from. Only ever true for a requester who can access that
+   * source; everyone else sees false, matching the derived_from redaction. */
+  inherited?: boolean;
 }
 
 export interface KeywordListResponse {
   keywords: KeywordResponse[];
   total: number;
+  /** feat(#1070): true when at least one keyword is inherited AND the record's
+   * audience — stored, or at the counterfactual audience_* query params —
+   * includes someone who cannot open the source dataset. */
+  inherited_audience_gap?: boolean;
 }
 
 export interface DistributionResponse {
