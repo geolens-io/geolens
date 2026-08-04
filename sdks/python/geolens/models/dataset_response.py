@@ -74,7 +74,9 @@ class DatasetResponse:
         quality_detail (None | QualityDetail | Unset): Automated quality assessment results
         quality_statement (None | str | Unset):
         raster (None | RasterMetadata | Unset): Raster-specific metadata (null for vectors)
-        record_status (str | Unset): Lifecycle status: draft, ready, published Default: 'draft'.
+        record_status (str | Unset): Lifecycle status. Deliberately not pinned to an enum: the values come from the
+            workflow extension's status_order(), so an overlay may define its own. Community default order: draft, ready,
+            internal, published. Default: 'draft'.
         record_type (str | Unset): Record type: 'vector_dataset' (spatial features), 'raster_dataset' (single COG),
             'vrt_dataset' (VRT mosaic), 'table' (non-spatial tabular), 'map' (saved map), 'service' (catalogued remote
             service), 'collection' (flat dataset group). Default: 'vector_dataset'.

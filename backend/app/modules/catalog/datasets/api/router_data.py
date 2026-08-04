@@ -281,8 +281,9 @@ async def update_publication_status(
 ) -> StatusUpdateResponse:
     """Transition a dataset's publication status following allowed paths.
 
-    Allowed transitions:
-      draft -> ready -> internal -> published (and back one step).
+    The allowed set comes from the workflow extension's
+    allowed_transitions(), so an overlay may define its own. The community
+    default is draft -> ready -> internal -> published (and back one step).
     """
     dataset = await db.execute(
         select(DatasetModel)
@@ -346,8 +347,10 @@ async def set_target_status(
 ) -> StatusUpdateResponse:
     """Walk the publication chain from current status to target in one request.
 
-    Executes each intermediate transition so the full chain
-    (e.g. draft -> ready -> internal -> published) completes server-side.
+    Executes each intermediate transition so the full chain completes
+    server-side. The order comes from the workflow extension's
+    status_order(), so an overlay may define its own; the community default
+    is draft -> ready -> internal -> published.
     """
     dataset = await db.execute(
         select(DatasetModel)

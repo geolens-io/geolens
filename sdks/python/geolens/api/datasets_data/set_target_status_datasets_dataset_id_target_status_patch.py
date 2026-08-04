@@ -116,8 +116,10 @@ def sync_detailed(
 
      Walk the publication chain from current status to target in one request.
 
-    Executes each intermediate transition so the full chain
-    (e.g. draft -> ready -> internal -> published) completes server-side.
+    Executes each intermediate transition so the full chain completes
+    server-side. The order comes from the workflow extension's
+    status_order(), so an overlay may define its own; the community default
+    is draft -> ready -> internal -> published.
 
     Args:
         dataset_id (UUID):
@@ -153,8 +155,10 @@ def sync(
 
      Walk the publication chain from current status to target in one request.
 
-    Executes each intermediate transition so the full chain
-    (e.g. draft -> ready -> internal -> published) completes server-side.
+    Executes each intermediate transition so the full chain completes
+    server-side. The order comes from the workflow extension's
+    status_order(), so an overlay may define its own; the community default
+    is draft -> ready -> internal -> published.
 
     Args:
         dataset_id (UUID):
@@ -185,8 +189,10 @@ async def asyncio_detailed(
 
      Walk the publication chain from current status to target in one request.
 
-    Executes each intermediate transition so the full chain
-    (e.g. draft -> ready -> internal -> published) completes server-side.
+    Executes each intermediate transition so the full chain completes
+    server-side. The order comes from the workflow extension's
+    status_order(), so an overlay may define its own; the community default
+    is draft -> ready -> internal -> published.
 
     Args:
         dataset_id (UUID):
@@ -220,8 +226,10 @@ async def asyncio(
 
      Walk the publication chain from current status to target in one request.
 
-    Executes each intermediate transition so the full chain
-    (e.g. draft -> ready -> internal -> published) completes server-side.
+    Executes each intermediate transition so the full chain completes
+    server-side. The order comes from the workflow extension's
+    status_order(), so an overlay may define its own; the community default
+    is draft -> ready -> internal -> published.
 
     Args:
         dataset_id (UUID):
