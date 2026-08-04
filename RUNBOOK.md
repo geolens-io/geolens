@@ -629,6 +629,52 @@ targets just need network reach to `api:8000` and `worker:8001`.
 > the `geolens_db_pool_*` gauges are not emitted and `GeoLensDbPoolSaturated`
 > never fires — pool health is the provider's responsibility there.
 
+### API worker memory & recycling
+
+Each API worker samples its own RSS from `/proc/self/status` every 60 seconds
+and exports it as the Prometheus gauge `geolens_worker_rss_bytes` (labelled by
+`pid`) on the API `/metrics` endpoint. One caveat when running more than one
+worker: each process has its own metrics registry and a scrape is answered by
+whichever worker takes it, so a single scrape reports one worker's gauge and
+successive scrapes may alternate pid series — or keep reaching the same worker
+and never observe the one that is growing (multiprocess aggregation is tracked
+in #651). The structured log lines the same sampler writes are therefore the
+authoritative per-worker signal, and a growth curve exists in
+`docker compose logs api` even if `/metrics` is never scraped:
+
+| Log message | Level | Meaning |
+|---|---|---|
+| `API worker memory` | INFO | Startup baseline, then an hourly heartbeat (`rss_mb`, `pid`) |
+| `API worker memory above watermark` | WARNING | Worker RSS crossed 60% of the container memory limit (1200 MB fallback when no cgroup limit is readable); repeats at most every 5 minutes |
+
+A steadily climbing `rss_mb` — or the watermark WARNING — means one worker is
+heading for the container memory cap (`API_MEM_LIMIT`, default 2 GB). When it
+gets there, the cgroup OOM killer terminates that worker and drops its in-flight
+requests; the only trace outside these logs is host `dmesg` (#643).
+
+The backstop is bounded worker recycling via `UVICORN_MAX_REQUESTS`: when it is
+set, the api command appends uvicorn's `--limit-max-requests` (wired in the
+image CMD in `Dockerfile`; `docker-compose.prod.yml` does the same and defaults
+the value to 10000). This applies to production deployments only — the
+development `docker-compose.yml` overrides that command with a `--reload`
+invocation that does not pass `--limit-max-requests`, so setting the variable
+there has no effect. A worker exits gracefully after that many requests. With
+more than one worker (the production Compose default is `UVICORN_WORKERS=2`)
+the uvicorn supervisor respawns it in place, so slow growth cannot ride one
+worker into the OOM killer. With a single worker there is no supervisor: the
+process exits at the threshold and the container's restart policy
+(`restart: unless-stopped` in `docker-compose.prod.yml`) restarts it, which is
+a brief API outage per recycle — direct image deployments that keep the baked
+`UVICORN_WORKERS=1` default must run under such a policy for recycling to be
+safe. If the watermark WARNING still fires between recycles, lower the
+value; the `UVICORN_MAX_REQUESTS` entry in `.env.example` documents the value
+rules. Note that under production Compose an unset or empty value falls back
+to the compose default of 10000 — disabling recycling there means editing the
+`docker-compose.prod.yml` value, not blanking the variable (blanking works
+only for direct image runs). Recycling caps the blast radius — it does not
+explain what grows. That
+investigation is tracked in #643.
+
 ### Database temp-file ceiling (`temp_file_limit`)
 
 The bundled Postgres config sets `temp_file_limit = 4GB` (`db/postgresql.conf`).
