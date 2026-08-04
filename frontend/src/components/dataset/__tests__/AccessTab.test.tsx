@@ -406,6 +406,79 @@ describe('AccessTab', () => {
         await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
       });
 
+      // fix(#1178 r4): two quick selections leave both probes in flight, and
+      // the LAST response to arrive used to write pendingChange — possibly
+      // for the earlier, no-longer-intended value. Only the newest selection
+      // may produce anything.
+      it('a superseded probe response is discarded, even resolving last', async () => {
+        vi.mocked(toast.warning).mockClear();
+        const resolvers: Array<(v: unknown) => void> = [];
+        mockListKeywords.mockImplementation(
+          () =>
+            new Promise((res) => {
+              resolvers.push(res as (v: unknown) => void);
+            }) as ReturnType<typeof listKeywords>,
+        );
+        render(<AccessTab dataset={makeDataset({ visibility: 'private' })} canEdit />);
+
+        // First selection: Internal. Second selection: Public. Both widen.
+        openVisibilitySelect();
+        fireEvent.click(screen.getByRole('option', { name: 'Internal' }));
+        openVisibilitySelect();
+        fireEvent.click(screen.getByRole('option', { name: 'Public' }));
+        await waitFor(() => expect(resolvers).toHaveLength(2));
+
+        // The newest probe resolves FIRST with no gap: direct mutate for
+        // public. The stale probe resolves LAST claiming a gap: discarded.
+        resolvers[1]({ keywords: [], total: 0, inherited_audience_gap: false });
+        await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+        expect(mutate.mock.calls[0][0]).toEqual({
+          datasetId: 'ds-1',
+          data: { visibility: 'public' },
+        });
+
+        resolvers[0](inheritedProbe);
+        // Give the stale response a tick to (wrongly) act, then assert it
+        // produced nothing: no dialog, no extra mutate.
+        await waitFor(() =>
+          expect(
+            screen.queryByText('Share inherited keywords?'),
+          ).not.toBeInTheDocument(),
+        );
+        expect(mutate).toHaveBeenCalledTimes(1);
+      });
+
+      // fix(#1178 r4): a superseded FAILED probe must not fire the direct
+      // PATCH for its stale value.
+      it('a superseded failed probe does not mutate its stale value', async () => {
+        const handlers: Array<{ resolve: (v: unknown) => void; reject: (e: unknown) => void }> = [];
+        mockListKeywords.mockImplementation(
+          () =>
+            new Promise((resolve, reject) => {
+              handlers.push({ resolve: resolve as (v: unknown) => void, reject });
+            }) as ReturnType<typeof listKeywords>,
+        );
+        render(<AccessTab dataset={makeDataset({ visibility: 'private' })} canEdit />);
+
+        openVisibilitySelect();
+        fireEvent.click(screen.getByRole('option', { name: 'Internal' }));
+        openVisibilitySelect();
+        fireEvent.click(screen.getByRole('option', { name: 'Public' }));
+        await waitFor(() => expect(handlers).toHaveLength(2));
+
+        handlers[1].resolve({ keywords: [], total: 0, inherited_audience_gap: false });
+        await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+
+        // The stale probe FAILS after being superseded: without the guard the
+        // catch fell through to applyVisibility('internal').
+        handlers[0].reject(new Error('boom'));
+        await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+        expect(mutate.mock.calls[0][0]).toEqual({
+          datasetId: 'ds-1',
+          data: { visibility: 'public' },
+        });
+      });
+
       // fix(#1178 review): the fallback is only a fallback if the PATCH
       // response's warnings actually reach the user when the probe failed.
       it('surfaces the PATCH warning when the probe failed', async () => {

@@ -265,6 +265,11 @@ export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
     visibility: DatasetVisibility;
     keywords: string[];
   } | null>(null);
+  // fix(#1178 r4): probe sequence. Two quick selections leave both probes in
+  // flight, and whichever resolved LAST wrote pendingChange — possibly for
+  // the earlier, no-longer-intended value. Each invocation takes a fresh id;
+  // a response whose id is no longer current is discarded outright.
+  const probeSeq = useRef(0);
 
   function applyVisibility(visibility: DatasetVisibility) {
     updateDataset.mutate(
@@ -293,6 +298,7 @@ export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
   async function handleVisibilityChange(value: string) {
     if (value === dataset.visibility) return;
     const visibility = value as DatasetVisibility;
+    const seq = ++probeSeq.current;
     // fix(#1178 r3): only a move that ADDS readers warrants the dialog. The
     // probe asks an absolute question ("does this audience exceed the
     // source?"), so running it on a narrowing move (public -> internal on an
@@ -314,6 +320,9 @@ export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
         const kw = await listKeywords(dataset.record_id, {
           audienceVisibility: visibility,
         });
+        // fix(#1178 r4): superseded by a newer selection while awaiting —
+        // this response must produce nothing, not even the fall-through.
+        if (seq !== probeSeq.current) return;
         // fix(#1178 r3): the gap flag is authoritative (computed server-side
         // over ALL keyword rows); the fetched page only supplies display
         // names. Keying the dialog on the page's inherited entries let a page
@@ -326,6 +335,9 @@ export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
           return;
         }
       } catch {
+        // fix(#1178 r4): a superseded FAILED probe must not fire the direct
+        // PATCH for its stale value either.
+        if (seq !== probeSeq.current) return;
         // fall through to the plain mutate
       }
     }
