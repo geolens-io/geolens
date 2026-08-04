@@ -29,10 +29,20 @@ say what is used (this section), and not obstruct replacement of the library.
 **Replacing the library.** Both are installed as ordinary site-packages in the
 image's virtualenv at `/app/.venv/lib/python3.14/site-packages/`. A recipient
 may replace either with a modified version of the same major line by installing
-over it — for example
-`docker run --entrypoint /bin/sh <image> -c "uv pip install --force-reinstall ./my-psycopg"`
-in a derived image, or by rebuilding from this repository with the dependency
-repinned in `backend/pyproject.toml`. Nothing in the image links psycopg
+over it in a derived image:
+
+```dockerfile
+FROM <geolens-backend-image>
+COPY my-psycopg/ /tmp/my-psycopg/
+RUN uv pip install --python /app/.venv --force-reinstall /tmp/my-psycopg/
+```
+
+(`--python /app/.venv` targets the virtualenv the entrypoints run from; the
+image's `UV_SYSTEM_PYTHON=1` would otherwise send the install to the system
+interpreter, which the application does not use.)
+
+or by rebuilding from this repository with the dependency repinned in
+`backend/pyproject.toml`. Nothing in the image links psycopg
 statically, verifies its contents, or otherwise resists substitution.
 
 ## pygeoif 1.6.0 — LGPL-2.1-or-later
