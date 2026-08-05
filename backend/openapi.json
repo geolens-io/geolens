@@ -20509,7 +20509,7 @@
     },
     "/admin/users/": {
       "get": {
-        "description": "List all users with pagination and optional status/search filter (admin only).",
+        "description": "List all users with pagination and optional status/search/sort filter (admin only).\n\n`sort` and `order` are closed enums, so an unrecognised value is refused\nwith a 422 and never reaches the query.",
         "operationId": "list_users_admin_users__get",
         "parameters": [
           {
@@ -20567,6 +20567,41 @@
                 }
               ],
               "title": "Search"
+            }
+          },
+          {
+            "description": "Column to order by. Roles and storage are not sortable: roles is a many-to-many and storage is aggregated per page after the query.",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "created_at",
+              "description": "Column to order by. Roles and storage are not sortable: roles is a many-to-many and storage is aggregated per page after the query.",
+              "enum": [
+                "username",
+                "email",
+                "status",
+                "last_login_at",
+                "created_at"
+              ],
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Sort direction.",
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "asc",
+              "description": "Sort direction.",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "title": "Order",
+              "type": "string"
             }
           }
         ],

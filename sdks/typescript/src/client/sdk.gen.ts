@@ -349,7 +349,10 @@ export const getCatalogStatsAdminStatsGet = <ThrowOnError extends boolean = fals
 /**
  * List Users
  *
- * List all users with pagination and optional status/search filter (admin only).
+ * List all users with pagination and optional status/search/sort filter (admin only).
+ *
+ * `sort` and `order` are closed enums, so an unrecognised value is refused
+ * with a 422 and never reaches the query.
  */
 export const listUsersAdminUsersGet = <ThrowOnError extends boolean = false>(options?: Options<ListUsersAdminUsersGetData, ThrowOnError>): RequestResult<ListUsersAdminUsersGetResponses, ListUsersAdminUsersGetErrors, ThrowOnError> => (options?.client ?? client).get<ListUsersAdminUsersGetResponses, ListUsersAdminUsersGetErrors, ThrowOnError>({
     security: [

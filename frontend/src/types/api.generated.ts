@@ -326,7 +326,10 @@ export interface paths {
         };
         /**
          * List Users
-         * @description List all users with pagination and optional status/search filter (admin only).
+         * @description List all users with pagination and optional status/search/sort filter (admin only).
+         *
+         *     `sort` and `order` are closed enums, so an unrecognised value is refused
+         *     with a 422 and never reaches the query.
          */
         get: operations["list_users_admin_users__get"];
         put?: never;
@@ -14482,6 +14485,10 @@ export interface operations {
                 limit?: number;
                 status?: string | null;
                 search?: string | null;
+                /** @description Column to order by. Roles and storage are not sortable: roles is a many-to-many and storage is aggregated per page after the query. */
+                sort?: "username" | "email" | "status" | "last_login_at" | "created_at";
+                /** @description Sort direction. */
+                order?: "asc" | "desc";
             };
             header?: never;
             path?: never;

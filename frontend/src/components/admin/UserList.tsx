@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import {
@@ -58,6 +59,7 @@ import { UserCreateDialog } from './UserCreateDialog';
 import { UserEditDialog } from './UserEditDialog';
 import { UserDeleteDialog } from './UserDeleteDialog';
 import { DataTablePagination } from './DataTablePagination';
+import { SortableColumnHeader, type SortDirection } from './SortableColumnHeader';
 import { DataTableSearch } from './DataTableSearch';
 import { DataTableSkeleton } from './DataTableSkeleton';
 import { FilterSelect } from './FilterSelect';
@@ -67,6 +69,25 @@ import { EmptyState } from '@/components/layout/EmptyState';
 import { useAuthStore } from '@/stores/auth-store';
 
 const PAGE_SIZE = 20;
+
+/** Mirrors the UserSortField allowlist on GET /admin/users/. Roles and storage
+ *  are absent by design: roles is a many-to-many and storage is aggregated per
+ *  page after the query, so neither can be ordered by the database. Offering a
+ *  header for them would sort only the visible page, which looks correct and
+ *  is not. */
+const SORTABLE_FIELDS = ['username', 'email', 'status', 'last_login_at', 'created_at'] as const;
+type SortField = (typeof SORTABLE_FIELDS)[number];
+
+const DEFAULT_SORT: SortField = 'created_at';
+const DEFAULT_ORDER: SortDirection = 'asc';
+
+function parseSortField(raw: string | null): SortField {
+  return SORTABLE_FIELDS.includes(raw as SortField) ? (raw as SortField) : DEFAULT_SORT;
+}
+
+function parseSortOrder(raw: string | null): SortDirection {
+  return raw === 'desc' || raw === 'asc' ? raw : DEFAULT_ORDER;
+}
 
 const STATUS_OPTIONS = [
   { value: '', labelKey: 'users.filters.allUsers' },
@@ -93,8 +114,36 @@ export function UserList() {
   const [deactivatingUser, setDeactivatingUser] = useState<UserResponse | null>(null);
   const [isExporting, setIsExporting] = useState(false);
 
+  // Sort lives in the URL so a sorted view is shareable and the back button
+  // steps through orderings. An unrecognised ?sort= falls back to the default
+  // rather than erroring the page; the API refuses it independently.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const sortField = parseSortField(searchParams.get('sort'));
+  const sortOrder = parseSortOrder(searchParams.get('order'));
+
+  function handleSort(field: string) {
+    // Compare against the EFFECTIVE field, not the raw param: with no ?sort=
+    // the Created column already renders as the active ascending sort, so
+    // clicking it must flip to descending rather than re-assert ascending.
+    const next = sortField === field && sortOrder === 'asc' ? 'desc' : 'asc';
+    const params = new URLSearchParams(searchParams);
+    params.set('sort', field);
+    params.set('order', next);
+    setSearchParams(params, { replace: true });
+    // A new ordering renumbers every page, so page 3 of the old sort is
+    // meaningless under the new one.
+    setPage(0);
+  }
+
   const skip = page * PAGE_SIZE;
-  const { data, isLoading, error, refetch } = useUserList(skip, PAGE_SIZE, statusFilter || undefined, searchQuery || undefined);
+  const { data, isLoading, error, refetch } = useUserList({
+    skip,
+    limit: PAGE_SIZE,
+    status: statusFilter || undefined,
+    search: searchQuery || undefined,
+    sort: sortField,
+    order: sortOrder,
+  });
 
   const approveUser = useApproveUser();
   const rejectUser = useRejectUser();
@@ -213,13 +262,45 @@ export function UserList() {
           <Table aria-label={t('users.title')}>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('users.table.username')}</TableHead>
-                <TableHead>{t('users.table.email')}</TableHead>
+                <SortableColumnHeader
+                  label={t('users.table.username')}
+                  field="username"
+                  activeField={sortField}
+                  direction={sortOrder}
+                  onSort={handleSort}
+                />
+                <SortableColumnHeader
+                  label={t('users.table.email')}
+                  field="email"
+                  activeField={sortField}
+                  direction={sortOrder}
+                  onSort={handleSort}
+                />
+                {/* Roles and storage are intentionally not sortable — see
+                    SORTABLE_FIELDS. */}
                 <TableHead>{t('users.table.roles')}</TableHead>
-                <TableHead>{t('users.table.status')}</TableHead>
+                <SortableColumnHeader
+                  label={t('users.table.status')}
+                  field="status"
+                  activeField={sortField}
+                  direction={sortOrder}
+                  onSort={handleSort}
+                />
                 <TableHead>{t('users.table.storage')}</TableHead>
-                <TableHead>{t('users.table.lastLogin')}</TableHead>
-                <TableHead>{t('users.table.created')}</TableHead>
+                <SortableColumnHeader
+                  label={t('users.table.lastLogin')}
+                  field="last_login_at"
+                  activeField={sortField}
+                  direction={sortOrder}
+                  onSort={handleSort}
+                />
+                <SortableColumnHeader
+                  label={t('users.table.created')}
+                  field="created_at"
+                  activeField={sortField}
+                  direction={sortOrder}
+                  onSort={handleSort}
+                />
                 <TableHead>{t('users.table.actions')}</TableHead>
               </TableRow>
             </TableHeader>

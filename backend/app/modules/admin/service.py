@@ -4,8 +4,9 @@ import uuid
 from typing import Any
 
 import structlog
-from sqlalchemy import delete, func, select, text, update
+from sqlalchemy import delete, func, nulls_last, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import InstrumentedAttribute
 
 from app.modules.admin.schemas import (
     CatalogStatsResponse,
@@ -24,6 +25,24 @@ logger = structlog.stdlib.get_logger(__name__)
 # locking individual User rows is insufficient when two admins concurrently
 # deactivate each other (each operation targets a different row).
 _ADMIN_LIFECYCLE_LOCK_KEY = 0x47454F4C41444D49  # "GEOLADMI"
+
+# Inner half of the user-list sort allowlist (the outer half is the
+# UserSortField Literal in schemas.py, which FastAPI enforces at the boundary).
+# A sort key is only ever a dict lookup here, so an unmapped value cannot reach
+# SQL as text; list_users raises rather than falling back, because a permissive
+# fallback would silently serve the default ordering under a typo'd key.
+USER_SORT_COLUMNS: dict[str, InstrumentedAttribute] = {
+    "username": User.username,
+    "email": User.email,
+    "status": User.status,
+    "last_login_at": User.last_login_at,
+    "created_at": User.created_at,
+}
+
+# Nullable members of USER_SORT_COLUMNS. Postgres defaults NULLs to the end on
+# ASC and the front on DESC, which would float never-logged-in accounts to the
+# top of a descending "Last Login" sort. Pin them last in both directions.
+_NULLABLE_USER_SORT_COLUMNS = frozenset({"email", "last_login_at"})
 
 
 class PendingUserMutationError(ValueError):
@@ -471,14 +490,42 @@ class AdminService:
         await self.db.refresh(user)
         return user, provider_slug
 
+    @staticmethod
+    def _user_ordering(sort: str, order: str) -> list[Any]:
+        """Resolve a sort key/direction pair to ORDER BY clauses.
+
+        Raises ValueError for anything outside the allowlist, so a bad key
+        fails loudly here instead of silently degrading to a default order.
+        """
+        column = USER_SORT_COLUMNS.get(sort)
+        if column is None:
+            raise ValueError(f"Unsupported sort field: {sort!r}")
+        if order not in ("asc", "desc"):
+            raise ValueError(f"Unsupported sort order: {order!r}")
+
+        clause = column.desc() if order == "desc" else column.asc()
+        if sort in _NULLABLE_USER_SORT_COLUMNS:
+            clause = nulls_last(clause)
+
+        # Every sortable column except created_at admits duplicates, and OFFSET
+        # paging over a non-unique key lets Postgres return a row twice (or skip
+        # it) across page boundaries. The id tiebreak makes the order total.
+        return [clause, User.id]
+
     async def list_users(
         self,
         skip: int = 0,
         limit: int = 50,
         status: str | None = None,
         search: str | None = None,
+        sort: str = "created_at",
+        order: str = "asc",
     ) -> tuple[list[User], int]:
         """List users with pagination and optional status/search filter.
+
+        `sort` must be a key of USER_SORT_COLUMNS and `order` one of
+        asc/desc; anything else raises ValueError. The default ordering
+        (created_at ascending) is the historical one and is unchanged.
 
         Returns (users, total_count).
         """
@@ -508,7 +555,9 @@ class AdminService:
             )
 
         count_query = select(func.count()).select_from(User).where(*filters)
-        list_query = select(User).where(*filters).order_by(User.created_at)
+        list_query = (
+            select(User).where(*filters).order_by(*self._user_ordering(sort, order))
+        )
 
         total = (await self.db.execute(count_query)).scalar() or 0
         result = await self.db.execute(list_query.offset(skip).limit(limit))

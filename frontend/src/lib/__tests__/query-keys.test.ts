@@ -178,9 +178,17 @@ describe('queryKeys factory', () => {
       expect(queryKeys.admin.stats[0]).toBe('admin');
     });
 
-    it('users includes skip, limit, status, search', () => {
-      expect(queryKeys.admin.users(0, 50)).toEqual(['admin', 'users', 0, 50, undefined, undefined]);
-      expect(queryKeys.admin.users(0, 50, 'active', 'bob')).toEqual(['admin', 'users', 0, 50, 'active', 'bob']);
+    it('users includes skip, limit, status, search, sort, order', () => {
+      expect(queryKeys.admin.users(0, 50)).toEqual([
+        'admin', 'users', 0, 50, undefined, undefined, undefined, undefined,
+      ]);
+      expect(queryKeys.admin.users(0, 50, 'active', 'bob')).toEqual([
+        'admin', 'users', 0, 50, 'active', 'bob', undefined, undefined,
+      ]);
+      // Two orderings of the same page must not share a cache entry.
+      expect(queryKeys.admin.users(0, 50, undefined, undefined, 'username', 'asc')).not.toEqual(
+        queryKeys.admin.users(0, 50, undefined, undefined, 'username', 'desc'),
+      );
     });
 
     it('aiStatus returns expected key', () => {

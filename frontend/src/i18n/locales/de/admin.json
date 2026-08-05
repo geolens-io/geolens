@@ -765,5 +765,9 @@
       "editor": "Bearbeiter",
       "admin": "Administrator"
     }
+  },
+  "sortable": {
+    "sortAscending": "aufsteigend sortieren",
+    "sortDescending": "absteigend sortieren"
   }
 }

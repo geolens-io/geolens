@@ -765,5 +765,9 @@
       "editor": "Éditeur",
       "admin": "Administrateur"
     }
+  },
+  "sortable": {
+    "sortAscending": "trier par ordre croissant",
+    "sortDescending": "trier par ordre décroissant"
   }
 }

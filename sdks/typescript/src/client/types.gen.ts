@@ -11653,6 +11653,18 @@ export type ListUsersAdminUsersGetData = {
          * Search
          */
         search?: string | null;
+        /**
+         * Sort
+         *
+         * Column to order by. Roles and storage are not sortable: roles is a many-to-many and storage is aggregated per page after the query.
+         */
+        sort?: 'username' | 'email' | 'status' | 'last_login_at' | 'created_at';
+        /**
+         * Order
+         *
+         * Sort direction.
+         */
+        order?: 'asc' | 'desc';
     };
     url: '/admin/users/';
 };
