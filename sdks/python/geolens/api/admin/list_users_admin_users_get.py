@@ -7,6 +7,8 @@ from ...client import AuthenticatedClient, Client
 from ...types import Response, UNSET
 from ... import errors
 
+from ...models.list_users_admin_users_get_order import ListUsersAdminUsersGetOrder
+from ...models.list_users_admin_users_get_sort import ListUsersAdminUsersGetSort
 from ...models.problem_detail import ProblemDetail
 from ...models.user_list_response import UserListResponse
 from ...types import Unset
@@ -18,6 +20,8 @@ def _get_kwargs(
     limit: int | Unset = 50,
     status: None | str | Unset = UNSET,
     search: None | str | Unset = UNSET,
+    sort: ListUsersAdminUsersGetSort | Unset = "created_at",
+    order: ListUsersAdminUsersGetOrder | Unset = "asc",
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
@@ -39,6 +43,18 @@ def _get_kwargs(
     else:
         json_search = search
     params["search"] = json_search
+
+    json_sort: str | Unset = UNSET
+    if not isinstance(sort, Unset):
+        json_sort = sort
+
+    params["sort"] = json_sort
+
+    json_order: str | Unset = UNSET
+    if not isinstance(order, Unset):
+        json_order = order
+
+    params["order"] = json_order
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -123,16 +139,25 @@ def sync_detailed(
     limit: int | Unset = 50,
     status: None | str | Unset = UNSET,
     search: None | str | Unset = UNSET,
+    sort: ListUsersAdminUsersGetSort | Unset = "created_at",
+    order: ListUsersAdminUsersGetOrder | Unset = "asc",
 ) -> Response[ProblemDetail | UserListResponse]:
     """List Users
 
-     List all users with pagination and optional status/search filter (admin only).
+     List all users with pagination and optional status/search/sort filter (admin only).
+
+    `sort` and `order` are closed enums, so an unrecognised value is refused
+    with a 422 and never reaches the query.
 
     Args:
         skip (int | Unset):  Default: 0.
         limit (int | Unset):  Default: 50.
         status (None | str | Unset):
         search (None | str | Unset):
+        sort (ListUsersAdminUsersGetSort | Unset): Column to order by. Roles and storage are not
+            sortable: roles is a many-to-many and storage is aggregated per page after the query.
+            Default: 'created_at'.
+        order (ListUsersAdminUsersGetOrder | Unset): Sort direction. Default: 'asc'.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -147,6 +172,8 @@ def sync_detailed(
         limit=limit,
         status=status,
         search=search,
+        sort=sort,
+        order=order,
     )
 
     response = client.get_httpx_client().request(
@@ -163,16 +190,25 @@ def sync(
     limit: int | Unset = 50,
     status: None | str | Unset = UNSET,
     search: None | str | Unset = UNSET,
+    sort: ListUsersAdminUsersGetSort | Unset = "created_at",
+    order: ListUsersAdminUsersGetOrder | Unset = "asc",
 ) -> ProblemDetail | UserListResponse | None:
     """List Users
 
-     List all users with pagination and optional status/search filter (admin only).
+     List all users with pagination and optional status/search/sort filter (admin only).
+
+    `sort` and `order` are closed enums, so an unrecognised value is refused
+    with a 422 and never reaches the query.
 
     Args:
         skip (int | Unset):  Default: 0.
         limit (int | Unset):  Default: 50.
         status (None | str | Unset):
         search (None | str | Unset):
+        sort (ListUsersAdminUsersGetSort | Unset): Column to order by. Roles and storage are not
+            sortable: roles is a many-to-many and storage is aggregated per page after the query.
+            Default: 'created_at'.
+        order (ListUsersAdminUsersGetOrder | Unset): Sort direction. Default: 'asc'.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -188,6 +224,8 @@ def sync(
         limit=limit,
         status=status,
         search=search,
+        sort=sort,
+        order=order,
     ).parsed
 
 
@@ -198,16 +236,25 @@ async def asyncio_detailed(
     limit: int | Unset = 50,
     status: None | str | Unset = UNSET,
     search: None | str | Unset = UNSET,
+    sort: ListUsersAdminUsersGetSort | Unset = "created_at",
+    order: ListUsersAdminUsersGetOrder | Unset = "asc",
 ) -> Response[ProblemDetail | UserListResponse]:
     """List Users
 
-     List all users with pagination and optional status/search filter (admin only).
+     List all users with pagination and optional status/search/sort filter (admin only).
+
+    `sort` and `order` are closed enums, so an unrecognised value is refused
+    with a 422 and never reaches the query.
 
     Args:
         skip (int | Unset):  Default: 0.
         limit (int | Unset):  Default: 50.
         status (None | str | Unset):
         search (None | str | Unset):
+        sort (ListUsersAdminUsersGetSort | Unset): Column to order by. Roles and storage are not
+            sortable: roles is a many-to-many and storage is aggregated per page after the query.
+            Default: 'created_at'.
+        order (ListUsersAdminUsersGetOrder | Unset): Sort direction. Default: 'asc'.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -222,6 +269,8 @@ async def asyncio_detailed(
         limit=limit,
         status=status,
         search=search,
+        sort=sort,
+        order=order,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -236,16 +285,25 @@ async def asyncio(
     limit: int | Unset = 50,
     status: None | str | Unset = UNSET,
     search: None | str | Unset = UNSET,
+    sort: ListUsersAdminUsersGetSort | Unset = "created_at",
+    order: ListUsersAdminUsersGetOrder | Unset = "asc",
 ) -> ProblemDetail | UserListResponse | None:
     """List Users
 
-     List all users with pagination and optional status/search filter (admin only).
+     List all users with pagination and optional status/search/sort filter (admin only).
+
+    `sort` and `order` are closed enums, so an unrecognised value is refused
+    with a 422 and never reaches the query.
 
     Args:
         skip (int | Unset):  Default: 0.
         limit (int | Unset):  Default: 50.
         status (None | str | Unset):
         search (None | str | Unset):
+        sort (ListUsersAdminUsersGetSort | Unset): Column to order by. Roles and storage are not
+            sortable: roles is a many-to-many and storage is aggregated per page after the query.
+            Default: 'created_at'.
+        order (ListUsersAdminUsersGetOrder | Unset): Sort direction. Default: 'asc'.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -262,5 +320,7 @@ async def asyncio(
             limit=limit,
             status=status,
             search=search,
+            sort=sort,
+            order=order,
         )
     ).parsed

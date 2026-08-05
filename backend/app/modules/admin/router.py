@@ -26,8 +26,10 @@ from app.modules.admin.schemas import (
     CatalogStatsResponse,
     EmbeddingStatsResponse,
     SamlToLocalConversion,
+    SortDirection,
     UserListResponse,
     UserNameItem,
+    UserSortField,
     UserUpdate,
 )
 from app.modules.admin.service import (
@@ -171,12 +173,29 @@ async def list_users(
     limit: int = Query(50, ge=1, le=200),
     status_filter: str | None = Query(None, alias="status", max_length=50),
     search: str | None = Query(None, max_length=200),
+    sort: UserSortField = Query(
+        "created_at",
+        description=(
+            "Column to order by. Roles and storage are not sortable: roles is a "
+            "many-to-many and storage is aggregated per page after the query."
+        ),
+    ),
+    order: SortDirection = Query("asc", description="Sort direction."),
     db: AsyncSession = Depends(get_db),
 ) -> UserListResponse:
-    """List all users with pagination and optional status/search filter (admin only)."""
+    """List all users with pagination and optional status/search/sort filter (admin only).
+
+    `sort` and `order` are closed enums, so an unrecognised value is refused
+    with a 422 and never reaches the query.
+    """
     service = AdminService(db)
     users, total = await service.list_users(
-        skip=skip, limit=limit, status=status_filter, search=search
+        skip=skip,
+        limit=limit,
+        status=status_filter,
+        search=search,
+        sort=sort,
+        order=order,
     )
     # QUOTA-04: quota usage for the page. fix(#435): genuinely batched now — this
     # said "batch" but ran one three-table aggregate per user, 200 users per page.

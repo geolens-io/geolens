@@ -40,10 +40,18 @@ export function useCatalogStats() {
   });
 }
 
-export function useUserList(skip: number, limit: number, status?: string, search?: string) {
+export function useUserList(params: {
+  skip: number;
+  limit: number;
+  status?: string;
+  search?: string;
+  sort?: string;
+  order?: string;
+}) {
+  const { skip, limit, status, search, sort, order } = params;
   return useQuery({
-    queryKey: queryKeys.admin.users(skip, limit, status, search),
-    queryFn: () => listUsers({ skip, limit, status, search }),
+    queryKey: queryKeys.admin.users(skip, limit, status, search, sort, order),
+    queryFn: () => listUsers({ skip, limit, status, search, sort, order }),
     placeholderData: keepPreviousData,
   });
 }

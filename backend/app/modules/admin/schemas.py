@@ -23,6 +23,19 @@ JobStatus = Literal[
     "pending", "running", "complete", "failed", "cancelled", "fanned_out"
 ]
 
+# Sortable columns for the admin user list. This Literal is the OUTER half of a
+# two-layer allowlist: FastAPI rejects anything outside it with a 422 before the
+# service runs, and USER_SORT_COLUMNS in service.py resolves the surviving value
+# to a mapped column. A caller-supplied string is therefore never interpolated
+# into an ORDER BY clause.
+#
+# Membership is limited to real `users` columns. Roles is a many-to-many and
+# storage is computed per page after the query returns, so neither can be
+# ordered by the database without restructuring the endpoint.
+UserSortField = Literal["username", "email", "status", "last_login_at", "created_at"]
+
+SortDirection = Literal["asc", "desc"]
+
 
 class AdminUserCreate(BaseModel):
     username: str = Field(

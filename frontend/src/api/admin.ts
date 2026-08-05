@@ -24,13 +24,22 @@ export async function getCatalogStats(): Promise<CatalogStatsResponse> {
 }
 
 export async function listUsers(
-  params: { skip?: number; limit?: number; status?: string; search?: string } = {},
+  params: {
+    skip?: number;
+    limit?: number;
+    status?: string;
+    search?: string;
+    sort?: string;
+    order?: string;
+  } = {},
 ): Promise<UserListResponse> {
   const query = new URLSearchParams();
   if (params.skip !== undefined) query.set('skip', String(params.skip));
   if (params.limit !== undefined) query.set('limit', String(params.limit));
   if (params.status) query.set('status', params.status);
   if (params.search) query.set('search', params.search);
+  if (params.sort) query.set('sort', params.sort);
+  if (params.order) query.set('order', params.order);
   const qs = query.toString();
   return apiFetch<UserListResponse>(`/admin/users/${qs ? `?${qs}` : ''}`);
 }

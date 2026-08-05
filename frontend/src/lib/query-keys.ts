@@ -127,8 +127,16 @@ export const queryKeys = {
   admin: {
     all: ['admin'] as const,
     stats: ['admin', 'stats'] as const,
-    users: (skip: number, limit: number, status?: string, search?: string) =>
-      ['admin', 'users', skip, limit, status, search] as const,
+    // sort/order belong in the key: two orderings of the same page are
+    // different responses, and sharing a key would serve one for the other.
+    users: (
+      skip: number,
+      limit: number,
+      status?: string,
+      search?: string,
+      sort?: string,
+      order?: string,
+    ) => ['admin', 'users', skip, limit, status, search, sort, order] as const,
     userNames: ['admin', 'users', 'names'] as const,
     pendingCount: ['admin', 'users', 'pending-count'] as const,
     allUsers: ['admin', 'users'] as const,

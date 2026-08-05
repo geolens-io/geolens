@@ -364,6 +364,8 @@ from .list_features_datasets_dataset_id_features_get_geo_json_feature_collection
 )
 from .list_maps_endpoint_maps_get_sort_by import ListMapsEndpointMapsGetSortBy
 from .list_maps_endpoint_maps_get_sort_dir import ListMapsEndpointMapsGetSortDir
+from .list_users_admin_users_get_order import ListUsersAdminUsersGetOrder
+from .list_users_admin_users_get_sort import ListUsersAdminUsersGetSort
 from .manifest_apply_entry_result import ManifestApplyEntryResult
 from .manifest_apply_entry_result_action import ManifestApplyEntryResultAction
 from .manifest_apply_request import ManifestApplyRequest
@@ -989,6 +991,8 @@ __all__ = (
     "ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollectionLink",
     "ListMapsEndpointMapsGetSortBy",
     "ListMapsEndpointMapsGetSortDir",
+    "ListUsersAdminUsersGetOrder",
+    "ListUsersAdminUsersGetSort",
     "ManifestApplyEntryResult",
     "ManifestApplyEntryResultAction",
     "ManifestApplyRequest",
