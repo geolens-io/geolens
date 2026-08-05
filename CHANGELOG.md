@@ -7,6 +7,79 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-08-05
+
+### Added
+
+- **All four admin lists are sortable.** The Users list gained server-side
+  sorting with clickable column headers (#1200), and Jobs, Audit Log, and
+  Published Maps adopt the same pattern (#1204): closed-enum sort parameters
+  (bad input is refused with a 422), NULLS LAST on nullable columns, and a
+  stable tiebreak so paging never repeats a row. Sort state lives in the URL,
+  so a sorted view can be bookmarked or shared.
+- **Analysis results can be chained.** A materialized analysis output can be
+  fed straight into another operation without leaving the builder (#1130).
+- **The ephemeral analysis preview appears as a row in the layer stack**, so
+  it can be toggled and inspected like any other layer while it exists (#1165).
+- **Analysis-derived datasets surface inherited keywords** from their source
+  datasets in catalog search and dataset detail (#1178).
+- **A TITILER_WORKERS knob** sizes the raster tile sidecar's worker pool for
+  larger deployments (#1197).
+
+### Security
+
+- **Presigned uploads get the same content validation as direct uploads
+  (#1202).** The completion endpoint used to accept whatever bytes sat at the
+  staging key; it now server-side copies the object to a frozen key no client
+  URL has ever pointed at, and judges the frozen copy — size, quota, and the
+  same content validation the direct door runs, returning the identical 422.
+  Freezing first closes the swap window a still-valid presigned PUT URL
+  otherwise has (upload clean bytes, complete, re-PUT garbage). Completion is
+  one-shot and serialized per job, a failed completion is retryable without
+  re-uploading, and staging objects are swept at job end plus once more after
+  the URL expires, so a dead URL cannot leave bytes behind. The dataset
+  **reupload** completion door has the same gaps and is NOT covered by this
+  release; it is tracked as #1207.
+- **URL credential redaction is bounded against quadratic backtracking
+  (#1118)**, refuses unparsable authorities (#1162), and no longer raises on a
+  malformed authority (#1131).
+- **The titiler sidecar pins its GDAL rawband environment (#1197)** and is
+  bumped 2.0.5 → 2.2.1 (#1198).
+- Dependency advisories patched: cryptography, undici, brace-expansion
+  (#1173), idna floors for CLI/SDK and cryptography 50 for MCP (#1179).
+- The backend image ships a third-party NOTICE file (#1189).
+
+### Fixed
+
+- **Presigned uploads stamp raster metadata (#1196).** On S3 deployments every
+  GeoTIFF uploaded through the browser fell through to the vector branch and
+  failed at preview. This release also makes that path the validated one — see
+  #1202 above.
+- **Manifests accept extension-defined record statuses (#1201).**
+  `record_status` is documented as extension-defined (#1194); the manifest
+  layer now validates intent against the live extension's status order instead
+  of a frozen four-value set, and the CLI schema follows.
+- **The admin Jobs badge counts failed jobs, not all jobs (#1195).**
+- **Keyword suggestions honor the counterfactual only for the record owner
+  (#1184).**
+- **The login page refreshes its provider list after admin OAuth/SAML changes
+  (#1163).**
+- **DEM terrain coverage is measured from the layer extent, not the token span
+  (#1129)**, and small-DEM viewport coverage works across the antimeridian
+  (#1124).
+- **`dataset_extent_bbox` is served in the RFC 7946 spec form (#1125).**
+- **Intersect carries JSON and XML overlay attributes through to the output
+  (#1123).**
+
+### Changed
+
+- **Operators: API worker memory recycling guidance** is in the runbook
+  (#1177) — the recommended mitigation for slow RSS growth under sustained
+  raster proxy load (the #643 investigation continues).
+- **The permission extension seam can answer who a record's audience is
+  (#1126)**, groundwork for overlay-aware visibility guards.
+- CI and local dev converge on Python 3.14 (#1168).
+
 ## [1.7.1] - 2026-08-02
 
 ### Fixed
@@ -1654,7 +1727,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.7.1...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.8.0...HEAD
+[1.8.0]: https://github.com/geolens-io/geolens/compare/v1.7.1...v1.8.0
 [1.7.1]: https://github.com/geolens-io/geolens/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/geolens-io/geolens/compare/v1.6.1...v1.7.0
 [1.6.1]: https://github.com/geolens-io/geolens/compare/v1.6.0...v1.6.1
