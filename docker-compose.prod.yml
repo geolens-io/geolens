@@ -411,19 +411,39 @@ services:
           [ -n "$$ep" ] && export AWS_S3_ENDPOINT="$$ep"
         fi
         [ "$${S3_ADDRESSING_STYLE:-auto}" = "path" ] && export AWS_VIRTUAL_HOSTING="$${AWS_VIRTUAL_HOSTING:-FALSE}"
-        exec uvicorn titiler.application.main:app --host 0.0.0.0 --port 8000 --workers 1
+        exec uvicorn titiler.application.main:app --host 0.0.0.0 --port 8000 --workers $${TITILER_WORKERS:-1}
     environment:
       # fix(#579): inputs for the AWS_* derivation in the command wrapper above.
       S3_ENDPOINT: "${S3_ENDPOINT:-}"
       S3_ALLOW_HTTP: "${S3_ALLOW_HTTP:-}"
       S3_ADDRESSING_STYLE: "${S3_ADDRESSING_STYLE:-auto}"
+      # fix(#1193): tile rendering is CPU-bound under the GIL — one worker
+      # renders one tile at a time. Raise TITILER_MEM_LIMIT alongside this:
+      # GDAL_CACHEMAX is per process and the #678 RSS ratchet runs in each one,
+      # so more workers at the same 1g cap reach OOMKill sooner. See the
+      # docker-compose.yml note.
+      TITILER_WORKERS: "${TITILER_WORKERS:-1}"
       # fix(#678): slow TiTiler's glibc RSS ratchet under concurrent tile
       # reads — measured mitigation only; see the docker-compose.yml note.
       MALLOC_ARENA_MAX: "${TITILER_MALLOC_ARENA_MAX:-2}"
       GDAL_CACHEMAX: "200"
       GDAL_DISABLE_READDIR_ON_OPEN: "EMPTY_DIR"
       CPL_VSIL_CURL_ALLOWED_EXTENSIONS: ".tif,.tiff,.cog,.vrt"
-      GDAL_VRT_RAWRASTERBAND_ALLOWED_SOURCE: "NETWORK_OR_LOCAL"
+      # fix(#1192): VRTRawRasterBand is OFF. VRT mosaics render normally — only
+      # the raw-binary band subclass, which GeoLens never emits, is refused.
+      # ALLOWED_SOURCE is the clamp that would apply if it were re-enabled.
+      #
+      # Pinned rather than inherited so a base-image bump cannot relax them. The
+      # previous "NETWORK_OR_LOCAL" is not a value GDAL accepts, so it was
+      # parsed as an absolute path and refused every source — deny-all by
+      # accident. Correcting the token alone would have LOOSENED this: the same
+      # fixture opens and reads under SIBLING_OR_CHILD_OF_VRT_PATH. NO preserves
+      # today's behaviour in a value GDAL accepts.
+      # CPL_VSIL_CURL_HEADER_FILE_KVP_ENABLED needs GDAL >= 3.13.2 and is
+      # deliberately absent — the image ships GDAL 3.12.1. See the
+      # docker-compose.yml note for the measurements.
+      GDAL_VRT_ENABLE_RAWRASTERBAND: "NO"
+      GDAL_VRT_RAWRASTERBAND_ALLOWED_SOURCE: "SIBLING_OR_CHILD_OF_VRT_PATH"
       VSI_CACHE: "TRUE"
       CPL_VSIL_CURL_CACHE_SIZE: "16777216"
       GDAL_HTTP_MERGE_CONSECUTIVE_RANGES: "YES"
