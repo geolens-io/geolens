@@ -388,6 +388,21 @@ async def ingest_raster(
             if job is None:
                 return
 
+            # fix(#1202 review r7): captured HERE, first thing after the row is
+            # in hand, so no exit from this block can precede it. It used to sit
+            # with the phase-2 snapshot below, past three exits — the
+            # heartbeat-claim bail, a `resolve_file_path` download failure, and
+            # the validation `return` — each of which reached the terminal
+            # `finally` with the key still None and left the staging object
+            # behind. The validation path is the reachable one: lowering
+            # UPLOAD_MAX_SIZE_MB between completion and worker pickup fails a
+            # job whose bytes are already in the bucket. Reads the DB column,
+            # not the local `file_path` that step 2 rebinds, so moving it
+            # earlier changes the timing and nothing else.
+            owned_staging_key = owned_presigned_staging_key(
+                job.id, job.user_metadata, job.file_path
+            )
+
             # 1. Mark running.
             # REMED-02 / ingest-audit P2-07: the fresh "validating" stamp rides
             # the claim commit (see the helper). Raster ingests are the prime
@@ -451,9 +466,6 @@ async def ingest_raster(
             # Snapshot job attributes needed in phase 2 (after CPU work).
             # These plain Python values do not require an attached ORM session.
             um: dict = job.user_metadata or {}
-            owned_staging_key = owned_presigned_staging_key(
-                job.id, job.user_metadata, job.file_path
-            )
             source_filename: str | None = job.source_filename
             _reject_raw_vrt_job(source_filename)
             is_manifest_vrt = _is_manifest_vrt_job(job)

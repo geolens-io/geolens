@@ -17,6 +17,7 @@ import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from rasterio.crs import CRS
 
 from app.platform.jobs.models import owned_presigned_staging_key
 
@@ -331,4 +332,74 @@ async def test_failed_raster_ingest_sweeps_its_presigned_staging_object(
     assert not await storage.exists(staging_key), (
         "a failed raster ingest left its presigned staging object behind; "
         "nothing else reaps it (the stale purge exempts latest-complete)"
+    )
+
+
+async def test_validation_failure_still_sweeps_the_presigned_staging_object(
+    test_db_session, tmp_path, monkeypatch
+) -> None:
+    """fix(#1202 review r7): the early return, not the happy path.
+
+    ``_validate_upload_file_safety`` failing returns from the phase-1 session
+    block before the phase-2 snapshot. The staging-key capture used to live in
+    that snapshot, so this path reached the terminal ``finally`` with the key
+    still None and left the object behind. Reachable without any attacker:
+    lowering the size limit between completion and worker pickup fails a job
+    whose bytes are already in the bucket.
+    """
+    from sqlalchemy import select
+
+    from app.core.persistent_config import UPLOAD_MAX_SIZE_MB
+    from app.modules.auth.models import User
+    from app.platform.jobs.models import IngestJob
+    from app.platform.storage.local import LocalStorageProvider
+    from app.processing.ingest.tasks_raster import ingest_raster
+
+    bucket = tmp_path / "bucket"
+    bucket.mkdir()
+    storage = LocalStorageProvider(str(bucket))
+    monkeypatch.setattr(
+        "app.platform.storage.get_storage", lambda: storage, raising=True
+    )
+
+    raster = tmp_path / "dem.tif"
+    raster.write_bytes(_geotiff_bytes(crs=CRS.from_epsg(4326)))
+
+    admin = (
+        await test_db_session.execute(select(User).where(User.username == "admin"))
+    ).scalar_one()
+
+    job = IngestJob(
+        source_filename="dem.tif",
+        file_path=str(raster),
+        created_by=admin.id,
+        status="pending",
+        user_metadata={"file_type": "raster", "presigned": True},
+    )
+    test_db_session.add(job)
+    await test_db_session.commit()
+    await test_db_session.refresh(job)
+
+    staging_key = f"staging/{job.id}/dem.tif"
+    job.user_metadata = {**job.user_metadata, "s3_key": staging_key}
+    await test_db_session.commit()
+
+    await storage.put(staging_key, b"the-client-uploaded-bytes")
+    assert await storage.exists(staging_key), "precondition: staging object present"
+
+    # The operator lowered the cap after this job's bytes landed. Validation
+    # now fails on size, taking the early return out of the phase-1 block.
+    with patch.object(UPLOAD_MAX_SIZE_MB, "get", AsyncMock(return_value=0)):
+        await ingest_raster.func(
+            job_id=str(job.id),
+            file_path=str(raster),
+            user_id=str(admin.id),
+            attempt_id=str(job.attempt_id),
+        )
+
+    await test_db_session.refresh(job)
+    assert job.status == "failed", "precondition: took the validation-failure path"
+    assert "exceeds the maximum" in (job.error_message or "")
+    assert not await storage.exists(staging_key), (
+        "the validation-failure early return skipped the staging sweep"
     )
