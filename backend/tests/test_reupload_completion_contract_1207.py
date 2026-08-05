@@ -439,3 +439,80 @@ async def test_a_failed_reupload_sweeps_its_presigned_staging_object(
         "the reupload task left its presigned staging object behind; nothing "
         "else reaps it (the stale purge exempts latest-complete)"
     )
+
+
+async def test_a_pipeline_failure_after_validation_still_sweeps_the_staging_object(
+    client, admin_auth_header, test_db_session, tmp_path, monkeypatch
+) -> None:
+    """fix(#1213 review r1): the broad-except path, not the early return.
+
+    The sibling test above fails inside the early validation block, which sets
+    `final_status = "failed"` on its way out. Everything AFTER that block — CRS
+    detection, ogr2ogr, staging-table work — unwinds through the broad
+    `except Exception`, which wrote status=failed to the DB row but left the
+    LOCAL `final_status` at "pending". The terminal-status guard in
+    `reap_presigned_staging_object` then returned without deleting anything, so
+    on every one of those paths the client-writable staging object survived.
+
+    `reupload_file` is retry=0, so an exception there is terminal — there is no
+    later attempt that could need the bytes, and the stale purge exempts this
+    surface's latest-complete rows forever. "Survived" means permanently.
+    """
+    from app.platform.storage.local import LocalStorageProvider
+    from app.processing.ingest import tasks_reupload
+    from app.processing.ingest.tasks_reupload import reupload_file
+
+    bucket = tmp_path / "bucket"
+    bucket.mkdir()
+    storage = LocalStorageProvider(str(bucket))
+    monkeypatch.setattr(
+        "app.platform.storage.get_storage", lambda: storage, raising=True
+    )
+
+    source = tmp_path / "update.geojson"
+    source.write_bytes(_VALID_GEOJSON)
+
+    admin_id = await _admin_id(test_db_session)
+    dataset = await _create_dataset(test_db_session, created_by=admin_id)
+
+    job = IngestJob(
+        source_filename="update.geojson",
+        dataset_id=dataset.id,
+        created_by=admin_id,
+        status="pending",
+        file_path=str(source),
+        user_metadata={"reupload": True, "dataset_id": str(dataset.id)},
+    )
+    test_db_session.add(job)
+    await test_db_session.commit()
+    await test_db_session.refresh(job)
+
+    staging_key = f"staging/{job.id}/update.geojson"
+    job.user_metadata = {**job.user_metadata, "s3_key": staging_key}
+    await test_db_session.commit()
+
+    await storage.put(staging_key, b"the-client-uploaded-bytes")
+    assert await storage.exists(staging_key), "precondition: staging object present"
+
+    async def _boom(*_args, **_kwargs):
+        raise RuntimeError("ogrinfo blew up after validation")
+
+    # The first phase-2 step, so validation has already passed: the run
+    # unwinds through the broad except rather than the early return.
+    monkeypatch.setattr(tasks_reupload, "_detect_reupload_crs", _boom)
+
+    with pytest.raises(RuntimeError, match="blew up after validation"):
+        await reupload_file.func(
+            job_id=str(job.id),
+            dataset_id=str(dataset.id),
+            file_path=str(source),
+            user_id=str(admin_id),
+            attempt_id=str(job.attempt_id),
+        )
+
+    await test_db_session.refresh(job)
+    assert job.status == "failed", "precondition: took the broad-except path"
+    assert not await storage.exists(staging_key), (
+        "a post-validation pipeline failure left the presigned staging object "
+        "behind — the finally reap saw final_status='pending' and skipped it"
+    )

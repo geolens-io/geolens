@@ -461,6 +461,16 @@ async def reupload_file(
                     task_name="reupload_file",
                     attempt_id=attempt_uuid,
                 )
+        # fix(#1213 review r1): mark the local status terminal before
+        # re-raising. `_cleanup_staging_on_failure` above writes status=failed
+        # to the DB row, but the `finally` reap reads THIS variable, and it was
+        # still "pending" — so the terminal-status guard returned early and the
+        # client-writable staging object survived every failure past the early
+        # validation block (CRS detection, ogr2ogr, staging-table work). The
+        # task is retry=0, so every exception here is terminal, and the stale
+        # purge is no backstop for reupload jobs (see the reap comment below).
+        # Mirrors tasks_vector.py's broad-except handler.
+        final_status = "failed"
         raise
     finally:
         await stop_ingest_job_heartbeat(heartbeat_task)
