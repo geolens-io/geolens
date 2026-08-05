@@ -103,7 +103,10 @@ export interface paths {
         };
         /**
          * List Audit Logs
-         * @description Query audit logs with optional filters (admin only).
+         * @description Query audit logs with optional filters and sort (admin only).
+         *
+         *     `sort` and `order` are closed enums, so an unrecognised value is refused
+         *     with a 422 and never reaches the query.
          */
         get: operations["list_audit_logs_admin_audit_logs__get"];
         put?: never;
@@ -123,7 +126,7 @@ export interface paths {
         };
         /**
          * Download audit records
-         * @description Export up to 100,000 audit log rows as CSV or JSON.
+         * @description Export up to 100,000 audit log rows as CSV or JSON, newest first.
          */
         get: operations["export_audit_logs_admin_audit_logs_export__format__get"];
         put?: never;
@@ -246,7 +249,10 @@ export interface paths {
         };
         /**
          * List Admin Jobs
-         * @description List all ingestion jobs with optional status/user/search filters (admin only).
+         * @description List all ingestion jobs with optional status/user/search/sort filters (admin only).
+         *
+         *     `sort` and `order` are closed enums, so an unrecognised value is refused
+         *     with a 422 and never reaches the query.
          */
         get: operations["list_admin_jobs_admin_jobs__get"];
         put?: never;
@@ -267,6 +273,9 @@ export interface paths {
         /**
          * List Share Tokens Endpoint
          * @description List basic share-token inventory with map info; no quotas or domain controls (admin only).
+         *
+         *     `sort` and `order` are closed enums, so an unrecognised value is refused
+         *     with a 422 and never reaches the query.
          */
         get: operations["list_share_tokens_endpoint_admin_share_tokens__get"];
         put?: never;
@@ -13404,6 +13413,10 @@ export interface operations {
                 search?: string | null;
                 skip?: number;
                 limit?: number;
+                /** @description Column to order by. Resource name is not sortable: it is resolved per page after the query, so the database cannot order by it. */
+                sort?: "created_at" | "action" | "resource_type" | "ip_address" | "username";
+                /** @description Sort direction. */
+                order?: "asc" | "desc";
             };
             header?: never;
             path?: never;
@@ -14099,6 +14112,10 @@ export interface operations {
                 search?: string | null;
                 skip?: number;
                 limit?: number;
+                /** @description Column to order by. Duration orders by the completed_at - started_at interval, so unfinished jobs sort last either way. */
+                sort?: "created_at" | "source_filename" | "status" | "username" | "duration";
+                /** @description Sort direction. */
+                order?: "asc" | "desc";
             };
             header?: never;
             path?: never;
@@ -14198,6 +14215,10 @@ export interface operations {
                 limit?: number;
                 search?: string | null;
                 status?: string | null;
+                /** @description Column to order by. Link status is not sortable: it is derived from is_active and expires_at after the query returns. */
+                sort?: "map_name" | "created_at" | "creator" | "expires_at" | "embed_token_count";
+                /** @description Sort direction. */
+                order?: "asc" | "desc";
             };
             header?: never;
             path?: never;

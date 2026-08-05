@@ -8,6 +8,12 @@ from ...types import Response, UNSET
 from ... import errors
 
 from ...models.admin_share_token_list_response import AdminShareTokenListResponse
+from ...models.list_share_tokens_endpoint_admin_share_tokens_get_order import (
+    ListShareTokensEndpointAdminShareTokensGetOrder,
+)
+from ...models.list_share_tokens_endpoint_admin_share_tokens_get_sort import (
+    ListShareTokensEndpointAdminShareTokensGetSort,
+)
 from ...models.problem_detail import ProblemDetail
 from ...types import Unset
 
@@ -18,6 +24,8 @@ def _get_kwargs(
     limit: int | Unset = 50,
     search: None | str | Unset = UNSET,
     status: None | str | Unset = UNSET,
+    sort: ListShareTokensEndpointAdminShareTokensGetSort | Unset = "created_at",
+    order: ListShareTokensEndpointAdminShareTokensGetOrder | Unset = "desc",
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
@@ -39,6 +47,18 @@ def _get_kwargs(
     else:
         json_status = status
     params["status"] = json_status
+
+    json_sort: str | Unset = UNSET
+    if not isinstance(sort, Unset):
+        json_sort = sort
+
+    params["sort"] = json_sort
+
+    json_order: str | Unset = UNSET
+    if not isinstance(order, Unset):
+        json_order = order
+
+    params["order"] = json_order
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -123,16 +143,26 @@ def sync_detailed(
     limit: int | Unset = 50,
     search: None | str | Unset = UNSET,
     status: None | str | Unset = UNSET,
+    sort: ListShareTokensEndpointAdminShareTokensGetSort | Unset = "created_at",
+    order: ListShareTokensEndpointAdminShareTokensGetOrder | Unset = "desc",
 ) -> Response[AdminShareTokenListResponse | ProblemDetail]:
     """List Share Tokens Endpoint
 
      List basic share-token inventory with map info; no quotas or domain controls (admin only).
+
+    `sort` and `order` are closed enums, so an unrecognised value is refused
+    with a 422 and never reaches the query.
 
     Args:
         skip (int | Unset):  Default: 0.
         limit (int | Unset):  Default: 50.
         search (None | str | Unset):
         status (None | str | Unset):
+        sort (ListShareTokensEndpointAdminShareTokensGetSort | Unset): Column to order by. Link
+            status is not sortable: it is derived from is_active and expires_at after the query
+            returns. Default: 'created_at'.
+        order (ListShareTokensEndpointAdminShareTokensGetOrder | Unset): Sort direction. Default:
+            'desc'.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -147,6 +177,8 @@ def sync_detailed(
         limit=limit,
         search=search,
         status=status,
+        sort=sort,
+        order=order,
     )
 
     response = client.get_httpx_client().request(
@@ -163,16 +195,26 @@ def sync(
     limit: int | Unset = 50,
     search: None | str | Unset = UNSET,
     status: None | str | Unset = UNSET,
+    sort: ListShareTokensEndpointAdminShareTokensGetSort | Unset = "created_at",
+    order: ListShareTokensEndpointAdminShareTokensGetOrder | Unset = "desc",
 ) -> AdminShareTokenListResponse | ProblemDetail | None:
     """List Share Tokens Endpoint
 
      List basic share-token inventory with map info; no quotas or domain controls (admin only).
+
+    `sort` and `order` are closed enums, so an unrecognised value is refused
+    with a 422 and never reaches the query.
 
     Args:
         skip (int | Unset):  Default: 0.
         limit (int | Unset):  Default: 50.
         search (None | str | Unset):
         status (None | str | Unset):
+        sort (ListShareTokensEndpointAdminShareTokensGetSort | Unset): Column to order by. Link
+            status is not sortable: it is derived from is_active and expires_at after the query
+            returns. Default: 'created_at'.
+        order (ListShareTokensEndpointAdminShareTokensGetOrder | Unset): Sort direction. Default:
+            'desc'.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -188,6 +230,8 @@ def sync(
         limit=limit,
         search=search,
         status=status,
+        sort=sort,
+        order=order,
     ).parsed
 
 
@@ -198,16 +242,26 @@ async def asyncio_detailed(
     limit: int | Unset = 50,
     search: None | str | Unset = UNSET,
     status: None | str | Unset = UNSET,
+    sort: ListShareTokensEndpointAdminShareTokensGetSort | Unset = "created_at",
+    order: ListShareTokensEndpointAdminShareTokensGetOrder | Unset = "desc",
 ) -> Response[AdminShareTokenListResponse | ProblemDetail]:
     """List Share Tokens Endpoint
 
      List basic share-token inventory with map info; no quotas or domain controls (admin only).
+
+    `sort` and `order` are closed enums, so an unrecognised value is refused
+    with a 422 and never reaches the query.
 
     Args:
         skip (int | Unset):  Default: 0.
         limit (int | Unset):  Default: 50.
         search (None | str | Unset):
         status (None | str | Unset):
+        sort (ListShareTokensEndpointAdminShareTokensGetSort | Unset): Column to order by. Link
+            status is not sortable: it is derived from is_active and expires_at after the query
+            returns. Default: 'created_at'.
+        order (ListShareTokensEndpointAdminShareTokensGetOrder | Unset): Sort direction. Default:
+            'desc'.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -222,6 +276,8 @@ async def asyncio_detailed(
         limit=limit,
         search=search,
         status=status,
+        sort=sort,
+        order=order,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -236,16 +292,26 @@ async def asyncio(
     limit: int | Unset = 50,
     search: None | str | Unset = UNSET,
     status: None | str | Unset = UNSET,
+    sort: ListShareTokensEndpointAdminShareTokensGetSort | Unset = "created_at",
+    order: ListShareTokensEndpointAdminShareTokensGetOrder | Unset = "desc",
 ) -> AdminShareTokenListResponse | ProblemDetail | None:
     """List Share Tokens Endpoint
 
      List basic share-token inventory with map info; no quotas or domain controls (admin only).
+
+    `sort` and `order` are closed enums, so an unrecognised value is refused
+    with a 422 and never reaches the query.
 
     Args:
         skip (int | Unset):  Default: 0.
         limit (int | Unset):  Default: 50.
         search (None | str | Unset):
         status (None | str | Unset):
+        sort (ListShareTokensEndpointAdminShareTokensGetSort | Unset): Column to order by. Link
+            status is not sortable: it is derived from is_active and expires_at after the query
+            returns. Default: 'created_at'.
+        order (ListShareTokensEndpointAdminShareTokensGetOrder | Unset): Sort direction. Default:
+            'desc'.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -262,5 +328,7 @@ async def asyncio(
             limit=limit,
             search=search,
             status=status,
+            sort=sort,
+            order=order,
         )
     ).parsed

@@ -34,6 +34,27 @@ JobStatus = Literal[
 # ordered by the database without restructuring the endpoint.
 UserSortField = Literal["username", "email", "status", "last_login_at", "created_at"]
 
+# Sortable columns for the admin job list, same two-layer shape as
+# UserSortField above (inner half: _job_sort_columns() in service.py).
+#
+# `username` orders by the already-joined users row, and `duration` by the
+# completed_at - started_at interval, which is NULL for exactly the jobs whose
+# Duration cell renders "-". Nothing else the row displays is orderable: the
+# retry affordance is computed per page after the query returns.
+JobSortField = Literal[
+    "created_at", "source_filename", "status", "username", "duration"
+]
+
+# Sortable columns for the admin published-maps list (inner half:
+# _share_token_ordering() in catalog/maps/service_public.py).
+#
+# Link status is absent: it is derived in Python from is_active plus expires_at
+# against now(), so ordering by it would need a CASE expression the listing
+# does not have. See AdminSharedMapsPage for the matching UI comment.
+ShareTokenSortField = Literal[
+    "map_name", "created_at", "creator", "expires_at", "embed_token_count"
+]
+
 SortDirection = Literal["asc", "desc"]
 
 

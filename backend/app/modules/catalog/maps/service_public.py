@@ -5,9 +5,9 @@ import secrets
 import uuid
 from dataclasses import replace
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, nulls_last, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
@@ -679,12 +679,68 @@ async def get_shared_map(
     return map_data, layers, allowed_origins
 
 
+# Nullable members of the published-maps sort allowlist. `creator` is null for
+# a map whose owner was deleted (created_by is ON DELETE SET NULL) and
+# `expires_at` for a never-expiring link AND for every map with no link at all,
+# since the share join is an outer one. Postgres puts NULLs first on DESC,
+# which would fill the top of a descending "Expires" view with linkless maps.
+_NULLABLE_SHARE_TOKEN_SORT_FIELDS = frozenset({"creator", "expires_at"})
+
+
+def _share_token_ordering(
+    sort: str, order: str, *, share: Any, embed_count: Any
+) -> list[Any]:
+    """Resolve a published-maps sort key/direction pair to ORDER BY clauses.
+
+    Inner half of a two-layer allowlist; the outer half is the
+    ShareTokenSortField Literal in admin/schemas.py, which FastAPI enforces at
+    the boundary. Resolution is a dict lookup, so a caller-supplied string
+    never reaches SQL as text, and an unmapped key raises rather than
+    degrading to the default order.
+
+    `share` and `embed_count` are passed in because both are per-call
+    constructs — an alias over a DISTINCT ON subquery and a COALESCE over an
+    aggregate — so the mapping cannot be a module constant.
+    """
+    columns = {
+        "map_name": Map.name,
+        "created_at": Map.created_at,
+        "creator": User.username,
+        "expires_at": share.expires_at,
+        # The COALESCE'd count, i.e. the number the cell actually renders. The
+        # raw aggregate is NULL for a map with no ACTIVE embed token; ordering
+        # by that would sort those maps at an end of their own rather than
+        # among the zeroes. Note the range is only ever 0 or 1 —
+        # uq_embed_tokens_one_active_per_map is a partial unique index on
+        # map_id WHERE is_active — so this separates "has a live embed" from
+        # "does not" rather than ranking volumes.
+        "embed_token_count": embed_count,
+    }
+    column = columns.get(sort)
+    if column is None:
+        raise ValueError(f"Unsupported sort field: {sort!r}")
+    if order not in ("asc", "desc"):
+        raise ValueError(f"Unsupported sort order: {order!r}")
+
+    clause = column.desc() if order == "desc" else column.asc()
+    if sort in _NULLABLE_SHARE_TOKEN_SORT_FIELDS:
+        clause = nulls_last(clause)
+
+    # The listing is one row per map, so Map.id is the unique tiebreak. Every
+    # sortable column here admits duplicates (two maps can share a name, a
+    # creator, an expiry, or a count), and OFFSET paging over a non-unique key
+    # lets Postgres return a row on two consecutive pages.
+    return [clause, Map.id]
+
+
 async def list_share_tokens(
     session: AsyncSession,
     skip: int = 0,
     limit: int = 50,
     search: str | None = None,
     status_filter: str | None = None,
+    sort: str = "created_at",
+    order: str = "desc",
 ) -> tuple[list[dict], int]:
     """List published (``visibility='public'``) maps with their latest share-link
     status and active embed-token count for the admin "Published Maps" view.
@@ -695,6 +751,13 @@ async def list_share_tokens(
     carry null ``id``/``token``/``is_active``. ``created_at``/``created_by`` are
     the map's, so the column is meaningful for unshared maps too. The optional
     status filter narrows to maps whose latest link is active/expired/revoked.
+
+    ``sort`` must be a key of the _share_token_ordering allowlist and ``order``
+    one of asc/desc; anything else raises ValueError. The default ordering
+    (the map's created_at descending) is the historical one and is unchanged.
+    Link status is NOT sortable: it is derived in Python from is_active plus
+    expires_at against now(), and ordering by it would need a CASE the listing
+    does not build.
     """
     from sqlalchemy.orm import aliased
     from sqlalchemy.sql import ColumnElement
@@ -725,6 +788,10 @@ async def list_share_tokens(
         .group_by(EmbedToken.map_id)
         .subquery()
     )
+    # Built once and used for both the SELECT list and (when sorted on) the
+    # ORDER BY, so the number the row displays and the number it is ordered by
+    # cannot drift apart.
+    embed_count = func.coalesce(embed_count_sub.c.embed_count, 0)
 
     # Base conditions scope to published maps; the status filter (when given)
     # narrows on the joined share-link state.
@@ -764,14 +831,16 @@ async def list_share_tokens(
             Map.id.label("map_id"),
             Map.name.label("map_name"),
             Map.created_at.label("map_created_at"),
-            func.coalesce(embed_count_sub.c.embed_count, 0).label("embed_token_count"),
+            embed_count.label("embed_token_count"),
             User.username.label("creator_username"),
         )
         .select_from(Map)
         .outerjoin(share, share.map_id == Map.id)
         .outerjoin(User, Map.created_by == User.id)
         .outerjoin(embed_count_sub, embed_count_sub.c.map_id == Map.id)
-        .order_by(Map.created_at.desc())
+        .order_by(
+            *_share_token_ordering(sort, order, share=share, embed_count=embed_count)
+        )
         .offset(skip)
         .limit(limit)
     )

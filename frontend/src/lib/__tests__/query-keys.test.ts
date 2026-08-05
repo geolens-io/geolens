@@ -191,6 +191,32 @@ describe('queryKeys factory', () => {
       );
     });
 
+    it('shareTokens includes skip, limit, search, status, sort, order', () => {
+      expect(queryKeys.admin.shareTokens(0, 50)).toEqual([
+        'admin', 'share-tokens', 0, 50, undefined, undefined, undefined, undefined,
+      ]);
+      expect(queryKeys.admin.shareTokens(0, 50, 'parcels', 'active')).toEqual([
+        'admin', 'share-tokens', 0, 50, 'parcels', 'active', undefined, undefined,
+      ]);
+      // Two orderings of the same page must not share a cache entry.
+      expect(
+        queryKeys.admin.shareTokens(0, 50, undefined, undefined, 'map_name', 'asc'),
+      ).not.toEqual(
+        queryKeys.admin.shareTokens(0, 50, undefined, undefined, 'map_name', 'desc'),
+      );
+    });
+
+    it('jobs and auditLogs separate two orderings of the same page', () => {
+      // Both take the whole params object, so sort/order ride along without a
+      // signature change — but only if the caller actually passes them.
+      expect(queryKeys.admin.jobs({ skip: 0, sort: 'status', order: 'asc' })).not.toEqual(
+        queryKeys.admin.jobs({ skip: 0, sort: 'status', order: 'desc' }),
+      );
+      expect(
+        queryKeys.admin.auditLogs({ skip: 0, sort: 'action', order: 'asc' }),
+      ).not.toEqual(queryKeys.admin.auditLogs({ skip: 0, sort: 'action', order: 'desc' }));
+    });
+
     it('aiStatus returns expected key', () => {
       expect(queryKeys.admin.aiStatus).toEqual(['admin', 'ai-status']);
     });

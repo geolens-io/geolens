@@ -18625,7 +18625,7 @@
     },
     "/admin/audit-logs/": {
       "get": {
-        "description": "Query audit logs with optional filters (admin only).",
+        "description": "Query audit logs with optional filters and sort (admin only).\n\n`sort` and `order` are closed enums, so an unrecognised value is refused\nwith a 422 and never reaches the query.",
         "operationId": "list_audit_logs_admin_audit_logs__get",
         "parameters": [
           {
@@ -18769,6 +18769,41 @@
               "title": "Limit",
               "type": "integer"
             }
+          },
+          {
+            "description": "Column to order by. Resource name is not sortable: it is resolved per page after the query, so the database cannot order by it.",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "created_at",
+              "description": "Column to order by. Resource name is not sortable: it is resolved per page after the query, so the database cannot order by it.",
+              "enum": [
+                "created_at",
+                "action",
+                "resource_type",
+                "ip_address",
+                "username"
+              ],
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Sort direction.",
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "description": "Sort direction.",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "title": "Order",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -18891,7 +18926,7 @@
     },
     "/admin/audit-logs/export/{format}": {
       "get": {
-        "description": "Export up to 100,000 audit log rows as CSV or JSON.",
+        "description": "Export up to 100,000 audit log rows as CSV or JSON, newest first.",
         "operationId": "export_audit_logs_admin_audit_logs_export__format__get",
         "parameters": [
           {
@@ -19880,7 +19915,7 @@
     },
     "/admin/jobs/": {
       "get": {
-        "description": "List all ingestion jobs with optional status/user/search filters (admin only).",
+        "description": "List all ingestion jobs with optional status/user/search/sort filters (admin only).\n\n`sort` and `order` are closed enums, so an unrecognised value is refused\nwith a 422 and never reaches the query.",
         "operationId": "list_admin_jobs_admin_jobs__get",
         "parameters": [
           {
@@ -19953,6 +19988,41 @@
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "description": "Column to order by. Duration orders by the completed_at - started_at interval, so unfinished jobs sort last either way.",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "created_at",
+              "description": "Column to order by. Duration orders by the completed_at - started_at interval, so unfinished jobs sort last either way.",
+              "enum": [
+                "created_at",
+                "source_filename",
+                "status",
+                "username",
+                "duration"
+              ],
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Sort direction.",
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "description": "Sort direction.",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "title": "Order",
+              "type": "string"
             }
           }
         ],
@@ -20076,7 +20146,7 @@
     },
     "/admin/share-tokens/": {
       "get": {
-        "description": "List basic share-token inventory with map info; no quotas or domain controls (admin only).",
+        "description": "List basic share-token inventory with map info; no quotas or domain controls (admin only).\n\n`sort` and `order` are closed enums, so an unrecognised value is refused\nwith a 422 and never reaches the query.",
         "operationId": "list_share_tokens_endpoint_admin_share_tokens__get",
         "parameters": [
           {
@@ -20134,6 +20204,41 @@
                 }
               ],
               "title": "Status"
+            }
+          },
+          {
+            "description": "Column to order by. Link status is not sortable: it is derived from is_active and expires_at after the query returns.",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "created_at",
+              "description": "Column to order by. Link status is not sortable: it is derived from is_active and expires_at after the query returns.",
+              "enum": [
+                "map_name",
+                "created_at",
+                "creator",
+                "expires_at",
+                "embed_token_count"
+              ],
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Sort direction.",
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "description": "Sort direction.",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "title": "Order",
+              "type": "string"
             }
           }
         ],

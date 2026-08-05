@@ -1,8 +1,24 @@
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
+
+# Sortable columns for the admin audit-log list. This Literal is the OUTER half
+# of a two-layer allowlist: FastAPI rejects anything outside it with a 422
+# before the service runs, and _audit_sort_columns() in service.py resolves the
+# surviving value to a mapped column. A caller-supplied string is therefore
+# never interpolated into an ORDER BY clause.
+#
+# `resource_name` is absent because resolve_resource_names() runs against the
+# page after the query returns; the database has nothing to order by.
+AuditSortField = Literal[
+    "created_at", "action", "resource_type", "ip_address", "username"
+]
+
+# Declared here rather than imported from the admin module: audit is a peer
+# domain, and a two-value literal is not worth a cross-module dependency.
+SortDirection = Literal["asc", "desc"]
 
 
 class AuditLogResponse(BaseModel):

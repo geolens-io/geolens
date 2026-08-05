@@ -25,6 +25,7 @@ from app.modules.admin.schemas import (
     BackfillResponse,
     CatalogStatsResponse,
     EmbeddingStatsResponse,
+    JobSortField,
     SamlToLocalConversion,
     SortDirection,
     UserListResponse,
@@ -713,12 +714,30 @@ async def list_admin_jobs(
     search: str | None = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
+    sort: JobSortField = Query(
+        "created_at",
+        description=(
+            "Column to order by. Duration orders by the completed_at - "
+            "started_at interval, so unfinished jobs sort last either way."
+        ),
+    ),
+    order: SortDirection = Query("desc", description="Sort direction."),
     db: AsyncSession = Depends(get_db),
 ) -> AdminJobListResponse:
-    """List all ingestion jobs with optional status/user/search filters (admin only)."""
+    """List all ingestion jobs with optional status/user/search/sort filters (admin only).
+
+    `sort` and `order` are closed enums, so an unrecognised value is refused
+    with a 422 and never reaches the query.
+    """
     service = AdminService(db)
     rows, total = await service.list_jobs(
-        status=status, user_id=user_id, search=search, skip=skip, limit=limit
+        status=status,
+        user_id=user_id,
+        search=search,
+        skip=skip,
+        limit=limit,
+        sort=sort,
+        order=order,
     )
     retry_capabilities = await asyncio.gather(
         *(get_retry_capability(job) for job, _username in rows)

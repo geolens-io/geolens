@@ -44,6 +44,32 @@ USER_SORT_COLUMNS: dict[str, InstrumentedAttribute] = {
 # top of a descending "Last Login" sort. Pin them last in both directions.
 _NULLABLE_USER_SORT_COLUMNS = frozenset({"email", "last_login_at"})
 
+# Inner half of the job-list sort allowlist (outer half: the JobSortField
+# Literal in schemas.py). Built by a function rather than held as a module
+# constant because IngestJob is imported lazily inside list_jobs; hoisting it to
+# module scope would put a platform.jobs import in every importer of this module.
+_NULLABLE_JOB_SORT_COLUMNS = frozenset({"source_filename", "username", "duration"})
+
+
+def _job_sort_columns() -> dict[str, Any]:
+    """Map an allowlisted job sort key to the expression that orders it."""
+    from app.platform.jobs.models import IngestJob
+
+    return {
+        "created_at": IngestJob.created_at,
+        "source_filename": IngestJob.source_filename,
+        "status": IngestJob.status,
+        # The list query already outer-joins users for the displayed username,
+        # so ordering by it costs nothing extra.
+        "username": User.username,
+        # What the UI's Duration column shows, as a column expression: the
+        # elapsed time of a finished job. The interval is NULL for exactly the
+        # rows that render "-" (either timestamp missing), so the ordering and
+        # the cell agree without a second rule. Pinned NULLS LAST below, which
+        # keeps pending and running jobs off the top of a descending sort.
+        "duration": IngestJob.completed_at - IngestJob.started_at,
+    }
+
 
 class PendingUserMutationError(ValueError):
     """Raised when generic user PATCH attempts an approval-only mutation."""
@@ -667,6 +693,32 @@ class AdminService:
         await self.db.flush()
         return username
 
+    @staticmethod
+    def _job_ordering(sort: str, order: str) -> list[Any]:
+        """Resolve a job sort key/direction pair to ORDER BY clauses.
+
+        Raises ValueError outside the allowlist rather than degrading to the
+        default order, so a typo'd key fails loudly instead of silently
+        serving a differently-ordered page.
+        """
+        from app.platform.jobs.models import IngestJob
+
+        column = _job_sort_columns().get(sort)
+        if column is None:
+            raise ValueError(f"Unsupported sort field: {sort!r}")
+        if order not in ("asc", "desc"):
+            raise ValueError(f"Unsupported sort order: {order!r}")
+
+        clause = column.desc() if order == "desc" else column.asc()
+        if sort in _NULLABLE_JOB_SORT_COLUMNS:
+            clause = nulls_last(clause)
+
+        # Every sortable job column admits duplicates — created_at included,
+        # since a fan-out enqueues its children in one transaction. OFFSET
+        # paging over a non-unique key lets Postgres return a row on two
+        # consecutive pages; the id tiebreak makes the order total.
+        return [clause, IngestJob.id]
+
     async def list_jobs(
         self,
         *,
@@ -675,8 +727,15 @@ class AdminService:
         search: str | None = None,
         skip: int = 0,
         limit: int = 50,
+        sort: str = "created_at",
+        order: str = "desc",
     ) -> tuple[list, int]:
-        """List ingestion jobs with optional filters. Returns (rows, total)."""
+        """List ingestion jobs with optional filters. Returns (rows, total).
+
+        `sort` must be a key of _job_sort_columns() and `order` one of
+        asc/desc; anything else raises ValueError. The default ordering
+        (created_at descending) is the historical one and is unchanged.
+        """
         from app.modules.auth.models import User as UserModel
         from app.platform.jobs.models import IngestJob
 
@@ -702,7 +761,7 @@ class AdminService:
             select(IngestJob, UserModel.username)
             .outerjoin(UserModel, IngestJob.created_by == UserModel.id)
             .where(*filters)
-            .order_by(IngestJob.created_at.desc())
+            .order_by(*self._job_ordering(sort, order))
             .offset(skip)
             .limit(limit)
         )

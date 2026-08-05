@@ -19,6 +19,8 @@ from app.modules.admin.schemas import (
     AdminShareTokenResponse,
     InfrastructureConfig,
     InfrastructureResponse,
+    ShareTokenSortField,
+    SortDirection,
 )
 from app.modules.admin.service import AdminService
 from app.modules.audit.service import AuditEvent, audit_emit
@@ -252,13 +254,31 @@ async def list_share_tokens_endpoint(
     status_filter: str | None = Query(
         None, alias="status", pattern="^(active|expired|revoked)$"
     ),
+    sort: ShareTokenSortField = Query(
+        "created_at",
+        description=(
+            "Column to order by. Link status is not sortable: it is derived "
+            "from is_active and expires_at after the query returns."
+        ),
+    ),
+    order: SortDirection = Query("desc", description="Sort direction."),
     db: AsyncSession = Depends(get_db),
 ) -> AdminShareTokenListResponse:
-    """List basic share-token inventory with map info; no quotas or domain controls (admin only)."""
+    """List basic share-token inventory with map info; no quotas or domain controls (admin only).
+
+    `sort` and `order` are closed enums, so an unrecognised value is refused
+    with a 422 and never reaches the query.
+    """
     from app.modules.catalog.maps.service import list_share_tokens
 
     tokens, total = await list_share_tokens(
-        db, skip, limit, search=search, status_filter=status_filter
+        db,
+        skip,
+        limit,
+        search=search,
+        status_filter=status_filter,
+        sort=sort,
+        order=order,
     )
     return AdminShareTokenListResponse(
         tokens=[AdminShareTokenResponse(**token) for token in tokens], total=total

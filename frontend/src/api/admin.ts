@@ -49,7 +49,15 @@ export async function listUserNames(): Promise<{ id: string; username: string }[
 }
 
 export async function listAdminJobs(
-  params: { status?: string; user_id?: string; search?: string; skip?: number; limit?: number } = {},
+  params: {
+    status?: string;
+    user_id?: string;
+    search?: string;
+    skip?: number;
+    limit?: number;
+    sort?: string;
+    order?: string;
+  } = {},
 ): Promise<AdminJobListResponse> {
   const query = new URLSearchParams();
   if (params.status) query.set('status', params.status);
@@ -57,6 +65,8 @@ export async function listAdminJobs(
   if (params.search) query.set('search', params.search);
   if (params.skip !== undefined) query.set('skip', String(params.skip));
   if (params.limit !== undefined) query.set('limit', String(params.limit));
+  if (params.sort) query.set('sort', params.sort);
+  if (params.order) query.set('order', params.order);
   const qs = query.toString();
   return apiFetch<AdminJobListResponse>(`/admin/jobs/${qs ? `?${qs}` : ''}`);
 }
@@ -72,6 +82,8 @@ export async function listAuditLogs(
     search?: string;
     skip?: number;
     limit?: number;
+    sort?: string;
+    order?: string;
   } = {},
 ): Promise<AuditLogListResponse> {
   const query = new URLSearchParams();
@@ -84,6 +96,8 @@ export async function listAuditLogs(
   if (params.search) query.set('search', params.search);
   if (params.skip !== undefined) query.set('skip', String(params.skip));
   if (params.limit !== undefined) query.set('limit', String(params.limit));
+  if (params.sort) query.set('sort', params.sort);
+  if (params.order) query.set('order', params.order);
   const qs = query.toString();
   return apiFetch<AuditLogListResponse>(`/admin/audit-logs/${qs ? `?${qs}` : ''}`);
 }
@@ -153,13 +167,22 @@ export async function revokeApiKey(keyId: string): Promise<void> {
 
 // Share tokens
 export async function listShareTokens(
-  params: { skip?: number; limit?: number; search?: string; status?: string } = {},
+  params: {
+    skip?: number;
+    limit?: number;
+    search?: string;
+    status?: string;
+    sort?: string;
+    order?: string;
+  } = {},
 ): Promise<AdminShareTokenListResponse> {
   const query = new URLSearchParams();
   if (params.skip !== undefined) query.set('skip', String(params.skip));
   if (params.limit !== undefined) query.set('limit', String(params.limit));
   if (params.search) query.set('search', params.search);
   if (params.status) query.set('status', params.status);
+  if (params.sort) query.set('sort', params.sort);
+  if (params.order) query.set('order', params.order);
   const qs = query.toString();
   return apiFetch<AdminShareTokenListResponse>(`/admin/share-tokens/${qs ? `?${qs}` : ''}`);
 }
