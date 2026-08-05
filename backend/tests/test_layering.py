@@ -2027,7 +2027,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1207): +4 — the terminal-status guard folded into
     # reap_presigned_staging_object from three identical copies in the task
     # tails, which also kept reupload_file under the complexity ceiling.
-    "backend/app/processing/ingest/tasks_common.py": 1707,
+    # fix(#1213 review r2): +57 — reap_downloaded_staging_source, extracted
+    # from the vector tail so the reupload tail could share it. That block
+    # reaps the object the task DOWNLOADED from, which after a presigned
+    # completion is the frozen copy; the reupload tail shipped without it.
+    "backend/app/processing/ingest/tasks_common.py": 1764,
     # --- entered by the inclusion rule, fix(#958) -------------------------
     # These five were the ungated modules at or above _RATCHET_INCLUSION_LOC
     # when the rule was written. They arrive at their measured size with no
@@ -2047,7 +2051,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Cap 1087 -> 1075, exact.
     # fix(#1207): +1 — the reap call gained the final_status keyword when the
     # terminal-status guard moved into the shared helper.
-    "backend/app/processing/ingest/tasks_vector.py": 1076,
+    # fix(#1213 review r2): -16 — the inline BA-09 block became a call to the
+    # shared helper. Ratchet DOWN in the same commit.
+    "backend/app/processing/ingest/tasks_vector.py": 1060,
     "backend/app/modules/auth/oauth/service.py": 1031,
     # fix(#1113 review): +15 — register_existing_table linearizes a
     # pre-existing geom_4326 (savepoint + error contract mirroring the

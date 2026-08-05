@@ -516,3 +516,88 @@ async def test_a_pipeline_failure_after_validation_still_sweeps_the_staging_obje
         "a post-validation pipeline failure left the presigned staging object "
         "behind — the finally reap saw final_status='pending' and skipped it"
     )
+
+
+async def test_a_successful_reupload_deletes_the_frozen_object_too(
+    client, admin_auth_header, test_db_session, tmp_path, monkeypatch
+) -> None:
+    """fix(#1213 review r2): the frozen copy is storage too, and it lingered.
+
+    Completion binds the job to `staging/{job}/frozen/...`; the task then
+    downloads THAT and ingests. The tail unlinked only the local download and
+    swept only the client-writable original, so the frozen object survived — and
+    a successful reupload job is its dataset's latest-complete row, which the
+    stale purge exempts forever.
+
+    The upload door's tail has always had this block (#430 BA-09); the reupload
+    tail shipped without it. Both now call one shared helper.
+    """
+    from app.platform.storage.local import LocalStorageProvider
+    from app.processing.ingest import tasks_reupload
+    from app.processing.ingest.tasks_reupload import reupload_file
+
+    bucket = tmp_path / "bucket"
+    bucket.mkdir()
+    storage = LocalStorageProvider(str(bucket))
+    monkeypatch.setattr(
+        "app.platform.storage.get_storage", lambda: storage, raising=True
+    )
+
+    admin_id = await _admin_id(test_db_session)
+    dataset = await _create_dataset(test_db_session, created_by=admin_id)
+
+    job = IngestJob(
+        source_filename="update.geojson",
+        dataset_id=dataset.id,
+        created_by=admin_id,
+        status="pending",
+        user_metadata={"reupload": True, "dataset_id": str(dataset.id)},
+    )
+    test_db_session.add(job)
+    await test_db_session.commit()
+    await test_db_session.refresh(job)
+
+    # Exactly what a completed presigned reupload leaves: bound to the frozen
+    # snapshot, with the client-writable original still named in metadata.
+    staging_key = f"staging/{job.id}/update.geojson"
+    frozen_key = f"staging/{job.id}/frozen/update.geojson"
+    job.file_path = frozen_key
+    job.user_metadata = {**job.user_metadata, "s3_key": staging_key}
+    await test_db_session.commit()
+
+    await storage.put(staging_key, _VALID_GEOJSON)
+    await storage.put(frozen_key, _VALID_GEOJSON)
+
+    local_copy = tmp_path / "downloaded.geojson"
+    local_copy.write_bytes(_VALID_GEOJSON)
+
+    async def _fake_resolve(path, job_id_arg):
+        # Stand in for the S3 download: returns a DIFFERENT local path, which
+        # is the signal the tail keys off to know it fetched from storage.
+        return str(local_copy)
+
+    monkeypatch.setattr(
+        "app.processing.ingest.service.resolve_file_path", _fake_resolve
+    )
+
+    async def _boom(*_args, **_kwargs):
+        raise RuntimeError("stop after the download")
+
+    monkeypatch.setattr(tasks_reupload, "_detect_reupload_crs", _boom)
+
+    with pytest.raises(RuntimeError, match="stop after the download"):
+        await reupload_file.func(
+            job_id=str(job.id),
+            dataset_id=str(dataset.id),
+            file_path=frozen_key,
+            user_id=str(admin_id),
+            attempt_id=str(job.attempt_id),
+        )
+
+    assert not await storage.exists(frozen_key), (
+        "the frozen object the job was bound to survived the task; nothing "
+        "else reaps it once the job becomes its dataset's latest-complete"
+    )
+    assert not await storage.exists(staging_key), (
+        "the client-writable original should still be swept as well"
+    )

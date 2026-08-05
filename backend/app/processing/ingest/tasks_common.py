@@ -463,6 +463,63 @@ def check_missing_crs(
     )
 
 
+async def reap_downloaded_staging_source(
+    job_id: str,
+    *,
+    file_path: str,
+    original_file_path: str,
+    final_status: str,
+    is_fan_out_child: bool = False,
+) -> None:
+    """Delete the storage object this task DOWNLOADED its source from.
+
+    fix(#430 BA-09): the task pulls the source to a private local copy (the
+    caller unlinks that separately) but the `staging/{job_id}/` key it came
+    from otherwise lives forever, and a failed run leaks it with no dataset
+    ever created.
+
+    fix(#1213 review r2): after a presigned completion `original_file_path` is
+    the FROZEN copy, not the client-writable original — the completion door
+    binds the job to the snapshot. So this is the block that reaps the frozen
+    object, and `reap_presigned_staging_object` is the one that reaps the
+    client's key. Both are needed; neither substitutes for the other. Shared
+    between the vector and reupload tails so the two cannot drift, which is
+    what let the reupload tail ship without it.
+
+    `resolve_file_path` only rewrites the path when it downloaded from remote
+    storage, so `file_path != original_file_path` is the S3-mode signal.
+    Fan-out children are skipped because siblings share the original; a
+    retention policy reaps those. Reupload has no fan-out, so its caller
+    leaves the default.
+
+    Deleting on "failed" as well as "complete" is safe for both callers: these
+    tasks are retry=0, and the retry endpoint refuses reupload jobs outright
+    ("Dataset replacement jobs cannot be replayed as ordinary imports"), so no
+    later attempt can need these bytes.
+
+    Never raises — a failed sweep leaves an orphan, which beats failing a job
+    whose work is already committed.
+    """
+    if (
+        final_status not in ("complete", "failed")
+        or file_path == original_file_path
+        or is_fan_out_child
+        or not original_file_path.startswith("staging/")
+    ):
+        return
+    try:
+        from app.platform.storage import get_storage
+        from app.platform.storage.titiler_url import resolve_current_storage_key
+
+        await get_storage().delete(resolve_current_storage_key(original_file_path))
+    except Exception:  # broad: best-effort staging cleanup; never fail the task
+        structlog.get_logger().warning(
+            "Failed to delete staging source object",
+            job_id=job_id,
+            storage_key=original_file_path,
+        )
+
+
 async def reap_presigned_staging_object(
     job_id: str, owned_staging_key: str | None, *, final_status: str
 ) -> None:

@@ -28,6 +28,7 @@ from app.processing.ingest.tasks_common import (
     _archive_original_file,
     _bind_task_log_context,
     _cleanup_staging_on_failure,
+    reap_downloaded_staging_source,
     reap_presigned_staging_object,
     _current_tenant_role,
     _current_tenant_schema,
@@ -481,6 +482,18 @@ async def reupload_file(
             Path(file_path).unlink(missing_ok=True)
         elif file_path != original_file_path:
             Path(file_path).unlink(missing_ok=True)
+        # fix(#1213 review r2): reap the object the task downloaded FROM, which
+        # after a presigned completion is the frozen copy the job is bound to —
+        # the unlinks above are local files only, so it was never deleted and a
+        # successful reupload job is its dataset's latest-complete row, exempt
+        # from the stale purge forever. No fan-out on this surface, so the
+        # sibling-sharing guard is left at its default.
+        await reap_downloaded_staging_source(
+            job_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
+            final_status=final_status,
+        )
         # fix(#1207): sweep the presigned staging key. This surface had NO
         # storage reaper at all — the unlinks above are local files only — and
         # the stale purge is not a backstop here, because a successful reupload
