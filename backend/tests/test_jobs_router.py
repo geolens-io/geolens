@@ -1181,6 +1181,13 @@ class TestCleanupStaleJobs:
         monkeypatch.setattr(audit_service, "audit_emit_durable", record_durable)
         monkeypatch.setattr(jobs_router, "fail_stale_jobs", cleanup)
         monkeypatch.setattr(jobs_router, "_reap_committed_staged_paths", reap)
+        # fix(#1202 review r8): the post-expiry staging sweep runs beside the
+        # reaper on this path; stub it out so the fake session is not queried.
+        monkeypatch.setattr(
+            jobs_router,
+            "_sweep_expired_presigned_staging",
+            AsyncMock(return_value=outcome),
+        )
         error_logs = []
         monkeypatch.setattr(
             jobs_router.log,
@@ -1263,6 +1270,13 @@ class TestCleanupStaleJobs:
         monkeypatch.setattr(audit_service, "audit_emit_durable", fail_durable)
         monkeypatch.setattr(jobs_router, "fail_stale_jobs", cleanup)
         monkeypatch.setattr(jobs_router, "_reap_committed_staged_paths", reap)
+        # fix(#1202 review r8): the post-expiry staging sweep runs beside the
+        # reaper on this path; stub it out so the fake session is not queried.
+        monkeypatch.setattr(
+            jobs_router,
+            "_sweep_expired_presigned_staging",
+            AsyncMock(return_value=outcome),
+        )
         error_logs = []
         monkeypatch.setattr(
             jobs_router.log,

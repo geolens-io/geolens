@@ -2,6 +2,7 @@
 
 import asyncio
 import math
+import tempfile
 import uuid
 from datetime import datetime, timezone
 
@@ -90,10 +91,11 @@ from app.processing.ingest.service import (
 )
 from app.processing.ingest.presigned import (
     abort_presigned_multipart_upload,
+    raise_if_over_max_upload_size,
     verify_completed_presigned_upload,
 )
 from app.processing.ingest.tasks import regenerate_vrt
-from app.processing.ingest.validation import validate_file_content
+from app.processing.ingest.validation import HEADER_READ_SIZE, validate_file_content
 from app.platform.jobs.defer_guard import defer_with_orphan_guard
 from app.core.persistent_config import (
     UPLOAD_ALLOWED_EXTENSIONS,
@@ -102,7 +104,7 @@ from app.core.persistent_config import (
 )
 from app.modules.quota.service import check_upload_quota, get_user_quota_usage
 from app.processing.raster.validation import validate_sources
-from app.platform.storage import get_storage
+from app.platform.storage import StorageProvider, get_storage
 from app.platform.storage.titiler_url import resolve_current_storage_key
 from app.standards.ogc.errors import (
     BAD_GATEWAY_RESPONSE,
@@ -351,6 +353,7 @@ async def complete_presigned_upload(
 ) -> UploadResponse:
     """Notify that direct-to-S3 upload is complete."""
     job = await get_job_or_404(db, job_id, user)
+    job = await lock_presigned_job(db, job_id)
     um = job.user_metadata or {}
 
     if not um.get("presigned"):
@@ -359,11 +362,36 @@ async def complete_presigned_upload(
             detail="Job is not a presigned upload",
         )
 
+    # fix(#1202 review): completion is ONE-SHOT, keyed off resolved state.
+    # `file_path` is created empty and set only by a completion that made it
+    # all the way through, so its presence is the fact "these bytes were
+    # accepted" — no metadata flag to rotate and no window to race. Without
+    # this, a second call re-copies the staging key (still writable through
+    # the client's PUT URL) over the frozen bytes the first 200 accepted, or
+    # rejects and deletes both objects out from under a job that already
+    # points at them. Same class as the TOCTOU: client-writable state
+    # re-entering after acceptance.
+    if job.file_path:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Upload already completed for this job",
+        )
+
     storage = get_storage()
     s3_key = um["s3_key"]
     physical_s3_key = resolve_current_storage_key(s3_key)
 
-    if um.get("multipart"):
+    # fix(#1202 review r3): skip assembly when it already happened. For an S3
+    # multipart upload the staging object exists IF AND ONLY IF
+    # CompleteMultipartUpload succeeded — uploaded parts are invisible as an
+    # object until then — so the object's presence is a sound record that this
+    # step is done, with no metadata to keep in sync. Without this, a
+    # completion that got past assembly and then failed (at the freeze, say)
+    # left the job unbound and the upload id SPENT: the retry this endpoint's
+    # 502 advertises re-entered the branch, called complete with a consumed id,
+    # and could never succeed. The parts-required 400 is skipped along with it,
+    # deliberately — a retrying client has nothing left to resend.
+    if um.get("multipart") and not await storage.exists(physical_s3_key):
         if not request.parts:
             await abort_presigned_multipart_upload(
                 storage,
@@ -408,23 +436,126 @@ async def complete_presigned_upload(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="File not found in S3 after upload",
         )
-    await verify_completed_presigned_upload(
-        db=db,
-        storage=storage,
-        key=physical_s3_key,
-        expected_size=um.get("expected_size"),
-        user_id=user.id,
-        request=http_request,
-        job_id=job.id,
-    )
+    # fix(#1202 review): resource-waste fast path, NOT the security boundary.
+    # Presigned PUT URLs do not bind Content-Length, so the object on disk can
+    # be any size regardless of what the client declared at request time —
+    # without this, an oversize upload gets fully copied just to be rejected a
+    # moment later. This gate is advisory ONLY: the client can swell the object
+    # after the measurement and before the copy, which is exactly why the
+    # post-copy check on the frozen bytes below stays and stays authoritative.
+    # Do not remove that one on the strength of this one.
+    staging_size = await storage.size(physical_s3_key)
+    try:
+        raise_if_over_max_upload_size(staging_size, await UPLOAD_MAX_SIZE_MB.get(db))
+    except HTTPException:
+        await _cleanup_saved_upload(s3_key, str(job.id))
+        raise
 
-    job.file_path = s3_key
+    frozen_key = _frozen_staging_key(s3_key)
+    physical_frozen_key = resolve_current_storage_key(frozen_key)
+
+    # fix(#1202 review): FREEZE FIRST, then judge the frozen copy. The client
+    # still holds a presigned PUT URL for the staging key — those stay valid
+    # until expiry, and a PUT to an existing key replaces the object — so
+    # anything checked at the staging key can be swapped afterwards: upload
+    # clean bytes, complete, re-PUT garbage, and preview hands GDAL a file
+    # nothing ever validated. Snapshotting to a key no presign endpoint has
+    # ever issued a URL for is what makes the checks below mean something.
+    #
+    # The ORDER is the fix, not the copy. Verifying or validating before the
+    # copy re-opens the same race between check and freeze, one step earlier,
+    # and size/quota have to judge the immutable bytes too — otherwise the
+    # client declares 1 KB, completes, and swells the staging object to 5 GB
+    # before we snapshot it.
+    #
+    # Drained, because the copy runs in an SDK thread that a client disconnect
+    # cannot stop: returning early would leave it writing a frozen object no
+    # job row references. `_await_provider_call_draining` waits the thread out
+    # and then re-raises the cancellation, so by the time we clean up, there is
+    # a whole object to delete rather than one still being written.
+    try:
+        await _await_provider_call_draining(
+            storage.copy(physical_s3_key, physical_frozen_key)
+        )
+    except BaseException as exc:
+        # ONE cleanup path for every way the freeze can fail — an SDK error or
+        # a drained cancellation, which `except Exception` cannot see at all.
+        # The staging object is never touched here, so a retry costs one more
+        # completion call rather than a multi-GB re-upload.
+        await _cleanup_saved_upload(frozen_key, str(job.id))
+        if isinstance(exc, asyncio.CancelledError):
+            raise
+        logger.exception(
+            "presigned_upload_freeze_failed",
+            job_id=str(job.id),
+            s3_key=s3_key,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Upload completion failed — the upload session may have expired. Please try again.",
+        ) from exc
+
+    try:
+        actual_size = await verify_completed_presigned_upload(
+            db=db,
+            storage=storage,
+            key=physical_frozen_key,
+            expected_size=um.get("expected_size"),
+            user_id=user.id,
+            request=http_request,
+            job_id=job.id,
+        )
+        # fix(#1202): both ingest doors enforce the same content contract.
+        await _validate_presigned_content(
+            storage,
+            key=physical_frozen_key,
+            filename=job.source_filename or "",
+            size=actual_size,
+        )
+    except HTTPException:
+        # A deliberate rejection drops BOTH objects, matching the direct
+        # path's rollback — leaving the staging object would hand the client
+        # bytes we just refused, still addressable by its PUT URL.
+        await _cleanup_saved_upload(frozen_key, str(job.id))
+        await _cleanup_saved_upload(s3_key, str(job.id))
+        raise
+    except BaseException:
+        # N4: this clause must stay AFTER the HTTPException one. A transient
+        # storage failure drops only the copy we just made; the staging object
+        # survives so a retry costs one more completion call rather than a
+        # multi-GB re-upload.
+        await _cleanup_saved_upload(frozen_key, str(job.id))
+        raise
+
+    job.file_path = frozen_key
     # fix(#1186): the presigned path never stamped file_type, and on an S3
     # deployment the frontend always uploads through it — so every GeoTIFF
     # fell through to the vector branch: 422 at preview, a vector commit body
     # after that, and an ogr2ogr dispatch after that.
     _stamp_raster_metadata(job, job.source_filename)
     await db.commit()
+
+    # fix(#1202 review r3): AFTER the commit, never before. Deleting first
+    # meant a failed commit rolled `file_path` back with the staging object
+    # already gone — the retry then hit "File not found in S3 after upload"
+    # and the frozen copy orphaned with nothing pointing at it. Now a failed
+    # commit leaves both objects, so the retry re-copies over the frozen key
+    # and proceeds.
+    #
+    # Past this line the staging object has served its purpose. A delete
+    # failure here, or a late re-PUT through the still-valid URL, leaves an
+    # orphan that nothing reads.
+    #
+    # It is swept at job end by whichever terminal reaper owns the job. Every
+    # one of them resolves the key through `owned_presigned_staging_key`, so
+    # grep that name for the current set rather than trusting a list here —
+    # this comment has already gone stale once by naming them. The stale-job
+    # purge is a backstop, not a guarantee: it exempts the newest complete job
+    # per dataset, which is exactly what a successful ingest leaves behind, so
+    # a path with no task-level reaper would keep its orphan indefinitely.
+    # S3 cannot revoke an individual presigned URL, so reaping is the only
+    # real remedy.
+    await _cleanup_saved_upload(s3_key, str(job.id))
 
     return UploadResponse(
         job_id=job.id,
@@ -480,6 +611,119 @@ def _stamp_raster_metadata(job: "IngestJob", filename: str | None) -> None:
         return
 
     job.user_metadata = {**(job.user_metadata or {}), "file_type": "raster"}
+
+
+async def lock_presigned_job(db: AsyncSession, job_id: uuid.UUID) -> "IngestJob":
+    """Re-fetch a job under a row lock, with attributes reloaded from the row.
+
+    fix(#1202 review r5, r9): the one-shot guard reads `file_path`, and the
+    property it needs is TWO-PART. Both halves are load-bearing and each was
+    got wrong once:
+
+    1. The SELECT must LOCK. Without `with_for_update` two overlapping
+       completions both saw an empty `file_path` and proceeded, racing over
+       the same deterministically-derived frozen key: the loser's refusal
+       deletes both objects while the winner commits a binding to one of them.
+
+    2. The read must be FRESH. `with_for_update` alone serializes without
+       informing — SQLAlchemy keeps the already-loaded attributes on the
+       identity-map instance, and the caller's authz fetch loaded this row
+       BEFORE the competing request committed. Measured, not inferred: without
+       `populate_existing` the re-fetch returns the stale empty `file_path`
+       and the guard passes on a job that was already completed. The r5 test
+       pinned only half of this (that a FOR UPDATE statement reached the
+       driver), which is why the second half survived four review rounds.
+
+    The lock is held to the caller's commit or rollback, and it is one row, so
+    completions of different jobs never serialize against each other.
+    `get_job_or_404` deliberately stays unlocked — its other callers are reads
+    that must not queue behind a completion.
+    """
+    from app.platform.jobs.models import IngestJob
+
+    job = await db.get(IngestJob, job_id, with_for_update=True, populate_existing=True)
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found",
+        )
+    return job
+
+
+# Trailing PAR1 magic that validate_parquet_file seeks to from the end.
+_PARQUET_MAGIC_BYTES = 4
+
+# Path segment separating the frozen snapshot from the client-writable
+# staging key. The presign endpoints only ever mint URLs for
+# `staging/{job_id}/{filename}`, so nothing under here is client-writable.
+_FROZEN_SEGMENT = "frozen"
+
+
+def _frozen_staging_key(s3_key: str) -> str:
+    """Derive the immutable snapshot key for a staging upload key.
+
+    Inserts a segment before the filename rather than appending a suffix:
+    the extension is load-bearing all the way down (content sniffing, the
+    raster/vector branch, ogr2ogr driver selection), so the filename has to
+    survive as the last segment. The result still starts with `staging/`,
+    which is what every existing staging reaper keys off.
+    """
+    parent, separator, name = s3_key.rpartition("/")
+    if not separator:
+        return f"{_FROZEN_SEGMENT}/{s3_key}"
+    return f"{parent}/{_FROZEN_SEGMENT}/{name}"
+
+
+async def _validate_presigned_content(
+    storage: StorageProvider,
+    *,
+    key: str,
+    filename: str,
+    size: int,
+) -> None:
+    """Run the direct path's content check against an object in storage.
+
+    fix(#1202): ``upload_file`` calls ``validate_file_content`` on the staged
+    bytes, and the presigned completion path did not — so the two ingest doors
+    accepted different files, and a presigned upload reached preview (which
+    hands the file to GDAL) with no content check behind it.
+
+    ``validate_file_content`` wants a path, and presigned uploads exist for the
+    multi-GB case, so instead of downloading the object this builds a probe
+    file out of the only bytes the checks read:
+
+    - the first ``HEADER_READ_SIZE`` bytes, which is exactly what the
+      magic-byte branch reads;
+    - for ``.parquet``, the trailing ``PAR1`` magic, which
+      ``validate_parquet_file`` seeks to from the end. Only appended when the
+      object is larger than the header window — below that the header IS the
+      whole object, so the probe is byte-identical to it.
+
+    The ``.vrt`` branch reads the whole body and is never reached here:
+    ``_reject_standalone_vrt`` refuses a ``.vrt`` filename at presign-request
+    time, before any object exists.
+
+    Raises HTTPException 422 carrying ``str(exc)``, the same class, status and
+    body the direct path raises at its ``validate_file_content`` call.
+    """
+    head = await storage.get_range(key, 0, HEADER_READ_SIZE)
+
+    tail = b""
+    if Path(filename).suffix.lower() == ".parquet" and size > len(head):
+        tail = await storage.get_range(
+            key, size - _PARQUET_MAGIC_BYTES, _PARQUET_MAGIC_BYTES
+        )
+
+    with tempfile.NamedTemporaryFile(suffix=".probe") as probe:
+        probe.write(head + tail)
+        probe.flush()
+        try:
+            validate_file_content(probe.name, filename)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(exc),
+            ) from exc
 
 
 @router.post(

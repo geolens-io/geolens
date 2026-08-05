@@ -21,6 +21,7 @@ from app.platform.jobs.heartbeat import (
 from app.processing.ingest.metadata import _qtable
 from app.processing.ingest.tasks_common import (
     IngestContext,
+    reap_presigned_staging_object,
     _append_job_warning,
     _archive_original_file,
     _bind_task_log_context,
@@ -36,6 +37,7 @@ from app.processing.ingest.tasks_common import (
     resolve_service_type,
     task_app,
 )
+from app.platform.jobs.models import owned_presigned_staging_key
 from app.platform.storage.titiler_url import resolve_current_storage_key
 
 
@@ -672,6 +674,8 @@ async def ingest_file(
         # (retry=0). Cost of the fail-safe: an orphaned staging object the
         # retention policy reaps later.
         is_fan_out_child = True
+        # fix(#1202 review r5): the presigned staging key, swept below.
+        owned_staging_key: str | None = None
         try:
             # REMED-03 / P2-05: route through _job_phase_session. The helper
             # yields the IngestJob row directly, so we just check user_metadata.
@@ -684,6 +688,11 @@ async def ingest_file(
                 if _check_job is not None:
                     is_fan_out_child = bool(
                         (_check_job.user_metadata or {}).get("fan_out_parent_id")
+                    )
+                    owned_staging_key = owned_presigned_staging_key(
+                        _check_job.id,
+                        _check_job.user_metadata,
+                        _check_job.file_path,
                     )
         except Exception:  # broad: cleanup decision is best-effort, never block completion on this query
             is_fan_out_child = True
@@ -721,6 +730,14 @@ async def ingest_file(
                     job_id=job_id,
                     storage_key=original_file_path,
                 )
+
+        # fix(#1202 review r5): sweep the presigned staging key too. The block
+        # above only reaps `original_file_path`, which after a presigned
+        # completion is the FROZEN copy — so the key the client still holds a
+        # PUT URL for was never touched. Shared with the raster tail so the
+        # two cannot drift.
+        if final_status in ("complete", "failed"):
+            await reap_presigned_staging_object(job_id, owned_staging_key)
 
 
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.ingest_service"])

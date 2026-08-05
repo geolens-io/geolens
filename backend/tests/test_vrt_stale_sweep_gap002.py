@@ -9,6 +9,7 @@ RED → GREEN: fails pre-fix (no sweep exists), passes post-fix.
 """
 
 from datetime import datetime, timedelta, timezone
+import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -115,8 +116,12 @@ def _make_mock_db_for_fail_stale(
       2. stale running IngestJobs → scalars() returns list
       3. stale VrtGeneration UPDATE → scalars() returns generation ids
       4. stale regenerating RasterAsset UPDATE → scalars() returns dataset ids
-      5. purge DELETE .. RETURNING file_path (fix #434) → .all() returns
-         (file_path,) one-tuples
+      5. purge DELETE .. RETURNING (id, file_path, user_metadata) → .all()
+         returns those three-tuples. fix(#1202 review r5) widened the
+         RETURNING so the purge can also reap a completed presigned job's
+         staging key. Callers may still pass (file_path,) one-tuples; they
+         are normalized below so each test keeps stating only what it cares
+         about.
       6. optional surviving-path SELECT when a deleted row had a file_path
     """
     results = []
@@ -130,14 +135,25 @@ def _make_mock_db_for_fail_stale(
         mock_result.scalars.return_value = returned_ids
         results.append(mock_result)
 
+    normalized_candidates = [
+        row if len(row) == 3 else (uuid.uuid4(), row[0], None)
+        for row in (purge_candidates or [])
+    ]
     delete_result = MagicMock()
-    delete_result.all.return_value = purge_candidates or []
+    delete_result.all.return_value = normalized_candidates
     results.append(delete_result)
 
-    if any(file_path for (file_path,) in (purge_candidates or [])):
+    if any(file_path for (_id, file_path, _um) in normalized_candidates):
         survivors_result = MagicMock()
         survivors_result.scalars.return_value = surviving_paths or []
         results.append(survivors_result)
+
+    # fix(#1202 review r8): the post-expiry presigned-staging sweep issues one
+    # more SELECT after the purge. No candidates in these fixtures, so an empty
+    # .all() keeps each test stating only what it cares about.
+    post_expiry_result = MagicMock()
+    post_expiry_result.all.return_value = []
+    results.append(post_expiry_result)
 
     mock_db = AsyncMock()
     mock_db.execute = AsyncMock(side_effect=results)
@@ -347,7 +363,9 @@ async def test_fail_stale_jobs_purges_terminal_jobs_past_retention():
     mock_db = _make_mock_db_for_fail_stale(purge_candidates=[(None,)])
     await fail_stale_jobs(mock_db)
 
-    assert mock_db.execute.await_count == 5
+    # 4 sweeps + the purge DELETE + the post-expiry staging SELECT
+    # (fix(#1202 review r8)). The purge is still index 4.
+    assert mock_db.execute.await_count == 6
     purge_stmt = mock_db.execute.await_args_list[4].args[0]
     assert isinstance(purge_stmt, Delete)
     where_sql = str(purge_stmt.compile(compile_kwargs={"literal_binds": True}))
@@ -509,7 +527,9 @@ async def test_fail_stale_jobs_retention_zero_disables_purge(monkeypatch):
     mock_db = _make_mock_db_for_fail_stale()
     await fail_stale_jobs(mock_db)
 
-    assert mock_db.execute.await_count == 4
+    # 4 sweeps and no purge DELETE, plus the post-expiry staging SELECT, which
+    # is independent of retention being disabled (fix(#1202 review r8)).
+    assert mock_db.execute.await_count == 5
 
 
 # ---------------------------------------------------------------------------

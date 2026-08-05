@@ -80,6 +80,14 @@ class _FakeS3Storage:
     async def size(self, key: str) -> int:
         return len(self.objects[key])
 
+    async def get_range(self, key: str, start: int, length: int) -> bytes:
+        # fix(#1202): completion content-validates from a bounded window.
+        return self.objects[key][start : start + length]
+
+    async def copy(self, src_key: str, dst_key: str) -> None:
+        # fix(#1202 review): completion freezes the upload before judging it.
+        self.objects[dst_key] = self.objects[src_key]
+
     async def delete(self, key: str) -> None:
         self.objects.pop(key, None)
 

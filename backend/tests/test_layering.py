@@ -1948,7 +1948,57 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # complete_presigned_upload from calling it at all. `crs_missing` is
     # derived in ingest_raster now, from metadata that task already reads.
     # Cap 1493 -> 1473, still exact.
-    "backend/app/processing/ingest/router.py": 1473,
+    # fix(#1202): +74 — _validate_presigned_content, so the presigned door
+    # enforces the same content contract as the direct one. Most of it is the
+    # docstring recording WHICH bytes the probe carries and why that is
+    # faithful: the header window the magic-byte branch reads, plus the
+    # trailing PAR1 magic for .parquet. That reasoning is the load-bearing
+    # part — a check added to validate_file_content that reads the middle of a
+    # file would pass vacuously here. Cap 1473 -> 1547, exact.
+    # fix(#1202 review): +62 — freeze-first. Validating the staging key was a
+    # TOCTOU: the client keeps a working presigned PUT URL for it until expiry,
+    # so checked bytes could be swapped for garbage before preview read them.
+    # Completion now snapshots to a key no presign endpoint ever issued a URL
+    # for and judges THAT (_frozen_staging_key plus the copy/verify/validate
+    # ordering). The lines are mostly the two comments recording why the ORDER
+    # is the fix and which object each failure branch may delete — get either
+    # wrong and the race is back with the guard still apparently in place.
+    # Cap 1547 -> 1609, exact.
+    # fix(#1202 review r2): +45 — three findings, all the same shape as the
+    # first two rounds (client-writable state re-entering after a check).
+    # One-shot completion keyed off `file_path`; a pre-copy size fast path so
+    # an oversize object is not copied just to be rejected; and draining the
+    # freeze copy so a disconnect cannot abandon the SDK thread mid-write.
+    # The comments carry which of the three is the security boundary (only
+    # the post-copy verify) — deleting the wrong one reads as a cleanup.
+    # Cap 1609 -> 1654, exact.
+    # fix(#1202 review r3): +18 — both findings were "the failure path leaves
+    # state the retry path cannot proceed from". Multipart assembly is skipped
+    # when the staging object already exists (for S3 that is an iff for
+    # CompleteMultipartUpload having succeeded, so a retry no longer presents a
+    # spent upload id), and the staging delete moved after the commit so a
+    # rolled-back commit does not strand the retry with the bytes gone. Both
+    # comments carry the invariant, not the mechanic. Cap 1654 -> 1672, exact.
+    # fix(#1202 review r5): +26 — the one-shot guard was an UNLOCKED read, so
+    # two overlapping completions both passed it and raced over the same
+    # deterministic frozen key, letting the loser's refusal delete state the
+    # winner had already accepted. Completion now re-fetches the row FOR
+    # UPDATE before reading anything the guard depends on. The rest is the
+    # comment explaining why get_job_or_404 deliberately stays unlocked.
+    # Cap 1672 -> 1698, exact.
+    # fix(#1202 review r5b): +5 — the sweep comment named its reapers and went
+    # stale the moment the raster tail was added. It now points at
+    # `owned_presigned_staging_key` as the grep-able registry and records that
+    # the stale purge is a backstop only (it exempts the newest complete job
+    # per dataset). Cap 1698 -> 1703, exact.
+    # fix(#1202 review r9): +14 — the locked re-fetch became
+    # `lock_presigned_job`, whose docstring records that the property is
+    # TWO-part: the SELECT must lock AND the read must be fresh. Without
+    # populate_existing the lock serialized without informing, and the r5 test
+    # pinned only the first half, which is why the second survived four
+    # rounds. Extracting it also stops a test reimplementing the call and
+    # passing while the handler diverges. Cap 1703 -> 1717, exact.
+    "backend/app/processing/ingest/router.py": 1717,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
@@ -1964,7 +2014,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # correction fixes `_run_staging_pipeline`'s own docstring, which claimed
     # `_ingest_vector_into_staging` was the "new ingests" caller.
     # Ratchet stays exact.
-    "backend/app/processing/ingest/tasks_common.py": 1671,
+    # fix(#1202 review r5b): +32 — `reap_presigned_staging_object`, the shared
+    # sweep. The vector tail had it inline; raster needed the same block, and
+    # two copies of a best-effort delete in a PR about doors that drifted
+    # would have been the same mistake one level down. Cap 1671 -> 1703, exact.
+    "backend/app/processing/ingest/tasks_common.py": 1703,
     # --- entered by the inclusion rule, fix(#958) -------------------------
     # These five were the ungated modules at or above _RATCHET_INCLUSION_LOC
     # when the rule was written. They arrive at their measured size with no
@@ -1973,7 +2027,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # them writes the first entry.
     "backend/app/platform/config_ops/service.py": 1201,
     "backend/app/processing/ingest/tasks_vrt.py": 1071,
-    "backend/app/processing/ingest/tasks_vector.py": 1058,
+    # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
+    # A completed presigned job points file_path at its frozen copy, so this
+    # reaper never touched the key the client's PUT URL can still recreate.
+    # Ownership comes from owned_presigned_staging_key, which refuses a
+    # fan-out child's inherited parent key. Cap 1058 -> 1087, exact.
+    # fix(#1202 review r5b): -12 — that block moved to
+    # `tasks_common.reap_presigned_staging_object` so the raster tail could
+    # share it. Ratchet DOWN in the same commit, per the no-headroom rule.
+    # Cap 1087 -> 1075, exact.
+    "backend/app/processing/ingest/tasks_vector.py": 1075,
     "backend/app/modules/auth/oauth/service.py": 1031,
     # fix(#1113 review): +15 — register_existing_table linearizes a
     # pre-existing geom_4326 (savepoint + error contract mirroring the

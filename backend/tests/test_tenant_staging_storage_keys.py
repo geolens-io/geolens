@@ -193,8 +193,17 @@ async def test_presigned_completion_reads_physical_and_keeps_logical_job_path(
 
     logical = "staging/job-a/roads.geojson"
     physical = f"tenants/{TENANT_A}/{logical}"
+    # fix(#1202 review): completion freezes the upload to an unwritable key
+    # first and judges THAT, so the tenant prefix has to survive the derivation.
+    frozen_logical = "staging/job-a/frozen/roads.geojson"
+    frozen_physical = f"tenants/{TENANT_A}/{frozen_logical}"
     job = MagicMock(
         id=uuid.uuid4(),
+        source_filename="roads.geojson",
+        # fix(#1202 review): completion is one-shot and keys off file_path, so
+        # the mock has to start where create_ingest_job leaves a presigned job
+        # — empty — rather than with MagicMock's truthy auto-attribute.
+        file_path="",
         user_metadata={
             "presigned": True,
             "s3_key": logical,
@@ -203,14 +212,26 @@ async def test_presigned_completion_reads_physical_and_keeps_logical_job_path(
         },
     )
     db = AsyncMock()
+    # fix(#1202 review r5): completion re-fetches the row FOR UPDATE before
+    # reading file_path, so the locked fetch has to yield the SAME job the
+    # test configured — a bare AsyncMock returns a fresh mock whose truthy
+    # file_path trips the one-shot guard.
+    db.get = AsyncMock(return_value=job)
     storage = AsyncMock()
     storage.exists.return_value = True
+    # fix(#1202): completion content-validates from a ranged read of the
+    # physical key, so the fake has to serve bytes rather than a sentinel.
+    storage.get_range.return_value = b"{}"
+    # The pre-copy size fast path measures the staging object before the
+    # freeze, so the fake needs a real integer here.
+    storage.size.return_value = 2
     verify = AsyncMock(return_value=2)
 
     with (
         patch.object(router, "get_job_or_404", AsyncMock(return_value=job)),
         patch.object(router, "get_storage", return_value=storage),
         patch.object(router, "verify_completed_presigned_upload", verify),
+        patch.object(router.UPLOAD_MAX_SIZE_MB, "get", AsyncMock(return_value=10)),
         _tenant_mode(monkeypatch, "multi_tenant", TENANT_A),
     ):
         await router.complete_presigned_upload(
@@ -222,8 +243,14 @@ async def test_presigned_completion_reads_physical_and_keeps_logical_job_path(
         )
 
     storage.exists.assert_awaited_once_with(physical)
-    assert verify.await_args.kwargs["key"] == physical
-    assert job.file_path == logical
+    # The snapshot is taken from the physical staging key to the physical
+    # frozen key; everything downstream then judges the frozen one.
+    assert storage.copy.await_args.args == (physical, frozen_physical)
+    assert verify.await_args.kwargs["key"] == frozen_physical
+    assert storage.get_range.await_args.args[0] == frozen_physical
+    assert job.file_path == frozen_logical
+    # The staging object is dropped once the frozen copy is the job's source.
+    assert storage.delete.await_args.args == (physical,)
 
 
 @pytest.mark.anyio
@@ -331,11 +358,20 @@ async def test_cleanup_and_retention_reaper_delete_only_tenant_key(
     for result in empty_scalars:
         result.scalars.return_value = []
     deleted = MagicMock()
-    deleted.all.return_value = [(logical,)]
+    # fix(#1202 review r5): the purge's RETURNING is (id, file_path,
+    # user_metadata) now — it also reaps the presigned staging key, which
+    # needs the row's own id to decide ownership. No s3_key here, so this
+    # row still contributes exactly one delete.
+    deleted.all.return_value = [(uuid.uuid4(), logical, None)]
     survivors = MagicMock()
     survivors.scalars.return_value = []
+    # fix(#1202 review r8): one more SELECT for the post-expiry staging sweep.
+    post_expiry = MagicMock()
+    post_expiry.all.return_value = []
     db = AsyncMock()
-    db.execute = AsyncMock(side_effect=[*empty_scalars, deleted, survivors])
+    db.execute = AsyncMock(
+        side_effect=[*empty_scalars, deleted, survivors, post_expiry]
+    )
 
     with _tenant_mode(monkeypatch, "multi_tenant", TENANT_A):
         await fail_stale_jobs(db)

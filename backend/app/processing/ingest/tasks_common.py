@@ -463,6 +463,38 @@ def check_missing_crs(
     )
 
 
+async def reap_presigned_staging_object(
+    job_id: str, owned_staging_key: str | None
+) -> None:
+    """Best-effort delete of a job's OWN presigned staging object.
+
+    fix(#1202 review r5): a completed presigned upload points ``file_path`` at
+    the frozen copy, so every reaper that keys off ``file_path`` misses the
+    staging key — the one the client's PUT URL can still recreate, outside
+    size and quota accounting. Each terminal task tail calls this.
+
+    Pass the result of ``owned_presigned_staging_key``, which is what decides
+    there is anything to delete: it declines a fan-out child's inherited
+    parent key, so a child can never reap the original its siblings read.
+
+    Never raises. A failed sweep leaves an orphan, which is strictly better
+    than failing a job whose work is already done and committed.
+    """
+    if not owned_staging_key:
+        return
+    try:
+        from app.platform.storage import get_storage
+        from app.platform.storage.titiler_url import resolve_current_storage_key
+
+        await get_storage().delete(resolve_current_storage_key(owned_staging_key))
+    except Exception:  # broad: best-effort staging cleanup; never fail the task
+        structlog.get_logger().warning(
+            "Failed to delete presigned staging object",
+            job_id=job_id,
+            storage_key=owned_staging_key,
+        )
+
+
 async def _validate_upload_file_safety(
     session,
     *,

@@ -51,6 +51,23 @@ async def abort_presigned_multipart_upload(
         )
 
 
+def raise_if_over_max_upload_size(actual_size: int, max_size_mb: int) -> None:
+    """Raise the canonical oversize 422 for a completed presigned upload.
+
+    Extracted so the pre-copy fast path in the ingest router and the
+    authoritative post-copy check below cannot drift apart: a client that
+    trips either one has to see the same status and the same wording.
+    """
+    if actual_size > max_size_mb * 1024 * 1024:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Uploaded file size ({actual_size / (1024 * 1024):.1f} MB) exceeds "
+                f"the maximum allowed ({max_size_mb} MB)."
+            ),
+        )
+
+
 async def verify_completed_presigned_upload(
     *,
     db: AsyncSession,
@@ -64,17 +81,12 @@ async def verify_completed_presigned_upload(
     """Verify a completed direct-to-object-storage upload before accepting it."""
     actual_size = await storage.size(key)
     max_size_mb = await UPLOAD_MAX_SIZE_MB.get(db)
-    max_size_bytes = max_size_mb * 1024 * 1024
 
-    if actual_size > max_size_bytes:
+    try:
+        raise_if_over_max_upload_size(actual_size, max_size_mb)
+    except HTTPException:
         await _cleanup_presigned_object(storage, key, job_id)
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                f"Uploaded file size ({actual_size / (1024 * 1024):.1f} MB) exceeds "
-                f"the maximum allowed ({max_size_mb} MB)."
-            ),
-        )
+        raise
 
     if expected_size is not None:
         try:

@@ -82,6 +82,28 @@ class LocalStorageProvider:
         path = self._resolve_contained(key)
         return await asyncio.to_thread(path.read_bytes)
 
+    async def copy(self, src_key: str, dst_key: str) -> None:
+        """Copy within the staging root, creating the destination's parents."""
+        src = self._resolve_contained(src_key)
+        dst = self._resolve_contained(dst_key)
+
+        def _copy() -> None:
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+
+        await asyncio.to_thread(_copy)
+
+    async def get_range(self, key: str, start: int, length: int) -> bytes:
+        """Read at most ``length`` bytes from byte offset ``start``."""
+        path = self._resolve_contained(key)
+
+        def _read() -> bytes:
+            with path.open("rb") as fh:
+                fh.seek(start)
+                return fh.read(length)
+
+        return await asyncio.to_thread(_read)
+
     async def get_stream(self, key: str) -> AsyncIterator[bytes]:
         """Stream key bytes in 1 MiB chunks (ING-03 / P2-03).
 
