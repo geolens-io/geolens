@@ -373,7 +373,8 @@ services:
 
   titiler:
     # Third-party image — identical to docker-compose.yml.
-    image: ghcr.io/developmentseed/titiler:2.0.5
+    # 2.2.1 per the 2026-08 reassessment (#1190); see the note there.
+    image: ghcr.io/developmentseed/titiler:2.2.1
     init: true
     restart: unless-stopped
     stop_grace_period: 15s
