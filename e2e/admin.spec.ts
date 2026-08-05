@@ -1,4 +1,18 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
+
+// fix(#1204): the sortable column headers are tabbable buttons sitting between
+// the filter bar and the row toggles, so the first row control is a bounded
+// number of Tabs away from "Clear" rather than exactly one. Tab until the
+// target gains focus; the final assertion still fails loudly if it never does.
+async function tabUntilFocused(page: Page, target: Locator, maxTabs = 12) {
+  for (let i = 0; i < maxTabs; i += 1) {
+    await page.keyboard.press('Tab');
+    if (await target.evaluate((el) => el === document.activeElement).catch(() => false)) {
+      break;
+    }
+  }
+  await expect(target).toBeFocused();
+}
 
 test.describe('Admin Panel', () => {
   test('overview page loads with stats', async ({ page }) => {
@@ -47,8 +61,7 @@ test.describe('Admin Panel', () => {
     await expect(detailsToggle).toBeVisible();
 
     await page.getByRole('button', { name: 'Clear' }).focus();
-    await page.keyboard.press('Tab');
-    await expect(detailsToggle).toBeFocused();
+    await tabUntilFocused(page, detailsToggle);
 
     const jobToggleCount = await detailsToggles.count();
     if (jobToggleCount > 1) {
@@ -104,8 +117,7 @@ test.describe('Admin Panel', () => {
     await expect(firstToggle).toBeVisible();
 
     await page.getByRole('button', { name: 'Clear' }).focus();
-    await page.keyboard.press('Tab');
-    await expect(firstToggle).toBeFocused();
+    await tabUntilFocused(page, firstToggle);
 
     const auditToggleCount = await detailsToggles.count();
     if (auditToggleCount > 1) {
