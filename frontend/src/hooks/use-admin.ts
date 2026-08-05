@@ -74,6 +74,8 @@ export function useAuditLogs(params: {
   search?: string;
   skip?: number;
   limit?: number;
+  sort?: string;
+  order?: string;
 }, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: queryKeys.admin.auditLogs(params),
@@ -102,6 +104,8 @@ export function useAdminJobs(params: {
   search?: string;
   skip?: number;
   limit?: number;
+  sort?: string;
+  order?: string;
 }) {
   return useQuery({
     queryKey: queryKeys.admin.jobs(params),
@@ -262,10 +266,18 @@ export function useAIStatus(options?: { enabled?: boolean }) {
 }
 
 // Share token hooks
-export function useShareTokens(skip = 0, limit = 50, search?: string, status?: string) {
+export function useShareTokens(params: {
+  skip?: number;
+  limit?: number;
+  search?: string;
+  status?: string;
+  sort?: string;
+  order?: string;
+} = {}) {
+  const { skip = 0, limit = 50, search, status, sort, order } = params;
   return useQuery({
-    queryKey: queryKeys.admin.shareTokens(skip, limit, search, status),
-    queryFn: () => listShareTokens({ skip, limit, search, status }),
+    queryKey: queryKeys.admin.shareTokens(skip, limit, search, status, sort, order),
+    queryFn: () => listShareTokens({ skip, limit, search, status, sort, order }),
     placeholderData: keepPreviousData,
   });
 }

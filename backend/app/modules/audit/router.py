@@ -36,8 +36,10 @@ from app.core.db.tenant_session import tenant_job_context
 from app.modules.audit.schemas import (
     AuditLogListResponse,
     AuditLogResponse,
+    AuditSortField,
     ColumnDdlEntry,
     ColumnDdlFeedResponse,
+    SortDirection,
 )
 from app.modules.audit.service import (
     AuditEvent,
@@ -293,10 +295,22 @@ async def list_audit_logs(
     search: str | None = Query(None, max_length=200),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
+    sort: AuditSortField = Query(
+        "created_at",
+        description=(
+            "Column to order by. Resource name is not sortable: it is resolved "
+            "per page after the query, so the database cannot order by it."
+        ),
+    ),
+    order: SortDirection = Query("desc", description="Sort direction."),
     user: Identity = Depends(require_permission("manage_settings")),
     db: AsyncSession = Depends(get_db),
 ) -> AuditLogListResponse:
-    """Query audit logs with optional filters (admin only)."""
+    """Query audit logs with optional filters and sort (admin only).
+
+    `sort` and `order` are closed enums, so an unrecognised value is refused
+    with a 422 and never reaches the query.
+    """
     logs, total = await query_audit_logs(
         db,
         user_id=user_id,
@@ -308,6 +322,8 @@ async def list_audit_logs(
         search=search,
         skip=skip,
         limit=limit,
+        sort=sort,
+        order=order,
     )
     resource_names = await resolve_resource_names(db, logs)
     return AuditLogListResponse(
@@ -352,7 +368,15 @@ async def export_audit_logs(
     user: Identity = Depends(require_permission("manage_settings")),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
-    """Export up to 100,000 audit log rows as CSV or JSON."""
+    """Export up to 100,000 audit log rows as CSV or JSON, newest first."""
+    # fix(#1204): no sort/order here, deliberately. The list endpoint became
+    # sortable and this export shares its FILTER parameters, so the omission
+    # reads like an oversight and is not. The export streams through
+    # stream_audit_logs — a different function from the list's
+    # query_audit_logs, with its own created_at DESC — and an export is an
+    # archive the recipient reorders in their own tool. Adding a sort would
+    # change the row order of every existing consumer's file to no benefit.
+    # Pinned by test_admin_audit_sort.py::test_export_endpoint_takes_no_sort_parameters.
     if format not in FORMAT_HANDLERS:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
 

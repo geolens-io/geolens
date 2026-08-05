@@ -31,10 +31,14 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { DataTablePagination } from '@/components/admin/DataTablePagination';
+import {
+  SortableColumnHeader,
+  type SortDirection,
+} from '@/components/admin/SortableColumnHeader';
 import { DataTableSearch } from '@/components/admin/DataTableSearch';
 import { DataTableSkeleton } from '@/components/admin/DataTableSkeleton';
 import { semanticBadgeColors } from '@/lib/status-colors';
-import { Link } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { Link2Off, ChevronDown, ChevronRight, Key, ShieldOff } from 'lucide-react';
 import { toast } from 'sonner';
 import type { AdminShareTokenResponse, AdminEmbedTokenResponse } from '@/types/api';
@@ -43,6 +47,31 @@ import { paginationRange } from '@/lib/pagination';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 
 const PAGE_SIZE = 50;
+
+/** Mirrors the ShareTokenSortField allowlist on GET /admin/share-tokens/.
+ *  Link status is absent by design: it is derived in Python from is_active
+ *  plus expires_at against now(), so the database has no column to order by.
+ *  A header for it would sort only the visible page, which looks correct and
+ *  is not. */
+const SORTABLE_FIELDS = [
+  'map_name',
+  'embed_token_count',
+  'expires_at',
+  'created_at',
+  'creator',
+] as const;
+type SortField = (typeof SORTABLE_FIELDS)[number];
+
+const DEFAULT_SORT: SortField = 'created_at';
+const DEFAULT_ORDER: SortDirection = 'desc';
+
+function parseSortField(raw: string | null): SortField {
+  return SORTABLE_FIELDS.includes(raw as SortField) ? (raw as SortField) : DEFAULT_SORT;
+}
+
+function parseSortOrder(raw: string | null): SortDirection {
+  return raw === 'desc' || raw === 'asc' ? raw : DEFAULT_ORDER;
+}
 
 type EmbedTokenStatus = 'active' | 'expiring_soon' | 'expired' | 'revoked';
 
@@ -228,8 +257,44 @@ export function AdminSharedMapsPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
+  // Sort lives in the URL so a sorted view is shareable. Sort clicks REPLACE
+  // the history entry rather than pushing — deliberately, per the #1200
+  // review: pushing would make five header clicks cost five Back presses to
+  // leave the page, and it matches JobList's replace-on-refinement pattern
+  // (#1185). The trade is that Back leaves the page instead of stepping
+  // through orderings. An unrecognised ?sort= falls back to the default
+  // rather than erroring the page; the API refuses it independently.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const sortField = parseSortField(searchParams.get('sort'));
+  const sortOrder = parseSortOrder(searchParams.get('order'));
+
+  function handleSort(field: string) {
+    // Compare against the EFFECTIVE field, not the raw param: with no ?sort=
+    // the Created column already renders as the active descending sort, so
+    // clicking it must flip to ascending rather than re-assert descending.
+    const next = sortField === field && sortOrder === 'asc' ? 'desc' : 'asc';
+    setSearchParams(
+      (params) => {
+        params.set('sort', field);
+        params.set('order', next);
+        return params;
+      },
+      { replace: true },
+    );
+    // A new ordering renumbers every page, so page 3 of the old sort names
+    // different rows under the new one.
+    setPage(0);
+  }
+
   const skip = page * PAGE_SIZE;
-  const { data, isLoading, isError } = useShareTokens(skip, PAGE_SIZE, search || undefined, statusFilter || undefined);
+  const { data, isLoading, isError } = useShareTokens({
+    skip,
+    limit: PAGE_SIZE,
+    search: search || undefined,
+    status: statusFilter || undefined,
+    sort: sortField,
+    order: sortOrder,
+  });
   const revoke = useAdminRevokeShareToken();
 
   const total = data?.total ?? 0;
@@ -283,13 +348,46 @@ export function AdminSharedMapsPage() {
           <Table aria-label={t('sharedMaps.title')}>
             <TableHeader>
               <TableRow>
+                {/* The disclosure column has no data to order by. */}
                 <TableHead className="w-10" />
-                <TableHead>{t('sharedMaps.mapName')}</TableHead>
+                <SortableColumnHeader
+                  label={t('sharedMaps.mapName')}
+                  field="map_name"
+                  activeField={sortField}
+                  direction={sortOrder}
+                  onSort={handleSort}
+                />
+                {/* Link status is intentionally not sortable — see
+                    SORTABLE_FIELDS. */}
                 <TableHead>{t('sharedMaps.linkStatus')}</TableHead>
-                <TableHead>{t('sharedMaps.embedTokens')}</TableHead>
-                <TableHead>{t('sharedMaps.expires')}</TableHead>
-                <TableHead>{t('sharedMaps.created')}</TableHead>
-                <TableHead>{t('sharedMaps.creator')}</TableHead>
+                <SortableColumnHeader
+                  label={t('sharedMaps.embedTokens')}
+                  field="embed_token_count"
+                  activeField={sortField}
+                  direction={sortOrder}
+                  onSort={handleSort}
+                />
+                <SortableColumnHeader
+                  label={t('sharedMaps.expires')}
+                  field="expires_at"
+                  activeField={sortField}
+                  direction={sortOrder}
+                  onSort={handleSort}
+                />
+                <SortableColumnHeader
+                  label={t('sharedMaps.created')}
+                  field="created_at"
+                  activeField={sortField}
+                  direction={sortOrder}
+                  onSort={handleSort}
+                />
+                <SortableColumnHeader
+                  label={t('sharedMaps.creator')}
+                  field="creator"
+                  activeField={sortField}
+                  direction={sortOrder}
+                  onSort={handleSort}
+                />
                 <TableHead className="text-end">{t('sharedMaps.actions')}</TableHead>
               </TableRow>
             </TableHeader>

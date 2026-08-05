@@ -2,10 +2,11 @@ import uuid
 from collections.abc import AsyncIterator
 from dataclasses import replace
 from datetime import datetime
+from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, nulls_last, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import aliased, joinedload
 
 from app.platform.audit import (
     AuditEvent,
@@ -59,6 +60,56 @@ async def audit_emit_durable(event: AuditEvent) -> None:
         except BaseException:  # includes stream-task cancellation during shutdown
             await session.rollback()
             raise
+
+
+# Nullable members of the audit sort allowlist. Postgres puts NULLs first on
+# DESC, which would fill the top of a descending "IP address" or "User" view
+# with the rows that have neither. Pinned last in both directions.
+_NULLABLE_AUDIT_SORT_COLUMNS = frozenset({"ip_address", "username"})
+
+
+def _audit_sort_columns(sort_user: Any) -> dict[str, Any]:
+    """Map an allowlisted audit sort key to the expression that orders it.
+
+    Inner half of a two-layer allowlist; the outer half is the AuditSortField
+    Literal in schemas.py, which FastAPI enforces at the boundary. Resolution
+    here is a dict lookup, so a caller-supplied string never reaches SQL.
+
+    `resource_name` is deliberately absent: resolve_resource_names() runs
+    against the page AFTER the query returns, so the database cannot order by
+    it — a header for it would sort the visible page only.
+    """
+    return {
+        "created_at": AuditLog.created_at,
+        "action": AuditLog.action,
+        "resource_type": AuditLog.resource_type,
+        "ip_address": AuditLog.ip_address,
+        "username": sort_user.username,
+    }
+
+
+def _audit_ordering(sort: str, order: str, sort_user: Any) -> list[Any]:
+    """Resolve a sort key/direction pair to ORDER BY clauses.
+
+    Raises ValueError outside the allowlist rather than falling back to the
+    default ordering, so a bad key fails loudly instead of silently serving a
+    differently-ordered page.
+    """
+    column = _audit_sort_columns(sort_user).get(sort)
+    if column is None:
+        raise ValueError(f"Unsupported sort field: {sort!r}")
+    if order not in ("asc", "desc"):
+        raise ValueError(f"Unsupported sort order: {order!r}")
+
+    clause = column.desc() if order == "desc" else column.asc()
+    if sort in _NULLABLE_AUDIT_SORT_COLUMNS:
+        clause = nulls_last(clause)
+
+    # Every sortable audit column admits duplicates, created_at included: one
+    # request can write several rows inside a single transaction. OFFSET paging
+    # over a non-unique key lets Postgres hand back a row on two consecutive
+    # pages; the id tiebreak makes the ordering total.
+    return [clause, AuditLog.id]
 
 
 def _apply_filters(
@@ -169,10 +220,20 @@ async def query_audit_logs(
     search: str | None = None,
     skip: int = 0,
     limit: int = 50,
+    sort: str = "created_at",
+    order: str = "desc",
 ) -> tuple[list[AuditLog], int]:
     """Query audit logs with optional filters and pagination.
 
-    Returns (logs, total_count) ordered by created_at descending.
+    Returns (logs, total_count), ordered by created_at descending unless
+    `sort`/`order` say otherwise. `sort` must be a key of
+    _audit_sort_columns() and `order` one of asc/desc; anything else raises
+    ValueError. The default is the historical ordering and is unchanged.
+
+    fix(#1204): sorting stops here. The CSV/JSON export runs through
+    stream_audit_logs, a separate cursor-based generator with its own
+    created_at DESC ordering, and it was deliberately left alone — see the
+    export endpoint's docstring in router.py.
 
     Uses ``COUNT(*) OVER ()`` so the total count rides along with the
     filtered slice in a single round trip, instead of running a
@@ -194,7 +255,28 @@ async def query_audit_logs(
         snapshot_at=snapshot_at,
         search=search,
     )
-    query = query.order_by(AuditLog.created_at.desc()).offset(skip).limit(limit)
+    # fix(#1204): a dedicated alias rather than the bare User entity, so this
+    # ORDER BY join can never interact with the `users` that _apply_filters
+    # already references in its username search
+    # (`AuditLog.user_id.in_(select(User.id)...)`).
+    #
+    # Measured, so nobody has to re-derive it: joining the bare entity compiles
+    # to the SAME SQL today. SQLAlchemy auto-correlates a subquery against the
+    # enclosing FROM only when doing so leaves it with another FROM, and that
+    # subquery has exactly one. The alias is therefore insurance, not a bug
+    # fix — it keeps the ordering independent of how the filter is written, so
+    # a future filter that joins users instead of sub-selecting cannot quietly
+    # change which rows the search returns.
+    from app.modules.auth.models import User
+
+    sort_user = aliased(User, name="audit_sort_user")
+    if sort == "username":
+        query = query.outerjoin(sort_user, AuditLog.user_id == sort_user.id)
+    query = (
+        query.order_by(*_audit_ordering(sort, order, sort_user))
+        .offset(skip)
+        .limit(limit)
+    )
 
     result = await session.execute(query)
     rows = result.unique().all()

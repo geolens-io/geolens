@@ -133,7 +133,10 @@ export const revokeApiKeyAdminApiKeysKeyIdDelete = <ThrowOnError extends boolean
 /**
  * List Audit Logs
  *
- * Query audit logs with optional filters (admin only).
+ * Query audit logs with optional filters and sort (admin only).
+ *
+ * `sort` and `order` are closed enums, so an unrecognised value is refused
+ * with a 422 and never reaches the query.
  */
 export const listAuditLogsAdminAuditLogsGet = <ThrowOnError extends boolean = false>(options?: Options<ListAuditLogsAdminAuditLogsGetData, ThrowOnError>): RequestResult<ListAuditLogsAdminAuditLogsGetResponses, ListAuditLogsAdminAuditLogsGetErrors, ThrowOnError> => (options?.client ?? client).get<ListAuditLogsAdminAuditLogsGetResponses, ListAuditLogsAdminAuditLogsGetErrors, ThrowOnError>({
     security: [
@@ -152,7 +155,7 @@ export const listAuditLogsAdminAuditLogsGet = <ThrowOnError extends boolean = fa
 /**
  * Download audit records
  *
- * Export up to 100,000 audit log rows as CSV or JSON.
+ * Export up to 100,000 audit log rows as CSV or JSON, newest first.
  */
 export const exportAuditLogsAdminAuditLogsExportFormatGet = <ThrowOnError extends boolean = false>(options: Options<ExportAuditLogsAdminAuditLogsExportFormatGetData, ThrowOnError>): RequestResult<ExportAuditLogsAdminAuditLogsExportFormatGetResponses, ExportAuditLogsAdminAuditLogsExportFormatGetErrors, ThrowOnError> => (options.client ?? client).get<ExportAuditLogsAdminAuditLogsExportFormatGetResponses, ExportAuditLogsAdminAuditLogsExportFormatGetErrors, ThrowOnError>({
     security: [
@@ -273,7 +276,10 @@ export const getInfrastructureAdminInfrastructureGet = <ThrowOnError extends boo
 /**
  * List Admin Jobs
  *
- * List all ingestion jobs with optional status/user/search filters (admin only).
+ * List all ingestion jobs with optional status/user/search/sort filters (admin only).
+ *
+ * `sort` and `order` are closed enums, so an unrecognised value is refused
+ * with a 422 and never reaches the query.
  */
 export const listAdminJobsAdminJobsGet = <ThrowOnError extends boolean = false>(options?: Options<ListAdminJobsAdminJobsGetData, ThrowOnError>): RequestResult<ListAdminJobsAdminJobsGetResponses, ListAdminJobsAdminJobsGetErrors, ThrowOnError> => (options?.client ?? client).get<ListAdminJobsAdminJobsGetResponses, ListAdminJobsAdminJobsGetErrors, ThrowOnError>({
     security: [
@@ -293,6 +299,9 @@ export const listAdminJobsAdminJobsGet = <ThrowOnError extends boolean = false>(
  * List Share Tokens Endpoint
  *
  * List basic share-token inventory with map info; no quotas or domain controls (admin only).
+ *
+ * `sort` and `order` are closed enums, so an unrecognised value is refused
+ * with a 422 and never reaches the query.
  */
 export const listShareTokensEndpointAdminShareTokensGet = <ThrowOnError extends boolean = false>(options?: Options<ListShareTokensEndpointAdminShareTokensGetData, ThrowOnError>): RequestResult<ListShareTokensEndpointAdminShareTokensGetResponses, ListShareTokensEndpointAdminShareTokensGetErrors, ThrowOnError> => (options?.client ?? client).get<ListShareTokensEndpointAdminShareTokensGetResponses, ListShareTokensEndpointAdminShareTokensGetErrors, ThrowOnError>({
     security: [

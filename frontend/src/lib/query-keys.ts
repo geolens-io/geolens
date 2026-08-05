@@ -148,8 +148,18 @@ export const queryKeys = {
     publishedMapCount: ['admin', 'share-tokens', 'count'] as const,
     auditLogCount: ['admin', 'audit-logs', 'count'] as const,
     aiStatus: ['admin', 'ai-status'] as const,
-    shareTokens: (skip: number, limit: number, search?: string, status?: string) =>
-      ['admin', 'share-tokens', skip, limit, search, status] as const,
+    // sort/order belong in the key: two orderings of the same page are
+    // different responses, and sharing a key would serve one for the other.
+    // The jobs/auditLogs keys take the whole params object, so they carry
+    // sort/order without a signature change.
+    shareTokens: (
+      skip: number,
+      limit: number,
+      search?: string,
+      status?: string,
+      sort?: string,
+      order?: string,
+    ) => ['admin', 'share-tokens', skip, limit, search, status, sort, order] as const,
     allShareTokens: ['admin', 'share-tokens'] as const,
     embedTokens: (params: Record<string, unknown>) => ['admin', 'embed-tokens', params] as const,
     allEmbedTokens: ['admin', 'embed-tokens'] as const,

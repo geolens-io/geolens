@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useAuditLogs } from '@/hooks/use-admin';
 import { formatDateTimeSmart } from '@/lib/format';
@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { DataTablePagination } from './DataTablePagination';
+import { SortableColumnHeader, type SortDirection } from './SortableColumnHeader';
 import { DataTableSearch } from './DataTableSearch';
 import { DataTableSkeleton } from './DataTableSkeleton';
 import { ExportSplitButton } from './ExportSplitButton';
@@ -19,6 +20,31 @@ import { ErrorState } from '@/components/layout/ErrorState';
 
 const PAGE_SIZE = 25;
 const UUID_PATTERN = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
+
+/** Mirrors the AuditSortField allowlist on GET /admin/audit-logs/. Resource
+ *  name and resource id are absent by design: the name is resolved per page
+ *  AFTER the query returns, and the id is an opaque uuid nobody orders by.
+ *  A header for the name would sort only the visible page, which looks
+ *  correct and is not. */
+const SORTABLE_FIELDS = [
+  'created_at',
+  'username',
+  'action',
+  'resource_type',
+  'ip_address',
+] as const;
+type SortField = (typeof SORTABLE_FIELDS)[number];
+
+const DEFAULT_SORT: SortField = 'created_at';
+const DEFAULT_ORDER: SortDirection = 'desc';
+
+function parseSortField(raw: string | null): SortField {
+  return SORTABLE_FIELDS.includes(raw as SortField) ? (raw as SortField) : DEFAULT_SORT;
+}
+
+function parseSortOrder(raw: string | null): SortDirection {
+  return raw === 'desc' || raw === 'asc' ? raw : DEFAULT_ORDER;
+}
 
 // fix(#620): resource types with a frontend detail route the name can link to.
 const RESOURCE_ROUTES: Record<string, string> = {
@@ -109,6 +135,16 @@ const CURRENT_AUDIT_ACTIONS = [
 
 export function AuditLogViewer() {
   const { t } = useTranslation('admin');
+  // Sort lives in the URL so a sorted view is shareable. Sort clicks REPLACE
+  // the history entry rather than pushing — deliberately, per the #1200
+  // review: pushing would make five header clicks cost five Back presses to
+  // leave the page, and it matches JobList's replace-on-refinement pattern
+  // (#1185). The trade is that Back leaves the page instead of stepping
+  // through orderings. An unrecognised ?sort= falls back to the default
+  // rather than erroring the page; the API refuses it independently.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const sortField = parseSortField(searchParams.get('sort'));
+  const sortOrder = parseSortOrder(searchParams.get('order'));
   const [action, setAction] = useState('');
   const [userId, setUserId] = useState('');
   const [resourceType, setResourceType] = useState('');
@@ -119,6 +155,24 @@ export function AuditLogViewer() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const toggleRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  function handleSort(field: string) {
+    // Compare against the EFFECTIVE field, not the raw param: with no ?sort=
+    // the Timestamp column already renders as the active descending sort, so
+    // clicking it must flip to ascending rather than re-assert descending.
+    const next = sortField === field && sortOrder === 'asc' ? 'desc' : 'asc';
+    setSearchParams(
+      (params) => {
+        params.set('sort', field);
+        params.set('order', next);
+        return params;
+      },
+      { replace: true },
+    );
+    // A new ordering renumbers every page, so page 3 of the old sort names
+    // different rows under the new one.
+    setPage(0);
+  }
 
   const skip = page * PAGE_SIZE;
   const normalizedUserId = userId.trim();
@@ -144,6 +198,8 @@ export function AuditLogViewer() {
     search: searchQuery || undefined,
     skip,
     limit: PAGE_SIZE,
+    sort: sortField,
+    order: sortOrder,
   }, { enabled: filtersValid });
   // keepPreviousData must not leave a broad prior result visible beside an
   // invalid, visibly populated identity filter.
@@ -385,16 +441,49 @@ export function AuditLogViewer() {
                 <Table aria-label={t('audit.title')} containerFocusable={false}>
                 <TableHeader>
                   <TableRow>
+                    {/* The disclosure column has no data to order by. */}
                     <TableHead className="w-12">
                       <span className="sr-only">{t('audit.table.details', { defaultValue: 'Details' })}</span>
                     </TableHead>
-                    <TableHead>{t('audit.table.timestamp')}</TableHead>
-                    <TableHead>{t('audit.table.user')}</TableHead>
-                    <TableHead>{t('audit.table.action')}</TableHead>
-                    <TableHead>{t('audit.table.resource')}</TableHead>
+                    <SortableColumnHeader
+                      label={t('audit.table.timestamp')}
+                      field="created_at"
+                      activeField={sortField}
+                      direction={sortOrder}
+                      onSort={handleSort}
+                    />
+                    <SortableColumnHeader
+                      label={t('audit.table.user')}
+                      field="username"
+                      activeField={sortField}
+                      direction={sortOrder}
+                      onSort={handleSort}
+                    />
+                    <SortableColumnHeader
+                      label={t('audit.table.action')}
+                      field="action"
+                      activeField={sortField}
+                      direction={sortOrder}
+                      onSort={handleSort}
+                    />
+                    <SortableColumnHeader
+                      label={t('audit.table.resource')}
+                      field="resource_type"
+                      activeField={sortField}
+                      direction={sortOrder}
+                      onSort={handleSort}
+                    />
+                    {/* Resource name and id are intentionally not sortable —
+                        see SORTABLE_FIELDS. */}
                     <TableHead>{t('audit.table.resourceName')}</TableHead>
                     <TableHead>{t('audit.table.resourceId')}</TableHead>
-                    <TableHead>{t('audit.table.ipAddress')}</TableHead>
+                    <SortableColumnHeader
+                      label={t('audit.table.ipAddress')}
+                      field="ip_address"
+                      activeField={sortField}
+                      direction={sortOrder}
+                      onSort={handleSort}
+                    />
                   </TableRow>
                 </TableHeader>
                 <TableBody>

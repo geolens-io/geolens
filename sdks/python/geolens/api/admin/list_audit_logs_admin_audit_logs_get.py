@@ -8,6 +8,12 @@ from ...types import Response, UNSET
 from ... import errors
 
 from ...models.audit_log_list_response import AuditLogListResponse
+from ...models.list_audit_logs_admin_audit_logs_get_order import (
+    ListAuditLogsAdminAuditLogsGetOrder,
+)
+from ...models.list_audit_logs_admin_audit_logs_get_sort import (
+    ListAuditLogsAdminAuditLogsGetSort,
+)
 from ...models.problem_detail import ProblemDetail
 from ...types import Unset
 from uuid import UUID
@@ -25,6 +31,8 @@ def _get_kwargs(
     search: None | str | Unset = UNSET,
     skip: int | Unset = 0,
     limit: int | Unset = 50,
+    sort: ListAuditLogsAdminAuditLogsGetSort | Unset = "created_at",
+    order: ListAuditLogsAdminAuditLogsGetOrder | Unset = "desc",
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
@@ -89,6 +97,18 @@ def _get_kwargs(
     params["skip"] = skip
 
     params["limit"] = limit
+
+    json_sort: str | Unset = UNSET
+    if not isinstance(sort, Unset):
+        json_sort = sort
+
+    params["sort"] = json_sort
+
+    json_order: str | Unset = UNSET
+    if not isinstance(order, Unset):
+        json_order = order
+
+    params["order"] = json_order
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -178,10 +198,15 @@ def sync_detailed(
     search: None | str | Unset = UNSET,
     skip: int | Unset = 0,
     limit: int | Unset = 50,
+    sort: ListAuditLogsAdminAuditLogsGetSort | Unset = "created_at",
+    order: ListAuditLogsAdminAuditLogsGetOrder | Unset = "desc",
 ) -> Response[AuditLogListResponse | ProblemDetail]:
     """List Audit Logs
 
-     Query audit logs with optional filters (admin only).
+     Query audit logs with optional filters and sort (admin only).
+
+    `sort` and `order` are closed enums, so an unrecognised value is refused
+    with a 422 and never reaches the query.
 
     Args:
         user_id (None | Unset | UUID):
@@ -193,6 +218,10 @@ def sync_detailed(
         search (None | str | Unset):
         skip (int | Unset):  Default: 0.
         limit (int | Unset):  Default: 50.
+        sort (ListAuditLogsAdminAuditLogsGetSort | Unset): Column to order by. Resource name is
+            not sortable: it is resolved per page after the query, so the database cannot order by it.
+            Default: 'created_at'.
+        order (ListAuditLogsAdminAuditLogsGetOrder | Unset): Sort direction. Default: 'desc'.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -212,6 +241,8 @@ def sync_detailed(
         search=search,
         skip=skip,
         limit=limit,
+        sort=sort,
+        order=order,
     )
 
     response = client.get_httpx_client().request(
@@ -233,10 +264,15 @@ def sync(
     search: None | str | Unset = UNSET,
     skip: int | Unset = 0,
     limit: int | Unset = 50,
+    sort: ListAuditLogsAdminAuditLogsGetSort | Unset = "created_at",
+    order: ListAuditLogsAdminAuditLogsGetOrder | Unset = "desc",
 ) -> AuditLogListResponse | ProblemDetail | None:
     """List Audit Logs
 
-     Query audit logs with optional filters (admin only).
+     Query audit logs with optional filters and sort (admin only).
+
+    `sort` and `order` are closed enums, so an unrecognised value is refused
+    with a 422 and never reaches the query.
 
     Args:
         user_id (None | Unset | UUID):
@@ -248,6 +284,10 @@ def sync(
         search (None | str | Unset):
         skip (int | Unset):  Default: 0.
         limit (int | Unset):  Default: 50.
+        sort (ListAuditLogsAdminAuditLogsGetSort | Unset): Column to order by. Resource name is
+            not sortable: it is resolved per page after the query, so the database cannot order by it.
+            Default: 'created_at'.
+        order (ListAuditLogsAdminAuditLogsGetOrder | Unset): Sort direction. Default: 'desc'.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -268,6 +308,8 @@ def sync(
         search=search,
         skip=skip,
         limit=limit,
+        sort=sort,
+        order=order,
     ).parsed
 
 
@@ -283,10 +325,15 @@ async def asyncio_detailed(
     search: None | str | Unset = UNSET,
     skip: int | Unset = 0,
     limit: int | Unset = 50,
+    sort: ListAuditLogsAdminAuditLogsGetSort | Unset = "created_at",
+    order: ListAuditLogsAdminAuditLogsGetOrder | Unset = "desc",
 ) -> Response[AuditLogListResponse | ProblemDetail]:
     """List Audit Logs
 
-     Query audit logs with optional filters (admin only).
+     Query audit logs with optional filters and sort (admin only).
+
+    `sort` and `order` are closed enums, so an unrecognised value is refused
+    with a 422 and never reaches the query.
 
     Args:
         user_id (None | Unset | UUID):
@@ -298,6 +345,10 @@ async def asyncio_detailed(
         search (None | str | Unset):
         skip (int | Unset):  Default: 0.
         limit (int | Unset):  Default: 50.
+        sort (ListAuditLogsAdminAuditLogsGetSort | Unset): Column to order by. Resource name is
+            not sortable: it is resolved per page after the query, so the database cannot order by it.
+            Default: 'created_at'.
+        order (ListAuditLogsAdminAuditLogsGetOrder | Unset): Sort direction. Default: 'desc'.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -317,6 +368,8 @@ async def asyncio_detailed(
         search=search,
         skip=skip,
         limit=limit,
+        sort=sort,
+        order=order,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -336,10 +389,15 @@ async def asyncio(
     search: None | str | Unset = UNSET,
     skip: int | Unset = 0,
     limit: int | Unset = 50,
+    sort: ListAuditLogsAdminAuditLogsGetSort | Unset = "created_at",
+    order: ListAuditLogsAdminAuditLogsGetOrder | Unset = "desc",
 ) -> AuditLogListResponse | ProblemDetail | None:
     """List Audit Logs
 
-     Query audit logs with optional filters (admin only).
+     Query audit logs with optional filters and sort (admin only).
+
+    `sort` and `order` are closed enums, so an unrecognised value is refused
+    with a 422 and never reaches the query.
 
     Args:
         user_id (None | Unset | UUID):
@@ -351,6 +409,10 @@ async def asyncio(
         search (None | str | Unset):
         skip (int | Unset):  Default: 0.
         limit (int | Unset):  Default: 50.
+        sort (ListAuditLogsAdminAuditLogsGetSort | Unset): Column to order by. Resource name is
+            not sortable: it is resolved per page after the query, so the database cannot order by it.
+            Default: 'created_at'.
+        order (ListAuditLogsAdminAuditLogsGetOrder | Unset): Sort direction. Default: 'desc'.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -372,5 +434,7 @@ async def asyncio(
             search=search,
             skip=skip,
             limit=limit,
+            sort=sort,
+            order=order,
         )
     ).parsed

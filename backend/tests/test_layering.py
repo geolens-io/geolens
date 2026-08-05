@@ -1568,7 +1568,16 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # could not classify as stranded by a move that did not happen. Most of
         # the lines are why it sits above the branch rather than inside one.
         # Cap 901 -> 914, exact.
-        "backend/app/modules/catalog/maps/service_public.py": 914,
+        # fix(#1204): +66 — sortable column headers on the admin Published Maps
+        # table need list_share_tokens to order by more than the map's
+        # created_at. Most of the lines are _share_token_ordering: the sort
+        # allowlist, the NULLS LAST pinning for creator/expires_at (an outer
+        # join makes every linkless map null there), and why the embed count is
+        # ordered by the COALESCE'd expression the cell renders rather than the
+        # raw aggregate (which is NULL, not 0, for a map with no ACTIVE embed
+        # token — and the count never exceeds 1, per the partial unique index).
+        # Cap 914 -> 983, exact.
+        "backend/app/modules/catalog/maps/service_public.py": 983,
         "backend/app/modules/catalog/search/service_records.py": 500,
         # fix(#448): +~40 LOC — query-embedding hot-path deadline (asyncio.wait_for
         # wrapper) + the gated/approximated vector-only match COUNT in
@@ -1798,7 +1807,10 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # detail + response) and maps the inactive-owner mint refusal to 409.
     # fix(#875): +7 lines — admin key mint accepts scope, and surfaces it
     # in the audit detail, the create response, and the list item.
-    "backend/app/modules/admin/router_operations.py": 296,
+    # fix(#1204): +20 lines — the published-maps listing takes sort/order as
+    # closed enums, with the descriptions that say which columns are absent
+    # (link status) and why.
+    "backend/app/modules/admin/router_operations.py": 316,
     "backend/app/modules/settings/router_public.py": 150,
 }
 

@@ -8,6 +8,10 @@ from ...types import Response, UNSET
 from ... import errors
 
 from ...models.admin_job_list_response import AdminJobListResponse
+from ...models.list_admin_jobs_admin_jobs_get_order import (
+    ListAdminJobsAdminJobsGetOrder,
+)
+from ...models.list_admin_jobs_admin_jobs_get_sort import ListAdminJobsAdminJobsGetSort
 from ...models.problem_detail import ProblemDetail
 from ...types import Unset
 from uuid import UUID
@@ -20,6 +24,8 @@ def _get_kwargs(
     search: None | str | Unset = UNSET,
     skip: int | Unset = 0,
     limit: int | Unset = 50,
+    sort: ListAdminJobsAdminJobsGetSort | Unset = "created_at",
+    order: ListAdminJobsAdminJobsGetOrder | Unset = "desc",
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
@@ -50,6 +56,18 @@ def _get_kwargs(
     params["skip"] = skip
 
     params["limit"] = limit
+
+    json_sort: str | Unset = UNSET
+    if not isinstance(sort, Unset):
+        json_sort = sort
+
+    params["sort"] = json_sort
+
+    json_order: str | Unset = UNSET
+    if not isinstance(order, Unset):
+        json_order = order
+
+    params["order"] = json_order
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -135,10 +153,15 @@ def sync_detailed(
     search: None | str | Unset = UNSET,
     skip: int | Unset = 0,
     limit: int | Unset = 50,
+    sort: ListAdminJobsAdminJobsGetSort | Unset = "created_at",
+    order: ListAdminJobsAdminJobsGetOrder | Unset = "desc",
 ) -> Response[AdminJobListResponse | ProblemDetail]:
     """List Admin Jobs
 
-     List all ingestion jobs with optional status/user/search filters (admin only).
+     List all ingestion jobs with optional status/user/search/sort filters (admin only).
+
+    `sort` and `order` are closed enums, so an unrecognised value is refused
+    with a 422 and never reaches the query.
 
     Args:
         status (None | str | Unset):
@@ -146,6 +169,10 @@ def sync_detailed(
         search (None | str | Unset):
         skip (int | Unset):  Default: 0.
         limit (int | Unset):  Default: 50.
+        sort (ListAdminJobsAdminJobsGetSort | Unset): Column to order by. Duration orders by the
+            completed_at - started_at interval, so unfinished jobs sort last either way. Default:
+            'created_at'.
+        order (ListAdminJobsAdminJobsGetOrder | Unset): Sort direction. Default: 'desc'.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -161,6 +188,8 @@ def sync_detailed(
         search=search,
         skip=skip,
         limit=limit,
+        sort=sort,
+        order=order,
     )
 
     response = client.get_httpx_client().request(
@@ -178,10 +207,15 @@ def sync(
     search: None | str | Unset = UNSET,
     skip: int | Unset = 0,
     limit: int | Unset = 50,
+    sort: ListAdminJobsAdminJobsGetSort | Unset = "created_at",
+    order: ListAdminJobsAdminJobsGetOrder | Unset = "desc",
 ) -> AdminJobListResponse | ProblemDetail | None:
     """List Admin Jobs
 
-     List all ingestion jobs with optional status/user/search filters (admin only).
+     List all ingestion jobs with optional status/user/search/sort filters (admin only).
+
+    `sort` and `order` are closed enums, so an unrecognised value is refused
+    with a 422 and never reaches the query.
 
     Args:
         status (None | str | Unset):
@@ -189,6 +223,10 @@ def sync(
         search (None | str | Unset):
         skip (int | Unset):  Default: 0.
         limit (int | Unset):  Default: 50.
+        sort (ListAdminJobsAdminJobsGetSort | Unset): Column to order by. Duration orders by the
+            completed_at - started_at interval, so unfinished jobs sort last either way. Default:
+            'created_at'.
+        order (ListAdminJobsAdminJobsGetOrder | Unset): Sort direction. Default: 'desc'.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -205,6 +243,8 @@ def sync(
         search=search,
         skip=skip,
         limit=limit,
+        sort=sort,
+        order=order,
     ).parsed
 
 
@@ -216,10 +256,15 @@ async def asyncio_detailed(
     search: None | str | Unset = UNSET,
     skip: int | Unset = 0,
     limit: int | Unset = 50,
+    sort: ListAdminJobsAdminJobsGetSort | Unset = "created_at",
+    order: ListAdminJobsAdminJobsGetOrder | Unset = "desc",
 ) -> Response[AdminJobListResponse | ProblemDetail]:
     """List Admin Jobs
 
-     List all ingestion jobs with optional status/user/search filters (admin only).
+     List all ingestion jobs with optional status/user/search/sort filters (admin only).
+
+    `sort` and `order` are closed enums, so an unrecognised value is refused
+    with a 422 and never reaches the query.
 
     Args:
         status (None | str | Unset):
@@ -227,6 +272,10 @@ async def asyncio_detailed(
         search (None | str | Unset):
         skip (int | Unset):  Default: 0.
         limit (int | Unset):  Default: 50.
+        sort (ListAdminJobsAdminJobsGetSort | Unset): Column to order by. Duration orders by the
+            completed_at - started_at interval, so unfinished jobs sort last either way. Default:
+            'created_at'.
+        order (ListAdminJobsAdminJobsGetOrder | Unset): Sort direction. Default: 'desc'.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -242,6 +291,8 @@ async def asyncio_detailed(
         search=search,
         skip=skip,
         limit=limit,
+        sort=sort,
+        order=order,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -257,10 +308,15 @@ async def asyncio(
     search: None | str | Unset = UNSET,
     skip: int | Unset = 0,
     limit: int | Unset = 50,
+    sort: ListAdminJobsAdminJobsGetSort | Unset = "created_at",
+    order: ListAdminJobsAdminJobsGetOrder | Unset = "desc",
 ) -> AdminJobListResponse | ProblemDetail | None:
     """List Admin Jobs
 
-     List all ingestion jobs with optional status/user/search filters (admin only).
+     List all ingestion jobs with optional status/user/search/sort filters (admin only).
+
+    `sort` and `order` are closed enums, so an unrecognised value is refused
+    with a 422 and never reaches the query.
 
     Args:
         status (None | str | Unset):
@@ -268,6 +324,10 @@ async def asyncio(
         search (None | str | Unset):
         skip (int | Unset):  Default: 0.
         limit (int | Unset):  Default: 50.
+        sort (ListAdminJobsAdminJobsGetSort | Unset): Column to order by. Duration orders by the
+            completed_at - started_at interval, so unfinished jobs sort last either way. Default:
+            'created_at'.
+        order (ListAdminJobsAdminJobsGetOrder | Unset): Sort direction. Default: 'desc'.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -285,5 +345,7 @@ async def asyncio(
             search=search,
             skip=skip,
             limit=limit,
+            sort=sort,
+            order=order,
         )
     ).parsed

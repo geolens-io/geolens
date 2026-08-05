@@ -180,7 +180,7 @@ def sync_detailed(
 ) -> Response[Any | ProblemDetail]:
     """Download audit records
 
-     Export up to 100,000 audit log rows as CSV or JSON.
+     Export up to 100,000 audit log rows as CSV or JSON, newest first.
 
     Args:
         format_ (str):
@@ -235,7 +235,7 @@ def sync(
 ) -> Any | ProblemDetail | None:
     """Download audit records
 
-     Export up to 100,000 audit log rows as CSV or JSON.
+     Export up to 100,000 audit log rows as CSV or JSON, newest first.
 
     Args:
         format_ (str):
@@ -285,7 +285,7 @@ async def asyncio_detailed(
 ) -> Response[Any | ProblemDetail]:
     """Download audit records
 
-     Export up to 100,000 audit log rows as CSV or JSON.
+     Export up to 100,000 audit log rows as CSV or JSON, newest first.
 
     Args:
         format_ (str):
@@ -338,7 +338,7 @@ async def asyncio(
 ) -> Any | ProblemDetail | None:
     """Download audit records
 
-     Export up to 100,000 audit log rows as CSV or JSON.
+     Export up to 100,000 audit log rows as CSV or JSON, newest first.
 
     Args:
         format_ (str):

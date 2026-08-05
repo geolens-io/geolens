@@ -11,12 +11,36 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { DataTablePagination } from './DataTablePagination';
+import { SortableColumnHeader, type SortDirection } from './SortableColumnHeader';
 import { DataTableSearch } from './DataTableSearch';
 import { DataTableSkeleton } from './DataTableSkeleton';
 import { FilterSelect } from './FilterSelect';
 import { ErrorState } from '@/components/layout/ErrorState';
 
 const PAGE_SIZE = 25;
+
+/** Mirrors the JobSortField allowlist on GET /admin/jobs/. The retry control
+ *  is absent by design: it is computed per page after the query, so a header
+ *  for it would sort only the visible page, which looks correct and is not. */
+const SORTABLE_FIELDS = [
+  'created_at',
+  'username',
+  'source_filename',
+  'status',
+  'duration',
+] as const;
+type SortField = (typeof SORTABLE_FIELDS)[number];
+
+const DEFAULT_SORT: SortField = 'created_at';
+const DEFAULT_ORDER: SortDirection = 'desc';
+
+function parseSortField(raw: string | null): SortField {
+  return SORTABLE_FIELDS.includes(raw as SortField) ? (raw as SortField) : DEFAULT_SORT;
+}
+
+function parseSortOrder(raw: string | null): SortDirection {
+  return raw === 'desc' || raw === 'asc' ? raw : DEFAULT_ORDER;
+}
 
 const STATUS_OPTIONS = [
   { value: '', labelKey: 'jobs.filters.allStatuses' },
@@ -69,6 +93,16 @@ export function JobList() {
     },
     [setSearchParams],
   );
+  // Sort lives in the URL alongside status, so a sorted view is shareable.
+  // Sort clicks REPLACE the history entry rather than pushing — deliberately,
+  // per the #1200 review: pushing would make five header clicks cost five Back
+  // presses to leave the page, and it matches this component's own
+  // replace-on-refinement pattern (#1185). The trade is that Back leaves the
+  // page instead of stepping through orderings. An unrecognised ?sort= falls
+  // back to the default rather than erroring; the API refuses it independently.
+  const sortField = parseSortField(searchParams.get('sort'));
+  const sortOrder = parseSortOrder(searchParams.get('order'));
+
   const [userId, setUserId] = useState('');
   const [page, setPage] = useState(0);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -103,6 +137,29 @@ export function JobList() {
     setPage(0);
   }, [locationKey]);
 
+  function handleSort(field: string) {
+    // Compare against the EFFECTIVE field, not the raw param: with no ?sort=
+    // the Created column already renders as the active descending sort, so
+    // clicking it must flip to ascending rather than re-assert descending.
+    const next = sortField === field && sortOrder === 'asc' ? 'desc' : 'asc';
+    // fix(#1204): sorting is a refinement of the current view, so it takes the
+    // same self-write exemption the status dropdown does. Without the flag the
+    // effect above would read this write as an external navigation and clear
+    // the user's search and user filters on every header click.
+    isSelfWrite.current = true;
+    setSearchParams(
+      (params) => {
+        params.set('sort', field);
+        params.set('order', next);
+        return params;
+      },
+      { replace: true },
+    );
+    // A new ordering renumbers every page, so page 3 of the old sort names
+    // different rows under the new one.
+    setPage(0);
+  }
+
   const skip = page * PAGE_SIZE;
 
   const { data, isLoading, error, refetch } = useAdminJobs({
@@ -111,6 +168,8 @@ export function JobList() {
     search: searchQuery || undefined,
     skip,
     limit: PAGE_SIZE,
+    sort: sortField,
+    order: sortOrder,
   });
 
   const { data: userNames } = useUserNames();
@@ -257,14 +316,48 @@ export function JobList() {
                 <Table aria-label={t('jobs.title')} containerFocusable={false}>
                 <TableHeader>
                   <TableRow>
+                    {/* The disclosure column has no data to order by. */}
                     <TableHead className="w-12">
                       <span className="sr-only">{t('jobs.table.details', { defaultValue: 'Details' })}</span>
                     </TableHead>
-                    <TableHead>{t('jobs.table.createdAt')}</TableHead>
-                    <TableHead>{t('jobs.table.user')}</TableHead>
-                    <TableHead>{t('jobs.table.filename')}</TableHead>
-                    <TableHead>{t('jobs.table.status')}</TableHead>
-                    <TableHead>{t('jobs.table.duration')}</TableHead>
+                    <SortableColumnHeader
+                      label={t('jobs.table.createdAt')}
+                      field="created_at"
+                      activeField={sortField}
+                      direction={sortOrder}
+                      onSort={handleSort}
+                    />
+                    <SortableColumnHeader
+                      label={t('jobs.table.user')}
+                      field="username"
+                      activeField={sortField}
+                      direction={sortOrder}
+                      onSort={handleSort}
+                    />
+                    <SortableColumnHeader
+                      label={t('jobs.table.filename')}
+                      field="source_filename"
+                      activeField={sortField}
+                      direction={sortOrder}
+                      onSort={handleSort}
+                    />
+                    <SortableColumnHeader
+                      label={t('jobs.table.status')}
+                      field="status"
+                      activeField={sortField}
+                      direction={sortOrder}
+                      onSort={handleSort}
+                    />
+                    {/* Duration is displayed from started_at/completed_at but
+                        ordered by the same interval in SQL, so the column and
+                        the sort agree. */}
+                    <SortableColumnHeader
+                      label={t('jobs.table.duration')}
+                      field="duration"
+                      activeField={sortField}
+                      direction={sortOrder}
+                      onSort={handleSort}
+                    />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
