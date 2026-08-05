@@ -26,12 +26,14 @@ from app.processing.raster.cog import (
 )
 from app.processing.raster.quicklook import generate_quicklook
 
+from app.platform.jobs.models import owned_presigned_staging_key
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
     _emit_billing_event,
     _job_phase_session,
     _parse_temporal_fields,
     _validate_upload_file_safety,
+    reap_presigned_staging_object,
     task_app,
 )
 
@@ -362,6 +364,8 @@ async def ingest_raster(
     tmp_dir: str | None = None
     original_file_path = file_path
     final_status: str = "pending"
+    # fix(#1202 review r5): captured in phase 1, swept in the finally.
+    owned_staging_key: str | None = None
     # GAP-017: storage keys written BEFORE the terminal DB commit. base_key
     # embeds dataset.id, a flushed-but-uncommitted UUID — if the commit (or any
     # step after the puts) fails the dataset row is rolled back, so delete_dataset
@@ -447,6 +451,9 @@ async def ingest_raster(
             # Snapshot job attributes needed in phase 2 (after CPU work).
             # These plain Python values do not require an attached ORM session.
             um: dict = job.user_metadata or {}
+            owned_staging_key = owned_presigned_staging_key(
+                job.id, job.user_metadata, job.file_path
+            )
             source_filename: str | None = job.source_filename
             _reject_raw_vrt_job(source_filename)
             is_manifest_vrt = _is_manifest_vrt_job(job)
@@ -856,3 +863,12 @@ async def ingest_raster(
             _Path(file_path).unlink(missing_ok=True)
         elif file_path != original_file_path:
             _Path(file_path).unlink(missing_ok=True)
+        # fix(#1202 review r5): sweep the presigned staging key. Raster has no
+        # equivalent of the vector tail's #430 BA-09 block, so before this
+        # nothing on this path ever deleted a storage object the client could
+        # still overwrite — and the stale-job purge is not a backstop here,
+        # because it exempts the newest complete job per dataset, which is
+        # exactly what a successful ingest produces. Shared with the vector
+        # tail so the two cannot drift.
+        if final_status in ("complete", "failed"):
+            await reap_presigned_staging_object(job_id, owned_staging_key)

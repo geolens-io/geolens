@@ -155,3 +155,180 @@ async def test_a_failed_staging_sweep_is_counted_not_raised():
 
     assert reaped.staged_cleanup_failures == 1
     assert reaped.storage_objects_reaped == 0
+
+
+class TestReapPresignedStagingObject:
+    """The shared sweep both task tails call.
+
+    Exercised against a real ``LocalStorageProvider`` rather than by driving
+    ogr2ogr/GDAL, matching ``test_raster_ingest_orphan_cleanup_gap017.py`` —
+    the sibling file that tests the other cleanup in the same ``finally``.
+    """
+
+    async def test_the_owned_key_is_deleted(self, tmp_path, monkeypatch):
+        from app.platform.storage.local import LocalStorageProvider
+        from app.processing.ingest.tasks_common import reap_presigned_staging_object
+
+        storage = LocalStorageProvider(str(tmp_path))
+        monkeypatch.setattr(
+            "app.platform.storage.get_storage", lambda: storage, raising=True
+        )
+        job_id = uuid.uuid4()
+        key = f"staging/{job_id}/roads.geojson"
+        await storage.put(key, b"staged-bytes")
+        assert await storage.exists(key), "precondition: object staged"
+
+        await reap_presigned_staging_object(str(job_id), key)
+
+        assert not await storage.exists(key)
+
+    async def test_none_is_a_no_op_rather_than_a_delete(self, tmp_path, monkeypatch):
+        """A job with nothing of its own to sweep must not reach the provider.
+
+        This is the fan-out child's path: ``owned_presigned_staging_key``
+        returns None for the inherited parent key, and that None must stay a
+        no-op all the way down.
+        """
+        from app.processing.ingest.tasks_common import reap_presigned_staging_object
+
+        storage = AsyncMock()
+        monkeypatch.setattr(
+            "app.platform.storage.get_storage", lambda: storage, raising=True
+        )
+
+        await reap_presigned_staging_object("job-1", None)
+
+        storage.delete.assert_not_awaited()
+
+    async def test_a_provider_failure_never_escapes(self, monkeypatch):
+        """The tail runs in a `finally` after the job is committed. Raising
+        here would turn a completed ingest into a task failure."""
+        from app.processing.ingest.tasks_common import reap_presigned_staging_object
+
+        storage = AsyncMock()
+        storage.delete.side_effect = RuntimeError("provider down")
+        monkeypatch.setattr(
+            "app.platform.storage.get_storage", lambda: storage, raising=True
+        )
+
+        await reap_presigned_staging_object("job-1", "staging/job-1/roads.geojson")
+
+        storage.delete.assert_awaited_once()
+
+
+def test_both_task_tails_sweep_through_the_shared_helper():
+    """Neither ingest path may grow its own copy of the sweep.
+
+    The raster tail was added a round after the vector one precisely because
+    the two had drifted; this catches a third path arriving without the sweep,
+    or either call being deleted outright.
+
+    KNOWN BLIND SPOT, stated so nobody mistakes this for reachability: it
+    greps the module source, so a call that is PRESENT but UNREACHABLE passes.
+    Measured — disabling the raster sweep with `if False:` left this test
+    green. ``test_failed_raster_ingest_sweeps_its_presigned_staging_object``
+    is the one that fails in that case, and it is the one to trust.
+    """
+    import inspect
+
+    from app.processing.ingest import tasks_raster, tasks_vector
+
+    for module in (tasks_vector, tasks_raster):
+        source = inspect.getsource(module)
+        assert "reap_presigned_staging_object(" in source, (
+            f"{module.__name__} does not sweep the presigned staging key"
+        )
+        assert "owned_presigned_staging_key(" in source, (
+            f"{module.__name__} does not resolve staging-key ownership"
+        )
+
+
+def _geotiff_bytes(*, crs=None) -> bytes:
+    """Minimal in-memory GeoTIFF. Mirrors the copy in test_raster_ingest.py."""
+    import io
+
+    import numpy as np
+    from rasterio.io import MemoryFile
+    from rasterio.transform import from_bounds
+
+    profile = {
+        "driver": "GTiff",
+        "dtype": "uint8",
+        "width": 32,
+        "height": 32,
+        "count": 1,
+        "transform": from_bounds(-180, -90, 180, 90, 32, 32),
+    }
+    if crs is not None:
+        profile["crs"] = crs
+    buf = io.BytesIO()
+    with MemoryFile() as mem:
+        with mem.open(**profile) as ds:
+            ds.write(np.zeros((32, 32), dtype="uint8"), 1)
+        buf.write(mem.read())
+    return buf.getvalue()
+
+
+async def test_failed_raster_ingest_sweeps_its_presigned_staging_object(
+    test_db_session, tmp_path, monkeypatch
+) -> None:
+    """The raster tail, driven for real rather than asserted structurally.
+
+    A structural "does the module mention the helper" check cannot fail when
+    the call is present but unreachable — disabling the sweep left it green.
+    This runs ``ingest_raster`` to its terminal ``finally`` (via the CRS
+    failure, the cheapest deterministic one) and asserts the object is gone.
+    """
+    from sqlalchemy import select
+
+    from app.modules.auth.models import User
+    from app.platform.jobs.models import IngestJob
+    from app.platform.storage.local import LocalStorageProvider
+    from app.processing.ingest.tasks_raster import ingest_raster
+
+    bucket = tmp_path / "bucket"
+    bucket.mkdir()
+    storage = LocalStorageProvider(str(bucket))
+    monkeypatch.setattr(
+        "app.platform.storage.get_storage", lambda: storage, raising=True
+    )
+
+    raster = tmp_path / "dem.tif"
+    raster.write_bytes(_geotiff_bytes(crs=None))
+
+    admin = (
+        await test_db_session.execute(select(User).where(User.username == "admin"))
+    ).scalar_one()
+
+    job = IngestJob(
+        source_filename="dem.tif",
+        # What a presigned completion leaves: bound to the FROZEN copy, with
+        # the client-writable staging key surviving only in metadata.
+        file_path=str(raster),
+        created_by=admin.id,
+        status="pending",
+        user_metadata={"file_type": "raster", "presigned": True},
+    )
+    test_db_session.add(job)
+    await test_db_session.commit()
+    await test_db_session.refresh(job)
+
+    staging_key = f"staging/{job.id}/dem.tif"
+    job.user_metadata = {**job.user_metadata, "s3_key": staging_key}
+    await test_db_session.commit()
+
+    await storage.put(staging_key, b"the-client-uploaded-bytes")
+    assert await storage.exists(staging_key), "precondition: staging object present"
+
+    with pytest.raises(ValueError, match="Provide a CRS override"):
+        await ingest_raster.func(
+            job_id=str(job.id),
+            file_path=str(raster),
+            user_id=str(admin.id),
+            attempt_id=str(job.attempt_id),
+        )
+
+    assert not await storage.exists(staging_key), (
+        "a failed raster ingest left its presigned staging object behind; "
+        "nothing else reaps it (the stale purge exempts latest-complete)"
+    )

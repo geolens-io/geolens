@@ -21,6 +21,7 @@ from app.platform.jobs.heartbeat import (
 from app.processing.ingest.metadata import _qtable
 from app.processing.ingest.tasks_common import (
     IngestContext,
+    reap_presigned_staging_object,
     _append_job_warning,
     _archive_original_file,
     _bind_task_log_context,
@@ -730,26 +731,13 @@ async def ingest_file(
                     storage_key=original_file_path,
                 )
 
-        # fix(#1202 review r5): sweep the presigned staging key too. After a
-        # presigned completion the job points at the frozen copy, so the block
-        # above never touches the key the client still holds a PUT URL for —
-        # and a post-completion re-PUT recreates an object that escapes size
-        # and quota accounting. `owned_presigned_staging_key` returns it only
-        # when this job is the one that presigned it, so a fan-out child (which
-        # inherits the parent's metadata) cannot delete the shared original.
-        if final_status in ("complete", "failed") and owned_staging_key:
-            try:
-                from app.platform.storage import get_storage
-
-                await get_storage().delete(
-                    resolve_current_storage_key(owned_staging_key)
-                )
-            except Exception:  # broad: best-effort staging cleanup; never fail the task
-                structlog.get_logger().warning(
-                    "Failed to delete presigned staging object",
-                    job_id=job_id,
-                    storage_key=owned_staging_key,
-                )
+        # fix(#1202 review r5): sweep the presigned staging key too. The block
+        # above only reaps `original_file_path`, which after a presigned
+        # completion is the FROZEN copy — so the key the client still holds a
+        # PUT URL for was never touched. Shared with the raster tail so the
+        # two cannot drift.
+        if final_status in ("complete", "failed"):
+            await reap_presigned_staging_object(job_id, owned_staging_key)
 
 
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.ingest_service"])

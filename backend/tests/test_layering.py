@@ -1986,7 +1986,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # UPDATE before reading anything the guard depends on. The rest is the
     # comment explaining why get_job_or_404 deliberately stays unlocked.
     # Cap 1672 -> 1698, exact.
-    "backend/app/processing/ingest/router.py": 1698,
+    # fix(#1202 review r5b): +5 — the sweep comment named its reapers and went
+    # stale the moment the raster tail was added. It now points at
+    # `owned_presigned_staging_key` as the grep-able registry and records that
+    # the stale purge is a backstop only (it exempts the newest complete job
+    # per dataset). Cap 1698 -> 1703, exact.
+    "backend/app/processing/ingest/router.py": 1703,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
@@ -2002,7 +2007,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # correction fixes `_run_staging_pipeline`'s own docstring, which claimed
     # `_ingest_vector_into_staging` was the "new ingests" caller.
     # Ratchet stays exact.
-    "backend/app/processing/ingest/tasks_common.py": 1671,
+    # fix(#1202 review r5b): +32 — `reap_presigned_staging_object`, the shared
+    # sweep. The vector tail had it inline; raster needed the same block, and
+    # two copies of a best-effort delete in a PR about doors that drifted
+    # would have been the same mistake one level down. Cap 1671 -> 1703, exact.
+    "backend/app/processing/ingest/tasks_common.py": 1703,
     # --- entered by the inclusion rule, fix(#958) -------------------------
     # These five were the ungated modules at or above _RATCHET_INCLUSION_LOC
     # when the rule was written. They arrive at their measured size with no
@@ -2016,7 +2025,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # reaper never touched the key the client's PUT URL can still recreate.
     # Ownership comes from owned_presigned_staging_key, which refuses a
     # fan-out child's inherited parent key. Cap 1058 -> 1087, exact.
-    "backend/app/processing/ingest/tasks_vector.py": 1087,
+    # fix(#1202 review r5b): -12 — that block moved to
+    # `tasks_common.reap_presigned_staging_object` so the raster tail could
+    # share it. Ratchet DOWN in the same commit, per the no-headroom rule.
+    # Cap 1087 -> 1075, exact.
+    "backend/app/processing/ingest/tasks_vector.py": 1075,
     "backend/app/modules/auth/oauth/service.py": 1031,
     # fix(#1113 review): +15 — register_existing_table linearizes a
     # pre-existing geom_4326 (savepoint + error contract mirroring the

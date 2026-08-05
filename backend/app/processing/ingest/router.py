@@ -567,12 +567,17 @@ async def complete_presigned_upload(
     #
     # Past this line the staging object has served its purpose. A delete
     # failure here, or a late re-PUT through the still-valid URL, leaves an
-    # orphan that nothing reads. Both staging reapers sweep it at job end via
-    # `user_metadata["s3_key"]` (tasks_vector.py's post-ingest cleanup and
-    # jobs/router.py's stale-job purge, both through
-    # `owned_presigned_staging_key`), so the residual window is completion to
-    # reap, not forever. S3 cannot revoke an individual presigned URL, so
-    # reaping is the only real remedy.
+    # orphan that nothing reads.
+    #
+    # It is swept at job end by whichever terminal reaper owns the job. Every
+    # one of them resolves the key through `owned_presigned_staging_key`, so
+    # grep that name for the current set rather than trusting a list here —
+    # this comment has already gone stale once by naming them. The stale-job
+    # purge is a backstop, not a guarantee: it exempts the newest complete job
+    # per dataset, which is exactly what a successful ingest leaves behind, so
+    # a path with no task-level reaper would keep its orphan indefinitely.
+    # S3 cannot revoke an individual presigned URL, so reaping is the only
+    # real remedy.
     await _cleanup_saved_upload(s3_key, str(job.id))
 
     return UploadResponse(
