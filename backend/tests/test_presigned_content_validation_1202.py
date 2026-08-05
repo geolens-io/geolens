@@ -13,10 +13,13 @@ that only tightens refusals lets the false-positive half regress silently.
 
 from __future__ import annotations
 
+import asyncio
+import uuid
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from fastapi import HTTPException
 
 from app.core.config import settings
 
@@ -812,3 +815,103 @@ async def test_a_failed_job_cannot_be_completed_by_a_late_reput(
     assert both_doors.copies == [], (
         "no frozen object may be created for a job no task will ever run"
     )
+
+
+class TestFinalizeCleanupContract:
+    """fix(#1213 review r5): the two failure-path holes, at the helper.
+
+    Driven against `finalize_presigned_object` directly rather than through a
+    door, because both are about which objects survive which exit — the
+    postconditions its docstring promises — and neither depends on routing.
+    """
+
+    @staticmethod
+    def _storage_with(objects: dict) -> _FakeS3Storage:
+        storage = _FakeS3Storage()
+        storage.objects.update(objects)
+        return storage
+
+    async def test_a_pre_copy_refusal_also_drops_a_prior_frozen_copy(
+        self, test_db_session, monkeypatch
+    ) -> None:
+        """Attempt 1 froze and then lost its commit — by design both objects
+        stay so the retry can re-copy. If the retry trips the size gate, the
+        earlier frozen copy is unbound, unreferenced and unreaped."""
+        from app.core.persistent_config import UPLOAD_MAX_SIZE_MB
+        from app.processing.ingest.presigned import finalize_presigned_object
+
+        job_id = uuid.uuid4()
+        staging_key = f"staging/{job_id}/roads.geojson"
+        frozen_key = f"staging/{job_id}/frozen/roads.geojson"
+        storage = self._storage_with(
+            {staging_key: b"\x00" * 4096, frozen_key: _VALID_GEOJSON}
+        )
+
+        with patch.object(UPLOAD_MAX_SIZE_MB, "get", AsyncMock(return_value=0)):
+            with pytest.raises(HTTPException) as exc:
+                await finalize_presigned_object(
+                    db=test_db_session,
+                    storage=storage,
+                    job_id=job_id,
+                    logical_key=staging_key,
+                    expected_size=4096,
+                    filename="roads.geojson",
+                    user_id=uuid.uuid4(),
+                    request=MagicMock(),
+                )
+
+        assert exc.value.status_code == 422
+        assert "exceeds the maximum allowed" in str(exc.value.detail)
+        assert staging_key not in storage.objects
+        assert frozen_key not in storage.objects, (
+            "the frozen copy from the earlier attempt survived a pre-copy "
+            "refusal — nothing else reaps it once the job is terminal"
+        )
+
+    async def test_a_cancelled_first_delete_still_drops_the_staging_object(
+        self, test_db_session, monkeypatch
+    ) -> None:
+        """A rejection deletes BOTH objects in sequence. A CancelledError
+        escaping the first would leave the staging object alive — handing the
+        client back the bytes just refused, which is the hole the rejection
+        block exists to close. v1.8.0's `_cleanup_saved_upload` swallowed
+        BaseException for exactly this (KISS-N9); the extraction lost it.
+        """
+        from app.processing.ingest.presigned import finalize_presigned_object
+
+        job_id = uuid.uuid4()
+        staging_key = f"staging/{job_id}/roads.geojson"
+        storage = self._storage_with({staging_key: _GIF_PAYLOAD})
+
+        real_delete = storage.delete
+        calls = {"n": 0}
+
+        async def _cancel_first_delete(key: str) -> None:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise asyncio.CancelledError()
+            await real_delete(key)
+
+        # Patched on the instance so the real `_cleanup_presigned_object`
+        # runs — a stand-in for the helper would not exercise its except
+        # clause, which is the thing under test.
+        monkeypatch.setattr(storage, "delete", _cancel_first_delete)
+
+        with pytest.raises(HTTPException) as exc:
+            await finalize_presigned_object(
+                db=test_db_session,
+                storage=storage,
+                job_id=job_id,
+                logical_key=staging_key,
+                expected_size=len(_GIF_PAYLOAD),
+                filename="roads.geojson",
+                user_id=uuid.uuid4(),
+                request=MagicMock(),
+            )
+
+        assert exc.value.status_code == 422
+        assert calls["n"] >= 2, "the second delete never ran"
+        assert staging_key not in storage.objects, (
+            "a cancellation during the frozen delete left the refused staging "
+            "bytes addressable through the client's still-valid PUT URL"
+        )

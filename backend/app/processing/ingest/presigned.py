@@ -28,9 +28,26 @@ logger = structlog.get_logger(__name__)
 async def _cleanup_presigned_object(
     storage: StorageProvider, key: str, job_id: uuid.UUID
 ) -> None:
+    """Best-effort rollback delete of one presigned object.
+
+    fix(#1213 review r5): drains, and swallows BaseException. Swallowing a
+    CancelledError is normally an anti-pattern; here it is deliberate rollback
+    semantics, carried over from `_cleanup_saved_upload` in v1.8.0's router
+    (KISS-N9), which this helper replaced when the completion sequence was
+    extracted. Two callers below delete BOTH objects in sequence on a
+    deliberate refusal, and a cancellation escaping the first would leave the
+    staging object alive — handing the client back the very bytes just
+    refused, which is the hole the rejection block exists to close.
+
+    Draining matters for the same reason it does at the freeze: the delete
+    runs in an SDK thread a client disconnect cannot stop, so returning early
+    would abandon it mid-call.
+    """
     try:
-        await storage.delete(key)
-    except Exception:  # broad: cleanup is best-effort after a rejected upload
+        await await_draining(storage.delete(key))
+    except (
+        BaseException
+    ):  # broad: rollback must complete through cancellation (KISS-N9)
         logger.warning(
             "presigned_upload_cleanup_failed",
             s3_key=key,
@@ -355,15 +372,25 @@ async def finalize_presigned_object(
     # ONLY: the client can swell the object between this measurement and the
     # copy, which is exactly why the post-copy check below stays authoritative.
     # Do not remove that one on the strength of this one.
+    frozen_key = frozen_staging_key(logical_key)
+    physical_frozen_key = resolve_current_storage_key(frozen_key)
+
     staging_size = await storage.size(physical_key)
     try:
         raise_if_over_max_upload_size(staging_size, await UPLOAD_MAX_SIZE_MB.get(db))
     except HTTPException:
+        # fix(#1213 review r5): drop any frozen copy a PRIOR attempt left, not
+        # just the staging object. The caller's commit failing after a
+        # successful freeze deliberately keeps both objects so the retry can
+        # re-copy — and if that retry then trips this gate (the client re-PUT
+        # something oversized, or the limit was lowered), the earlier frozen
+        # copy is unbound, unreferenced and, on the reupload door, attached to
+        # a job the 422 marks failed: terminal, no task, no reaper. The key is
+        # derived, not remembered, so this needs no state; deleting one that
+        # was never created is already this helper's tolerated case.
+        await _cleanup_presigned_object(storage, physical_frozen_key, job_id)
         await _cleanup_presigned_object(storage, physical_key, job_id)
         raise
-
-    frozen_key = frozen_staging_key(logical_key)
-    physical_frozen_key = resolve_current_storage_key(frozen_key)
 
     # Drained, because the copy runs in an SDK thread a client disconnect
     # cannot stop: returning early would leave it writing a frozen object no
