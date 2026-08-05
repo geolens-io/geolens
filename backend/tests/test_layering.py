@@ -1928,9 +1928,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Cap 2143 -> 2147, still exact.
     "backend/app/processing/ingest/metadata.py": 2151,
     # ingest/router.py is also scanned by the router-glob gate; this exact
-    # ratchet overrides its 1500 default so the remaining ~18-line runway to
-    # the cliff cannot be spent silently.
-    "backend/app/processing/ingest/router.py": 1493,
+    # ratchet overrides its 1500 default so the remaining runway to the cliff
+    # cannot be spent silently.
+    # fix(#1186): -20 — _stamp_raster_metadata gave up its download-and-
+    # validate half. It exists to set the `file_type` discriminator, and
+    # bundling a full-object CRS download into that is what kept
+    # complete_presigned_upload from calling it at all. `crs_missing` is
+    # derived in ingest_raster now, from metadata that task already reads.
+    # Cap 1493 -> 1473, still exact.
+    "backend/app/processing/ingest/router.py": 1473,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901

@@ -179,7 +179,8 @@ async def test_upload_commit_failure_cleans_owned_staged_file(tmp_path):
         patch.object(router, "create_ingest_job", AsyncMock(return_value=job)),
         patch.object(router, "save_upload_file", AsyncMock(return_value=staged)),
         patch.object(router, "validate_file_content"),
-        patch.object(router, "_stamp_raster_metadata", AsyncMock()),
+        # fix(#1186): _stamp_raster_metadata is a synchronous filename check now.
+        patch.object(router, "_stamp_raster_metadata", MagicMock()),
         patch.object(router, "_cleanup_saved_upload", cleanup),
     ):
         with pytest.raises(HTTPException) as exc:

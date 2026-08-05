@@ -419,6 +419,11 @@ async def complete_presigned_upload(
     )
 
     job.file_path = s3_key
+    # fix(#1186): the presigned path never stamped file_type, and on an S3
+    # deployment the frontend always uploads through it — so every GeoTIFF
+    # fell through to the vector branch: 422 at preview, a vector commit body
+    # after that, and an ogr2ogr dispatch after that.
+    _stamp_raster_metadata(job, job.source_filename)
     await db.commit()
 
     return UploadResponse(
@@ -454,49 +459,25 @@ async def _cleanup_saved_upload(
         )
 
 
-async def _stamp_raster_metadata(
-    job: "IngestJob",
-    saved_path: Path | str,
-    filename: str | None,
-) -> None:
-    """Perform raster CRS validation and stamp job.user_metadata accordingly.
+def _stamp_raster_metadata(job: "IngestJob", filename: str | None) -> None:
+    """Stamp ``user_metadata["file_type"] = "raster"`` from the filename.
 
-    Non-fatal: missing CRS is acceptable at upload time (the user can supply
-    srid_override at commit time). This helper isolates the raster-specific
-    branch from the main upload flow (KISS-N9).
+    ``file_type`` is the raster discriminator for three consumers — the
+    preview branch below, ``_pick_commit_subclass``, and the ingest dispatch
+    in ``queue_ingest_job`` — so every upload endpoint has to set it before
+    the job is previewable or committable.
+
+    fix(#1186): this used to download the whole object and run
+    ``validate_raster_crs``, which is exactly why ``complete_presigned_upload``
+    never called it — presigned uploads exist for the multi-GB case, and the
+    completion request cannot afford a full-object download (preview downloads
+    the same object seconds later anyway). The only reader of the resulting
+    ``crs_missing`` flag is ``ingest_raster``, which has the raster's metadata
+    in hand and now derives the answer there. So the stamp costs no I/O and
+    both upload endpoints can afford it.
     """
-    lower_filename = (filename or "").lower()
-    if not lower_filename.endswith((".tif", ".tiff", ".vrt")):
+    if not (filename or "").lower().endswith((".tif", ".tiff", ".vrt")):
         return
-
-    from app.processing.raster.cog import validate_raster_crs
-
-    raster_check_path: str | None = None
-    downloaded: Path | None = None
-    if isinstance(saved_path, Path):
-        raster_check_path = str(saved_path)
-    else:
-        try:
-            raster_check_path = await resolve_file_path(str(saved_path), str(job.id))
-            downloaded = Path(raster_check_path)
-        except (
-            Exception
-        ):  # broad: S3 download can fail for network/auth/key-not-found reasons
-            raster_check_path = None
-
-    if raster_check_path:
-        try:
-            await asyncio.to_thread(validate_raster_crs, raster_check_path)
-        except ValueError:
-            # Allow CRS-missing rasters through; user can provide
-            # srid_override at commit time. Store flag for ingest_raster.
-            job.user_metadata = {
-                **(job.user_metadata or {}),
-                "crs_missing": True,
-            }
-        finally:
-            if downloaded is not None:
-                downloaded.unlink(missing_ok=True)
 
     job.user_metadata = {**(job.user_metadata or {}), "file_type": "raster"}
 
@@ -557,8 +538,7 @@ async def upload_file(
                     detail=str(exc),
                 ) from exc
 
-            # Raster-specific CRS validation — reject files without valid CRS at upload time
-            await _stamp_raster_metadata(job, saved_path, file.filename)
+            _stamp_raster_metadata(job, file.filename)
 
             job.file_path = str(saved_path)
             await db.commit()
