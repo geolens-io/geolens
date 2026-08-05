@@ -35,7 +35,9 @@ class DatasetMeta:
             lineage_summary (None | str | Unset): Free-text provenance / lineage statement
             owner_org (None | str | Unset): Owning organization name
             quality_statement (None | str | Unset):
-            record_status (None | str | Unset): Lifecycle status: draft, ready, published
+            record_status (None | str | Unset): Lifecycle status. Deliberately not pinned to an enum: the values come from
+                the workflow extension's status_order(), so an overlay may define its own. Community default order: draft,
+                ready, internal, published.
             sensitivity_classification (None | str | Unset): e.g. public, confidential, restricted
             source_organization (None | str | Unset):
             source_url (None | str | Unset): URL the data was originally fetched from

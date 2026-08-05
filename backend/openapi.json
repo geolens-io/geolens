@@ -4819,7 +4819,7 @@
                 "type": "null"
               }
             ],
-            "description": "Lifecycle status: draft, ready, published",
+            "description": "Lifecycle status. Deliberately not pinned to an enum: the values come from the workflow extension's status_order(), so an overlay may define its own. Community default order: draft, ready, internal, published.",
             "title": "Record Status"
           },
           "sensitivity_classification": {
@@ -5419,7 +5419,7 @@
           },
           "record_status": {
             "default": "draft",
-            "description": "Lifecycle status: draft, ready, published",
+            "description": "Lifecycle status. Deliberately not pinned to an enum: the values come from the workflow extension's status_order(), so an overlay may define its own. Community default order: draft, ready, internal, published.",
             "title": "Record Status",
             "type": "string"
           },
@@ -37210,7 +37210,7 @@
     },
     "/datasets/{dataset_id}/status/": {
       "patch": {
-        "description": "Transition a dataset's publication status following allowed paths.\n\nAllowed transitions:\n  draft -> ready -> internal -> published (and back one step).",
+        "description": "Transition a dataset's publication status following allowed paths.\n\nThe allowed set comes from the workflow extension's\nallowed_transitions(), so an overlay may define its own. The community\ndefault is draft -> ready -> internal -> published (and back one step).",
         "operationId": "update_publication_status_datasets__dataset_id__status__patch",
         "parameters": [
           {
@@ -37364,7 +37364,7 @@
     },
     "/datasets/{dataset_id}/target-status/": {
       "patch": {
-        "description": "Walk the publication chain from current status to target in one request.\n\nExecutes each intermediate transition so the full chain\n(e.g. draft -> ready -> internal -> published) completes server-side.",
+        "description": "Walk the publication chain from current status to target in one request.\n\nExecutes each intermediate transition so the full chain completes\nserver-side. The order comes from the workflow extension's\nstatus_order(), so an overlay may define its own; the community default\nis draft -> ready -> internal -> published.",
         "operationId": "set_target_status_datasets__dataset_id__target_status__patch",
         "parameters": [
           {

@@ -2877,7 +2877,7 @@ export type DatasetMeta = {
     /**
      * Record Status
      *
-     * Lifecycle status: draft, ready, published
+     * Lifecycle status. Deliberately not pinned to an enum: the values come from the workflow extension's status_order(), so an overlay may define its own. Community default order: draft, ready, internal, published.
      */
     record_status?: string | null;
     /**
@@ -3180,7 +3180,7 @@ export type DatasetResponse = {
     /**
      * Record Status
      *
-     * Lifecycle status: draft, ready, published
+     * Lifecycle status. Deliberately not pinned to an enum: the values come from the workflow extension's status_order(), so an overlay may define its own. Community default order: draft, ready, internal, published.
      */
     record_status?: string;
     /**

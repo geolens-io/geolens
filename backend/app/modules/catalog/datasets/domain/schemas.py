@@ -335,7 +335,13 @@ class DatasetResponse(BaseModel):
     collections: list["CollectionRef"] | None = None
     # ISO governance fields
     record_status: str = Field(
-        default="draft", description="Lifecycle status: draft, ready, published"
+        default="draft",
+        description=(
+            "Lifecycle status. Deliberately not pinned to an enum: the values "
+            "come from the workflow extension's status_order(), so an overlay "
+            "may define its own. Community default order: draft, ready, "
+            "internal, published."
+        ),
     )
     lineage_summary: str | None = Field(
         default=None, description="Free-text provenance / lineage statement"
@@ -517,7 +523,12 @@ class DatasetMeta(BaseModel):
     record_status: str | None = Field(
         default=None,
         max_length=20,
-        description="Lifecycle status: draft, ready, published",
+        description=(
+            "Lifecycle status. Deliberately not pinned to an enum: the values "
+            "come from the workflow extension's status_order(), so an overlay "
+            "may define its own. Community default order: draft, ready, "
+            "internal, published."
+        ),
     )
     owner_org: str | None = Field(
         default=None, max_length=1000, description="Owning organization name"

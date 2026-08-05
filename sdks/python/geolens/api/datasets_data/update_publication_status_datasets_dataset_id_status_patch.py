@@ -116,8 +116,9 @@ def sync_detailed(
 
      Transition a dataset's publication status following allowed paths.
 
-    Allowed transitions:
-      draft -> ready -> internal -> published (and back one step).
+    The allowed set comes from the workflow extension's
+    allowed_transitions(), so an overlay may define its own. The community
+    default is draft -> ready -> internal -> published (and back one step).
 
     Args:
         dataset_id (UUID):
@@ -153,8 +154,9 @@ def sync(
 
      Transition a dataset's publication status following allowed paths.
 
-    Allowed transitions:
-      draft -> ready -> internal -> published (and back one step).
+    The allowed set comes from the workflow extension's
+    allowed_transitions(), so an overlay may define its own. The community
+    default is draft -> ready -> internal -> published (and back one step).
 
     Args:
         dataset_id (UUID):
@@ -185,8 +187,9 @@ async def asyncio_detailed(
 
      Transition a dataset's publication status following allowed paths.
 
-    Allowed transitions:
-      draft -> ready -> internal -> published (and back one step).
+    The allowed set comes from the workflow extension's
+    allowed_transitions(), so an overlay may define its own. The community
+    default is draft -> ready -> internal -> published (and back one step).
 
     Args:
         dataset_id (UUID):
@@ -220,8 +223,9 @@ async def asyncio(
 
      Transition a dataset's publication status following allowed paths.
 
-    Allowed transitions:
-      draft -> ready -> internal -> published (and back one step).
+    The allowed set comes from the workflow extension's
+    allowed_transitions(), so an overlay may define its own. The community
+    default is draft -> ready -> internal -> published (and back one step).
 
     Args:
         dataset_id (UUID):

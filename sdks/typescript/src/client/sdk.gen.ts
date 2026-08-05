@@ -2679,8 +2679,9 @@ export const getDatasetRowsEndpointDatasetsDatasetIdRowsGet = <ThrowOnError exte
  *
  * Transition a dataset's publication status following allowed paths.
  *
- * Allowed transitions:
- * draft -> ready -> internal -> published (and back one step).
+ * The allowed set comes from the workflow extension's
+ * allowed_transitions(), so an overlay may define its own. The community
+ * default is draft -> ready -> internal -> published (and back one step).
  */
 export const updatePublicationStatusDatasetsDatasetIdStatusPatch = <ThrowOnError extends boolean = false>(options: Options<UpdatePublicationStatusDatasetsDatasetIdStatusPatchData, ThrowOnError>): RequestResult<UpdatePublicationStatusDatasetsDatasetIdStatusPatchResponses, UpdatePublicationStatusDatasetsDatasetIdStatusPatchErrors, ThrowOnError> => (options.client ?? client).patch<UpdatePublicationStatusDatasetsDatasetIdStatusPatchResponses, UpdatePublicationStatusDatasetsDatasetIdStatusPatchErrors, ThrowOnError>({
     security: [
@@ -2705,8 +2706,10 @@ export const updatePublicationStatusDatasetsDatasetIdStatusPatch = <ThrowOnError
  *
  * Walk the publication chain from current status to target in one request.
  *
- * Executes each intermediate transition so the full chain
- * (e.g. draft -> ready -> internal -> published) completes server-side.
+ * Executes each intermediate transition so the full chain completes
+ * server-side. The order comes from the workflow extension's
+ * status_order(), so an overlay may define its own; the community default
+ * is draft -> ready -> internal -> published.
  */
 export const setTargetStatusDatasetsDatasetIdTargetStatusPatch = <ThrowOnError extends boolean = false>(options: Options<SetTargetStatusDatasetsDatasetIdTargetStatusPatchData, ThrowOnError>): RequestResult<SetTargetStatusDatasetsDatasetIdTargetStatusPatchResponses, SetTargetStatusDatasetsDatasetIdTargetStatusPatchErrors, ThrowOnError> => (options.client ?? client).patch<SetTargetStatusDatasetsDatasetIdTargetStatusPatchResponses, SetTargetStatusDatasetsDatasetIdTargetStatusPatchErrors, ThrowOnError>({
     security: [

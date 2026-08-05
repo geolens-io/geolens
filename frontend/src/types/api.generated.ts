@@ -2484,8 +2484,9 @@ export interface paths {
          * Update Publication Status
          * @description Transition a dataset's publication status following allowed paths.
          *
-         *     Allowed transitions:
-         *       draft -> ready -> internal -> published (and back one step).
+         *     The allowed set comes from the workflow extension's
+         *     allowed_transitions(), so an overlay may define its own. The community
+         *     default is draft -> ready -> internal -> published (and back one step).
          */
         patch: operations["update_publication_status_datasets__dataset_id__status__patch"];
         trace?: never;
@@ -2507,8 +2508,10 @@ export interface paths {
          * Set Target Status
          * @description Walk the publication chain from current status to target in one request.
          *
-         *     Executes each intermediate transition so the full chain
-         *     (e.g. draft -> ready -> internal -> published) completes server-side.
+         *     Executes each intermediate transition so the full chain completes
+         *     server-side. The order comes from the workflow extension's
+         *     status_order(), so an overlay may define its own; the community default
+         *     is draft -> ready -> internal -> published.
          */
         patch: operations["set_target_status_datasets__dataset_id__target_status__patch"];
         trace?: never;
@@ -7086,7 +7089,7 @@ export interface components {
             quality_statement?: string | null;
             /**
              * Record Status
-             * @description Lifecycle status: draft, ready, published
+             * @description Lifecycle status. Deliberately not pinned to an enum: the values come from the workflow extension's status_order(), so an overlay may define its own. Community default order: draft, ready, internal, published.
              */
             record_status?: string | null;
             /**
@@ -7314,7 +7317,7 @@ export interface components {
             record_id: string;
             /**
              * Record Status
-             * @description Lifecycle status: draft, ready, published
+             * @description Lifecycle status. Deliberately not pinned to an enum: the values come from the workflow extension's status_order(), so an overlay may define its own. Community default order: draft, ready, internal, published.
              * @default draft
              */
             record_status: string;

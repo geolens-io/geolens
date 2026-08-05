@@ -168,8 +168,16 @@ export type RecordType =
   | 'service'
   | 'collection'
   | 'table';
+// Mirrors backend chk_records_visibility CHECK constraint
+// (catalog/datasets/domain/models.py:35). Keep in sync if values change.
 export type DatasetVisibility = 'public' | 'internal' | 'restricted' | 'private';
-export type RecordStatus = 'draft' | 'published';
+/** fix(#1183): deliberately NOT a union. Unlike `visibility`, `record_status`
+ *  has no CHECK constraint backing it — the values come from the workflow
+ *  extension's `status_order()`, so an overlay may define its own. This was
+ *  typed `'draft' | 'published'`, which made the two community statuses it
+ *  omitted (`ready`, `internal`) a compile error to handle. Community default
+ *  order: draft, ready, internal, published. */
+export type RecordStatus = string;
 export type DistributionType = 'download' | 'ogc_features' | 'vector_tiles';
 
 /** Response returned by dataset publication-status mutation endpoints. */

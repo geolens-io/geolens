@@ -1998,7 +1998,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1178 review): +9 for the same field on StatusUpdateResponse — the
     # publication status endpoints run the disclosure check too, so their
     # response carries it. 1147 -> 1156.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1156,
+    # fix(#1183): +11 for the two record_status descriptions. Both said
+    # "draft, ready, published" — three values, omitting `internal`, and
+    # phrased as a closed set when `record_status` has no CHECK constraint
+    # and its values come from the workflow extension's status_order(). The
+    # wording now names the seam first and the community default second, so a
+    # reader cannot mistake the list for the contract. This is the SOURCE the
+    # SDKs and api.generated.ts are generated from, and #1184 already shipped
+    # a `^(draft|ready|published)$` validator read straight off it. 1156 ->
+    # 1167.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1167,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch
