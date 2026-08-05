@@ -375,7 +375,6 @@ from .manifest_contact import ManifestContact
 from .manifest_dataset import ManifestDataset
 from .manifest_metadata import ManifestMetadata
 from .manifest_publication import ManifestPublication
-from .manifest_publication_intent import ManifestPublicationIntent
 from .manifest_source import ManifestSource
 from .manifest_source_type import ManifestSourceType
 from .map_access_response import MapAccessResponse
@@ -1002,7 +1001,6 @@ __all__ = (
     "ManifestDataset",
     "ManifestMetadata",
     "ManifestPublication",
-    "ManifestPublicationIntent",
     "ManifestSource",
     "ManifestSourceType",
     "MapAccessResponse",

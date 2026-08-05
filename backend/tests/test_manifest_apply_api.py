@@ -164,15 +164,32 @@ class TestManifestApplySchemas:
         assert "datasets" in str(exc.value)
         assert "at most 100 items" in str(exc.value)
 
-    def test_rejects_unsupported_publication_intent(self):
+    def test_publication_intent_is_not_pinned_to_an_enum(self):
+        """fix(#1201): the request schema cannot know the live status set.
+
+        An intent is a catalog record_status, and those come from the workflow
+        extension's status_order() (#1183) — an enum here rejected an
+        overlay-defined status the API itself accepts. The live set is checked
+        at apply time; the schema keeps only the shape bounds.
+        """
         payload = valid_manifest_payload()
-        payload["datasets"][0]["publication"]["intent"] = "external"
+        payload["datasets"][0]["publication"]["intent"] = "approval_required"
+
+        request = ManifestApplyRequest.model_validate(payload)
+
+        assert request.datasets[0].publication.intent == "approval_required"
+
+    @pytest.mark.parametrize("intent", ["", "x" * 21])
+    def test_rejects_publication_intent_outside_the_record_status_bounds(
+        self, intent: str
+    ):
+        payload = valid_manifest_payload()
+        payload["datasets"][0]["publication"]["intent"] = intent
 
         with pytest.raises(ValidationError) as exc:
             ManifestApplyRequest.model_validate(payload)
 
-        assert "draft" in str(exc.value)
-        assert "published" in str(exc.value)
+        assert "publication.intent" in str(exc.value)
 
 
 class TestManifestApplyEndpoint:

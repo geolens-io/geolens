@@ -8520,12 +8520,9 @@
         "additionalProperties": false,
         "properties": {
           "intent": {
-            "enum": [
-              "draft",
-              "ready",
-              "internal",
-              "published"
-            ],
+            "description": "Publication intent. Deliberately not pinned to an enum: the values come from the workflow extension's status_order(), so an overlay may define its own, and apply validates against the live extension. Community default order: draft, ready, internal, published.",
+            "maxLength": 20,
+            "minLength": 1,
             "title": "Intent",
             "type": "string"
           }

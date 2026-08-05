@@ -4992,8 +4992,10 @@ export type ManifestMetadata = {
 export type ManifestPublication = {
     /**
      * Intent
+     *
+     * Publication intent. Deliberately not pinned to an enum: the values come from the workflow extension's status_order(), so an overlay may define its own, and apply validates against the live extension. Community default order: draft, ready, internal, published.
      */
-    intent: 'draft' | 'ready' | 'internal' | 'published';
+    intent: string;
 };
 
 /**

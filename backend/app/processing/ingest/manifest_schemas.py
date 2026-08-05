@@ -174,7 +174,24 @@ class ManifestMetadata(_ManifestBaseModel):
 
 
 class ManifestPublication(_ManifestBaseModel):
-    intent: Literal["draft", "ready", "internal", "published"]
+    # fix(#1201): deliberately NOT a Literal. A manifest intent is a catalog
+    # record_status, and that set is open — the values come from the workflow
+    # extension's status_order(), so an overlay may define its own (#1183).
+    # A frozen enum here meant the API accepted an overlay-defined status
+    # while the manifest layer 422'd it. The live set is checked at apply
+    # time by `validate_publication_intent` in manifest_sources.py. The
+    # 20-character bound matches the record_status column (String(20)).
+    intent: str = Field(
+        min_length=1,
+        max_length=20,
+        description=(
+            "Publication intent. Deliberately not pinned to an enum: the "
+            "values come from the workflow extension's status_order(), so an "
+            "overlay may define its own, and apply validates against the live "
+            "extension. Community default order: draft, ready, internal, "
+            "published."
+        ),
+    )
 
 
 class ManifestDataset(_ManifestBaseModel):
