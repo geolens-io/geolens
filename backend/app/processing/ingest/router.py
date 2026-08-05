@@ -352,31 +352,8 @@ async def complete_presigned_upload(
     db: AsyncSession = Depends(get_db),
 ) -> UploadResponse:
     """Notify that direct-to-S3 upload is complete."""
-    # Runtime import: the module-scope one is TYPE_CHECKING-only.
-    from app.platform.jobs.models import IngestJob
-
     job = await get_job_or_404(db, job_id, user)
-
-    # fix(#1202 review r5): re-fetch under a row lock before reading anything
-    # the one-shot guard depends on. That guard was an UNLOCKED read: two
-    # overlapping completions both saw an empty `file_path` and proceeded, and
-    # because the frozen key is derived deterministically they raced over the
-    # same object — the loser's refusal path deletes BOTH objects while the
-    # winner commits `file_path` pointing at one of them, binding the job to
-    # nothing. Bad bytes still never got bound, but a refusal was destroying
-    # state a concurrent accept depended on.
-    #
-    # The lock is held until this handler's commit or rollback, so the second
-    # request blocks and then reads the committed `file_path` and takes the
-    # 400 below. It locks one row, so completions of DIFFERENT jobs are
-    # untouched. `get_job_or_404` stays unlocked — its other callers are reads
-    # that must not serialize behind a completion.
-    job = await db.get(IngestJob, job_id, with_for_update=True)
-    if job is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job not found",
-        )
+    job = await lock_presigned_job(db, job_id)
     um = job.user_metadata or {}
 
     if not um.get("presigned"):
@@ -634,6 +611,43 @@ def _stamp_raster_metadata(job: "IngestJob", filename: str | None) -> None:
         return
 
     job.user_metadata = {**(job.user_metadata or {}), "file_type": "raster"}
+
+
+async def lock_presigned_job(db: AsyncSession, job_id: uuid.UUID) -> "IngestJob":
+    """Re-fetch a job under a row lock, with attributes reloaded from the row.
+
+    fix(#1202 review r5, r9): the one-shot guard reads `file_path`, and the
+    property it needs is TWO-PART. Both halves are load-bearing and each was
+    got wrong once:
+
+    1. The SELECT must LOCK. Without `with_for_update` two overlapping
+       completions both saw an empty `file_path` and proceeded, racing over
+       the same deterministically-derived frozen key: the loser's refusal
+       deletes both objects while the winner commits a binding to one of them.
+
+    2. The read must be FRESH. `with_for_update` alone serializes without
+       informing — SQLAlchemy keeps the already-loaded attributes on the
+       identity-map instance, and the caller's authz fetch loaded this row
+       BEFORE the competing request committed. Measured, not inferred: without
+       `populate_existing` the re-fetch returns the stale empty `file_path`
+       and the guard passes on a job that was already completed. The r5 test
+       pinned only half of this (that a FOR UPDATE statement reached the
+       driver), which is why the second half survived four review rounds.
+
+    The lock is held to the caller's commit or rollback, and it is one row, so
+    completions of different jobs never serialize against each other.
+    `get_job_or_404` deliberately stays unlocked — its other callers are reads
+    that must not queue behind a completion.
+    """
+    from app.platform.jobs.models import IngestJob
+
+    job = await db.get(IngestJob, job_id, with_for_update=True, populate_existing=True)
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found",
+        )
+    return job
 
 
 # Trailing PAR1 magic that validate_parquet_file seeks to from the end.

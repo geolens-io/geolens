@@ -1991,7 +1991,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `owned_presigned_staging_key` as the grep-able registry and records that
     # the stale purge is a backstop only (it exempts the newest complete job
     # per dataset). Cap 1698 -> 1703, exact.
-    "backend/app/processing/ingest/router.py": 1703,
+    # fix(#1202 review r9): +14 — the locked re-fetch became
+    # `lock_presigned_job`, whose docstring records that the property is
+    # TWO-part: the SELECT must lock AND the read must be fresh. Without
+    # populate_existing the lock serialized without informing, and the r5 test
+    # pinned only the first half, which is why the second survived four
+    # rounds. Extracting it also stops a test reimplementing the call and
+    # passing while the handler diverges. Cap 1703 -> 1717, exact.
+    "backend/app/processing/ingest/router.py": 1717,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901

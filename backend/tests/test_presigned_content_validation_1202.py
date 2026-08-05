@@ -679,3 +679,73 @@ async def test_completion_locks_the_job_row_before_reading_file_path(
         f"{[s for s in statements if 'ingest_jobs' in s][:5]}"
     )
     assert any("ingest_jobs" in s for s in locking), locking
+
+
+async def test_the_locked_refetch_reads_the_committed_file_path(
+    test_db_session,
+) -> None:
+    """fix(#1202 review r9): the lock must INFORM, not just serialize.
+
+    The r5 pin proves a `FOR UPDATE` statement reaches the database. It does
+    NOT prove the handler then reads the committed value: SQLAlchemy does not
+    overwrite already-loaded attributes on an identity-map instance unless
+    told to, and the handler's authz fetch loads the row BEFORE the competing
+    request commits. If the locked re-fetch returned the cached `file_path`,
+    the one-shot guard would pass on a job that was already completed — the
+    lock would serialize and race identically.
+
+    Two sessions, no interleaving needed: session 1 loads the row (the authz
+    fetch), a separate session commits a binding (the winning request), then
+    session 1 does exactly what the handler does and we read the attribute.
+    """
+    from sqlalchemy import select, update
+
+    from app.core import db as db_module
+    from app.modules.auth.models import User
+    from app.platform.jobs.models import IngestJob
+    from app.processing.ingest.router import lock_presigned_job
+
+    admin = (
+        await test_db_session.execute(select(User).where(User.username == "admin"))
+    ).scalar_one()
+    job = IngestJob(
+        source_filename="roads.geojson",
+        created_by=admin.id,
+        status="pending",
+        file_path="",
+        user_metadata={"presigned": True},
+    )
+    test_db_session.add(job)
+    await test_db_session.commit()
+    await test_db_session.refresh(job)
+    job_id = job.id
+    bound_path = f"staging/{job_id}/frozen/roads.geojson"
+
+    async with db_module.async_session() as request_session:
+        # The unlocked authz fetch, exactly as get_job_or_404 does it.
+        loaded = (
+            await request_session.execute(
+                select(IngestJob).where(IngestJob.id == job_id)
+            )
+        ).scalar_one()
+        assert loaded.file_path == "", "precondition: unbound when first read"
+
+        # The winning request commits its binding on another connection.
+        async with db_module.async_session() as other_session:
+            await other_session.execute(
+                update(IngestJob)
+                .where(IngestJob.id == job_id)
+                .values(file_path=bound_path)
+            )
+            await other_session.commit()
+
+        # The handler's OWN helper, not a copy of it — a local
+        # reimplementation would keep passing if the handler dropped
+        # populate_existing, which is exactly the regression this guards.
+        relocked = await lock_presigned_job(request_session, job_id)
+
+    assert relocked.file_path == bound_path, (
+        "the locked re-fetch returned a STALE file_path — the one-shot guard "
+        "would pass on an already-completed job, so the lock serializes "
+        "without informing"
+    )
