@@ -92,6 +92,7 @@ from app.processing.ingest.presigned import (
     abort_presigned_multipart_upload,
     finalize_presigned_object,
     lock_presigned_job,
+    require_completable_presigned_job,
     should_assemble_multipart,
 )
 from app.processing.ingest.tasks import regenerate_vrt
@@ -362,20 +363,11 @@ async def complete_presigned_upload(
             detail="Job is not a presigned upload",
         )
 
-    # fix(#1202 review): completion is ONE-SHOT, keyed off resolved state.
-    # `file_path` is created empty and set only by a completion that made it
-    # all the way through, so its presence is the fact "these bytes were
-    # accepted" — no metadata flag to rotate and no window to race. Without
-    # this, a second call re-copies the staging key (still writable through
-    # the client's PUT URL) over the frozen bytes the first 200 accepted, or
-    # rejects and deletes both objects out from under a job that already
-    # points at them. Same class as the TOCTOU: client-writable state
-    # re-entering after acceptance.
-    if job.file_path:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Upload already completed for this job",
-        )
+    # fix(#1213 review r3): both one-shot facts, shared with the reupload door.
+    # An abandoned presigned upload is marked failed by the stale-pending
+    # reaper after an hour — the same hour its PUT URL stays valid — so this
+    # door reaches the terminal-job case without ever stamping it itself.
+    require_completable_presigned_job(job, restart_hint="Start a new upload.")
 
     storage = get_storage()
     s3_key = um["s3_key"]

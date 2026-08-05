@@ -1690,7 +1690,8 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # fix(#1207): +15 — three delegations for the shared presigned-completion
         # helpers (lock/assemble-check/finalize) the reupload door reaches through
         # the port. Three lines each, matching the existing entries.
-        "backend/app/platform/extensions/defaults_catalog_port.py": 413,
+        # fix(#1213 review r3): +7 — the completability guard's delegation.
+        "backend/app/platform/extensions/defaults_catalog_port.py": 420,
         # feat(#683): +58 — run_analysis_preview carries a clip mask DATASET
         # now, which costs a widened signature (one param per line once ruff
         # wraps it) plus the mask's shape and size gates. Those live here on
@@ -2004,7 +2005,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1207): -194 — the completion sequence moved to presigned.py so the
     # reupload door could share it. Ratchet DOWN in the same commit, per the
     # no-headroom rule. Cap 1717 -> 1523, exact.
-    "backend/app/processing/ingest/router.py": 1523,
+    # fix(#1213 review r3): -8 — the one-shot block became a call to the
+    # shared require_completable_presigned_job, which owns both facts.
+    "backend/app/processing/ingest/router.py": 1515,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901

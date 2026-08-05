@@ -136,6 +136,13 @@ def both_reupload_doors(monkeypatch, tmp_path):
         yield storage
 
 
+def frozen_key_absent(storage, job_id: str) -> bool:
+    """No `staging/{job}/frozen/...` object exists for this job."""
+    return not any(
+        key.startswith(f"staging/{job_id}/frozen/") for key in storage.objects
+    )
+
+
 async def _admin_id(session) -> uuid.UUID:
     from app.modules.auth.models import User
 
@@ -601,3 +608,69 @@ async def test_a_successful_reupload_deletes_the_frozen_object_too(
     assert not await storage.exists(staging_key), (
         "the client-writable original should still be swept as well"
     )
+
+
+async def test_a_failed_job_cannot_be_completed_by_a_late_reput(
+    client, admin_auth_header, test_db_session, both_reupload_doors
+) -> None:
+    """fix(#1213 review r3): the second one-shot fact — terminal status.
+
+    A content refusal stamps `status="failed"` with `file_path` still empty, so
+    a guard that checks only `file_path` lets the client re-PUT and complete
+    again. That call used to 200 and bind a frozen object, while preview and
+    commit refused the row for being already processed: the 200 is a lie, the
+    recovery path is dead, and the frozen object is unowned — no task tail runs
+    for a job nothing was deferred for.
+    """
+    dataset = await _create_dataset(
+        test_db_session, created_by=await _admin_id(test_db_session)
+    )
+
+    refused, job_id, staging_key = await _presigned_reupload(
+        client,
+        admin_auth_header,
+        both_reupload_doors,
+        dataset.id,
+        "update.geojson",
+        _GIF_PAYLOAD,
+    )
+    assert refused.status_code == 422, refused.text
+
+    job = (
+        await test_db_session.execute(
+            select(IngestJob).where(IngestJob.id == uuid.UUID(job_id))
+        )
+    ).scalar_one()
+    await test_db_session.refresh(job)
+    assert job.status == "failed", "precondition: the refusal stamped the trail"
+    assert not job.file_path, "precondition: nothing was bound"
+
+    # The refused attempt legitimately froze before validation rejected it and
+    # then deleted both objects, so baseline the copy log rather than assuming
+    # it is empty — the claim is that the RETRY creates nothing new.
+    copies_before = len(both_reupload_doors.copies)
+
+    # The client re-PUTs good bytes through its still-valid URL and retries.
+    both_reupload_doors.objects[staging_key] = _VALID_GEOJSON
+    retry = await client.post(
+        f"/datasets/{dataset.id}/reupload/presigned/{job_id}/complete",
+        json={},
+        headers=admin_auth_header,
+    )
+
+    assert retry.status_code == 400, retry.text
+    assert "already failed" in retry.json()["detail"].lower()
+    assert "start the reupload again" in retry.json()["detail"].lower()
+
+    await test_db_session.refresh(job)
+    assert not job.file_path, "a failed job must not end up bound"
+    assert len(both_reupload_doors.copies) == copies_before, (
+        "no frozen object may be created for a job no task will ever run"
+    )
+    # The client's own re-PUT object survives, and should: the guard refuses
+    # before the handler touches storage, so nothing here ever owned those
+    # bytes. The post-expiry sweep reaps them once the PUT URL is dead — the
+    # job carries `s3_key` and is terminal, which is exactly that pass's
+    # candidate set.
+    assert staging_key in both_reupload_doors.objects
+    assert frozen_key_absent(both_reupload_doors, job_id)

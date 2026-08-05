@@ -74,6 +74,10 @@ class CatalogPort(Protocol):
         self, storage: Any, um: dict, physical_key: str
     ) -> bool: ...
 
+    def require_completable_presigned_job(
+        self, job: Any, *, restart_hint: str
+    ) -> None: ...
+
     async def finalize_presigned_object(
         self,
         *,

@@ -749,3 +749,66 @@ async def test_the_locked_refetch_reads_the_committed_file_path(
         "would pass on an already-completed job, so the lock serializes "
         "without informing"
     )
+
+
+async def test_a_failed_job_cannot_be_completed_by_a_late_reput(
+    client, admin_auth_header, test_db_session, both_doors
+) -> None:
+    """fix(#1213 review r3): the second one-shot fact, on this door too.
+
+    The upload door never stamps `failed` itself, so it reaches this state by
+    a different route: the stale-pending reaper marks an abandoned presigned
+    job failed after an hour — the same hour its PUT URL stays valid, so the
+    windows overlap. A guard checking only `file_path` then lets a late
+    completion 200 and bind a frozen object to a job no task will ever run for,
+    which nothing reaps: the task tails never fire, and the post-expiry sweep
+    covers only the client's key, not the frozen one.
+    """
+    from sqlalchemy import select, update
+
+    from app.platform.jobs.models import IngestJob
+
+    resp = await client.post(
+        "/ingest/upload/presigned",
+        json={
+            "filename": "roads.geojson",
+            "file_size": len(_VALID_GEOJSON),
+            "content_type": "application/octet-stream",
+        },
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    both_doors.objects[body["s3_key"]] = _VALID_GEOJSON
+
+    # What the stale-pending reaper leaves behind: terminal, still unbound.
+    await test_db_session.execute(
+        update(IngestJob)
+        .where(IngestJob.id == body["job_id"])
+        .values(
+            status="failed",
+            error_message="Stale: pending for over 1 hour (never queued)",
+        )
+    )
+    await test_db_session.commit()
+
+    completion = await client.post(
+        f"/ingest/upload/presigned/{body['job_id']}/complete",
+        json={},
+        headers=admin_auth_header,
+    )
+
+    assert completion.status_code == 400, completion.text
+    assert "already failed" in completion.json()["detail"].lower()
+    assert "start a new upload" in completion.json()["detail"].lower()
+
+    job = (
+        await test_db_session.execute(
+            select(IngestJob).where(IngestJob.id == body["job_id"])
+        )
+    ).scalar_one()
+    await test_db_session.refresh(job)
+    assert not job.file_path, "a failed job must not end up bound"
+    assert both_doors.copies == [], (
+        "no frozen object may be created for a job no task will ever run"
+    )

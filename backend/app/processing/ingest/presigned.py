@@ -158,6 +158,47 @@ async def lock_presigned_job(db: AsyncSession, job_id: uuid.UUID) -> "IngestJob"
     return job
 
 
+def require_completable_presigned_job(job: "IngestJob", *, restart_hint: str) -> None:
+    """Refuse a completion the job can no longer legitimately accept.
+
+    fix(#1213 review r3): completion is one-shot, and "one-shot" has TWO
+    resolved-state facts, not one. Both doors checked only the first.
+
+    1. `file_path` set — the bytes were accepted. A second call would re-freeze
+       whatever now sits at the staging key, which the client's unexpired PUT
+       URL controls.
+
+    2. status `failed` — the job is terminal and no task will ever run for it.
+       Without this a client could re-PUT after a content refusal and complete
+       again: the endpoint 200s and binds a frozen object, but the row stays
+       failed, so preview and commit then reject it with "Job already
+       processed". The 200 is a lie, the client's recovery path is dead, and
+       the frozen object is unowned — no task tail fires for a job nothing was
+       deferred for, and the post-expiry sweep only covers the client's key.
+
+    The two doors reach state 2 by different routes, which is why this guard
+    belongs to both: the reupload door stamps `failed` itself before a content
+    422 (its direct sibling does, and a provenance test asserts that trail),
+    while an abandoned presigned upload is marked failed by the stale-pending
+    reaper after an hour — the same hour the PUT URL stays valid, so the
+    windows overlap.
+
+    REJECT rather than resurrect. Reviving a failed job would re-open the
+    client-writable-state-re-entering class this endpoint spent ten rounds
+    closing, and the product already has the answer: start again.
+    """
+    if job.file_path:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Upload already completed for this job",
+        )
+    if job.status == "failed":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"This job has already failed and cannot be completed. {restart_hint}",
+        )
+
+
 async def should_assemble_multipart(
     storage: StorageProvider, um: dict, physical_key: str
 ) -> bool:

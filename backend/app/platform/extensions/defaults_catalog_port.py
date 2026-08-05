@@ -96,6 +96,13 @@ class DefaultCatalogPort:
 
         return await should_assemble_multipart(storage, um, physical_key)
 
+    def require_completable_presigned_job(self, job, *, restart_hint):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.presigned import (
+            require_completable_presigned_job,
+        )
+
+        return require_completable_presigned_job(job, restart_hint=restart_hint)
+
     async def finalize_presigned_object(self, **kwargs):  # type: ignore[no-untyped-def]
         from app.processing.ingest.presigned import finalize_presigned_object
 

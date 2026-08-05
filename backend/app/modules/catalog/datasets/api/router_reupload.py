@@ -858,16 +858,13 @@ async def complete_presigned_reupload(
             detail="Job is not a presigned upload",
         )
 
-    # fix(#1207): completion is ONE-SHOT, keyed off resolved state. `file_path`
-    # is created empty by the presign request and set only by a completion that
-    # ran to the end, so its presence is the fact "these bytes were accepted".
-    # Without it a second call re-freezes whatever now sits at the staging key,
-    # which the client's unexpired PUT URL controls.
-    if job.file_path:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Upload already completed for this job",
-        )
+    # fix(#1213 review r3): both one-shot facts, shared with the upload door.
+    # This door stamps `failed` itself before a content 422 (below), so without
+    # the status half a client could re-PUT and complete again: a 200 that
+    # binds a frozen object to a row preview and commit will refuse.
+    get_catalog_port().require_completable_presigned_job(
+        job, restart_hint="Start the reupload again."
+    )
 
     storage = get_storage()
     s3_key = um["s3_key"]
