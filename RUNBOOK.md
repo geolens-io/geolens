@@ -132,6 +132,62 @@ If your deployment offloads objects to an external S3/R2/GCS bucket, that bucket
 lifecycle policy is responsible for its own backup; GeoLens does not back up
 external object stores.
 
+### Abandoned multipart uploads (bucket hygiene)
+
+A client that starts a presigned multipart upload and walks away — never
+completing, never aborting — leaves uploaded parts consuming bucket storage
+indefinitely. Until `CompleteMultipartUpload` runs, no object exists at the
+target key, so the application's staging sweeps cannot see the parts (they
+enumerate objects), and the app itself only aborts an upload on an explicit
+failed or empty completion. Cleaning these up is a bucket-level job.
+
+Recommended policy: **abort incomplete multipart uploads after 1 day.**
+Presigned part URLs expire after 2 hours, so nothing legitimate is still
+uploading a day after initiation.
+
+**AWS S3** — apply an `AbortIncompleteMultipartUpload` lifecycle rule:
+
+```bash
+# WARNING: put-bucket-lifecycle-configuration REPLACES the bucket's entire
+# lifecycle configuration. If the bucket already has rules, fetch them first
+# and add this rule to the existing "Rules" list:
+#   aws s3api get-bucket-lifecycle-configuration --bucket <your-bucket>
+aws s3api put-bucket-lifecycle-configuration --bucket <your-bucket> \
+  --lifecycle-configuration '{
+    "Rules": [
+      {
+        "ID": "abort-abandoned-multipart-uploads",
+        "Status": "Enabled",
+        "Filter": {},
+        "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 }
+      }
+    ]
+  }'
+```
+
+**MinIO** — do NOT reach for `mc ilm` here. The `mc ilm rule add` command has
+no abort-incomplete-multipart flag (verified against the `mc` release pinned
+in `docker-compose.yml`, `RELEASE.2025-08-13T08-35-41Z`), and MinIO strips
+`AbortIncompleteMultipartUpload` from lifecycle JSON supplied via
+`mc ilm rule import` — the import reports success and the rule silently
+disappears ([minio/minio#19115](https://github.com/minio/minio/issues/19115),
+closed "working as intended"). MinIO's equivalent is the server-side
+stale-uploads sweep in the `api` config subsystem: uploads idle past
+`stale_uploads_expiry` (default `24h`) are aborted by a sweep that runs every
+`stale_uploads_cleanup_interval` (default `6h`).
+
+The bundled Compose files pin both settings on the `minio` service
+(`MINIO_API_STALE_UPLOADS_EXPIRY=24h`,
+`MINIO_API_STALE_UPLOADS_CLEANUP_INTERVAL=6h`), so a cloud-dev or
+self-hosted MinIO from this repo already aborts abandoned uploads after a
+day. For a MinIO you manage yourself:
+
+```bash
+mc admin config set <alias> api stale_uploads_expiry=24h stale_uploads_cleanup_interval=6h
+# Verify (environment variables take precedence over config set):
+mc admin config get <alias> api
+```
+
 ---
 
 ## 2. Restore — bundled Postgres mode

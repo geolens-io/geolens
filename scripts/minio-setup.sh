@@ -39,4 +39,12 @@ cat > /tmp/cors.json << 'CORSJSON'
 CORSJSON
 
 mc anonymous set-json /tmp/cors.json local/geolens || true
+
+# ops(#1211): deliberately NO `mc ilm` rule here for aborting abandoned
+# multipart uploads. mc has no abort-incomplete-multipart flag (verified
+# against the pinned RELEASE.2025-08-13T08-35-41Z image), and MinIO strips
+# AbortIncompleteMultipartUpload from imported lifecycle JSON
+# (minio/minio#19115, closed "working as intended"). The cleanup is
+# server-side instead: MINIO_API_STALE_UPLOADS_EXPIRY on the minio service
+# in docker-compose*.yml. See RUNBOOK.md "Abandoned multipart uploads".
 exit 0
