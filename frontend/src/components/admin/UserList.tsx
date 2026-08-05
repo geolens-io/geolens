@@ -114,9 +114,13 @@ export function UserList() {
   const [deactivatingUser, setDeactivatingUser] = useState<UserResponse | null>(null);
   const [isExporting, setIsExporting] = useState(false);
 
-  // Sort lives in the URL so a sorted view is shareable and the back button
-  // steps through orderings. An unrecognised ?sort= falls back to the default
-  // rather than erroring the page; the API refuses it independently.
+  // Sort lives in the URL so a sorted view is shareable. Sort clicks REPLACE
+  // the history entry rather than pushing — deliberately, per #1200 review:
+  // pushing would make five header clicks cost five Back presses to leave the
+  // page, and it matches JobList's replace-on-refinement pattern (#1185). The
+  // trade is that Back leaves the page instead of stepping through orderings.
+  // An unrecognised ?sort= falls back to the default rather than erroring the
+  // page; the API refuses it independently.
   const [searchParams, setSearchParams] = useSearchParams();
   const sortField = parseSortField(searchParams.get('sort'));
   const sortOrder = parseSortOrder(searchParams.get('order'));
