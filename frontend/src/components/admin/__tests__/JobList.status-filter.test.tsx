@@ -1,5 +1,6 @@
 import { render, screen } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
+import { NavLink } from 'react-router';
 import { JobList } from '../JobList';
 
 // fix(#1185): the admin sidebar's failed-jobs badge links to
@@ -24,7 +25,15 @@ beforeAll(() => {
 });
 
 function lastQuery() {
-  return mockUseAdminJobs.mock.calls.at(-1)?.[0] as { status?: string } | undefined;
+  return mockUseAdminJobs.mock.calls.at(-1)?.[0] as
+    | { status?: string; user_id?: string; search?: string; skip?: number }
+    | undefined;
+}
+
+// DataTableSearch renders a bare Input with a placeholder and no label, so
+// there is exactly one textbox in this card to address.
+function searchBox() {
+  return screen.getByRole('textbox');
 }
 
 function statusFilter() {
@@ -86,5 +95,52 @@ describe('JobList status filter from the URL (#1185)', () => {
 
     expect(lastQuery()?.status).toBeUndefined();
     expect(statusFilter()).toHaveTextContent('All Statuses');
+  });
+});
+
+// fix(#1185 review): the sidebar badge advertises a count of ALL failed jobs.
+// React Router keeps this instance mounted when the alert link only changes a
+// query param on the same route, so a search/user filter set earlier would
+// survive and narrow the list below the advertised number — the badge-vs-list
+// mismatch #1185 exists to remove, arriving through a second door.
+//
+// Both directions are pinned deliberately. A refusal test alone would let the
+// false-positive half regress silently: nothing in "external nav clears the
+// search" notices that the dropdown ALSO started clearing it, which would be a
+// real regression, since combining status with an existing filter is the whole
+// point of the dropdown.
+describe('JobList filter reset on external navigation (#1185 review)', () => {
+  it('clears a stale search filter when the alert link is followed', async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <NavLink to="/admin/jobs?status=failed">go to failed</NavLink>
+        <JobList />
+      </>,
+      { route: '/admin/jobs' },
+    );
+
+    await user.type(searchBox(), 'tiles');
+    expect(lastQuery()?.search).toBe('tiles');
+
+    await user.click(screen.getByRole('link', { name: 'go to failed' }));
+
+    expect(lastQuery()?.status).toBe('failed');
+    expect(lastQuery()?.search).toBeUndefined();
+    expect(lastQuery()?.skip).toBe(0);
+  });
+
+  it('leaves an existing search filter alone when the dropdown changes status', async () => {
+    const user = userEvent.setup();
+    render(<JobList />, { route: '/admin/jobs' });
+
+    await user.type(searchBox(), 'tiles');
+    expect(lastQuery()?.search).toBe('tiles');
+
+    await user.click(statusFilter());
+    await user.click(await screen.findByRole('option', { name: 'Failed' }));
+
+    expect(lastQuery()?.status).toBe('failed');
+    expect(lastQuery()?.search).toBe('tiles');
   });
 });

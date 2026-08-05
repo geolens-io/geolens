@@ -48,8 +48,12 @@ export function JobList() {
   const [searchParams, setSearchParams] = useSearchParams();
   const statusParam = searchParams.get('status') ?? '';
   const status = STATUS_OPTIONS.some((opt) => opt.value === statusParam) ? statusParam : '';
+  // Records a status value this component itself wrote, so the effect below
+  // can tell an in-component dropdown change from an external navigation.
+  const selfWrittenStatus = useRef<string | null>(null);
   const setStatus = useCallback(
     (next: string) => {
+      selfWrittenStatus.current = next;
       setSearchParams(
         (params) => {
           if (next) params.set('status', next);
@@ -65,6 +69,26 @@ export function JobList() {
   const [page, setPage] = useState(0);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // fix(#1185 review): arriving at ?status=failed from OUTSIDE this component
+  // — the sidebar alert badge, a bookmark, the back button — must show the
+  // count the badge advertised. React Router keeps this instance mounted for
+  // the same route, so user/search/page would survive the navigation and
+  // silently narrow the list below that number (status=failed AND user=alice
+  // AND skip=75 can render zero rows while the badge says 3). That is the
+  // badge-vs-list mismatch #1185 exists to remove, arriving through a second
+  // door. A dropdown change is left alone: combining status with an existing
+  // user or search filter is the point of the dropdown.
+  useEffect(() => {
+    if (selfWrittenStatus.current === statusParam) {
+      selfWrittenStatus.current = null;
+      return;
+    }
+    selfWrittenStatus.current = null;
+    setUserId('');
+    setSearchQuery('');
+    setPage(0);
+  }, [statusParam]);
 
   const skip = page * PAGE_SIZE;
 
