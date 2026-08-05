@@ -2,6 +2,7 @@
 
 import asyncio
 import math
+import tempfile
 import uuid
 from datetime import datetime, timezone
 
@@ -93,7 +94,7 @@ from app.processing.ingest.presigned import (
     verify_completed_presigned_upload,
 )
 from app.processing.ingest.tasks import regenerate_vrt
-from app.processing.ingest.validation import validate_file_content
+from app.processing.ingest.validation import HEADER_READ_SIZE, validate_file_content
 from app.platform.jobs.defer_guard import defer_with_orphan_guard
 from app.core.persistent_config import (
     UPLOAD_ALLOWED_EXTENSIONS,
@@ -102,7 +103,7 @@ from app.core.persistent_config import (
 )
 from app.modules.quota.service import check_upload_quota, get_user_quota_usage
 from app.processing.raster.validation import validate_sources
-from app.platform.storage import get_storage
+from app.platform.storage import StorageProvider, get_storage
 from app.platform.storage.titiler_url import resolve_current_storage_key
 from app.standards.ogc.errors import (
     BAD_GATEWAY_RESPONSE,
@@ -408,7 +409,7 @@ async def complete_presigned_upload(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="File not found in S3 after upload",
         )
-    await verify_completed_presigned_upload(
+    actual_size = await verify_completed_presigned_upload(
         db=db,
         storage=storage,
         key=physical_s3_key,
@@ -417,6 +418,23 @@ async def complete_presigned_upload(
         request=http_request,
         job_id=job.id,
     )
+
+    # fix(#1202): both ingest doors enforce the same content contract. A
+    # deliberate rejection drops the object, matching the direct path's
+    # rollback — completion is the last point that exclusively owns it. Only
+    # HTTPException, deliberately: a transient storage error here leaves the
+    # object for the client to retry completion against, rather than forcing a
+    # multi-GB re-upload over a hiccup.
+    try:
+        await _validate_presigned_content(
+            storage,
+            key=physical_s3_key,
+            filename=job.source_filename or "",
+            size=actual_size,
+        )
+    except HTTPException:
+        await _cleanup_saved_upload(s3_key, str(job.id))
+        raise
 
     job.file_path = s3_key
     # fix(#1186): the presigned path never stamped file_type, and on an S3
@@ -480,6 +498,62 @@ def _stamp_raster_metadata(job: "IngestJob", filename: str | None) -> None:
         return
 
     job.user_metadata = {**(job.user_metadata or {}), "file_type": "raster"}
+
+
+# Trailing PAR1 magic that validate_parquet_file seeks to from the end.
+_PARQUET_MAGIC_BYTES = 4
+
+
+async def _validate_presigned_content(
+    storage: StorageProvider,
+    *,
+    key: str,
+    filename: str,
+    size: int,
+) -> None:
+    """Run the direct path's content check against an object in storage.
+
+    fix(#1202): ``upload_file`` calls ``validate_file_content`` on the staged
+    bytes, and the presigned completion path did not — so the two ingest doors
+    accepted different files, and a presigned upload reached preview (which
+    hands the file to GDAL) with no content check behind it.
+
+    ``validate_file_content`` wants a path, and presigned uploads exist for the
+    multi-GB case, so instead of downloading the object this builds a probe
+    file out of the only bytes the checks read:
+
+    - the first ``HEADER_READ_SIZE`` bytes, which is exactly what the
+      magic-byte branch reads;
+    - for ``.parquet``, the trailing ``PAR1`` magic, which
+      ``validate_parquet_file`` seeks to from the end. Only appended when the
+      object is larger than the header window — below that the header IS the
+      whole object, so the probe is byte-identical to it.
+
+    The ``.vrt`` branch reads the whole body and is never reached here:
+    ``_reject_standalone_vrt`` refuses a ``.vrt`` filename at presign-request
+    time, before any object exists.
+
+    Raises HTTPException 422 carrying ``str(exc)``, the same class, status and
+    body the direct path raises at its ``validate_file_content`` call.
+    """
+    head = await storage.get_range(key, 0, HEADER_READ_SIZE)
+
+    tail = b""
+    if Path(filename).suffix.lower() == ".parquet" and size > len(head):
+        tail = await storage.get_range(
+            key, size - _PARQUET_MAGIC_BYTES, _PARQUET_MAGIC_BYTES
+        )
+
+    with tempfile.NamedTemporaryFile(suffix=".probe") as probe:
+        probe.write(head + tail)
+        probe.flush()
+        try:
+            validate_file_content(probe.name, filename)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(exc),
+            ) from exc
 
 
 @router.post(

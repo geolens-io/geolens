@@ -101,6 +101,30 @@ class S3StorageProvider:
 
         return await asyncio.to_thread(_get)
 
+    async def get_range(self, key: str, start: int, length: int) -> bytes:
+        """Read at most ``length`` bytes from byte offset ``start``."""
+
+        def _get_range() -> bytes:
+            try:
+                response = self.client.get_object(
+                    Bucket=self.bucket,
+                    Key=key,
+                    Range=f"bytes={start}-{start + length - 1}",
+                )
+                return response["Body"].read()
+            except ClientError as e:
+                code = e.response.get("Error", {}).get("Code")
+                # fix(#430 BA-24): normalize missing-object to FileNotFoundError across providers.
+                if code in ("404", "NoSuchKey"):
+                    raise FileNotFoundError(key) from e
+                # A window that starts at or past the end of the object is an
+                # empty read, not an error — matches local/POSIX seek+read.
+                if code in ("416", "InvalidRange", "RequestedRangeNotSatisfiable"):
+                    return b""
+                raise
+
+        return await asyncio.to_thread(_get_range)
+
     async def get_stream(self, key: str) -> AsyncIterator[bytes]:
         """S3 streaming is served via presigned GET redirect; never reached.
 

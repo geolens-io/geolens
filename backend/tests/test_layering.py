@@ -1948,7 +1948,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # complete_presigned_upload from calling it at all. `crs_missing` is
     # derived in ingest_raster now, from metadata that task already reads.
     # Cap 1493 -> 1473, still exact.
-    "backend/app/processing/ingest/router.py": 1473,
+    # fix(#1202): +74 — _validate_presigned_content, so the presigned door
+    # enforces the same content contract as the direct one. Most of it is the
+    # docstring recording WHICH bytes the probe carries and why that is
+    # faithful: the header window the magic-byte branch reads, plus the
+    # trailing PAR1 magic for .parquet. That reasoning is the load-bearing
+    # part — a check added to validate_file_content that reads the middle of a
+    # file would pass vacuously here. Cap 1473 -> 1547, exact.
+    "backend/app/processing/ingest/router.py": 1547,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901

@@ -19,6 +19,19 @@ class StorageProvider(Protocol):
         """
         ...
 
+    async def get_range(self, key: str, start: int, length: int) -> bytes:
+        """Retrieve at most ``length`` bytes starting at byte offset ``start``.
+
+        For checks that only inspect a bounded window of a large object (the
+        presigned-completion content check reads a header and, for Parquet,
+        the trailing magic) so the whole object never has to be downloaded.
+
+        ``length`` must be positive. Returns fewer bytes than requested when
+        the window runs past the end of the object. Raises FileNotFoundError
+        if the key does not exist (BA-24).
+        """
+        ...
+
     def get_stream(self, key: str) -> AsyncIterator[bytes]:
         """Stream key bytes as an async iterator.
 

@@ -82,6 +82,17 @@ class LocalStorageProvider:
         path = self._resolve_contained(key)
         return await asyncio.to_thread(path.read_bytes)
 
+    async def get_range(self, key: str, start: int, length: int) -> bytes:
+        """Read at most ``length`` bytes from byte offset ``start``."""
+        path = self._resolve_contained(key)
+
+        def _read() -> bytes:
+            with path.open("rb") as fh:
+                fh.seek(start)
+                return fh.read(length)
+
+        return await asyncio.to_thread(_read)
+
     async def get_stream(self, key: str) -> AsyncIterator[bytes]:
         """Stream key bytes in 1 MiB chunks (ING-03 / P2-03).
 

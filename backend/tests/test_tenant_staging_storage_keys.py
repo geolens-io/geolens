@@ -195,6 +195,7 @@ async def test_presigned_completion_reads_physical_and_keeps_logical_job_path(
     physical = f"tenants/{TENANT_A}/{logical}"
     job = MagicMock(
         id=uuid.uuid4(),
+        source_filename="roads.geojson",
         user_metadata={
             "presigned": True,
             "s3_key": logical,
@@ -205,6 +206,9 @@ async def test_presigned_completion_reads_physical_and_keeps_logical_job_path(
     db = AsyncMock()
     storage = AsyncMock()
     storage.exists.return_value = True
+    # fix(#1202): completion content-validates from a ranged read of the
+    # physical key, so the fake has to serve bytes rather than a sentinel.
+    storage.get_range.return_value = b"{}"
     verify = AsyncMock(return_value=2)
 
     with (
@@ -223,6 +227,7 @@ async def test_presigned_completion_reads_physical_and_keeps_logical_job_path(
 
     storage.exists.assert_awaited_once_with(physical)
     assert verify.await_args.kwargs["key"] == physical
+    assert storage.get_range.await_args.args[0] == physical
     assert job.file_path == logical
 
 

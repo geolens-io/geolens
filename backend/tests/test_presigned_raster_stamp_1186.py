@@ -80,6 +80,10 @@ class _FakeS3Storage:
     async def size(self, key: str) -> int:
         return len(self.objects[key])
 
+    async def get_range(self, key: str, start: int, length: int) -> bytes:
+        # fix(#1202): completion content-validates from a bounded window.
+        return self.objects[key][start : start + length]
+
     async def delete(self, key: str) -> None:
         self.objects.pop(key, None)
 

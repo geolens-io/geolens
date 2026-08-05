@@ -85,6 +85,19 @@ class AzureBlobStorageProvider:
 
         return await asyncio.to_thread(_get)
 
+    async def get_range(self, key: str, start: int, length: int) -> bytes:
+        """Read at most ``length`` bytes from byte offset ``start``."""
+
+        def _get_range() -> bytes:
+            blob = self._client.get_blob_client(container=self.container, blob=key)
+            try:
+                return blob.download_blob(offset=start, length=length).readall()
+            except ResourceNotFoundError as e:
+                # fix(#430 BA-24): normalize missing-object to FileNotFoundError across providers.
+                raise FileNotFoundError(key) from e
+
+        return await asyncio.to_thread(_get_range)
+
     async def get_stream(self, key: str) -> AsyncIterator[bytes]:
         """Azure streaming is served via SAS redirect; this method should never be reached.
 
