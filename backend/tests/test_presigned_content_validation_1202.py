@@ -50,6 +50,7 @@ class _FakeS3Storage:
         self.objects: dict[str, bytes] = {}
         self.range_reads: list[tuple[str, int, int]] = []
         self.whole_object_reads: list[str] = []
+        self.copies: list[tuple[str, str]] = []
 
     def generate_presigned_put_url(self, key: str, content_type: str) -> str:
         return f"https://s3.invalid/{key}?signed=1"
@@ -59,6 +60,12 @@ class _FakeS3Storage:
 
     async def size(self, key: str) -> int:
         return len(self.objects[key])
+
+    async def copy(self, src_key: str, dst_key: str) -> None:
+        # Server-side on the real provider: the bytes never enter this
+        # process, which is why this does not touch whole_object_reads.
+        self.copies.append((src_key, dst_key))
+        self.objects[dst_key] = self.objects[src_key]
 
     async def get_range(self, key: str, start: int, length: int) -> bytes:
         self.range_reads.append((key, start, length))
@@ -125,7 +132,12 @@ async def _direct_upload(client, headers, filename: str, payload: bytes):
 async def _presigned_upload(
     client, headers, storage: _FakeS3Storage, filename: str, payload: bytes
 ):
-    """Drive request-presigned → (client PUTs to S3) → complete."""
+    """Drive request-presigned → (client PUTs to S3) → complete.
+
+    Returns the completion response, the job id, and the staging key the
+    client holds a PUT URL for. Tests run single-tenant, so logical and
+    physical keys are identical and either may be used against the fake.
+    """
     resp = await client.post(
         "/ingest/upload/presigned",
         json={
@@ -146,7 +158,19 @@ async def _presigned_upload(
         json={},
         headers=headers,
     )
-    return completion, body["s3_key"]
+    return completion, body["job_id"], body["s3_key"]
+
+
+async def _job_file_path(test_db_session, job_id: str) -> str:
+    from sqlalchemy import select
+
+    from app.platform.jobs.models import IngestJob
+
+    job = (
+        await test_db_session.execute(select(IngestJob).where(IngestJob.id == job_id))
+    ).scalar_one()
+    await test_db_session.refresh(job)
+    return job.file_path
 
 
 async def test_both_doors_reject_a_mislabeled_payload_identically(
@@ -160,7 +184,7 @@ async def test_both_doors_reject_a_mislabeled_payload_identically(
     direct = await _direct_upload(
         client, admin_auth_header, "roads.geojson", _GIF_PAYLOAD
     )
-    presigned, _ = await _presigned_upload(
+    presigned, _job_id, _staging = await _presigned_upload(
         client, admin_auth_header, both_doors, "roads.geojson", _GIF_PAYLOAD
     )
 
@@ -177,7 +201,7 @@ async def test_both_doors_accept_a_legitimate_payload(
     direct = await _direct_upload(
         client, admin_auth_header, "roads.geojson", _VALID_GEOJSON
     )
-    presigned, _ = await _presigned_upload(
+    presigned, _job_id, _staging = await _presigned_upload(
         client, admin_auth_header, both_doors, "roads.geojson", _VALID_GEOJSON
     )
 
@@ -196,7 +220,7 @@ async def test_both_doors_reject_a_truncated_parquet_identically(
     direct = await _direct_upload(
         client, admin_auth_header, "cells.parquet", _TRUNCATED_PARQUET
     )
-    presigned, _ = await _presigned_upload(
+    presigned, _job_id, _staging = await _presigned_upload(
         client, admin_auth_header, both_doors, "cells.parquet", _TRUNCATED_PARQUET
     )
 
@@ -219,7 +243,7 @@ async def test_both_doors_accept_a_valid_parquet_larger_than_the_header_window(
     direct = await _direct_upload(
         client, admin_auth_header, "cells.parquet", _VALID_PARQUET
     )
-    presigned, _ = await _presigned_upload(
+    presigned, _job_id, _staging = await _presigned_upload(
         client, admin_auth_header, both_doors, "cells.parquet", _VALID_PARQUET
     )
 
@@ -227,20 +251,22 @@ async def test_both_doors_accept_a_valid_parquet_larger_than_the_header_window(
     assert presigned.status_code == 200, presigned.text
 
 
-async def test_rejected_presigned_object_is_removed_from_storage(
+async def test_rejected_presigned_upload_removes_both_objects(
     client, admin_auth_header, both_doors
 ) -> None:
     """A refused upload must not leave the bytes sitting in the bucket.
 
-    The direct door deletes its staged file on a content failure; completion
-    is the last point that exclusively owns the object, so it has to as well.
+    BOTH objects, because there are two after the freeze. Leaving the staging
+    one would hand the client back exactly the bytes we just refused, still
+    addressable through the PUT URL it holds.
     """
-    presigned, s3_key = await _presigned_upload(
+    presigned, _job_id, staging_key = await _presigned_upload(
         client, admin_auth_header, both_doors, "roads.geojson", _GIF_PAYLOAD
     )
 
     assert presigned.status_code == 422, presigned.text
-    assert s3_key not in both_doors.objects
+    assert both_doors.objects == {}, both_doors.objects
+    assert staging_key not in both_doors.objects
 
 
 async def test_completion_validates_without_downloading_the_object(
@@ -253,7 +279,7 @@ async def test_completion_validates_without_downloading_the_object(
     read WIDTH is what keeps the fix affordable — a future edit that reaches
     for ``get()`` would still pass every assertion above.
     """
-    presigned, _ = await _presigned_upload(
+    presigned, _job_id, _staging = await _presigned_upload(
         client, admin_auth_header, both_doors, "cells.parquet", _VALID_PARQUET
     )
 
@@ -261,3 +287,52 @@ async def test_completion_validates_without_downloading_the_object(
     assert both_doors.whole_object_reads == []
     total_bytes = sum(length for _key, _start, length in both_doors.range_reads)
     assert total_bytes <= 8192 + 4, both_doors.range_reads
+
+
+async def test_completion_binds_the_job_to_a_frozen_key_and_drops_staging(
+    client, admin_auth_header, test_db_session, both_doors
+) -> None:
+    """The key layout the TOCTOU fix rests on.
+
+    The job's source must be a key no presign endpoint ever minted a URL for,
+    and it must still live under ``staging/`` — every staging reaper in the
+    codebase keys off that prefix, so a frozen copy outside it would leak.
+    """
+    presigned, job_id, staging_key = await _presigned_upload(
+        client, admin_auth_header, both_doors, "roads.geojson", _VALID_GEOJSON
+    )
+    assert presigned.status_code == 200, presigned.text
+
+    file_path = await _job_file_path(test_db_session, job_id)
+
+    assert file_path != staging_key
+    assert file_path.startswith("staging/")
+    assert file_path.endswith("/roads.geojson")
+    assert both_doors.copies == [(staging_key, file_path)]
+    assert file_path in both_doors.objects
+    assert staging_key not in both_doors.objects
+
+
+async def test_a_late_reput_to_the_staging_key_cannot_swap_validated_bytes(
+    client, admin_auth_header, test_db_session, both_doors
+) -> None:
+    """The P1: presigned PUT URLs outlive completion.
+
+    They stay valid until expiry (an hour by default) and a PUT to an existing
+    key REPLACES the object, so validating the key the client can still write
+    to proves nothing about what preview later hands to GDAL. Completion
+    snapshots the bytes first and binds the job to the snapshot, so the
+    re-PUT below lands somewhere nothing reads.
+    """
+    presigned, job_id, staging_key = await _presigned_upload(
+        client, admin_auth_header, both_doors, "roads.geojson", _VALID_GEOJSON
+    )
+    assert presigned.status_code == 200, presigned.text
+
+    file_path = await _job_file_path(test_db_session, job_id)
+
+    # The client re-PUTs garbage through the URL it still holds, after the
+    # completion call has already returned 200.
+    both_doors.objects[staging_key] = _GIF_PAYLOAD
+
+    assert both_doors.objects[file_path] == _VALID_GEOJSON

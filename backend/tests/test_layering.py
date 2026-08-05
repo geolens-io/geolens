@@ -1955,7 +1955,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # trailing PAR1 magic for .parquet. That reasoning is the load-bearing
     # part — a check added to validate_file_content that reads the middle of a
     # file would pass vacuously here. Cap 1473 -> 1547, exact.
-    "backend/app/processing/ingest/router.py": 1547,
+    # fix(#1202 review): +62 — freeze-first. Validating the staging key was a
+    # TOCTOU: the client keeps a working presigned PUT URL for it until expiry,
+    # so checked bytes could be swapped for garbage before preview read them.
+    # Completion now snapshots to a key no presign endpoint ever issued a URL
+    # for and judges THAT (_frozen_staging_key plus the copy/verify/validate
+    # ordering). The lines are mostly the two comments recording why the ORDER
+    # is the fix and which object each failure branch may delete — get either
+    # wrong and the race is back with the guard still apparently in place.
+    # Cap 1547 -> 1609, exact.
+    "backend/app/processing/ingest/router.py": 1609,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901

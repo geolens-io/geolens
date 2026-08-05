@@ -101,6 +101,30 @@ class S3StorageProvider:
 
         return await asyncio.to_thread(_get)
 
+    async def copy(self, src_key: str, dst_key: str) -> None:
+        """Server-side copy within the bucket.
+
+        Uses the managed ``client.copy`` transfer rather than ``copy_object``:
+        the single-request CopyObject API caps at 5 GB, and presigned uploads
+        exist precisely for objects that can exceed it. The managed API falls
+        back to multipart copy above that ceiling on its own.
+        """
+
+        def _copy() -> None:
+            try:
+                self.client.copy(
+                    CopySource={"Bucket": self.bucket, "Key": src_key},
+                    Bucket=self.bucket,
+                    Key=dst_key,
+                )
+            except ClientError as e:
+                # fix(#430 BA-24): normalize missing-object to FileNotFoundError across providers.
+                if e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey"):
+                    raise FileNotFoundError(src_key) from e
+                raise
+
+        await asyncio.to_thread(_copy)
+
     async def get_range(self, key: str, start: int, length: int) -> bytes:
         """Read at most ``length`` bytes from byte offset ``start``."""
 

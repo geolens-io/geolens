@@ -19,6 +19,16 @@ class StorageProvider(Protocol):
         """
         ...
 
+    async def copy(self, src_key: str, dst_key: str) -> None:
+        """Copy an object within this backend, overwriting ``dst_key``.
+
+        Server-side wherever the provider supports it — the bytes must not
+        round-trip through this process, because callers use this to snapshot
+        multi-GB uploads. Raises FileNotFoundError if ``src_key`` does not
+        exist (BA-24).
+        """
+        ...
+
     async def get_range(self, key: str, start: int, length: int) -> bytes:
         """Retrieve at most ``length`` bytes starting at byte offset ``start``.
 

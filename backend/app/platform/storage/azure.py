@@ -85,6 +85,31 @@ class AzureBlobStorageProvider:
 
         return await asyncio.to_thread(_get)
 
+    async def copy(self, src_key: str, dst_key: str) -> None:
+        """Service-side copy within the container.
+
+        ``requires_sync`` makes the service finish the copy before returning,
+        so callers that read the destination immediately see the bytes. Azure
+        bounds a synchronous copy's source size, and same-account URL copies
+        depend on the destination credential authorizing the source — neither
+        is exercised today, because presigned uploads (the only caller) refuse
+        anything but the S3 backend at request time. This exists for protocol
+        completeness; verify it against a live account before relying on it.
+        """
+
+        def _copy() -> None:
+            source = self._client.get_blob_client(
+                container=self.container, blob=src_key
+            )
+            dest = self._client.get_blob_client(container=self.container, blob=dst_key)
+            try:
+                dest.start_copy_from_url(source.url, requires_sync=True)
+            except ResourceNotFoundError as e:
+                # fix(#430 BA-24): normalize missing-object to FileNotFoundError across providers.
+                raise FileNotFoundError(src_key) from e
+
+        await asyncio.to_thread(_copy)
+
     async def get_range(self, key: str, start: int, length: int) -> bytes:
         """Read at most ``length`` bytes from byte offset ``start``."""
 

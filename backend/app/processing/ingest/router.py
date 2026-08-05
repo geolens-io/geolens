@@ -409,39 +409,81 @@ async def complete_presigned_upload(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="File not found in S3 after upload",
         )
-    actual_size = await verify_completed_presigned_upload(
-        db=db,
-        storage=storage,
-        key=physical_s3_key,
-        expected_size=um.get("expected_size"),
-        user_id=user.id,
-        request=http_request,
-        job_id=job.id,
-    )
+    frozen_key = _frozen_staging_key(s3_key)
+    physical_frozen_key = resolve_current_storage_key(frozen_key)
 
-    # fix(#1202): both ingest doors enforce the same content contract. A
-    # deliberate rejection drops the object, matching the direct path's
-    # rollback — completion is the last point that exclusively owns it. Only
-    # HTTPException, deliberately: a transient storage error here leaves the
-    # object for the client to retry completion against, rather than forcing a
-    # multi-GB re-upload over a hiccup.
+    # fix(#1202 review): FREEZE FIRST, then judge the frozen copy. The client
+    # still holds a presigned PUT URL for the staging key — those stay valid
+    # until expiry, and a PUT to an existing key replaces the object — so
+    # anything checked at the staging key can be swapped afterwards: upload
+    # clean bytes, complete, re-PUT garbage, and preview hands GDAL a file
+    # nothing ever validated. Snapshotting to a key no presign endpoint has
+    # ever issued a URL for is what makes the checks below mean something.
+    #
+    # The ORDER is the fix, not the copy. Verifying or validating before the
+    # copy re-opens the same race between check and freeze, one step earlier,
+    # and size/quota have to judge the immutable bytes too — otherwise the
+    # client declares 1 KB, completes, and swells the staging object to 5 GB
+    # before we snapshot it.
     try:
+        await storage.copy(physical_s3_key, physical_frozen_key)
+    except Exception as exc:  # broad: S3/MinIO server-side copy can throw varied SDK errors; map to 502
+        await _cleanup_saved_upload(frozen_key, str(job.id))
+        logger.exception(
+            "presigned_upload_freeze_failed",
+            job_id=str(job.id),
+            s3_key=s3_key,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Upload completion failed — the upload session may have expired. Please try again.",
+        ) from exc
+
+    try:
+        actual_size = await verify_completed_presigned_upload(
+            db=db,
+            storage=storage,
+            key=physical_frozen_key,
+            expected_size=um.get("expected_size"),
+            user_id=user.id,
+            request=http_request,
+            job_id=job.id,
+        )
+        # fix(#1202): both ingest doors enforce the same content contract.
         await _validate_presigned_content(
             storage,
-            key=physical_s3_key,
+            key=physical_frozen_key,
             filename=job.source_filename or "",
             size=actual_size,
         )
     except HTTPException:
+        # A deliberate rejection drops BOTH objects, matching the direct
+        # path's rollback — leaving the staging object would hand the client
+        # bytes we just refused, still addressable by its PUT URL.
+        await _cleanup_saved_upload(frozen_key, str(job.id))
         await _cleanup_saved_upload(s3_key, str(job.id))
         raise
+    except BaseException:
+        # N4: this clause must stay AFTER the HTTPException one. A transient
+        # storage failure drops only the copy we just made; the staging object
+        # survives so a retry costs one more completion call rather than a
+        # multi-GB re-upload.
+        await _cleanup_saved_upload(frozen_key, str(job.id))
+        raise
 
-    job.file_path = s3_key
+    job.file_path = frozen_key
     # fix(#1186): the presigned path never stamped file_type, and on an S3
     # deployment the frontend always uploads through it — so every GeoTIFF
     # fell through to the vector branch: 422 at preview, a vector commit body
     # after that, and an ogr2ogr dispatch after that.
     _stamp_raster_metadata(job, job.source_filename)
+    # The staging object has served its purpose. A late re-PUT through the
+    # still-valid URL recreates it as an orphan that nothing reads — no
+    # sweeper covers it either, because every staging reaper here keys off
+    # `job.file_path` (tasks_vector.py's post-ingest delete, jobs/router.py's
+    # stale-job purge), which now points at the frozen key. That is a storage
+    # -consumption nuisance, not a validation bypass.
+    await _cleanup_saved_upload(s3_key, str(job.id))
     await db.commit()
 
     return UploadResponse(
@@ -502,6 +544,26 @@ def _stamp_raster_metadata(job: "IngestJob", filename: str | None) -> None:
 
 # Trailing PAR1 magic that validate_parquet_file seeks to from the end.
 _PARQUET_MAGIC_BYTES = 4
+
+# Path segment separating the frozen snapshot from the client-writable
+# staging key. The presign endpoints only ever mint URLs for
+# `staging/{job_id}/{filename}`, so nothing under here is client-writable.
+_FROZEN_SEGMENT = "frozen"
+
+
+def _frozen_staging_key(s3_key: str) -> str:
+    """Derive the immutable snapshot key for a staging upload key.
+
+    Inserts a segment before the filename rather than appending a suffix:
+    the extension is load-bearing all the way down (content sniffing, the
+    raster/vector branch, ogr2ogr driver selection), so the filename has to
+    survive as the last segment. The result still starts with `staging/`,
+    which is what every existing staging reaper keys off.
+    """
+    parent, separator, name = s3_key.rpartition("/")
+    if not separator:
+        return f"{_FROZEN_SEGMENT}/{s3_key}"
+    return f"{parent}/{_FROZEN_SEGMENT}/{name}"
 
 
 async def _validate_presigned_content(

@@ -193,6 +193,10 @@ async def test_presigned_completion_reads_physical_and_keeps_logical_job_path(
 
     logical = "staging/job-a/roads.geojson"
     physical = f"tenants/{TENANT_A}/{logical}"
+    # fix(#1202 review): completion freezes the upload to an unwritable key
+    # first and judges THAT, so the tenant prefix has to survive the derivation.
+    frozen_logical = "staging/job-a/frozen/roads.geojson"
+    frozen_physical = f"tenants/{TENANT_A}/{frozen_logical}"
     job = MagicMock(
         id=uuid.uuid4(),
         source_filename="roads.geojson",
@@ -226,9 +230,14 @@ async def test_presigned_completion_reads_physical_and_keeps_logical_job_path(
         )
 
     storage.exists.assert_awaited_once_with(physical)
-    assert verify.await_args.kwargs["key"] == physical
-    assert storage.get_range.await_args.args[0] == physical
-    assert job.file_path == logical
+    # The snapshot is taken from the physical staging key to the physical
+    # frozen key; everything downstream then judges the frozen one.
+    assert storage.copy.await_args.args == (physical, frozen_physical)
+    assert verify.await_args.kwargs["key"] == frozen_physical
+    assert storage.get_range.await_args.args[0] == frozen_physical
+    assert job.file_path == frozen_logical
+    # The staging object is dropped once the frozen copy is the job's source.
+    assert storage.delete.await_args.args == (physical,)
 
 
 @pytest.mark.anyio
