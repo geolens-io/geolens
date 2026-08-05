@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from shutil import copyfile
@@ -145,6 +146,29 @@ async def _create_completed_manifest_job(
     return job
 
 
+@contextmanager
+def _workflow_overlay(*statuses: str):
+    """Register a workflow extension whose status_order is ``statuses``.
+
+    Saves and restores the whole registry rather than clearing it: the slot
+    may already hold something this test did not put there.
+    """
+    import app.platform.extensions as ext_mod
+    from app.platform.extensions.defaults import DefaultWorkflowExtension
+
+    class _OverlayWorkflow(DefaultWorkflowExtension):
+        def status_order(self):
+            return statuses
+
+    saved = dict(ext_mod._extensions)
+    ext_mod._extensions["workflow"] = _OverlayWorkflow()
+    try:
+        yield
+    finally:
+        ext_mod._extensions.clear()
+        ext_mod._extensions.update(saved)
+
+
 class TestManifestApplyHelpers:
     def test_manifest_dataset_fingerprint_is_stable_and_sensitive(self):
         first = _request(_manifest_dataset()).datasets[0]
@@ -166,6 +190,32 @@ class TestManifestApplyHelpers:
             "public",
             "published",
         )
+
+    def test_publication_intent_outside_the_live_status_order_is_refused(self):
+        with pytest.raises(ManifestSourceError) as exc:
+            publication_to_catalog_fields("approval_required")
+
+        message = str(exc.value)
+        assert "approval_required" in message
+        assert "draft, ready, internal, published" in message
+
+    def test_publication_intent_follows_an_overlay_defined_status_order(self):
+        """fix(#1201): the allowed set is the live extension's, not a frozen one.
+
+        Both directions matter. `review` is not a community status and has to
+        pass while the overlay defines it; `internal` IS a community status
+        and has to fail while the overlay does not — which is what proves the
+        check reads `status_order()` rather than a union of both sets.
+        """
+        with _workflow_overlay("draft", "review", "published"):
+            assert publication_to_catalog_fields("review") == ("private", "review")
+            assert publication_to_catalog_fields("published") == (
+                "public",
+                "published",
+            )
+
+            with pytest.raises(ManifestSourceError, match="internal"):
+                publication_to_catalog_fields("internal")
 
     def test_crs_parsing(self):
         assert parse_manifest_crs("EPSG:3857") == 3857
@@ -1159,6 +1209,52 @@ class TestManifestDryRun:
         assert response.results[1].dataset_id == update_dataset.id
         assert after == before
         queue.assert_not_awaited()
+
+    async def test_dry_run_reports_an_intent_the_extension_does_not_define(
+        self, test_db_session, clean_tables
+    ):
+        """fix(#1201): dry_run is how an operator validates a manifest.
+
+        The intent check therefore has to run before the dry-run early
+        return, or the branch built for validation is the one branch that
+        validates nothing.
+        """
+        user = await _admin_user(test_db_session)
+        request = _request(
+            _manifest_dataset(key="manifest-dry-intent", intent="approval_required"),
+            dry_run=True,
+        )
+
+        with patch(
+            "app.processing.ingest.manifest_service._stage_source_and_check_quota",
+            new=AsyncMock(),
+        ) as stage:
+            response = await apply_manifest(
+                test_db_session, request, user, _http_request()
+            )
+
+        assert response.accepted is False
+        assert response.results[0].action == "error"
+        assert "approval_required" in response.results[0].message
+        assert "draft, ready, internal, published" in response.results[0].message
+        stage.assert_not_awaited()
+
+    async def test_dry_run_accepts_an_overlay_defined_intent(
+        self, test_db_session, clean_tables
+    ):
+        user = await _admin_user(test_db_session)
+        request = _request(
+            _manifest_dataset(key="manifest-dry-overlay", intent="review"),
+            dry_run=True,
+        )
+
+        with _workflow_overlay("draft", "review", "published"):
+            response = await apply_manifest(
+                test_db_session, request, user, _http_request()
+            )
+
+        assert response.accepted is True
+        assert response.results[0].action == "create"
 
 
 @pytest.mark.anyio

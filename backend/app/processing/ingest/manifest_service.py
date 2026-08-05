@@ -40,6 +40,7 @@ from app.processing.ingest.manifest_sources import (
     classify_manifest_source,
     manifest_dataset_fingerprint,
     manifest_job_metadata,
+    validate_publication_intent,
 )
 from app.processing.ingest.service import queue_ingest_job, validate_file_extension
 
@@ -478,6 +479,10 @@ async def _classify_dataset(
     fingerprint = manifest_dataset_fingerprint(dataset)
     if not dataset.sources:
         raise ManifestSourceError("Manifest dataset has no sources")
+    # fix(#1201): reject an intent the live workflow extension does not define
+    # before any staging, download, or queue work — and before the dry_run
+    # early return, which is the branch operators use to validate a manifest.
+    validate_publication_intent(dataset.publication)
     prepared = await classify_manifest_source(dataset.sources[0])
     await _validate_prepared_source(db, prepared)
     await _authorize_prepared_source(db, prepared, user)

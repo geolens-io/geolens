@@ -228,8 +228,10 @@
       "properties": {
         "intent": {
           "type": "string",
-          "enum": ["draft", "ready", "internal", "published"],
-          "description": "Community-safe publication intent."
+          "minLength": 1,
+          "maxLength": 20,
+          "examples": ["draft", "ready", "internal", "published"],
+          "description": "Publication intent. Deliberately not an enum: the values come from the server's workflow extension status_order(), so a deployment may define its own and the CLI cannot know that set. The apply endpoint validates against the live extension. Community default order: draft, ready, internal, published."
         }
       }
     }

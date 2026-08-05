@@ -6,10 +6,6 @@ from typing import Any, TypeVar
 from attrs import define as _attrs_define
 
 
-from ..models.manifest_publication_intent import check_manifest_publication_intent
-from ..models.manifest_publication_intent import ManifestPublicationIntent
-
-
 T = TypeVar("T", bound="ManifestPublication")
 
 
@@ -17,13 +13,15 @@ T = TypeVar("T", bound="ManifestPublication")
 class ManifestPublication:
     """
     Attributes:
-        intent (ManifestPublicationIntent):
+        intent (str): Publication intent. Deliberately not pinned to an enum: the values come from the workflow
+            extension's status_order(), so an overlay may define its own, and apply validates against the live extension.
+            Community default order: draft, ready, internal, published.
     """
 
-    intent: ManifestPublicationIntent
+    intent: str
 
     def to_dict(self) -> dict[str, Any]:
-        intent: str = self.intent
+        intent = self.intent
 
         field_dict: dict[str, Any] = {}
 
@@ -38,7 +36,7 @@ class ManifestPublication:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        intent = check_manifest_publication_intent(d.pop("intent"))
+        intent = d.pop("intent")
 
         manifest_publication = cls(
             intent=intent,

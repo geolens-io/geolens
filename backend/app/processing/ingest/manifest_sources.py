@@ -17,7 +17,11 @@ from app.processing.ingest.manifest_schemas import (
     ManifestSource,
 )
 
-ManifestPublicationIntent = Literal["draft", "ready", "internal", "published"]
+# fix(#1201): an intent is a catalog record_status, and that set is open —
+# the values come from the workflow extension's status_order(), so an overlay
+# may define its own (#1183). `validate_publication_intent` below checks the
+# live extension at apply time; nothing here may re-freeze the set.
+ManifestPublicationIntent = str
 ManifestSourceKind = Literal["local", "http", "storage"]
 
 
@@ -40,20 +44,51 @@ class ManifestPreparedSource:
     file_type: str | None
 
 
-_PUBLICATION_TO_CATALOG: dict[ManifestPublicationIntent, tuple[str, str]] = {
-    "draft": ("private", "draft"),
-    "ready": ("private", "ready"),
-    "internal": ("internal", "internal"),
-    "published": ("public", "published"),
+# fix(#1201): visibility for the four community statuses only. The status set
+# itself is open, so an extension-defined status that is not listed here gets
+# `_UNMAPPED_INTENT_VISIBILITY` — a status this backend cannot interpret must
+# never be the one that widens who can see the data.
+_COMMUNITY_INTENT_VISIBILITY: dict[str, str] = {
+    "draft": "private",
+    "ready": "private",
+    "internal": "internal",
+    "published": "public",
 }
+_UNMAPPED_INTENT_VISIBILITY = "private"
+
+
+def validate_publication_intent(
+    intent: ManifestPublication | ManifestPublicationIntent,
+) -> str:
+    """Check a manifest publication intent against the live workflow extension.
+
+    fix(#1201): the allowed set is whatever the registered WorkflowExtension
+    reports from ``status_order()`` — the same authority the catalog status
+    endpoints use — so an overlay that defines its own lifecycle can express
+    it in a manifest. Resolved per call, never cached: an overlay registers
+    after import.
+    """
+    from app.platform.extensions import get_workflow_extension
+
+    raw_intent = intent.intent if isinstance(intent, ManifestPublication) else intent
+    allowed = tuple(get_workflow_extension().status_order())
+    if raw_intent not in allowed:
+        raise ManifestSourceError(
+            f"Unsupported manifest publication intent {raw_intent!r}; the "
+            f"workflow extension allows: {', '.join(allowed)}"
+        )
+    return raw_intent
 
 
 def publication_to_catalog_fields(
     intent: ManifestPublication | ManifestPublicationIntent,
 ) -> tuple[str, str]:
     """Map manifest publication intent to catalog visibility and record_status."""
-    raw_intent = intent.intent if isinstance(intent, ManifestPublication) else intent
-    return _PUBLICATION_TO_CATALOG[raw_intent]
+    raw_intent = validate_publication_intent(intent)
+    visibility = _COMMUNITY_INTENT_VISIBILITY.get(
+        raw_intent, _UNMAPPED_INTENT_VISIBILITY
+    )
+    return visibility, raw_intent
 
 
 def manifest_dataset_fingerprint(dataset: ManifestDataset) -> str:

@@ -23,7 +23,7 @@ FIXTURE_ROOT = (
 INVALID_FIXTURE_ERRORS = {
     "bad-bbox.yaml": {("$.datasets[0].metadata.bbox", "minItems")},
     "bad-publication-intent.yaml": {
-        ("$.datasets[0].publication.intent", "enum"),
+        ("$.datasets[0].publication.intent", "minLength"),
     },
     "bad-source-type.yaml": {("$.datasets[0].sources[0].type", "enum")},
     "bad-source-uri.yaml": {("$.datasets[0].sources[0].uri", "pattern")},
@@ -117,12 +117,32 @@ def test_required_field_errors_are_path_specific() -> None:
 def test_version_and_enum_errors_are_stable() -> None:
     document = _minimal_manifest()
     document["manifest_version"] = "2"
-    document["datasets"][0]["publication"]["intent"] = "approval_required"
+    document["datasets"][0]["sources"][0]["type"] = "database"
 
     assert {
         ("$.manifest_version", "const"),
-        ("$.datasets[0].publication.intent", "enum"),
+        ("$.datasets[0].sources[0].type", "enum"),
     }.issubset(_error_pairs(document))
+
+
+def test_publication_intent_is_an_open_set() -> None:
+    """fix(#1201): the intent set belongs to the server's workflow extension.
+
+    Values come from its ``status_order()``, so a deployment may define its
+    own and the CLI cannot know that set — an unrecognized word has to reach
+    the apply endpoint, which validates against the live extension. Both
+    directions are pinned: the open value passes, a value that can never name
+    a status is still refused here.
+    """
+    overlay_defined = _minimal_manifest()
+    overlay_defined["datasets"][0]["publication"]["intent"] = "approval_required"
+
+    assert validate_manifest(overlay_defined) == []
+
+    blank = _minimal_manifest()
+    blank["datasets"][0]["publication"]["intent"] = ""
+
+    assert ("$.datasets[0].publication.intent", "minLength") in _error_pairs(blank)
 
 
 def test_manifest_v1_version_compatibility_is_locked() -> None:
