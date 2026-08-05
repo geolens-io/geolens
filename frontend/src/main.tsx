@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM, { type Root } from 'react-dom/client';
-import { createBrowserRouter, createRoutesFromElements, RouterProvider } from 'react-router';
+import { createBrowserRouter, createRoutesFromElements } from 'react-router';
+import { RouterProvider } from 'react-router/dom';
 import {
   MutationCache,
   QueryCache,
