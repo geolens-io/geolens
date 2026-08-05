@@ -91,6 +91,7 @@ from app.processing.ingest.service import (
 )
 from app.processing.ingest.presigned import (
     abort_presigned_multipart_upload,
+    raise_if_over_max_upload_size,
     verify_completed_presigned_upload,
 )
 from app.processing.ingest.tasks import regenerate_vrt
@@ -360,6 +361,21 @@ async def complete_presigned_upload(
             detail="Job is not a presigned upload",
         )
 
+    # fix(#1202 review): completion is ONE-SHOT, keyed off resolved state.
+    # `file_path` is created empty and set only by a completion that made it
+    # all the way through, so its presence is the fact "these bytes were
+    # accepted" — no metadata flag to rotate and no window to race. Without
+    # this, a second call re-copies the staging key (still writable through
+    # the client's PUT URL) over the frozen bytes the first 200 accepted, or
+    # rejects and deletes both objects out from under a job that already
+    # points at them. Same class as the TOCTOU: client-writable state
+    # re-entering after acceptance.
+    if job.file_path:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Upload already completed for this job",
+        )
+
     storage = get_storage()
     s3_key = um["s3_key"]
     physical_s3_key = resolve_current_storage_key(s3_key)
@@ -409,6 +425,21 @@ async def complete_presigned_upload(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="File not found in S3 after upload",
         )
+    # fix(#1202 review): resource-waste fast path, NOT the security boundary.
+    # Presigned PUT URLs do not bind Content-Length, so the object on disk can
+    # be any size regardless of what the client declared at request time —
+    # without this, an oversize upload gets fully copied just to be rejected a
+    # moment later. This gate is advisory ONLY: the client can swell the object
+    # after the measurement and before the copy, which is exactly why the
+    # post-copy check on the frozen bytes below stays and stays authoritative.
+    # Do not remove that one on the strength of this one.
+    staging_size = await storage.size(physical_s3_key)
+    try:
+        raise_if_over_max_upload_size(staging_size, await UPLOAD_MAX_SIZE_MB.get(db))
+    except HTTPException:
+        await _cleanup_saved_upload(s3_key, str(job.id))
+        raise
+
     frozen_key = _frozen_staging_key(s3_key)
     physical_frozen_key = resolve_current_storage_key(frozen_key)
 
@@ -425,10 +456,24 @@ async def complete_presigned_upload(
     # and size/quota have to judge the immutable bytes too — otherwise the
     # client declares 1 KB, completes, and swells the staging object to 5 GB
     # before we snapshot it.
+    #
+    # Drained, because the copy runs in an SDK thread that a client disconnect
+    # cannot stop: returning early would leave it writing a frozen object no
+    # job row references. `_await_provider_call_draining` waits the thread out
+    # and then re-raises the cancellation, so by the time we clean up, there is
+    # a whole object to delete rather than one still being written.
     try:
-        await storage.copy(physical_s3_key, physical_frozen_key)
-    except Exception as exc:  # broad: S3/MinIO server-side copy can throw varied SDK errors; map to 502
+        await _await_provider_call_draining(
+            storage.copy(physical_s3_key, physical_frozen_key)
+        )
+    except BaseException as exc:
+        # ONE cleanup path for every way the freeze can fail — an SDK error or
+        # a drained cancellation, which `except Exception` cannot see at all.
+        # The staging object is never touched here, so a retry costs one more
+        # completion call rather than a multi-GB re-upload.
         await _cleanup_saved_upload(frozen_key, str(job.id))
+        if isinstance(exc, asyncio.CancelledError):
+            raise
         logger.exception(
             "presigned_upload_freeze_failed",
             job_id=str(job.id),

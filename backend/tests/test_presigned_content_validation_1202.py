@@ -33,6 +33,12 @@ _VALID_GEOJSON = b'{"type":"FeatureCollection","features":[]}'
 # Parquet carries its magic at BOTH ends. Sized past the header window on
 # purpose: the completion path reads the first 8192 bytes, so the trailing
 # magic can only come from a second, separately ranged read.
+# Same LENGTH as the valid GeoJSON, deliberately. A replay payload of a
+# different size is caught by the declared-size check, which masks the swap
+# this file is trying to observe and makes the one-shot test pass for a
+# reason that is not the guard. Do not "simplify" this to a different payload.
+_SAME_SIZE_GARBAGE = b"X" * len(_VALID_GEOJSON)
+
 _PARQUET_FILLER = b"\x00" * 20_000
 _VALID_PARQUET = b"PAR1" + _PARQUET_FILLER + b"PAR1"
 _TRUNCATED_PARQUET = b"PAR1" + _PARQUET_FILLER + b"\x00\x00\x00\x00"
@@ -336,3 +342,125 @@ async def test_a_late_reput_to_the_staging_key_cannot_swap_validated_bytes(
     both_doors.objects[staging_key] = _GIF_PAYLOAD
 
     assert both_doors.objects[file_path] == _VALID_GEOJSON
+
+
+async def test_a_second_completion_is_refused_and_cannot_replace_the_bytes(
+    client, admin_auth_header, test_db_session, both_doors
+) -> None:
+    """Completion is one-shot.
+
+    The re-PUT above is only harmless while nothing re-runs the freeze. A
+    second ``/complete`` would copy the staging key — which the client can
+    still write — straight over the bytes the first call accepted. Refusing
+    it is the guard; the byte assertion is what the guard is FOR.
+
+    The replay payload matches the original's LENGTH so the declared-size
+    check cannot reject it first. With a different size this test passes
+    against a build that has no guard at all.
+    """
+    presigned, job_id, staging_key = await _presigned_upload(
+        client, admin_auth_header, both_doors, "roads.geojson", _VALID_GEOJSON
+    )
+    assert presigned.status_code == 200, presigned.text
+    file_path = await _job_file_path(test_db_session, job_id)
+
+    # Re-PUT garbage, then try to get the server to re-freeze it.
+    both_doors.objects[staging_key] = _SAME_SIZE_GARBAGE
+    replay = await client.post(
+        f"/ingest/upload/presigned/{job_id}/complete",
+        json={},
+        headers=admin_auth_header,
+    )
+
+    assert replay.status_code == 400, replay.text
+    assert "already completed" in replay.json()["detail"].lower()
+    assert both_doors.objects[file_path] == _VALID_GEOJSON
+    assert both_doors.copies == [(staging_key, file_path)]
+
+
+async def test_completion_can_still_be_retried_after_a_transient_failure(
+    client, admin_auth_header, test_db_session, both_doors
+) -> None:
+    """The other direction of the one-shot rule, and the reason it keys off
+    ``file_path`` rather than a "completion attempted" flag.
+
+    A completion that died in the storage layer leaves the job unbound, and
+    the client must be able to retry without re-uploading. Pinning this is
+    what stops the guard from being tightened into a rule that strands
+    every interrupted upload.
+    """
+    resp = await client.post(
+        "/ingest/upload/presigned",
+        json={
+            "filename": "roads.geojson",
+            "file_size": len(_VALID_GEOJSON),
+            "content_type": "application/octet-stream",
+        },
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    both_doors.objects[body["s3_key"]] = _VALID_GEOJSON
+
+    async def _boom(src_key: str, dst_key: str) -> None:
+        raise RuntimeError("storage hiccup during freeze")
+
+    with patch.object(both_doors, "copy", _boom):
+        failed = await client.post(
+            f"/ingest/upload/presigned/{body['job_id']}/complete",
+            json={},
+            headers=admin_auth_header,
+        )
+    assert failed.status_code == 502, failed.text
+    # The staging object survives a transient failure — that is the whole
+    # point of not deleting it there.
+    assert body["s3_key"] in both_doors.objects
+
+    retried = await client.post(
+        f"/ingest/upload/presigned/{body['job_id']}/complete",
+        json={},
+        headers=admin_auth_header,
+    )
+
+    assert retried.status_code == 200, retried.text
+    file_path = await _job_file_path(test_db_session, body["job_id"])
+    assert both_doors.objects[file_path] == _VALID_GEOJSON
+
+
+async def test_an_oversize_object_is_refused_without_being_copied(
+    client, admin_auth_header, both_doors
+) -> None:
+    """The pre-copy fast path: do not move gigabytes just to reject them.
+
+    Presigned PUT URLs do not bind Content-Length, so the object can exceed
+    the declared size. Asserting NO copy was recorded is the whole test —
+    a rejection alone would pass with the wasteful copy still happening.
+    """
+    from app.processing.ingest import router
+
+    resp = await client.post(
+        "/ingest/upload/presigned",
+        json={
+            "filename": "roads.geojson",
+            "file_size": len(_VALID_GEOJSON),
+            "content_type": "application/octet-stream",
+        },
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+
+    # The client PUTs far more than it declared. 1 MB against a 0-MB cap.
+    both_doors.objects[body["s3_key"]] = b"\x00" * (1024 * 1024)
+
+    with patch.object(router.UPLOAD_MAX_SIZE_MB, "get", AsyncMock(return_value=0)):
+        completion = await client.post(
+            f"/ingest/upload/presigned/{body['job_id']}/complete",
+            json={},
+            headers=admin_auth_header,
+        )
+
+    assert completion.status_code == 422, completion.text
+    assert "exceeds the maximum allowed" in completion.json()["detail"]
+    assert both_doors.copies == [], both_doors.copies
+    assert both_doors.objects == {}, both_doors.objects

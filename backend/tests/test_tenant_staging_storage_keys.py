@@ -200,6 +200,10 @@ async def test_presigned_completion_reads_physical_and_keeps_logical_job_path(
     job = MagicMock(
         id=uuid.uuid4(),
         source_filename="roads.geojson",
+        # fix(#1202 review): completion is one-shot and keys off file_path, so
+        # the mock has to start where create_ingest_job leaves a presigned job
+        # — empty — rather than with MagicMock's truthy auto-attribute.
+        file_path="",
         user_metadata={
             "presigned": True,
             "s3_key": logical,
@@ -213,12 +217,16 @@ async def test_presigned_completion_reads_physical_and_keeps_logical_job_path(
     # fix(#1202): completion content-validates from a ranged read of the
     # physical key, so the fake has to serve bytes rather than a sentinel.
     storage.get_range.return_value = b"{}"
+    # The pre-copy size fast path measures the staging object before the
+    # freeze, so the fake needs a real integer here.
+    storage.size.return_value = 2
     verify = AsyncMock(return_value=2)
 
     with (
         patch.object(router, "get_job_or_404", AsyncMock(return_value=job)),
         patch.object(router, "get_storage", return_value=storage),
         patch.object(router, "verify_completed_presigned_upload", verify),
+        patch.object(router.UPLOAD_MAX_SIZE_MB, "get", AsyncMock(return_value=10)),
         _tenant_mode(monkeypatch, "multi_tenant", TENANT_A),
     ):
         await router.complete_presigned_upload(

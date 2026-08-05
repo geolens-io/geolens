@@ -1964,7 +1964,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # is the fix and which object each failure branch may delete — get either
     # wrong and the race is back with the guard still apparently in place.
     # Cap 1547 -> 1609, exact.
-    "backend/app/processing/ingest/router.py": 1609,
+    # fix(#1202 review r2): +45 — three findings, all the same shape as the
+    # first two rounds (client-writable state re-entering after a check).
+    # One-shot completion keyed off `file_path`; a pre-copy size fast path so
+    # an oversize object is not copied just to be rejected; and draining the
+    # freeze copy so a disconnect cannot abandon the SDK thread mid-write.
+    # The comments carry which of the three is the security boundary (only
+    # the post-copy verify) — deleting the wrong one reads as a cleanup.
+    # Cap 1609 -> 1654, exact.
+    "backend/app/processing/ingest/router.py": 1654,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
