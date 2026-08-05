@@ -30,15 +30,15 @@ pytestmark = pytest.mark.anyio
 _GIF_PAYLOAD = b"GIF89a" + b"\x00" * 512
 _VALID_GEOJSON = b'{"type":"FeatureCollection","features":[]}'
 
-# Parquet carries its magic at BOTH ends. Sized past the header window on
-# purpose: the completion path reads the first 8192 bytes, so the trailing
-# magic can only come from a second, separately ranged read.
 # Same LENGTH as the valid GeoJSON, deliberately. A replay payload of a
 # different size is caught by the declared-size check, which masks the swap
 # this file is trying to observe and makes the one-shot test pass for a
 # reason that is not the guard. Do not "simplify" this to a different payload.
 _SAME_SIZE_GARBAGE = b"X" * len(_VALID_GEOJSON)
 
+# Parquet carries its magic at BOTH ends. Sized past the header window on
+# purpose: the completion path reads the first 8192 bytes, so the trailing
+# magic can only come from a second, separately ranged read.
 _PARQUET_FILLER = b"\x00" * 20_000
 _VALID_PARQUET = b"PAR1" + _PARQUET_FILLER + b"PAR1"
 _TRUNCATED_PARQUET = b"PAR1" + _PARQUET_FILLER + b"\x00\x00\x00\x00"
@@ -57,9 +57,38 @@ class _FakeS3Storage:
         self.range_reads: list[tuple[str, int, int]] = []
         self.whole_object_reads: list[str] = []
         self.copies: list[tuple[str, str]] = []
+        # Multipart state, modelled the way S3 actually behaves: uploaded
+        # parts are NOT visible as an object, and the upload id is spent by a
+        # successful completion. The retry guard keys off exactly that.
+        self.live_upload_ids: dict[str, str] = {}
+        self.pending_parts: dict[str, bytes] = {}
+        self.multipart_completions: list[tuple[str, str]] = []
 
     def generate_presigned_put_url(self, key: str, content_type: str) -> str:
         return f"https://s3.invalid/{key}?signed=1"
+
+    def initiate_multipart_upload(
+        self, key: str, content_type: str = "application/octet-stream"
+    ) -> str:
+        upload_id = f"upload-{len(self.live_upload_ids) + 1}"
+        self.live_upload_ids[key] = upload_id
+        return upload_id
+
+    def generate_presigned_part_url(
+        self, key: str, upload_id: str, part_number: int, expiration: int = 7200
+    ) -> str:
+        return f"https://s3.invalid/{key}?part={part_number}&upload={upload_id}"
+
+    def complete_multipart_upload(self, key: str, upload_id: str, parts: list) -> None:
+        self.multipart_completions.append((key, upload_id))
+        if self.live_upload_ids.get(key) != upload_id:
+            raise RuntimeError(f"NoSuchUpload: {upload_id} is spent or unknown")
+        del self.live_upload_ids[key]
+        self.objects[key] = self.pending_parts.pop(key)
+
+    def abort_multipart_upload(self, key: str, upload_id: str) -> None:
+        self.live_upload_ids.pop(key, None)
+        self.pending_parts.pop(key, None)
 
     async def exists(self, key: str) -> bool:
         return key in self.objects
@@ -464,3 +493,147 @@ async def test_an_oversize_object_is_refused_without_being_copied(
     assert "exceeds the maximum allowed" in completion.json()["detail"]
     assert both_doors.copies == [], both_doors.copies
     assert both_doors.objects == {}, both_doors.objects
+
+
+# Big enough to cross the multipart threshold the fixture lowers to 1 MB, and
+# still plain text so content validation passes on its first 8192 bytes.
+_LARGE_GEOJSON = _VALID_GEOJSON + b" " * (2 * 1024 * 1024)
+
+
+async def _request_multipart_presign(client, headers, filename: str, payload: bytes):
+    resp = await client.post(
+        "/ingest/upload/presigned",
+        json={
+            "filename": filename,
+            "file_size": len(payload),
+            "content_type": "application/octet-stream",
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["upload_id"], "expected a multipart presign, got a single PUT"
+    return body
+
+
+async def test_multipart_retry_after_a_failed_freeze_does_not_reuse_a_spent_upload_id(
+    client, admin_auth_header, test_db_session, both_doors, monkeypatch
+) -> None:
+    """The retry this endpoint's 502 promises has to actually work for multipart.
+
+    CompleteMultipartUpload consumes the upload id and materializes the
+    object. A completion that got past assembly and then died at the freeze
+    left the job unbound with the id already spent, so every retry called
+    complete again and was refused by the provider. The fake models both
+    facts, so a regression here fails rather than passing quietly.
+    """
+    monkeypatch.setattr(settings, "presigned_multipart_threshold_mb", 1)
+
+    body = await _request_multipart_presign(
+        client, admin_auth_header, "roads.geojson", _LARGE_GEOJSON
+    )
+    # The client uploads its parts: present, but not yet an object.
+    both_doors.pending_parts[body["s3_key"]] = _LARGE_GEOJSON
+    assert body["s3_key"] not in both_doors.objects
+
+    real_copy = both_doors.copy
+    freeze_calls = {"n": 0}
+
+    async def _fail_first_freeze(src_key: str, dst_key: str) -> None:
+        freeze_calls["n"] += 1
+        if freeze_calls["n"] == 1:
+            raise RuntimeError("storage hiccup during freeze")
+        await real_copy(src_key, dst_key)
+
+    parts = [{"etag": "etag-1", "part_number": 1}]
+    with patch.object(both_doors, "copy", _fail_first_freeze):
+        failed = await client.post(
+            f"/ingest/upload/presigned/{body['job_id']}/complete",
+            json={"parts": parts},
+            headers=admin_auth_header,
+        )
+    assert failed.status_code == 502, failed.text
+    # Assembly succeeded before the freeze died, so the object is there.
+    assert body["s3_key"] in both_doors.objects
+
+    # The retry sends no parts — it has nothing left to resend.
+    retried = await client.post(
+        f"/ingest/upload/presigned/{body['job_id']}/complete",
+        json={},
+        headers=admin_auth_header,
+    )
+
+    assert retried.status_code == 200, retried.text
+    assert len(both_doors.multipart_completions) == 1, both_doors.multipart_completions
+    file_path = await _job_file_path(test_db_session, body["job_id"])
+    assert file_path.endswith("/frozen/roads.geojson")
+    assert both_doors.objects[file_path] == _LARGE_GEOJSON
+
+
+async def test_a_failed_commit_leaves_both_objects_so_the_retry_can_proceed(
+    client, admin_auth_header, test_db_session, both_doors
+) -> None:
+    """Deleting staging before the commit stranded the client.
+
+    A rolled-back commit unsets file_path, so the job still needs the staging
+    object — but it had already been deleted, and the retry could only report
+    "File not found in S3 after upload" while the frozen copy orphaned.
+    """
+    from fastapi import HTTPException
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    resp = await client.post(
+        "/ingest/upload/presigned",
+        json={
+            "filename": "roads.geojson",
+            "file_size": len(_VALID_GEOJSON),
+            "content_type": "application/octet-stream",
+        },
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    both_doors.objects[body["s3_key"]] = _VALID_GEOJSON
+
+    real_commit = AsyncSession.commit
+    commits = {"n": 0}
+
+    async def _fail_first_commit(self) -> None:
+        commits["n"] += 1
+        if commits["n"] == 1:
+            await self.rollback()
+            # HTTPException rather than a raw error ONLY to keep the test
+            # fast: an unhandled exception here sends the middleware stack
+            # into rendering a full traceback with locals, which costs 44
+            # seconds per run. What this test asserts is the ORDERING — that
+            # an exception at the commit leaves the staging object alone —
+            # and that is identical whichever exception type unwinds it.
+            raise HTTPException(status_code=503, detail="commit failed")
+        await real_commit(self)
+
+    with patch.object(AsyncSession, "commit", _fail_first_commit):
+        failed = await client.post(
+            f"/ingest/upload/presigned/{body['job_id']}/complete",
+            json={},
+            headers=admin_auth_header,
+        )
+
+    assert failed.status_code == 503, failed.text
+    # It really was the handler's commit that failed, not an earlier one.
+    assert commits["n"] == 1
+    # Both objects survive: the retry needs the staging bytes to re-freeze,
+    # and the frozen copy proves the run got all the way past the freeze.
+    assert body["s3_key"] in both_doors.objects
+    assert any(dst in both_doors.objects for _src, dst in both_doors.copies)
+    assert await _job_file_path(test_db_session, body["job_id"]) in ("", None)
+
+    retried = await client.post(
+        f"/ingest/upload/presigned/{body['job_id']}/complete",
+        json={},
+        headers=admin_auth_header,
+    )
+
+    assert retried.status_code == 200, retried.text
+    file_path = await _job_file_path(test_db_session, body["job_id"])
+    assert both_doors.objects[file_path] == _VALID_GEOJSON
+    assert body["s3_key"] not in both_doors.objects

@@ -1972,7 +1972,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # The comments carry which of the three is the security boundary (only
     # the post-copy verify) — deleting the wrong one reads as a cleanup.
     # Cap 1609 -> 1654, exact.
-    "backend/app/processing/ingest/router.py": 1654,
+    # fix(#1202 review r3): +18 — both findings were "the failure path leaves
+    # state the retry path cannot proceed from". Multipart assembly is skipped
+    # when the staging object already exists (for S3 that is an iff for
+    # CompleteMultipartUpload having succeeded, so a retry no longer presents a
+    # spent upload id), and the staging delete moved after the commit so a
+    # rolled-back commit does not strand the retry with the bytes gone. Both
+    # comments carry the invariant, not the mechanic. Cap 1654 -> 1672, exact.
+    "backend/app/processing/ingest/router.py": 1672,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901

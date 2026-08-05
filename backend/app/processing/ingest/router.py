@@ -380,7 +380,17 @@ async def complete_presigned_upload(
     s3_key = um["s3_key"]
     physical_s3_key = resolve_current_storage_key(s3_key)
 
-    if um.get("multipart"):
+    # fix(#1202 review r3): skip assembly when it already happened. For an S3
+    # multipart upload the staging object exists IF AND ONLY IF
+    # CompleteMultipartUpload succeeded — uploaded parts are invisible as an
+    # object until then — so the object's presence is a sound record that this
+    # step is done, with no metadata to keep in sync. Without this, a
+    # completion that got past assembly and then failed (at the freeze, say)
+    # left the job unbound and the upload id SPENT: the retry this endpoint's
+    # 502 advertises re-entered the branch, called complete with a consumed id,
+    # and could never succeed. The parts-required 400 is skipped along with it,
+    # deliberately — a retrying client has nothing left to resend.
+    if um.get("multipart") and not await storage.exists(physical_s3_key):
         if not request.parts:
             await abort_presigned_multipart_upload(
                 storage,
@@ -522,14 +532,22 @@ async def complete_presigned_upload(
     # fell through to the vector branch: 422 at preview, a vector commit body
     # after that, and an ogr2ogr dispatch after that.
     _stamp_raster_metadata(job, job.source_filename)
-    # The staging object has served its purpose. A late re-PUT through the
-    # still-valid URL recreates it as an orphan that nothing reads — no
-    # sweeper covers it either, because every staging reaper here keys off
-    # `job.file_path` (tasks_vector.py's post-ingest delete, jobs/router.py's
-    # stale-job purge), which now points at the frozen key. That is a storage
-    # -consumption nuisance, not a validation bypass.
-    await _cleanup_saved_upload(s3_key, str(job.id))
     await db.commit()
+
+    # fix(#1202 review r3): AFTER the commit, never before. Deleting first
+    # meant a failed commit rolled `file_path` back with the staging object
+    # already gone — the retry then hit "File not found in S3 after upload"
+    # and the frozen copy orphaned with nothing pointing at it. Now a failed
+    # commit leaves both objects, so the retry re-copies over the frozen key
+    # and proceeds.
+    #
+    # Past this line the staging object has served its purpose. A delete
+    # failure here, or a late re-PUT through the still-valid URL, leaves an
+    # orphan that nothing reads — and nothing sweeps either, because every
+    # staging reaper keys off `job.file_path` (tasks_vector.py's post-ingest
+    # delete, jobs/router.py's stale-job purge), which now points at the
+    # frozen key. Storage-consumption nuisance, not a validation bypass.
+    await _cleanup_saved_upload(s3_key, str(job.id))
 
     return UploadResponse(
         job_id=job.id,
