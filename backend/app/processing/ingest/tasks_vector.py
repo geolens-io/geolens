@@ -736,8 +736,9 @@ async def ingest_file(
         # completion is the FROZEN copy — so the key the client still holds a
         # PUT URL for was never touched. Shared with the raster tail so the
         # two cannot drift.
-        if final_status in ("complete", "failed"):
-            await reap_presigned_staging_object(job_id, owned_staging_key)
+        await reap_presigned_staging_object(
+            job_id, owned_staging_key, final_status=final_status
+        )
 
 
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.ingest_service"])

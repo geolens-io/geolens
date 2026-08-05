@@ -179,7 +179,7 @@ class TestReapPresignedStagingObject:
         await storage.put(key, b"staged-bytes")
         assert await storage.exists(key), "precondition: object staged"
 
-        await reap_presigned_staging_object(str(job_id), key)
+        await reap_presigned_staging_object(str(job_id), key, final_status="complete")
 
         assert not await storage.exists(key)
 
@@ -197,7 +197,25 @@ class TestReapPresignedStagingObject:
             "app.platform.storage.get_storage", lambda: storage, raising=True
         )
 
-        await reap_presigned_staging_object("job-1", None)
+        await reap_presigned_staging_object("job-1", None, final_status="complete")
+
+        storage.delete.assert_not_awaited()
+
+    async def test_a_non_terminal_status_never_sweeps(self, monkeypatch):
+        """fix(#1207): the guard moved into this helper from three identical
+        copies in the task tails. A non-terminal exit — job or dataset missing,
+        heartbeat claim lost — may be re-claimed by another attempt that still
+        needs the staging bytes."""
+        from app.processing.ingest.tasks_common import reap_presigned_staging_object
+
+        storage = AsyncMock()
+        monkeypatch.setattr(
+            "app.platform.storage.get_storage", lambda: storage, raising=True
+        )
+
+        await reap_presigned_staging_object(
+            "job-1", "staging/job-1/roads.geojson", final_status="pending"
+        )
 
         storage.delete.assert_not_awaited()
 
@@ -212,7 +230,9 @@ class TestReapPresignedStagingObject:
             "app.platform.storage.get_storage", lambda: storage, raising=True
         )
 
-        await reap_presigned_staging_object("job-1", "staging/job-1/roads.geojson")
+        await reap_presigned_staging_object(
+            "job-1", "staging/job-1/roads.geojson", final_status="complete"
+        )
 
         storage.delete.assert_awaited_once()
 

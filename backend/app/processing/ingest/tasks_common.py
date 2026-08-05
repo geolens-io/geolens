@@ -464,7 +464,7 @@ def check_missing_crs(
 
 
 async def reap_presigned_staging_object(
-    job_id: str, owned_staging_key: str | None
+    job_id: str, owned_staging_key: str | None, *, final_status: str
 ) -> None:
     """Best-effort delete of a job's OWN presigned staging object.
 
@@ -480,7 +480,11 @@ async def reap_presigned_staging_object(
     Never raises. A failed sweep leaves an orphan, which is strictly better
     than failing a job whose work is already done and committed.
     """
-    if not owned_staging_key:
+    # fix(#1207): the terminal-status guard lives HERE, not in each tail. All
+    # three ingest paths applied the identical condition, and a non-terminal
+    # exit (job or dataset missing, heartbeat claim lost) must not sweep — the
+    # attempt may be re-claimed and still needs the staging bytes.
+    if final_status not in ("complete", "failed") or not owned_staging_key:
         return
     try:
         from app.platform.storage import get_storage

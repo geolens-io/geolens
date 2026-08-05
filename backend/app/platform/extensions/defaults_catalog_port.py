@@ -86,6 +86,21 @@ class DefaultCatalogPort:
 
         return await verify_completed_presigned_upload(**kwargs)
 
+    async def lock_presigned_job(self, db, job_id):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.presigned import lock_presigned_job
+
+        return await lock_presigned_job(db, job_id)
+
+    async def should_assemble_multipart(self, storage, um, physical_key):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.presigned import should_assemble_multipart
+
+        return await should_assemble_multipart(storage, um, physical_key)
+
+    async def finalize_presigned_object(self, **kwargs):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.presigned import finalize_presigned_object
+
+        return await finalize_presigned_object(**kwargs)
+
     def visibility_default(self) -> str:
         return "private"
 

@@ -882,5 +882,6 @@ async def ingest_raster(
         # because it exempts the newest complete job per dataset, which is
         # exactly what a successful ingest produces. Shared with the vector
         # tail so the two cannot drift.
-        if final_status in ("complete", "failed"):
-            await reap_presigned_staging_object(job_id, owned_staging_key)
+        await reap_presigned_staging_object(
+            job_id, owned_staging_key, final_status=final_status
+        )
