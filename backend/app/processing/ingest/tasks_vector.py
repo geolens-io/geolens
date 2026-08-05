@@ -711,6 +711,10 @@ async def ingest_file(
             job_id,
             original_file_path=original_file_path,
             final_status=final_status,
+            # Ordinary imports: a failed job stays retryable while its
+            # source exists (_retry_capability), so retain on failure and
+            # let the stale purge own it.
+            failed_source_replayable=True,
             is_fan_out_child=is_fan_out_child,
         )
 

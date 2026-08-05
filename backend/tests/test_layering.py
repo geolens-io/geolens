@@ -2039,7 +2039,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # failure skipped the sweep. The `staging/` prefix is the real
     # storage-key signal; the docstring records why the rewrite check was
     # wrong and why the prefix is sufficient.
-    "backend/app/processing/ingest/tasks_common.py": 1773,
+    # fix(#1213 review r6): +23 — the failed-source retention semantics (an
+    # ordinary import stays retryable while its source exists, so only the
+    # reupload caller reaps on failure) plus draining both terminal reapers so
+    # a cancellation cannot skip the sweep that follows. Most of it is the
+    # docstring correcting r4's claim, which cited the wrong authority.
+    "backend/app/processing/ingest/tasks_common.py": 1796,
     # --- entered by the inclusion rule, fix(#958) -------------------------
     # These five were the ungated modules at or above _RATCHET_INCLUSION_LOC
     # when the rule was written. They arrive at their measured size with no
@@ -2063,7 +2068,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # shared helper. Ratchet DOWN in the same commit.
     # fix(#1213 review r4): -1 — the now-dead file_path argument dropped from
     # the call. Ratchet DOWN in the same commit.
-    "backend/app/processing/ingest/tasks_vector.py": 1059,
+    # fix(#1213 review r6): +4 — the caller states its retry semantics.
+    "backend/app/processing/ingest/tasks_vector.py": 1063,
     "backend/app/modules/auth/oauth/service.py": 1031,
     # fix(#1113 review): +15 — register_existing_table linearizes a
     # pre-existing geom_4326 (savepoint + error contract mirroring the

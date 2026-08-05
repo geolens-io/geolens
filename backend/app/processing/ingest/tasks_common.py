@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from app.core.async_io import await_draining
+
 from procrastinate import App, PsycopgConnector
 
 from app.platform.cache.tiles import invalidate_catalog_cache
@@ -468,6 +470,7 @@ async def reap_downloaded_staging_source(
     *,
     original_file_path: str,
     final_status: str,
+    failed_source_replayable: bool,
     is_fan_out_child: bool = False,
 ) -> None:
     """Delete the storage object this task DOWNLOADED its source from.
@@ -502,26 +505,42 @@ async def reap_downloaded_staging_source(
     original; a retention policy reaps those. Reupload has no fan-out, so its
     caller leaves the default.
 
-    Deleting on "failed" as well as "complete" is safe for both callers: these
-    tasks are retry=0, and the retry endpoint refuses reupload jobs outright
-    ("Dataset replacement jobs cannot be replayed as ordinary imports"), so no
-    later attempt can need these bytes.
+    fix(#1213 review r6): whether a FAILED job may be reaped depends on the
+    caller, which is what `failed_source_replayable` states. The r4 version of
+    this docstring claimed no later attempt could need the bytes because "the
+    retry endpoint refuses reupload jobs" — true of reupload, and wrong of
+    everything else. `_retry_capability` (platform/jobs/router.py) refuses only
+    reupload, service-auth and analysis jobs; an ordinary failed import with a
+    `staging/` file_path is retryable EXACTLY WHEN the object still exists, so
+    deleting it here is what makes the advertised retry impossible. The stale
+    purge is the designed eventual owner — its own comment says "failed keeps
+    it for /jobs/{id}/retry (a failed-only endpoint)".
+
+    So: ordinary-import callers pass True and retain on failure, reaping only
+    on success; the reupload caller passes False, because `_retry_capability`
+    refuses its jobs outright and nothing else will ever reap them. It is
+    required rather than defaulted so #1210's raster adoption has to state
+    which surface it is — raster is an ordinary-import surface and retains.
 
     Never raises — a failed sweep leaves an orphan, which beats failing a job
     whose work is already committed.
     """
-    if (
-        final_status not in ("complete", "failed")
-        or is_fan_out_child
-        or not original_file_path.startswith("staging/")
-    ):
+    if final_status not in ("complete", "failed"):
+        return
+    if final_status == "failed" and failed_source_replayable:
+        return
+    if is_fan_out_child or not original_file_path.startswith("staging/"):
         return
     try:
         from app.platform.storage import get_storage
         from app.platform.storage.titiler_url import resolve_current_storage_key
 
-        await get_storage().delete(resolve_current_storage_key(original_file_path))
-    except Exception:  # broad: best-effort staging cleanup; never fail the task
+        await await_draining(
+            get_storage().delete(resolve_current_storage_key(original_file_path))
+        )
+    except (
+        BaseException
+    ):  # broad: terminal cleanup must complete through cancellation (KISS-N9)
         structlog.get_logger().warning(
             "Failed to delete staging source object",
             job_id=job_id,
@@ -556,8 +575,12 @@ async def reap_presigned_staging_object(
         from app.platform.storage import get_storage
         from app.platform.storage.titiler_url import resolve_current_storage_key
 
-        await get_storage().delete(resolve_current_storage_key(owned_staging_key))
-    except Exception:  # broad: best-effort staging cleanup; never fail the task
+        await await_draining(
+            get_storage().delete(resolve_current_storage_key(owned_staging_key))
+        )
+    except (
+        BaseException
+    ):  # broad: terminal cleanup must complete through cancellation (KISS-N9)
         structlog.get_logger().warning(
             "Failed to delete presigned staging object",
             job_id=job_id,

@@ -492,6 +492,9 @@ async def reupload_file(
             job_id,
             original_file_path=original_file_path,
             final_status=final_status,
+            # _retry_capability refuses reupload jobs outright, so nothing
+            # else will ever reap this; reap on failure too.
+            failed_source_replayable=False,
         )
         # fix(#1207): sweep the presigned staging key. This surface had NO
         # storage reaper at all — the unlinks above are local files only — and
