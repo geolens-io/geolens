@@ -42,24 +42,59 @@ import { useEdition } from '@/hooks/use-edition';
 import { useEnterpriseOnlyTabs } from '@/hooks/use-settings';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useSettingsAdmin } from '@/hooks/use-settings-admin';
+import { semanticBadgeColors } from '@/lib/status-colors';
 import type { Capability } from '@/lib/capabilities';
+
+// fix(#1185): the destructive recipe an alert badge needs, matching the
+// `failed` pill in the jobs table (both come from `semanticBadgeColors`).
+// SidebarMenuBadge pins its color with `peer-hover/menu-button:` and
+// `peer-data-[active=true]/menu-button:` variants, so those prefixes have to
+// be re-declared here — a bare `text-destructive` reverts to the accent color
+// the moment the row is hovered or becomes the active route.
+const ALERT_BADGE_CLASSES = [
+  'border',
+  semanticBadgeColors.destructive,
+  'peer-hover/menu-button:text-destructive',
+  'peer-data-[active=true]/menu-button:text-destructive',
+].join(' ');
 
 const overviewItems = [
   { labelKey: 'adminNav.overview', to: '/admin/overview', icon: LayoutDashboard, capability: 'manage_users' },
 ] as const;
+
+// fix(#1185): a badge that counts a PROBLEM rather than a total. Every other
+// Operations badge is a row count for the list behind it, so a bare failed-job
+// count read as a broken total (badge 3, list 200). An alert badge renders in
+// destructive colors, is spoken as "N failed jobs" instead of a naked number,
+// and rewrites the nav target to the matching filtered list so the number the
+// user clicked equals the number the list shows.
+type AlertBadge = {
+  /** Query string appended to `to` while the badge is visible. */
+  filter: string;
+  /** Plural i18n key rendered with `{ count }` for the spoken/hover label. */
+  labelKey: string;
+};
 
 type OperationItem = {
   labelKey: string;
   to: string;
   icon: LucideIcon;
   badgeKey?: 'users' | 'failed' | 'audit' | 'sharedMaps';
+  alertBadge?: AlertBadge;
   enterpriseOnly?: boolean;
   capability: Capability;
 };
 
 const operationsItems: readonly OperationItem[] = [
   { labelKey: 'adminNav.users', to: '/admin/users', icon: Users, badgeKey: 'users', capability: 'manage_users' },
-  { labelKey: 'adminNav.jobs', to: '/admin/jobs', icon: Briefcase, badgeKey: 'failed', capability: 'manage_users' },
+  {
+    labelKey: 'adminNav.jobs',
+    to: '/admin/jobs',
+    icon: Briefcase,
+    badgeKey: 'failed',
+    alertBadge: { filter: 'status=failed', labelKey: 'adminNav.failedJobs' },
+    capability: 'manage_users',
+  },
   { labelKey: 'adminNav.auditLog', to: '/admin/audit', icon: ScrollText, badgeKey: 'audit', capability: 'manage_settings' },
   { labelKey: 'adminNav.sharedMaps', to: '/admin/shared-maps', icon: Link2, badgeKey: 'sharedMaps', capability: 'manage_users' },
   { labelKey: 'adminNav.saml', to: '/admin/saml', icon: Lock, enterpriseOnly: true, capability: 'manage_settings' },
@@ -107,9 +142,10 @@ const settingsItemsBase: readonly SettingsNavBaseItem[] = [
  *
  * Renders the admin navigation tree (Overview, Users, Jobs, Audit, Shared Maps,
  * Settings sub-tabs, Config Ops) with active-route highlighting, total count
- * badges for Users / Published Maps / Audit Log plus a failed-jobs badge
+ * badges for Users / Published Maps / Audit Log plus a failed-jobs ALERT badge
  * (each capped at 999+), and visibility filtering for `enterpriseOnly` items
- * via the `useEdition` hook.
+ * via the `useEdition` hook. See `AlertBadge` for why Jobs is styled and
+ * linked differently from the total badges (#1185).
  */
 export function AdminSidebar() {
   const { pathname } = useLocation();
@@ -204,8 +240,15 @@ export function AdminSidebar() {
           <SidebarGroupLabel className="eyebrow">{t('adminNav.operations')}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {visibleOperationsItems.map(({ labelKey, to, icon: Icon, badgeKey }) => {
+              {visibleOperationsItems.map(({ labelKey, to, icon: Icon, badgeKey, alertBadge }) => {
                 const count = badgeKey ? badgeCounts[badgeKey] : undefined;
+                const showBadge = count !== undefined && count > 0;
+                // fix(#1185): the alert treatment applies only while the badge
+                // is actually showing. At zero there is nothing to alert about,
+                // so the row stays a plain link to the unfiltered list.
+                const alertLabel =
+                  showBadge && alertBadge ? t(alertBadge.labelKey, { count }) : undefined;
+                const href = alertLabel && alertBadge ? `${to}?${alertBadge.filter}` : to;
                 return (
                   <SidebarMenuItem key={to}>
                     <SidebarMenuButton
@@ -213,13 +256,27 @@ export function AdminSidebar() {
                       isActive={pathname.startsWith(to)}
                       tooltip={t(labelKey)}
                     >
-                      <NavLink to={to}>
+                      {/* `title` is a hover affordance only — a link takes its
+                          accessible name from its contents, so the row is still
+                          announced as its label. */}
+                      <NavLink to={href} title={alertLabel}>
                         <Icon />
                         <span>{t(labelKey)}</span>
                       </NavLink>
                     </SidebarMenuButton>
-                    {count !== undefined && count > 0 && (
-                      <SidebarMenuBadge>{capBadge(count)}</SidebarMenuBadge>
+                    {showBadge && (
+                      <SidebarMenuBadge
+                        className={alertLabel ? ALERT_BADGE_CLASSES : undefined}
+                      >
+                        {alertLabel ? (
+                          <>
+                            <span aria-hidden="true">{capBadge(count)}</span>
+                            <span className="sr-only">{alertLabel}</span>
+                          </>
+                        ) : (
+                          capBadge(count)
+                        )}
+                      </SidebarMenuBadge>
                     )}
                   </SidebarMenuItem>
                 );

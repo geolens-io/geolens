@@ -3,6 +3,10 @@ import { MemoryRouter } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { AdminSidebar } from '../AdminSidebar';
+import enCommon from '@/i18n/locales/en/common.json';
+import esCommon from '@/i18n/locales/es/common.json';
+import frCommon from '@/i18n/locales/fr/common.json';
+import deCommon from '@/i18n/locales/de/common.json';
 
 const counts = vi.hoisted(() => ({ users: 0, failed: 0, audit: 0, published: 0 }));
 const permissionState = vi.hoisted(() => ({ manageUsers: true, manageSettings: true }));
@@ -73,7 +77,15 @@ vi.mock('@/hooks/use-settings', () => ({
 // i18n returns the key by default in tests, so we match on i18n keys' last segment
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string) => {
+    t: (key: string, options?: { count?: number }) => {
+      // fix(#1185): the failed-jobs label is the sidebar's only plural key.
+      // Resolve it the way i18next would so the assertions below read the
+      // rendered copy rather than a bare key. `EN_ADMIN_NAV` below pins these
+      // strings against the real bundle.
+      if (key === 'adminNav.failedJobs') {
+        const count = options?.count ?? 0;
+        return count === 1 ? `${count} failed job` : `${count} failed jobs`;
+      }
       // Return human-readable labels from keys
       const labels: Record<string, string> = {
         'adminNav.admin': 'Admin',
@@ -261,6 +273,128 @@ describe('AdminSidebar', () => {
     expect(screen.getByText('62')).toBeInTheDocument();
     expect(screen.getByText('999+')).toBeInTheDocument();
     expect(screen.getByText('10')).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fix(#1185): the Jobs badge counts FAILED jobs while every sibling badge
+// counts the total behind its list, so a bare number read as a broken total
+// (badge 3, list 200). It must render as an alert: destructive colors, a
+// spoken "N failed jobs" label instead of a naked digit, and a click target
+// pre-filtered to status=failed so the number clicked equals the list landed
+// on. At zero there is no badge and the row links to the unfiltered list.
+// ---------------------------------------------------------------------------
+
+function badges() {
+  return Array.from(document.querySelectorAll('[data-slot="sidebar-menu-badge"]'));
+}
+
+// Located by POSITION (the badge in the Jobs row), not by its copy — otherwise
+// the styling assertions below would silently depend on the spoken label.
+function failedBadge() {
+  const row = screen.getByText('Jobs').closest('[data-slot="sidebar-menu-item"]');
+  return row?.querySelector('[data-slot="sidebar-menu-badge"]') ?? undefined;
+}
+
+describe('AdminSidebar failed-jobs alert badge (#1185)', () => {
+  it('renders the failed count in destructive colors, unlike the total badges', () => {
+    counts.failed = 3;
+    counts.users = 62;
+    renderSidebar();
+
+    const failed = failedBadge();
+    expect(failed).toBeDefined();
+    expect(failed?.className).toContain('text-destructive');
+    expect(failed?.className).toContain('bg-destructive/10');
+    // The hover and active variants have to be overridden too, or the badge
+    // reverts to the sidebar accent color on the active route. `cn()` must
+    // drop the base colors rather than leave both in the attribute — equal
+    // specificity would otherwise make the winner a stylesheet-order accident.
+    expect(failed?.className).toContain('peer-data-[active=true]/menu-button:text-destructive');
+    expect(failed?.className).toContain('peer-hover/menu-button:text-destructive');
+    expect(failed?.className).not.toContain('text-sidebar-foreground');
+    expect(failed?.className).not.toContain('text-sidebar-accent-foreground');
+
+    const users = badges().find((el) => el.textContent === '62');
+    expect(users).toBeDefined();
+    expect(users?.className).not.toContain('destructive');
+  });
+
+  it('speaks the badge as "N failed jobs" and hides the bare digits', () => {
+    counts.failed = 3;
+    renderSidebar();
+
+    const spoken = screen.getByText('3 failed jobs');
+    expect(spoken).toHaveClass('sr-only');
+    // The visible digits must not be announced twice.
+    expect(screen.getByText('3')).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('uses the singular form for a single failed job', () => {
+    counts.failed = 1;
+    renderSidebar();
+    expect(screen.getByText('1 failed job')).toBeInTheDocument();
+  });
+
+  it('keeps the capped visible count while speaking the true count', () => {
+    counts.failed = 1500;
+    renderSidebar();
+    expect(screen.getByText('999+')).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByText('1500 failed jobs')).toBeInTheDocument();
+  });
+
+  it('points Jobs at the failed-filtered list while the badge is showing', () => {
+    counts.failed = 3;
+    renderSidebar();
+    expect(screen.getByText('Jobs').closest('a')).toHaveAttribute(
+      'href',
+      '/admin/jobs?status=failed',
+    );
+  });
+
+  it('points Jobs at the unfiltered list and renders no badge at zero', () => {
+    counts.failed = 0;
+    renderSidebar();
+    expect(screen.getByText('Jobs').closest('a')).toHaveAttribute('href', '/admin/jobs');
+    expect(failedBadge()).toBeUndefined();
+  });
+
+  // A `title` is a hover affordance; it must not become the link's name. A
+  // link takes its accessible name from its contents, so this asserts the
+  // computed name rather than the JSX.
+  it('leaves the Jobs link accessible name as its label, not the tooltip', () => {
+    counts.failed = 3;
+    renderSidebar();
+
+    const link = screen.getByRole('link', { name: 'Jobs' });
+    expect(link).toHaveAttribute('title', '3 failed jobs');
+    expect(screen.queryByRole('link', { name: '3 failed jobs' })).toBeNull();
+  });
+
+  it('keeps the Jobs row highlighted on the pre-filtered route', () => {
+    counts.failed = 3;
+    renderSidebar('/admin/jobs');
+    expect(screen.getByText('Jobs').closest('a')).toHaveAttribute('data-active', 'true');
+  });
+});
+
+// The source-key guard skips keys that are not string literals inside a t()
+// call, and this one lives in the `operationsItems` table — so pin the bundle
+// contents directly. All four locales carry the pair, and every `_one` value
+// interpolates {{count}} (French resolves count 0 to `_one`, so a hardcoded
+// "1" there would render "1 failed job" for zero).
+describe('adminNav.failedJobs bundle coverage (#1185)', () => {
+  const bundles = { en: enCommon, es: esCommon, fr: frCommon, de: deCommon };
+
+  it.each(Object.entries(bundles))('%s carries both plural forms with {{count}}', (_locale, bundle) => {
+    const adminNav = (bundle as { adminNav: Record<string, string> }).adminNav;
+    expect(adminNav.failedJobs_one).toContain('{{count}}');
+    expect(adminNav.failedJobs_other).toContain('{{count}}');
+  });
+
+  it('matches the English copy the mocked translator renders', () => {
+    expect(enCommon.adminNav.failedJobs_one).toBe('{{count}} failed job');
+    expect(enCommon.adminNav.failedJobs_other).toBe('{{count}} failed jobs');
   });
 });
 

@@ -85,6 +85,8 @@
     "overview": "Übersicht",
     "users": "Benutzer",
     "jobs": "Aufträge",
+    "failedJobs_one": "{{count}} fehlgeschlagener Auftrag",
+    "failedJobs_other": "{{count}} fehlgeschlagene Aufträge",
     "auditLog": "Protokoll",
     "sharedMaps": "Veröffentlichte Karten",
     "saml": "SAML SSO",

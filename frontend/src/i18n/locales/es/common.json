@@ -85,6 +85,8 @@
     "overview": "Resumen",
     "users": "Usuarios",
     "jobs": "Trabajos",
+    "failedJobs_one": "{{count}} trabajo fallido",
+    "failedJobs_other": "{{count}} trabajos fallidos",
     "auditLog": "Registro de auditoría",
     "sharedMaps": "Mapas Publicados",
     "saml": "SSO SAML",

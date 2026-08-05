@@ -86,6 +86,8 @@
     "operations": "Operations",
     "users": "Users",
     "jobs": "Jobs",
+    "failedJobs_one": "{{count}} failed job",
+    "failedJobs_other": "{{count}} failed jobs",
     "auditLog": "Audit Log",
     "sharedMaps": "Published Maps",
     "saml": "SAML SSO",

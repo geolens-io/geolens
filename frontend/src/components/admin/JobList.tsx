@@ -1,5 +1,6 @@
-import { Fragment, useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useLocation, useSearchParams } from 'react-router';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useAdminJobs, useRetryAdminJob, useUserNames } from '@/hooks/use-admin';
 import { formatDate } from '@/lib/format';
@@ -38,11 +39,69 @@ function formatDuration(startedAt: string | null, completedAt: string | null): s
 
 export function JobList() {
   const { t } = useTranslation('admin');
-  const [status, setStatus] = useState('');
+  // fix(#1185): the admin sidebar's failed-jobs badge links here as
+  // /admin/jobs?status=failed so the number the user clicked equals the number
+  // the list shows. Status therefore lives in the URL rather than in component
+  // state — that also makes a filtered view bookmarkable and the back button
+  // work. An unrecognized value falls back to "all statuses" instead of being
+  // forwarded to the API.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { key: locationKey } = useLocation();
+  const statusParam = searchParams.get('status') ?? '';
+  const status = STATUS_OPTIONS.some((opt) => opt.value === statusParam) ? statusParam : '';
+  // Set just before this component writes the status param itself, so the
+  // effect below can tell an in-component dropdown change from an external
+  // navigation. Always cleared by that effect, because a `replace: true`
+  // write still produces a new location key (measured) — so the effect is
+  // guaranteed to run and the flag cannot go stale.
+  const isSelfWrite = useRef(false);
+  const setStatus = useCallback(
+    (next: string) => {
+      isSelfWrite.current = true;
+      setSearchParams(
+        (params) => {
+          if (next) params.set('status', next);
+          else params.delete('status');
+          return params;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
   const [userId, setUserId] = useState('');
   const [page, setPage] = useState(0);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // fix(#1185 review): arriving here from OUTSIDE this component — the sidebar
+  // alert badge, a bookmark, the back button — must show the count the badge
+  // advertised. React Router keeps this instance mounted for the same route,
+  // so user/search/page would survive the navigation and silently narrow the
+  // list below that number (status=failed AND user=alice AND skip=75 can
+  // render zero rows while the badge says 3). That is the badge-vs-list
+  // mismatch #1185 exists to remove, arriving through a second door.
+  //
+  // Keyed on `location.key`, NOT on the status value. Re-clicking the alert
+  // while already at ?status=failed navigates to an identical URL, so a
+  // value-keyed effect never fires and the stale filters survive — the same
+  // defect one position over. `location.key` changes on every navigation
+  // including a same-URL one (measured: 6g37p9up -> 25bb8de4).
+  //
+  // A dropdown change is deliberately exempt, since combining status with an
+  // existing user or search filter is the point of the dropdown. Its own
+  // `replace: true` write also produces a new key (measured), so this effect
+  // always runs afterwards and always clears the flag — it cannot go stale
+  // and swallow the next external navigation.
+  useEffect(() => {
+    if (isSelfWrite.current) {
+      isSelfWrite.current = false;
+      return;
+    }
+    setUserId('');
+    setSearchQuery('');
+    setPage(0);
+  }, [locationKey]);
 
   const skip = page * PAGE_SIZE;
 
