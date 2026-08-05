@@ -55,10 +55,12 @@ accompanying text.
 
 ## Read the case table before you trust a result
 
-Every row currently ships ``stable=False``: observed and reported, never
-asserted. The block comment above ``_CASES`` says why and gives the procedure
-that promotes a row. Do not read the reported-only set as a considered
-judgement about which cases are flaky. It is an unrun set.
+Every row asserts (``stable=True``) as of #1135: three consecutive nightly
+live runs (2026-08-03 .. 2026-08-05) routed every case to a consistent,
+correct outcome, so a wrong tool now fails the run. The block comment above
+``_CASES`` records the evidence and keeps the procedure for promoting any
+future row, which must land as ``stable=False`` and earn its assertion the
+same way.
 """
 
 import os
@@ -172,16 +174,22 @@ class ToolChoiceCase:
 
 
 # ---------------------------------------------------------------------------
-# THE CASE TABLE. NOT ONE ROW HAS EVER BEEN RUN AGAINST A LIVE PROVIDER.
+# THE CASE TABLE. Validated live and promoted to asserting in #1135.
 #
-# Every row ships stable=False, so this file observes routing and warns. It
-# asserts nothing and cannot fail a run on a routing verdict. That is NOT a
-# judgement that these cases are flaky. No provider key was reachable when
-# #1007 landed, so their stability is simply unknown, and the nightly
-# live-provider job runs with RUN_AI_EVALS=1, where an assertion nobody had
-# ever executed could turn a nightly red for a reason no one had seen.
+# Evidence: three consecutive scheduled nightlies, tabulated in
+# https://github.com/geolens-io/geolens/issues/1135 (runs 30807039095,
+# 30897410217, 30994238038 — 2026-08-03/04/05, 16 passed each). The four
+# `expects` rows emitted the identical correct tool in all three runs. The two
+# `forbids` rows held their forbidden-tool absence in all three runs; that
+# absence is the only thing their assertion checks, so the observed variance
+# on readonly_surface_no_edit_tool (query_data on 08-03, prose on 08-04/05 —
+# both legitimate per its note) cannot fail a run.
 #
-# PROMOTION PROCEDURE, do this before trusting any row:
+# A NEW row must ship stable=False and earn stable=True via the procedure
+# below. Do not add a row born asserting: an assertion nobody has executed
+# against a live provider can redden the nightly for a reason nobody has seen.
+#
+# PROMOTION PROCEDURE for future rows:
 #   1. Run the file live THREE times:
 #        cd backend && set -a && source ../.env.test && set +a && \
 #          RUN_AI_EVALS=1 uv run pytest tests/evals/test_tool_choice_evals.py -v
@@ -208,6 +216,7 @@ _CASES = (
         name="show_ada_stations",
         message="Show the ADA accessible stations served by the A line",
         expects="query_data",
+        stable=True,  # fix(#1135): query_data in all three validation runs
         note=(
             "The #549 regression itself: this landed on set_filter, leaving a "
             "persistent filter on the layer instead of answering. The prompt's "
@@ -221,6 +230,7 @@ _CASES = (
         name="filter_ada_stations",
         message="Filter to ADA accessible stations on the A line",
         expects="set_filter",
+        stable=True,  # fix(#1135): set_filter in all three validation runs
         note=(
             "The over-correction guard: a prompt edit pushing 'show' towards "
             "query_data must not drag 'filter to' along with it. The prompt "
@@ -233,6 +243,7 @@ _CASES = (
         name="centroid_of_parcels",
         message="Show the centre point of each parcel",
         expects="run_analysis",
+        stable=True,  # fix(#1135): run_analysis in all three validation runs
         note=(
             "'Show' is a QUESTION verb, so this only routes correctly if the "
             "TRANSFORM rule outranks the verb, the exact ordering the prompt "
@@ -244,6 +255,7 @@ _CASES = (
         name="count_near_schools",
         message="How many parcels are within 500 meters of a school?",
         expects="query_data",
+        stable=True,  # fix(#1135): query_data in all three validation runs
         note=(
             "The adversarial direction of pair 2: reuses the buffer phrasing "
             "the prompt cites for run_analysis ('within 500 m of the schools') "
@@ -260,6 +272,7 @@ _CASES = (
         message="Filter to ADA accessible stations on the A line",
         forbids=frozenset(_EDIT_TOOLS),
         can_edit=False,
+        stable=True,  # fix(#1135): no edit tool emitted in any validation run
         note=(
             "can_edit=False builds BOTH restricted inputs from production "
             "code, CHAT_TOOLS_READONLY and the prompt's read-only directive, "
@@ -268,7 +281,9 @@ _CASES = (
             "but the OpenAI-compatible path also parses XML tool calls out of "
             "plain text (parse_xml_tool_calls), which can, and that is why "
             "chat_service keeps a name check at execution and collection. The "
-            "model stays free to answer with query_data or with prose."
+            "model stays free to answer with query_data or with prose, and the "
+            "#1135 validation runs saw both (query_data on 08-03, prose on "
+            "08-04/05); only an emitted edit tool can fail this row."
         ),
     ),
     ToolChoiceCase(
@@ -277,6 +292,7 @@ _CASES = (
         forbids=frozenset({"run_analysis"}),
         can_edit=False,
         has_map=False,
+        stable=True,  # fix(#1135): query_data (never run_analysis) in all three runs
         note=(
             "run_analysis's whole output is a map overlay, so offering it on "
             "dataset-scoped chat would let the model promise a preview the "
