@@ -130,6 +130,32 @@ describe('JobList filter reset on external navigation (#1185 review)', () => {
     expect(lastQuery()?.skip).toBe(0);
   });
 
+  // The first fix keyed this off the status VALUE, which is silent for the
+  // most likely repeat interaction: an admin already sitting on the filtered
+  // view clicks the badge again. Same URL, no value change, no reset. Keying
+  // off location.key is what makes this case fire.
+  it('clears filters when the alert is re-clicked from the same URL', async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <NavLink to="/admin/jobs?status=failed">go to failed</NavLink>
+        <JobList />
+      </>,
+      { route: '/admin/jobs?status=failed' },
+    );
+    expect(lastQuery()?.status).toBe('failed');
+
+    await user.type(searchBox(), 'tiles');
+    expect(lastQuery()?.search).toBe('tiles');
+
+    // identical destination — the URL does not change at all
+    await user.click(screen.getByRole('link', { name: 'go to failed' }));
+
+    expect(lastQuery()?.status).toBe('failed');
+    expect(lastQuery()?.search).toBeUndefined();
+    expect(lastQuery()?.skip).toBe(0);
+  });
+
   it('leaves an existing search filter alone when the dropdown changes status', async () => {
     const user = userEvent.setup();
     render(<JobList />, { route: '/admin/jobs' });
