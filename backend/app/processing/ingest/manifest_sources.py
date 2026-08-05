@@ -142,6 +142,19 @@ def _storage_uri_to_key(uri: str) -> str:
     key = parsed.path.lstrip("/")
     if not key:
         raise ManifestSourceError("s3:// manifest source must include an object key")
+    # fix(#1216): `staging/` is the discriminator for system-owned transient
+    # presigned-upload objects — the ingest tail reaps `staging/`-prefixed
+    # storage keys at terminal job status, and `resolve_file_path` routes
+    # them through the tenant resolver. An operator-declared manifest source
+    # under that prefix would be deleted at terminal status, so refuse it at
+    # declaration time instead of relying on the naming convention.
+    if key.startswith("staging/"):
+        raise ManifestSourceError(
+            "s3:// manifest source keys must not use the 'staging/' prefix: "
+            "staging/ is system-owned transient storage that is deleted when "
+            "ingest jobs reach terminal status. Move the object to a "
+            "different prefix."
+        )
     return key
 
 

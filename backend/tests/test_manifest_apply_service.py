@@ -304,6 +304,43 @@ class TestManifestApplyHelpers:
         with pytest.raises(ManifestSourceError, match="private/internal"):
             await classify_manifest_source(source)
 
+    @pytest.mark.anyio
+    async def test_storage_seed_key_under_staging_prefix_is_rejected(self, monkeypatch):
+        """fix(#1216): `staging/` object keys are system-owned transient
+        presigned-upload storage — the ingest tail reaps them at terminal
+        job status, so an operator-declared manifest source under that
+        prefix would be deleted. Declaration must refuse the key."""
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "storage_provider", "s3")
+        monkeypatch.setattr(settings, "s3_bucket", "geolens-seed-bucket")
+        source = ManifestSource(
+            type="vector",
+            uri="s3://geolens-seed-bucket/staging/roads.geojson",
+        )
+
+        with pytest.raises(ManifestSourceError, match="staging/"):
+            await classify_manifest_source(source)
+
+    @pytest.mark.anyio
+    async def test_storage_seed_key_outside_staging_prefix_still_classifies(
+        self, monkeypatch
+    ):
+        """Control for #1216: an ordinary operator-owned key is unaffected."""
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "storage_provider", "s3")
+        monkeypatch.setattr(settings, "s3_bucket", "geolens-seed-bucket")
+        source = ManifestSource(
+            type="vector",
+            uri="s3://geolens-seed-bucket/operator/roads.geojson",
+        )
+
+        prepared = await classify_manifest_source(source)
+
+        assert prepared.kind == "storage"
+        assert prepared.file_path == "operator/roads.geojson"
+
     def test_dotdot_traversal_rejected_at_schema_layer(self):
         """Phase 268 H-29: ManifestSource must reject any URI containing
         a `..` path segment. The Pydantic validator catches it before any
