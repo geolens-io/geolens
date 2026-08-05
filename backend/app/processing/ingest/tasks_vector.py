@@ -21,6 +21,7 @@ from app.platform.jobs.heartbeat import (
 from app.processing.ingest.metadata import _qtable
 from app.processing.ingest.tasks_common import (
     IngestContext,
+    reap_downloaded_staging_source,
     reap_presigned_staging_object,
     _append_job_warning,
     _archive_original_file,
@@ -38,7 +39,6 @@ from app.processing.ingest.tasks_common import (
     task_app,
 )
 from app.platform.jobs.models import owned_presigned_staging_key
-from app.platform.storage.titiler_url import resolve_current_storage_key
 
 
 _SERVICE_IMPORT_INITIAL_PROGRESS = 0.1
@@ -705,39 +705,27 @@ async def ingest_file(
         ):
             Path(file_path).unlink(missing_ok=True)
 
-        # fix(#430 BA-09): the ORIGINAL S3 staging object is otherwise never reaped —
-        # the task downloads it to a private local copy (unlinked above) but the
-        # staging/{job_id}/ key lives forever, and failed S3 ingests leak it with
-        # no dataset ever created. resolve_file_path only rewrites the path when it
-        # downloaded from S3, so file_path != original_file_path signals S3 mode.
-        # Skip fan-out children — siblings share the original; a retention policy
-        # reaps those.
-        if (
-            final_status in ("complete", "failed")
-            and file_path != original_file_path
-            and not is_fan_out_child
-            and original_file_path.startswith("staging/")
-        ):
-            try:
-                from app.platform.storage import get_storage
-
-                await get_storage().delete(
-                    resolve_current_storage_key(original_file_path)
-                )
-            except Exception:  # broad: best-effort staging cleanup; never fail the task
-                structlog.get_logger().warning(
-                    "Failed to delete staging source object",
-                    job_id=job_id,
-                    storage_key=original_file_path,
-                )
+        # fix(#1213 review r2): shared with the reupload tail — after a
+        # presigned completion this reaps the FROZEN copy the job is bound to.
+        await reap_downloaded_staging_source(
+            job_id,
+            original_file_path=original_file_path,
+            final_status=final_status,
+            # Ordinary imports: a failed job stays retryable while its
+            # source exists (_retry_capability), so retain on failure and
+            # let the stale purge own it.
+            failed_source_replayable=True,
+            is_fan_out_child=is_fan_out_child,
+        )
 
         # fix(#1202 review r5): sweep the presigned staging key too. The block
         # above only reaps `original_file_path`, which after a presigned
         # completion is the FROZEN copy — so the key the client still holds a
         # PUT URL for was never touched. Shared with the raster tail so the
         # two cannot drift.
-        if final_status in ("complete", "failed"):
-            await reap_presigned_staging_object(job_id, owned_staging_key)
+        await reap_presigned_staging_object(
+            job_id, owned_staging_key, final_status=final_status
+        )
 
 
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.ingest_service"])

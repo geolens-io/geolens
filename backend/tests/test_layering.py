@@ -1687,7 +1687,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # from the 1815-LOC defaults.py, and regrowth toward another god
         # module should get its own review.
         "backend/app/platform/extensions/defaults_ai_openai.py": 444,
-        "backend/app/platform/extensions/defaults_catalog_port.py": 398,
+        # fix(#1207): +15 — three delegations for the shared presigned-completion
+        # helpers (lock/assemble-check/finalize) the reupload door reaches through
+        # the port. Three lines each, matching the existing entries.
+        # fix(#1213 review r3): +7 — the completability guard's delegation.
+        "backend/app/platform/extensions/defaults_catalog_port.py": 420,
         # feat(#683): +58 — run_analysis_preview carries a clip mask DATASET
         # now, which costs a widened signature (one param per line once ruff
         # wraps it) plus the mask's shape and size gates. Those live here on
@@ -1998,7 +2002,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # pinned only the first half, which is why the second survived four
     # rounds. Extracting it also stops a test reimplementing the call and
     # passing while the handler diverges. Cap 1703 -> 1717, exact.
-    "backend/app/processing/ingest/router.py": 1717,
+    # fix(#1207): -194 — the completion sequence moved to presigned.py so the
+    # reupload door could share it. Ratchet DOWN in the same commit, per the
+    # no-headroom rule. Cap 1717 -> 1523, exact.
+    # fix(#1213 review r3): -8 — the one-shot block became a call to the
+    # shared require_completable_presigned_job, which owns both facts.
+    "backend/app/processing/ingest/router.py": 1515,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
@@ -2018,7 +2027,24 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # sweep. The vector tail had it inline; raster needed the same block, and
     # two copies of a best-effort delete in a PR about doors that drifted
     # would have been the same mistake one level down. Cap 1671 -> 1703, exact.
-    "backend/app/processing/ingest/tasks_common.py": 1703,
+    # fix(#1207): +4 — the terminal-status guard folded into
+    # reap_presigned_staging_object from three identical copies in the task
+    # tails, which also kept reupload_file under the complexity ceiling.
+    # fix(#1213 review r2): +57 — reap_downloaded_staging_source, extracted
+    # from the vector tail so the reupload tail could share it. That block
+    # reaps the object the task DOWNLOADED from, which after a presigned
+    # completion is the frozen copy; the reupload tail shipped without it.
+    # fix(#1213 review r4): +9 — the reaper's guard keyed off the path rewrite,
+    # which never happens when the download itself raises, so a terminal
+    # failure skipped the sweep. The `staging/` prefix is the real
+    # storage-key signal; the docstring records why the rewrite check was
+    # wrong and why the prefix is sufficient.
+    # fix(#1213 review r6): +23 — the failed-source retention semantics (an
+    # ordinary import stays retryable while its source exists, so only the
+    # reupload caller reaps on failure) plus draining both terminal reapers so
+    # a cancellation cannot skip the sweep that follows. Most of it is the
+    # docstring correcting r4's claim, which cited the wrong authority.
+    "backend/app/processing/ingest/tasks_common.py": 1796,
     # --- entered by the inclusion rule, fix(#958) -------------------------
     # These five were the ungated modules at or above _RATCHET_INCLUSION_LOC
     # when the rule was written. They arrive at their measured size with no
@@ -2036,7 +2062,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `tasks_common.reap_presigned_staging_object` so the raster tail could
     # share it. Ratchet DOWN in the same commit, per the no-headroom rule.
     # Cap 1087 -> 1075, exact.
-    "backend/app/processing/ingest/tasks_vector.py": 1075,
+    # fix(#1207): +1 — the reap call gained the final_status keyword when the
+    # terminal-status guard moved into the shared helper.
+    # fix(#1213 review r2): -16 — the inline BA-09 block became a call to the
+    # shared helper. Ratchet DOWN in the same commit.
+    # fix(#1213 review r4): -1 — the now-dead file_path argument dropped from
+    # the call. Ratchet DOWN in the same commit.
+    # fix(#1213 review r6): +4 — the caller states its retry semantics.
+    "backend/app/processing/ingest/tasks_vector.py": 1063,
     "backend/app/modules/auth/oauth/service.py": 1031,
     # fix(#1113 review): +15 — register_existing_table linearizes a
     # pre-existing geom_4326 (savepoint + error contract mirroring the

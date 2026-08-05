@@ -13,6 +13,7 @@ file that pins ``_should_unlink_staging`` for the same reason.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from unittest.mock import AsyncMock, patch
 
@@ -179,7 +180,7 @@ class TestReapPresignedStagingObject:
         await storage.put(key, b"staged-bytes")
         assert await storage.exists(key), "precondition: object staged"
 
-        await reap_presigned_staging_object(str(job_id), key)
+        await reap_presigned_staging_object(str(job_id), key, final_status="complete")
 
         assert not await storage.exists(key)
 
@@ -197,7 +198,25 @@ class TestReapPresignedStagingObject:
             "app.platform.storage.get_storage", lambda: storage, raising=True
         )
 
-        await reap_presigned_staging_object("job-1", None)
+        await reap_presigned_staging_object("job-1", None, final_status="complete")
+
+        storage.delete.assert_not_awaited()
+
+    async def test_a_non_terminal_status_never_sweeps(self, monkeypatch):
+        """fix(#1207): the guard moved into this helper from three identical
+        copies in the task tails. A non-terminal exit — job or dataset missing,
+        heartbeat claim lost — may be re-claimed by another attempt that still
+        needs the staging bytes."""
+        from app.processing.ingest.tasks_common import reap_presigned_staging_object
+
+        storage = AsyncMock()
+        monkeypatch.setattr(
+            "app.platform.storage.get_storage", lambda: storage, raising=True
+        )
+
+        await reap_presigned_staging_object(
+            "job-1", "staging/job-1/roads.geojson", final_status="pending"
+        )
 
         storage.delete.assert_not_awaited()
 
@@ -212,7 +231,9 @@ class TestReapPresignedStagingObject:
             "app.platform.storage.get_storage", lambda: storage, raising=True
         )
 
-        await reap_presigned_staging_object("job-1", "staging/job-1/roads.geojson")
+        await reap_presigned_staging_object(
+            "job-1", "staging/job-1/roads.geojson", final_status="complete"
+        )
 
         storage.delete.assert_awaited_once()
 
@@ -575,3 +596,101 @@ class TestPostExpirySweep:
         ).scalar_one()
         await test_db_session.refresh(refreshed)
         assert "s3_key_reaped" not in (refreshed.user_metadata or {})
+
+
+class TestFailedSourceRetention:
+    """fix(#1213 review r6): whether a FAILED job's source may be reaped is a
+    property of the CALLER, not of the helper.
+
+    `_retry_capability` refuses reupload, service-auth and analysis jobs; an
+    ordinary failed import with a `staging/` file_path is retryable exactly
+    when the object still exists. Reaping it there is what makes the retry the
+    endpoint advertises impossible, and the stale purge is the designed
+    eventual owner ("failed keeps it for /jobs/{id}/retry").
+    """
+
+    @staticmethod
+    async def _reap(monkeypatch, *, final_status: str, replayable: bool):
+        from app.processing.ingest.tasks_common import (
+            reap_downloaded_staging_source,
+        )
+
+        storage = AsyncMock()
+        monkeypatch.setattr(
+            "app.platform.storage.get_storage", lambda: storage, raising=True
+        )
+        await reap_downloaded_staging_source(
+            "job-1",
+            original_file_path="staging/job-1/frozen/roads.geojson",
+            final_status=final_status,
+            failed_source_replayable=replayable,
+        )
+        return storage
+
+    async def test_an_ordinary_import_retains_its_source_on_failure(
+        self, monkeypatch
+    ) -> None:
+        """The retry endpoint promises a replay while the object exists."""
+        storage = await self._reap(monkeypatch, final_status="failed", replayable=True)
+        storage.delete.assert_not_awaited()
+
+    async def test_a_reupload_still_reaps_on_failure(self, monkeypatch) -> None:
+        """_retry_capability refuses these outright, so nothing else ever will."""
+        storage = await self._reap(monkeypatch, final_status="failed", replayable=False)
+        storage.delete.assert_awaited_once()
+
+    async def test_success_reaps_for_both_kinds(self, monkeypatch) -> None:
+        """Retention is about the RETRY, which only exists for failed jobs."""
+        for replayable in (True, False):
+            storage = await self._reap(
+                monkeypatch, final_status="complete", replayable=replayable
+            )
+            storage.delete.assert_awaited_once()
+
+
+class TestTerminalCleanupDrainsThroughCancellation:
+    """fix(#1213 review r6): both tails call the source reap BEFORE the
+    presigned-key sweep, so a CancelledError escaping the first skips the
+    second — and that second one deletes the key a client may still hold an
+    unexpired PUT URL for. Same pattern r5 restored in _cleanup_presigned_object.
+    """
+
+    async def test_a_cancelled_source_delete_does_not_escape(self, monkeypatch) -> None:
+        from app.processing.ingest.tasks_common import (
+            reap_downloaded_staging_source,
+        )
+
+        storage = AsyncMock()
+        storage.delete.side_effect = asyncio.CancelledError()
+        monkeypatch.setattr(
+            "app.platform.storage.get_storage", lambda: storage, raising=True
+        )
+
+        # Must not raise: the caller has a second sweep to run after this.
+        await reap_downloaded_staging_source(
+            "job-1",
+            original_file_path="staging/job-1/frozen/roads.geojson",
+            final_status="complete",
+            failed_source_replayable=True,
+        )
+
+        storage.delete.assert_awaited_once()
+
+    async def test_a_cancelled_presigned_sweep_does_not_escape(
+        self, monkeypatch
+    ) -> None:
+        from app.processing.ingest.tasks_common import (
+            reap_presigned_staging_object,
+        )
+
+        storage = AsyncMock()
+        storage.delete.side_effect = asyncio.CancelledError()
+        monkeypatch.setattr(
+            "app.platform.storage.get_storage", lambda: storage, raising=True
+        )
+
+        await reap_presigned_staging_object(
+            "job-1", "staging/job-1/roads.geojson", final_status="complete"
+        )
+
+        storage.delete.assert_awaited_once()

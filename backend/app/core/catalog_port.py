@@ -65,6 +65,32 @@ class CatalogPort(Protocol):
         job_id: uuid.UUID,
     ) -> int: ...
 
+    # fix(#1207): the presigned completion contract, shared by both doors.
+    # `finalize_presigned_object` owns freeze/verify/validate and every
+    # cleanup decision; see its docstring for the failure postconditions.
+    async def lock_presigned_job(self, db: AsyncSession, job_id: uuid.UUID) -> Any: ...
+
+    async def should_assemble_multipart(
+        self, storage: Any, um: dict, physical_key: str
+    ) -> bool: ...
+
+    def require_completable_presigned_job(
+        self, job: Any, *, restart_hint: str
+    ) -> None: ...
+
+    async def finalize_presigned_object(
+        self,
+        *,
+        db: AsyncSession,
+        storage: Any,
+        job_id: uuid.UUID,
+        logical_key: str,
+        expected_size: Any,
+        filename: str,
+        user_id: uuid.UUID,
+        request: Any,
+    ) -> str: ...
+
     def visibility_default(self) -> str: ...
 
     async def compute_quality_score(

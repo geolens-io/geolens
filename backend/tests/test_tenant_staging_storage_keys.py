@@ -188,6 +188,7 @@ async def test_presigned_upload_uses_physical_key_and_persists_logical_key(monke
 async def test_presigned_completion_reads_physical_and_keeps_logical_job_path(
     monkeypatch,
 ):
+    from app.processing.ingest import presigned as presigned_module
     from app.processing.ingest import router
     from app.processing.ingest.schemas import PresignedCompleteRequest
 
@@ -230,7 +231,9 @@ async def test_presigned_completion_reads_physical_and_keeps_logical_job_path(
     with (
         patch.object(router, "get_job_or_404", AsyncMock(return_value=job)),
         patch.object(router, "get_storage", return_value=storage),
-        patch.object(router, "verify_completed_presigned_upload", verify),
+        # fix(#1207): the completion sequence moved into presigned.py so both
+        # doors share it, so verify is patched at its new home.
+        patch.object(presigned_module, "verify_completed_presigned_upload", verify),
         patch.object(router.UPLOAD_MAX_SIZE_MB, "get", AsyncMock(return_value=10)),
         _tenant_mode(monkeypatch, "multi_tenant", TENANT_A),
     ):
@@ -264,14 +267,26 @@ async def test_presigned_reupload_round_trip_uses_tenant_provider_key(monkeypatc
     dataset_id = uuid.uuid4()
     user = MagicMock(id=uuid.uuid4())
     dataset = MagicMock(id=dataset_id)
-    job = MagicMock(id=uuid.uuid4(), user_metadata={})
+    # fix(#1207): completion is one-shot and keys off file_path, so the mock
+    # starts where create_ingest_job leaves a presigned job — empty.
+    job = MagicMock(id=uuid.uuid4(), user_metadata={}, file_path="")
     db = AsyncMock()
     storage = MagicMock()
     storage.generate_presigned_put_url.return_value = "https://storage.test/put"
     storage.exists = AsyncMock(return_value=True)
     port = MagicMock()
     port.create_ingest_job = AsyncMock(return_value=job)
-    port.verify_completed_presigned_upload = AsyncMock(return_value=2)
+    # fix(#1207): the reupload door reaches the whole completion sequence
+    # through one port method now; it returns the frozen LOGICAL key.
+    port.lock_presigned_job = AsyncMock(return_value=job)
+    port.should_assemble_multipart = AsyncMock(return_value=False)
+
+    async def _fake_finalize(*, logical_key, **_kwargs):
+        from app.processing.ingest.presigned import frozen_staging_key
+
+        return frozen_staging_key(logical_key)
+
+    port.finalize_presigned_object = AsyncMock(side_effect=_fake_finalize)
     monkeypatch.setattr(settings, "storage_provider", "s3")
     monkeypatch.setattr(settings, "presigned_multipart_threshold_mb", 100)
 
@@ -322,9 +337,19 @@ async def test_presigned_reupload_round_trip_uses_tenant_provider_key(monkeypatc
     storage.generate_presigned_put_url.assert_called_once_with(
         physical, "application/octet-stream"
     )
-    storage.exists.assert_awaited_once_with(physical)
-    assert port.verify_completed_presigned_upload.await_args.kwargs["key"] == physical
-    assert job.file_path == logical
+    # fix(#1207): the door no longer probes storage itself — the existence
+    # check moved inside finalize_presigned_object, which resolves the tenant
+    # namespace from the logical key it is handed (asserted below). What stays
+    # this door's job is minting the presign against the PHYSICAL key, above,
+    # and the multipart gate, which still receives the physical key.
+    assert port.should_assemble_multipart.await_args.args[2] == physical
+    # The door hands finalize the LOGICAL key; the helper resolves the tenant
+    # namespace itself, which is what keeps the two doors identical here.
+    assert port.finalize_presigned_object.await_args.kwargs["logical_key"] == logical
+    # fix(#1207): the door binds the FROZEN key, not the client-writable
+    # staging one — the whole point of the freeze. Tenant prefix still absent
+    # from what is stored, exactly as before.
+    assert job.file_path == f"staging/{job.id}/frozen/roads.geojson"
 
 
 @pytest.mark.anyio

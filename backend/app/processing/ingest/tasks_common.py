@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from app.core.async_io import await_draining
+
 from procrastinate import App, PsycopgConnector
 
 from app.platform.cache.tiles import invalidate_catalog_cache
@@ -463,8 +465,91 @@ def check_missing_crs(
     )
 
 
+async def reap_downloaded_staging_source(
+    job_id: str,
+    *,
+    original_file_path: str,
+    final_status: str,
+    failed_source_replayable: bool,
+    is_fan_out_child: bool = False,
+) -> None:
+    """Delete the storage object this task DOWNLOADED its source from.
+
+    fix(#430 BA-09): the task pulls the source to a private local copy (the
+    caller unlinks that separately) but the `staging/{job_id}/` key it came
+    from otherwise lives forever, and a failed run leaks it with no dataset
+    ever created.
+
+    fix(#1213 review r2): after a presigned completion `original_file_path` is
+    the FROZEN copy, not the client-writable original — the completion door
+    binds the job to the snapshot. So this is the block that reaps the frozen
+    object, and `reap_presigned_staging_object` is the one that reaps the
+    client's key. Both are needed; neither substitutes for the other. Shared
+    between the vector and reupload tails so the two cannot drift, which is
+    what let the reupload tail ship without it.
+
+    fix(#1213 review r4): the storage-key signal is the `staging/` PREFIX, not
+    a path rewrite. This used to require `file_path != original_file_path` on
+    the theory that `resolve_file_path` rewrites the path when it downloads —
+    true, but it conflates "was downloaded" with "came from storage", and a
+    download that RAISES is exactly where the two come apart. On that path the
+    rewrite never happened, the equality held, and the reaper skipped: an S3
+    timeout left the frozen snapshot, possibly multi-GB, behind on a job that
+    is terminally failed and (for reupload) not even retryable.
+
+    The prefix is a sound discriminator on its own. A `staging/`-shaped
+    `file_path` can only come from a presigned completion, and both presign
+    endpoints refuse any backend but S3; every local-mode path is the absolute
+    one `save_upload_file` returns, and service jobs carry a URL, so neither
+    can match. Fan-out children are still skipped because siblings share the
+    original; a retention policy reaps those. Reupload has no fan-out, so its
+    caller leaves the default.
+
+    fix(#1213 review r6): whether a FAILED job may be reaped depends on the
+    caller, which is what `failed_source_replayable` states. The r4 version of
+    this docstring claimed no later attempt could need the bytes because "the
+    retry endpoint refuses reupload jobs" — true of reupload, and wrong of
+    everything else. `_retry_capability` (platform/jobs/router.py) refuses only
+    reupload, service-auth and analysis jobs; an ordinary failed import with a
+    `staging/` file_path is retryable EXACTLY WHEN the object still exists, so
+    deleting it here is what makes the advertised retry impossible. The stale
+    purge is the designed eventual owner — its own comment says "failed keeps
+    it for /jobs/{id}/retry (a failed-only endpoint)".
+
+    So: ordinary-import callers pass True and retain on failure, reaping only
+    on success; the reupload caller passes False, because `_retry_capability`
+    refuses its jobs outright and nothing else will ever reap them. It is
+    required rather than defaulted so #1210's raster adoption has to state
+    which surface it is — raster is an ordinary-import surface and retains.
+
+    Never raises — a failed sweep leaves an orphan, which beats failing a job
+    whose work is already committed.
+    """
+    if final_status not in ("complete", "failed"):
+        return
+    if final_status == "failed" and failed_source_replayable:
+        return
+    if is_fan_out_child or not original_file_path.startswith("staging/"):
+        return
+    try:
+        from app.platform.storage import get_storage
+        from app.platform.storage.titiler_url import resolve_current_storage_key
+
+        await await_draining(
+            get_storage().delete(resolve_current_storage_key(original_file_path))
+        )
+    except (
+        BaseException
+    ):  # broad: terminal cleanup must complete through cancellation (KISS-N9)
+        structlog.get_logger().warning(
+            "Failed to delete staging source object",
+            job_id=job_id,
+            storage_key=original_file_path,
+        )
+
+
 async def reap_presigned_staging_object(
-    job_id: str, owned_staging_key: str | None
+    job_id: str, owned_staging_key: str | None, *, final_status: str
 ) -> None:
     """Best-effort delete of a job's OWN presigned staging object.
 
@@ -480,14 +565,22 @@ async def reap_presigned_staging_object(
     Never raises. A failed sweep leaves an orphan, which is strictly better
     than failing a job whose work is already done and committed.
     """
-    if not owned_staging_key:
+    # fix(#1207): the terminal-status guard lives HERE, not in each tail. All
+    # three ingest paths applied the identical condition, and a non-terminal
+    # exit (job or dataset missing, heartbeat claim lost) must not sweep — the
+    # attempt may be re-claimed and still needs the staging bytes.
+    if final_status not in ("complete", "failed") or not owned_staging_key:
         return
     try:
         from app.platform.storage import get_storage
         from app.platform.storage.titiler_url import resolve_current_storage_key
 
-        await get_storage().delete(resolve_current_storage_key(owned_staging_key))
-    except Exception:  # broad: best-effort staging cleanup; never fail the task
+        await await_draining(
+            get_storage().delete(resolve_current_storage_key(owned_staging_key))
+        )
+    except (
+        BaseException
+    ):  # broad: terminal cleanup must complete through cancellation (KISS-N9)
         structlog.get_logger().warning(
             "Failed to delete presigned staging object",
             job_id=job_id,

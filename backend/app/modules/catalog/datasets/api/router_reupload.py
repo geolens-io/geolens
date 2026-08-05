@@ -845,6 +845,11 @@ async def complete_presigned_reupload(
         dataset_id=dataset_id,
         user_id=user.id,
     )
+    # fix(#1207): re-fetch under a row lock with attributes reloaded, then read
+    # the one-shot fact. `_get_bound_reupload_job_or_404` above stays unlocked —
+    # it carries the stricter binding checks (dataset, owner, reupload marker)
+    # and its 404 semantics, which the lock helper must not replace.
+    job = await get_catalog_port().lock_presigned_job(db, job.id)
     um = job.user_metadata or {}
 
     if not um.get("presigned"):
@@ -853,11 +858,19 @@ async def complete_presigned_reupload(
             detail="Job is not a presigned upload",
         )
 
+    # fix(#1213 review r3): both one-shot facts, shared with the upload door.
+    # This door stamps `failed` itself before a content 422 (below), so without
+    # the status half a client could re-PUT and complete again: a 200 that
+    # binds a frozen object to a row preview and commit will refuse.
+    get_catalog_port().require_completable_presigned_job(
+        job, restart_hint="Start the reupload again."
+    )
+
     storage = get_storage()
     s3_key = um["s3_key"]
     physical_s3_key = resolve_current_storage_key(s3_key)
 
-    if um.get("multipart"):
+    if await get_catalog_port().should_assemble_multipart(storage, um, physical_s3_key):
         if not request.parts:
             await get_catalog_port().abort_presigned_multipart_upload(
                 storage,
@@ -897,23 +910,42 @@ async def complete_presigned_reupload(
                 detail="Upload completion failed — the upload session may have expired. Please try again.",
             ) from exc
 
-    if not await storage.exists(physical_s3_key):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="File not found in S3 after upload",
+    # fix(#1207): rows 7-13 of the completion contract, shared with the upload
+    # door — exists, pre-copy size gate, drained freeze, verify and
+    # content-validate the FROZEN bytes, with every cleanup decision. The
+    # docstring carries the failure postconditions.
+    try:
+        frozen_key = await get_catalog_port().finalize_presigned_object(
+            db=db,
+            storage=storage,
+            job_id=job.id,
+            logical_key=s3_key,
+            expected_size=um.get("expected_size"),
+            filename=job.source_filename or "",
+            user_id=user.id,
+            request=http_request,
         )
-    await get_catalog_port().verify_completed_presigned_upload(
-        db=db,
-        storage=storage,
-        key=physical_s3_key,
-        expected_size=um.get("expected_size"),
-        user_id=user.id,
-        request=http_request,
-        job_id=job.id,
-    )
+    except HTTPException as exc:
+        # Surface-local taxonomy: this door's sibling DIRECT door stamps a
+        # failed-job audit trail before raising a content 422, and a
+        # provenance test asserts that trail. Parity here is with that
+        # sibling, not with the upload surface — so a deliberate content or
+        # size refusal gets the same stamp, while transport failures (502)
+        # leave the job retryable exactly as they do on the upload door.
+        if exc.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT:
+            job.status = "failed"
+            job.error_message = str(exc.detail)
+            await db.commit()
+        raise
 
-    job.file_path = s3_key
+    job.file_path = frozen_key
     await db.commit()
+
+    # fix(#1207): after the commit, never before — a rolled-back commit with
+    # the staging object already gone strands the retry. The helper is named
+    # for its rollback callers, but it is just a best-effort logical-key
+    # delete, which is what this needs too.
+    await _cleanup_uncommitted_reupload_source(s3_key, job_id=job.id)
 
     return UploadResponse(
         job_id=job.id,

@@ -20,6 +20,7 @@ from app.platform.jobs.heartbeat import (
 )
 from app.processing.raster.cog import sha256_file
 
+from app.platform.jobs.models import owned_presigned_staging_key
 from app.processing.ingest.tasks_common import (
     _append_job_warning,
     _append_mercator_clip_warning,
@@ -27,6 +28,8 @@ from app.processing.ingest.tasks_common import (
     _archive_original_file,
     _bind_task_log_context,
     _cleanup_staging_on_failure,
+    reap_downloaded_staging_source,
+    reap_presigned_staging_object,
     _current_tenant_role,
     _current_tenant_schema,
     _run_service_import_with_wfs_fallback,
@@ -150,6 +153,8 @@ async def reupload_file(
     dataset_uuid = uuid.UUID(dataset_id)
     original_file_path = file_path
     final_status: str = "pending"
+    # fix(#1207): captured in phase 1, swept in the finally.
+    owned_staging_key: str | None = None
     staging_tn: str = ""
     heartbeat_task: asyncio.Task[None] | None = None
 
@@ -172,6 +177,17 @@ async def reupload_file(
                     "Ingest job not found, skipping", job_id=job_id
                 )
                 return
+
+            # fix(#1207): captured HERE, first thing after the row is in hand,
+            # so no exit from this block can precede it. Below are a
+            # dataset-missing return, a heartbeat-claim bail, a
+            # resolve_file_path download failure and a validation failure —
+            # each reaches the terminal `finally` and each would sweep nothing
+            # if the capture sat with the phase-2 snapshot. Reads the DB
+            # column, not the local `file_path` that resolve_file_path rebinds.
+            owned_staging_key = owned_presigned_staging_key(
+                job.id, job.user_metadata, job.file_path
+            )
 
             dataset_result = await session.execute(
                 select(Dataset)
@@ -446,6 +462,16 @@ async def reupload_file(
                     task_name="reupload_file",
                     attempt_id=attempt_uuid,
                 )
+        # fix(#1213 review r1): mark the local status terminal before
+        # re-raising. `_cleanup_staging_on_failure` above writes status=failed
+        # to the DB row, but the `finally` reap reads THIS variable, and it was
+        # still "pending" — so the terminal-status guard returned early and the
+        # client-writable staging object survived every failure past the early
+        # validation block (CRS detection, ogr2ogr, staging-table work). The
+        # task is retry=0, so every exception here is terminal, and the stale
+        # purge is no backstop for reupload jobs (see the reap comment below).
+        # Mirrors tasks_vector.py's broad-except handler.
+        final_status = "failed"
         raise
     finally:
         await stop_ingest_job_heartbeat(heartbeat_task)
@@ -456,6 +482,29 @@ async def reupload_file(
             Path(file_path).unlink(missing_ok=True)
         elif file_path != original_file_path:
             Path(file_path).unlink(missing_ok=True)
+        # fix(#1213 review r2): reap the object the task downloaded FROM, which
+        # after a presigned completion is the frozen copy the job is bound to —
+        # the unlinks above are local files only, so it was never deleted and a
+        # successful reupload job is its dataset's latest-complete row, exempt
+        # from the stale purge forever. No fan-out on this surface, so the
+        # sibling-sharing guard is left at its default.
+        await reap_downloaded_staging_source(
+            job_id,
+            original_file_path=original_file_path,
+            final_status=final_status,
+            # _retry_capability refuses reupload jobs outright, so nothing
+            # else will ever reap this; reap on failure too.
+            failed_source_replayable=False,
+        )
+        # fix(#1207): sweep the presigned staging key. This surface had NO
+        # storage reaper at all — the unlinks above are local files only — and
+        # the stale purge is not a backstop here, because a successful reupload
+        # job is the per-dataset latest-complete row it exempts forever. So
+        # every reupload staging object lived forever, recreatable through the
+        # client's unexpired PUT URL. Shared helper, same as the ingest tails.
+        await reap_presigned_staging_object(
+            job_id, owned_staging_key, final_status=final_status
+        )
 
 
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.reupload_service"])
