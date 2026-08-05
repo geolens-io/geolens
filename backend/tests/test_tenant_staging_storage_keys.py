@@ -212,6 +212,11 @@ async def test_presigned_completion_reads_physical_and_keeps_logical_job_path(
         },
     )
     db = AsyncMock()
+    # fix(#1202 review r5): completion re-fetches the row FOR UPDATE before
+    # reading file_path, so the locked fetch has to yield the SAME job the
+    # test configured — a bare AsyncMock returns a fresh mock whose truthy
+    # file_path trips the one-shot guard.
+    db.get = AsyncMock(return_value=job)
     storage = AsyncMock()
     storage.exists.return_value = True
     # fix(#1202): completion content-validates from a ranged read of the
@@ -353,7 +358,11 @@ async def test_cleanup_and_retention_reaper_delete_only_tenant_key(
     for result in empty_scalars:
         result.scalars.return_value = []
     deleted = MagicMock()
-    deleted.all.return_value = [(logical,)]
+    # fix(#1202 review r5): the purge's RETURNING is (id, file_path,
+    # user_metadata) now — it also reaps the presigned staging key, which
+    # needs the row's own id to decide ownership. No s3_key here, so this
+    # row still contributes exactly one delete.
+    deleted.all.return_value = [(uuid.uuid4(), logical, None)]
     survivors = MagicMock()
     survivors.scalars.return_value = []
     db = AsyncMock()

@@ -20,6 +20,34 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.db import Base
 
 
+def owned_presigned_staging_key(
+    job_id: uuid.UUID | str,
+    user_metadata: dict[str, Any] | None,
+    file_path: str | None,
+) -> str | None:
+    """Return the presigned staging key this job alone is responsible for.
+
+    fix(#1202 review r5): a completed presigned upload points ``file_path`` at
+    a frozen copy, which leaves ``user_metadata["s3_key"]`` as the only
+    reference to the client-writable staging key. That URL stays valid until
+    expiry, so the client can recreate the object after completion. Reapers
+    use this to sweep it alongside ``file_path``.
+
+    Ownership is decided by the key's OWN prefix, not by "differs from
+    file_path". ``create_fan_out_jobs`` clones the parent's ``user_metadata``
+    wholesale, so every fan-out child carries the PARENT's ``s3_key``:
+    sweeping on difference alone would delete the shared original out from
+    under siblings that still need it — the same breakage the
+    ``is_fan_out_child`` default-true guard exists to prevent. A staging key
+    is namespaced by the job that presigned it, so the prefix settles
+    ownership outright and needs no survivor query.
+    """
+    key = (user_metadata or {}).get("s3_key")
+    if not isinstance(key, str) or not key or key == file_path:
+        return None
+    return key if key.startswith(f"staging/{job_id}/") else None
+
+
 class IngestJob(Base):
     __tablename__ = "ingest_jobs"
     __table_args__ = (

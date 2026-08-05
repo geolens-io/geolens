@@ -1979,7 +1979,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # spent upload id), and the staging delete moved after the commit so a
     # rolled-back commit does not strand the retry with the bytes gone. Both
     # comments carry the invariant, not the mechanic. Cap 1654 -> 1672, exact.
-    "backend/app/processing/ingest/router.py": 1672,
+    # fix(#1202 review r5): +26 — the one-shot guard was an UNLOCKED read, so
+    # two overlapping completions both passed it and raced over the same
+    # deterministic frozen key, letting the loser's refusal delete state the
+    # winner had already accepted. Completion now re-fetches the row FOR
+    # UPDATE before reading anything the guard depends on. The rest is the
+    # comment explaining why get_job_or_404 deliberately stays unlocked.
+    # Cap 1672 -> 1698, exact.
+    "backend/app/processing/ingest/router.py": 1698,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
@@ -2004,7 +2011,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # them writes the first entry.
     "backend/app/platform/config_ops/service.py": 1201,
     "backend/app/processing/ingest/tasks_vrt.py": 1071,
-    "backend/app/processing/ingest/tasks_vector.py": 1058,
+    # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
+    # A completed presigned job points file_path at its frozen copy, so this
+    # reaper never touched the key the client's PUT URL can still recreate.
+    # Ownership comes from owned_presigned_staging_key, which refuses a
+    # fan-out child's inherited parent key. Cap 1058 -> 1087, exact.
+    "backend/app/processing/ingest/tasks_vector.py": 1087,
     "backend/app/modules/auth/oauth/service.py": 1031,
     # fix(#1113 review): +15 — register_existing_table linearizes a
     # pre-existing geom_4326 (savepoint + error contract mirroring the

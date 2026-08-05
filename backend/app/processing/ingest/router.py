@@ -352,7 +352,31 @@ async def complete_presigned_upload(
     db: AsyncSession = Depends(get_db),
 ) -> UploadResponse:
     """Notify that direct-to-S3 upload is complete."""
+    # Runtime import: the module-scope one is TYPE_CHECKING-only.
+    from app.platform.jobs.models import IngestJob
+
     job = await get_job_or_404(db, job_id, user)
+
+    # fix(#1202 review r5): re-fetch under a row lock before reading anything
+    # the one-shot guard depends on. That guard was an UNLOCKED read: two
+    # overlapping completions both saw an empty `file_path` and proceeded, and
+    # because the frozen key is derived deterministically they raced over the
+    # same object — the loser's refusal path deletes BOTH objects while the
+    # winner commits `file_path` pointing at one of them, binding the job to
+    # nothing. Bad bytes still never got bound, but a refusal was destroying
+    # state a concurrent accept depended on.
+    #
+    # The lock is held until this handler's commit or rollback, so the second
+    # request blocks and then reads the committed `file_path` and takes the
+    # 400 below. It locks one row, so completions of DIFFERENT jobs are
+    # untouched. `get_job_or_404` stays unlocked — its other callers are reads
+    # that must not serialize behind a completion.
+    job = await db.get(IngestJob, job_id, with_for_update=True)
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found",
+        )
     um = job.user_metadata or {}
 
     if not um.get("presigned"):
@@ -543,10 +567,12 @@ async def complete_presigned_upload(
     #
     # Past this line the staging object has served its purpose. A delete
     # failure here, or a late re-PUT through the still-valid URL, leaves an
-    # orphan that nothing reads — and nothing sweeps either, because every
-    # staging reaper keys off `job.file_path` (tasks_vector.py's post-ingest
-    # delete, jobs/router.py's stale-job purge), which now points at the
-    # frozen key. Storage-consumption nuisance, not a validation bypass.
+    # orphan that nothing reads. Both staging reapers sweep it at job end via
+    # `user_metadata["s3_key"]` (tasks_vector.py's post-ingest cleanup and
+    # jobs/router.py's stale-job purge, both through
+    # `owned_presigned_staging_key`), so the residual window is completion to
+    # reap, not forever. S3 cannot revoke an individual presigned URL, so
+    # reaping is the only real remedy.
     await _cleanup_saved_upload(s3_key, str(job.id))
 
     return UploadResponse(

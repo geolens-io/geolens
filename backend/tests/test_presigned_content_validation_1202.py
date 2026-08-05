@@ -637,3 +637,45 @@ async def test_a_failed_commit_leaves_both_objects_so_the_retry_can_proceed(
     file_path = await _job_file_path(test_db_session, body["job_id"])
     assert both_doors.objects[file_path] == _VALID_GEOJSON
     assert body["s3_key"] not in both_doors.objects
+
+
+async def test_completion_locks_the_job_row_before_reading_file_path(
+    client, admin_auth_header, both_doors
+) -> None:
+    """Pin the serialization mechanism, since the race itself is not
+    deterministically testable through the ASGI client.
+
+    The one-shot guard was an unlocked read: two overlapping completions both
+    saw an empty ``file_path``, derived the SAME frozen key, and raced — the
+    loser's refusal path deletes both objects while the winner commits a
+    ``file_path`` pointing at one of them. What makes that impossible is the
+    row lock, so this asserts the lock reaches the DATABASE rather than that
+    the call was written with the right keyword. A `db.get` on an object
+    already in the identity map can return the cached instance without
+    emitting SQL at all, and that failure mode is invisible to a spy on the
+    call arguments.
+    """
+    from sqlalchemy import event
+    from sqlalchemy.engine import Engine
+
+    statements: list[str] = []
+
+    def _record(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    event.listen(Engine, "before_cursor_execute", _record)
+    try:
+        presigned, _job_id, _staging = await _presigned_upload(
+            client, admin_auth_header, both_doors, "roads.geojson", _VALID_GEOJSON
+        )
+    finally:
+        event.remove(Engine, "before_cursor_execute", _record)
+
+    assert presigned.status_code == 200, presigned.text
+    locking = [s for s in statements if "FOR UPDATE" in s.upper()]
+    assert locking, (
+        "completion issued no FOR UPDATE; the one-shot guard is an unlocked "
+        f"read again. ingest_jobs statements seen: "
+        f"{[s for s in statements if 'ingest_jobs' in s][:5]}"
+    )
+    assert any("ingest_jobs" in s for s in locking), locking
