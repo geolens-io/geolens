@@ -403,3 +403,175 @@ async def test_validation_failure_still_sweeps_the_presigned_staging_object(
     assert not await storage.exists(staging_key), (
         "the validation-failure early return skipped the staging sweep"
     )
+
+
+class TestPostExpirySweep:
+    """fix(#1202 review r8): the backstop that outlives the PUT URL.
+
+    Both other sweeps are event-triggered and a fast ingest fires both while
+    the URL is still valid, so a re-PUT after them recreates an object nothing
+    later reaps — the successful job is latest-complete-exempt from the purge
+    forever. This pass runs once per job, after the URL can no longer be used.
+    """
+
+    @staticmethod
+    def _outcome(**overrides):
+        from app.platform.jobs.router import StaleCleanupOutcome
+
+        base = dict(
+            pending_failed=0,
+            running_failed=0,
+            vrt_assets_recovered=0,
+            vrt_generations_failed=0,
+            terminal_jobs_purged=0,
+            staged_paths_considered=0,
+            local_files_reaped=0,
+            storage_objects_reaped=0,
+            staged_paths_skipped=0,
+            staged_cleanup_failures=0,
+        )
+        base.update(overrides)
+        return StaleCleanupOutcome(**base)
+
+    async def _make_job(self, test_db_session, *, age_seconds: int, status="complete"):
+        from datetime import datetime, timedelta, timezone
+
+        from sqlalchemy import select, update
+
+        from app.modules.auth.models import User
+        from app.platform.jobs.models import IngestJob
+
+        admin = (
+            await test_db_session.execute(select(User).where(User.username == "admin"))
+        ).scalar_one()
+        job = IngestJob(
+            source_filename="roads.geojson",
+            created_by=admin.id,
+            status=status,
+            user_metadata={"presigned": True},
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+        await test_db_session.refresh(job)
+
+        staging_key = f"staging/{job.id}/roads.geojson"
+        # created_at is server-defaulted, so age it explicitly rather than
+        # relying on wall-clock drift.
+        await test_db_session.execute(
+            update(IngestJob)
+            .where(IngestJob.id == job.id)
+            .values(
+                file_path=f"staging/{job.id}/frozen/roads.geojson",
+                user_metadata={"presigned": True, "s3_key": staging_key},
+                created_at=datetime.now(timezone.utc) - timedelta(seconds=age_seconds),
+            )
+        )
+        await test_db_session.commit()
+        return job, staging_key
+
+    async def test_a_recreated_object_past_the_deadline_is_swept_once(
+        self, test_db_session, monkeypatch
+    ) -> None:
+        from sqlalchemy import select
+
+        from app.platform.jobs import router as jobs_router
+        from app.platform.jobs.models import IngestJob
+
+        job, staging_key = await self._make_job(test_db_session, age_seconds=10_000)
+        storage = AsyncMock()
+        monkeypatch.setattr(
+            "app.platform.storage.get_storage", lambda: storage, raising=True
+        )
+
+        first = await jobs_router._sweep_expired_presigned_staging(
+            test_db_session, self._outcome()
+        )
+
+        assert {c.args[0] for c in storage.delete.await_args_list} == {staging_key}
+        assert first.storage_objects_reaped == 1
+        refreshed = (
+            await test_db_session.execute(
+                select(IngestJob).where(IngestJob.id == job.id)
+            )
+        ).scalar_one()
+        await test_db_session.refresh(refreshed)
+        assert refreshed.user_metadata["s3_key_reaped"] is True
+        # The key itself survives in metadata — the marker is what stops the
+        # re-sweep, not deleting the record of which key it was.
+        assert refreshed.user_metadata["s3_key"] == staging_key
+
+    async def test_a_second_pass_costs_no_storage_call(
+        self, test_db_session, monkeypatch
+    ) -> None:
+        """Without the marker, latest-complete rows would cost a delete on
+        every purge run for the rest of the deployment's life."""
+        from app.platform.jobs import router as jobs_router
+
+        await self._make_job(test_db_session, age_seconds=10_000)
+        storage = AsyncMock()
+        monkeypatch.setattr(
+            "app.platform.storage.get_storage", lambda: storage, raising=True
+        )
+
+        await jobs_router._sweep_expired_presigned_staging(
+            test_db_session, self._outcome()
+        )
+        storage.delete.reset_mock()
+
+        second = await jobs_router._sweep_expired_presigned_staging(
+            test_db_session, self._outcome()
+        )
+
+        storage.delete.assert_not_awaited()
+        assert second.storage_objects_reaped == 0
+
+    async def test_a_job_inside_the_url_window_is_left_alone(
+        self, test_db_session, monkeypatch
+    ) -> None:
+        """The URL may still be in legitimate use; sweeping here would delete
+        bytes a retry needs."""
+        from app.platform.jobs import router as jobs_router
+
+        await self._make_job(test_db_session, age_seconds=60)
+        storage = AsyncMock()
+        monkeypatch.setattr(
+            "app.platform.storage.get_storage", lambda: storage, raising=True
+        )
+
+        await jobs_router._sweep_expired_presigned_staging(
+            test_db_session, self._outcome()
+        )
+
+        storage.delete.assert_not_awaited()
+
+    async def test_a_failed_delete_is_not_marked_done(
+        self, test_db_session, monkeypatch
+    ) -> None:
+        """Marking a failed delete as done is the one outcome that leaks the
+        object permanently, so the marker is withheld and a later pass retries.
+        """
+        from sqlalchemy import select
+
+        from app.platform.jobs import router as jobs_router
+        from app.platform.jobs.models import IngestJob
+
+        job, _key = await self._make_job(test_db_session, age_seconds=10_000)
+        storage = AsyncMock()
+        storage.delete.side_effect = RuntimeError("provider down")
+        monkeypatch.setattr(
+            "app.platform.storage.get_storage", lambda: storage, raising=True
+        )
+
+        result = await jobs_router._sweep_expired_presigned_staging(
+            test_db_session, self._outcome()
+        )
+
+        assert result.staged_cleanup_failures == 1
+        assert result.storage_objects_reaped == 0
+        refreshed = (
+            await test_db_session.execute(
+                select(IngestJob).where(IngestJob.id == job.id)
+            )
+        ).scalar_one()
+        await test_db_session.refresh(refreshed)
+        assert "s3_key_reaped" not in (refreshed.user_metadata or {})

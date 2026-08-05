@@ -365,8 +365,13 @@ async def test_cleanup_and_retention_reaper_delete_only_tenant_key(
     deleted.all.return_value = [(uuid.uuid4(), logical, None)]
     survivors = MagicMock()
     survivors.scalars.return_value = []
+    # fix(#1202 review r8): one more SELECT for the post-expiry staging sweep.
+    post_expiry = MagicMock()
+    post_expiry.all.return_value = []
     db = AsyncMock()
-    db.execute = AsyncMock(side_effect=[*empty_scalars, deleted, survivors])
+    db.execute = AsyncMock(
+        side_effect=[*empty_scalars, deleted, survivors, post_expiry]
+    )
 
     with _tenant_mode(monkeypatch, "multi_tenant", TENANT_A):
         await fail_stale_jobs(db)

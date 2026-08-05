@@ -136,6 +136,108 @@ class StaleCleanupOutcome:
         }
 
 
+# fix(#1202 review r8): how long a presigned PUT URL can still recreate the
+# staging object after the event-triggered sweeps have already run.
+#
+# Grounded in the provider default rather than assumed: S3StorageProvider
+# .generate_presigned_put_url takes `expiration: int = 3600`, and neither call
+# site — the ingest and reupload presign requests — passes one, so 3600 is
+# always the value. No setting exposes it; if one is ever added, derive this
+# from that instead of the literal.
+#
+# Part URLs default to 7200 but cannot recreate an OBJECT: they need a live
+# upload id, and CompleteMultipartUpload consumes it (an abort kills it). Only
+# the single-part object-key URL is a recreation vector, so 3600 bounds it.
+#
+# `created_at` is a sound conservative anchor because the row is inserted
+# BEFORE any URL for it is minted, so no URL can outlive created_at + TTL.
+_PRESIGNED_PUT_URL_TTL_SECONDS = 3600
+_POST_EXPIRY_SWEEP_MARGIN_SECONDS = 900
+_POST_EXPIRY_SWEEP_AFTER_SECONDS = (
+    _PRESIGNED_PUT_URL_TTL_SECONDS + _POST_EXPIRY_SWEEP_MARGIN_SECONDS
+)
+# Set once the post-expiry sweep has run for a job, so it never runs twice.
+_STAGING_REAPED_MARKER = "s3_key_reaped"
+
+
+async def _sweep_expired_presigned_staging(
+    db: AsyncSession, outcome: StaleCleanupOutcome, *, now: datetime | None = None
+) -> StaleCleanupOutcome:
+    """Sweep staging objects a now-dead PUT URL may have recreated.
+
+    The other two sweeps are EVENT-triggered — one at completion, one at job
+    end — and a fast ingest fires both while the client's URL is still valid.
+    A re-PUT after them recreates an object nothing later reaps, because a
+    successful job is the per-dataset latest-complete that the retention purge
+    exempts forever. Those sweeps close the URL's past; this closes its future.
+
+    Runs exactly once per job, ever: the marker takes the row out of the query
+    below, so the exempt rows do not cost a storage call on every pass forever.
+
+    Delete first, mark second — the opposite of ``_reap_committed_staged_paths``
+    and for a different reason. That one must not destroy an artifact a
+    rolled-back row DELETE might still need. Here the row survives either way,
+    so the only asymmetric outcome is marking a FAILED delete as done, which
+    leaks the object permanently. A crash between the two costs one redundant
+    delete on the next pass instead, which is a no-op.
+    """
+    cutoff = (now or datetime.now(timezone.utc)) - timedelta(
+        seconds=_POST_EXPIRY_SWEEP_AFTER_SECONDS
+    )
+    candidates = (
+        await db.execute(
+            select(IngestJob.id, IngestJob.file_path, IngestJob.user_metadata).where(
+                IngestJob.status.not_in(("pending", "running")),
+                IngestJob.created_at < cutoff,
+                IngestJob.user_metadata["s3_key"].astext.is_not(None),
+                IngestJob.user_metadata[_STAGING_REAPED_MARKER].astext.is_(None),
+            )
+        )
+    ).all()
+
+    reaped = 0
+    failures = 0
+    for job_row_id, file_path, metadata in candidates:
+        staging_key = owned_presigned_staging_key(job_row_id, metadata, file_path)
+        if staging_key is None:
+            # Not this job's key to delete — a fan-out child holding the
+            # parent's inherited s3_key lands here, same rule as everywhere.
+            continue
+        try:
+            from app.platform.storage import get_storage
+
+            await get_storage().delete(resolve_current_storage_key(staging_key))
+        except Exception:  # broad: best-effort staging cleanup
+            failures += 1
+            log.warning(
+                "Failed to reap expired presigned staging object",
+                storage_key=staging_key,
+            )
+            continue
+        # A Core UPDATE with a fresh dict, not an in-place mutation of the
+        # loaded value — JSONB does not track mutation, so an in-place edit
+        # would never flush.
+        await db.execute(
+            update(IngestJob)
+            .where(IngestJob.id == job_row_id)
+            .values(
+                user_metadata={**(metadata or {}), _STAGING_REAPED_MARKER: True},
+            )
+        )
+        reaped += 1
+
+    if reaped:
+        await db.commit()
+
+    if not (reaped or failures):
+        return outcome
+    return replace(
+        outcome,
+        storage_objects_reaped=outcome.storage_objects_reaped + reaped,
+        staged_cleanup_failures=outcome.staged_cleanup_failures + failures,
+    )
+
+
 async def _reap_committed_staged_paths(
     outcome: StaleCleanupOutcome,
 ) -> StaleCleanupOutcome:
@@ -527,6 +629,7 @@ async def fail_stale_jobs(
         # cannot restore a job row whose only retry input has been destroyed.
         await db.commit()
         outcome = await _reap_committed_staged_paths(outcome)
+        outcome = await _sweep_expired_presigned_staging(db, outcome, now=now)
     if detailed:
         return outcome
     return outcome.pending_failed, outcome.running_failed
@@ -655,6 +758,7 @@ async def cleanup_stale_jobs(
             details = database_details
         else:
             outcome = await _reap_committed_staged_paths(outcome)
+            outcome = await _sweep_expired_presigned_staging(db, outcome)
             details = outcome.as_dict()
     except Exception as exc:  # broad: cleanup spans DB and artifact deletion
         await db.rollback()

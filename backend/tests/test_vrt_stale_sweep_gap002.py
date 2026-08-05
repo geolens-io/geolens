@@ -148,6 +148,13 @@ def _make_mock_db_for_fail_stale(
         survivors_result.scalars.return_value = surviving_paths or []
         results.append(survivors_result)
 
+    # fix(#1202 review r8): the post-expiry presigned-staging sweep issues one
+    # more SELECT after the purge. No candidates in these fixtures, so an empty
+    # .all() keeps each test stating only what it cares about.
+    post_expiry_result = MagicMock()
+    post_expiry_result.all.return_value = []
+    results.append(post_expiry_result)
+
     mock_db = AsyncMock()
     mock_db.execute = AsyncMock(side_effect=results)
     mock_db.commit = AsyncMock()
@@ -356,7 +363,9 @@ async def test_fail_stale_jobs_purges_terminal_jobs_past_retention():
     mock_db = _make_mock_db_for_fail_stale(purge_candidates=[(None,)])
     await fail_stale_jobs(mock_db)
 
-    assert mock_db.execute.await_count == 5
+    # 4 sweeps + the purge DELETE + the post-expiry staging SELECT
+    # (fix(#1202 review r8)). The purge is still index 4.
+    assert mock_db.execute.await_count == 6
     purge_stmt = mock_db.execute.await_args_list[4].args[0]
     assert isinstance(purge_stmt, Delete)
     where_sql = str(purge_stmt.compile(compile_kwargs={"literal_binds": True}))
@@ -518,7 +527,9 @@ async def test_fail_stale_jobs_retention_zero_disables_purge(monkeypatch):
     mock_db = _make_mock_db_for_fail_stale()
     await fail_stale_jobs(mock_db)
 
-    assert mock_db.execute.await_count == 4
+    # 4 sweeps and no purge DELETE, plus the post-expiry staging SELECT, which
+    # is independent of retention being disabled (fix(#1202 review r8)).
+    assert mock_db.execute.await_count == 5
 
 
 # ---------------------------------------------------------------------------
