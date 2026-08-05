@@ -490,7 +490,6 @@ async def reupload_file(
         # sibling-sharing guard is left at its default.
         await reap_downloaded_staging_source(
             job_id,
-            file_path=file_path,
             original_file_path=original_file_path,
             final_status=final_status,
         )

@@ -466,7 +466,6 @@ def check_missing_crs(
 async def reap_downloaded_staging_source(
     job_id: str,
     *,
-    file_path: str,
     original_file_path: str,
     final_status: str,
     is_fan_out_child: bool = False,
@@ -486,11 +485,22 @@ async def reap_downloaded_staging_source(
     between the vector and reupload tails so the two cannot drift, which is
     what let the reupload tail ship without it.
 
-    `resolve_file_path` only rewrites the path when it downloaded from remote
-    storage, so `file_path != original_file_path` is the S3-mode signal.
-    Fan-out children are skipped because siblings share the original; a
-    retention policy reaps those. Reupload has no fan-out, so its caller
-    leaves the default.
+    fix(#1213 review r4): the storage-key signal is the `staging/` PREFIX, not
+    a path rewrite. This used to require `file_path != original_file_path` on
+    the theory that `resolve_file_path` rewrites the path when it downloads —
+    true, but it conflates "was downloaded" with "came from storage", and a
+    download that RAISES is exactly where the two come apart. On that path the
+    rewrite never happened, the equality held, and the reaper skipped: an S3
+    timeout left the frozen snapshot, possibly multi-GB, behind on a job that
+    is terminally failed and (for reupload) not even retryable.
+
+    The prefix is a sound discriminator on its own. A `staging/`-shaped
+    `file_path` can only come from a presigned completion, and both presign
+    endpoints refuse any backend but S3; every local-mode path is the absolute
+    one `save_upload_file` returns, and service jobs carry a URL, so neither
+    can match. Fan-out children are still skipped because siblings share the
+    original; a retention policy reaps those. Reupload has no fan-out, so its
+    caller leaves the default.
 
     Deleting on "failed" as well as "complete" is safe for both callers: these
     tasks are retry=0, and the retry endpoint refuses reupload jobs outright
@@ -502,7 +512,6 @@ async def reap_downloaded_staging_source(
     """
     if (
         final_status not in ("complete", "failed")
-        or file_path == original_file_path
         or is_fan_out_child
         or not original_file_path.startswith("staging/")
     ):

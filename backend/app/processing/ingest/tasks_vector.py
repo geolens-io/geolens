@@ -709,7 +709,6 @@ async def ingest_file(
         # presigned completion this reaps the FROZEN copy the job is bound to.
         await reap_downloaded_staging_source(
             job_id,
-            file_path=file_path,
             original_file_path=original_file_path,
             final_status=final_status,
             is_fan_out_child=is_fan_out_child,

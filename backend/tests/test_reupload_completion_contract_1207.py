@@ -674,3 +674,77 @@ async def test_a_failed_job_cannot_be_completed_by_a_late_reput(
     # candidate set.
     assert staging_key in both_reupload_doors.objects
     assert frozen_key_absent(both_reupload_doors, job_id)
+
+
+async def test_a_failed_download_still_sweeps_the_frozen_object(
+    client, admin_auth_header, test_db_session, tmp_path, monkeypatch
+) -> None:
+    """fix(#1213 review r4): the reaper keyed off the wrong signal.
+
+    It required `file_path != original_file_path` — the path rewrite
+    `resolve_file_path` performs when it downloads. That conflates "was
+    downloaded" with "came from storage", and a download that RAISES is where
+    the two come apart: no rewrite happened, the equality held, and the reaper
+    skipped. An S3 timeout therefore left the frozen snapshot behind on a job
+    that is terminally failed and, on this surface, not even retryable.
+
+    The `staging/` prefix is the real signal and is what the guard uses now.
+    """
+    from app.platform.storage.local import LocalStorageProvider
+    from app.processing.ingest.tasks_reupload import reupload_file
+
+    bucket = tmp_path / "bucket"
+    bucket.mkdir()
+    storage = LocalStorageProvider(str(bucket))
+    monkeypatch.setattr(
+        "app.platform.storage.get_storage", lambda: storage, raising=True
+    )
+
+    admin_id = await _admin_id(test_db_session)
+    dataset = await _create_dataset(test_db_session, created_by=admin_id)
+
+    job = IngestJob(
+        source_filename="update.geojson",
+        dataset_id=dataset.id,
+        created_by=admin_id,
+        status="pending",
+        user_metadata={"reupload": True, "dataset_id": str(dataset.id)},
+    )
+    test_db_session.add(job)
+    await test_db_session.commit()
+    await test_db_session.refresh(job)
+
+    staging_key = f"staging/{job.id}/update.geojson"
+    frozen_key = f"staging/{job.id}/frozen/update.geojson"
+    job.file_path = frozen_key
+    job.user_metadata = {**job.user_metadata, "s3_key": staging_key}
+    await test_db_session.commit()
+
+    await storage.put(staging_key, _VALID_GEOJSON)
+    await storage.put(frozen_key, _VALID_GEOJSON)
+
+    async def _download_explodes(path, job_id_arg=None):
+        raise RuntimeError("S3 timed out fetching the source")
+
+    monkeypatch.setattr(
+        "app.processing.ingest.service.resolve_file_path", _download_explodes
+    )
+
+    with pytest.raises(RuntimeError, match="S3 timed out"):
+        await reupload_file.func(
+            job_id=str(job.id),
+            dataset_id=str(dataset.id),
+            file_path=frozen_key,
+            user_id=str(admin_id),
+            attempt_id=str(job.attempt_id),
+        )
+
+    await test_db_session.refresh(job)
+    assert job.status == "failed", "precondition: the run is terminal"
+    assert not await storage.exists(frozen_key), (
+        "a download failure left the frozen snapshot behind — the reaper keyed "
+        "off the path rewrite, which never happens when the download raises"
+    )
+    assert not await storage.exists(staging_key), (
+        "and the client-writable original should still be swept"
+    )
