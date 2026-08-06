@@ -142,8 +142,17 @@ enumerate objects), and the app itself only aborts an upload on an explicit
 failed or empty completion. Cleaning these up is a bucket-level job.
 
 Recommended policy: **abort incomplete multipart uploads after 1 day.**
-Presigned part URLs expire after 2 hours, so nothing legitimate is still
-uploading a day after initiation.
+That is sized for the default upload-job lifetime: `PENDING_JOB_TIMEOUT_SECONDS`
+(default 3600 = 1h) bounds both how long a pending job stays alive and how
+long its presigned part URLs remain valid, so with defaults nothing
+legitimate is still uploading a day after initiation.
+
+> **Coupling.** The abort deadline must stay at or above the configured
+> upload lifetime plus headroom — that means both the AWS rule's
+> `DaysAfterInitiation` and the MinIO expiry below. If you raise
+> `PENDING_JOB_TIMEOUT_SECONDS` past ~23h (it accepts up to 7 days), raise
+> them to match, or the bucket aborts parts of uploads that are still
+> legitimately in flight.
 
 **AWS S3** — apply an `AbortIncompleteMultipartUpload` lifecycle rule:
 
@@ -176,11 +185,13 @@ stale-uploads sweep in the `api` config subsystem: uploads idle past
 `stale_uploads_expiry` (default `24h`) are aborted by a sweep that runs every
 `stale_uploads_cleanup_interval` (default `6h`).
 
-The bundled Compose files pin both settings on the `minio` service
-(`MINIO_API_STALE_UPLOADS_EXPIRY=24h`,
-`MINIO_API_STALE_UPLOADS_CLEANUP_INTERVAL=6h`), so a cloud-dev or
+The bundled Compose files set both on the `minio` service with defaults of
+`MINIO_API_STALE_UPLOADS_EXPIRY=24h` and
+`MINIO_API_STALE_UPLOADS_CLEANUP_INTERVAL=6h`, so a cloud-dev or
 self-hosted MinIO from this repo already aborts abandoned uploads after a
-day. For a MinIO you manage yourself:
+day. Both are overridable from `.env` (see `.env.example`); the expiry is
+the knob to raise when `PENDING_JOB_TIMEOUT_SECONDS` exceeds ~23h, per the
+coupling note above. For a MinIO you manage yourself:
 
 ```bash
 mc admin config set <alias> api stale_uploads_expiry=24h stale_uploads_cleanup_interval=6h
