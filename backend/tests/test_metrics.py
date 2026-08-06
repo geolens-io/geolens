@@ -13,7 +13,7 @@ from prometheus_client import Counter, Gauge
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.observability.metrics import (
-    _consolidate_dead_counter_and_histogram_files,
+    _consolidate_dead_cumulative_metric_files,
     _sweep_dead_worker_metrics_once,
     _sweep_lock_path,
     init_metrics,
@@ -522,7 +522,7 @@ def test_consolidate_dead_counter_and_histogram_files_preserves_totals(tmp_path)
     assert count_before == 15.0
 
     with patch.dict(os.environ, {"PROMETHEUS_MULTIPROC_DIR": multiproc_dir}):
-        _consolidate_dead_counter_and_histogram_files()
+        _consolidate_dead_cumulative_metric_files()
 
     # File count is now bounded regardless of how many workers died.
     assert list(tmp_path.glob("counter_*.db")) == [tmp_path / "counter_archived.db"]
@@ -552,7 +552,7 @@ def test_consolidate_dead_counter_and_histogram_files_preserves_totals(tmp_path)
     # change the totals (proves the archive file is never mistaken for a
     # dead worker's own file and folded into itself).
     with patch.dict(os.environ, {"PROMETHEUS_MULTIPROC_DIR": multiproc_dir}):
-        _consolidate_dead_counter_and_histogram_files()
+        _consolidate_dead_cumulative_metric_files()
     still = _scrape_consolidate_metrics(multiproc_dir)
     total_still = sum(
         s.value
@@ -560,6 +560,82 @@ def test_consolidate_dead_counter_and_histogram_files_preserves_totals(tmp_path)
         if s.name == "test_consolidate_requests_total"
     )
     assert total_still == total_before
+
+
+_SUMMARY_WRITER = """
+import sys
+from prometheus_client import Summary
+
+s = Summary("test_consolidate_size_bytes", "size", ["handler"])
+for v in sys.argv[1:]:
+    s.labels(handler="/tiles").observe(float(v))
+"""
+
+
+def test_consolidate_dead_summary_files_preserves_totals(tmp_path):
+    """fix(#1240, #651 review round 7): the sweep only folded counter_*.db
+    and histogram_*.db into an archive -- summary_*.db (written by
+    prometheus_fastapi_instrumentator's default http_request_size_bytes /
+    http_response_size_bytes Summary metrics) was left out, so every
+    recycled worker under UVICORN_MAX_REQUESTS still left one behind
+    forever. A Summary's raw mmap entries are a plain (name, labels)
+    count/sum pair with no bucket-style "le" reconstruction like a
+    histogram needs, so MultiProcessCollector's own accumulation sums them
+    exactly like a Counter's -- the SAME additive read-modify-write this
+    module already does for counter/histogram covers summary too once its
+    prefix is included; this proves that empirically (real subprocess
+    workers, real mmap files), not just by re-stating the reasoning.
+    """
+    multiproc_dir = str(tmp_path)
+    env = {**os.environ, "PROMETHEUS_MULTIPROC_DIR": multiproc_dir}
+
+    # Three "dead" workers observing different request sizes.
+    for values in (("100", "200"), ("50",), ("10", "20", "30")):
+        result = subprocess.run(
+            [sys.executable, "-c", _SUMMARY_WRITER, *values],
+            cwd=str(_BACKEND_ROOT),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode == 0, result.stderr
+
+    assert len(list(tmp_path.glob("summary_*.db"))) == 3
+
+    before = _scrape_consolidate_metrics(multiproc_dir)
+    count_before = sum(
+        s.value
+        for s in before["test_consolidate_size_bytes"].samples
+        if s.name == "test_consolidate_size_bytes_count"
+    )
+    sum_before = sum(
+        s.value
+        for s in before["test_consolidate_size_bytes"].samples
+        if s.name == "test_consolidate_size_bytes_sum"
+    )
+    assert count_before == 6.0
+    assert sum_before == 410.0
+
+    with patch.dict(os.environ, {"PROMETHEUS_MULTIPROC_DIR": multiproc_dir}):
+        _consolidate_dead_cumulative_metric_files()
+
+    # File count is now bounded regardless of how many workers died.
+    assert list(tmp_path.glob("summary_*.db")) == [tmp_path / "summary_archived.db"]
+
+    after = _scrape_consolidate_metrics(multiproc_dir)
+    count_after = sum(
+        s.value
+        for s in after["test_consolidate_size_bytes"].samples
+        if s.name == "test_consolidate_size_bytes_count"
+    )
+    sum_after = sum(
+        s.value
+        for s in after["test_consolidate_size_bytes"].samples
+        if s.name == "test_consolidate_size_bytes_sum"
+    )
+    assert count_after == count_before
+    assert sum_after == sum_before
 
 
 def test_consolidate_dead_counter_files_is_race_safe_across_workers(tmp_path):
@@ -606,9 +682,9 @@ while not os.path.exists({str(go)!r}):
     time.sleep(0.001)
 
 os.environ["PROMETHEUS_MULTIPROC_DIR"] = {multiproc_dir!r}
-from app.observability.metrics import _consolidate_dead_counter_and_histogram_files
+from app.observability.metrics import _consolidate_dead_cumulative_metric_files
 
-_consolidate_dead_counter_and_histogram_files()
+_consolidate_dead_cumulative_metric_files()
 """
     procs = [
         subprocess.Popen(
@@ -689,9 +765,9 @@ while not os.path.exists({str(go)!r}):
     time.sleep(0.001)
 
 os.environ["PROMETHEUS_MULTIPROC_DIR"] = {multiproc_dir!r}
-from app.observability.metrics import _consolidate_dead_counter_and_histogram_files
+from app.observability.metrics import _consolidate_dead_cumulative_metric_files
 
-_consolidate_dead_counter_and_histogram_files()
+_consolidate_dead_cumulative_metric_files()
 """
     procs = [
         subprocess.Popen(
@@ -783,9 +859,9 @@ while not os.path.exists({str(holding_marker)!r}):
     time.sleep(0.001)
 
 os.environ["PROMETHEUS_MULTIPROC_DIR"] = {multiproc_dir!r}
-from app.observability.metrics import _consolidate_dead_counter_and_histogram_files
+from app.observability.metrics import _consolidate_dead_cumulative_metric_files
 
-_consolidate_dead_counter_and_histogram_files()
+_consolidate_dead_cumulative_metric_files()
 
 with open({str(done_marker)!r}, "w") as f:
     f.write(repr(time.time()))

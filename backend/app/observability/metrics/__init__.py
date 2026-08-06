@@ -48,7 +48,7 @@ _SCRAPE_LOCK_POLL_SECONDS = 0.005
 def _sweep_lock_path(multiproc_dir: str) -> str:
     """Path to the reader/writer lock file guarding PROMETHEUS_MULTIPROC_DIR
     against concurrent scrape-vs-sweep file mutation. See
-    _consolidate_dead_counter_and_histogram_files() (writer/exclusive side)
+    _consolidate_dead_cumulative_metric_files() (writer/exclusive side)
     and the metrics-scrape middleware wired up in init_metrics() (reader/
     shared side) for fix(#1240, #651 review round 6).
     """
@@ -65,15 +65,16 @@ def init_metrics(app: FastAPI):
     async def _hold_scrape_lock_during_metrics_response(request: Request, call_next):
         """Hold a shared (reader) lock on PROMETHEUS_MULTIPROC_DIR for the
         duration of a /metrics scrape, so the consolidation sweep's exclusive
-        (writer) lock can never rename a counter_*.db/histogram_*.db out from
-        under a scrape that has already globbed it.
+        (writer) lock can never rename a counter_*.db/histogram_*.db/
+        summary_*.db out from under a scrape that has already globbed it.
 
         fix(#1240, #651 review round 6): MultiProcessCollector.collect()
         globs "*.db" and then opens each matched path one by one. It only
         tolerates a path disappearing between those two steps for
         gauge_live*.db files (prometheus_client's own code has an explicit
         except-continue for exactly that case, because mark_process_dead()
-        is expected to race a scrape); for counter_*.db/histogram_*.db it
+        is expected to race a scrape); for the cumulative types (counter,
+        histogram, summary -- fix #1240, #651 review round 7) it
         re-raises FileNotFoundError, which without this lock would surface
         as an intermittent 500 from /metrics whenever the 60s sweep's
         os.rename() lands mid-scrape. Excluded from instrumentation
@@ -165,7 +166,7 @@ def _dead_worker_pids() -> Iterator[int]:
 
 def _iter_dead_pid_files(prefix: str, multiproc_dir: str) -> Iterator[tuple[int, str]]:
     """Yield (pid, path) for prefix_<pid>.db files whose pid is no longer
-    running. Used for counter/histogram files, which are named
+    running. Used for counter/histogram/summary files, which are named
     "<type>_<pid>.db" with no mode segment (unlike gauge's
     "gauge_<mode>_<pid>.db") -- see _dead_worker_pids() for that one.
     """
@@ -194,21 +195,40 @@ def _iter_dead_pid_files(prefix: str, multiproc_dir: str) -> Iterator[tuple[int,
 _ARCHIVE_SUFFIX = "archived"
 
 
-def _consolidate_dead_counter_and_histogram_files() -> None:
-    """Fold dead workers' counter/histogram files into one running total per
-    metric type, instead of leaving them to accumulate forever.
+def _consolidate_dead_cumulative_metric_files() -> None:
+    """Fold dead workers' counter/histogram/summary files into one running
+    total per metric type, instead of leaving them to accumulate forever.
 
     mark_process_dead() (used by shutdown_worker_metrics() and the gauge
     reap above) deliberately never touches counter_<pid>.db /
-    histogram_<pid>.db -- unlike a gauge, a Counter/Histogram's stored value
-    is a cumulative total that the collector sums across every pid's file on
-    every scrape, so simply deleting a dead pid's file would silently
-    subtract its contribution and produce a downward step (a fabricated
-    counter "decrease" -- exactly the sawtooth bug #1240 exists to fix).
-    Under the prod default UVICORN_MAX_REQUESTS=10000, a long-running
-    container recycles workers indefinitely, so those files would otherwise
-    accumulate without bound, one per departed worker, and every scrape has
-    to open and sum all of them.
+    histogram_<pid>.db / summary_<pid>.db -- unlike a gauge, these three
+    types' stored values are cumulative totals the collector sums across
+    every pid's file on every scrape, so simply deleting a dead pid's file
+    would silently subtract its contribution and produce a downward step (a
+    fabricated counter "decrease" -- exactly the sawtooth bug #1240 exists
+    to fix). Under the prod default UVICORN_MAX_REQUESTS=10000, a
+    long-running container recycles workers indefinitely, so those files
+    would otherwise accumulate without bound, one per departed worker, and
+    every scrape has to open and sum all of them.
+
+    fix(#1240, #651 review round 7): summary_<pid>.db is not optional to
+    cover -- prometheus_fastapi_instrumentator's default instrumentation
+    creates two Summary metrics (http_request_size_bytes,
+    http_response_size_bytes) alongside the Counter/Histogram ones, so every
+    recycled worker leaves one of these behind too. MultiProcessCollector's
+    own _accumulate_metrics() sums a Summary's raw (name, labels) samples
+    the same way it sums a Counter's -- plain addition, no bucket-style
+    reconstruction like a histogram's "le" boundaries need -- so a Summary
+    file's raw (key, value, timestamp) triples fold into its archive with
+    the exact same additive read-modify-write this function already does
+    for counter/histogram; no separate merge math is needed, just adding
+    "summary" to the prefixes iterated below. Verified empirically (not
+    just reasoned about) before this landed: prometheus_client's own
+    MmapedValue file-naming code confirms summary_<pid>.db has no mode
+    segment (same convention as counter/histogram, unlike gauge's
+    gauge_<mode>_<pid>.db), and a scratch script round-tripped a Summary's
+    _count/_sum through this exact consolidation path with the total
+    unchanged before the fix was written into this function.
 
     Folds each dead pid's file additively into a single "<type>_archived.db"
     file instead: read every (key, value, timestamp) triple straight out of
@@ -218,12 +238,12 @@ def _consolidate_dead_counter_and_histogram_files() -> None:
     points to for exactly this "write merged data back to mmap files" case),
     add it to whatever total is already stored under that same key in the
     archive file, and delete the source. The archive file is just another
-    counter_*.db/histogram_*.db file as far as MultiProcessCollector.collect()
-    is concerned (it globs "*.db" and only inspects the "counter"/"histogram"
-    prefix, not the pid segment), so it keeps contributing to the summed
-    total exactly as the dead files it absorbed would have. Net effect: the
-    scraped total is unchanged, but file count stays O(live workers + 2)
-    instead of growing with every worker ever recycled.
+    counter_*.db/histogram_*.db/summary_*.db file as far as
+    MultiProcessCollector.collect() is concerned (it globs "*.db" and only
+    inspects the type prefix, not the pid segment), so it keeps contributing
+    to the summed total exactly as the dead files it absorbed would have.
+    Net effect: the scraped total is unchanged, but file count stays
+    O(live workers + 3) instead of growing with every worker ever recycled.
 
     Races itself safely against BOTH sibling sweeps AND in-flight scrapes,
     using the same reader/writer lock file as the /metrics scrape middleware
@@ -244,11 +264,12 @@ def _consolidate_dead_counter_and_histogram_files() -> None:
       "*.db" and then opens each matched path one by one; it only tolerates
       a path disappearing between those two steps for gauge_live*.db files
       (prometheus_client's own code has an explicit except-continue there,
-      because mark_process_dead() is expected to race a scrape). For
-      counter_*.db/histogram_*.db it re-raises FileNotFoundError, so this
-      function's own os.rename() claim step -- if it ran unsynchronized --
-      could make a scrape that already globbed a dead pid's file 500 when it
-      tries to open the now-renamed-away path. Holding the SAME lock the
+      because mark_process_dead() is expected to race a scrape). For the
+      cumulative types (counter_*.db/histogram_*.db/summary_*.db) it
+      re-raises FileNotFoundError, so this function's own os.rename() claim
+      step -- if it ran unsynchronized -- could make a scrape that already
+      globbed a dead pid's file 500 when it tries to open the
+      now-renamed-away path. Holding the SAME lock the
       scrape middleware takes (shared/reader) as exclusive/writer here means
       no rename can land while any scrape is in flight, and no scrape can
       start reading while a rename is in flight.
@@ -283,7 +304,7 @@ def _consolidate_dead_counter_and_histogram_files() -> None:
     with open(_sweep_lock_path(multiproc_dir), "a+b") as lock_file:
         fcntl.flock(lock_file, fcntl.LOCK_EX)
         try:
-            for prefix in ("counter", "histogram"):
+            for prefix in ("counter", "histogram", "summary"):
                 claimed_paths = []
                 for _pid, path in _iter_dead_pid_files(prefix, multiproc_dir):
                     claimed_path = f"{path}.claimed"
@@ -329,7 +350,7 @@ def _sweep_dead_worker_metrics_once() -> None:
 
     for pid in _dead_worker_pids():
         multiprocess.mark_process_dead(pid)
-    _consolidate_dead_counter_and_histogram_files()
+    _consolidate_dead_cumulative_metric_files()
 
 
 async def sweep_dead_worker_metrics() -> None:
@@ -346,14 +367,15 @@ async def sweep_dead_worker_metrics() -> None:
     fix(#1240, #651 review round 4): under the prod default
     UVICORN_MAX_REQUESTS=10000, a long-running container recycles workers
     indefinitely, and mark_process_dead() intentionally never removes a dead
-    worker's counter_<pid>.db / histogram_<pid>.db (their cumulative values
-    still need to count toward the total). Left alone those files grow
-    without bound -- see _consolidate_dead_counter_and_histogram_files() for
+    worker's counter_<pid>.db / histogram_<pid>.db / summary_<pid>.db (their
+    cumulative values still need to count toward the total; fix(#1240, #651
+    review round 7) added the summary case). Left alone those files grow
+    without bound -- see _consolidate_dead_cumulative_metric_files() for
     how they get folded into one running archive file per metric type
     instead.
 
     No-op when multiprocess mode isn't active. Safe to run in every worker:
-    both the gauge reap and the counter/histogram consolidation are
+    both the gauge reap and the counter/histogram/summary consolidation are
     idempotent/self-excluding once a dead pid's files are gone, so a race
     between two workers sweeping the same dead pid is harmless.
     """
