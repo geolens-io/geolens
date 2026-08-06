@@ -1,6 +1,5 @@
 """Tests for the Prometheus metrics module."""
 
-import asyncio
 import os
 import subprocess
 import sys
@@ -15,8 +14,6 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from app.observability.metrics import (
     _consolidate_dead_cumulative_metric_files,
     _sweep_dead_worker_metrics_once,
-    _sweep_lock_path,
-    init_metrics,
     shutdown_worker_metrics,
 )
 from app.observability.metrics.instrumentator import create_instrumentator
@@ -893,61 +890,97 @@ with open({str(done_marker)!r}, "w") as f:
     )
 
 
-@pytest.mark.asyncio
-async def test_metrics_endpoint_survives_concurrent_sweep(tmp_path):
+_METRICS_ENDPOINT_CONCURRENT_SWEEP_SCRIPT = """
+import asyncio
+import fcntl
+import os
+import sys
+import time
+
+multiproc_dir = sys.argv[1]
+os.environ["PROMETHEUS_MULTIPROC_DIR"] = multiproc_dir
+
+from prometheus_client import Counter
+
+from app.observability.metrics import _sweep_lock_path, init_metrics
+
+c = Counter("test_consolidate_requests_total", "reqs", ["handler"])
+c.labels(handler="/tiles").inc(5)
+
+
+async def main():
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+
+    app = FastAPI()
+    init_metrics(app)
+
+    order = []
+    release_event = asyncio.Event()
+
+    def hold_writer_lock():
+        with open(_sweep_lock_path(multiproc_dir), "a+b") as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            order.append("writer_acquired")
+            loop.call_soon_threadsafe(release_event.set)
+            time.sleep(0.3)
+            order.append("writer_released")
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+    loop = asyncio.get_event_loop()
+    writer_future = loop.run_in_executor(None, hold_writer_lock)
+    await release_event.wait()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/metrics")
+    order.append("scrape_completed")
+    await writer_future
+
+    assert resp.status_code == 200, resp.status_code
+    assert 'test_consolidate_requests_total{handler="/tiles"} 5.0' in resp.text
+    # The scrape's shared-lock wait genuinely blocked until the writer let go.
+    assert order == ["writer_acquired", "writer_released", "scrape_completed"], order
+
+
+asyncio.run(main())
+"""
+
+
+def test_metrics_endpoint_survives_concurrent_sweep(tmp_path):
     """fix(#1240, #651 review round 6): the reported symptom end to end --
     a real GET /metrics request, issued while the sweep holds the exclusive
     lock and is mid-rename, must wait and then succeed (200, correct data),
     never surface a FileNotFoundError-driven 500. Exercises the actual
     middleware wired into init_metrics(), not just the raw lock file.
+
+    fix(#1240, #651 review round 8): runs in a subprocess, not in-process --
+    init_metrics() -> Instrumentator().instrument(app) registers
+    http_requests_inprogress on prometheus_client's process-global default
+    CollectorRegistry with no override, and other tests/fixtures in the same
+    pytest session (conftest importing app.api.main, which calls
+    init_metrics() itself at module import time) already register that same
+    collector, so a second in-process registration raised "Duplicated
+    timeseries in CollectorRegistry" under the full suite even though this
+    test passed in isolation. A subprocess gets its own fresh interpreter
+    and registry, matching every other test in this file that touches real
+    prometheus_client global state.
     """
     multiproc_dir = str(tmp_path)
-
-    with patch.dict(os.environ, {"PROMETHEUS_MULTIPROC_DIR": multiproc_dir}):
-        result = subprocess.run(
-            [sys.executable, "-c", _COUNTER_HISTOGRAM_WRITER, "5"],
-            cwd=str(_BACKEND_ROOT),
-            env={**os.environ, "PROMETHEUS_MULTIPROC_DIR": multiproc_dir},
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        assert result.returncode == 0, result.stderr
-
-        import fcntl
-
-        from fastapi import FastAPI
-        from httpx import ASGITransport, AsyncClient
-
-        app = FastAPI()
-        init_metrics(app)
-
-        order: list[str] = []
-        release_event = asyncio.Event()
-
-        def hold_writer_lock() -> None:
-            with open(_sweep_lock_path(multiproc_dir), "a+b") as lock_file:
-                fcntl.flock(lock_file, fcntl.LOCK_EX)
-                order.append("writer_acquired")
-                loop.call_soon_threadsafe(release_event.set)
-                time.sleep(0.3)
-                order.append("writer_released")
-                fcntl.flock(lock_file, fcntl.LOCK_UN)
-
-        loop = asyncio.get_event_loop()
-        writer_future = loop.run_in_executor(None, hold_writer_lock)
-        await release_event.wait()
-
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            resp = await client.get("/metrics")
-        order.append("scrape_completed")
-        await writer_future
-
-    assert resp.status_code == 200
-    assert 'test_consolidate_requests_total{handler="/tiles"} 5.0' in resp.text
-    # The scrape's shared-lock wait genuinely blocked until the writer let go.
-    assert order == ["writer_acquired", "writer_released", "scrape_completed"]
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            _METRICS_ENDPOINT_CONCURRENT_SWEEP_SCRIPT,
+            multiproc_dir,
+        ],
+        cwd=str(_BACKEND_ROOT),
+        env={**os.environ, "PROMETHEUS_MULTIPROC_DIR": multiproc_dir},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
 
 
 def test_shutdown_worker_metrics_marks_process_dead_when_multiprocess_active():
