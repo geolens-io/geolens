@@ -231,17 +231,25 @@ class TestLoginAudit:
         )
         assert resp.status_code == 401
 
+        # fix(#1230 second-opinion review): scope to rows for OUR attempted
+        # username rather than indexing logs[0] -- under pytest -n concurrent
+        # writes, a sibling test's own login.failure row can otherwise land
+        # "first" in this query's ordering.
         log_resp = await client.get(
             "/admin/audit-logs/",
-            params={"action": "user.login.failure"},
+            params={"action": "user.login.failure", "limit": 200},
             headers=admin_auth_header,
         )
         assert log_resp.status_code == 200
-        data = log_resp.json()
-        assert data["total"] >= 1
-        entry = data["logs"][0]
-        assert entry["user_id"] is None
-        assert "password" not in (entry["details"] or {})
+        matches = [
+            log
+            for log in log_resp.json()["logs"]
+            if (log["details"] or {}).get("username") == ADMIN_USER
+        ]
+        assert len(matches) >= 1
+        for entry in matches:
+            assert entry["user_id"] is None
+            assert "password" not in (entry["details"] or {})
 
     async def test_login_failure_nonexistent_user_creates_audit_log(
         self, client: AsyncClient, admin_auth_header: dict
@@ -300,6 +308,108 @@ class TestLoginAudit:
         entries = [log for log in logs if log["user_id"] == user_data["id"]]
         assert len(entries) >= 1
         assert entries[0]["details"]["reason"] == "account_not_active"
+
+    async def test_login_pending_user_creates_audit_log(
+        self, client: AsyncClient, admin_auth_header: dict, monkeypatch
+    ):
+        """fix(#1230 second-opinion review): the pending_approval denial path
+        had no test coverage -- mirrors test_login_deactivated_user_creates_
+        audit_log for the sibling denial branch.
+        """
+        monkeypatch.setattr(
+            REGISTRATION_ENABLED,
+            "get",
+            AsyncMock(return_value=True),
+        )
+        unique = uuid.uuid4().hex[:8]
+        username = f"pendaudit_{unique}"
+        password = "TestPass1234!"
+        reg_resp = await client.post(
+            "/auth/register/",
+            json={"username": username, "password": password},
+        )
+        assert reg_resp.status_code == 201
+
+        list_resp = await client.get(
+            "/admin/users/?status=pending",
+            headers=admin_auth_header,
+        )
+        assert list_resp.status_code == 200
+        pending_user = next(
+            u for u in list_resp.json()["users"] if u["username"] == username
+        )
+
+        resp = await client.post(
+            "/auth/login",
+            data={"username": username, "password": password},
+        )
+        assert resp.status_code == 403
+
+        log_resp = await client.get(
+            "/admin/audit-logs/",
+            params={"action": "user.login.failure", "limit": 200},
+            headers=admin_auth_header,
+        )
+        assert log_resp.status_code == 200
+        logs = log_resp.json()["logs"]
+        entries = [log for log in logs if log["user_id"] == pending_user["id"]]
+        assert len(entries) >= 1
+        assert entries[0]["details"]["reason"] == "pending_approval"
+
+    async def test_login_disallowed_domain_creates_audit_log(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """fix(#1230 second-opinion review): the email_domain_not_allowed
+        denial path had no test coverage. Mirrors
+        test_domain_enforcement.py::test_disallowed_domain_login_rejected,
+        with an audit-log assertion added.
+        """
+        unique = uuid.uuid4().hex[:8]
+        username = f"domainaudit_{unique}"
+        password = "TestPass1234!"
+        disallowed_email = f"{username}@evil.example.net"
+        create_resp = await client.post(
+            "/admin/users/",
+            json={
+                "username": username,
+                "password": password,
+                "email": disallowed_email,
+                "role": "viewer",
+            },
+            headers=admin_auth_header,
+        )
+        assert create_resp.status_code == 201, create_resp.text
+        user_id = create_resp.json()["id"]
+
+        settings_resp = await client.put(
+            "/settings/",
+            json={"settings": {"allowed_email_domains": ["allowed.example.com"]}},
+            headers=admin_auth_header,
+        )
+        assert settings_resp.status_code == 200
+        try:
+            resp = await client.post(
+                "/auth/login",
+                data={"username": username, "password": password},
+            )
+            assert resp.status_code == 403
+
+            log_resp = await client.get(
+                "/admin/audit-logs/",
+                params={"action": "user.login.failure", "limit": 200},
+                headers=admin_auth_header,
+            )
+            assert log_resp.status_code == 200
+            logs = log_resp.json()["logs"]
+            entries = [log for log in logs if log["user_id"] == user_id]
+            assert len(entries) >= 1
+            assert entries[0]["details"]["reason"] == "email_domain_not_allowed"
+        finally:
+            await client.put(
+                "/settings/",
+                json={"settings": {"allowed_email_domains": []}},
+                headers=admin_auth_header,
+            )
 
     async def test_login_failure_truncates_long_username(
         self, client: AsyncClient, admin_auth_header: dict
