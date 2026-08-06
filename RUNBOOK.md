@@ -1374,32 +1374,45 @@ ARCHIVE_TAG="${TENANT_SLUG}-$(date -u +%Y%m%dT%H%M%SZ)"
 
 #### Single-tenant deployments
 
-This branch is for confirmed single-tenant deployments **only** — it is not
-a generic "run unscoped" option, and must not be used on a deployment with
-per-tenant host routing even if you intend to touch every tenant's rows. The
-reason is the export step, not the delete: the HTTP export is always scoped
-to whichever tenant's host you call it against (there is no cross-tenant
-export call), so on a deployment with per-tenant routing enabled this
-branch's unscoped count/delete would remove every other tenant's audit
-history that the export never captured — permanent loss with no archive, not
-merely a scoping mistake. Verify the deployment is genuinely single-tenant
-before running anything below:
+This branch is not a generic "run unscoped" option, and must not be used on
+a deployment with per-tenant host routing even if you intend to touch every
+tenant's rows. The reason is the export step, not the delete: the HTTP
+export is always scoped to whichever tenant's host you call it against
+(there is no cross-tenant export call), so running this branch's unscoped
+count/delete on a deployment with per-tenant routing enabled would remove
+every other tenant's audit history that the export never captured —
+permanent loss with no archive, not merely a scoping mistake.
+
+This procedure does **not** attempt to detect your deployment's tenancy mode
+for you. An earlier revision checked `GEOLENS_TENANCY_MODE` from `.env`, but
+that value can be absent, injected by an orchestrator instead of a persisted
+`.env` file, or simply not read from wherever the running deployment actually
+gets its configuration — any config-derived signal here can be missing,
+stale, or wrong in a way this shell script cannot detect. Instead, this
+branch requires you, the operator, to type an explicit confirmation with no
+default and no config lookup behind it. Edit the placeholder below to the
+exact phrase shown — copying this block unedited leaves the placeholder in
+place and the check refuses to run:
 
 ```bash
-set -a; . ./.env; set +a   # if not already loaded in this shell
-if [ "${GEOLENS_TENANCY_MODE:-single_tenant}" = "multi_tenant" ]; then
-  echo "GEOLENS_TENANCY_MODE=multi_tenant -- this deployment has per-tenant" \
-       "routing. Use the per-tenant branch above for each tenant instead;" \
-       "aborting rather than running an unscoped delete here." >&2
+# This command is unscoped by explicit operator confirmation. Replace the
+# placeholder with the exact phrase on the right ONLY once you personally --
+# not a config file, not this script -- have confirmed this deployment has
+# no per-tenant host routing.
+CONFIRM_SINGLE_TENANT="<type-the-confirmation-phrase-here>"
+if [ "$CONFIRM_SINGLE_TENANT" != "yes, this deployment has no per-tenant host routing" ]; then
+  echo "Refusing: the commands below delete every row before \$CUTOFF with" \
+       "no tenant scoping. Set CONFIRM_SINGLE_TENANT to the exact phrase" \
+       "above, typed by you, before running them." >&2
   exit 1
 fi
 ```
 
-`catalog.audit_logs.tenant_id` is NULL on every row once that check passes
-(single-tenant never stamps it), so there is nothing left to filter by. This
-branch never resolves or reads a `$TENANT_ID` — it is a separate set of
-commands below, not a fallback the per-tenant branch reaches by leaving a
-variable unset:
+`catalog.audit_logs.tenant_id` is NULL on every row once that confirmation is
+given (single-tenant never stamps it), so there is nothing left to filter
+by. This branch never resolves or reads a `$TENANT_ID` — it is a separate
+set of commands below, not a fallback the per-tenant branch reaches by
+leaving a variable unset:
 
 ```bash
 ARCHIVE_TAG="default-$(date -u +%Y%m%dT%H%M%SZ)"
