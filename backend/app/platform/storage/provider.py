@@ -112,7 +112,13 @@ class StorageProvider(Protocol):
         part_number: int,
         expiration: int = 7200,
     ) -> str:
-        """Generate a presigned URL for uploading a single part. Raises NotImplementedError for local storage."""
+        """Generate a presigned URL for uploading a single part.
+
+        Implementations MUST clamp ``expiration`` to
+        ``settings.pending_job_timeout_seconds`` (fix(#1234)): a part URL that
+        outlives its job is usable against a row the pending sweep has already
+        failed. Raises NotImplementedError for local storage.
+        """
         ...
 
     def complete_multipart_upload(

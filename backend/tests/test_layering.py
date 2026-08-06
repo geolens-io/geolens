@@ -2007,7 +2007,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # no-headroom rule. Cap 1717 -> 1523, exact.
     # fix(#1213 review r3): -8 — the one-shot block became a call to the
     # shared require_completable_presigned_job, which owns both facts.
-    "backend/app/processing/ingest/router.py": 1515,
+    # fix(#1233): +7 — the cancel branch no longer deletes the assembled
+    # object, and the comment records why: the upload id is already spent, so
+    # that object is the only record assembly succeeded and the retry's only
+    # way past it.
+    "backend/app/processing/ingest/router.py": 1522,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901

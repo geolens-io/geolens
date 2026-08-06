@@ -8,7 +8,7 @@ from typing import Literal, cast, overload
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import delete, func, select, text, update
+from sqlalchemy import delete, func, not_, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -46,7 +46,11 @@ router = APIRouter(prefix="/jobs", tags=["Admin"], responses=ERROR_RESPONSES_AUT
 # Jobs running longer than this are considered stale and auto-failed.
 JOB_TIMEOUT_SECONDS = 3600  # 60 minutes (accommodates remote service imports)
 # Jobs stuck in "pending" longer than this are considered orphaned (never queued).
-PENDING_TIMEOUT_SECONDS = 3600  # 60 minutes
+PENDING_TIMEOUT_SECONDS = settings.pending_job_timeout_seconds
+# fix(#1234): a row that bound bytes but never committed its status is exempt
+# from the 1h clause above, and the retention purge only looks at terminal
+# rows — so it needs its own, much later, backstop or it never dies.
+BOUND_PENDING_TIMEOUT_SECONDS = 86400  # 24 hours
 
 
 def no_live_procrastinate_job():
@@ -461,11 +465,25 @@ async def fail_stale_jobs(
     now = datetime.now(timezone.utc)
     pending_cutoff = now - timedelta(seconds=PENDING_TIMEOUT_SECONDS)
 
+    # fix(#1234): the 1h abandonment policy applies only to jobs that never
+    # got as far as binding bytes. A presigned completion sets `file_path` and
+    # then commits; between those two the row is still `pending` with a
+    # `file_path`, and this sweep used to fail it out from under the request —
+    # a race whose loser is a completion that actually succeeded.
+    #
+    # The guard is a FALSY check, not IS NULL. The column is nullable, but no
+    # creator ever writes NULL: `create_ingest_job` is called with "" by both
+    # presign endpoints, and analysis jobs carry "" too (see
+    # `_retry_capability`). An IS NULL guard would match nothing and leave the
+    # race exactly as it was, while looking fixed.
+    unbound = or_(IngestJob.file_path.is_(None), IngestJob.file_path == "")
+
     pending_result = await db.execute(
         update(IngestJob)
         .where(
             IngestJob.status == "pending",
             IngestJob.created_at < pending_cutoff,
+            unbound,
             no_live_procrastinate_job(),
         )
         .values(
@@ -476,6 +494,29 @@ async def fail_stale_jobs(
         .returning(IngestJob.id)
     )
     pending_job_ids = list(pending_result.scalars())
+
+    # fix(#1234): the other half. A row that DID bind bytes but never committed
+    # its status is now exempt from the 1h clause, and the retention purge only
+    # considers terminal rows — so without this it is immortal. A day is far
+    # past any legitimate completion, and the message says which failure this
+    # is so an operator is not told the upload "never queued".
+    bound_pending_cutoff = now - timedelta(seconds=BOUND_PENDING_TIMEOUT_SECONDS)
+    bound_pending_result = await db.execute(
+        update(IngestJob)
+        .where(
+            IngestJob.status == "pending",
+            IngestJob.created_at < bound_pending_cutoff,
+            not_(unbound),
+            no_live_procrastinate_job(),
+        )
+        .values(
+            status="failed",
+            error_message="Stale: upload completed but never committed",
+            completed_at=now,
+        )
+        .returning(IngestJob.id)
+    )
+    pending_job_ids += list(bound_pending_result.scalars())
 
     running_cutoff = now - timedelta(seconds=JOB_TIMEOUT_SECONDS)
     running_result = await db.execute(

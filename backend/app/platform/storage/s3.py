@@ -272,7 +272,16 @@ class S3StorageProvider:
         part_number: int,
         expiration: int = 7200,
     ) -> str:
-        """Generate a presigned URL for uploading a single part."""
+        """Generate a presigned URL for uploading a single part.
+
+        fix(#1234): clamped to the job lifetime. A part URL that outlives the
+        job it belongs to is a URL the client can still use against a row the
+        pending sweep has already failed — the server was offering 7200s
+        against a 3600s lifetime.
+        """
+        from app.core.config import settings
+
+        expiration = min(expiration, settings.pending_job_timeout_seconds)
         return self.client.generate_presigned_url(
             ClientMethod="upload_part",
             Params={

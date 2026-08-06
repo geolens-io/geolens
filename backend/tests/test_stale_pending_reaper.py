@@ -176,3 +176,116 @@ class TestStatusPollDoesNotReapQueuedJobs:
         await test_db_session.refresh(job)
         assert job.status == "failed"
         assert "without being processed" in (job.error_message or "")
+
+
+class TestBoundPendingSweep:
+    """fix(#1234): the 1h abandonment clause must not race a completion.
+
+    A presigned completion sets `file_path` and then commits. Between those the
+    row is `pending` WITH a `file_path`, and the 1h sweep used to fail it out
+    from under the request — the loser is a completion that actually worked.
+    The policy itself stays; it just applies only to rows that never bound.
+    """
+
+    @staticmethod
+    async def _make_job(session, *, age_seconds: int, file_path: str):
+        from datetime import datetime, timedelta, timezone
+
+        from sqlalchemy import select, update
+
+        from app.modules.auth.models import User
+        from app.platform.jobs.models import IngestJob
+
+        admin = (
+            await session.execute(select(User).where(User.username == "admin"))
+        ).scalar_one()
+        job = IngestJob(
+            source_filename="roads.geojson",
+            created_by=admin.id,
+            status="pending",
+            file_path=file_path,
+            user_metadata={"presigned": True},
+        )
+        session.add(job)
+        await session.commit()
+        await session.refresh(job)
+        await session.execute(
+            update(IngestJob)
+            .where(IngestJob.id == job.id)
+            .values(
+                created_at=datetime.now(timezone.utc) - timedelta(seconds=age_seconds)
+            )
+        )
+        await session.commit()
+        return job
+
+    async def test_a_completed_uncommitted_job_survives_the_1h_sweep(
+        self, test_db_session
+    ) -> None:
+        from app.platform.jobs.router import fail_stale_jobs
+
+        job = await self._make_job(
+            test_db_session,
+            age_seconds=7200,
+            file_path="staging/x/frozen/roads.geojson",
+        )
+
+        await fail_stale_jobs(test_db_session)
+
+        await test_db_session.refresh(job)
+        assert job.status == "pending", (
+            "the 1h abandonment clause failed a job that had already bound its "
+            "bytes — the completion that set file_path was still committing"
+        )
+
+    async def test_an_unbound_job_still_fails_at_1h(self, test_db_session) -> None:
+        """The policy itself is deliberate and stays."""
+        from app.platform.jobs.router import fail_stale_jobs
+
+        job = await self._make_job(test_db_session, age_seconds=7200, file_path="")
+
+        await fail_stale_jobs(test_db_session)
+
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert "never queued" in (job.error_message or "")
+
+    async def test_a_bound_pending_row_fails_after_24h(self, test_db_session) -> None:
+        """The other half: exempting bound rows from the 1h clause would make
+        them immortal, because the retention purge only considers terminal
+        rows. The message must not claim the upload never queued."""
+        from app.platform.jobs.router import fail_stale_jobs
+
+        job = await self._make_job(
+            test_db_session,
+            age_seconds=90000,
+            file_path="staging/x/frozen/roads.geojson",
+        )
+
+        await fail_stale_jobs(test_db_session)
+
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert "completed but never committed" in (job.error_message or "")
+
+
+def test_part_url_ttl_cannot_outlive_the_job() -> None:
+    """fix(#1234): the server was selling 7200s part URLs on a 3600s lifetime."""
+    from app.core.config import settings
+    from app.platform.storage.s3 import S3StorageProvider
+
+    provider = S3StorageProvider.__new__(S3StorageProvider)
+    captured = {}
+
+    class _Client:
+        def generate_presigned_url(self, **kwargs):
+            captured.update(kwargs)
+            return "https://s3.invalid/part"
+
+    provider.client = _Client()
+    provider.bucket = "b"
+
+    provider.generate_presigned_part_url("staging/x/f.tif", "upload-1", 1)
+
+    assert captured["ExpiresIn"] == settings.pending_job_timeout_seconds
+    assert captured["ExpiresIn"] < 7200

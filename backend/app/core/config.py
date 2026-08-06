@@ -92,6 +92,13 @@ class Settings(BaseSettings):
         ".zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls,.parquet"
     )
     presigned_multipart_threshold_mb: int = Field(default=100, gt=0)
+    # fix(#1234): a presigned job is abandoned after this long, and the part
+    # URLs it hands out must not outlive it — the server was selling 7200s
+    # URLs against a 3600s job lifetime. Lives here rather than in
+    # platform/jobs because platform/storage has to read it too, and
+    # platform/jobs already imports platform/storage, so the reverse import
+    # would cycle.
+    pending_job_timeout_seconds: int = Field(default=3600, gt=0)
     procrastinate_schema: str = "catalog"
 
     public_app_url: str | None = None
