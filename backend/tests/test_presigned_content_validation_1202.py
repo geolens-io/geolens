@@ -61,6 +61,8 @@ class _FakeS3Storage:
         self.range_reads: list[tuple[str, int, int]] = []
         self.whole_object_reads: list[str] = []
         self.copies: list[tuple[str, str]] = []
+        # Every expiration the doors hand to a signing call (fix(#1235 r3)).
+        self.signed_ttls: list[int] = []
         # Multipart state, modelled the way S3 actually behaves: uploaded
         # parts are NOT visible as an object, and the upload id is spent by a
         # successful completion. The retry guard keys off exactly that.
@@ -68,7 +70,12 @@ class _FakeS3Storage:
         self.pending_parts: dict[str, bytes] = {}
         self.multipart_completions: list[tuple[str, str]] = []
 
-    def generate_presigned_put_url(self, key: str, content_type: str) -> str:
+    def generate_presigned_put_url(
+        self, key: str, content_type: str, expiration: int = 3600
+    ) -> str:
+        # fix(#1235 review r3): mirrors the provider signature — the doors now
+        # pass a deadline-anchored expiration.
+        self.signed_ttls.append(expiration)
         return f"https://s3.invalid/{key}?signed=1"
 
     def initiate_multipart_upload(
@@ -81,6 +88,7 @@ class _FakeS3Storage:
     def generate_presigned_part_url(
         self, key: str, upload_id: str, part_number: int, expiration: int = 7200
     ) -> str:
+        self.signed_ttls.append(expiration)
         return f"https://s3.invalid/{key}?part={part_number}&upload={upload_id}"
 
     def complete_multipart_upload(self, key: str, upload_id: str, parts: list) -> None:
@@ -994,3 +1002,41 @@ async def test_a_cancel_during_assembly_leaves_the_retry_a_way_back(
 
     assert retried.status_code == 200, retried.text
     assert len(both_doors.multipart_completions) == 1, both_doors.multipart_completions
+
+
+@pytest.mark.parametrize("multipart", [False, True], ids=["put-url", "part-urls"])
+async def test_the_door_signs_urls_against_the_job_deadline(
+    client, admin_auth_header, both_doors, monkeypatch, multipart
+) -> None:
+    """fix(#1235 review r3): both URL kinds, through the real door.
+
+    The helper's arithmetic is unit-tested in test_stale_pending_reaper.py;
+    this pins that the door actually PASSES it, for the single-PUT and the
+    part-loop sites alike. Without it the provider default (3600 / 7200)
+    arrives instead, anchored to signing time.
+    """
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "pending_job_timeout_seconds", 900)
+    if multipart:
+        monkeypatch.setattr(settings, "presigned_multipart_threshold_mb", 1)
+        payload_size = 3 * 1024 * 1024
+    else:
+        payload_size = len(_VALID_GEOJSON)
+
+    resp = await client.post(
+        "/ingest/upload/presigned",
+        json={
+            "filename": "roads.geojson",
+            "file_size": payload_size,
+            "content_type": "application/octet-stream",
+        },
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 201, resp.text
+    assert both_doors.signed_ttls, "no signature recorded"
+    # The job was created moments ago, so every URL should carry very nearly
+    # the whole 900s window — and crucially NOT the 3600/7200 provider default.
+    for ttl in both_doors.signed_ttls:
+        assert 890 <= ttl <= 900, both_doors.signed_ttls

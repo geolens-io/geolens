@@ -42,8 +42,15 @@ class _FakeS3Storage:
         self.range_reads: list[tuple[str, int, int]] = []
         self.whole_object_reads: list[str] = []
         self.copies: list[tuple[str, str]] = []
+        # Every expiration the doors hand to a signing call (fix(#1235 r3)).
+        self.signed_ttls: list[int] = []
 
-    def generate_presigned_put_url(self, key: str, content_type: str) -> str:
+    def generate_presigned_put_url(
+        self, key: str, content_type: str, expiration: int = 3600
+    ) -> str:
+        # fix(#1235 review r3): the doors pass a deadline-anchored expiration
+        # now, so the fake must mirror the provider signature.
+        self.signed_ttls.append(expiration)
         return f"https://s3.invalid/{key}?signed=1"
 
     async def exists(self, key: str) -> bool:

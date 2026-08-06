@@ -103,6 +103,11 @@ class DefaultCatalogPort:
 
         return require_completable_presigned_job(job, restart_hint=restart_hint)
 
+    def remaining_job_lifetime_seconds(self, created_at):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.presigned import remaining_job_lifetime_seconds
+
+        return remaining_job_lifetime_seconds(created_at)
+
     async def finalize_presigned_object(self, **kwargs):  # type: ignore[no-untyped-def]
         from app.processing.ingest.presigned import finalize_presigned_object
 

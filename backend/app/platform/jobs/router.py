@@ -202,18 +202,24 @@ class StaleCleanupOutcome:
 # fix(#1202 review r8): how long a presigned PUT URL can still recreate the
 # staging object after the event-triggered sweeps have already run.
 #
-# Grounded in the provider default rather than assumed: S3StorageProvider
-# .generate_presigned_put_url takes `expiration: int = 3600`, and neither call
-# site — the ingest and reupload presign requests — passes one, so 3600 is
-# always the value. No setting exposes it; if one is ever added, derive this
-# from that instead of the literal.
+# fix(#1235 review r3): this used to be grounded on "the provider default is
+# 3600 and no call site passes one". That is no longer true, and the ground is
+# now firmer rather than weaker: every signing site passes an expiration
+# computed as the job's REMAINING lifetime (`remaining_job_lifetime_seconds`),
+# so a URL expires at `created_at + pending_job_timeout_seconds` rather than
+# that long after whenever it happened to be signed. The provider-side min()
+# clamps stay as the backstop for any future site that forgets.
 #
-# Part URLs default to 7200 but cannot recreate an OBJECT: they need a live
-# upload id, and CompleteMultipartUpload consumes it (an abort kills it). Only
-# the single-part object-key URL is a recreation vector, so 3600 bounds it.
+# The window below is therefore EXACT rather than conservative: no URL for a
+# job can be honoured past its deadline, and URL life only ever shortens, so
+# the sweep's own timing needs no change.
 #
-# `created_at` is a sound conservative anchor because the row is inserted
-# BEFORE any URL for it is minted, so no URL can outlive created_at + TTL.
+# Part URLs default to 7200 but cannot recreate an OBJECT either way: they
+# need a live upload id, and CompleteMultipartUpload consumes it (an abort
+# kills it). Only the single-part object-key URL is a recreation vector.
+#
+# `created_at` is the anchor on both sides now — the row is inserted before
+# any URL for it is minted, and the URLs are signed against that same value.
 _PRESIGNED_PUT_URL_TTL_SECONDS = 3600
 _POST_EXPIRY_SWEEP_MARGIN_SECONDS = 900
 _POST_EXPIRY_SWEEP_AFTER_SECONDS = (

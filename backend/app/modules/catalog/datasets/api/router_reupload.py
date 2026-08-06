@@ -740,12 +740,16 @@ async def request_presigned_reupload(
             if initiation_cancel is not None:
                 raise initiation_cancel
             num_parts = math.ceil(request.file_size / part_size)
+            # fix(#1235 review r3): anchored to the job deadline, computed once
+            # before the loop. Same reasoning as the upload door.
+            url_ttl = get_catalog_port().remaining_job_lifetime_seconds(job.created_at)
             urls = [
                 await run_in_thread_draining(
                     storage.generate_presigned_part_url,
                     physical_s3_key,
                     upload_id,
                     part_num,
+                    url_ttl,
                 )
                 for part_num in range(1, num_parts + 1)
             ]
@@ -795,6 +799,8 @@ async def request_presigned_reupload(
             storage.generate_presigned_put_url,
             physical_s3_key,
             request.content_type,
+            # fix(#1235 review r3): expires with the job, not 3600s from now.
+            get_catalog_port().remaining_job_lifetime_seconds(job.created_at),
         )
         job.user_metadata = {
             "presigned": True,

@@ -70,7 +70,9 @@ class _FakeS3Storage:
         self.objects: dict[str, bytes] = {}
 
     # -- presign (sync, called through run_in_thread_draining) --------------
-    def generate_presigned_put_url(self, key: str, content_type: str) -> str:
+    def generate_presigned_put_url(
+        self, key: str, content_type: str, expiration: int = 3600
+    ) -> str:
         return f"https://s3.invalid/{key}?signed=1"
 
     # -- completion --------------------------------------------------------

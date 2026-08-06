@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import tempfile
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -12,6 +13,7 @@ import structlog
 from fastapi import HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.persistent_config import UPLOAD_MAX_SIZE_MB
 from app.core.async_io import await_draining, run_in_thread_draining
 from app.modules.quota.service import check_upload_quota
@@ -75,6 +77,32 @@ async def abort_presigned_multipart_upload(
             s3_key=key,
             job_id=str(job_id),
         )
+
+
+def remaining_job_lifetime_seconds(created_at: datetime) -> int:
+    """Seconds a presigned URL for this job may still legitimately be honoured.
+
+    fix(#1235 review r3): URL expiry anchors at SIGNING time, the job deadline
+    anchors at `created_at`, and the two drift by however long the request
+    takes between the job INSERT and each signature. The part-URL loop signs
+    sequentially through a worker thread, so on a many-part file the last
+    signatures can be seconds late — and the window scales as an operator
+    lowers `pending_job_timeout_seconds`. In that gap S3 accepts bytes the
+    pending sweep is already entitled to fail the job for.
+
+    Anchoring to the deadline removes the class rather than narrowing it: the
+    URL expires exactly when the job does, whenever it was signed. Callers
+    that sign several URLs may compute this ONCE before the loop — later
+    signatures then carry a slightly earlier deadline, which is conservative
+    in the right direction.
+
+    Floors at 1 because `ExpiresIn=0` is not a shorter URL, it is an invalid
+    signature request; a job already past its deadline gets a URL that is
+    expired on arrival, which is the honest outcome.
+    """
+    deadline = created_at + timedelta(seconds=settings.pending_job_timeout_seconds)
+    remaining = (deadline - datetime.now(timezone.utc)).total_seconds()
+    return max(1, int(remaining))
 
 
 def raise_if_over_max_upload_size(actual_size: int, max_size_mb: int) -> None:

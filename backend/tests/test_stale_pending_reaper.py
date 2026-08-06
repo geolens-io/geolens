@@ -476,3 +476,67 @@ def test_every_pending_fail_site_uses_the_shared_clauses() -> None:
             f"({inline} occurrences, expected {allowed}) — route it through "
             "stale_pending_clauses instead"
         )
+
+
+class TestUrlExpiryAnchorsToTheJobDeadline:
+    """fix(#1235 review r3): URL expiry anchored at SIGNING time while the job
+    deadline anchors at created_at, so the two drifted by the in-request time
+    between the job INSERT and each signature — and the part loop signs
+    sequentially, so a many-part file's last URLs drifted furthest. In that gap
+    S3 accepts bytes the sweep is already entitled to fail the job for.
+
+    Unit-level on the helper because the drift is a property of the arithmetic,
+    not of any one door; both doors call it and the fakes in the contract
+    suites record what they were handed.
+    """
+
+    @staticmethod
+    def _backdated(minutes: int):
+        from datetime import datetime, timedelta, timezone
+
+        return datetime.now(timezone.utc) - timedelta(minutes=minutes)
+
+    def test_a_ten_minute_old_job_gets_the_remaining_lifetime(self) -> None:
+        from app.core.config import settings
+        from app.processing.ingest.presigned import remaining_job_lifetime_seconds
+
+        with patch.object(settings, "pending_job_timeout_seconds", 3600):
+            ttl = remaining_job_lifetime_seconds(self._backdated(10))
+
+        # 3600 - 600 = 3000. (The review's "~2400" example implies a 20-minute
+        # backdate; the arithmetic here is deliberate and checked.)
+        assert 2995 <= ttl <= 3000, (
+            f"expected ~3000s of remaining lifetime, got {ttl} — the URL is "
+            "anchored to signing time, not to the job deadline"
+        )
+
+    def test_a_fresh_job_gets_very_nearly_the_whole_window(self) -> None:
+        """The other direction: anchoring must not shorten a fresh job's URL."""
+        from app.core.config import settings
+        from app.processing.ingest.presigned import remaining_job_lifetime_seconds
+
+        with patch.object(settings, "pending_job_timeout_seconds", 3600):
+            ttl = remaining_job_lifetime_seconds(self._backdated(0))
+
+        assert 3595 <= ttl <= 3600, ttl
+
+    def test_a_job_past_its_deadline_gets_an_expired_url_not_a_zero(self) -> None:
+        """ExpiresIn=0 is an invalid signature request, not a shorter URL."""
+        from app.core.config import settings
+        from app.processing.ingest.presigned import remaining_job_lifetime_seconds
+
+        with patch.object(settings, "pending_job_timeout_seconds", 3600):
+            ttl = remaining_job_lifetime_seconds(self._backdated(120))
+
+        assert ttl == 1
+
+    def test_the_window_shrinks_with_a_lowered_timeout(self) -> None:
+        """The drift scales as an operator lowers the timeout, which is what
+        makes this worth fixing rather than tolerating."""
+        from app.core.config import settings
+        from app.processing.ingest.presigned import remaining_job_lifetime_seconds
+
+        with patch.object(settings, "pending_job_timeout_seconds", 900):
+            ttl = remaining_job_lifetime_seconds(self._backdated(10))
+
+        assert 295 <= ttl <= 300, ttl

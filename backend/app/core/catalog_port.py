@@ -78,6 +78,8 @@ class CatalogPort(Protocol):
         self, job: Any, *, restart_hint: str
     ) -> None: ...
 
+    def remaining_job_lifetime_seconds(self, created_at: Any) -> int: ...
+
     async def finalize_presigned_object(
         self,
         *,

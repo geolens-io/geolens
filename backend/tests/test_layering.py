@@ -1691,7 +1691,10 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # helpers (lock/assemble-check/finalize) the reupload door reaches through
         # the port. Three lines each, matching the existing entries.
         # fix(#1213 review r3): +7 — the completability guard's delegation.
-        "backend/app/platform/extensions/defaults_catalog_port.py": 420,
+        # fix(#1235 review r3): +5 — the remaining-lifetime delegation, which
+        # the reupload door reaches through the port like every other
+        # processing helper it uses.
+        "backend/app/platform/extensions/defaults_catalog_port.py": 425,
         # feat(#683): +58 — run_analysis_preview carries a clip mask DATASET
         # now, which costs a widened signature (one param per line once ruff
         # wraps it) plus the mask's shape and size gates. Those live here on
@@ -2011,7 +2014,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # object, and the comment records why: the upload id is already spent, so
     # that object is the only record assembly succeeded and the retry's only
     # way past it.
-    "backend/app/processing/ingest/router.py": 1522,
+    # fix(#1235 review r3): +10 — both signing sites anchor their expiration
+    # to the job deadline, with the comment recording why the part loop
+    # computes it once (later parts inherit the earlier deadline, which is
+    # conservative in the right direction).
+    "backend/app/processing/ingest/router.py": 1532,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from contextlib import contextmanager
 from io import BytesIO
 from pathlib import Path
@@ -149,7 +150,14 @@ async def test_presigned_upload_uses_physical_key_and_persists_logical_key(monke
     from app.processing.ingest import router
     from app.processing.ingest.schemas import PresignedUploadRequest
 
-    job = MagicMock(id=uuid.uuid4(), user_metadata={})
+    # fix(#1235 review r3): a real created_at, because the presign path now
+    # signs against the job's remaining lifetime. A MagicMock here yields
+    # int(MagicMock) == 1 and the assertion below would pin a meaningless TTL.
+    job = MagicMock(
+        id=uuid.uuid4(),
+        user_metadata={},
+        created_at=datetime.now(timezone.utc),
+    )
     db = AsyncMock()
     storage = MagicMock()
     storage.generate_presigned_put_url.return_value = "https://storage.test/put"
@@ -177,9 +185,12 @@ async def test_presigned_upload_uses_physical_key_and_persists_logical_key(monke
 
     logical = f"staging/{job.id}/roads.geojson"
     physical = f"tenants/{TENANT_A}/{logical}"
-    storage.generate_presigned_put_url.assert_called_once_with(
-        physical, "application/octet-stream"
+    signed_key, signed_type, signed_ttl = (
+        storage.generate_presigned_put_url.call_args.args
     )
+    assert (signed_key, signed_type) == (physical, "application/octet-stream")
+    # Signed against the job deadline, so very nearly the whole window.
+    assert 3595 <= signed_ttl <= 3600, signed_ttl
     assert response.s3_key == physical
     assert job.user_metadata["s3_key"] == logical
 
@@ -287,6 +298,8 @@ async def test_presigned_reupload_round_trip_uses_tenant_provider_key(monkeypatc
         return frozen_staging_key(logical_key)
 
     port.finalize_presigned_object = AsyncMock(side_effect=_fake_finalize)
+    # fix(#1235 review r3): a real TTL, for the same reason as above.
+    port.remaining_job_lifetime_seconds = MagicMock(return_value=1800)
     monkeypatch.setattr(settings, "storage_provider", "s3")
     monkeypatch.setattr(settings, "presigned_multipart_threshold_mb", 100)
 
@@ -335,7 +348,7 @@ async def test_presigned_reupload_round_trip_uses_tenant_provider_key(monkeypatc
             )
 
     storage.generate_presigned_put_url.assert_called_once_with(
-        physical, "application/octet-stream"
+        physical, "application/octet-stream", 1800
     )
     # fix(#1207): the door no longer probes storage itself — the existence
     # check moved inside finalize_presigned_object, which resolves the tenant

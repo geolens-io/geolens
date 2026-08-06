@@ -90,6 +90,7 @@ from app.processing.ingest.service import (
 )
 from app.processing.ingest.presigned import (
     abort_presigned_multipart_upload,
+    remaining_job_lifetime_seconds,
     finalize_presigned_object,
     lock_presigned_job,
     require_completable_presigned_job,
@@ -260,12 +261,19 @@ async def request_presigned_upload(
             if initiation_cancel is not None:
                 raise initiation_cancel
             num_parts = math.ceil(request.file_size / PART_SIZE)
+            # fix(#1235 review r3): anchor every signature to the JOB deadline,
+            # not to signing time. Computed once before the loop, so the later
+            # parts inherit the earlier deadline — conservative in the right
+            # direction, and it keeps a many-part file from handing out URLs
+            # that outlive the job by however long the loop took.
+            url_ttl = remaining_job_lifetime_seconds(job.created_at)
             urls = [
                 await run_in_thread_draining(
                     storage.generate_presigned_part_url,
                     physical_s3_key,
                     upload_id,
                     part_num,
+                    url_ttl,
                 )
                 for part_num in range(1, num_parts + 1)
             ]
@@ -314,6 +322,8 @@ async def request_presigned_upload(
                 storage.generate_presigned_put_url,
                 physical_s3_key,
                 request.content_type,
+                # fix(#1235 review r3): expires with the job, not 3600s from now.
+                remaining_job_lifetime_seconds(job.created_at),
             )
         except (
             Exception
