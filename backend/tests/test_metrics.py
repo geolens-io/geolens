@@ -1,5 +1,6 @@
 """Tests for the Prometheus metrics module."""
 
+import asyncio
 import os
 import subprocess
 import sys
@@ -14,6 +15,8 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from app.observability.metrics import (
     _consolidate_dead_counter_and_histogram_files,
     _sweep_dead_worker_metrics_once,
+    _sweep_lock_path,
+    init_metrics,
     shutdown_worker_metrics,
 )
 from app.observability.metrics.instrumentator import create_instrumentator
@@ -721,6 +724,154 @@ _consolidate_dead_counter_and_histogram_files()
         if s.name == "test_consolidate_requests_total"
     )
     assert total_after == 17.0
+
+
+def test_sweep_waits_for_inflight_scrape_before_renaming(tmp_path):
+    """fix(#1240, #651 review round 6): MultiProcessCollector.collect() globs
+    "*.db" and then opens each matched path one by one; it tolerates a path
+    disappearing between those two steps only for gauge_live*.db (an
+    explicit except-continue in prometheus_client's own code, because
+    mark_process_dead() is expected to race a scrape). For
+    counter_*.db/histogram_*.db it re-raises FileNotFoundError, so this
+    function's os.rename() claim step must never fire while a scrape holds
+    the shared (reader) lock on the same PROMETHEUS_MULTIPROC_DIR.
+
+    Proves ordering, not just "no crash": a fake scrape holds the shared
+    lock for a full second before releasing; the sweep (which starts only
+    once it can see the scrape is already holding the lock) must not
+    complete until AFTER that release. If it completed sooner, that would
+    mean the exclusive/shared flock pairing isn't actually excluding the
+    sweep while a scrape is in flight -- the exact gap round 6 found.
+    """
+    multiproc_dir = str(tmp_path)
+    env = {**os.environ, "PROMETHEUS_MULTIPROC_DIR": multiproc_dir}
+
+    result = subprocess.run(
+        [sys.executable, "-c", _COUNTER_HISTOGRAM_WRITER, "10"],
+        cwd=str(_BACKEND_ROOT),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+
+    holding_marker = tmp_path / "scrape_holding"
+    released_marker = tmp_path / "scrape_released"
+    done_marker = tmp_path / "sweep_done"
+
+    fake_scrape_script = f"""
+import fcntl
+import time
+
+from app.observability.metrics import _sweep_lock_path
+
+with open(_sweep_lock_path({multiproc_dir!r}), "a+b") as lock_file:
+    fcntl.flock(lock_file, fcntl.LOCK_SH)
+    open({str(holding_marker)!r}, "w").close()
+    time.sleep(1.0)
+    fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+with open({str(released_marker)!r}, "w") as f:
+    f.write(repr(time.time()))
+"""
+    sweeper_script = f"""
+import os
+import time
+
+while not os.path.exists({str(holding_marker)!r}):
+    time.sleep(0.001)
+
+os.environ["PROMETHEUS_MULTIPROC_DIR"] = {multiproc_dir!r}
+from app.observability.metrics import _consolidate_dead_counter_and_histogram_files
+
+_consolidate_dead_counter_and_histogram_files()
+
+with open({str(done_marker)!r}, "w") as f:
+    f.write(repr(time.time()))
+"""
+    scrape_proc = subprocess.Popen(
+        [sys.executable, "-c", fake_scrape_script],
+        cwd=str(_BACKEND_ROOT),
+        env=env,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    sweep_proc = subprocess.Popen(
+        [sys.executable, "-c", sweeper_script],
+        cwd=str(_BACKEND_ROOT),
+        env=env,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    scrape_stderr = scrape_proc.communicate(timeout=30)[1]
+    assert scrape_proc.returncode == 0, scrape_stderr
+    sweep_stderr = sweep_proc.communicate(timeout=30)[1]
+    assert sweep_proc.returncode == 0, sweep_stderr
+
+    released_at = float(released_marker.read_text())
+    done_at = float(done_marker.read_text())
+    assert done_at >= released_at, (
+        f"sweep finished at {done_at} before the scrape released its lock "
+        f"at {released_at} -- the sweep's rename raced an in-flight scrape"
+    )
+
+
+@pytest.mark.asyncio
+async def test_metrics_endpoint_survives_concurrent_sweep(tmp_path):
+    """fix(#1240, #651 review round 6): the reported symptom end to end --
+    a real GET /metrics request, issued while the sweep holds the exclusive
+    lock and is mid-rename, must wait and then succeed (200, correct data),
+    never surface a FileNotFoundError-driven 500. Exercises the actual
+    middleware wired into init_metrics(), not just the raw lock file.
+    """
+    multiproc_dir = str(tmp_path)
+
+    with patch.dict(os.environ, {"PROMETHEUS_MULTIPROC_DIR": multiproc_dir}):
+        result = subprocess.run(
+            [sys.executable, "-c", _COUNTER_HISTOGRAM_WRITER, "5"],
+            cwd=str(_BACKEND_ROOT),
+            env={**os.environ, "PROMETHEUS_MULTIPROC_DIR": multiproc_dir},
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode == 0, result.stderr
+
+        import fcntl
+
+        from fastapi import FastAPI
+        from httpx import ASGITransport, AsyncClient
+
+        app = FastAPI()
+        init_metrics(app)
+
+        order: list[str] = []
+        release_event = asyncio.Event()
+
+        def hold_writer_lock() -> None:
+            with open(_sweep_lock_path(multiproc_dir), "a+b") as lock_file:
+                fcntl.flock(lock_file, fcntl.LOCK_EX)
+                order.append("writer_acquired")
+                loop.call_soon_threadsafe(release_event.set)
+                time.sleep(0.3)
+                order.append("writer_released")
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+        loop = asyncio.get_event_loop()
+        writer_future = loop.run_in_executor(None, hold_writer_lock)
+        await release_event.wait()
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get("/metrics")
+        order.append("scrape_completed")
+        await writer_future
+
+    assert resp.status_code == 200
+    assert 'test_consolidate_requests_total{handler="/tiles"} 5.0' in resp.text
+    # The scrape's shared-lock wait genuinely blocked until the writer let go.
+    assert order == ["writer_acquired", "writer_released", "scrape_completed"]
 
 
 def test_shutdown_worker_metrics_marks_process_dead_when_multiprocess_active():

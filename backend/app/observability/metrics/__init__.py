@@ -25,7 +25,7 @@ import os
 from collections.abc import Iterator
 
 import structlog
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 
 from .instrumentator import create_instrumentator
 
@@ -35,12 +35,74 @@ logger = structlog.stdlib.get_logger(__name__)
 # by a sibling that died without running its own shutdown hook.
 _SWEEP_INTERVAL_SECONDS = 60
 
+# fix(#1240, #651 review round 6): must match the endpoint create_instrumentator()
+# + instrumentator.expose() below actually serve (its default, unoverridden).
+_METRICS_ENDPOINT_PATH = "/metrics"
+
+# How long the scrape-side non-blocking lock poll waits between attempts.
+# The sweep's exclusive hold is brief (a handful of file operations every
+# 60s), so contention is rare and short-lived.
+_SCRAPE_LOCK_POLL_SECONDS = 0.005
+
+
+def _sweep_lock_path(multiproc_dir: str) -> str:
+    """Path to the reader/writer lock file guarding PROMETHEUS_MULTIPROC_DIR
+    against concurrent scrape-vs-sweep file mutation. See
+    _consolidate_dead_counter_and_histogram_files() (writer/exclusive side)
+    and the metrics-scrape middleware wired up in init_metrics() (reader/
+    shared side) for fix(#1240, #651 review round 6).
+    """
+    return os.path.join(multiproc_dir, "sweep.lock")
+
 
 def init_metrics(app: FastAPI):
     """Instrument the FastAPI app and expose /metrics endpoint."""
     instrumentator = create_instrumentator()
     instrumentator.instrument(app)
     instrumentator.expose(app, include_in_schema=False, should_gzip=True)
+
+    @app.middleware("http")
+    async def _hold_scrape_lock_during_metrics_response(request: Request, call_next):
+        """Hold a shared (reader) lock on PROMETHEUS_MULTIPROC_DIR for the
+        duration of a /metrics scrape, so the consolidation sweep's exclusive
+        (writer) lock can never rename a counter_*.db/histogram_*.db out from
+        under a scrape that has already globbed it.
+
+        fix(#1240, #651 review round 6): MultiProcessCollector.collect()
+        globs "*.db" and then opens each matched path one by one. It only
+        tolerates a path disappearing between those two steps for
+        gauge_live*.db files (prometheus_client's own code has an explicit
+        except-continue for exactly that case, because mark_process_dead()
+        is expected to race a scrape); for counter_*.db/histogram_*.db it
+        re-raises FileNotFoundError, which without this lock would surface
+        as an intermittent 500 from /metrics whenever the 60s sweep's
+        os.rename() lands mid-scrape. Excluded from instrumentation
+        (excluded_handlers=["/metrics", ...] in instrumentator.py) so this
+        lock wait itself is never measured as request latency.
+
+        Uses a non-blocking flock() in a poll loop (not a blocking flock()
+        call) so a brief wait for the sweep's exclusive hold never blocks
+        this worker's asyncio event loop -- fcntl.flock is not
+        awaitable/async-aware.
+        """
+        multiproc_dir = os.environ.get("PROMETHEUS_MULTIPROC_DIR")
+        if request.url.path != _METRICS_ENDPOINT_PATH or not multiproc_dir:
+            return await call_next(request)
+
+        import fcntl
+
+        with open(_sweep_lock_path(multiproc_dir), "a+b") as lock_file:
+            while True:
+                try:
+                    fcntl.flock(lock_file, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    await asyncio.sleep(_SCRAPE_LOCK_POLL_SECONDS)
+            try:
+                return await call_next(request)
+            finally:
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
+
     return instrumentator
 
 
@@ -163,38 +225,53 @@ def _consolidate_dead_counter_and_histogram_files() -> None:
     scraped total is unchanged, but file count stays O(live workers + 2)
     instead of growing with every worker ever recycled.
 
-    Races itself safely across workers in TWO separate steps, because a
-    single mutex can't cover both a per-source-file claim and a shared
-    archive write:
+    Races itself safely against BOTH sibling sweeps AND in-flight scrapes,
+    using the same reader/writer lock file as the /metrics scrape middleware
+    in init_metrics() (see _sweep_lock_path()): this whole function -- every
+    prefix's claim (os.rename()) and merge -- runs under ONE exclusive
+    (writer) hold of that lock, acquired once at the top and released at the
+    end. Two things this closes that a narrower lock wouldn't:
 
-    1. Claiming a dead pid's source file: os.rename() to a private,
-       non-globbed name first -- POSIX rename is atomic, so only one
-       worker's rename can succeed; the other gets FileNotFoundError on its
-       own rename attempt and moves on. This alone guarantees a given dead
-       pid's file is read by exactly one worker, but does NOT protect the
-       archive file itself -- two workers can each successfully claim a
-       DIFFERENT dead pid's file in the same pass and then both try to fold
-       their value into the SAME "<type>_archived.db" at once. Without
-       further synchronization that's a lost-update race (read, add, write
-       is not atomic across processes): whichever worker's write lands last
-       overwrites the other's, permanently under-counting the archive
-       (fix(#1240, #651 review round 5)).
-    2. Folding a claimed file into the archive: guarded by an exclusive
-       fcntl.flock() on a dedicated "<type>_archived.db.lock" file (not the
-       archive .db file itself, so the lock is independent of MmapedDict's
-       own open/mmap lifecycle). The lock is held for this worker's entire
-       claim-and-merge pass over ALL dead pid files for that metric type, so
-       the read-modify-write of every key is fully serialized against every
-       other worker. flock is released automatically by the kernel if this
-       process dies while holding it, so a crash here can't deadlock a
-       sibling worker's next sweep.
+    - fix(#1240, #651 review round 5): two workers each successfully
+      claiming a DIFFERENT dead pid's file in the same pass and then both
+      folding their value into the SAME "<type>_archived.db" at once is a
+      lost-update race (read, add, write is not atomic across processes) --
+      whichever worker's write lands last overwrites the other's,
+      permanently under-counting the archive. A per-prefix archive-only lock
+      (this function's first version) closed this by itself, but round 6
+      below needed a wider hold anyway, so it now covers this case too.
+    - fix(#1240, #651 review round 6): MultiProcessCollector.collect() globs
+      "*.db" and then opens each matched path one by one; it only tolerates
+      a path disappearing between those two steps for gauge_live*.db files
+      (prometheus_client's own code has an explicit except-continue there,
+      because mark_process_dead() is expected to race a scrape). For
+      counter_*.db/histogram_*.db it re-raises FileNotFoundError, so this
+      function's own os.rename() claim step -- if it ran unsynchronized --
+      could make a scrape that already globbed a dead pid's file 500 when it
+      tries to open the now-renamed-away path. Holding the SAME lock the
+      scrape middleware takes (shared/reader) as exclusive/writer here means
+      no rename can land while any scrape is in flight, and no scrape can
+      start reading while a rename is in flight.
 
-    If this process is killed after claiming (step 1) but before merging
-    (step 2) completes, the renamed file is orphaned (invisible to both
-    future scrapes and future sweeps) -- an accepted, documented residual
-    risk of the same shape as the pid-reuse limitation in
+    flock is released automatically by the kernel if this process dies while
+    holding it, so a crash mid-sweep can't deadlock a sibling worker's next
+    sweep or wedge /metrics shut. If this process is killed after claiming a
+    file but before merging it, the renamed file is orphaned (invisible to
+    both future scrapes and future sweeps) -- an accepted, documented
+    residual risk of the same shape as the pid-reuse limitation in
     _dead_worker_pids(), not a correctness bug in the common case of a
     graceful sweep pass.
+
+    Uses a blocking fcntl.flock() (unlike the scrape middleware's
+    non-blocking poll loop): this function already does several other
+    blocking syscalls in a row (glob, rename, mmap I/O) with no
+    run_in_executor wrapper, so it already blocks this worker's event loop
+    for its (brief, ~milliseconds) duration regardless: adding one more
+    blocking wait to that existing pattern doesn't change its character.
+    The scrape middleware is different -- it wraps every /metrics response
+    on the request-handling path, where blocking the event loop would add
+    latency to every OTHER concurrent request this worker is serving, not
+    just metrics scrapes -- so that side has to poll instead.
     """
     multiproc_dir = os.environ.get("PROMETHEUS_MULTIPROC_DIR")
     if not multiproc_dir:
@@ -203,24 +280,25 @@ def _consolidate_dead_counter_and_histogram_files() -> None:
 
     from prometheus_client.mmap_dict import MmapedDict
 
-    for prefix in ("counter", "histogram"):
-        claimed_paths = []
-        for _pid, path in _iter_dead_pid_files(prefix, multiproc_dir):
-            claimed_path = f"{path}.claimed"
-            try:
-                os.rename(path, claimed_path)
-            except FileNotFoundError:
-                continue  # another worker's sweep already claimed this one
-            claimed_paths.append(claimed_path)
+    with open(_sweep_lock_path(multiproc_dir), "a+b") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        try:
+            for prefix in ("counter", "histogram"):
+                claimed_paths = []
+                for _pid, path in _iter_dead_pid_files(prefix, multiproc_dir):
+                    claimed_path = f"{path}.claimed"
+                    try:
+                        os.rename(path, claimed_path)
+                    except FileNotFoundError:
+                        continue  # another worker's sweep already claimed this
+                    claimed_paths.append(claimed_path)
 
-        if not claimed_paths:
-            continue
+                if not claimed_paths:
+                    continue
 
-        archive_path = os.path.join(multiproc_dir, f"{prefix}_{_ARCHIVE_SUFFIX}.db")
-        lock_path = f"{archive_path}.lock"
-        with open(lock_path, "a+b") as lock_file:
-            fcntl.flock(lock_file, fcntl.LOCK_EX)
-            try:
+                archive_path = os.path.join(
+                    multiproc_dir, f"{prefix}_{_ARCHIVE_SUFFIX}.db"
+                )
                 archive = MmapedDict(archive_path)
                 try:
                     for claimed_path in claimed_paths:
@@ -239,8 +317,8 @@ def _consolidate_dead_counter_and_histogram_files() -> None:
                         os.remove(claimed_path)
                 finally:
                     archive.close()
-            finally:
-                fcntl.flock(lock_file, fcntl.LOCK_UN)
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
 
 
 def _sweep_dead_worker_metrics_once() -> None:
