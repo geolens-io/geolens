@@ -67,7 +67,13 @@ describe('EphemeralBadge', () => {
   // that it is partial and what it is partial AGAINST. A viewport-scoped
   // total names the extent instead of implying it describes the whole
   // dataset the way an unscoped total does.
-  it('names the viewport when the total was computed against it', () => {
+  it('names the previewed extent when the total was computed against it', () => {
+    // fix(#727 codex round 6): "previewed extent", not "in view" — by the
+    // time this badge renders, useEphemeralLayers' fitBounds() has often
+    // already re-fit the map to the RESULT geometry's own (possibly much
+    // smaller) bbox, so "in view" would claim a current-tense fact that fit
+    // already made false. "Previewed extent" names what the total is scoped
+    // to without claiming it still matches the screen.
     render(
       <EphemeralBadge
         featureCount={180}
@@ -77,7 +83,9 @@ describe('EphemeralBadge', () => {
         onDismiss={vi.fn()}
       />
     );
-    expect(screen.getByText('Result · 180 of 22,324 features in view')).toBeInTheDocument();
+    expect(
+      screen.getByText('Result · 180 of 22,324 features in the previewed extent'),
+    ).toBeInTheDocument();
     // Not the unscoped sentence — the two must never render side by side.
     expect(screen.queryByText('Result · 180 of 22,324 features')).not.toBeInTheDocument();
   });
@@ -87,12 +95,12 @@ describe('EphemeralBadge', () => {
       <EphemeralBadge featureCount={500} totalCount={22324} truncated onDismiss={vi.fn()} />
     );
     expect(screen.getByText('Result · 500 of 22,324 features')).toBeInTheDocument();
-    expect(screen.queryByText(/in view/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/previewed extent/)).not.toBeInTheDocument();
   });
 
   it('ignores viewportScoped when the result is not truncated', () => {
     // A complete result has nothing to be honest ABOUT — viewportScoped with
-    // no truncation must not leak "in view" onto an ordinary count.
+    // no truncation must not leak "previewed extent" onto an ordinary count.
     render(
       <EphemeralBadge featureCount={42} viewportScoped onDismiss={vi.fn()} />
     );

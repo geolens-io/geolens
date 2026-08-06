@@ -1065,8 +1065,8 @@
     "dismiss": "Fermer le résultat",
     "featureCountTruncated_one": "{{count, number}} sur {{total, number}} entités",
     "featureCountTruncated_other": "{{count, number}} sur {{total, number}} entités",
-    "featureCountTruncatedScoped_one": "{{count, number}} sur {{total, number}} entités visibles",
-    "featureCountTruncatedScoped_other": "{{count, number}} sur {{total, number}} entités visibles",
+    "featureCountTruncatedScoped_one": "{{count, number}} sur {{total, number}} entités dans l'étendue prévisualisée",
+    "featureCountTruncatedScoped_other": "{{count, number}} sur {{total, number}} entités dans l'étendue prévisualisée",
     "featureCountCapped_one": "{{count, number}} première entité",
     "featureCountCapped_other": "{{count, number}} premières entités",
     "saveAsDataset": "Enregistrer comme jeu de données…"

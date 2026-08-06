@@ -39,12 +39,25 @@ export function ephemeralCountLabel(
     // fix(#727): a viewport-scoped total is honest about "of WHAT" — without
     // naming the extent, "180 of 22,324" reads exactly like the pre-fix
     // capped-in-ingest-order case this issue exists to stop looking like a
-    // failed operation, even though the 180 now really is what's on screen.
+    // failed operation, even though the 180 now really is what's on screen
+    // AT THE TIME OF THE REQUEST.
+    //
+    // fix(#727 codex round 6): "previewed extent", not "in view" — this
+    // badge mounts alongside useEphemeralLayers' fitBounds(), which re-fits
+    // the map to the RESULT geometry's own bbox (a capped, ingest-ordered
+    // sample can be a much smaller extent than the requested viewport), so
+    // by the time this label renders the visible map has often already
+    // moved on from the extent the total was computed against. "In view"
+    // claimed a current-tense fact the fit-then-render sequence had already
+    // made false; "previewed extent" names what the number is scoped to
+    // without claiming it still matches the screen, matching the toast's
+    // wording (AnalysisPanel's truncatedNoticeTotalScoped/
+    // truncatedNoticeMatchedScoped) so the two surfaces agree.
     if (viewportScoped) {
       return t('ephemeralBadge.featureCountTruncatedScoped', {
         count: featureCount,
         total: totalCount,
-        defaultValue: '{{count, number}} of {{total, number}} features in view',
+        defaultValue: '{{count, number}} of {{total, number}} features in the previewed extent',
       });
     }
     return t('ephemeralBadge.featureCountTruncated', {

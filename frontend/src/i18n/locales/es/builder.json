@@ -1065,8 +1065,8 @@
     "dismiss": "Descartar resultado",
     "featureCountTruncated_one": "{{count, number}} de {{total, number}} entidades",
     "featureCountTruncated_other": "{{count, number}} de {{total, number}} entidades",
-    "featureCountTruncatedScoped_one": "{{count, number}} de {{total, number}} entidades visibles",
-    "featureCountTruncatedScoped_other": "{{count, number}} de {{total, number}} entidades visibles",
+    "featureCountTruncatedScoped_one": "{{count, number}} de {{total, number}} entidades en la extensión previsualizada",
+    "featureCountTruncatedScoped_other": "{{count, number}} de {{total, number}} entidades en la extensión previsualizada",
     "featureCountCapped_one": "primera {{count, number}} entidad",
     "featureCountCapped_other": "primeras {{count, number}} entidades",
     "saveAsDataset": "Guardar como conjunto de datos…"

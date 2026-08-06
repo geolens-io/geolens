@@ -1065,8 +1065,8 @@
     "dismiss": "Ergebnis verwerfen",
     "featureCountTruncated_one": "{{count, number}} von {{total, number}} Features",
     "featureCountTruncated_other": "{{count, number}} von {{total, number}} Features",
-    "featureCountTruncatedScoped_one": "{{count, number}} von {{total, number}} Features im Sichtbereich",
-    "featureCountTruncatedScoped_other": "{{count, number}} von {{total, number}} Features im Sichtbereich",
+    "featureCountTruncatedScoped_one": "{{count, number}} von {{total, number}} Features im Vorschauausschnitt",
+    "featureCountTruncatedScoped_other": "{{count, number}} von {{total, number}} Features im Vorschauausschnitt",
     "featureCountCapped_one": "erstes {{count, number}} Feature",
     "featureCountCapped_other": "erste {{count, number}} Features",
     "saveAsDataset": "Als Datensatz speichern…"
