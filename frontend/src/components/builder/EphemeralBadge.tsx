@@ -18,6 +18,8 @@ interface EphemeralBadgeProps {
   truncated?: boolean;
   /** Total feature count before truncation. */
   totalCount?: number;
+  /** fix(#727): totalCount was computed against the map's viewport. */
+  viewportScoped?: boolean;
   /** feat(#675): opens the Analysis panel prefilled with the operation behind
    *  this preview. Builder-only — the viewer has no Analysis rail, so it
    *  never passes this. */
@@ -26,12 +28,12 @@ interface EphemeralBadgeProps {
   className?: string;
 }
 
-export function EphemeralBadge({ featureCount, onDismiss, truncated, totalCount, onSaveAsDataset, className }: EphemeralBadgeProps) {
+export function EphemeralBadge({ featureCount, onDismiss, truncated, totalCount, viewportScoped, onSaveAsDataset, className }: EphemeralBadgeProps) {
   const { t } = useTranslation('builder');
 
   // fix(#1009): the count sentence and the announced-label pattern moved to
   // ephemeral-preview.ts so this badge and the stack row cannot drift apart.
-  const counts = { featureCount, truncated, totalCount };
+  const counts = { featureCount, truncated, totalCount, viewportScoped };
   const statusLabel = ephemeralStatusLabel(t, counts);
   const announcedLabel = useAnnouncedLabel(statusLabel);
 

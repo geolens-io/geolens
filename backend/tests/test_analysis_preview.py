@@ -1098,6 +1098,29 @@ class TestAnalysisPreviewEndpoint:
         assert resp.status_code == 200, resp.text
         assert resp.json()["source_feature_count"] is None
 
+    async def test_source_feature_count_none_for_clip_with_bbox(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """Denominator case 3 (fix(#727)): clip stays null WITH a bbox too —
+        a row-filtering operation's total is unknowable from the source count
+        whether or not the preview is viewport-scoped."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        resp = await client.post(
+            _preview_url(ds.id),
+            json={
+                "operation": "clip",
+                "mask": CLIP_MASK,
+                "bbox": [-10.0, -10.0, 10.0, 10.0],
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["source_feature_count"] is None
+
     async def test_clip_by_layer_preview(
         self,
         client: AsyncClient,
@@ -1280,6 +1303,229 @@ class TestAnalysisPreviewEndpoint:
         assert resp.status_code == 422
 
 
+class TestBboxScopedPreview:
+    """Live-DB behavior for a viewport-scoped preview (fix(#727)): the row
+    filter actually restricts which rows the cap sees, the 1:1 denominator
+    switches from the cached snapshot to a live bbox-scoped count, and the
+    live count runs before the connection-releasing rollback."""
+
+    async def test_bbox_filters_preview_to_the_viewport(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """The concrete bug: an unscoped preview over a spread-out dataset
+        returns the first PREVIEW_FEATURE_CAP rows in gid order, which here
+        are ALL west of x=0. Scoping to a viewport east of x=0 must return
+        points from THAT extent instead — proof the filter runs before the
+        cap, not merely that it is syntactically present in the SQL."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        # 900 points along the equator, x = (gid - 1) * 0.002 - 1.1: x(500) is
+        # -0.102 (comfortably < 0) and x(900) is 0.698, so the full dataset
+        # spans past x=0 while an unscoped 500-row cap in gid order does not.
+        ds = await _create_point_dataset(test_db_session, created_by=admin_id, n=900)
+        table_name = ds.table_name
+        await test_db_session.execute(
+            text(
+                f"UPDATE data.{table_name} SET "
+                "geom = ST_SetSRID(ST_MakePoint((gid - 1) * 0.002 - 1.1, 0), 4326),"
+                "geom_4326 = ST_SetSRID(ST_MakePoint((gid - 1) * 0.002 - 1.1, 0), 4326)"
+            )
+        )
+        await test_db_session.commit()
+
+        unscoped = await client.post(
+            _preview_url(ds.id),
+            json={"operation": "centroid"},
+            headers=admin_auth_header,
+        )
+        assert unscoped.status_code == 200, unscoped.text
+        unscoped_xs = [
+            f["geometry"]["coordinates"][0]
+            for f in unscoped.json()["geojson"]["features"]
+        ]
+        assert unscoped_xs and max(unscoped_xs) < 0, (
+            "fixture assumption broken: the unscoped cap was expected to stay "
+            "entirely west of x=0 in gid order"
+        )
+
+        scoped = await client.post(
+            _preview_url(ds.id),
+            json={"operation": "centroid", "bbox": [0.0, -1.0, 0.5, 1.0]},
+            headers=admin_auth_header,
+        )
+        assert scoped.status_code == 200, scoped.text
+        scoped_features = scoped.json()["geojson"]["features"]
+        assert scoped_features
+        scoped_xs = [f["geometry"]["coordinates"][0] for f in scoped_features]
+        # Small tolerance for float round-trip through PostGIS/GeoJSON, not a
+        # loosening of the property under test: a point genuinely outside the
+        # envelope misses by a whole 0.002 grid step, not float noise.
+        assert all(-1e-6 <= x <= 0.5 + 1e-6 for x in scoped_xs), (
+            "a bbox-scoped preview returned a feature outside the requested "
+            f"envelope: {scoped_xs}"
+        )
+
+    async def test_source_feature_count_uses_cached_snapshot_without_bbox(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """Denominator case 1: no bbox uses the CACHED dataset.feature_count,
+        not a live count — proven by setting the cache to a value the live
+        table cannot possibly have and asserting the response echoes the
+        (wrong) cached number verbatim."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        ds.feature_count = 999_999
+        await test_db_session.commit()
+        resp = await client.post(
+            _preview_url(ds.id),
+            json={"operation": "buffer", "distance_meters": 10},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["source_feature_count"] == 999_999
+
+    async def test_source_feature_count_is_live_and_bbox_scoped(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """Denominator case 2: WITH a bbox, source_feature_count is a live
+        count of rows intersecting the envelope, not the cached whole-table
+        snapshot — even when the cache is set to a value that would make the
+        cached number pass this assertion by coincidence, the live count
+        (2 of 3 points fall in the queried envelope) is what comes back."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_point_dataset(test_db_session, created_by=admin_id, n=3)
+        table_name = ds.table_name
+        # Points at x = 0, 1, 2 (see _create_point_dataset: x = i * 0.001).
+        # Rewrite to x = 0, 1, 2 exactly so a bbox can cleanly include two.
+        await test_db_session.execute(
+            text(
+                f"UPDATE data.{table_name} SET "
+                "geom = ST_SetSRID(ST_MakePoint(gid - 1, 0), 4326),"
+                "geom_4326 = ST_SetSRID(ST_MakePoint(gid - 1, 0), 4326)"
+            )
+        )
+        # Deliberately wrong cache — if this leaks through, the test would
+        # only catch it by accident. It does not equal 2.
+        ds.feature_count = 3
+        await test_db_session.commit()
+
+        resp = await client.post(
+            _preview_url(ds.id),
+            json={
+                "operation": "buffer",
+                "distance_meters": 1,
+                "bbox": [-0.5, -0.5, 1.5, 0.5],
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["source_feature_count"] == 2
+
+    async def test_bbox_source_count_holds_a_preview_slot_too(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """fix(#727 codex P1 round 1): the bbox-scoped count runs through
+        execute_safe now (not a bare db.execute before the semaphore), so it
+        counts against the SAME global preview bound as the geometry query —
+        otherwise N concurrent viewport-scoped previews could each hold a
+        connection open for an unbounded, unmetered count query, exhausting
+        the pool the semaphore exists to protect (the exact class fix(#716)/
+        fix(#1014) already cover for the geometry query). Modeled on
+        test_the_exact_count_query_holds_a_slot_too's `.locked()` probe
+        against a one-slot semaphore."""
+        import asyncio
+
+        from app.modules.catalog.datasets.domain import service_analysis
+
+        monkeypatch.setattr(service_analysis, "_preview_slots", asyncio.Semaphore(1))
+        real = service_analysis.execute_safe
+        held: list[bool] = []
+
+        async def _recording_execute_safe(db, sql, **kwargs):
+            held.append(service_analysis._preview_slots.locked())
+            return await real(db, sql, **kwargs)
+
+        monkeypatch.setattr(service_analysis, "execute_safe", _recording_execute_safe)
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        resp = await client.post(
+            _preview_url(ds.id),
+            json={
+                "operation": "buffer",
+                "distance_meters": 10,
+                "bbox": [-10.0, -10.0, 10.0, 10.0],
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        # A bbox-scoped buffer preview is a two-statement operation now: the
+        # bbox count and the geometry query. Without the count this would pass
+        # trivially on a single query and prove nothing.
+        assert len(held) == 2, (
+            f"expected a bbox-count query and a geometry query, saw {len(held)}"
+        )
+        assert held == [True, True], (
+            "a sandbox query ran outside the preview semaphore: previews can "
+            "hold more connections than the bound allows"
+        )
+
+    async def test_bbox_source_count_degrades_to_none_on_sandbox_error(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """fix(#727 codex P2 round 1): a bbox-scoped denominator that could not
+        be computed within the query budget must come back null, not a
+        LIMIT-capped number dressed up as exact — the response's documented
+        contract for both source_feature_count and match_count."""
+        from app.modules.catalog.datasets.domain import service_analysis
+        from app.platform.sandbox.schemas import SandboxError
+
+        real = service_analysis.execute_safe
+        calls = 0
+
+        async def _fail_first_call(db, sql, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise SandboxError("query_timeout", "boom")
+            return await real(db, sql, **kwargs)
+
+        monkeypatch.setattr(service_analysis, "execute_safe", _fail_first_call)
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        resp = await client.post(
+            _preview_url(ds.id),
+            json={
+                "operation": "buffer",
+                "distance_meters": 10,
+                "bbox": [-10.0, -10.0, 10.0, 10.0],
+            },
+            headers=admin_auth_header,
+        )
+        # The bbox count fails; the geometry query (call 2) still succeeds —
+        # a broken denominator must not take down the whole preview.
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["source_feature_count"] is None
+        assert resp.json()["feature_count"] == 2
+
+
 # ---------------------------------------------------------------------------
 # Source-shape and parameter-bound edges (fix(#699))
 # ---------------------------------------------------------------------------
@@ -1437,6 +1683,81 @@ class TestPreviewParameterBounds:
         detail = resp.json()["detail"]
         assert "distance_meters" in detail
         assert ("less than or equal" in detail) or ("greater than" in detail)
+
+
+class TestBboxRequestValidation:
+    """AnalysisPreviewRequest.bbox: shape, finiteness, ordering, and — the
+    acceptance criterion this class exists to pin — that it is NOT owned by
+    any single operation, so _drop_params_for_other_operations never strips
+    it (fix(#727))."""
+
+    def test_bbox_absent_from_analysis_param_owners(self):
+        from app.modules.catalog.datasets.domain.schemas import (
+            _ANALYSIS_PARAM_OWNERS,
+        )
+
+        assert "bbox" not in _ANALYSIS_PARAM_OWNERS
+
+    def test_bbox_survives_on_a_non_buffer_operation(self):
+        """The concrete regression _ANALYSIS_PARAM_OWNERS guards against:
+        every OTHER per-operation field gets dropped when the operation
+        doesn't own it. bbox must be the one field that never does."""
+        req = AnalysisPreviewRequest(operation="centroid", bbox=[0.0, 0.0, 1.0, 1.0])
+        assert req.bbox == [0.0, 0.0, 1.0, 1.0]
+        # distance_meters IS operation-scoped (buffer only) — sent alongside
+        # centroid it must vanish, which is the contrast that makes the bbox
+        # assertion above meaningful rather than a no-op.
+        req2 = AnalysisPreviewRequest.model_validate(
+            {
+                "operation": "centroid",
+                "distance_meters": 10,
+                "bbox": [0.0, 0.0, 1.0, 1.0],
+            }
+        )
+        assert req2.distance_meters is None
+        assert req2.bbox == [0.0, 0.0, 1.0, 1.0]
+
+    def test_bbox_none_by_default(self):
+        assert AnalysisPreviewRequest(operation="centroid").bbox is None
+
+    @pytest.mark.parametrize(
+        "bbox",
+        [
+            [0.0, 0.0, 1.0],  # too few
+            [0.0, 0.0, 1.0, 1.0, 1.0],  # too many
+        ],
+    )
+    def test_bbox_wrong_length_rejected(self, bbox):
+        with pytest.raises(ValueError, match="exactly 4 coordinates"):
+            AnalysisPreviewRequest(operation="centroid", bbox=bbox)
+
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+    def test_bbox_non_finite_rejected(self, bad):
+        with pytest.raises(ValueError, match="finite"):
+            AnalysisPreviewRequest(operation="centroid", bbox=[bad, 0.0, 1.0, 1.0])
+
+    def test_bbox_minx_greater_than_maxx_rejected(self):
+        with pytest.raises(ValueError, match="minx is greater than maxx"):
+            AnalysisPreviewRequest(operation="centroid", bbox=[2.0, 0.0, 1.0, 1.0])
+
+    def test_bbox_miny_greater_than_maxy_rejected(self):
+        with pytest.raises(ValueError, match="miny is greater than maxy"):
+            AnalysisPreviewRequest(operation="centroid", bbox=[0.0, 2.0, 1.0, 1.0])
+
+    async def test_bbox_rejected_over_http(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        resp = await client.post(
+            _preview_url(ds.id),
+            json={"operation": "centroid", "bbox": [1.0, 0.0, 0.0, 1.0]},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422, resp.text
 
 
 # ---------------------------------------------------------------------------
@@ -1676,6 +1997,113 @@ class TestBuildPreviewSql:
         )
         with pytest.raises(ValueError):
             build_preview_sql('"data"."t1"', req)
+
+    # -----------------------------------------------------------------------
+    # bbox viewport scoping (#727)
+    # -----------------------------------------------------------------------
+
+    def test_no_bbox_reproduces_pre_727_sql_byte_for_byte(self):
+        """Acceptance criterion: omitting bbox reproduces today's behaviour."""
+        req_without = AnalysisPreviewRequest(operation="centroid")
+        req_with_none = AnalysisPreviewRequest(operation="centroid", bbox=None)
+        sql = build_preview_sql('"data"."t1"', req_without)
+        assert sql == build_preview_sql('"data"."t1"', req_with_none)
+        assert "ST_MakeEnvelope" not in sql
+        assert sql.endswith("ORDER BY gid")
+
+    def test_bbox_adds_indexed_prefilter_and_preserves_order_by_gid(self):
+        """Acceptance criterion: only features intersecting the envelope are
+        returned, and ORDER BY gid is still in the emitted SQL — the row cap's
+        early-stop property is invisible to a result-only assertion, so this
+        pins the SQL SHAPE directly. Centroid, not buffer: buffer's own
+        dateline-safety expression nests several WHERE clauses of its own
+        (see test_buffer_sql_slices_wide_inputs_into_local_projections), which
+        would contaminate a bare `sql.count("WHERE")` unrelated to this test's
+        claim about the OUTER predicate assembly."""
+        req = AnalysisPreviewRequest(operation="centroid", bbox=[-1.0, -2.0, 3.0, 4.0])
+        sql = build_preview_sql('"data"."t1"', req)
+        assert "_src.geom_4326 && ST_MakeEnvelope(-1.0, -2.0, 3.0, 4.0, 4326)" in sql
+        assert sql.endswith("ORDER BY gid")
+        # The prefilter must land in the SAME WHERE as NOT_EMPTY_PREDICATE,
+        # not a wrapping subquery — that is what keeps ORDER BY gid able to
+        # ride the pkey index (fix(#700 review)).
+        assert sql.count("WHERE") == 1
+
+    def test_bbox_applies_to_clip_by_layer_and_select_by_location(self):
+        """The shared WHERE composition covers every operation that flows
+        through build_preview_sql's final assembly — both mask_table_ref
+        branches included, not just the identity/expression branch."""
+        bbox = [0.0, 0.0, 1.0, 1.0]
+        for req in (
+            AnalysisPreviewRequest(
+                operation="clip", mask_dataset_id=uuid.uuid4(), bbox=bbox
+            ),
+            AnalysisPreviewRequest(
+                operation="select_by_location", mask_dataset_id=uuid.uuid4(), bbox=bbox
+            ),
+        ):
+            sql = build_preview_sql('"data"."t1"', req, '"data"."m1"')
+            assert "_src.geom_4326 && ST_MakeEnvelope(0.0, 0.0, 1.0, 1.0, 4326)" in sql
+            assert sql.endswith("ORDER BY gid")
+
+    def test_bbox_threaded_into_intersect(self):
+        """fix(#727 codex round 2): intersect renders through a separate
+        JOIN+GROUP BY pipeline (render_intersect_preview/render_intersect_pairs)
+        that does not share build_preview_sql's WHERE composition, so it needs
+        its own explicit bbox plumbing — this pins that it actually receives
+        one rather than silently discarding it (the frontend sends bbox for
+        every operation uniformly, so a discarded bbox here would keep
+        clustering intersect previews in gid order, the exact bug #727 exists
+        to fix, for one operation only)."""
+        req = AnalysisPreviewRequest(
+            operation="intersect",
+            mask_dataset_id=uuid.uuid4(),
+            bbox=[0.0, 0.0, 1.0, 1.0],
+        )
+        sql = build_preview_sql('"data"."t1"', req, '"data"."m1"')
+        assert "_src.geom_4326 && ST_MakeEnvelope(0.0, 0.0, 1.0, 1.0, 4326)" in sql
+        # The filter must land on the SOURCE (_src), inside the inner subquery
+        # that feeds the pair-generating join — not on the mask/overlay layer,
+        # and not as an outer wrapper around the whole aggregate (which would
+        # filter OUTPUT pieces instead of scoping which source rows are
+        # considered, changing the shape of the row cap's early-stop rather
+        # than just its size).
+        assert sql.index("_src.geom_4326 && ST_MakeEnvelope") < sql.index("GROUP BY")
+
+    def test_bbox_not_threaded_into_intersect_materialize(self):
+        """fix(#727 codex round 2): render_intersect_pairs's bbox param is
+        PREVIEW-ONLY. A saved dataset must be the WHOLE overlay, not whatever
+        was on screen when Create dataset was clicked — the materialize
+        worker's call site (processing/analysis/tasks.py) must keep omitting
+        it, so this pins the DEFAULT stays unscoped rather than assuming a
+        caller always passes bbox explicitly."""
+        from app.platform.analysis_sql import render_intersect_pairs
+
+        sql = render_intersect_pairs('"data"."t1"', '"data"."m1"')
+        assert "ST_MakeEnvelope" not in sql
+
+    def test_bbox_threaded_into_spatial_join_match_count(self):
+        """fix(#727 codex round 5): spatial_join's match_count is a SEPARATE
+        statement from the geometry preview (unlike intersect's, which rides
+        the same one), so it needs its own explicit bbox plumbing too — the
+        schema's contract says match_count is bbox-scoped for this operation,
+        and this pins that the SQL actually reflects it rather than the
+        response silently pairing a viewport-scoped source_feature_count with
+        a whole-dataset match_count."""
+        from app.platform.analysis_sql import render_spatial_join_match_count
+
+        sql = render_spatial_join_match_count(
+            '"data"."t1"', '"data"."j1"', bbox=[0.0, 0.0, 1.0, 1.0]
+        )
+        assert "_src.geom_4326 && ST_MakeEnvelope(0.0, 0.0, 1.0, 1.0, 4326)" in sql
+
+    def test_bbox_omitted_from_spatial_join_match_count_by_default(self):
+        """The default stays unscoped — this is a preview-time addition, not a
+        change to what an omitted bbox means."""
+        from app.platform.analysis_sql import render_spatial_join_match_count
+
+        sql = render_spatial_join_match_count('"data"."t1"', '"data"."j1"')
+        assert "ST_MakeEnvelope" not in sql
 
     def test_clip_mask_vertex_cap(self):
         ring = [

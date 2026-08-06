@@ -34,12 +34,13 @@ export function EphemeralPreviewRow({
   featureCount,
   truncated,
   totalCount,
+  viewportScoped,
   onDismiss,
   onSaveAsDataset,
 }: EphemeralPreviewRowProps) {
   const { t } = useTranslation('builder');
 
-  const counts = { featureCount, truncated, totalCount };
+  const counts = { featureCount, truncated, totalCount, viewportScoped };
   const countLabel = ephemeralCountLabel(t, counts);
   const announcedLabel = useAnnouncedLabel(ephemeralStatusLabel(t, counts));
 

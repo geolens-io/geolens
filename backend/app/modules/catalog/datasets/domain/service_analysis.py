@@ -34,6 +34,7 @@ from app.platform.analysis_sql import (
     INTERSECT_SOURCE_GID_COLUMN,
     MEASURE_OUTPUT_COLUMNS,
     NOT_EMPTY_PREDICATE,
+    render_bbox_predicate,
     render_clip_layer_join,
     render_geometry_expr,
     render_intersect_preview,
@@ -145,6 +146,62 @@ async def resolve_source_feature_count(
     return int(result.scalar_one())
 
 
+async def _resolve_bbox_source_count(
+    db: AsyncSession, table_ref: str, bbox: list[float], user_id: uuid.UUID
+) -> int | None:
+    """Exact 1:1-operation denominator scoped to a preview's viewport bbox, or
+    ``None`` if it could not be computed within the query budget.
+
+    Deliberately bypasses the cached ``dataset.feature_count`` snapshot
+    ``resolve_source_feature_count`` prefers — that snapshot is a WHOLE-table
+    total, and the whole point of this query is that the whole-table total is
+    the wrong denominator once a preview is scoped to what is on screen:
+    pairing "500 of 22,324" with a result that only ever looked at the visible
+    extent asserts something the result does not support.
+
+    fix(#727 codex P1/P2 round 1): runs through ``execute_safe`` — the SAME
+    rails as the geometry query and ``_resolve_match_count`` — rather than a
+    bespoke ``LIMIT cap + 1`` probe on the caller's own session. Two review
+    findings, one fix:
+
+    - P1: a bare ``db.execute`` ran before ``_preview_slots`` and before
+      ``release_session``'s rollback, so N concurrent viewport-scoped
+      previews could each hold the request session's connection for the
+      whole count — unbounded by the semaphore and by any statement timeout,
+      reintroducing the exact pool-exhaustion class fix(#716)/fix(#1014)
+      exist to prevent. ``execute_safe`` opens its own connection under the
+      caller's ``concurrency_key`` and this call now lives inside
+      ``run_analysis_preview``'s ``_preview_slots`` block, alongside the
+      geometry query and the match-count probe.
+    - P2: a ``LIMIT cap + 1`` count is a "did it exceed the cap" probe, not a
+      total — ``resolve_source_feature_count`` uses it that way (the caller
+      treats hitting the cap as "reject", never displays the number). Reusing
+      it here for a value the response labels ``source_feature_count`` and
+      the frontend prints as an exact denominator ("500 of 200,001 features
+      in view") would silently lie past the cap — the same class of
+      dishonesty this issue exists to fix. ``execute_safe``'s statement
+      timeout is the real bound instead: a real count when it finishes, and
+      ``None`` — a value this field's contract already documents as "could
+      not be computed", the same escape hatch ``match_count`` uses — when it
+      does not, rather than a capped number dressed up as an exact one.
+
+    Takes ``table_ref`` (already resolved to the LOGICAL ``data`` schema, the
+    same one the geometry query uses), not ``dataset`` — ``execute_safe``
+    does the tenant-schema rewrite itself, so unlike the first version of this
+    function there is no ordering dependency on the caller's ORM session or
+    its ``release_session`` rollback.
+    """
+    predicate = render_bbox_predicate(bbox, src="_t")
+    count_sql = f"SELECT count(*)::bigint AS source_count FROM {table_ref} AS _t WHERE {predicate}"
+    try:
+        result = await execute_safe(
+            db, count_sql, row_limit=1, concurrency_key=str(user_id)
+        )
+    except SandboxError:
+        return None
+    return int(result.rows[0][0]) if result.rows else None
+
+
 def build_preview_sql(
     table_ref: str,
     request: AnalysisPreviewRequest,
@@ -163,8 +220,18 @@ def build_preview_sql(
         # not a per-row expression, so it shares none of the lateral template
         # below. See render_intersect_preview for why match_count rides this
         # statement as a window rather than costing a second overlay.
+        #
+        # fix(#727 codex round 2): bbox passes straight through — see
+        # render_intersect_preview/render_intersect_pairs for where it lands
+        # in this pipeline's own query shape. It does NOT share the WHERE
+        # clause every other operation below composes through (this branch
+        # returns before reaching it), so it needed its own plumbing rather
+        # than falling out of the shared code path for free.
         return render_intersect_preview(
-            table_ref, mask_table_ref, geojson_precision=_GEOJSON_PRECISION
+            table_ref,
+            mask_table_ref,
+            geojson_precision=_GEOJSON_PRECISION,
+            bbox=request.bbox,
         )
     extra_cols = ""
     extra_joins = ""
@@ -219,10 +286,20 @@ def build_preview_sql(
     # times per row. Unlike fencing the whole row source, the join shape
     # keeps ORDER BY gid able to ride the pkey index, so the sandbox row cap
     # can still stop the scan early instead of evaluating every mask match.
+    #
+    # fix(#727): the viewport bbox, when present, joins this same predicate
+    # list rather than wrapping the whole FROM — it is a plain `_src.geom_4326
+    # &&` term, so it stays index-drivable and ORDER BY gid still rides the
+    # pkey index exactly as the paragraph above describes; the row cap keeps
+    # stopping the scan early, it now just stops it early over a smaller,
+    # on-screen row source.
+    extra_predicates = NOT_EMPTY_PREDICATE
+    if request.bbox is not None:
+        extra_predicates = (
+            f"{extra_predicates} AND {render_bbox_predicate(request.bbox, src='_src')}"
+        )
     filters = (
-        f"{where} AND {NOT_EMPTY_PREDICATE}"
-        if where
-        else f" WHERE {NOT_EMPTY_PREDICATE}"
+        f"{where} AND {extra_predicates}" if where else f" WHERE {extra_predicates}"
     )
     return (
         f"{cte}SELECT gid,"
@@ -333,6 +410,12 @@ async def run_analysis_preview(
     ``user.id`` before the call and touches no ORM state after, and no
     middleware reads the ORM user post-handler. The AI chat tool does NOT: both
     chat paths read ``user.id`` again after the tool returns.
+
+    ``request.bbox`` (fix(#727)) is optional and, when present, scopes the
+    source rows the row cap sees to the given viewport before ``ORDER BY
+    gid`` and the cap apply — see ``render_bbox_predicate``. The AI chat tool
+    never sets it, which reproduces this function's pre-#727 behaviour
+    exactly; that fallback is deliberate, not a gap to close.
     """
     table_ref = _safe_table_ref(dataset.table_name)
     mask_table_ref = (
@@ -347,7 +430,9 @@ async def run_analysis_preview(
     # in hand, and run after the geometry query below.
     count_sql: str | None = None
     if join_table_ref is not None:
-        count_sql = render_spatial_join_match_count(table_ref, join_table_ref)
+        count_sql = render_spatial_join_match_count(
+            table_ref, join_table_ref, bbox=request.bbox
+        )
     elif request.operation == "select_by_location":
         count_sql = render_select_by_location_count(
             table_ref, mask_table_ref=mask_table_ref, mask=request.mask
@@ -368,6 +453,16 @@ async def run_analysis_preview(
     # → HTTP 500. `rollback()` returns the connection (measured: checkedout
     # 1 → 0), so a preview costs one slot instead of two.
     source_feature_count = dataset.feature_count
+    # fix(#727): whether the cached snapshot above gets overridden by a live,
+    # bbox-scoped count. Just the operation/bbox check here — cheap, no I/O —
+    # the count itself runs inside the _preview_slots block below, alongside
+    # the geometry query and the match-count probe (fix(#727 codex P1 round
+    # 1)): it goes through execute_safe now, which opens its own connection
+    # and needs neither `dataset` nor this session's transaction state, so it
+    # has no ordering dependency on the rollback two lines down either.
+    bbox_scoped_count_needed = (
+        request.bbox is not None and request.operation not in _ROW_FILTERING_OPERATIONS
+    )
     if release_session:
         await db.rollback()
     # fix(#1014): fail fast at the bound rather than queueing. The client is
@@ -391,6 +486,18 @@ async def run_analysis_preview(
             "Try again in a moment.",
         )
     async with _preview_slots:
+        # fix(#727 codex P1 round 1): the bbox-scoped denominator lives in
+        # this slot too, not before it — see bbox_scoped_count_needed's
+        # comment above. Read first, before the geometry query, so a preview
+        # whose denominator query loses the race for the sandbox's per-user
+        # advisory lock (both go through execute_safe with the same
+        # concurrency_key) still gets a geometry result even if the count
+        # comes back None.
+        source_feature_count = (
+            await _resolve_bbox_source_count(db, table_ref, request.bbox, user_id)
+            if bbox_scoped_count_needed and request.bbox is not None
+            else source_feature_count
+        )
         result = await execute_safe(
             db,
             sql,

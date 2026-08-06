@@ -5473,6 +5473,11 @@ export interface components {
          */
         AnalysisPreviewRequest: {
             /**
+             * Bbox
+             * @description [minx, miny, maxx, maxy] in EPSG:4326, typically the map's current viewport. When present, only source features intersecting the envelope are considered before the preview's row cap applies, so a capped result reflects what is on screen rather than an arbitrary sample in ingest order (fix(#727)). Applies to every operation, not just one, so it is deliberately absent from _ANALYSIS_PARAM_OWNERS — omit it to preview the whole dataset, unchanged from before this field existed.
+             */
+            bbox?: number[] | null;
+            /**
              * Distance Meters
              * @description Buffer distance in meters (buffer only)
              */
@@ -5520,12 +5525,12 @@ export interface components {
             };
             /**
              * Match Count
-             * @description Exact total across the WHOLE source, not just the previewed features. What it counts is per-operation, so read it against the operation you sent rather than as one number: select_by_location gives the selected source features and intersect gives the output pieces, and for both of those it IS the output total; spatial_join gives intersecting source/join PAIRS, which is NOT the output total, because the join keeps every source row (use source_feature_count for that operation). Null for operations that report no such total, and when the count could not be computed within the query budget
+             * @description Exact total across the WHOLE source, not just the previewed features — WHOLE meaning the request's bbox when one was sent, the same sense source_feature_count uses that word. What it counts is per-operation, so read it against the operation you sent rather than as one number: select_by_location gives the selected source features and intersect gives the output pieces, and for both of those it IS the output total; spatial_join gives intersecting source/join PAIRS, which is NOT the output total, because the join keeps every source row (use source_feature_count for that operation). intersect and spatial_join both scope this total to a bbox on the request; select_by_location's count is a separate uncapped query the request's bbox does not reach, so it stays unscoped even though its preview rows are viewport-limited too. Null for operations that report no such total, and when the count could not be computed within the query budget
              */
             match_count?: number | null;
             /**
              * Source Feature Count
-             * @description Total feature count of the source dataset (1:1 operations only; null when the operation filters rows, e.g. clip)
+             * @description Total feature count of the source dataset (1:1 operations only; null when the operation filters rows, e.g. clip). When the request carried a bbox this is a LIVE count of rows intersecting it rather than the dataset's cached whole-table total (fix(#727)) — also null, same as match_count, when that live count could not be computed within the query budget
              */
             source_feature_count?: number | null;
             /** Truncated */

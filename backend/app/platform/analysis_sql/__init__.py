@@ -95,6 +95,7 @@ from .shared import (
     MAX_SOURCE_FEATURES,
     NON_GROUPABLE_COLUMN_TYPES,
     NOT_EMPTY_PREDICATE,
+    render_bbox_predicate,
     render_dateline_safe,
     render_mask_expr,
 )
@@ -168,6 +169,11 @@ def render_geometry_expr(
 # succeed here and fail on main — an API expansion however honest `__all__`
 # was, and nothing compared the two.
 # `test_analysis_sql_facade_surface_matches_its_declared_api` does now.
+#
+# The 35 count above is #1089's own snapshot, not a ceiling: a later PR
+# growing this list (fix(#727) adds `render_bbox_predicate`) is a deliberate,
+# stated API expansion of exactly the kind this paragraph says is fine to
+# make — the failure mode #1089 fixed was an UNSTATED one.
 __all__ = [
     "BUFFER_LOCAL_SRID_SPAN_DEG",
     "BUFFER_SLICE_SEGMENTIZE_M",
@@ -191,6 +197,7 @@ __all__ = [
     "NOT_EMPTY_PREDICATE",
     "SPATIAL_JOIN_COUNT_COLUMN",
     "SPATIAL_JOIN_FIELD_PREFIX",
+    "render_bbox_predicate",
     "render_clip_layer_join",
     "render_dateline_safe",
     "render_geodesic_buffer",

@@ -119,6 +119,75 @@ const UNIT_KEY: Record<BufferUnit, string> = {
   mi: 'Miles',
 };
 
+/**
+ * A viewport-scoping bbox for the preview request, or `undefined` when the
+ * viewport cannot be sent as one non-crossing envelope.
+ *
+ * fix(#727 codex P2): `map.getBounds()` is MONOTONIC and UNWRAPPED — MapLibre
+ * takes min/max over the four raw corner longitudes, so an antimeridian-
+ * straddling viewport or a pan through extra world copies (`renderWorldCopies`
+ * is on by default) returns values like `[179.5, …, 182, …]` or even
+ * `[899.5, …, 902, …]` (documented against a different consumer in
+ * `terrain-coverage.ts`'s module comment). `geom_4326` always stores
+ * longitudes in the standard `[-180, 180]` range, so handing those raw values
+ * to `ST_MakeEnvelope` silently misses real on-screen data — sending a bbox
+ * that is WRONG is worse than sending none, because it looks scoped and
+ * isn't. Rather than build antimeridian-splitting support this preview's
+ * single-envelope backend predicate does not have, degrade to "no bbox" (this
+ * panel's pre-#727 behaviour) for the two cases that cannot be represented as
+ * one increasing envelope: a full-world viewport, and a genuinely
+ * seam-crossing one.
+ *
+ * fix(#727 codex P3 round 4): west and east are normalized TOGETHER, not
+ * independently — west is wrapped once, and east is reconstructed by adding
+ * back the raw width, never wrapped on its own. 180 and -180 are the same
+ * meridian, so wrapping each end independently let a viewport starting
+ * exactly at the seam (e.g. [180, 190], a real 10°-wide box equivalent to
+ * [-180, -170]) keep its west edge at +180 while its east edge wrapped to
+ * -170, manufacturing a false crossing out of a box that never had one.
+ */
+interface PreviewBoundsLike {
+  getWest(): number;
+  getSouth(): number;
+  getEast(): number;
+  getNorth(): number;
+}
+
+export function viewportPreviewBbox(
+  bounds: PreviewBoundsLike,
+): [number, number, number, number] | undefined {
+  const south = bounds.getSouth();
+  const north = bounds.getNorth();
+  const rawWest = bounds.getWest();
+  const rawEast = bounds.getEast();
+  // Reject a decreasing raw pair and a span at or past a full turn. MapLibre's
+  // own getBounds() is always monotonic (rawEast >= rawWest is guaranteed),
+  // so a decreasing pair is outside this function's contract — degrade the
+  // same way as every other unrepresentable case. A >=360 span covers every
+  // longitude at this latitude band; there is nothing left for a bbox to
+  // restrict.
+  if (!(rawEast >= rawWest) || rawEast - rawWest >= 360) return undefined;
+  // Already representable byte-identically, no wrapping needed — the
+  // overwhelming common case, and skipping the arithmetic below avoids
+  // introducing float noise (`-74.1` round-tripped through `% 360` lands a
+  // ULP off) on every ordinary viewport just to handle a rare wrapped one.
+  if (rawWest >= -180 && rawEast <= 180) return [rawWest, south, rawEast, north];
+  // fix(#727 codex P3 round 4): wrap WEST only, then reconstruct east by
+  // adding back the raw (already validated non-negative, < 360) width —
+  // never wrap east independently. 180 and -180 are the SAME meridian, so a
+  // viewport starting exactly at the seam (e.g. [180, 190]) used to keep west
+  // at +180 (already "in range" by the old inclusive check) while wrapping
+  // east down to -170, manufacturing a false crossing out of a box
+  // ([-180, -170]) that never had one. Deriving east from west's normalized
+  // value instead of wrapping it separately makes the two ends agree on
+  // which representation of the seam they are using.
+  const west = (((rawWest + 180) % 360) + 360) % 360 - 180;
+  const east = west + (rawEast - rawWest);
+  // A normalized east past +180 means the box genuinely straddles the seam —
+  // not representable as one non-crossing envelope.
+  return east > 180 ? undefined : [west, south, east, north];
+}
+
 interface AnalysisPanelProps {
   layers: MapLayerResponse[];
   /** fix(#757)/fix(#760): keys the remembered form and the rehydrated job to
@@ -136,6 +205,7 @@ interface AnalysisPanelProps {
     meta?: {
       truncated?: boolean;
       totalCount?: number;
+      viewportScoped?: boolean;
       source?: 'analysis-panel';
     },
   ) => void;
@@ -952,7 +1022,17 @@ export function AnalysisPanel({
     // fix(#758): the request carries the sequence current at click time, so
     // a response that outlived its inputs (layer/operation/distance/mask
     // changed while it was in flight) is dropped instead of drawn.
-    mutationFn: async ({ seq: _seq }: { seq: number }) => {
+    // fix(#727): `bbox` rides along too — read at submit time in the onSubmit
+    // handler below, alongside `seq`, so mutationFn and onSuccess see the
+    // exact same value rather than each reading `mapInstanceRef.current`
+    // independently at two different instants.
+    mutationFn: async ({
+      seq: _seq,
+      bbox,
+    }: {
+      seq: number;
+      bbox?: [number, number, number, number];
+    }) => {
       const datasetId = selectedLayer?.dataset_id;
       // ux(#698): thrown messages reach the user verbatim via the onError
       // `error.message || t(...)` fallback, so this one has to be translated.
@@ -984,6 +1064,12 @@ export function AnalysisPanel({
                   : {}),
               }
             : {}),
+          // fix(#727): scope the preview to the map's current viewport so a
+          // capped result draws a spatial sample instead of the first
+          // PREVIEW_FEATURE_CAP rows in ingest order. Omitted (not sent as
+          // undefined) when the map ref is empty, matching every other
+          // mapInstanceRef guard in this panel.
+          ...(bbox ? { bbox } : {}),
         },
         controller.signal,
       );
@@ -1006,7 +1092,7 @@ export function AnalysisPanel({
           t('analysisTools.previewFailed', { defaultValue: 'Analysis failed' }),
       );
     },
-    onSuccess: (result, { seq }) => {
+    onSuccess: (result, { seq, bbox: requestBbox }) => {
       if (seq !== previewSeqRef.current) return;
       if (!result.feature_count || !result.bbox) {
         // fix(#676) parity: chat surfaces clear a stale overlay on an empty
@@ -1051,43 +1137,81 @@ export function AnalysisPanel({
       );
       const matchedTotal = filtersRows ? (result.match_count ?? null) : null;
       const total = matchedTotal ?? result.source_feature_count ?? null;
-      const bbox = result.bbox as [number, number, number, number];
+      const resultBbox = result.bbox as [number, number, number, number];
+      // fix(#727 codex round 3): whether `total` is viewport-scoped depends
+      // on WHICH field it came from. source_feature_count is scoped whenever
+      // the request carried a bbox (the service overrides the cached
+      // whole-table snapshot with a live bbox-scoped count). match_count is
+      // per-operation: intersect's rides the SAME statement the geometry
+      // preview runs, so it inherits that statement's bbox filter too (fix(
+      // #727 codex round 2) threaded bbox into render_intersect_preview) —
+      // but select_by_location's match_count is a SEPARATE uncapped query
+      // the request's bbox never reaches (see AnalysisPreviewResponse.
+      // match_count's docs), so it stays unscoped even though its preview
+      // rows are viewport-limited too.
+      const matchedTotalIsScoped = operation === 'intersect' && requestBbox != null;
+      const viewportScoped =
+        matchedTotal != null
+          ? matchedTotalIsScoped
+          : total != null && requestBbox != null;
       if (result.truncated) {
-        onPreviewResult?.(result.geojson, bbox, {
+        onPreviewResult?.(result.geojson, resultBbox, {
           truncated: true,
           totalCount: total ?? undefined,
+          viewportScoped: viewportScoped || undefined,
           source: 'analysis-panel',
         });
       } else {
-        onPreviewResult?.(result.geojson, bbox, { source: 'analysis-panel' });
+        onPreviewResult?.(result.geojson, resultBbox, { source: 'analysis-panel' });
       }
       if (result.truncated) {
         toast.info(
           matchedTotal != null
-            ? t('analysisTools.truncatedNoticeMatched', {
+            ? t(
                 // fix(#1097 review): a separate string, not the same one with
                 // a different number. This total is the OUTPUT row count, so
                 // calling it "source features" would misdescribe it — for
                 // intersect it is not even a count of source rows, since one
                 // source feature can produce several output pieces.
-                defaultValue:
-                  'Showing the first {{count, number}} of {{total, number}} matching features',
-                count: result.feature_count,
-                total: matchedTotal,
-              })
+                //
+                // fix(#727 codex round 3): intersect's matched total is
+                // viewport-scoped too when a bbox was sent (see
+                // matchedTotalIsScoped above) — naming the extent here for
+                // the SAME reason source_feature_count's scoped branch does.
+                viewportScoped
+                  ? 'analysisTools.truncatedNoticeMatchedScoped'
+                  : 'analysisTools.truncatedNoticeMatched',
+                {
+                  defaultValue: viewportScoped
+                    ? 'Showing the first {{count, number}} of {{total, number}} matching features in the previewed extent'
+                    : 'Showing the first {{count, number}} of {{total, number}} matching features',
+                  count: result.feature_count,
+                  total: matchedTotal,
+                },
+              )
             : total != null
-            ? t('analysisTools.truncatedNoticeTotal', {
-                // fix(#680 review): "source features" — the total is the
-                // source dataset's COUNT(*), which can exceed the number of
-                // rows that produce output (NULL/EMPTY geometries).
-                // fix(#788): both numbers passed raw — the locale strings
-                // group them via {{count, number}}/{{total, number}}, so count
-                // keeps driving plural selection AND renders locale-grouped.
-                defaultValue:
-                  'Showing the first {{count, number}} of {{total, number}} source features',
-                count: result.feature_count,
-                total,
-              })
+            ? t(
+                // fix(#727): a viewport-scoped total names the extent it was
+                // computed against — without that, "500 of 22,324" reads
+                // exactly like the pre-fix arbitrary-500-rows case even
+                // though these 500 really are what's on screen.
+                viewportScoped
+                  ? 'analysisTools.truncatedNoticeTotalScoped'
+                  : 'analysisTools.truncatedNoticeTotal',
+                {
+                  // fix(#680 review): "source features" — the total is the
+                  // source dataset's COUNT(*), which can exceed the number of
+                  // rows that produce output (NULL/EMPTY geometries).
+                  // fix(#788): both numbers passed raw — the locale strings
+                  // group them via {{count, number}}/{{total, number}}, so count
+                  // keeps driving plural selection AND renders locale-grouped.
+                  defaultValue: viewportScoped
+                    ? 'Showing the first {{count, number}} of {{total, number}} source features in the previewed extent'
+                    : 'Showing the first {{count, number}} of {{total, number}} source features',
+                  count: result.feature_count,
+                  total,
+                },
+              )
             : t('analysisTools.truncatedNotice', {
                 defaultValue: 'Preview capped at {{count, number}} features',
                 count: result.feature_count,
@@ -1232,7 +1356,21 @@ export function AnalysisPanel({
       noValidate
       onSubmit={(e) => {
         e.preventDefault();
-        if (canRun) previewMutation.mutate({ seq: previewSeqRef.current });
+        if (canRun) {
+          // fix(#727): read the viewport at submit time, the same instant
+          // `seq` is read — the mask-draw button above guards
+          // `mapInstanceRef?.current` the same way, and a ref that hasn't
+          // mounted yet just means no bbox goes out, matching this panel's
+          // pre-#727 (whole-dataset) preview behaviour. The typeof guard is
+          // the same idea one step further: a caller-supplied ref whose
+          // current value exists but is not a real MaplibreMap (a partial
+          // test double, an early-lifecycle stub) must degrade to "no bbox"
+          // too, not throw out of a form submit handler.
+          const map = mapInstanceRef?.current;
+          const bounds = typeof map?.getBounds === 'function' ? map.getBounds() : undefined;
+          const bbox = bounds ? viewportPreviewBbox(bounds) : undefined;
+          previewMutation.mutate({ seq: previewSeqRef.current, bbox });
+        }
       }}
       onKeyDown={(e) => {
         // Escape while a clip-mask draw is pending cancels the DRAW, not the

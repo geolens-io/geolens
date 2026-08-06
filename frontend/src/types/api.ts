@@ -1959,6 +1959,15 @@ export interface AnalysisPreviewRequest {
   join_dataset_id?: string;
   /** Columns copied from the intersecting join feature, prefixed 'join_' (spatial_join only). */
   join_fields?: string[];
+  /**
+   * [minx, miny, maxx, maxy] in EPSG:4326, typically the map's current
+   * viewport. When present, only source features intersecting the envelope
+   * are considered before the preview's row cap applies, so a capped result
+   * reflects what is on screen rather than an arbitrary sample in ingest
+   * order (fix(#727)). Applies to every operation; omit it to preview the
+   * whole dataset, unchanged from before this field existed.
+   */
+  bbox?: number[];
 }
 
 export interface AnalysisPreviewResponse {
@@ -1966,7 +1975,13 @@ export interface AnalysisPreviewResponse {
   feature_count: number;
   truncated: boolean;
   bbox: number[] | null;
-  /** Source dataset total (1:1 ops only; null when the op filters rows, e.g. clip). */
+  /**
+   * Source dataset total (1:1 ops only; null when the op filters rows, e.g.
+   * clip). When the request carried a bbox this is a live count of rows
+   * intersecting it rather than the dataset's cached whole-table total
+   * (fix(#727)) — also null when that live count could not be computed
+   * within the query budget, same as match_count.
+   */
   source_feature_count?: number | null;
   /**
    * Exact total across the WHOLE source, not just the previewed features.
@@ -1981,6 +1996,12 @@ export interface AnalysisPreviewResponse {
    *   the join keeps every source row, so one source row matching four join
    *   rows contributes 4 here and 1 to the result. Use source_feature_count
    *   for that operation's total.
+   *
+   * "WHOLE source" means the request's bbox when one was sent, same sense
+   * source_feature_count uses. intersect and spatial_join both scope this
+   * total to a bbox on the request (fix(#727)); select_by_location's count
+   * is a separate uncapped query the bbox never reaches, so it stays
+   * unscoped even though its preview rows are viewport-limited too.
    */
   match_count?: number | null;
 }

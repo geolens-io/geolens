@@ -17,7 +17,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from .shared import render_mask_expr
+from .shared import render_bbox_predicate, render_mask_expr
 
 # Vertex ceiling per mask piece in the preview shape below. 256 is the
 # PostGIS-documented sweet spot where per-piece index rebuild overhead and
@@ -132,6 +132,7 @@ def render_intersect_pairs(
     *,
     src_columns: Sequence[str] = (),
     mask_columns: Sequence[str] = (),
+    bbox: list[float] | None = None,
 ) -> str:
     """One row per intersecting (source feature, overlay feature) PAIR (#956).
 
@@ -192,6 +193,14 @@ def render_intersect_pairs(
     stop early: a window function has to see every row. The preview therefore
     pays the full overlay before its cap applies, bounded by the sandbox
     statement timeout rather than by the row limit.
+
+    ``bbox`` (fix(#727 codex round 2)) is PREVIEW-ONLY: it filters which
+    ``_src`` rows enter the pair-generating join, so the materialize worker
+    (``processing/analysis/tasks.py``) must never pass it — a saved dataset
+    is the WHOLE overlay, not whatever was on screen when it was created.
+    Applied inside the inner subquery, before ``GROUP BY``, so it also
+    shrinks the ``_mask_pieces`` join's candidate set rather than filtering
+    the aggregate's output after the expensive part already ran.
     """
     src_sel = "".join(f", _src.{c}" for c in src_columns)
     # The two sides come from different relations now, so the output order that
@@ -204,6 +213,7 @@ def render_intersect_pairs(
         if mask_columns
         else ""
     )
+    bbox_where = f" WHERE {render_bbox_predicate(bbox, src='_src')}" if bbox else ""
     return (
         f"WITH _mask_pieces AS MATERIALIZED ("
         f"SELECT _o.gid AS _gl_mask_gid,"
@@ -229,6 +239,7 @@ def render_intersect_pairs(
         f" JOIN _mask_pieces AS _mp"
         f" ON _mp.geom && _src.geom_4326"
         f" AND ST_Intersects(_mp.geom, _sv.g)"
+        f"{bbox_where}"
         f" GROUP BY _src.gid, _mp._gl_mask_gid) AS _p"
         f"{mask_join}"
         f" WHERE _p.geom IS NOT NULL AND NOT ST_IsEmpty(_p.geom)"
@@ -236,7 +247,11 @@ def render_intersect_pairs(
 
 
 def render_intersect_preview(
-    src_table_ref: str, mask_table_ref: str, *, geojson_precision: int
+    src_table_ref: str,
+    mask_table_ref: str,
+    *,
+    geojson_precision: int,
+    bbox: list[float] | None = None,
 ) -> str:
     """The preview projection over ``render_intersect_pairs`` (fix(#956)).
 
@@ -255,8 +270,16 @@ def render_intersect_preview(
     would mean running the most expensive operation twice. It is selected last
     and sits outside the caller's extra-column list, so the positional zip that
     builds properties stops before it and it never lands in one.
+
+    ``bbox`` (fix(#727 codex round 2)) passes straight through to
+    ``render_intersect_pairs`` — see its docstring for why this is
+    preview-only and where the filter lands in the query shape. Without it,
+    intersect was the one operation build_preview_sql's viewport scoping
+    silently skipped, even though the frontend sends a bbox for every
+    operation uniformly — a capped intersect preview kept clustering in gid
+    order exactly like the bug this issue exists to fix.
     """
-    pairs = render_intersect_pairs(src_table_ref, mask_table_ref)
+    pairs = render_intersect_pairs(src_table_ref, mask_table_ref, bbox=bbox)
     return (
         f"SELECT gid,"
         f" ST_AsGeoJSON(geom, {geojson_precision}) AS geometry_json,"
