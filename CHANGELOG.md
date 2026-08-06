@@ -58,8 +58,9 @@ and releases use semantic versioning.
   documents the equivalent AWS S3 lifecycle rule. Note for MinIO operators:
   S3 `AbortIncompleteMultipartUpload` lifecycle JSON is silently ignored by
   MinIO (minio/minio#19115) — the server-side stale-uploads sweep is the
-  mechanism. If `PENDING_JOB_TIMEOUT_SECONDS` is raised past 24 hours, raise
-  the abort window to match (#1211).
+  mechanism. The abort window must exceed the configured upload lifetime with
+  headroom: if `PENDING_JOB_TIMEOUT_SECONDS` approaches or exceeds ~23 hours,
+  raise the abort window above it (#1211).
 
 ## [1.8.0] - 2026-08-05
 
