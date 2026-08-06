@@ -7,6 +7,60 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-08-06
+
+### Security
+
+- **The presigned reupload door enforces the same completion contract as the
+  upload door (#1207).** Dataset replacement via presigned upload now goes
+  through the shared one-shot completion guard: a job whose bytes are already
+  bound or whose status is terminal is refused with a clear restart hint
+  instead of being silently re-completable. The frozen-copy discriminator keys
+  off the `staging/` prefix, and a refused completion deletes both the frozen
+  snapshot and the client-writable key.
+
+### Fixed
+
+- **A failed import keeps its source, so retry works.** Transient failures
+  (an S3 blip during download, a mid-ingest error) no longer delete the
+  staging object that `/jobs/{id}/retry` needs; only dataset-replacement
+  jobs, which are never retryable, reap their source on failure. Terminal
+  cleanup also drains through cancellation, so an interrupted worker cannot
+  skip the sweep of a still-recreatable staging key (#1213).
+- **A dropped connection during multipart completion no longer destroys the
+  upload.** The assembled object is the record that assembly succeeded; it is
+  now kept when the request is cancelled, so the client's natural retry
+  completes instead of 502-looping until a full re-upload (#1233).
+- **The stale-job sweep no longer races a finishing completion.** A job that
+  bound its bytes moments before the sweep ran could be failed out from under
+  a request that had just returned success; bound and unbound jobs now age on
+  separate clocks, applied identically by the background sweep, the status
+  poll, and worker startup recovery (#1234).
+- **Presigned URLs expire exactly when their job does.** Part and PUT URLs
+  used to carry fixed lifetimes measured from whenever they were signed; every
+  URL is now signed against the job's deadline, computed inside the signing
+  thread, and the new `PENDING_JOB_TIMEOUT_SECONDS` setting (61..604800)
+  bounds both together (#1234, #1235).
+- **Manifest sources declared under a `staging/`-shaped key are refused at
+  declaration time** instead of being silently deleted after their first
+  ingest by the staging sweep (#1216).
+
+### Changed
+
+- **react-router upgraded 7.18 -> 8.3** and the last `js-audit` allowlist
+  entry removed — the advisory it waived (GHSA-qwww-vcr4-c8h2) no longer
+  applies at 8.3.0 (#1205).
+
+### Operations
+
+- **Bundled MinIO aborts abandoned multipart uploads after 24 hours**
+  (`MINIO_API_STALE_UPLOADS_EXPIRY`, operator-overridable), and RUNBOOK.md
+  documents the equivalent AWS S3 lifecycle rule. Note for MinIO operators:
+  S3 `AbortIncompleteMultipartUpload` lifecycle JSON is silently ignored by
+  MinIO (minio/minio#19115) — the server-side stale-uploads sweep is the
+  mechanism. If `PENDING_JOB_TIMEOUT_SECONDS` is raised past 24 hours, raise
+  the abort window to match (#1211).
+
 ## [1.8.0] - 2026-08-05
 
 ### Added
@@ -1727,7 +1781,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.9.0...HEAD
+[1.9.0]: https://github.com/geolens-io/geolens/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/geolens-io/geolens/compare/v1.7.1...v1.8.0
 [1.7.1]: https://github.com/geolens-io/geolens/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/geolens-io/geolens/compare/v1.6.1...v1.7.0
