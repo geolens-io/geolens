@@ -637,6 +637,92 @@ _consolidate_dead_counter_and_histogram_files()
     assert total_after == 10.0
 
 
+def test_consolidate_archive_writes_are_serialized_across_workers(tmp_path):
+    """fix(#1240, #651 review round 5): the os.rename() claim step only
+    guarantees a given dead pid's SOURCE file is read by one worker -- it
+    says nothing about the SHARED "<type>_archived.db" two workers both
+    write into. Two dead workers here get DIFFERENT counter values (10 and
+    7), so two concurrent sweepers each claim a DIFFERENT source file (no
+    rename collision at all) and then both try to fold their value into the
+    same archive entry. Without serializing that merge, "read current, add,
+    write" from two processes is a classic lost-update race: whichever
+    write lands last silently overwrites the other's contribution, and the
+    archive permanently under-counts (17 becomes 10 or 7, never a crash or
+    an obviously-wrong value, which is what makes this bug class dangerous).
+    The fix serializes the merge with fcntl.flock() on a dedicated lock
+    file; this asserts the SUM survives, not just that both processes exit
+    cleanly.
+    """
+    multiproc_dir = str(tmp_path)
+    env = {**os.environ, "PROMETHEUS_MULTIPROC_DIR": multiproc_dir}
+
+    # Two dead workers, deliberately different values so a lost update is
+    # distinguishable from a correct merge (10, 7, or 17 are all different).
+    for n in (10, 7):
+        result = subprocess.run(
+            [sys.executable, "-c", _COUNTER_HISTOGRAM_WRITER, str(n)],
+            cwd=str(_BACKEND_ROOT),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode == 0, result.stderr
+    assert len(list(tmp_path.glob("counter_*.db"))) == 2
+
+    ready_a, ready_b = tmp_path / "ready2_a", tmp_path / "ready2_b"
+    go = tmp_path / "go2"
+    sweep_script = f"""
+import os
+import time
+
+ready = {{"a": {str(ready_a)!r}, "b": {str(ready_b)!r}}}[__import__("sys").argv[1]]
+open(ready, "w").close()
+
+deadline = time.monotonic() + 10
+while not os.path.exists({str(go)!r}):
+    if time.monotonic() > deadline:
+        raise TimeoutError("go file never appeared")
+    time.sleep(0.001)
+
+os.environ["PROMETHEUS_MULTIPROC_DIR"] = {multiproc_dir!r}
+from app.observability.metrics import _consolidate_dead_counter_and_histogram_files
+
+_consolidate_dead_counter_and_histogram_files()
+"""
+    procs = [
+        subprocess.Popen(
+            [sys.executable, "-c", sweep_script, label],
+            cwd=str(_BACKEND_ROOT),
+            env=env,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        for label in ("a", "b")
+    ]
+
+    deadline = time.monotonic() + 10
+    while not (ready_a.exists() and ready_b.exists()):
+        assert time.monotonic() < deadline, "sweeper subprocesses never became ready"
+        time.sleep(0.001)
+    go.touch()
+
+    for p in procs:
+        stderr = p.communicate(timeout=30)[1]
+        assert p.returncode == 0, stderr
+
+    # Both dead files consolidated into one archive, and its value is the
+    # SUM of both -- not whichever write happened to land last.
+    assert list(tmp_path.glob("counter_*.db")) == [tmp_path / "counter_archived.db"]
+    after = _scrape_consolidate_metrics(multiproc_dir)
+    total_after = sum(
+        s.value
+        for s in after["test_consolidate_requests"].samples
+        if s.name == "test_consolidate_requests_total"
+    )
+    assert total_after == 17.0
+
+
 def test_shutdown_worker_metrics_marks_process_dead_when_multiprocess_active():
     """fix(#1240, #651): a recycled worker (UVICORN_MAX_REQUESTS, #643) must
     drop its own multiprocess files on shutdown, or a respawn leaves a stale

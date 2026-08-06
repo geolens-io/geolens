@@ -163,50 +163,84 @@ def _consolidate_dead_counter_and_histogram_files() -> None:
     scraped total is unchanged, but file count stays O(live workers + 2)
     instead of growing with every worker ever recycled.
 
-    Races itself safely across workers: every worker runs this sweep, so two
-    workers can see the same dead pid's file in the same pass. os.rename()
-    to a private, non-globbed name first is the mutual-exclusion step -- POSIX
-    rename is atomic, so only one worker's rename can succeed; the other gets
-    FileNotFoundError on its own rename attempt and moves on, so a dead pid's
-    value is folded into the archive exactly once. If this process is itself
-    killed after that rename but before the merge completes, the renamed
-    file is orphaned (invisible to both future scrapes and future sweeps) --
-    an accepted, documented residual risk of the same shape as the pid-reuse
-    limitation in _dead_worker_pids(), not a correctness bug in the common
-    case of a graceful sweep pass.
+    Races itself safely across workers in TWO separate steps, because a
+    single mutex can't cover both a per-source-file claim and a shared
+    archive write:
+
+    1. Claiming a dead pid's source file: os.rename() to a private,
+       non-globbed name first -- POSIX rename is atomic, so only one
+       worker's rename can succeed; the other gets FileNotFoundError on its
+       own rename attempt and moves on. This alone guarantees a given dead
+       pid's file is read by exactly one worker, but does NOT protect the
+       archive file itself -- two workers can each successfully claim a
+       DIFFERENT dead pid's file in the same pass and then both try to fold
+       their value into the SAME "<type>_archived.db" at once. Without
+       further synchronization that's a lost-update race (read, add, write
+       is not atomic across processes): whichever worker's write lands last
+       overwrites the other's, permanently under-counting the archive
+       (fix(#1240, #651 review round 5)).
+    2. Folding a claimed file into the archive: guarded by an exclusive
+       fcntl.flock() on a dedicated "<type>_archived.db.lock" file (not the
+       archive .db file itself, so the lock is independent of MmapedDict's
+       own open/mmap lifecycle). The lock is held for this worker's entire
+       claim-and-merge pass over ALL dead pid files for that metric type, so
+       the read-modify-write of every key is fully serialized against every
+       other worker. flock is released automatically by the kernel if this
+       process dies while holding it, so a crash here can't deadlock a
+       sibling worker's next sweep.
+
+    If this process is killed after claiming (step 1) but before merging
+    (step 2) completes, the renamed file is orphaned (invisible to both
+    future scrapes and future sweeps) -- an accepted, documented residual
+    risk of the same shape as the pid-reuse limitation in
+    _dead_worker_pids(), not a correctness bug in the common case of a
+    graceful sweep pass.
     """
     multiproc_dir = os.environ.get("PROMETHEUS_MULTIPROC_DIR")
     if not multiproc_dir:
         return
+    import fcntl
+
     from prometheus_client.mmap_dict import MmapedDict
 
     for prefix in ("counter", "histogram"):
-        archive: MmapedDict | None = None
+        claimed_paths = []
         for _pid, path in _iter_dead_pid_files(prefix, multiproc_dir):
             claimed_path = f"{path}.claimed"
             try:
                 os.rename(path, claimed_path)
             except FileNotFoundError:
                 continue  # another worker's sweep already claimed this one
+            claimed_paths.append(claimed_path)
 
-            if archive is None:
-                archive_path = os.path.join(
-                    multiproc_dir, f"{prefix}_{_ARCHIVE_SUFFIX}.db"
-                )
+        if not claimed_paths:
+            continue
+
+        archive_path = os.path.join(multiproc_dir, f"{prefix}_{_ARCHIVE_SUFFIX}.db")
+        lock_path = f"{archive_path}.lock"
+        with open(lock_path, "a+b") as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            try:
                 archive = MmapedDict(archive_path)
-
-            # read_all_values_from_file yields (key, value, timestamp, pos) --
-            # the trailing byte offset is an implementation detail of the
-            # instance-level reader that write_value doesn't need.
-            for key, value, timestamp, _pos in MmapedDict.read_all_values_from_file(
-                claimed_path
-            ):
-                current, _ts = archive.read_value(key)
-                archive.write_value(key, current + value, timestamp)
-            os.remove(claimed_path)
-
-        if archive is not None:
-            archive.close()
+                try:
+                    for claimed_path in claimed_paths:
+                        # read_all_values_from_file yields
+                        # (key, value, timestamp, pos) -- the trailing byte
+                        # offset is an implementation detail of the
+                        # instance-level reader that write_value doesn't need.
+                        for (
+                            key,
+                            value,
+                            timestamp,
+                            _pos,
+                        ) in MmapedDict.read_all_values_from_file(claimed_path):
+                            current, _ts = archive.read_value(key)
+                            archive.write_value(key, current + value, timestamp)
+                        os.remove(claimed_path)
+                finally:
+                    archive.close()
+            finally:
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
 
 
 def _sweep_dead_worker_metrics_once() -> None:
