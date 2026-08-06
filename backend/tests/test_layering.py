@@ -2120,7 +2120,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `recheck_transfer_margin_seconds()` function collapse back out. Ratchet
     # DOWN in the same commit, per the no-headroom rule. Cap 1588 -> 1545,
     # exact.
-    "backend/app/platform/jobs/router.py": 1545,
+    # fix(#1236 review r5, codex P2): +16 — a non-null `s3_key` was treated
+    # as ownership in the retention purge's deferral predicate, but
+    # `create_fan_out_jobs` clones the parent's `user_metadata` wholesale, so
+    # every fan-out child inherits the PARENT's `s3_key` too. The predicate
+    # now requires the key's prefix match the ROW'S OWN id (a LIKE string
+    # match, same ownership rule `owned_presigned_staging_key` already
+    # enforces), so a terminal child no longer rides along on the parent's
+    # ~8.9-day exemption. Cap 1545 -> 1561, exact.
+    "backend/app/platform/jobs/router.py": 1561,
     # fix(second-opinion review on #1236 review r3): first entry — crossed
     # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
     # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side

@@ -806,8 +806,24 @@ async def fail_stale_jobs(
         # constant the sweep uses (see its definition for why r3's per-job
         # `expected_size` scaling proved unsafe) — no per-row data needed, so
         # this bulk DELETE never has to branch per row on JSONB.
+        #
+        # fix(#1236 review r5, codex P2): a non-null `s3_key` alone is not
+        # OWNERSHIP. `create_fan_out_jobs` clones the parent's `user_metadata`
+        # wholesale (processing/ingest/service.py), so every fan-out child
+        # carries the PARENT's `s3_key` too — the exact case
+        # `owned_presigned_staging_key` exists to reject, by requiring the
+        # key's prefix match the ROW'S OWN id. Without that same check here,
+        # every terminal fan-out child was exempted from retention for
+        # ~8.9 days regardless of how short `ingest_jobs_retention_days` was
+        # configured, since it can never be the row that legitimately reaps
+        # or finalizes that key. A `LIKE` prefix match is a safe string
+        # comparison — unlike a JSONB-to-numeric/timestamptz cast, it cannot
+        # throw and fail the whole bulk pass on a malformed value.
         presigned_url_may_still_be_live = and_(
             IngestJob.user_metadata["s3_key"].astext.is_not(None),
+            IngestJob.user_metadata["s3_key"].astext.like(
+                func.concat("staging/", IngestJob.id, "/%")
+            ),
             IngestJob.created_at
             >= now
             - timedelta(

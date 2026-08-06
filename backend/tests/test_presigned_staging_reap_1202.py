@@ -913,6 +913,129 @@ class TestPostExpirySweep:
         assert not await _exists(safe_to_purge_job.id)
         assert safe_to_purge_key in {c.args[0] for c in storage.delete.await_args_list}
 
+    async def test_retention_purge_does_not_exempt_a_fan_out_child_for_a_key_it_does_not_own(
+        self, test_db_session, monkeypatch
+    ) -> None:
+        """codex P2 review r5: `create_fan_out_jobs` clones the parent's
+        ``user_metadata`` wholesale (processing/ingest/service.py), so every
+        fan-out child carries the PARENT's ``s3_key`` too —
+        ``owned_presigned_staging_key`` deliberately rejects that as
+        ownership (the key's prefix names the PARENT's id, not the child's).
+        The retention-purge deferral above must draw the same line: a
+        non-null ``s3_key`` alone is not ownership, and a child that can
+        never legitimately reap or finalize that key must not ride along on
+        the parent's ~8.9-day exemption. Left unguarded, a terminal fan-out
+        child would outlive a 1-day retention setting by roughly 9x.
+        """
+        from datetime import datetime, timedelta, timezone
+
+        from sqlalchemy import select, update
+
+        from app.core.config import MAX_PRESIGNED_URL_LIFETIME_SECONDS
+        from app.modules.auth.models import User
+        from app.platform.jobs import router as jobs_router
+        from app.platform.jobs.models import IngestJob
+
+        admin = (
+            await test_db_session.execute(select(User).where(User.username == "admin"))
+        ).scalar_one()
+
+        # The parent: a genuine presigned upload, well past the 1-day
+        # retention cutoff but safely within the SigV4 ceiling — the row
+        # that legitimately still owns and needs `parent_staging_key`.
+        parent = IngestJob(
+            source_filename="roads.geojson",
+            created_by=admin.id,
+            status="complete",
+            user_metadata={"presigned": True},
+        )
+        test_db_session.add(parent)
+        await test_db_session.commit()
+        await test_db_session.refresh(parent)
+        parent_staging_key = f"staging/{parent.id}/roads.geojson"
+        await test_db_session.execute(
+            update(IngestJob)
+            .where(IngestJob.id == parent.id)
+            .values(
+                file_path=f"staging/{parent.id}/frozen/roads.geojson",
+                user_metadata={"presigned": True, "s3_key": parent_staging_key},
+                created_at=datetime.now(timezone.utc) - timedelta(seconds=100_000),
+            )
+        )
+
+        # A fan-out child: FAILED, same age, carrying the PARENT's s3_key
+        # (exactly what create_fan_out_jobs clones) plus fan_out_parent_id.
+        # This is the row a 1-day retention setting expects to be purged.
+        child = IngestJob(
+            source_filename="roads.geojson",
+            created_by=admin.id,
+            status="failed",
+            user_metadata={"presigned": True},
+        )
+        test_db_session.add(child)
+        await test_db_session.commit()
+        await test_db_session.refresh(child)
+        await test_db_session.execute(
+            update(IngestJob)
+            .where(IngestJob.id == child.id)
+            .values(
+                user_metadata={
+                    "presigned": True,
+                    "s3_key": parent_staging_key,  # inherited, not owned
+                    "fan_out_parent_id": str(parent.id),
+                },
+                created_at=datetime.now(timezone.utc) - timedelta(seconds=100_000),
+            )
+        )
+        await test_db_session.commit()
+
+        storage = AsyncMock()
+        monkeypatch.setattr(
+            "app.platform.storage.get_storage", lambda: storage, raising=True
+        )
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "ingest_jobs_retention_days", 1)
+
+        await jobs_router.fail_stale_jobs(test_db_session, detailed=True)
+
+        async def _exists(job_id) -> bool:
+            row = (
+                await test_db_session.execute(
+                    select(IngestJob.id).where(IngestJob.id == job_id)
+                )
+            ).scalar_one_or_none()
+            return row is not None
+
+        assert not await _exists(child.id), (
+            "a fan-out child inherits the parent's s3_key but not "
+            "ownership of it, and must not ride along on the parent's "
+            "~8.9-day exemption — it should purge on the configured "
+            "1-day retention like any other terminal row"
+        )
+        assert await _exists(parent.id), (
+            "test setup: the parent genuinely owns the key and IS within "
+            f"MAX_PRESIGNED_URL_LIFETIME_SECONDS ({MAX_PRESIGNED_URL_LIFETIME_SECONDS}s)"
+            " of it, so it must still be deferred"
+        )
+        # `fail_stale_jobs` also runs the ordinary post-expiry sweep in the
+        # same call, and the parent's own age legitimately crosses ITS
+        # cutoff too — so the key is deleted once, attributed to the
+        # parent's own sweep pass. What this fix prevents is the CHILD's
+        # purge independently reaping it a second time through the
+        # ownership bypass; `owned_presigned_staging_key` returning None for
+        # the child keeps it out of `deleted_presigned_keys` entirely, so
+        # the call count must not exceed the one legitimate reap.
+        delete_calls_for_key = [
+            c.args[0]
+            for c in storage.delete.await_args_list
+            if c.args[0] == parent_staging_key
+        ]
+        assert len(delete_calls_for_key) <= 1, (
+            "the key was reaped more than once — the child's purge reaped "
+            "a key it does not own, in addition to the parent's own sweep"
+        )
+
 
 class TestFailedSourceRetention:
     """fix(#1213 review r6): whether a FAILED job's source may be reaped is a
