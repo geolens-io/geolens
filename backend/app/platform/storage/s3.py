@@ -233,7 +233,16 @@ class S3StorageProvider:
         content_type: str = "application/octet-stream",
         expiration: int = 3600,
     ) -> str:
-        """Generate a presigned PUT URL for direct upload."""
+        """Generate a presigned PUT URL for direct upload.
+
+        fix(#1234): clamped to the job lifetime, same as the part URLs. The
+        3600 default happens to match today's default timeout, which is
+        exactly why it needed the clamp — configure the timeout lower and the
+        one-shot PUT URL silently outlives the job it belongs to.
+        """
+        from app.core.config import settings
+
+        expiration = min(expiration, settings.pending_job_timeout_seconds)
         return self.client.generate_presigned_url(
             ClientMethod="put_object",
             Params={"Bucket": self.bucket, "Key": key, "ContentType": content_type},

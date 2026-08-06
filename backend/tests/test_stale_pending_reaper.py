@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
+from unittest.mock import patch
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -178,6 +179,37 @@ class TestStatusPollDoesNotReapQueuedJobs:
         assert "without being processed" in (job.error_message or "")
 
 
+async def _make_pending_job(session, *, age_seconds: int, file_path: str):
+    """A pending job aged past a cutoff, with file_path as given."""
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import select, update
+
+    from app.modules.auth.models import User
+    from app.platform.jobs.models import IngestJob
+
+    admin = (
+        await session.execute(select(User).where(User.username == "admin"))
+    ).scalar_one()
+    job = IngestJob(
+        source_filename="roads.geojson",
+        created_by=admin.id,
+        status="pending",
+        file_path=file_path,
+        user_metadata={"presigned": True},
+    )
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+    await session.execute(
+        update(IngestJob)
+        .where(IngestJob.id == job.id)
+        .values(created_at=datetime.now(timezone.utc) - timedelta(seconds=age_seconds))
+    )
+    await session.commit()
+    return job
+
+
 class TestBoundPendingSweep:
     """fix(#1234): the 1h abandonment clause must not race a completion.
 
@@ -250,6 +282,22 @@ class TestBoundPendingSweep:
         assert job.status == "failed"
         assert "never queued" in (job.error_message or "")
 
+    async def test_the_sweep_still_fails_a_local_path_bound_job_at_1h(
+        self, test_db_session
+    ) -> None:
+        """The sweep-path twin of the poll case above."""
+        from app.platform.jobs.router import fail_stale_jobs
+
+        job = await self._make_job(
+            test_db_session, age_seconds=7200, file_path="/tmp/fake.geojson"
+        )
+
+        await fail_stale_jobs(test_db_session)
+
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert "never queued" in (job.error_message or "")
+
     async def test_a_bound_pending_row_fails_after_24h(self, test_db_session) -> None:
         """The other half: exempting bound rows from the 1h clause would make
         them immortal, because the retention purge only considers terminal
@@ -267,6 +315,32 @@ class TestBoundPendingSweep:
         await test_db_session.refresh(job)
         assert job.status == "failed"
         assert "completed but never committed" in (job.error_message or "")
+
+
+def test_put_url_ttl_cannot_outlive_the_job() -> None:
+    """fix(#1234, #1235 r2): the one-shot PUT URL needed the clamp too.
+
+    Its 3600 default happens to equal today's default timeout, which is what
+    hid it: configure the timeout lower and the URL silently outlives the job.
+    """
+    from app.core.config import settings
+    from app.platform.storage.s3 import S3StorageProvider
+
+    provider = S3StorageProvider.__new__(S3StorageProvider)
+    captured = {}
+
+    class _Client:
+        def generate_presigned_url(self, **kwargs):
+            captured.update(kwargs)
+            return "https://s3.invalid/put"
+
+    provider.client = _Client()
+    provider.bucket = "b"
+
+    with patch.object(settings, "pending_job_timeout_seconds", 900):
+        provider.generate_presigned_put_url("staging/x/f.tif")
+
+    assert captured["ExpiresIn"] == 900
 
 
 def test_part_url_ttl_cannot_outlive_the_job() -> None:
@@ -289,3 +363,116 @@ def test_part_url_ttl_cannot_outlive_the_job() -> None:
 
     assert captured["ExpiresIn"] == settings.pending_job_timeout_seconds
     assert captured["ExpiresIn"] < 7200
+
+
+class TestPollingPathHonoursTheSameGuard:
+    """fix(#1235 review r2): the POLL is the path that actually fires.
+
+    `get_job_status`'s own comment says so — the frontend polls it every 2s for
+    any job it is tracking. #1234 guarded the background sweep and left this
+    one on the old predicates, so a poll that blocked on a completing job's row
+    lock resumed after the commit and failed the row it had just waited for.
+    """
+
+    @staticmethod
+    async def _poll(client, headers, job_id):
+        return await client.get(f"/jobs/{job_id}", headers=headers)
+
+    async def test_a_poll_does_not_fail_a_bound_pending_job(
+        self, client, admin_auth_header, test_db_session
+    ) -> None:
+        job = await _make_pending_job(
+            test_db_session,
+            age_seconds=7200,
+            file_path="staging/x/frozen/roads.geojson",
+        )
+
+        resp = await self._poll(client, admin_auth_header, job.id)
+
+        assert resp.status_code == 200, resp.text
+        await test_db_session.refresh(job)
+        assert job.status == "pending", (
+            "the poll failed a job that had already bound its bytes — the "
+            "completion that set file_path was still committing"
+        )
+
+    async def test_a_poll_still_fails_an_unbound_pending_job(
+        self, client, admin_auth_header, test_db_session
+    ) -> None:
+        """The 1h abandonment policy is deliberate and stays on this path too."""
+        job = await _make_pending_job(test_db_session, age_seconds=7200, file_path="")
+
+        resp = await self._poll(client, admin_auth_header, job.id)
+
+        assert resp.status_code == 200, resp.text
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert "without being processed" in (job.error_message or "")
+
+    async def test_a_poll_still_fails_a_local_path_bound_job_at_1h(
+        self, client, admin_auth_header, test_db_session
+    ) -> None:
+        """fix(#1235 review r2 refinement): the protected class is the
+        `staging/` PREFIX, not "file_path is set".
+
+        A direct upload whose dispatch failed binds an ABSOLUTE local path and
+        has nothing to do with the completion race. Giving it the 24h backstop
+        would leave it pending for a day, and /jobs/{id}/retry is unavailable
+        until a job is `failed` — turning 1h-to-recoverable into
+        24h-to-recoverable on a real path.
+        """
+        job = await _make_pending_job(
+            test_db_session, age_seconds=7200, file_path="/tmp/fake.geojson"
+        )
+
+        resp = await self._poll(client, admin_auth_header, job.id)
+
+        assert resp.status_code == 200, resp.text
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert "without being processed" in (job.error_message or "")
+
+    async def test_a_poll_fails_a_bound_pending_job_after_24h(
+        self, client, admin_auth_header, test_db_session
+    ) -> None:
+        """The backstop reaches this path as well, with the honest message."""
+        job = await _make_pending_job(
+            test_db_session,
+            age_seconds=90000,
+            file_path="staging/x/frozen/roads.geojson",
+        )
+
+        resp = await self._poll(client, admin_auth_header, job.id)
+
+        assert resp.status_code == 200, resp.text
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert "completed but never committed" in (job.error_message or "")
+
+
+def test_every_pending_fail_site_uses_the_shared_clauses() -> None:
+    """fix(#1235 review r2): the census, pinned.
+
+    Four sites flip pending -> failed on a timeout and #1234 guarded two. This
+    asserts no site reconstructs the predicates inline, so a fifth cannot be
+    added past the guard by being written carefully.
+
+    KNOWN BLIND SPOT: this greps source, so it catches a NEW inline predicate
+    set but not a call that is present-yet-unreachable. The behavioural tests
+    above are what fail in that case.
+    """
+    import inspect
+
+    from app.platform.jobs import router as jobs_router
+    from app.platform.jobs import worker as jobs_worker
+
+    for module in (jobs_router, jobs_worker):
+        source = inspect.getsource(module)
+        # The only legitimate definition site is the helper itself.
+        inline = source.count('IngestJob.status == "pending",')
+        allowed = 1 if module is jobs_router else 0
+        assert inline == allowed, (
+            f"{module.__name__} builds the pending-fail predicates inline "
+            f"({inline} occurrences, expected {allowed}) — route it through "
+            "stale_pending_clauses instead"
+        )

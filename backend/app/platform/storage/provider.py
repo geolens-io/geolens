@@ -86,7 +86,13 @@ class StorageProvider(Protocol):
         content_type: str = "application/octet-stream",
         expiration: int = 3600,
     ) -> str:
-        """Generate a presigned PUT URL for direct upload. Raises NotImplementedError for local storage."""
+        """Generate a presigned PUT URL for direct upload.
+
+        Implementations MUST clamp ``expiration`` to
+        ``settings.pending_job_timeout_seconds`` (fix(#1234)), as for part URLs
+        below: a URL that outlives its job is usable against a row the pending
+        sweep has already failed. Raises NotImplementedError for local storage.
+        """
         ...
 
     def generate_presigned_get_url(

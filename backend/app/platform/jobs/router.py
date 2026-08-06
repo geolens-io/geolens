@@ -8,7 +8,7 @@ from typing import Literal, cast, overload
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import delete, func, not_, or_, select, text, update
+from sqlalchemy import delete, func, not_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -51,6 +51,65 @@ PENDING_TIMEOUT_SECONDS = settings.pending_job_timeout_seconds
 # from the 1h clause above, and the retention purge only looks at terminal
 # rows — so it needs its own, much later, backstop or it never dies.
 BOUND_PENDING_TIMEOUT_SECONDS = 86400  # 24 hours
+
+
+STALE_PENDING_UNBOUND_MESSAGE = "Stale: pending for over 1 hour (never queued)"
+STALE_PENDING_BOUND_MESSAGE = "Stale: upload completed but never committed"
+
+
+def stale_pending_clauses(now: datetime, *, completion_bound: bool) -> tuple:
+    """Every predicate required to fail a timed-out pending job.
+
+    fix(#1235 review r2): ONE boundary, because there are four sites that flip
+    pending -> failed on a timeout and #1234 only guarded two of them. The
+    background sweep was fixed; `get_job_status` — which the comment above it
+    correctly calls "the path that actually fires", since the frontend polls
+    every 2s — kept the old predicates, so a poll that blocked on a completing
+    job's row lock resumed after the commit and failed the row it had just
+    waited for. The worker's startup recovery had neither this guard nor the
+    live-queue predicate.
+
+    Returning the whole clause set rather than just the guard is the point: a
+    caller cannot express "fail stale pending jobs" here without also getting
+    the bound/unbound split and the live-queue check, so the next site added
+    cannot forget them by being written carefully — only by not using this.
+
+    `completion_bound` selects which half, and the class is defined by the
+    `staging/` PREFIX rather than by file_path being merely truthy. That
+    distinction is the point: the race being fixed involves exactly the rows a
+    presigned completion has bound, and both doors bind
+    `staging/{job}/frozen/...` — nothing else writes a staging-prefixed
+    file_path on a pending row. Same discriminator #1213 established for the
+    reapers, same reason.
+
+    Defining the class as "truthy" instead swept in rows with nothing to do
+    with the race: a direct upload whose dispatch failed binds an ABSOLUTE
+    local path, and giving it the 24h backstop leaves it `pending` for a day —
+    during which /jobs/{id}/retry is unavailable, because retry requires
+    status `failed`. That turns a 1h-to-recoverable state into a
+    24h-to-recoverable one on a real path.
+
+    So False is the 1h abandonment policy and now covers everything that is
+    not a completion — falsy file_path AND non-staging absolute paths (direct
+    uploads, manifest operator keys), all keeping their original message.
+    True is the 24h backstop for completions that bound but never committed:
+    exempt from the 1h clause, and the retention purge only considers terminal
+    rows, so without it they never die.
+    """
+    # coalesce, not a bare LIKE: `NOT (NULL LIKE ...)` is NULL, not TRUE, so a
+    # bare negation silently drops every row whose file_path is NULL — the
+    # "never bound anything" case that most needs the 1h policy. Three-valued
+    # logic turns the guard into a filter that excludes what it should catch.
+    completion_key = func.coalesce(IngestJob.file_path, "").like("staging/%")
+    cutoff_seconds = (
+        BOUND_PENDING_TIMEOUT_SECONDS if completion_bound else PENDING_TIMEOUT_SECONDS
+    )
+    return (
+        IngestJob.status == "pending",
+        IngestJob.created_at < now - timedelta(seconds=cutoff_seconds),
+        completion_key if completion_bound else not_(completion_key),
+        no_live_procrastinate_job(),
+    )
 
 
 def no_live_procrastinate_job():
@@ -463,7 +522,6 @@ async def fail_stale_jobs(
     Used by both the admin cleanup endpoint and the background lifespan sweeper.
     """
     now = datetime.now(timezone.utc)
-    pending_cutoff = now - timedelta(seconds=PENDING_TIMEOUT_SECONDS)
 
     # fix(#1234): the 1h abandonment policy applies only to jobs that never
     # got as far as binding bytes. A presigned completion sets `file_path` and
@@ -476,19 +534,12 @@ async def fail_stale_jobs(
     # presign endpoints, and analysis jobs carry "" too (see
     # `_retry_capability`). An IS NULL guard would match nothing and leave the
     # race exactly as it was, while looking fixed.
-    unbound = or_(IngestJob.file_path.is_(None), IngestJob.file_path == "")
-
     pending_result = await db.execute(
         update(IngestJob)
-        .where(
-            IngestJob.status == "pending",
-            IngestJob.created_at < pending_cutoff,
-            unbound,
-            no_live_procrastinate_job(),
-        )
+        .where(*stale_pending_clauses(now, completion_bound=False))
         .values(
             status="failed",
-            error_message="Stale: pending for over 1 hour (never queued)",
+            error_message=STALE_PENDING_UNBOUND_MESSAGE,
             completed_at=now,
         )
         .returning(IngestJob.id)
@@ -500,18 +551,12 @@ async def fail_stale_jobs(
     # considers terminal rows — so without this it is immortal. A day is far
     # past any legitimate completion, and the message says which failure this
     # is so an operator is not told the upload "never queued".
-    bound_pending_cutoff = now - timedelta(seconds=BOUND_PENDING_TIMEOUT_SECONDS)
     bound_pending_result = await db.execute(
         update(IngestJob)
-        .where(
-            IngestJob.status == "pending",
-            IngestJob.created_at < bound_pending_cutoff,
-            not_(unbound),
-            no_live_procrastinate_job(),
-        )
+        .where(*stale_pending_clauses(now, completion_bound=True))
         .values(
             status="failed",
-            error_message="Stale: upload completed but never committed",
+            error_message=STALE_PENDING_BOUND_MESSAGE,
             completed_at=now,
         )
         .returning(IngestJob.id)
@@ -945,27 +990,32 @@ async def get_job_status(
     # polls this route every 2s for any job it is tracking.
     if job.status == "pending" and job.created_at is not None:
         elapsed = (now - job.created_at).total_seconds()
-        if elapsed > PENDING_TIMEOUT_SECONDS:
-            await db.execute(
+        # fix(#1235 review r2): both halves, through the shared clauses. This
+        # path is the one that actually fires, so leaving it on the old
+        # predicates left the completion race exactly where it was — a poll
+        # blocked on a completing job's row lock resumes post-commit and fails
+        # the row it waited for.
+        for completion_bound, message in (
+            (False, f"Stale: pending for {int(elapsed)}s without being processed"),
+            (True, STALE_PENDING_BOUND_MESSAGE),
+        ):
+            result = await db.execute(
                 update(IngestJob)
                 .where(
                     IngestJob.id == job.id,
                     IngestJob.attempt_id == job.attempt_id,
-                    IngestJob.status == "pending",
-                    IngestJob.created_at
-                    < now - timedelta(seconds=PENDING_TIMEOUT_SECONDS),
-                    no_live_procrastinate_job(),
+                    *stale_pending_clauses(now, completion_bound=completion_bound),
                 )
                 .values(
                     status="failed",
-                    error_message=(
-                        f"Stale: pending for {int(elapsed)}s without being processed"
-                    ),
+                    error_message=message,
                     completed_at=now,
                 )
             )
-            await db.commit()
-            await db.refresh(job)
+            if result.rowcount:
+                await db.commit()
+                await db.refresh(job)
+                break
 
     return await _job_to_status_response(job)
 
