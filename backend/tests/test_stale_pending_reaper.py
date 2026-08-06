@@ -1,7 +1,7 @@
 """fix(#724): the pending reaper must not fail jobs that are genuinely queued.
 
 ``fail_stale_jobs`` marked every ``pending`` IngestJob older than
-``PENDING_TIMEOUT_SECONDS`` as failed with "never queued". That conflated two
+``stale_pending_cutoff_seconds`` as failed with "never queued". That conflated two
 different states, and since fix(#695) deferred analysis to priority -10 —
 where waiting behind a steady upload stream is by design and unbounded — the
 wrong one became reachable in normal operation.
@@ -19,15 +19,22 @@ from types import SimpleNamespace
 
 import pytest
 from unittest.mock import patch
+from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.platform.jobs.models import IngestJob
 from tests.factories import get_user_id
 from app.platform.jobs.router import (
-    PENDING_TIMEOUT_SECONDS,
     fail_stale_jobs,
     get_job_status,
+    post_expiry_sweep_after_seconds,
+    stale_pending_cutoff_seconds,
+)
+from app.processing.ingest.presigned import (
+    MIN_SIGNABLE_JOB_LIFETIME_SECONDS,
+    require_signable_job_lifetime,
 )
 
 pytestmark = pytest.mark.anyio
@@ -51,7 +58,9 @@ async def _stale_pending_job(
     )
     session.add(job)
     await session.flush()
-    old = datetime.now(timezone.utc) - timedelta(seconds=PENDING_TIMEOUT_SECONDS + 600)
+    old = datetime.now(timezone.utc) - timedelta(
+        seconds=stale_pending_cutoff_seconds(completion_bound=False) + 600
+    )
     await session.execute(
         text(
             "UPDATE catalog.ingest_jobs SET created_at = :old WHERE id = :id"
@@ -520,15 +529,21 @@ class TestUrlExpiryAnchorsToTheJobDeadline:
 
         assert 3595 <= ttl <= 3600, ttl
 
-    def test_a_job_past_its_deadline_gets_an_expired_url_not_a_zero(self) -> None:
-        """ExpiresIn=0 is an invalid signature request, not a shorter URL."""
+    def test_a_job_past_its_deadline_reports_a_negative_remainder(self) -> None:
+        """fix(#1235 review r4): the helper must not launder a dead job into a
+        live URL. It used to floor at 1, which reads as "expired on arrival" and
+        is the opposite: ExpiresIn is relative to SIGNING time, so 1 buys the
+        client one more usable second past the deadline."""
         from app.core.config import settings
         from app.processing.ingest.presigned import remaining_job_lifetime_seconds
 
         with patch.object(settings, "pending_job_timeout_seconds", 3600):
             ttl = remaining_job_lifetime_seconds(self._backdated(120))
 
-        assert ttl == 1
+        assert ttl < 0, (
+            f"expected a negative remainder for a job 2h past a 1h deadline, "
+            f"got {ttl} — a floored value becomes a signable, USABLE ExpiresIn"
+        )
 
     def test_the_window_shrinks_with_a_lowered_timeout(self) -> None:
         """The drift scales as an operator lowers the timeout, which is what
@@ -540,3 +555,138 @@ class TestUrlExpiryAnchorsToTheJobDeadline:
             ttl = remaining_job_lifetime_seconds(self._backdated(10))
 
         assert 295 <= ttl <= 300, ttl
+
+
+class TestEveryLifetimeTimerDerivesFromTheOneSetting:
+    """fix(#1235 review r4): #1234 made the pending lifetime configurable and
+    converted only some of the consumers of the numbers that used to be its
+    fixed value. Each survivor broke differently once an operator moved it, so
+    what is asserted here is the closure — every lifetime-derived timer moves
+    with the setting — rather than three particular call sites being patched.
+
+    ``JOB_TIMEOUT_SECONDS`` is deliberately absent: it is the worker lease on a
+    RUNNING job, and it shares a number with the default upload lifetime and
+    nothing else.
+    """
+
+    def test_the_unbound_cutoff_is_the_setting(self) -> None:
+        with patch.object(settings, "pending_job_timeout_seconds", 12345):
+            assert stale_pending_cutoff_seconds(completion_bound=False) == 12345
+
+    def test_the_bound_backstop_stays_beyond_the_upload_lifetime(self) -> None:
+        """The 24h backstop was a fixed 86400. Configure the timeout past a day
+        and a legitimate completion at hour 25 committed the frozen path into a
+        row that was instantly eligible for its own backstop."""
+        long_timeout = 100_000  # ~27.8h, comfortably past the old fixed 86400
+        with patch.object(settings, "pending_job_timeout_seconds", long_timeout):
+            cutoff = stale_pending_cutoff_seconds(completion_bound=True)
+
+        assert cutoff > long_timeout, (
+            f"the bound backstop ({cutoff}s) is not beyond the upload lifetime "
+            f"({long_timeout}s) — a completion arriving inside its own still-"
+            "valid window is immediately sweepable"
+        )
+
+    def test_the_bound_backstop_default_is_unchanged(self) -> None:
+        """Deriving it must not move the shipped 24h behaviour."""
+        with patch.object(settings, "pending_job_timeout_seconds", 3600):
+            assert stale_pending_cutoff_seconds(completion_bound=True) == 86400
+
+    def test_the_post_expiry_sweep_waits_out_the_configured_url(self) -> None:
+        """fix(#1235 review r4): this cutoff derived from a fixed 3600. With a
+        longer timeout the sweep ran while the PUT URL was still live, and the
+        reaped marker takes the row out of every later pass — so an object
+        recreated after it survived forever."""
+        with patch.object(settings, "pending_job_timeout_seconds", 100_000):
+            assert post_expiry_sweep_after_seconds() > 100_000
+
+    def test_the_post_expiry_sweep_default_is_unchanged(self) -> None:
+        with patch.object(settings, "pending_job_timeout_seconds", 3600):
+            assert post_expiry_sweep_after_seconds() == 4500
+
+
+class TestPresignRefusesRatherThanSigningADeadWindow:
+    """fix(#1235 review r4): there is no ExpiresIn that means "already dead".
+
+    The helper used to floor the remaining lifetime at 1, described as a URL
+    "expired on arrival". ExpiresIn is relative to SIGNING time, so that floor
+    minted a URL usable for one more second past the deadline the change exists
+    to enforce. The only way not to hand out a live URL is not to sign one.
+    """
+
+    @staticmethod
+    def _backdated(seconds: int):
+        return datetime.now(timezone.utc) - timedelta(seconds=seconds)
+
+    def test_a_healthy_job_gets_its_remaining_lifetime(self) -> None:
+        with patch.object(settings, "pending_job_timeout_seconds", 3600):
+            ttl = require_signable_job_lifetime(self._backdated(600))
+
+        assert 2995 <= ttl <= 3000, ttl
+
+    def test_a_job_past_its_deadline_is_refused(self) -> None:
+        with patch.object(settings, "pending_job_timeout_seconds", 3600):
+            with pytest.raises(HTTPException) as excinfo:
+                require_signable_job_lifetime(self._backdated(7200))
+
+        assert excinfo.value.status_code == 409, (
+            "a job past its deadline was signed for anyway — any positive "
+            "ExpiresIn hands the client a URL that still works"
+        )
+
+    def test_a_sliver_of_lifetime_is_refused_too(self) -> None:
+        """A URL with seconds left is not a shorter upload window, it is a
+        failure the client cannot tell apart from a broken server."""
+        with patch.object(settings, "pending_job_timeout_seconds", 3600):
+            with pytest.raises(HTTPException):
+                require_signable_job_lifetime(
+                    self._backdated(3600 - MIN_SIGNABLE_JOB_LIFETIME_SECONDS + 5)
+                )
+
+
+class TestThePollPathSkipsUpdatesItCannotMatch:
+    """fix(#1235 review r4): the r2 rewrite dropped the outer elapsed check, so
+    BOTH pending UPDATEs ran on every 2s poll of every pending job. The DB
+    predicates remain the authority; the elapsed check is a fast-path skip.
+    """
+
+    @staticmethod
+    def _updates(statements: list[str]) -> list[str]:
+        return [s for s in statements if s.lstrip().upper().startswith("UPDATE")]
+
+    async def _poll_recording_statements(self, session, job) -> list[str]:
+        seen: list[str] = []
+        real = session.execute
+
+        async def _recording(statement, *args, **kwargs):
+            seen.append(str(statement))
+            return await real(statement, *args, **kwargs)
+
+        with patch.object(session, "execute", _recording):
+            await get_job_status(job.id, _request(), _user(job.created_by), session)
+        return seen
+
+    async def test_a_young_pending_job_costs_no_updates(
+        self, test_db_session: AsyncSession
+    ) -> None:
+        job = await _make_pending_job(test_db_session, age_seconds=30, file_path="")
+
+        statements = await self._poll_recording_statements(test_db_session, job)
+
+        assert self._updates(statements) == [], (
+            "a 30-second-old pending job issued stale-pending UPDATEs on a "
+            "routine poll, and the frontend polls this route every 2s"
+        )
+
+    async def test_a_genuinely_stale_job_is_still_failed(
+        self, test_db_session: AsyncSession
+    ) -> None:
+        """The skip must not become the guard: past the cutoff the UPDATE runs
+        and the row is failed exactly as before."""
+        job = await _make_pending_job(test_db_session, age_seconds=7200, file_path="")
+
+        statements = await self._poll_recording_statements(test_db_session, job)
+
+        assert self._updates(statements), "the stale job was never updated"
+        await test_db_session.refresh(job)
+        assert job.status == "failed"

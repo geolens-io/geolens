@@ -43,17 +43,47 @@ TemporalParseKey = Literal["temporal_start", "temporal_end"]
 
 router = APIRouter(prefix="/jobs", tags=["Admin"], responses=ERROR_RESPONSES_AUTH)
 
-# Jobs running longer than this are considered stale and auto-failed.
+# Jobs running longer than this are considered stale and auto-failed. This is
+# the worker LEASE on a RUNNING job, not the presigned-upload lifetime below:
+# the two share a number today and answer unrelated questions, so deriving one
+# from the other would only look like agreement.
 JOB_TIMEOUT_SECONDS = 3600  # 60 minutes (accommodates remote service imports)
-# Jobs stuck in "pending" longer than this are considered orphaned (never queued).
-PENDING_TIMEOUT_SECONDS = settings.pending_job_timeout_seconds
-# fix(#1234): a row that bound bytes but never committed its status is exempt
-# from the 1h clause above, and the retention purge only looks at terminal
-# rows — so it needs its own, much later, backstop or it never dies.
-BOUND_PENDING_TIMEOUT_SECONDS = 86400  # 24 hours
 
 
-STALE_PENDING_UNBOUND_MESSAGE = "Stale: pending for over 1 hour (never queued)"
+# fix(#1235 review r4): the margin between the last moment a client may still
+# legitimately PUT and the moment its completion request has finished freezing,
+# verifying and committing. Added on top of the upload lifetime wherever a
+# timer has to sit strictly BEYOND it.
+_COMMIT_HEADROOM_SECONDS = 3600
+
+
+def stale_pending_cutoff_seconds(*, completion_bound: bool) -> int:
+    """Age at which each half of the pending sweep may fail a job.
+
+    fix(#1235 review r4): both halves read the one setting, at CALL time.
+    #1234 made the pending lifetime configurable but left the consumers holding
+    the numbers that used to be its fixed value. The 24h backstop was one of
+    them: configure the timeout past a day and a legitimate completion at hour
+    25 committed the frozen path into a row that was instantly eligible for its
+    own backstop. Deriving it keeps the backstop strictly beyond the upload
+    lifetime by construction, rather than by the accident that 86400 > 3600.
+
+    Module-level constants would reproduce the same class one indirection down:
+    a copy taken at import can disagree with the value the presign handlers
+    read per request.
+    """
+    if completion_bound:
+        return max(
+            86400,  # 24h floor — preserves the default behaviour exactly
+            settings.pending_job_timeout_seconds + _COMMIT_HEADROOM_SECONDS,
+        )
+    return settings.pending_job_timeout_seconds
+
+
+# fix(#1235 review r4): the message no longer names an hour. The timeout is
+# configurable, so a hard-coded "over 1 hour" is a claim the code stopped
+# guaranteeing in #1234; "never queued" is the part that is always true.
+STALE_PENDING_UNBOUND_MESSAGE = "Stale: pending too long (never queued)"
 STALE_PENDING_BOUND_MESSAGE = "Stale: upload completed but never committed"
 
 
@@ -101,9 +131,7 @@ def stale_pending_clauses(now: datetime, *, completion_bound: bool) -> tuple:
     # "never bound anything" case that most needs the 1h policy. Three-valued
     # logic turns the guard into a filter that excludes what it should catch.
     completion_key = func.coalesce(IngestJob.file_path, "").like("staging/%")
-    cutoff_seconds = (
-        BOUND_PENDING_TIMEOUT_SECONDS if completion_bound else PENDING_TIMEOUT_SECONDS
-    )
+    cutoff_seconds = stale_pending_cutoff_seconds(completion_bound=completion_bound)
     return (
         IngestJob.status == "pending",
         IngestJob.created_at < now - timedelta(seconds=cutoff_seconds),
@@ -199,32 +227,41 @@ class StaleCleanupOutcome:
         }
 
 
-# fix(#1202 review r8): how long a presigned PUT URL can still recreate the
-# staging object after the event-triggered sweeps have already run.
-#
-# fix(#1235 review r3): this used to be grounded on "the provider default is
-# 3600 and no call site passes one". That is no longer true, and the ground is
-# now firmer rather than weaker: every signing site passes an expiration
-# computed as the job's REMAINING lifetime (`remaining_job_lifetime_seconds`),
-# so a URL expires at `created_at + pending_job_timeout_seconds` rather than
-# that long after whenever it happened to be signed. The provider-side min()
-# clamps stay as the backstop for any future site that forgets.
-#
-# The window below is therefore EXACT rather than conservative: no URL for a
-# job can be honoured past its deadline, and URL life only ever shortens, so
-# the sweep's own timing needs no change.
-#
-# Part URLs default to 7200 but cannot recreate an OBJECT either way: they
-# need a live upload id, and CompleteMultipartUpload consumes it (an abort
-# kills it). Only the single-part object-key URL is a recreation vector.
-#
-# `created_at` is the anchor on both sides now — the row is inserted before
-# any URL for it is minted, and the URLs are signed against that same value.
-_PRESIGNED_PUT_URL_TTL_SECONDS = 3600
 _POST_EXPIRY_SWEEP_MARGIN_SECONDS = 900
-_POST_EXPIRY_SWEEP_AFTER_SECONDS = (
-    _PRESIGNED_PUT_URL_TTL_SECONDS + _POST_EXPIRY_SWEEP_MARGIN_SECONDS
-)
+
+
+def post_expiry_sweep_after_seconds() -> int:
+    """Job age past which no PUT URL for it can recreate the staging object.
+
+    fix(#1202 review r8): the sweep below has to wait out the window in which a
+    presigned PUT URL can still recreate the staging object after the
+    event-triggered sweeps have already run.
+
+    fix(#1235 review r3): that window used to be grounded on "the provider
+    default is 3600 and no call site passes one". The ground is now firmer:
+    every signing site passes an expiration computed as the job's REMAINING
+    lifetime (`remaining_job_lifetime_seconds`), so a URL expires at
+    `created_at + pending_job_timeout_seconds` rather than that long after
+    whenever it happened to be signed. The window is therefore EXACT rather
+    than conservative, and URL life only ever shortens. The provider-side
+    min() clamps stay as the backstop for any future site that forgets.
+
+    fix(#1235 review r4): and it is computed from the setting rather than from
+    a fixed 3600, which the r3 comment already claimed while the constant it
+    described still did not. Configure the timeout longer and the sweep ran
+    while the URL was still live; a re-PUT after it then survived forever,
+    because the reaped marker takes the row out of every later pass.
+
+    Part URLs default to 7200 but cannot recreate an OBJECT either way: they
+    need a live upload id, and CompleteMultipartUpload consumes it (an abort
+    kills it). Only the single-part object-key URL is a recreation vector.
+
+    `created_at` is the anchor on both sides — the row is inserted before any
+    URL for it is minted, and the URLs are signed against that same value.
+    """
+    return settings.pending_job_timeout_seconds + _POST_EXPIRY_SWEEP_MARGIN_SECONDS
+
+
 # Set once the post-expiry sweep has run for a job, so it never runs twice.
 _STAGING_REAPED_MARKER = "s3_key_reaped"
 
@@ -251,7 +288,7 @@ async def _sweep_expired_presigned_staging(
     delete on the next pass instead, which is a no-op.
     """
     cutoff = (now or datetime.now(timezone.utc)) - timedelta(
-        seconds=_POST_EXPIRY_SWEEP_AFTER_SECONDS
+        seconds=post_expiry_sweep_after_seconds()
     )
     candidates = (
         await db.execute(
@@ -516,7 +553,8 @@ async def fail_stale_jobs(
     endpoint and its audit event.
 
     Stale rules:
-      - status='pending', created_at older than PENDING_TIMEOUT_SECONDS, AND no
+      - status='pending', created_at older than the matching
+        ``stale_pending_cutoff_seconds``, AND no
         live Procrastinate job (a true orphan that was never queued)
       - status='running' and heartbeat_at/started_at older than JOB_TIMEOUT_SECONDS
         (worker lease expired)
@@ -1005,6 +1043,17 @@ async def get_job_status(
             (False, f"Stale: pending for {int(elapsed)}s without being processed"),
             (True, STALE_PENDING_BOUND_MESSAGE),
         ):
+            # fix(#1235 review r4): a fast-path skip, NOT a correctness gate.
+            # The clauses below remain the authority — they re-check the same
+            # age in SQL, so a row that slips past this check is still only
+            # failed if it genuinely qualifies. What this restores is the outer
+            # `elapsed` check the r2 rewrite dropped: without it, every 2s poll
+            # of every pending job issued both UPDATEs, and the frontend polls
+            # this route for the whole life of a job that is behaving normally.
+            if elapsed <= stale_pending_cutoff_seconds(
+                completion_bound=completion_bound
+            ):
+                continue
             result = await db.execute(
                 update(IngestJob)
                 .where(

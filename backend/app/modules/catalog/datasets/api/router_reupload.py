@@ -728,6 +728,11 @@ async def request_presigned_reupload(
     threshold = settings.presigned_multipart_threshold_mb * 1024 * 1024
 
     part_size = get_catalog_port().ingest_part_size()
+    # fix(#1235 review r3/r4): anchored to the job deadline, computed once for
+    # the whole request and above the multipart branch so a job with no usable
+    # lifetime left is refused before an upload id exists. Same as the upload
+    # door.
+    url_ttl = get_catalog_port().require_signable_job_lifetime(job.created_at)
 
     if request.file_size > threshold:
         upload_id: str | None = None
@@ -740,9 +745,6 @@ async def request_presigned_reupload(
             if initiation_cancel is not None:
                 raise initiation_cancel
             num_parts = math.ceil(request.file_size / part_size)
-            # fix(#1235 review r3): anchored to the job deadline, computed once
-            # before the loop. Same reasoning as the upload door.
-            url_ttl = get_catalog_port().remaining_job_lifetime_seconds(job.created_at)
             urls = [
                 await run_in_thread_draining(
                     storage.generate_presigned_part_url,
@@ -799,8 +801,7 @@ async def request_presigned_reupload(
             storage.generate_presigned_put_url,
             physical_s3_key,
             request.content_type,
-            # fix(#1235 review r3): expires with the job, not 3600s from now.
-            get_catalog_port().remaining_job_lifetime_seconds(job.created_at),
+            url_ttl,  # expires with the job, not 3600s from now
         )
         job.user_metadata = {
             "presigned": True,

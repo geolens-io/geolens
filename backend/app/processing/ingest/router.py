@@ -90,10 +90,10 @@ from app.processing.ingest.service import (
 )
 from app.processing.ingest.presigned import (
     abort_presigned_multipart_upload,
-    remaining_job_lifetime_seconds,
     finalize_presigned_object,
     lock_presigned_job,
     require_completable_presigned_job,
+    require_signable_job_lifetime,
     should_assemble_multipart,
 )
 from app.processing.ingest.tasks import regenerate_vrt
@@ -249,6 +249,14 @@ async def request_presigned_upload(
     s3_key = f"staging/{job.id}/{request.filename}"
     physical_s3_key = resolve_current_storage_key(s3_key)
     threshold = settings.presigned_multipart_threshold_mb * 1024 * 1024
+    # fix(#1235 review r3): anchor every signature to the JOB deadline, not to
+    # signing time. Computed once for the whole request, so the later parts of
+    # a many-part file inherit the earlier deadline — conservative in the right
+    # direction, and no URL outlives the job by however long the loop took.
+    #
+    # fix(#1235 review r4): and above the multipart branch, so a job with no
+    # usable lifetime left is refused before an upload id is ever initiated.
+    url_ttl = require_signable_job_lifetime(job.created_at)
 
     if request.file_size > threshold:
         upload_id: str | None = None
@@ -261,12 +269,6 @@ async def request_presigned_upload(
             if initiation_cancel is not None:
                 raise initiation_cancel
             num_parts = math.ceil(request.file_size / PART_SIZE)
-            # fix(#1235 review r3): anchor every signature to the JOB deadline,
-            # not to signing time. Computed once before the loop, so the later
-            # parts inherit the earlier deadline — conservative in the right
-            # direction, and it keeps a many-part file from handing out URLs
-            # that outlive the job by however long the loop took.
-            url_ttl = remaining_job_lifetime_seconds(job.created_at)
             urls = [
                 await run_in_thread_draining(
                     storage.generate_presigned_part_url,
@@ -322,8 +324,7 @@ async def request_presigned_upload(
                 storage.generate_presigned_put_url,
                 physical_s3_key,
                 request.content_type,
-                # fix(#1235 review r3): expires with the job, not 3600s from now.
-                remaining_job_lifetime_seconds(job.created_at),
+                url_ttl,  # expires with the job, not 3600s from now
             )
         except (
             Exception

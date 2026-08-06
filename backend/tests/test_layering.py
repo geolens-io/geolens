@@ -2018,7 +2018,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # to the job deadline, with the comment recording why the part loop
     # computes it once (later parts inherit the earlier deadline, which is
     # conservative in the right direction).
-    "backend/app/processing/ingest/router.py": 1532,
+    # fix(#1235 review r4): +1 — the TTL call moved above the multipart branch
+    # so a job with no usable lifetime left is refused before an upload id is
+    # ever initiated, which trades two in-branch computations for one hoisted
+    # one plus the comment saying why the placement matters.
+    "backend/app/processing/ingest/router.py": 1533,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901

@@ -298,8 +298,8 @@ async def test_presigned_reupload_round_trip_uses_tenant_provider_key(monkeypatc
         return frozen_staging_key(logical_key)
 
     port.finalize_presigned_object = AsyncMock(side_effect=_fake_finalize)
-    # fix(#1235 review r3): a real TTL, for the same reason as above.
-    port.remaining_job_lifetime_seconds = MagicMock(return_value=1800)
+    # fix(#1235 review r3/r4): a real TTL, for the same reason as above.
+    port.require_signable_job_lifetime = MagicMock(return_value=1800)
     monkeypatch.setattr(settings, "storage_provider", "s3")
     monkeypatch.setattr(settings, "presigned_multipart_threshold_mb", 100)
 

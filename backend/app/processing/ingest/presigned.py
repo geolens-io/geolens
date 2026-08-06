@@ -79,6 +79,9 @@ async def abort_presigned_multipart_upload(
         )
 
 
+MIN_SIGNABLE_JOB_LIFETIME_SECONDS = 60
+
+
 def remaining_job_lifetime_seconds(created_at: datetime) -> int:
     """Seconds a presigned URL for this job may still legitimately be honoured.
 
@@ -96,13 +99,45 @@ def remaining_job_lifetime_seconds(created_at: datetime) -> int:
     signatures then carry a slightly earlier deadline, which is conservative
     in the right direction.
 
-    Floors at 1 because `ExpiresIn=0` is not a shorter URL, it is an invalid
-    signature request; a job already past its deadline gets a URL that is
-    expired on arrival, which is the honest outcome.
+    May be zero or negative. Signing that is the caller's decision and the
+    answer is always no — see `require_signable_job_lifetime`, which is what
+    every handler should call.
     """
     deadline = created_at + timedelta(seconds=settings.pending_job_timeout_seconds)
-    remaining = (deadline - datetime.now(timezone.utc)).total_seconds()
-    return max(1, int(remaining))
+    return int((deadline - datetime.now(timezone.utc)).total_seconds())
+
+
+def require_signable_job_lifetime(created_at: datetime) -> int:
+    """Remaining lifetime, refusing outright when too little of it is left.
+
+    fix(#1235 review r4): the previous `max(1, ...)` floor was described as
+    producing a URL "expired on arrival". It does the opposite. `ExpiresIn` is
+    relative to SIGNING time, so flooring at 1 mints a URL that is USABLE for
+    one more second — past the deadline this whole change exists to enforce.
+    There is no `ExpiresIn` value that means "already dead": the only way to
+    avoid handing out a live URL is to not sign one.
+
+    409 rather than 422: the presign door's 400s mean "this request cannot be
+    served as asked" (wrong storage mode, rejected extension) and its 422 means
+    "your file is wrong" (too large). Neither fits a request that was valid and
+    lost to the job's own clock — that is a state conflict, which is what the
+    ingest router already answers 409 for elsewhere.
+
+    Refuse BEFORE anything is spent. Both doors call this above the multipart
+    branch, so there is never an initiated upload id to abort on this path.
+
+    Operator note: this refuses every presign if `pending_job_timeout_seconds`
+    is configured below the margin, because a job's whole lifetime is then
+    shorter than the shortest URL worth issuing. That is the honest reading of
+    such a setting, not a regression.
+    """
+    remaining = remaining_job_lifetime_seconds(created_at)
+    if remaining < MIN_SIGNABLE_JOB_LIFETIME_SECONDS:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This upload's time window has closed. Start a new upload.",
+        )
+    return remaining
 
 
 def raise_if_over_max_upload_size(actual_size: int, max_size_mb: int) -> None:
