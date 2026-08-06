@@ -1333,7 +1333,13 @@ PSQL=(docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB")
 # Connect directly instead — uncomment ONE of these and comment out the
 # bundled line above:
 # PSQL=(psql -h <host> -p <port> -U "$POSTGRES_USER" -d "$POSTGRES_DB")
-# PSQL=(psql "$DATABASE_URL_OVERRIDE")   # if .env already has this set
+#
+# If reusing DATABASE_URL_OVERRIDE from .env, strip its SQLAlchemy driver
+# suffix first: libpq's URI parser accepts only the postgresql:// and
+# postgres:// schemes, and rejects the postgresql+asyncpg:// /
+# postgresql+psycopg:// forms .env.example documents for that variable.
+# PG_URI=$(echo "$DATABASE_URL_OVERRIDE" | sed -E 's#^postgresql\+[a-zA-Z0-9_]+://#postgresql://#')
+# PSQL=(psql "$PG_URI")
 ```
 
 The HTTP export commands further down are unaffected by this choice either
