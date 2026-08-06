@@ -11,7 +11,12 @@ needs no multiprocess-specific code: prometheus_fastapi_instrumentator's
 `expose()` already serves a fresh CollectorRegistry wrapped by
 multiprocess.MultiProcessCollector whenever PROMETHEUS_MULTIPROC_DIR is set
 (see its `metrics()` closure), and falls back to the plain default registry
-otherwise -- so this stays a no-op for the dev single-worker default.
+otherwise. Both docker-compose.yml and docker-compose.prod.yml set
+PROMETHEUS_MULTIPROC_DIR for the api service by default, so multiprocess mode
+is active in dev too, not just prod -- deliberately, so bumping
+UVICORN_WORKERS locally to reproduce #651 (per its own verification recipe)
+needs no extra env wiring. It works correctly at UVICORN_WORKERS=1: there is
+just one process's files for MultiProcessCollector to merge.
 """
 
 import asyncio
@@ -46,8 +51,11 @@ def shutdown_worker_metrics() -> None:
     exits and is respawned mid-lifetime, not just at container shutdown.
     Without this, the exited worker's mmap files linger under
     PROMETHEUS_MULTIPROC_DIR and keep being summed into every future scrape
-    as a stale series. No-op when multiprocess mode isn't active (e.g. the
-    dev single-worker default has no PROMETHEUS_MULTIPROC_DIR set).
+    as a stale series. No-op when multiprocess mode isn't active -- both
+    compose files set PROMETHEUS_MULTIPROC_DIR by default (dev included), so
+    this is live in normal local development too; it only stays unset for a
+    bespoke deployment that runs the api image directly, outside these
+    compose files, without setting the var itself.
 
     This only runs on a graceful lifespan shutdown -- see
     sweep_dead_worker_metrics() for the OOM-kill/SIGKILL case, where this

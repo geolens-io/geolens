@@ -460,7 +460,8 @@ def test_shutdown_worker_metrics_marks_process_dead_when_multiprocess_active():
 
 
 def test_shutdown_worker_metrics_noop_without_multiprocess_dir():
-    """Dev's single-worker default has no PROMETHEUS_MULTIPROC_DIR set --
+    """A deployment that runs the api image directly, outside either compose
+    file, without setting PROMETHEUS_MULTIPROC_DIR itself, has no such var --
     shutdown must not try to mark anything dead (mark_process_dead requires
     the directory to exist and would raise otherwise).
     """
