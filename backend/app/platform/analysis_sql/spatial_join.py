@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import re
 
+from .shared import render_bbox_predicate
+
 # fix(#953): the columns a spatial join adds to the source row.
 SPATIAL_JOIN_COUNT_COLUMN = "join_count"
 SPATIAL_JOIN_FIELD_PREFIX = "join_"
@@ -179,7 +181,9 @@ def render_spatial_join(
     return columns, joins
 
 
-def render_spatial_join_match_count(src_table_ref: str, join_table_ref: str) -> str:
+def render_spatial_join_match_count(
+    src_table_ref: str, join_table_ref: str, *, bbox: list[float] | None = None
+) -> str:
     """Count matched PAIRS across the WHOLE source (fix(#953)).
 
     The geometry preview is capped at ``PREVIEW_FEATURE_CAP`` rows, so summing
@@ -195,13 +199,23 @@ def render_spatial_join_match_count(src_table_ref: str, join_table_ref: str) -> 
     makes disagreement impossible. It also inherits the per-source-row
     ST_MakeValid hoist, without which this statement has the same 100x+
     blow-up the per-row counts did.
+
+    ``bbox`` (fix(#727 codex round 5)) scopes ``_src`` the same way the
+    intersect count does — WHOLE here means the request's bbox when one was
+    sent, same as ``source_feature_count``. Unlike intersect's, this is a
+    genuinely SEPARATE statement from the geometry preview (spatial_join is
+    1:1 and never returns early out of ``build_preview_sql``'s shared WHERE
+    composition, so its geometry rows are already bbox-scoped there — this
+    is the second, uncapped statement that needs its own copy of the same
+    filter to keep its total describing the same extent the map does).
     """
     _, joins = render_spatial_join(join_table_ref, src="_src")
+    bbox_predicate = f" AND {render_bbox_predicate(bbox, src='_src')}" if bbox else ""
     return (
         f"SELECT COALESCE(sum(_jc.{SPATIAL_JOIN_COUNT_COLUMN}), 0)::bigint"
         f" AS match_count"
         f" FROM {src_table_ref} AS _src{joins}"
-        f" WHERE _src.geom_4326 IS NOT NULL"
+        f" WHERE _src.geom_4326 IS NOT NULL{bbox_predicate}"
     )
 
 

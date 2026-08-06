@@ -1540,7 +1540,14 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # discarding it (a second review round found the discard left one
         # operation still clustering previews in gid order despite the
         # frontend sending bbox uniformly). Budget 608 -> 610, exact.
-        "backend/app/modules/catalog/datasets/domain/service_analysis.py": 610,
+        #
+        # fix(#727 codex round 5): +2 — the spatial_join match_count call
+        # site now passes bbox=request.bbox through to
+        # render_spatial_join_match_count, matching intersect's fix (a
+        # third review round found spatial_join's count was the one
+        # remaining place a bbox-scoped source_feature_count was paired
+        # with a whole-dataset match_count). Budget 610 -> 612, exact.
+        "backend/app/modules/catalog/datasets/domain/service_analysis.py": 612,
         "backend/app/modules/catalog/maps/service_crud.py": 550,
         # fix(#474, #475): localized ranking/eager loading plus the OGC
         # ids/externalIds filters cross the default by nine lines. Keep the

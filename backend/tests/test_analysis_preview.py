@@ -2082,6 +2082,29 @@ class TestBuildPreviewSql:
         sql = render_intersect_pairs('"data"."t1"', '"data"."m1"')
         assert "ST_MakeEnvelope" not in sql
 
+    def test_bbox_threaded_into_spatial_join_match_count(self):
+        """fix(#727 codex round 5): spatial_join's match_count is a SEPARATE
+        statement from the geometry preview (unlike intersect's, which rides
+        the same one), so it needs its own explicit bbox plumbing too — the
+        schema's contract says match_count is bbox-scoped for this operation,
+        and this pins that the SQL actually reflects it rather than the
+        response silently pairing a viewport-scoped source_feature_count with
+        a whole-dataset match_count."""
+        from app.platform.analysis_sql import render_spatial_join_match_count
+
+        sql = render_spatial_join_match_count(
+            '"data"."t1"', '"data"."j1"', bbox=[0.0, 0.0, 1.0, 1.0]
+        )
+        assert "_src.geom_4326 && ST_MakeEnvelope(0.0, 0.0, 1.0, 1.0, 4326)" in sql
+
+    def test_bbox_omitted_from_spatial_join_match_count_by_default(self):
+        """The default stays unscoped — this is a preview-time addition, not a
+        change to what an omitted bbox means."""
+        from app.platform.analysis_sql import render_spatial_join_match_count
+
+        sql = render_spatial_join_match_count('"data"."t1"', '"data"."j1"')
+        assert "ST_MakeEnvelope" not in sql
+
     def test_clip_mask_vertex_cap(self):
         ring = [
             [

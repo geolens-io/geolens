@@ -1126,13 +1126,13 @@ class AnalysisPreviewResponse(BaseModel):
             "pieces, and for both of those it IS the output total; "
             "spatial_join gives intersecting source/join PAIRS, which is "
             "NOT the output total, because the join keeps every source row "
-            "(use source_feature_count for that operation). For intersect "
-            "specifically, a bbox on the request scopes this total too — it "
-            "rides the SAME statement the geometry preview runs, unlike "
-            "select_by_location's, which is a separate uncapped query the "
-            "request's bbox does not reach. Null for operations that report "
-            "no such total, and when the count could not be computed within "
-            "the query budget"
+            "(use source_feature_count for that operation). intersect and "
+            "spatial_join both scope this total to a bbox on the request; "
+            "select_by_location's count is a separate uncapped query the "
+            "request's bbox does not reach, so it stays unscoped even "
+            "though its preview rows are viewport-limited too. Null for "
+            "operations that report no such total, and when the count "
+            "could not be computed within the query budget"
         ),
     )
 

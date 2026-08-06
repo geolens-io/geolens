@@ -381,6 +381,94 @@ class TestSpatialJoinPreview:
         # Not the capped number, and not a per-row count either.
         assert body["match_count"] > PREVIEW_FEATURE_CAP
 
+    async def test_match_count_is_bbox_scoped(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#727 codex round 5): a bbox on the request scopes match_count
+        too, not just source_feature_count — otherwise a viewport-scoped
+        preview pairs an honest "N of TOTAL" source count with a match_count
+        that silently counts the whole dataset, which is the same class of
+        dishonesty #727 exists to fix, one field over.
+
+        Reuses the same source/polygon shapes as the whole-source test above:
+        n points spread across x=[0, 1) at y=0.5 (all inside poly_a, which
+        covers x=[0, 1]; those past x=0.5 also inside poly_b, x=[0.5, 1.5]).
+        Scoping the request to x=[0, 0.5] must both shrink match_count AND
+        match the ground truth computed the same way, restricted to the same
+        envelope.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        n = 100
+        table_name = f"ds_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table_name} ("
+                f"  gid SERIAL PRIMARY KEY, name TEXT,"
+                f"  geom geometry(Point, 4326),"
+                f"  geom_4326 geometry(Point, 4326))"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table_name} (name, geom, geom_4326) "  # noqa: S608
+                f"SELECT 'p' || i,"
+                f" ST_SetSRID(ST_MakePoint(i::float/{n}, 0.5), 4326),"
+                f" ST_SetSRID(ST_MakePoint(i::float/{n}, 0.5), 4326)"
+                f" FROM generate_series(1, {n}) AS i"
+            )
+        )
+        await test_db_session.commit()
+        source = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            table_name=table_name,
+            geometry_type="POINT",
+            feature_count=n,
+            column_info=[{"name": "name", "type": "text"}],
+        )
+        polys = await _create_two_overlapping_polygons(
+            test_db_session, created_by=admin_id
+        )
+        bbox = [0.0, 0.0, 0.5, 1.0]
+
+        unscoped = await client.post(
+            _preview_url(source.id),
+            json={"operation": "spatial_join", "join_dataset_id": str(polys.id)},
+            headers=admin_auth_header,
+        )
+        scoped = await client.post(
+            _preview_url(source.id),
+            json={
+                "operation": "spatial_join",
+                "join_dataset_id": str(polys.id),
+                "bbox": bbox,
+            },
+            headers=admin_auth_header,
+        )
+        assert unscoped.status_code == 200, unscoped.text
+        assert scoped.status_code == 200, scoped.text
+
+        expected_scoped = (
+            await test_db_session.execute(
+                text(
+                    f"SELECT count(*) FROM data.{table_name} s "  # noqa: S608
+                    f"JOIN data.{polys.table_name} p "
+                    f"ON ST_Intersects(s.geom_4326, p.geom_4326) "
+                    f"WHERE s.geom_4326 && ST_MakeEnvelope"
+                    f"({bbox[0]}, {bbox[1]}, {bbox[2]}, {bbox[3]}, 4326)"
+                )
+            )
+        ).scalar_one()
+
+        assert scoped.json()["match_count"] == expected_scoped
+        assert scoped.json()["match_count"] < unscoped.json()["match_count"], (
+            "a bbox-scoped spatial_join preview reported the same match_count "
+            "as the unscoped one — the bbox was not applied to the count query"
+        )
+
     async def test_join_dataset_visibility_is_enforced(
         self,
         client: AsyncClient,

@@ -430,7 +430,9 @@ async def run_analysis_preview(
     # in hand, and run after the geometry query below.
     count_sql: str | None = None
     if join_table_ref is not None:
-        count_sql = render_spatial_join_match_count(table_ref, join_table_ref)
+        count_sql = render_spatial_join_match_count(
+            table_ref, join_table_ref, bbox=request.bbox
+        )
     elif request.operation == "select_by_location":
         count_sql = render_select_by_location_count(
             table_ref, mask_table_ref=mask_table_ref, mask=request.mask

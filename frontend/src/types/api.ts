@@ -1998,9 +1998,10 @@ export interface AnalysisPreviewResponse {
    *   for that operation's total.
    *
    * "WHOLE source" means the request's bbox when one was sent, same sense
-   * source_feature_count uses. For intersect specifically this total is
-   * bbox-scoped too (fix(#727)) — it rides the same statement the geometry
-   * preview runs, unlike select_by_location's separate uncapped count query.
+   * source_feature_count uses. intersect and spatial_join both scope this
+   * total to a bbox on the request (fix(#727)); select_by_location's count
+   * is a separate uncapped query the bbox never reaches, so it stays
+   * unscoped even though its preview rows are viewport-limited too.
    */
   match_count?: number | null;
 }
