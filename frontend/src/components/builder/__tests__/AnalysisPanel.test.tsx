@@ -2741,4 +2741,107 @@ describe('AnalysisPanel intersect (feat(#956))', () => {
     expect(await screen.findByRole('option', { name: 'Roads' })).toBeInTheDocument();
     expect(screen.queryByRole('option', { name: 'Bus stops' })).toBeNull();
   });
+
+  it('names the previewed extent for a truncated, bbox-scoped intersect total (#727 codex round 3)', async () => {
+    // fix(#727 codex round 2) threaded bbox into render_intersect_preview, so
+    // intersect's match_count now rides the SAME bbox-filtered statement the
+    // geometry preview runs — unlike select_by_location's, which is a
+    // separate uncapped query the request's bbox never reaches. The toast
+    // has to say so: "500 of 2,838 matching features" alone reads exactly
+    // like the pre-fix arbitrary-cap case even though 2,838 really is scoped
+    // to what's on screen.
+    const user = userEvent.setup();
+    vi.mocked(previewAnalysis).mockResolvedValueOnce({
+      geojson: { type: 'FeatureCollection', features: [] },
+      feature_count: 500,
+      truncated: true,
+      bbox: [0, 0, 1, 1],
+      source_feature_count: null,
+      match_count: 2838,
+    });
+    const mockMap = {
+      getBounds: () => ({
+        getWest: () => -74.1,
+        getSouth: () => 40.6,
+        getEast: () => -73.9,
+        getNorth: () => 40.8,
+      }),
+    };
+    renderPanel([datasetLayer, datasetLayer2], {
+      mapInstanceRef: { current: mockMap as never },
+    });
+    await pickIntersect(user);
+    await user.click(screen.getByLabelText('Overlay with layer'));
+    await user.click(await screen.findByRole('option', { name: 'Roads' }));
+    mockT.mockClear();
+    mockToast.info.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() => expect(mockToast.info).toHaveBeenCalled());
+
+    // The request actually carried the bbox — otherwise the assertion below
+    // would pass on a mock map nothing here wired up.
+    expect(previewRequest()).toEqual([
+      'ds1',
+      {
+        operation: 'intersect',
+        mask_dataset_id: 'ds2',
+        bbox: [-74.1, 40.6, -73.9, 40.8],
+      },
+    ]);
+    expect(mockT).toHaveBeenCalledWith(
+      'analysisTools.truncatedNoticeMatchedScoped',
+      expect.objectContaining({ count: 500, total: 2838 }),
+    );
+    expect(mockT).not.toHaveBeenCalledWith(
+      'analysisTools.truncatedNoticeMatched',
+      expect.anything(),
+    );
+  });
+
+  it('does NOT scope select_by_location\'s matched total even with a bbox on the request', async () => {
+    // The contrast that makes the intersect test above meaningful:
+    // select_by_location's match_count is a SEPARATE uncapped query
+    // (render_select_by_location_count) that the request's bbox never
+    // reaches, so pairing it with "in the previewed extent" would be false —
+    // this total describes the WHOLE selection, not what's on screen.
+    const user = userEvent.setup();
+    vi.mocked(previewAnalysis).mockResolvedValueOnce({
+      geojson: { type: 'FeatureCollection', features: [] },
+      feature_count: 500,
+      truncated: true,
+      bbox: [0, 0, 1, 1],
+      source_feature_count: null,
+      match_count: 2838,
+    });
+    const mockMap = {
+      getBounds: () => ({
+        getWest: () => -74.1,
+        getSouth: () => 40.6,
+        getEast: () => -73.9,
+        getNorth: () => 40.8,
+      }),
+    };
+    renderPanel([datasetLayer, datasetLayer2], {
+      mapInstanceRef: { current: mockMap as never },
+    });
+    await user.click(screen.getAllByRole('combobox')[1]);
+    await user.click(await screen.findByRole('option', { name: 'Select by location' }));
+    await user.click(screen.getAllByRole('combobox')[2]);
+    await user.click(await screen.findByRole('option', { name: 'Roads' }));
+    mockT.mockClear();
+    mockToast.info.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() => expect(mockToast.info).toHaveBeenCalled());
+
+    expect(mockT).toHaveBeenCalledWith(
+      'analysisTools.truncatedNoticeMatched',
+      expect.objectContaining({ count: 500, total: 2838 }),
+    );
+    expect(mockT).not.toHaveBeenCalledWith(
+      'analysisTools.truncatedNoticeMatchedScoped',
+      expect.anything(),
+    );
+  });
 });

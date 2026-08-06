@@ -1014,6 +1014,8 @@
     "truncatedNoticeTotalScoped_other": "Showing the first {{count, number}} of {{total, number}} source features in the previewed extent",
     "truncatedNoticeMatched_one": "Showing the first of {{total, number}} matching features",
     "truncatedNoticeMatched_other": "Showing the first {{count, number}} of {{total, number}} matching features",
+    "truncatedNoticeMatchedScoped_one": "Showing the first {{count, number}} of {{total, number}} matching features in the previewed extent",
+    "truncatedNoticeMatchedScoped_other": "Showing the first {{count, number}} of {{total, number}} matching features in the previewed extent",
     "clipLayerLabel": "Or clip to a layer",
     "clipLayerNone": "None — draw on the map",
     "clipLayerEmpty": "No polygon layers on this map",

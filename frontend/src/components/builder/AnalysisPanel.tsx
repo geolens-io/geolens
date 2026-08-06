@@ -1120,13 +1120,22 @@ export function AnalysisPanel({
       const matchedTotal = filtersRows ? (result.match_count ?? null) : null;
       const total = matchedTotal ?? result.source_feature_count ?? null;
       const resultBbox = result.bbox as [number, number, number, number];
-      // fix(#727): `total` is only viewport-scoped when it came from
-      // source_feature_count with a bbox on the request — match_count (the
-      // matchedTotal branch) always counts the WHOLE source regardless of
-      // viewport (see AnalysisPreviewResponse.match_count's docs), so a
-      // row-filtering operation's total keeps its unscoped wording even
-      // though its PREVIEW ROWS are viewport-limited too.
-      const viewportScoped = matchedTotal == null && total != null && requestBbox != null;
+      // fix(#727 codex round 3): whether `total` is viewport-scoped depends
+      // on WHICH field it came from. source_feature_count is scoped whenever
+      // the request carried a bbox (the service overrides the cached
+      // whole-table snapshot with a live bbox-scoped count). match_count is
+      // per-operation: intersect's rides the SAME statement the geometry
+      // preview runs, so it inherits that statement's bbox filter too (fix(
+      // #727 codex round 2) threaded bbox into render_intersect_preview) —
+      // but select_by_location's match_count is a SEPARATE uncapped query
+      // the request's bbox never reaches (see AnalysisPreviewResponse.
+      // match_count's docs), so it stays unscoped even though its preview
+      // rows are viewport-limited too.
+      const matchedTotalIsScoped = operation === 'intersect' && requestBbox != null;
+      const viewportScoped =
+        matchedTotal != null
+          ? matchedTotalIsScoped
+          : total != null && requestBbox != null;
       if (result.truncated) {
         onPreviewResult?.(result.geojson, resultBbox, {
           truncated: true,
@@ -1140,17 +1149,28 @@ export function AnalysisPanel({
       if (result.truncated) {
         toast.info(
           matchedTotal != null
-            ? t('analysisTools.truncatedNoticeMatched', {
+            ? t(
                 // fix(#1097 review): a separate string, not the same one with
                 // a different number. This total is the OUTPUT row count, so
                 // calling it "source features" would misdescribe it — for
                 // intersect it is not even a count of source rows, since one
                 // source feature can produce several output pieces.
-                defaultValue:
-                  'Showing the first {{count, number}} of {{total, number}} matching features',
-                count: result.feature_count,
-                total: matchedTotal,
-              })
+                //
+                // fix(#727 codex round 3): intersect's matched total is
+                // viewport-scoped too when a bbox was sent (see
+                // matchedTotalIsScoped above) — naming the extent here for
+                // the SAME reason source_feature_count's scoped branch does.
+                viewportScoped
+                  ? 'analysisTools.truncatedNoticeMatchedScoped'
+                  : 'analysisTools.truncatedNoticeMatched',
+                {
+                  defaultValue: viewportScoped
+                    ? 'Showing the first {{count, number}} of {{total, number}} matching features in the previewed extent'
+                    : 'Showing the first {{count, number}} of {{total, number}} matching features',
+                  count: result.feature_count,
+                  total: matchedTotal,
+                },
+              )
             : total != null
             ? t(
                 // fix(#727): a viewport-scoped total names the extent it was

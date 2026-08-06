@@ -1014,6 +1014,8 @@
     "truncatedNoticeTotalScoped_other": "Mostrando las primeras {{count, number}} de {{total, number}} entidades de origen en la extensión previsualizada",
     "truncatedNoticeMatched_one": "Mostrando la primera de {{total, number}} entidades coincidentes",
     "truncatedNoticeMatched_other": "Mostrando las primeras {{count, number}} de {{total, number}} entidades coincidentes",
+    "truncatedNoticeMatchedScoped_one": "Mostrando las primeras {{count, number}} de {{total, number}} entidades coincidentes en la extensión previsualizada",
+    "truncatedNoticeMatchedScoped_other": "Mostrando las primeras {{count, number}} de {{total, number}} entidades coincidentes en la extensión previsualizada",
     "clipLayerLabel": "O recortar con una capa",
     "clipLayerNone": "Ninguna — dibujar en el mapa",
     "clipLayerEmpty": "No hay capas de polígonos en este mapa",

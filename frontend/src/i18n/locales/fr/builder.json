@@ -1014,6 +1014,8 @@
     "truncatedNoticeTotalScoped_other": "Affichage des {{count, number}} premières entités sur {{total, number}} entités sources dans l'étendue prévisualisée",
     "truncatedNoticeMatched_one": "Affichage de la première entité sur {{total, number}} entités correspondantes",
     "truncatedNoticeMatched_other": "Affichage des {{count, number}} premières entités sur {{total, number}} entités correspondantes",
+    "truncatedNoticeMatchedScoped_one": "Affichage des {{count, number}} premières entités sur {{total, number}} entités correspondantes dans l'étendue prévisualisée",
+    "truncatedNoticeMatchedScoped_other": "Affichage des {{count, number}} premières entités sur {{total, number}} entités correspondantes dans l'étendue prévisualisée",
     "clipLayerLabel": "Ou découper selon une couche",
     "clipLayerNone": "Aucune — dessiner sur la carte",
     "clipLayerEmpty": "Aucune couche de polygones sur cette carte",
