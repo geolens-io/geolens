@@ -23,7 +23,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.router import api_router
-from app.observability.metrics import init_metrics
+from app.observability.metrics import init_metrics, shutdown_worker_metrics
 from app.platform.cache.provider import init_tile_cache
 
 # settings already imported above for the tempdir override — do NOT reimport
@@ -416,6 +416,10 @@ async def lifespan(app: FastAPI):
     await close_tile_pool()
     await _titiler_client.aclose()
     await engine.dispose()
+    # fix(#1240, #651): drop this worker's multiprocess metric files so a
+    # respawn under UVICORN_MAX_REQUESTS recycling doesn't leave a stale
+    # series behind for the next scrape to keep summing.
+    shutdown_worker_metrics()
 
 
 _DESCRIPTION = """\

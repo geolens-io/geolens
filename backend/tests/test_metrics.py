@@ -1,11 +1,16 @@
 """Tests for the Prometheus metrics module."""
 
+import os
+import subprocess
+import sys
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from prometheus_client import Counter, Gauge
 from prometheus_fastapi_instrumentator import Instrumentator
 
+from app.observability.metrics import shutdown_worker_metrics
 from app.observability.metrics.instrumentator import create_instrumentator
 from app.observability.metrics.jobs import (
     _refresh_job_metrics,
@@ -116,3 +121,207 @@ async def test_refresh_pool_metrics_skips_non_queuepool():
     # Pool gauges should remain at their default (0)
     assert db_pool_checkedout._value.get() == 0.0
     assert db_pool_checkedin._value.get() == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Multiprocess mode (fix #1240, #651)
+#
+# prometheus_client picks its value-storage backend (plain in-memory vs
+# mmap-file-per-process) at the FIRST import of `prometheus_client.values` in
+# a given interpreter, based on whether PROMETHEUS_MULTIPROC_DIR is already
+# set. Every other test in this module has already imported prometheus_client
+# in-process without that env var, so setting it here would do nothing --
+# these tests spawn a fresh subprocess per simulated worker instead, which is
+# the only way to exercise the real multiprocess write path.
+# ---------------------------------------------------------------------------
+
+_BACKEND_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _run_multiprocess_writer(multiproc_dir: str, script: str, *args: str) -> None:
+    """Run `script` in a fresh subprocess with PROMETHEUS_MULTIPROC_DIR set.
+
+    cwd=_BACKEND_ROOT so `import app...` inside the script resolves the same
+    way it does for `uv run pytest` from backend/.
+    """
+    env = {**os.environ, "PROMETHEUS_MULTIPROC_DIR": multiproc_dir}
+    result = subprocess.run(
+        [sys.executable, "-c", script, *args],
+        cwd=str(_BACKEND_ROOT),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, (
+        f"multiprocess writer subprocess failed:\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+
+
+_HTTP_HISTOGRAM_WRITER = """
+import sys
+from prometheus_client import Histogram
+
+requests = int(sys.argv[1])
+# Same name prometheus_fastapi_instrumentator's default instrumentation uses
+# -- the exact metric behind the #1240 demo alert (see the diagnostic query
+# in that issue: sum(http_request_duration_seconds_count{...})).
+h = Histogram("http_request_duration_seconds", "request duration", ["handler"])
+for _ in range(requests):
+    h.labels(handler="/tiles/{z}/{x}/{y}").observe(0.05)
+"""
+
+
+def test_multiprocess_histogram_sums_across_simulated_workers(tmp_path):
+    """fix(#1240): a scrape used to see one worker's counter, not the fleet's.
+
+    Two subprocesses simulate two uvicorn workers recording HTTP requests
+    against the SAME histogram name under one PROMETHEUS_MULTIPROC_DIR (7
+    requests, then 3). Before the fix a scrape landed on whichever worker
+    answered -- 7 or 3, sawtoothing between the two on successive scrapes,
+    which Prometheus reads as a counter reset. Merging via
+    multiprocess.MultiProcessCollector must report the true total, 10, and
+    that total must be stable (idempotent) across repeated reads without new
+    writes -- the monotonicity rate() depends on.
+    """
+    multiproc_dir = str(tmp_path)
+    _run_multiprocess_writer(multiproc_dir, _HTTP_HISTOGRAM_WRITER, "7")
+    _run_multiprocess_writer(multiproc_dir, _HTTP_HISTOGRAM_WRITER, "3")
+
+    from prometheus_client import CollectorRegistry, multiprocess
+
+    def _scrape_count() -> float:
+        registry = CollectorRegistry()
+        multiprocess.MultiProcessCollector(registry, path=multiproc_dir)
+        families = {f.name: f for f in registry.collect()}
+        counts = [
+            s.value
+            for s in families["http_request_duration_seconds"].samples
+            if s.name == "http_request_duration_seconds_count"
+        ]
+        return sum(counts)
+
+    first_scrape = _scrape_count()
+    assert first_scrape == 10.0
+    assert first_scrape not in (7.0, 3.0)
+
+    # A second scrape with no new writes must read the same total -- the
+    # multiprocess files are additive state, not consumed by reading them.
+    assert _scrape_count() == first_scrape
+
+
+_RSS_GAUGE_WRITER = """
+import os
+from prometheus_client import Gauge
+
+g = Gauge("geolens_worker_rss_bytes", "rss", ["pid"])
+g.labels(pid=str(os.getpid())).set(int(os.environ["_TEST_RSS_BYTES"]))
+"""
+
+
+def test_multiprocess_rss_gauge_shows_every_live_worker(tmp_path):
+    """fix(#651) acceptance: `geolens_worker_rss_bytes` shows every live pid
+    in one scrape, not whichever single worker answered it.
+    """
+    multiproc_dir = str(tmp_path)
+    env_base = {**os.environ, "PROMETHEUS_MULTIPROC_DIR": multiproc_dir}
+
+    values = (100 * 1024 * 1024, 150 * 1024 * 1024)
+    for rss_bytes in values:
+        result = subprocess.run(
+            [sys.executable, "-c", _RSS_GAUGE_WRITER],
+            cwd=str(_BACKEND_ROOT),
+            env={**env_base, "_TEST_RSS_BYTES": str(rss_bytes)},
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode == 0, result.stderr
+
+    from prometheus_client import CollectorRegistry, multiprocess
+
+    registry = CollectorRegistry()
+    multiprocess.MultiProcessCollector(registry, path=multiproc_dir)
+    families = {f.name: f for f in registry.collect()}
+    samples = [
+        s
+        for s in families["geolens_worker_rss_bytes"].samples
+        if s.name == "geolens_worker_rss_bytes"
+    ]
+
+    # Two distinct worker processes, both visible in the one merged scrape.
+    assert {s.labels["pid"] for s in samples}.__len__() == 2
+    assert sorted(s.value for s in samples) == sorted(values)
+
+
+_POOL_GAUGE_WRITER = """
+import sys
+from app.observability.metrics.pool import db_pool_checkedout
+
+db_pool_checkedout.set(float(sys.argv[1]))
+"""
+
+
+def test_multiprocess_pool_gauge_uses_livesum_not_per_pid(tmp_path):
+    """fix(#651): pool.py gauges declare multiprocess_mode='livesum' so a
+    scrape keeps returning ONE series -- the fleet total across live workers
+    -- instead of the default 'all' mode auto-labelling by pid and silently
+    multiplying the metric's cardinality (which would break any existing
+    alert/dashboard expression reading the bare metric name, e.g.
+    GeoLensDbPoolSaturated in infra/monitoring/alerts.yml).
+    """
+    assert db_pool_checkedout._multiprocess_mode == "livesum"
+    assert db_pool_checkedin._multiprocess_mode == "livesum"
+    assert db_pool_overflow._multiprocess_mode == "livesum"
+    assert db_pool_size._multiprocess_mode == "livesum"
+
+    multiproc_dir = str(tmp_path)
+    # Two workers each report their own connection pool's checked-out count.
+    _run_multiprocess_writer(multiproc_dir, _POOL_GAUGE_WRITER, "3")
+    _run_multiprocess_writer(multiproc_dir, _POOL_GAUGE_WRITER, "5")
+
+    from prometheus_client import CollectorRegistry, multiprocess
+
+    registry = CollectorRegistry()
+    multiprocess.MultiProcessCollector(registry, path=multiproc_dir)
+    families = {f.name: f for f in registry.collect()}
+    samples = [
+        s
+        for s in families["geolens_db_pool_checkedout"].samples
+        if s.name == "geolens_db_pool_checkedout"
+    ]
+
+    # One series (no pid label), summed across the two simulated workers.
+    assert len(samples) == 1
+    assert samples[0].value == 8.0
+    assert "pid" not in samples[0].labels
+
+
+def test_shutdown_worker_metrics_marks_process_dead_when_multiprocess_active():
+    """fix(#1240, #651): a recycled worker (UVICORN_MAX_REQUESTS, #643) must
+    drop its own multiprocess files on shutdown, or a respawn leaves a stale
+    series that keeps being summed into every future scrape.
+    """
+    with (
+        patch.dict(os.environ, {"PROMETHEUS_MULTIPROC_DIR": "/tmp/whatever"}),
+        patch("prometheus_client.multiprocess.mark_process_dead") as mock_mark,
+    ):
+        shutdown_worker_metrics()
+    mock_mark.assert_called_once_with(os.getpid())
+
+
+def test_shutdown_worker_metrics_noop_without_multiprocess_dir():
+    """Dev's single-worker default has no PROMETHEUS_MULTIPROC_DIR set --
+    shutdown must not try to mark anything dead (mark_process_dead requires
+    the directory to exist and would raise otherwise).
+    """
+    env_without_var = {
+        k: v for k, v in os.environ.items() if k != "PROMETHEUS_MULTIPROC_DIR"
+    }
+    with (
+        patch.dict(os.environ, env_without_var, clear=True),
+        patch("prometheus_client.multiprocess.mark_process_dead") as mock_mark,
+    ):
+        shutdown_worker_metrics()
+    mock_mark.assert_not_called()

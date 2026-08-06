@@ -341,6 +341,11 @@ services:
       UVICORN_WORKERS: "${UVICORN_WORKERS:-1}"
       UVICORN_TIMEOUT_KEEP_ALIVE: "${UVICORN_TIMEOUT_KEEP_ALIVE:-5}"
       UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN: "${UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN:-30}"
+      # fix(#1240, #651): prometheus_client multiprocess mode, api service only
+      # (the worker's separate /metrics stays single-process — see #651). A
+      # subdirectory of the api service's tmpfs /tmp mount, so it never
+      # survives a container restart carrying stale per-pid files.
+      PROMETHEUS_MULTIPROC_DIR: "${PROMETHEUS_MULTIPROC_DIR:-/tmp/prometheus-multiproc}"
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:8080}
       PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8080/api}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}

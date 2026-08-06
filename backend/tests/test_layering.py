@@ -1864,7 +1864,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#836): the five path-gated additions. Caps are exact (zero headroom),
     # matching the #435 convention: growth needs a reviewed carve-out here,
     # shrinking must lower the cap in the same commit.
-    "backend/app/api/main.py": 1292,
+    # fix(#1240, #651): +4 — import shutdown_worker_metrics and call it in the
+    # lifespan shutdown block so a recycled uvicorn worker drops its
+    # prometheus_client multiprocess mmap files instead of leaving a stale
+    # series for the next scrape to keep summing. Cap 1292 -> 1296, exact.
+    "backend/app/api/main.py": 1296,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative

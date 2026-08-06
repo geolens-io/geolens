@@ -653,7 +653,13 @@ happily (and wrongly) accept.
 ### Metrics & alerting (Prometheus / Grafana)
 
 Metrics are exposed on **two separate endpoints** — the API and the worker each
-run their own:
+run their own. The api service (only) runs multiple uvicorn workers in
+production and is scraped correctly under that fan-out because
+`docker-compose.yml`/`docker-compose.prod.yml` set `PROMETHEUS_MULTIPROC_DIR`
+for it by default (fix #1240 / #651); a bespoke deployment that runs the api
+image outside these compose files with `UVICORN_WORKERS>1` needs to set that
+same env var to a writable, container-local directory or every scrape reverts
+to seeing one arbitrary worker.
 
 | Source | On the Compose network | Host mapping | Exports |
 |---|---|---|---|
@@ -700,14 +706,16 @@ targets just need network reach to `api:8000` and `worker:8001`.
 
 Each API worker samples its own RSS from `/proc/self/status` every 60 seconds
 and exports it as the Prometheus gauge `geolens_worker_rss_bytes` (labelled by
-`pid`) on the API `/metrics` endpoint. One caveat when running more than one
-worker: each process has its own metrics registry and a scrape is answered by
-whichever worker takes it, so a single scrape reports one worker's gauge and
-successive scrapes may alternate pid series — or keep reaching the same worker
-and never observe the one that is growing (multiprocess aggregation is tracked
-in #651). The structured log lines the same sampler writes are therefore the
-authoritative per-worker signal, and a growth curve exists in
-`docker compose logs api` even if `/metrics` is never scraped:
+`pid`) on the API `/metrics` endpoint. The api service runs in
+`prometheus_client` multiprocess mode (`PROMETHEUS_MULTIPROC_DIR`, fix #1240 /
+#651): every live worker's gauge is present in a single scrape, and HTTP
+request counters/histograms sum across workers instead of alternating between
+per-process values. Before this fix, a scrape only ever saw one worker, so
+successive scrapes could sawtooth between unrelated running totals and
+Prometheus read the downward steps as counter resets. The structured log
+lines the RSS sampler writes remain useful as a secondary signal independent
+of scraping — a growth curve exists in `docker compose logs api` even if
+`/metrics` is never scraped:
 
 | Log message | Level | Meaning |
 |---|---|---|

@@ -113,6 +113,23 @@ case "${GEOLENS_API_RUN_MIGRATIONS:-true}" in
         ;;
 esac
 
+# fix(#1240, #651): clear stale prometheus_client multiprocess mmap files
+# before any worker starts. PROMETHEUS_MULTIPROC_DIR is only ever set on the
+# api service (see #651: the worker's own /metrics endpoint stays
+# single-process and is intentionally unaffected). Runs once here, in the
+# parent process before uvicorn forks its workers, so a leftover .db file
+# from a previous container generation (e.g. a different UVICORN_WORKERS
+# topology) can never pollute this generation's Counter/Histogram sums --
+# multiprocess.MultiProcessCollector aggregates every *.db file under the
+# directory regardless of which process generation wrote it. The directory
+# itself lives on the api service's tmpfs /tmp mount, so a container restart
+# already discards it; this guards the case an operator points the var at a
+# non-ephemeral path instead.
+if [ -n "${PROMETHEUS_MULTIPROC_DIR:-}" ]; then
+    mkdir -p "${PROMETHEUS_MULTIPROC_DIR}"
+    rm -f "${PROMETHEUS_MULTIPROC_DIR}"/*.db 2>/dev/null || true
+fi
+
 if [ "$#" -eq 0 ]; then
     set -- sh -c "uv run --no-dev uvicorn app.api.main:app --host 0.0.0.0 --port 8000"
 fi
