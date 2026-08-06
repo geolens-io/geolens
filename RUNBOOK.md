@@ -1321,59 +1321,87 @@ on every batched commit inside the delete loop):
 CUTOFF=$(date -u -d '-90 days' +%Y-%m-%dT%H:%M:%SZ)
 ```
 
-Every `docker compose exec -T db psql ...` command in this section assumes
-the bundled Postgres container. Managed/external Postgres
-([§3](#3-restore--managed--external-postgres-mode)): drop the
-`docker compose exec -T db` prefix and connect `psql` directly instead,
-passing your provider's `-h`, `-p`, and `-U` (the same substitution used in
-§2 and §6) — for example `psql -h <host> -p <port> -U "$POSTGRES_USER" -d
-"$POSTGRES_DB"`, or `psql "$DATABASE_URL_OVERRIDE"` if `.env` already has the
-migrator credential set. The HTTP export commands further down are
-unaffected either way — they go through the API, not a direct DB connection.
+Every SQL step below runs through one `$PSQL` command array — set it once
+and every command that follows uses `"${PSQL[@]}"` instead of repeating a
+connection prefix that differs by deployment mode:
 
-If this deployment uses per-tenant host routing (more than one row in
-`catalog.tenants`), the HTTP export below is already scoped to whichever
-tenant's host you call it against, but the SQL delete that follows connects
-directly as `$POSTGRES_USER` (bypassing RLS) and has no such scope by
-default — add the tenant filter shown below, or you will export one
-tenant's window and delete every tenant's history that predates it. Resolve
-the tenant's id from its slug first:
+```bash
+# Bundled Postgres (default):
+PSQL=(docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB")
+
+# Managed/external Postgres (§3): there is no `db` container to exec into.
+# Connect directly instead — uncomment ONE of these and comment out the
+# bundled line above:
+# PSQL=(psql -h <host> -p <port> -U "$POSTGRES_USER" -d "$POSTGRES_DB")
+# PSQL=(psql "$DATABASE_URL_OVERRIDE")   # if .env already has this set
+```
+
+The HTTP export commands further down are unaffected by this choice either
+way — they go through the API, not a direct DB connection.
+
+**Choose a tenant-scoping mode below and follow only that branch through the
+count and delete steps.** Do not mix them, and do not treat an empty
+`$TENANT_ID` as "must mean single-tenant" — that assumption is exactly what
+lets a mistyped slug or a failed lookup silently escalate into an unscoped,
+cross-tenant delete. Each branch is a fully separate, explicit set of
+commands with no shared fallback between them.
+
+#### Per-tenant host routing (more than one row in `catalog.tenants`)
+
+The HTTP export below is already scoped to whichever tenant's host you call
+it against, but the SQL delete that follows connects directly as
+`$POSTGRES_USER` (bypassing RLS) and has no such scope by default — without
+this branch you would export one tenant's window and delete every tenant's
+history that predates it. Resolve the tenant's id from its slug and **stop
+if the lookup returns nothing**:
 
 ```bash
 TENANT_SLUG=<your-tenant-slug>
-TENANT_ID=$(docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
-  "SELECT id FROM catalog.tenants WHERE slug = '$TENANT_SLUG'")
+TENANT_ID=$("${PSQL[@]}" -tAc "SELECT id FROM catalog.tenants WHERE slug = '$TENANT_SLUG'")
+if [ -z "$TENANT_ID" ]; then
+  echo "No tenant found for slug '$TENANT_SLUG' -- aborting rather than" \
+       "falling through to an unscoped, all-tenants run" >&2
+  exit 1
+fi
+ARCHIVE_TAG="${TENANT_SLUG}-$(date -u +%Y%m%dT%H%M%SZ)"
 ```
 
-Single-tenant deployments: skip that step: `catalog.audit_logs.tenant_id` is
-NULL on every row (single-tenant never stamps it) and every SQL snippet
-below already tolerates an empty `$TENANT_ID`. Set `TENANT_SLUG=default` (or
-any fixed label) instead, so the archive filenames below still get a stable
-tag.
+#### Single-tenant deployments (or a deliberately unscoped run)
+
+`catalog.audit_logs.tenant_id` is NULL on every row here (single-tenant never
+stamps it), so there is nothing to filter by. This branch never resolves or
+reads a `$TENANT_ID` at all — it is a separate set of commands below, not a
+fallback the per-tenant branch reaches by leaving a variable unset:
+
+```bash
+ARCHIVE_TAG="default-$(date -u +%Y%m%dT%H%M%SZ)"
+```
 
 Every archive filename in this procedure must be unique per tenant and per
 run — two tenants exported on the same day, or the same tenant exported
-twice, would otherwise both write `audit-archive-YYYYMMDD.csv`, and the
-second `curl -o` silently truncates the first tenant's only copy (possibly
-after that tenant's rows are already deleted). Build one tag and reuse it:
-
-```bash
-ARCHIVE_TAG="${TENANT_SLUG}-$(date -u +%Y%m%dT%H%M%SZ)"
-```
+twice, would otherwise both write the same filename, and the second
+`curl -o` silently truncates the first tenant's only copy (possibly after
+that tenant's rows are already deleted). `$ARCHIVE_TAG` above exists to
+prevent that; every export filename below reuses it.
 
 **Count before you export.** The export endpoint caps at 100,000 rows per
 call — silently. A window with more matching rows than that returns only the
 100,000 newest ones in it, and deleting the full window afterward would
-discard rows that were never in the archive. Check first:
+discard rows that were never in the archive. Check first, using the count
+command for the branch you chose above:
 
 ```bash
-docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
+# Per-tenant host routing (uses the validated, non-empty $TENANT_ID above):
+"${PSQL[@]}" -tAc \
   "SELECT count(*) FROM catalog.audit_logs
-   WHERE created_at <= '$CUTOFF'
-     AND (NULLIF('$TENANT_ID', '')::uuid IS NULL OR tenant_id = NULLIF('$TENANT_ID', '')::uuid)"
+   WHERE created_at <= '$CUTOFF' AND tenant_id = '$TENANT_ID'::uuid"
 ```
 
-(`NULLIF('$TENANT_ID', '')` turns an empty `$TENANT_ID` into SQL `NULL` *before* the `::uuid` cast runs — casting the empty string itself, e.g. `''::uuid`, is invalid input and errors regardless of which side of the `OR` would end up mattering.)
+```bash
+# Single-tenant / deliberately unscoped (no tenant predicate at all):
+"${PSQL[@]}" -tAc \
+  "SELECT count(*) FROM catalog.audit_logs WHERE created_at <= '$CUTOFF'"
+```
 
 Use `<=`, not `<`, and use it consistently in every count/export/delete step below.
 The export endpoint's `date_to` filter is inclusive (`created_at <= date_to`,
@@ -1464,38 +1492,67 @@ Only once every sub-window is exported, confirmed to be a real JSON array,
 and verified by count does the full window have a complete archive —
 proceed to the delete below.
 
-Then delete the archived window, using the identical `$CUTOFF` and tenant
-scope from above. Run this from a low-traffic maintenance window: the
-table's only DELETE-supporting index is
-`ix_catalog_audit_logs_created_action_resource` (`created_at DESC, action,
-resource_type`), so an unbounded `DELETE ... WHERE created_at <= ...` on a
-multi-million-row table can hold locks and bloat the table for a while.
-Batch it:
+Then delete the archived window, using the identical `$CUTOFF` and the SAME
+branch (per-tenant or single-tenant/unscoped) you used for the count above —
+run this from a low-traffic maintenance window: the table's only
+DELETE-supporting index is `ix_catalog_audit_logs_created_action_resource`
+(`created_at DESC, action, resource_type`), so an unbounded
+`DELETE ... WHERE created_at <= ...` on a multi-million-row table can hold
+locks and bloat the table for a while. Batch it.
 
 `psql`'s `-v`/`:name` substitution does not reach inside a `DO $$...$$` body —
 per the [psql docs](https://www.postgresql.org/docs/current/app-psql.html#APP-PSQL-VARIABLES),
 variable interpolation is skipped inside quoted SQL literals, and a
-dollar-quoted block is one. Pass the values through session GUCs instead,
-which the PL/pgSQL body reads with `current_setting()` — that call happens
-at execution time, outside the literal, so it works:
+dollar-quoted block is one. Pass `$CUTOFF` through a session GUC instead,
+which the PL/pgSQL body reads with `current_setting()` — that call happens at
+execution time, outside the literal, so it works. The two branches below are
+genuinely separate commands, not one command with a variable that happens to
+be empty — the per-tenant delete's `WHERE` clause hard-codes
+`tenant_id = tenant_uuid` with no `OR` fallback, so there is no path from a
+missing or malformed `$TENANT_ID` into an unscoped delete; that failure was
+already caught by the `exit 1` above, before this command is ever reached:
 
 ```bash
-docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-  -v cutoff="'$CUTOFF'" -v tenant_id="'$TENANT_ID'" <<'SQL'
+# Per-tenant host routing:
+"${PSQL[@]}" -v cutoff="'$CUTOFF'" -v tenant_id="'$TENANT_ID'" <<'SQL'
 SET geolens.retention_cutoff = :cutoff;
 SET geolens.retention_tenant = :tenant_id;
 DO $$
 DECLARE
   deleted_count integer;
   cutoff_ts timestamptz := current_setting('geolens.retention_cutoff')::timestamptz;
-  tenant_uuid uuid := NULLIF(current_setting('geolens.retention_tenant'), '')::uuid;
+  tenant_uuid uuid := current_setting('geolens.retention_tenant')::uuid;
 BEGIN
   LOOP
     DELETE FROM catalog.audit_logs
     WHERE id IN (
       SELECT id FROM catalog.audit_logs
       WHERE created_at <= cutoff_ts
-        AND (tenant_uuid IS NULL OR tenant_id = tenant_uuid)
+        AND tenant_id = tenant_uuid
+      LIMIT 5000
+    );
+    GET DIAGNOSTICS deleted_count = ROW_COUNT;
+    EXIT WHEN deleted_count = 0;
+    COMMIT;
+  END LOOP;
+END $$;
+SQL
+```
+
+```bash
+# Single-tenant / deliberately unscoped (no tenant predicate at all):
+"${PSQL[@]}" -v cutoff="'$CUTOFF'" <<'SQL'
+SET geolens.retention_cutoff = :cutoff;
+DO $$
+DECLARE
+  deleted_count integer;
+  cutoff_ts timestamptz := current_setting('geolens.retention_cutoff')::timestamptz;
+BEGIN
+  LOOP
+    DELETE FROM catalog.audit_logs
+    WHERE id IN (
+      SELECT id FROM catalog.audit_logs
+      WHERE created_at <= cutoff_ts
       LIMIT 5000
     );
     GET DIAGNOSTICS deleted_count = ROW_COUNT;
