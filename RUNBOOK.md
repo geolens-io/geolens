@@ -20,6 +20,7 @@ documentation.
 5. [Incident response — data loss](#5-incident-response--data-loss)
 6. [Major PostgreSQL version upgrade (17 → 18)](#6-major-postgresql-version-upgrade-17--18)
 7. [Schema rollback](#7-schema-rollback)
+8. [Audit log retention](#8-audit-log-retention)
 
 ---
 
@@ -1275,3 +1276,86 @@ Two further migrations refuse on downgrade for the same reason (blocking data
 exists that the older schema cannot represent safely): `0010` while GitHub
 OAuth providers exist, and `0005` while tenant-scoped data exists. Both print
 their own remediation in the error message; neither is auto-coerced.
+
+---
+
+## 8. Audit log retention
+
+`catalog.audit_logs` has no built-in expiry: every login, dataset mutation,
+share change, and export is a permanent row (see `AGENTS.md`'s Security
+pre-commit checklist and `backend/app/modules/audit/router.py`'s module
+docstring, which already flags that the table can reach millions of rows on a
+busy instance). Community ships bounded CSV/JSON export
+(`GET /admin/audit-logs/export/{format}`, capped at 100,000 rows per request)
+but no automatic pruning — an operator who wants a retention window applies it
+manually. This section is that manual procedure, not an in-app feature: an
+in-app pruning endpoint means a new destructive-write surface (Rule 1 of the
+Security pre-commit checklist, plus RBAC and rate-limit review for a
+delete-many endpoint), and a manual SQL window is the smaller, auditable
+surface for a table whose entire purpose is being an audit trail.
+
+### Deciding on a window
+
+There is no default; pick a retention period your compliance posture
+requires (30/90/365 days are common). Whatever you pick, keep two things in
+mind:
+- `dataset.download_cog`, `feature.*`, and `dataset.view` rows are usually the
+  bulk of the table on an active instance — high-frequency, low-value-per-row
+  events. A shorter window for those and a longer one for account/security
+  events (`user.login.*`, `user.logout`, `user.change_password`,
+  `oauth_provider.*`) is a reasonable split if your regulatory requirement
+  distinguishes between them.
+- The export endpoint is the archive step. Deleting rows you have not
+  exported is not "retention", it's data loss — always export the window you
+  are about to delete first.
+
+### Archive-then-delete by age
+
+Export first (adjust `date_to` to your retention boundary; the endpoint
+requires `manage_settings` and streams up to 100,000 rows per call, so a large
+window may need several date-bounded requests):
+
+```bash
+curl -sS -H "Authorization: Bearer $ADMIN_TOKEN" \
+  "https://<your-host>/api/admin/audit-logs/export/csv?date_to=$(date -u -d '-90 days' +%Y-%m-%dT%H:%M:%SZ)" \
+  -o audit-archive-$(date +%Y%m%d).csv
+```
+
+Then delete the exported window. Run this from a low-traffic maintenance
+window: the table's only DELETE-supporting index is
+`ix_catalog_audit_logs_created_action_resource` (`created_at DESC, action,
+resource_type`), so an unbounded `DELETE ... WHERE created_at < ...` on a
+multi-million-row table can hold locks and bloat the table for a while.
+Batch it:
+
+```bash
+docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
+DO $$
+DECLARE
+  deleted_count integer;
+BEGIN
+  LOOP
+    DELETE FROM catalog.audit_logs
+    WHERE id IN (
+      SELECT id FROM catalog.audit_logs
+      WHERE created_at < now() - interval '90 days'
+      LIMIT 5000
+    );
+    GET DIAGNOSTICS deleted_count = ROW_COUNT;
+    EXIT WHEN deleted_count = 0;
+    COMMIT;
+  END LOOP;
+END $$;
+SQL
+```
+
+Substitute your chosen window for `interval '90 days'`. Run `VACUUM (ANALYZE)
+catalog.audit_logs;` afterward if the delete removed a large fraction of the
+table — routine autovacuum handles smaller, regular prunes on its own.
+
+**What is actually lost:** the deleted rows, permanently, including the
+ability to answer "who did X on day Y" for anything older than the window.
+That is the intended tradeoff of retention; keep the exported CSV/JSON
+archive (offsite, per §1's guidance on the primary backup) if you need to
+answer that question later without re-enabling unbounded storage in the live
+table.

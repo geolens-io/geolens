@@ -163,7 +163,9 @@ describe('admin card header patterns', () => {
     expect(screen.getByRole('option', { name: 'audit.export' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'dataset.view' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'user.deactivate' })).toBeInTheDocument();
-    expect(screen.queryByRole('option', { name: 'dataset.create' })).not.toBeInTheDocument();
+    // fix(#1230): dataset.create is now a real emitted action (create_dataset
+    // in service_create.py), so it belongs in the filter options.
+    expect(screen.getByRole('option', { name: 'dataset.create' })).toBeInTheDocument();
   });
 
   it('exposes admin overview card titles as h2s and puts refresh in CardAction', () => {

@@ -94,6 +94,45 @@ async def test_dataset_view_creates_audit_log(
 
 
 @pytest.mark.anyio
+async def test_create_empty_dataset_creates_audit_log(
+    client: AsyncClient,
+    admin_auth_header: dict,
+):
+    """fix(#1230): POST /datasets/create/ writes a dataset.create audit log entry.
+
+    create_empty_dataset() calls into create_dataset() (service_create.py),
+    the single function every dataset-creation path funnels through -- this
+    pins the emit for that shared function via its most direct caller.
+    """
+    resp = await client.post(
+        "/datasets/create/",
+        json={
+            "title": "Audit dataset.create target",
+            "columns": [{"name": "name", "type": "text"}],
+        },
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 201, resp.text
+    dataset_id = resp.json()["id"]
+
+    log_resp = await client.get(
+        "/admin/audit-logs/",
+        params={"action": "dataset.create"},
+        headers=admin_auth_header,
+    )
+    assert log_resp.status_code == 200
+    data = log_resp.json()
+    assert data["total"] >= 1
+
+    entries = [log for log in data["logs"] if log.get("resource_id") == dataset_id]
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry["action"] == "dataset.create"
+    assert entry["resource_type"] == "dataset"
+    assert entry["details"]["title"] == "Audit dataset.create target"
+
+
+@pytest.mark.anyio
 async def test_audit_log_resolves_dataset_resource_name(
     client: AsyncClient,
     admin_auth_header: dict,

@@ -276,4 +276,29 @@ async def create_dataset(
     if ing.column_info:
         await auto_detect_relationships(session, dataset.id, record.id, ing.column_info)
 
+    # fix(#1230): dataset.create was invisible in the audit trail — emitted
+    # here, not per-router, so every creation path (ingest registration via
+    # register_existing_table, file-upload ingest via tasks_common, layer/
+    # table creation, and the empty-dataset endpoint via
+    # create_empty_dataset) is covered from the one place they all funnel
+    # through, instead of duplicating — and risking missing — the call at
+    # each call site. No ip_address here: this is a domain-layer function
+    # with no Request, matching the existing reupload.commit precedent
+    # (tasks_common.py) which also emits without one.
+    from app.modules.audit.service import (
+        AuditEvent,
+        audit_emit,
+    )  # LAZY — preserved per D-17
+
+    await audit_emit(
+        session,
+        AuditEvent(
+            user_id=created_by,
+            action="dataset.create",
+            resource_type="dataset",
+            resource_id=dataset.id,
+            details={"title": title, "source_format": ing.source_format},
+        ),
+    )
+
     return dataset

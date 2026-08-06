@@ -56,6 +56,13 @@ const RESOURCE_ROUTES: Record<string, string> = {
 // Canonical action strings currently emitted by audited application paths. Keep
 // the exact stored values visible so operators can correlate filters with API
 // responses and SIEM rules instead of relying on stale display-only aliases.
+//
+// fix(#1230): kept in sync by hand against the backend's authoritative
+// registry (backend/app/modules/audit/actions.py, enforced there by
+// test_audit_action_registry.py) — this array itself is not generated. The
+// four `layer.*` entries removed here (layer.add, layer.remove,
+// layer.reorder, layer.bulk_remove) were ghosts: builder layer edits write
+// to map edit history, not audit_logs, so nothing ever emitted them.
 const CURRENT_AUDIT_ACTIONS = [
   'api_key.create',
   'api_key.revoke',
@@ -69,6 +76,9 @@ const CURRENT_AUDIT_ACTIONS = [
   'collection.update',
   'config_export',
   'config_import',
+  'connector.discover',
+  'connector.ingest_dispatch',
+  'dataset.create',
   'dataset.delete',
   'dataset.download_cog',
   'dataset.export',
@@ -84,14 +94,10 @@ const CURRENT_AUDIT_ACTIONS = [
   'feature.update',
   'job.cleanup_stale',
   'job.retry',
-  'layer.add',
   'layer.add_column',
   'layer.alter_column_type',
-  'layer.bulk_remove',
   'layer.drop_column',
-  'layer.remove',
   'layer.rename_column',
-  'layer.reorder',
   'map.admin_share_revoke',
   'map.add_layer',
   'map.bulk_remove_layers',
@@ -127,6 +133,9 @@ const CURRENT_AUDIT_ACTIONS = [
   'user.deactivate',
   'user.delete',
   'user.export',
+  'user.login.failure',
+  'user.login.success',
+  'user.logout',
   'user.register',
   'user.reject',
   'user.update',

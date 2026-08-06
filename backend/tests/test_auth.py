@@ -188,6 +188,107 @@ class TestLogin:
 
 
 # ---------------------------------------------------------------------------
+# Login/logout audit tests (fix #1230)
+# ---------------------------------------------------------------------------
+
+
+class TestLoginAudit:
+    """Password login success/failure and logout were invisible in the audit
+    trail before #1230 -- only the OAuth path emitted login events."""
+
+    async def test_login_success_creates_audit_log(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """A successful password login writes a user.login.success row."""
+        resp = await client.post(
+            "/auth/login",
+            data={"username": ADMIN_USER, "password": ADMIN_PASS},
+        )
+        assert resp.status_code == 200
+
+        log_resp = await client.get(
+            "/admin/audit-logs/",
+            params={"action": "user.login.success"},
+            headers=admin_auth_header,
+        )
+        assert log_resp.status_code == 200
+        data = log_resp.json()
+        assert data["total"] >= 1
+        assert any(log["username"] == ADMIN_USER for log in data["logs"])
+
+    async def test_login_failure_creates_audit_log(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """A wrong password writes a user.login.failure row.
+
+        user_id must be None: LocalAuthProvider deliberately does not
+        disclose whether the username exists, and the audit row must not
+        either. The submitted password must never appear in details.
+        """
+        resp = await client.post(
+            "/auth/login",
+            data={"username": ADMIN_USER, "password": "definitely-the-wrong-password"},
+        )
+        assert resp.status_code == 401
+
+        log_resp = await client.get(
+            "/admin/audit-logs/",
+            params={"action": "user.login.failure"},
+            headers=admin_auth_header,
+        )
+        assert log_resp.status_code == 200
+        data = log_resp.json()
+        assert data["total"] >= 1
+        entry = data["logs"][0]
+        assert entry["user_id"] is None
+        assert "password" not in (entry["details"] or {})
+
+    async def test_login_failure_nonexistent_user_creates_audit_log(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """A login attempt for a username that does not exist is also audited."""
+        unique_username = f"nonexistent_user_audit_{uuid.uuid4().hex[:8]}"
+        resp = await client.post(
+            "/auth/login",
+            data={"username": unique_username, "password": "anypass123"},
+        )
+        assert resp.status_code == 401
+
+        # search filters on action/resource_type/username-of-a-known-user, not
+        # JSONB details, so filter client-side on the attempted username.
+        log_resp = await client.get(
+            "/admin/audit-logs/",
+            params={"action": "user.login.failure", "limit": 200},
+            headers=admin_auth_header,
+        )
+        assert log_resp.status_code == 200
+        logs = log_resp.json()["logs"]
+        assert any(
+            (log["details"] or {}).get("username") == unique_username for log in logs
+        )
+
+    async def test_logout_creates_audit_log(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """POST /auth/logout writes a user.logout row.
+
+        Logout revokes the token that authorized the call (SEC-S15), so the
+        follow-up admin query needs a freshly minted token.
+        """
+        resp = await client.post("/auth/logout", headers=admin_auth_header)
+        assert resp.status_code == 204
+
+        fresh_headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+        log_resp = await client.get(
+            "/admin/audit-logs/",
+            params={"action": "user.logout"},
+            headers=fresh_headers,
+        )
+        assert log_resp.status_code == 200
+        assert log_resp.json()["total"] >= 1
+
+
+# ---------------------------------------------------------------------------
 # Token / me tests
 # ---------------------------------------------------------------------------
 
