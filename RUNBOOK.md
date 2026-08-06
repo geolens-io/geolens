@@ -1330,13 +1330,26 @@ tenant's window and delete every tenant's history that predates it. Resolve
 the tenant's id from its slug first:
 
 ```bash
+TENANT_SLUG=<your-tenant-slug>
 TENANT_ID=$(docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
-  "SELECT id FROM catalog.tenants WHERE slug = '<your-tenant-slug>'")
+  "SELECT id FROM catalog.tenants WHERE slug = '$TENANT_SLUG'")
 ```
 
 Single-tenant deployments: skip that step: `catalog.audit_logs.tenant_id` is
 NULL on every row (single-tenant never stamps it) and every SQL snippet
-below already tolerates an empty `$TENANT_ID`.
+below already tolerates an empty `$TENANT_ID`. Set `TENANT_SLUG=default` (or
+any fixed label) instead, so the archive filenames below still get a stable
+tag.
+
+Every archive filename in this procedure must be unique per tenant and per
+run — two tenants exported on the same day, or the same tenant exported
+twice, would otherwise both write `audit-archive-YYYYMMDD.csv`, and the
+second `curl -o` silently truncates the first tenant's only copy (possibly
+after that tenant's rows are already deleted). Build one tag and reuse it:
+
+```bash
+ARCHIVE_TAG="${TENANT_SLUG}-$(date -u +%Y%m%dT%H%M%SZ)"
+```
 
 **Count before you export.** The export endpoint caps at 100,000 rows per
 call — silently. A window with more matching rows than that returns only the
@@ -1352,18 +1365,31 @@ docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
 
 (`NULLIF('$TENANT_ID', '')` turns an empty `$TENANT_ID` into SQL `NULL` *before* the `::uuid` cast runs — casting the empty string itself, e.g. `''::uuid`, is invalid input and errors regardless of which side of the `OR` would end up mattering.)
 
+Export as **JSON**, not CSV, for this procedure: the row count is then a
+plain array length, checkable with `jq length`. A CSV line count minus the
+header is not reliable here — `resource_name` values come from user-supplied
+dataset/map/collection titles, which permit literal newlines, and the CSV
+writer preserves those inside a quoted field. A raw `wc -l` can therefore
+undercount a complete archive (embedded newlines inflate the apparent row
+count) or, worse, appear to match a truncated download. If you want a CSV
+copy for human review, export it separately *after* the JSON archive has
+verified clean — never use it as the verification input.
+
 If that count is **at or under 100,000**, one export call covers the whole
 window:
 
 ```bash
 curl -sS -H "Authorization: Bearer $ADMIN_TOKEN" \
-  "https://<your-host>/api/admin/audit-logs/export/csv?date_to=$CUTOFF" \
-  -o audit-archive-$(date +%Y%m%d).csv
+  "https://<your-host>/api/admin/audit-logs/export/json?date_to=$CUTOFF" \
+  -o "audit-archive-${ARCHIVE_TAG}.json"
 ```
 
-Verify the row count you exported (CSV line count minus the header, or the
-JSON array length) equals the count from the query above before proceeding
-to the delete. A mismatch means stop — do not delete.
+Verify the exported row count equals the count from the query above before
+proceeding to the delete. A mismatch means stop — do not delete:
+
+```bash
+jq length "audit-archive-${ARCHIVE_TAG}.json"
+```
 
 If the count is **over 100,000**, one call cannot capture the whole window,
 and narrowing `date_to` alone doesn't help — the export is always the
@@ -1371,17 +1397,19 @@ and narrowing `date_to` alone doesn't help — the export is always the
 forever. Partition the range into disjoint `date_from`/`date_to` sub-windows
 instead (a week or a month at a time, whatever keeps each sub-window under
 100,000 rows given your write volume), export each one, and verify each
-sub-window's exported row count against a COUNT query scoped to that same
-sub-window — for example:
+sub-window's exported row count (`jq length`, same as above) against a COUNT
+query scoped to that same sub-window — for example:
 
 ```bash
 # Repeat with adjacent, non-overlapping date_from/date_to pairs that together
 # cover the full range up to $CUTOFF. Each pair's exported row count must
 # match: SELECT count(*) FROM catalog.audit_logs WHERE created_at >= date_from
-# AND created_at < date_to AND (tenant scope as above).
+# AND created_at < date_to AND (tenant scope as above). <window-start> must
+# also be part of the filename -- distinct sub-windows of the SAME tenant/run
+# still need distinct files.
 curl -sS -H "Authorization: Bearer $ADMIN_TOKEN" \
-  "https://<your-host>/api/admin/audit-logs/export/csv?date_from=<window-start>&date_to=<window-end>" \
-  -o audit-archive-<window-start>.csv
+  "https://<your-host>/api/admin/audit-logs/export/json?date_from=<window-start>&date_to=<window-end>" \
+  -o "audit-archive-${ARCHIVE_TAG}-<window-start>.json"
 ```
 
 Only once every sub-window is exported and verified does the full window

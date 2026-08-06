@@ -39,6 +39,16 @@ def _find_audit_event_actions() -> dict[str, list[str]]:
     call shapes). A non-literal (e.g. a variable) is reported separately so a
     future dynamic action string does not silently pass unchecked — today
     there are none (verified below).
+
+    ``AuditEvent`` is a dataclass, so ``AuditEvent(user_id, "x", "dataset")``
+    (positional) is valid Python and would otherwise find no ``action=``
+    keyword and silently vanish from this scan — the registry/frontend-parity
+    checks would then pass while production emitted an action neither test
+    ever saw. Every real call site in the codebase already uses the keyword
+    form (this scan is itself the proof — see test_every_emitted_action_is_
+    registered's zero false negatives against grep), so a call with no
+    ``action=`` keyword is flagged the same way as a non-literal one rather
+    than silently skipped.
     """
     sites: dict[str, list[str]] = {}
     dynamic: list[str] = []
@@ -59,15 +69,18 @@ def _find_audit_event_actions() -> dict[str, list[str]]:
             )
             if fname != "AuditEvent":
                 continue
-            for kw in node.keywords:
-                if kw.arg != "action":
-                    continue
-                if isinstance(kw.value, ast.Constant) and isinstance(
-                    kw.value.value, str
-                ):
-                    sites.setdefault(kw.value.value, []).append(rel)
-                else:
-                    dynamic.append(f"{rel}:{node.lineno}")
+            action_kw = next((kw for kw in node.keywords if kw.arg == "action"), None)
+            if action_kw is None:
+                dynamic.append(
+                    f"{rel}:{node.lineno} (no action= keyword — positional or "
+                    "missing; use the keyword form)"
+                )
+            elif isinstance(action_kw.value, ast.Constant) and isinstance(
+                action_kw.value.value, str
+            ):
+                sites.setdefault(action_kw.value.value, []).append(rel)
+            else:
+                dynamic.append(f"{rel}:{node.lineno}")
     if dynamic:
         pytest.fail(
             "AuditEvent(action=...) called with a non-literal value — the "
