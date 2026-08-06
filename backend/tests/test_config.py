@@ -719,3 +719,27 @@ class TestSecretStrMasking:
         """empty_str_to_none still applies to SecretStr fields."""
         s = _make_settings(anthropic_api_key="")
         assert s.anthropic_api_key is None
+
+
+class TestPendingJobTimeoutBounds:
+    """fix(#1235 review r5): the SigV4 ceiling, enforced at config load.
+
+    `X-Amz-Expires` may not exceed 604800 seconds (7 days). Above that boto
+    signs happily and S3 rejects every request, so an unbounded setting bought
+    a deployment that booted clean and could not upload anything at all — the
+    worst shape for a config error, because nothing fails until a user tries.
+    """
+
+    def test_the_sigv4_ceiling_is_accepted(self):
+        s = _make_settings(pending_job_timeout_seconds=604800)
+        assert s.pending_job_timeout_seconds == 604800
+
+    def test_past_the_sigv4_ceiling_is_refused(self):
+        with pytest.raises(Exception) as excinfo:
+            _make_settings(pending_job_timeout_seconds=604801)
+        assert "pending_job_timeout_seconds" in str(excinfo.value)
+
+    def test_zero_is_still_refused(self):
+        """The pre-existing gt=0 bound must survive the new upper one."""
+        with pytest.raises(Exception):
+            _make_settings(pending_job_timeout_seconds=0)

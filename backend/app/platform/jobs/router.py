@@ -286,6 +286,19 @@ async def _sweep_expired_presigned_staging(
     so the only asymmetric outcome is marking a FAILED delete as done, which
     leaks the object permanently. A crash between the two costs one redundant
     delete on the next pass instead, which is a no-op.
+
+    KNOWN GAP (#1235 review r5), bounded to one operator action: the window is
+    computed from the CURRENT setting, but a live URL was signed against the
+    setting in force when it was issued. Lower `pending_job_timeout_seconds`
+    and restart while presigned uploads are in flight, and this sweep runs
+    early against those older, longer-lived URLs — it reaps, sets the marker,
+    and a still-valid PUT afterwards recreates an object every later pass then
+    skips. Persisting the issued deadline per job would close it, but only for
+    jobs presigned after that ships, which is not the set at risk during the
+    upgrade that introduces it; and it costs a JSONB-to-timestamptz cast in the
+    candidate WHERE, where a single malformed value fails the whole sweep. The
+    setting's own comment carries the operator guidance instead: lower it while
+    nothing is in flight, or wait out the previous value.
     """
     cutoff = (now or datetime.now(timezone.utc)) - timedelta(
         seconds=post_expiry_sweep_after_seconds()

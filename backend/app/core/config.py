@@ -98,7 +98,18 @@ class Settings(BaseSettings):
     # platform/jobs because platform/storage has to read it too, and
     # platform/jobs already imports platform/storage, so the reverse import
     # would cycle.
-    pending_job_timeout_seconds: int = Field(default=3600, gt=0)
+    #
+    # fix(#1235 review r5): bounded at the SigV4 ceiling. A presigned URL's
+    # X-Amz-Expires may not exceed 604800 seconds (7 days); above that boto
+    # still signs happily and S3 rejects every request, so an unbounded setting
+    # produced a deployment that booted clean and could not upload at all.
+    #
+    # Lowering it is safe at any time EXCEPT while presigned uploads are in
+    # flight: URLs already issued keep the old, longer life, while the
+    # post-expiry staging sweep immediately starts using the new, shorter
+    # window. Lower it during a quiet period, or wait out the previous value
+    # first. See `_sweep_expired_presigned_staging` in platform/jobs/router.py.
+    pending_job_timeout_seconds: int = Field(default=3600, gt=0, le=604800)
     procrastinate_schema: str = "catalog"
 
     public_app_url: str | None = None

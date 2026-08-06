@@ -728,10 +728,10 @@ async def request_presigned_reupload(
     threshold = settings.presigned_multipart_threshold_mb * 1024 * 1024
 
     part_size = get_catalog_port().ingest_part_size()
-    # fix(#1235 review r3/r4): anchored to the job deadline, computed once for
-    # the whole request and above the multipart branch so a job with no usable
-    # lifetime left is refused before an upload id exists. Same as the upload
-    # door.
+    # fix(#1235 review r3/r4): anchored to the job deadline, and above the
+    # multipart branch so a job with no usable lifetime left is refused before
+    # an upload id exists. This one covers the single-PUT branch; the part loop
+    # signs its own. Same as the upload door.
     url_ttl = get_catalog_port().require_signable_job_lifetime(job.created_at)
 
     if request.file_size > threshold:
@@ -751,7 +751,11 @@ async def request_presigned_reupload(
                     physical_s3_key,
                     upload_id,
                     part_num,
-                    url_ttl,
+                    # fix(#1235 review r5): per SIGNATURE, not once for the
+                    # loop — ExpiresIn counts from each signature's creation,
+                    # so a part signed d seconds in expired d seconds past the
+                    # job deadline. Same as the upload door.
+                    get_catalog_port().require_signable_job_lifetime(job.created_at),
                 )
                 for part_num in range(1, num_parts + 1)
             ]
@@ -763,7 +767,10 @@ async def request_presigned_reupload(
                     upload_id=upload_id,
                     job_id=job.id,
                 )
-            if isinstance(exc, asyncio.CancelledError):
+            # fix(#1235 review r5): an HTTPException from here is the lifetime
+            # refusal and must survive as its own 409; the abort above has
+            # already run. Same as the upload door.
+            if isinstance(exc, (asyncio.CancelledError, HTTPException)):
                 raise
             logger.exception("presigned_reupload_multipart_failed", s3_key=s3_key)
             raise HTTPException(

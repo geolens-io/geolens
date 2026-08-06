@@ -1040,3 +1040,112 @@ async def test_the_door_signs_urls_against_the_job_deadline(
     # the whole 900s window — and crucially NOT the 3600/7200 provider default.
     for ttl in both_doors.signed_ttls:
         assert 890 <= ttl <= 900, both_doors.signed_ttls
+
+
+async def test_each_part_url_is_signed_against_the_deadline_not_the_first_signature(
+    client, admin_auth_header, both_doors, monkeypatch
+) -> None:
+    """fix(#1235 review r5): the once-before-the-loop computation was the bug
+    in miniature, not a conservative shortcut.
+
+    `ExpiresIn` counts from the moment each signature is created, so reusing
+    one remainder across the loop means a part signed d seconds in expires d
+    seconds PAST the job deadline — the same signing-time drift r3 set out to
+    remove, scaled down to the loop's duration. Recomputed per signature, each
+    successive TTL must be strictly SMALLER, because each one ends at the same
+    wall-clock instant.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from app.processing.ingest import presigned as presigned_module
+    from app.processing.ingest import router as ingest_router
+
+    monkeypatch.setattr(settings, "pending_job_timeout_seconds", 3600)
+    monkeypatch.setattr(settings, "presigned_multipart_threshold_mb", 1)
+    # 1 MB parts so a 3 MB payload signs three URLs; the real 10 MB PART_SIZE
+    # would make this a single-part upload and assert nothing about the loop.
+    monkeypatch.setattr(ingest_router, "PART_SIZE", 1024 * 1024)
+
+    class _AdvancingClock:
+        """A clock that jumps 30s per reading, standing in for a slow loop."""
+
+        def __init__(self) -> None:
+            self._base = datetime.now(timezone.utc)
+            self._readings = 0
+
+        def now(self, tz=None):
+            reading = self._base + timedelta(seconds=30 * self._readings)
+            self._readings += 1
+            return reading
+
+    monkeypatch.setattr(presigned_module, "datetime", _AdvancingClock())
+
+    resp = await client.post(
+        "/ingest/upload/presigned",
+        json={
+            "filename": "roads.geojson",
+            "file_size": 3 * 1024 * 1024,
+            "content_type": "application/octet-stream",
+        },
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 201, resp.text
+    ttls = both_doors.signed_ttls
+    assert len(ttls) >= 3, f"expected a multi-part signature loop, got {ttls}"
+    assert all(later < earlier for earlier, later in zip(ttls, ttls[1:])), (
+        f"part TTLs did not shrink across the loop: {ttls} — every part was "
+        "signed with one remainder computed before the loop, so the later "
+        "parts expire that much past the job deadline"
+    )
+
+
+async def test_a_loop_that_outruns_the_window_answers_409_not_502(
+    client, admin_auth_header, both_doors, monkeypatch
+) -> None:
+    """fix(#1235 review r5): the per-signature refusal has to survive the
+    multipart error handler.
+
+    Signing inside the loop means the refusal can now fire mid-loop. That code
+    sits under an `except BaseException` whose job is mapping SDK errors to
+    502, so without the HTTPException passthrough a closed upload window would
+    be reported as "Storage service unavailable" — blaming the provider for
+    the job's own clock. The abort still runs either way.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from app.processing.ingest import presigned as presigned_module
+    from app.processing.ingest import router as ingest_router
+
+    monkeypatch.setattr(settings, "pending_job_timeout_seconds", 900)
+    monkeypatch.setattr(settings, "presigned_multipart_threshold_mb", 1)
+    monkeypatch.setattr(ingest_router, "PART_SIZE", 1024 * 1024)
+
+    class _RunawayClock:
+        """Burns 400s per reading, so the window closes inside the loop."""
+
+        def __init__(self) -> None:
+            self._base = datetime.now(timezone.utc)
+            self._readings = 0
+
+        def now(self, tz=None):
+            reading = self._base + timedelta(seconds=400 * self._readings)
+            self._readings += 1
+            return reading
+
+    monkeypatch.setattr(presigned_module, "datetime", _RunawayClock())
+
+    resp = await client.post(
+        "/ingest/upload/presigned",
+        json={
+            "filename": "roads.geojson",
+            "file_size": 3 * 1024 * 1024,
+            "content_type": "application/octet-stream",
+        },
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 409, resp.text
+    assert not both_doors.live_upload_ids, (
+        "the initiated multipart upload was left live after the refusal"
+    )

@@ -250,12 +250,11 @@ async def request_presigned_upload(
     physical_s3_key = resolve_current_storage_key(s3_key)
     threshold = settings.presigned_multipart_threshold_mb * 1024 * 1024
     # fix(#1235 review r3): anchor every signature to the JOB deadline, not to
-    # signing time. Computed once for the whole request, so the later parts of
-    # a many-part file inherit the earlier deadline — conservative in the right
-    # direction, and no URL outlives the job by however long the loop took.
+    # signing time.
     #
     # fix(#1235 review r4): and above the multipart branch, so a job with no
     # usable lifetime left is refused before an upload id is ever initiated.
+    # This one covers the single-PUT branch; the part loop signs its own.
     url_ttl = require_signable_job_lifetime(job.created_at)
 
     if request.file_size > threshold:
@@ -275,7 +274,13 @@ async def request_presigned_upload(
                     physical_s3_key,
                     upload_id,
                     part_num,
-                    url_ttl,
+                    # fix(#1235 review r5): recomputed PER SIGNATURE. Computing
+                    # it once before the loop was not conservative, it was the
+                    # bug in miniature: ExpiresIn counts from the moment each
+                    # signature is created, so a part signed d seconds into the
+                    # loop expired d seconds PAST the job deadline. Recomputing
+                    # is a datetime subtraction, and the caching bought nothing.
+                    require_signable_job_lifetime(job.created_at),
                 )
                 for part_num in range(1, num_parts + 1)
             ]
@@ -287,7 +292,11 @@ async def request_presigned_upload(
                     upload_id=upload_id,
                     job_id=job.id,
                 )
-            if isinstance(exc, asyncio.CancelledError):
+            # fix(#1235 review r5): an HTTPException from here is the lifetime
+            # refusal, which must survive as its own 409 — the abort above has
+            # already run, and mapping it to "Storage service unavailable"
+            # would blame the provider for the job's clock.
+            if isinstance(exc, (asyncio.CancelledError, HTTPException)):
                 raise
             logger.exception("presigned_multipart_failed", s3_key=s3_key)
             raise HTTPException(

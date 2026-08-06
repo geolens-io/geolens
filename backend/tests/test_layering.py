@@ -2022,7 +2022,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # so a job with no usable lifetime left is refused before an upload id is
     # ever initiated, which trades two in-branch computations for one hoisted
     # one plus the comment saying why the placement matters.
-    "backend/app/processing/ingest/router.py": 1533,
+    # fix(#1235 review r5): +9 — the part loop recomputes the TTL per
+    # signature (once-before-the-loop expired later parts PAST the deadline),
+    # and the multipart except block re-raises HTTPException so the lifetime
+    # refusal survives as a 409 instead of being reported as a storage outage.
+    "backend/app/processing/ingest/router.py": 1542,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
