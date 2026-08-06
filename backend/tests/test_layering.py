@@ -1694,7 +1694,10 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # fix(#1235 review r3): +5 — the remaining-lifetime delegation, which
         # the reupload door reaches through the port like every other
         # processing helper it uses.
-        "backend/app/platform/extensions/defaults_catalog_port.py": 425,
+        # fix(#1235 review r8): +5 — the sign-with-deadline delegation. The
+        # reupload door hands this to a worker thread, so the whole callable
+        # has to cross the port rather than just the lifetime number.
+        "backend/app/platform/extensions/defaults_catalog_port.py": 430,
         # feat(#683): +58 — run_analysis_preview carries a clip mask DATASET
         # now, which costs a widened signature (one param per line once ruff
         # wraps it) plus the mask's shape and size gates. Those live here on
@@ -2026,7 +2029,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # signature (once-before-the-loop expired later parts PAST the deadline),
     # and the multipart except block re-raises HTTPException so the lifetime
     # refusal survives as a 409 instead of being reported as a storage outage.
-    "backend/app/processing/ingest/router.py": 1542,
+    # fix(#1235 review r8): -2 — signing moved behind sign_url_with_deadline,
+    # which took the per-site reasoning comments with it into presigned.py.
+    # Ratchet DOWN in the same commit, per the no-headroom rule.
+    "backend/app/processing/ingest/router.py": 1540,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901

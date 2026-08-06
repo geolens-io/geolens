@@ -1149,3 +1149,102 @@ async def test_a_loop_that_outruns_the_window_answers_409_not_502(
     assert not both_doors.live_upload_ids, (
         "the initiated multipart upload was left live after the refusal"
     )
+
+
+async def test_scheduler_delay_before_the_thread_runs_does_not_extend_the_url(
+    client, admin_auth_header, both_doors, monkeypatch
+) -> None:
+    """fix(#1235 review r8): the last layer of the same drift.
+
+    r5 recomputed the remaining lifetime per signature, but on the EVENT LOOP,
+    before `run_in_thread_draining` had queued anything. `ExpiresIn` starts
+    counting when boto signs, so whatever sat between scheduling and execution
+    — a saturated executor, a busy loop — pushed expiry that far past the job
+    deadline again.
+
+    The delay is injected where it actually lives: between the router calling
+    `run_in_thread_draining` and the callable running. Computing inside the
+    thread means the signature sees the post-delay clock. Computing before
+    scheduling means it does not, and the URL outlives the job by the delay.
+
+    The clock advances only when this test says so, never per reading, so the
+    assertion does not depend on how many times the code happens to look at it.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from app.processing.ingest import presigned as presigned_module
+    from app.processing.ingest import router as ingest_router
+
+    window = 3600
+    scheduling_delay = 300
+
+    monkeypatch.setattr(settings, "pending_job_timeout_seconds", window)
+
+    class _ManualClock:
+        def __init__(self) -> None:
+            self._base = datetime.now(timezone.utc)
+            self.elapsed = 0
+
+        def now(self, tz=None):
+            return self._base + timedelta(seconds=self.elapsed)
+
+        def advance(self, seconds: int) -> None:
+            self.elapsed += seconds
+
+    clock = _ManualClock()
+    monkeypatch.setattr(presigned_module, "datetime", clock)
+
+    real_run_in_thread = ingest_router.run_in_thread_draining
+
+    async def _delayed_run_in_thread(fn, *args):
+        clock.advance(scheduling_delay)
+        return await real_run_in_thread(fn, *args)
+
+    monkeypatch.setattr(ingest_router, "run_in_thread_draining", _delayed_run_in_thread)
+
+    resp = await client.post(
+        "/ingest/upload/presigned",
+        json={
+            "filename": "roads.geojson",
+            "file_size": len(_VALID_GEOJSON),
+            "content_type": "application/octet-stream",
+        },
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 201, resp.text
+    assert both_doors.signed_ttls, "no signature recorded"
+    signed = both_doors.signed_ttls[-1]
+    assert signed <= window - scheduling_delay, (
+        f"signed {signed}s against a {window}s window after a "
+        f"{scheduling_delay}s scheduling gap — the expiration was computed "
+        "before the thread ran, so the URL outlives the job deadline by the gap"
+    )
+
+
+def test_neither_door_computes_an_expiration_before_scheduling() -> None:
+    """fix(#1235 review r8): the reupload door is a mirror, pinned as one.
+
+    The behavioural test above drives the upload door, where the delay can be
+    injected. This asserts the reupload twin has the same shape, because the
+    two doors have drifted before and the mirror is the half nobody runs.
+
+    The broken shape is specific and greppable: a lifetime computed as an
+    ARGUMENT to the scheduling call, which evaluates on the event loop before
+    the thread exists. Signing must go through `sign_url_with_deadline`.
+    """
+    import inspect
+
+    from app.modules.catalog.datasets.api import router_reupload
+    from app.processing.ingest import router as ingest_router
+
+    for module in (ingest_router, router_reupload):
+        source = inspect.getsource(module)
+        assert "require_signable_job_lifetime(job.created_at)," not in source, (
+            f"{module.__name__} passes a pre-computed lifetime into a signing "
+            "call; it evaluates on the event loop, so any scheduling delay "
+            "lands past the job deadline. Route it through sign_url_with_deadline"
+        )
+        assert "sign_url_with_deadline" in source, (
+            f"{module.__name__} does not sign through sign_url_with_deadline"
+        )

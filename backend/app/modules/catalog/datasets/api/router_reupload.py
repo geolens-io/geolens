@@ -728,11 +728,11 @@ async def request_presigned_reupload(
     threshold = settings.presigned_multipart_threshold_mb * 1024 * 1024
 
     part_size = get_catalog_port().ingest_part_size()
-    # fix(#1235 review r3/r4): anchored to the job deadline, and above the
-    # multipart branch so a job with no usable lifetime left is refused before
-    # an upload id exists. This one covers the single-PUT branch; the part loop
-    # signs its own. Same as the upload door.
-    url_ttl = get_catalog_port().require_signable_job_lifetime(job.created_at)
+    # fix(#1235 review r4): a gate, not a value — every signature below computes
+    # its own expiration inside the signing thread, and this call is here only
+    # so a job with no usable lifetime left is refused before an upload id
+    # exists. The return is deliberately discarded. Same as the upload door.
+    get_catalog_port().require_signable_job_lifetime(job.created_at)
 
     if request.file_size > threshold:
         upload_id: str | None = None
@@ -746,16 +746,16 @@ async def request_presigned_reupload(
                 raise initiation_cancel
             num_parts = math.ceil(request.file_size / part_size)
             urls = [
+                # fix(#1235 review r5/r8): each part computes its own
+                # expiration INSIDE the signing thread. Same as the upload
+                # door; `sign_url_with_deadline` carries the reasoning.
                 await run_in_thread_draining(
+                    get_catalog_port().sign_url_with_deadline,
                     storage.generate_presigned_part_url,
+                    job.created_at,
                     physical_s3_key,
                     upload_id,
                     part_num,
-                    # fix(#1235 review r5): per SIGNATURE, not once for the
-                    # loop — ExpiresIn counts from each signature's creation,
-                    # so a part signed d seconds in expired d seconds past the
-                    # job deadline. Same as the upload door.
-                    get_catalog_port().require_signable_job_lifetime(job.created_at),
                 )
                 for part_num in range(1, num_parts + 1)
             ]
@@ -805,10 +805,11 @@ async def request_presigned_reupload(
         )
     else:
         url = await run_in_thread_draining(
+            get_catalog_port().sign_url_with_deadline,
             storage.generate_presigned_put_url,
+            job.created_at,  # expires with the job, not 3600s from now
             physical_s3_key,
             request.content_type,
-            url_ttl,  # expires with the job, not 3600s from now
         )
         job.user_metadata = {
             "presigned": True,

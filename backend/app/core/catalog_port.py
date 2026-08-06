@@ -80,6 +80,10 @@ class CatalogPort(Protocol):
 
     def require_signable_job_lifetime(self, created_at: Any) -> int: ...
 
+    def sign_url_with_deadline(
+        self, storage_method: Any, created_at: Any, *args: Any
+    ) -> str: ...
+
     async def finalize_presigned_object(
         self,
         *,

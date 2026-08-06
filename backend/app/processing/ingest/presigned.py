@@ -120,10 +120,11 @@ def require_signable_job_lifetime(created_at: datetime) -> int:
     lost to the job's own clock — that is a state conflict, which is what the
     ingest router already answers 409 for elsewhere.
 
-    Both doors call this above the multipart branch, so the common refusal
-    costs nothing — there is no initiated upload id yet. Since r5 they also
-    call it per part signature, where a refusal DOES land inside the multipart
-    try; that handler aborts the upload and re-raises this exception unchanged.
+    Both doors call this above the multipart branch as a gate, so the common
+    refusal costs nothing — there is no initiated upload id yet. Every actual
+    signature also reaches it via `sign_url_with_deadline`, from inside the
+    signing thread, where a refusal DOES land in the multipart try; that
+    handler aborts the upload and re-raises this exception unchanged.
 
     fix(#1235 review r6): the margin lives in `core/config` with the setting
     whose lower bound must equal it, so a timeout that could not clear this
@@ -138,6 +139,29 @@ def require_signable_job_lifetime(created_at: datetime) -> int:
             detail="This upload's time window has closed. Start a new upload.",
         )
     return remaining
+
+
+def sign_url_with_deadline(storage_method, created_at: datetime, *args):
+    """Compute the remaining lifetime and sign, as two adjacent instructions.
+
+    fix(#1235 review r8): a SYNC callable, handed to `run_in_thread_draining`
+    so both halves happen inside the signing thread. Recomputing per signature
+    (r5) fixed the loop's own delay but left one more layer of the same drift:
+    the computation ran on the event loop, and `ExpiresIn` starts counting when
+    boto signs. Any gap between the two — executor saturation, a busy loop, GIL
+    contention before the thread is picked up — pushed expiry that far past the
+    job deadline. Each round of this bug has been a smaller copy of the last.
+
+    This one terminates the recursion rather than shrinking it again: there is
+    no scheduler boundary left between reading the clock and signing, because
+    the two are adjacent statements in one thread. The residual is the time
+    between two adjacent instructions, which no arrangement of code can remove.
+
+    Every storage method here takes `expiration` as its final positional
+    argument, so callers pass the leading arguments and this appends the one
+    that must be computed late.
+    """
+    return storage_method(*args, require_signable_job_lifetime(created_at))
 
 
 def raise_if_over_max_upload_size(actual_size: int, max_size_mb: int) -> None:

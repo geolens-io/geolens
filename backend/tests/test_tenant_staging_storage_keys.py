@@ -300,6 +300,15 @@ async def test_presigned_reupload_round_trip_uses_tenant_provider_key(monkeypatc
     port.finalize_presigned_object = AsyncMock(side_effect=_fake_finalize)
     # fix(#1235 review r3/r4): a real TTL, for the same reason as above.
     port.require_signable_job_lifetime = MagicMock(return_value=1800)
+
+    # fix(#1235 review r8): the door signs through one port call that computes
+    # the expiration inside the signing thread, so this fake has to actually
+    # invoke the storage method. A bare MagicMock would put a mock where the
+    # URL string belongs and the tenant-key assertion below would never run.
+    def _fake_sign(storage_method, _created_at, *args):
+        return storage_method(*args, 1800)
+
+    port.sign_url_with_deadline = MagicMock(side_effect=_fake_sign)
     monkeypatch.setattr(settings, "storage_provider", "s3")
     monkeypatch.setattr(settings, "presigned_multipart_threshold_mb", 100)
 
