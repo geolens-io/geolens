@@ -597,6 +597,109 @@ class TestPostExpirySweep:
         await test_db_session.refresh(refreshed)
         assert "s3_key_reaped" not in (refreshed.user_metadata or {})
 
+    async def test_a_timeout_lowering_restart_no_longer_orphans_the_recreated_object(
+        self, test_db_session, monkeypatch
+    ) -> None:
+        """#1236 repro. An operator lowers ``pending_job_timeout_seconds`` and
+        restarts while a PUT URL signed under the OLD, longer setting is still
+        live. The ordinary pass derives its window from the CURRENT setting,
+        so it reaps and marks the row early; a re-PUT through the still-valid
+        URL then recreates the object. Before this fix the marker exempted
+        the row from every later pass, orphaning the recreated object
+        forever. Reproduced across two "runs" against the same row —
+        ``pending_job_timeout_seconds`` changes between them, standing in for
+        the restart, and the second run's ``now=`` stands in for wall-clock
+        time actually passing — rather than an actual process restart.
+
+        Assertions key off this test's OWN ``staging_key`` and job row rather
+        than the aggregate ``StaleCleanupOutcome`` counts or an exact set of
+        every ``storage.delete`` call: per the isolation note above
+        ``test_db_session``, this file's test database is NOT rolled back
+        between tests, and the final ``now=`` jump is deliberately beyond
+        ``MAX_PRESIGNED_URL_LIFETIME_SECONDS`` — comfortably old enough to
+        also re-sweep unrelated already-reaped rows left behind by sibling
+        tests earlier in the same run.
+        """
+        from datetime import timedelta, timezone
+
+        from sqlalchemy import select
+
+        from app.core.config import MAX_PRESIGNED_URL_LIFETIME_SECONDS, settings
+        from app.platform.jobs import router as jobs_router
+        from app.platform.jobs.models import IngestJob
+
+        # "Run 1": job created while pending_job_timeout_seconds was the
+        # 3600s default. A URL signed near creation is legitimately live
+        # until the job turns 3600s old.
+        job, staging_key = await self._make_job(test_db_session, age_seconds=1500)
+        storage = AsyncMock()
+        monkeypatch.setattr(
+            "app.platform.storage.get_storage", lambda: storage, raising=True
+        )
+
+        async def _row() -> IngestJob:
+            return (
+                await test_db_session.execute(
+                    select(IngestJob).where(IngestJob.id == job.id)
+                )
+            ).scalar_one()
+
+        # "Run 2" / the restart: the operator lowers the setting to 120s.
+        # post_expiry_sweep_after_seconds() is now 120 + 900 = 1020, well
+        # under this job's age of 1500 — even though its URL, minted under
+        # the pre-restart 3600s setting, will not expire until age 3600.
+        with patch.object(settings, "pending_job_timeout_seconds", 120):
+            await jobs_router._sweep_expired_presigned_staging(
+                test_db_session, self._outcome()
+            )
+
+        assert staging_key in {c.args[0] for c in storage.delete.await_args_list}
+        reaped_row = await _row()
+        assert reaped_row.user_metadata["s3_key_reaped"] is True
+        assert "s3_key_reaped_final" not in reaped_row.user_metadata
+
+        # The client's still-valid pre-restart URL recreates the object.
+        storage.delete.reset_mock()
+
+        # A pass run shortly after must NOT re-check this row yet — the
+        # re-check cost is bounded to once, not paid on every pass.
+        await jobs_router._sweep_expired_presigned_staging(
+            test_db_session, self._outcome()
+        )
+        assert staging_key not in {c.args[0] for c in storage.delete.await_args_list}
+
+        # Once MAX_PRESIGNED_URL_LIFETIME_SECONDS have elapsed since
+        # creation — the latest moment ANY URL for this job, signed under
+        # ANY setting the deployment ever ran, can still be live — the
+        # re-check pass fires and sweeps the recreated object for good.
+        # `reaped_row.created_at` is read fresh from the row the ordinary
+        # pass backdated — `job` itself still holds the pre-backdate value
+        # from before `_make_job`'s follow-up UPDATE.
+        created_at = reaped_row.created_at
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        recheck_now = created_at + timedelta(
+            seconds=MAX_PRESIGNED_URL_LIFETIME_SECONDS + 1
+        )
+        storage.delete.reset_mock()
+        await jobs_router._sweep_expired_presigned_staging(
+            test_db_session, self._outcome(), now=recheck_now
+        )
+
+        assert staging_key in {c.args[0] for c in storage.delete.await_args_list}
+        final_row = await _row()
+        assert final_row.user_metadata["s3_key_reaped_final"] is True
+
+        # And it is now excluded for good — a later pass costs no further
+        # delete call against THIS key, however much more time passes.
+        storage.delete.reset_mock()
+        await jobs_router._sweep_expired_presigned_staging(
+            test_db_session,
+            self._outcome(),
+            now=recheck_now + timedelta(seconds=1),
+        )
+        assert staging_key not in {c.args[0] for c in storage.delete.await_args_list}
+
 
 class TestFailedSourceRetention:
     """fix(#1213 review r6): whether a FAILED job's source may be reaped is a

@@ -52,6 +52,15 @@ KNOWN_BAD_JWT_SECRETS = frozenset(
 # Consumer: `require_signable_job_lifetime`.
 MIN_SIGNABLE_JOB_LIFETIME_SECONDS = 60
 
+# fix(#1236): the SigV4 ceiling. No presigned URL, issued under any past or
+# present value of `pending_job_timeout_seconds`, can outlive `created_at`
+# plus this many seconds — it is that field's own upper bound below. The
+# post-expiry sweep's re-check pass uses it as the age past which a
+# marked-reaped row is safe to consider settled for good, regardless of which
+# setting was in force when its URL was signed.
+# Consumer: `_sweep_expired_presigned_staging` in platform/jobs/router.py.
+MAX_PRESIGNED_URL_LIFETIME_SECONDS = 604800
+
 
 class Settings(BaseSettings):
     postgres_user: str = "geolens"
@@ -109,9 +118,10 @@ class Settings(BaseSettings):
     # would cycle.
     #
     # fix(#1235 review r5): bounded at the SigV4 ceiling. A presigned URL's
-    # X-Amz-Expires may not exceed 604800 seconds (7 days); above that boto
-    # still signs happily and S3 rejects every request, so an unbounded setting
-    # produced a deployment that booted clean and could not upload at all.
+    # X-Amz-Expires may not exceed MAX_PRESIGNED_URL_LIFETIME_SECONDS (7 days);
+    # above that boto still signs happily and S3 rejects every request, so an
+    # unbounded setting produced a deployment that booted clean and could not
+    # upload at all.
     #
     # fix(#1235 review r6): and floored past the dead zone at the other end.
     # `require_signable_job_lifetime` refuses to sign when fewer than
@@ -126,13 +136,17 @@ class Settings(BaseSettings):
     # measured from the job INSERT and a sufficiently slow request eats into
     # it at any setting.
     #
-    # Lowering it is safe at any time EXCEPT while presigned uploads are in
-    # flight: URLs already issued keep the old, longer life, while the
-    # post-expiry staging sweep immediately starts using the new, shorter
-    # window. Lower it during a quiet period, or wait out the previous value
-    # first. See `_sweep_expired_presigned_staging` in platform/jobs/router.py.
+    # Lowering it while presigned uploads are in flight is no longer a
+    # permanent leak: URLs already issued keep the old, longer life, and the
+    # post-expiry staging sweep starts using the new, shorter window
+    # immediately — but its re-check pass (fix #1236) revisits anything it
+    # marked reaped once MAX_PRESIGNED_URL_LIFETIME_SECONDS has passed since
+    # creation, which is the latest any such URL can still be live. See
+    # `_sweep_expired_presigned_staging` in platform/jobs/router.py.
     pending_job_timeout_seconds: int = Field(
-        default=3600, gt=MIN_SIGNABLE_JOB_LIFETIME_SECONDS, le=604800
+        default=3600,
+        gt=MIN_SIGNABLE_JOB_LIFETIME_SECONDS,
+        le=MAX_PRESIGNED_URL_LIFETIME_SECONDS,
     )
     procrastinate_schema: str = "catalog"
 
