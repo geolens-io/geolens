@@ -1347,8 +1347,10 @@ discard rows that were never in the archive. Check first:
 docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
   "SELECT count(*) FROM catalog.audit_logs
    WHERE created_at < '$CUTOFF'
-     AND ('$TENANT_ID' = '' OR tenant_id = '$TENANT_ID'::uuid)"
+     AND (NULLIF('$TENANT_ID', '')::uuid IS NULL OR tenant_id = NULLIF('$TENANT_ID', '')::uuid)"
 ```
+
+(`NULLIF('$TENANT_ID', '')` turns an empty `$TENANT_ID` into SQL `NULL` *before* the `::uuid` cast runs — casting the empty string itself, e.g. `''::uuid`, is invalid input and errors regardless of which side of the `OR` would end up mattering.)
 
 If that count is **at or under 100,000**, one export call covers the whole
 window:
@@ -1393,19 +1395,30 @@ resource_type`), so an unbounded `DELETE ... WHERE created_at < ...` on a
 multi-million-row table can hold locks and bloat the table for a while.
 Batch it:
 
+`psql`'s `-v`/`:name` substitution does not reach inside a `DO $$...$$` body —
+per the [psql docs](https://www.postgresql.org/docs/current/app-psql.html#APP-PSQL-VARIABLES),
+variable interpolation is skipped inside quoted SQL literals, and a
+dollar-quoted block is one. Pass the values through session GUCs instead,
+which the PL/pgSQL body reads with `current_setting()` — that call happens
+at execution time, outside the literal, so it works:
+
 ```bash
 docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
   -v cutoff="'$CUTOFF'" -v tenant_id="'$TENANT_ID'" <<'SQL'
+SET geolens.retention_cutoff = :cutoff;
+SET geolens.retention_tenant = :tenant_id;
 DO $$
 DECLARE
   deleted_count integer;
+  cutoff_ts timestamptz := current_setting('geolens.retention_cutoff')::timestamptz;
+  tenant_uuid uuid := NULLIF(current_setting('geolens.retention_tenant'), '')::uuid;
 BEGIN
   LOOP
     DELETE FROM catalog.audit_logs
     WHERE id IN (
       SELECT id FROM catalog.audit_logs
-      WHERE created_at < :cutoff::timestamptz
-        AND (:tenant_id = '' OR tenant_id = :tenant_id::uuid)
+      WHERE created_at < cutoff_ts
+        AND (tenant_uuid IS NULL OR tenant_id = tenant_uuid)
       LIMIT 5000
     );
     GET DIAGNOSTICS deleted_count = ROW_COUNT;

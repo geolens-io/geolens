@@ -15,6 +15,7 @@ test_layering.py's other AST-walking guards.
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 import pytest
@@ -22,6 +23,12 @@ import pytest
 from app.modules.audit.actions import AUDIT_ACTIONS
 
 _BACKEND_APP = Path(__file__).resolve().parents[1] / "app"
+
+# backend/tests/.. -> backend/, backend/.. -> repo root.
+_FRONTEND_AUDIT_LOG_VIEWER = (
+    Path(__file__).resolve().parents[2]
+    / "frontend/src/components/admin/AuditLogViewer.tsx"
+)
 
 
 def _find_audit_event_actions() -> dict[str, list[str]]:
@@ -107,4 +114,62 @@ def test_registry_has_no_stale_actions() -> None:
             "These AUDIT_ACTIONS entries are not emitted by any "
             "AuditEvent(action=...) call site in backend/app — remove them "
             "or fix the emit site:\n" + "\n".join(sorted(stale))
+        )
+
+
+def _parse_frontend_audit_actions() -> set[str]:
+    """Extract the string literals inside AuditLogViewer.tsx's
+    ``CURRENT_AUDIT_ACTIONS`` array.
+
+    Regex, not a TS parser: the array is a flat list of single-quoted string
+    literals (`'action.name',`), and that shape is enforced by this same
+    test failing loudly the moment it stops holding.
+    """
+    text = _FRONTEND_AUDIT_LOG_VIEWER.read_text(encoding="utf-8")
+    match = re.search(
+        r"const CURRENT_AUDIT_ACTIONS = \[(.*?)\]\s*as const;", text, re.DOTALL
+    )
+    if match is None:
+        pytest.fail(
+            "Could not locate `const CURRENT_AUDIT_ACTIONS = [...] as const;` "
+            f"in {_FRONTEND_AUDIT_LOG_VIEWER} — the array shape changed and "
+            "this test's regex needs updating alongside it."
+        )
+    body = match.group(1)
+    literals = re.findall(r"'([^']+)'", body)
+    if not literals:
+        pytest.fail(
+            f"Parsed zero action strings out of CURRENT_AUDIT_ACTIONS in "
+            f"{_FRONTEND_AUDIT_LOG_VIEWER} — the extraction regex is broken."
+        )
+    return set(literals)
+
+
+@pytest.mark.architecture
+def test_frontend_action_list_matches_backend_registry() -> None:
+    """fix(#1230 codex r2 P2): a matching AUDIT_ACTIONS + emit-site pair added
+    together passes the two tests above without ever looking at
+    AuditLogViewer.tsx's CURRENT_AUDIT_ACTIONS — exactly the drift this
+    whole change exists to close. Parse the frontend array directly and
+    assert set equality against the backend registry, in both directions.
+    """
+    frontend_actions = _parse_frontend_audit_actions()
+    missing_from_frontend = AUDIT_ACTIONS - frontend_actions
+    extra_in_frontend = frontend_actions - AUDIT_ACTIONS
+    if missing_from_frontend or extra_in_frontend:
+        lines = []
+        if missing_from_frontend:
+            lines.append(
+                "  Backend emits these but CURRENT_AUDIT_ACTIONS is missing "
+                f"them: {sorted(missing_from_frontend)}"
+            )
+        if extra_in_frontend:
+            lines.append(
+                "  CURRENT_AUDIT_ACTIONS lists these but nothing in "
+                f"backend/app emits them: {sorted(extra_in_frontend)}"
+            )
+        pytest.fail(
+            "frontend/src/components/admin/AuditLogViewer.tsx's "
+            "CURRENT_AUDIT_ACTIONS has drifted from "
+            "app.modules.audit.actions.AUDIT_ACTIONS:\n" + "\n".join(lines)
         )
