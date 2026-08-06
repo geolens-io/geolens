@@ -972,6 +972,21 @@
       "AnalysisPreviewRequest": {
         "description": "Parameters for a synchronous analysis preview.\n\nDeliberately flat (no discriminated union) so SDK generators keep the\nendpoint; per-operation requiredness is enforced by the validator.",
         "properties": {
+          "bbox": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "[minx, miny, maxx, maxy] in EPSG:4326, typically the map's current viewport. When present, only source features intersecting the envelope are considered before the preview's row cap applies, so a capped result reflects what is on screen rather than an arbitrary sample in ingest order (fix(#727)). Applies to every operation, not just one, so it is deliberately absent from _ANALYSIS_PARAM_OWNERS \u2014 omit it to preview the whole dataset, unchanged from before this field existed.",
+            "title": "Bbox"
+          },
           "distance_meters": {
             "anyOf": [
               {

@@ -1519,7 +1519,14 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # fix(#1104): -1 — the select-by-location identity lateral reads the
         # bare column again; geom_4326 is linearized at ingest now, so the
         # per-read ST_CurveToLine wrap is gone. Budget 506 -> 505, exact.
-        "backend/app/modules/catalog/datasets/domain/service_analysis.py": 505,
+        #
+        # fix(#727): +89 for viewport-scoped previews — resolve_source_
+        # feature_count's bbox-scoped sibling (_resolve_bbox_source_count
+        # plus its bound constant), the bbox predicate threaded through
+        # build_preview_sql's WHERE composition, the intersect-branch
+        # scope-decision comment, and the docstring updates on
+        # run_analysis_preview explaining both. Budget 505 -> 594, exact.
+        "backend/app/modules/catalog/datasets/domain/service_analysis.py": 594,
         "backend/app/modules/catalog/maps/service_crud.py": 550,
         # fix(#474, #475): localized ranking/eager loading plus the OGC
         # ids/externalIds filters cross the default by nine lines. Keep the
@@ -2149,7 +2156,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # SDKs and api.generated.ts are generated from, and #1184 already shipped
     # a `^(draft|ready|published)$` validator read straight off it. 1156 ->
     # 1167.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1167,
+    # fix(#727): +38 for AnalysisPreviewRequest.bbox — the field, its
+    # description, and the _validate_bbox field_validator (length, finiteness,
+    # ordering) that gives 422s an actionable message instead of a generic
+    # ST_MakeEnvelope failure. 1167 -> 1205.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1205,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch

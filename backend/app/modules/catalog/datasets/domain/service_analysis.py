@@ -34,6 +34,7 @@ from app.platform.analysis_sql import (
     INTERSECT_SOURCE_GID_COLUMN,
     MEASURE_OUTPUT_COLUMNS,
     NOT_EMPTY_PREDICATE,
+    render_bbox_predicate,
     render_clip_layer_join,
     render_geometry_expr,
     render_intersect_preview,
@@ -145,6 +146,61 @@ async def resolve_source_feature_count(
     return int(result.scalar_one())
 
 
+# fix(#727): the viewport denominator's bound. Not MAX_SOURCE_FEATURES (a
+# materialize-time ceiling that varies per operation, and this runs on every
+# 1:1 preview regardless of which one) and not PREVIEW_FEATURE_CAP (that caps
+# the GEOMETRY the map draws; this caps a count(*) probe, a different and much
+# cheaper query — `&&` rides the GIST index directly instead of evaluating a
+# per-row expression). Generous, because a correct total is the whole point —
+# "500 of N" is only honest if N is real — while still bounded so a viewport
+# spanning an entire dense dataset cannot turn an index-driven prefilter count
+# into an unbounded scan.
+_BBOX_SOURCE_COUNT_CAP = 200_000
+
+
+async def _resolve_bbox_source_count(
+    db: AsyncSession, dataset: Dataset, bbox: list[float]
+) -> int:
+    """Exact 1:1-operation denominator scoped to a preview's viewport bbox.
+
+    Deliberately bypasses the cached ``dataset.feature_count`` snapshot
+    ``resolve_source_feature_count`` prefers — that snapshot is a WHOLE-table
+    total, and the whole point of this query is that the whole-table total is
+    the wrong denominator once a preview is scoped to what is on screen:
+    pairing "500 of 22,324" with a result that only ever looked at the visible
+    extent asserts something the result does not support. Bounded the same
+    way that function bounds its own live-count fallback — a ``LIMIT cap + 1``
+    inside a subquery — so this probe cannot become the expensive half of a
+    preview however large the visible extent's row count turns out to be.
+
+    Resolves the tenant-physical table ref itself (mirroring
+    ``resolve_source_feature_count`` rather than reusing the caller's
+    logical-schema ``table_ref``): that ``table_ref`` is only valid once
+    ``execute_safe`` rewrites its logical ``data`` schema to the tenant's
+    physical one, and this runs as a plain query on the caller's own session,
+    which gets no such rewrite.
+
+    MUST run before the caller's ``release_session`` rollback — see the call
+    site and ``run_analysis_preview``'s docstring. It reads ``dataset.
+    table_name``, which a post-rollback read would raise ``MissingGreenlet``
+    on (every ORM instance on the session expires with it).
+    """
+    from app.core.db.tenant_schema import tenant_data_schema
+    from app.core.db.tenant_session import current_tenant_var
+    from app.core.tenancy import is_multi_tenant
+
+    schema = tenant_data_schema(current_tenant_var.get() if is_multi_tenant() else None)
+    ref = _safe_table_ref(dataset.table_name, schema=schema)
+    predicate = render_bbox_predicate(bbox, src="_t")
+    result = await db.execute(
+        text(
+            f"SELECT count(*) FROM (SELECT 1 FROM {ref} AS _t"  # noqa: S608
+            f" WHERE {predicate} LIMIT :lim) AS _n"
+        ).bindparams(lim=_BBOX_SOURCE_COUNT_CAP + 1)
+    )
+    return int(result.scalar_one())
+
+
 def build_preview_sql(
     table_ref: str,
     request: AnalysisPreviewRequest,
@@ -163,6 +219,14 @@ def build_preview_sql(
         # not a per-row expression, so it shares none of the lateral template
         # below. See render_intersect_preview for why match_count rides this
         # statement as a window rather than costing a second overlay.
+        #
+        # fix(#727): bbox is deliberately NOT threaded into this branch. Its
+        # own pipeline (render_intersect_pairs) subdivides and re-groups the
+        # mask by gid before this query ever sees `_src`, so a `_src.geom_4326
+        # &&` prefilter would need its own review of where it is safe to add
+        # without changing the grouped row count. intersect keeps today's
+        # behaviour; every other operation below shares one WHERE clause and
+        # picks up the viewport scope there.
         return render_intersect_preview(
             table_ref, mask_table_ref, geojson_precision=_GEOJSON_PRECISION
         )
@@ -219,10 +283,20 @@ def build_preview_sql(
     # times per row. Unlike fencing the whole row source, the join shape
     # keeps ORDER BY gid able to ride the pkey index, so the sandbox row cap
     # can still stop the scan early instead of evaluating every mask match.
+    #
+    # fix(#727): the viewport bbox, when present, joins this same predicate
+    # list rather than wrapping the whole FROM — it is a plain `_src.geom_4326
+    # &&` term, so it stays index-drivable and ORDER BY gid still rides the
+    # pkey index exactly as the paragraph above describes; the row cap keeps
+    # stopping the scan early, it now just stops it early over a smaller,
+    # on-screen row source.
+    extra_predicates = NOT_EMPTY_PREDICATE
+    if request.bbox is not None:
+        extra_predicates = (
+            f"{extra_predicates} AND {render_bbox_predicate(request.bbox, src='_src')}"
+        )
     filters = (
-        f"{where} AND {NOT_EMPTY_PREDICATE}"
-        if where
-        else f" WHERE {NOT_EMPTY_PREDICATE}"
+        f"{where} AND {extra_predicates}" if where else f" WHERE {extra_predicates}"
     )
     return (
         f"{cte}SELECT gid,"
@@ -333,6 +407,12 @@ async def run_analysis_preview(
     ``user.id`` before the call and touches no ORM state after, and no
     middleware reads the ORM user post-handler. The AI chat tool does NOT: both
     chat paths read ``user.id`` again after the tool returns.
+
+    ``request.bbox`` (fix(#727)) is optional and, when present, scopes the
+    source rows the row cap sees to the given viewport before ``ORDER BY
+    gid`` and the cap apply — see ``render_bbox_predicate``. The AI chat tool
+    never sets it, which reproduces this function's pre-#727 behaviour
+    exactly; that fallback is deliberate, not a gap to close.
     """
     table_ref = _safe_table_ref(dataset.table_name)
     mask_table_ref = (
@@ -368,6 +448,15 @@ async def run_analysis_preview(
     # → HTTP 500. `rollback()` returns the connection (measured: checkedout
     # 1 → 0), so a preview costs one slot instead of two.
     source_feature_count = dataset.feature_count
+    if request.bbox is not None and request.operation not in _ROW_FILTERING_OPERATIONS:
+        # fix(#727): overrides the cached whole-table snapshot above for the
+        # 1:1 operations it applies to (row-filtering operations already
+        # report None below and are untouched). MUST run here, before the
+        # rollback two lines down — see _resolve_bbox_source_count's
+        # docstring for why.
+        source_feature_count = await _resolve_bbox_source_count(
+            db, dataset, request.bbox
+        )
     if release_session:
         await db.rollback()
     # fix(#1014): fail fast at the bound rather than queueing. The client is

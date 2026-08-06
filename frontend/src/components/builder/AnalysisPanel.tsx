@@ -136,6 +136,7 @@ interface AnalysisPanelProps {
     meta?: {
       truncated?: boolean;
       totalCount?: number;
+      viewportScoped?: boolean;
       source?: 'analysis-panel';
     },
   ) => void;
@@ -952,7 +953,17 @@ export function AnalysisPanel({
     // fix(#758): the request carries the sequence current at click time, so
     // a response that outlived its inputs (layer/operation/distance/mask
     // changed while it was in flight) is dropped instead of drawn.
-    mutationFn: async ({ seq: _seq }: { seq: number }) => {
+    // fix(#727): `bbox` rides along too — read at submit time in the onSubmit
+    // handler below, alongside `seq`, so mutationFn and onSuccess see the
+    // exact same value rather than each reading `mapInstanceRef.current`
+    // independently at two different instants.
+    mutationFn: async ({
+      seq: _seq,
+      bbox,
+    }: {
+      seq: number;
+      bbox?: [number, number, number, number];
+    }) => {
       const datasetId = selectedLayer?.dataset_id;
       // ux(#698): thrown messages reach the user verbatim via the onError
       // `error.message || t(...)` fallback, so this one has to be translated.
@@ -984,6 +995,12 @@ export function AnalysisPanel({
                   : {}),
               }
             : {}),
+          // fix(#727): scope the preview to the map's current viewport so a
+          // capped result draws a spatial sample instead of the first
+          // PREVIEW_FEATURE_CAP rows in ingest order. Omitted (not sent as
+          // undefined) when the map ref is empty, matching every other
+          // mapInstanceRef guard in this panel.
+          ...(bbox ? { bbox } : {}),
         },
         controller.signal,
       );
@@ -1006,7 +1023,7 @@ export function AnalysisPanel({
           t('analysisTools.previewFailed', { defaultValue: 'Analysis failed' }),
       );
     },
-    onSuccess: (result, { seq }) => {
+    onSuccess: (result, { seq, bbox: requestBbox }) => {
       if (seq !== previewSeqRef.current) return;
       if (!result.feature_count || !result.bbox) {
         // fix(#676) parity: chat surfaces clear a stale overlay on an empty
@@ -1051,15 +1068,23 @@ export function AnalysisPanel({
       );
       const matchedTotal = filtersRows ? (result.match_count ?? null) : null;
       const total = matchedTotal ?? result.source_feature_count ?? null;
-      const bbox = result.bbox as [number, number, number, number];
+      const resultBbox = result.bbox as [number, number, number, number];
+      // fix(#727): `total` is only viewport-scoped when it came from
+      // source_feature_count with a bbox on the request — match_count (the
+      // matchedTotal branch) always counts the WHOLE source regardless of
+      // viewport (see AnalysisPreviewResponse.match_count's docs), so a
+      // row-filtering operation's total keeps its unscoped wording even
+      // though its PREVIEW ROWS are viewport-limited too.
+      const viewportScoped = matchedTotal == null && total != null && requestBbox != null;
       if (result.truncated) {
-        onPreviewResult?.(result.geojson, bbox, {
+        onPreviewResult?.(result.geojson, resultBbox, {
           truncated: true,
           totalCount: total ?? undefined,
+          viewportScoped: viewportScoped || undefined,
           source: 'analysis-panel',
         });
       } else {
-        onPreviewResult?.(result.geojson, bbox, { source: 'analysis-panel' });
+        onPreviewResult?.(result.geojson, resultBbox, { source: 'analysis-panel' });
       }
       if (result.truncated) {
         toast.info(
@@ -1076,18 +1101,28 @@ export function AnalysisPanel({
                 total: matchedTotal,
               })
             : total != null
-            ? t('analysisTools.truncatedNoticeTotal', {
-                // fix(#680 review): "source features" — the total is the
-                // source dataset's COUNT(*), which can exceed the number of
-                // rows that produce output (NULL/EMPTY geometries).
-                // fix(#788): both numbers passed raw — the locale strings
-                // group them via {{count, number}}/{{total, number}}, so count
-                // keeps driving plural selection AND renders locale-grouped.
-                defaultValue:
-                  'Showing the first {{count, number}} of {{total, number}} source features',
-                count: result.feature_count,
-                total,
-              })
+            ? t(
+                // fix(#727): a viewport-scoped total names the extent it was
+                // computed against — without that, "500 of 22,324" reads
+                // exactly like the pre-fix arbitrary-500-rows case even
+                // though these 500 really are what's on screen.
+                viewportScoped
+                  ? 'analysisTools.truncatedNoticeTotalScoped'
+                  : 'analysisTools.truncatedNoticeTotal',
+                {
+                  // fix(#680 review): "source features" — the total is the
+                  // source dataset's COUNT(*), which can exceed the number of
+                  // rows that produce output (NULL/EMPTY geometries).
+                  // fix(#788): both numbers passed raw — the locale strings
+                  // group them via {{count, number}}/{{total, number}}, so count
+                  // keeps driving plural selection AND renders locale-grouped.
+                  defaultValue: viewportScoped
+                    ? 'Showing the first {{count, number}} of {{total, number}} source features in the previewed extent'
+                    : 'Showing the first {{count, number}} of {{total, number}} source features',
+                  count: result.feature_count,
+                  total,
+                },
+              )
             : t('analysisTools.truncatedNotice', {
                 defaultValue: 'Preview capped at {{count, number}} features',
                 count: result.feature_count,
@@ -1232,7 +1267,23 @@ export function AnalysisPanel({
       noValidate
       onSubmit={(e) => {
         e.preventDefault();
-        if (canRun) previewMutation.mutate({ seq: previewSeqRef.current });
+        if (canRun) {
+          // fix(#727): read the viewport at submit time, the same instant
+          // `seq` is read — the mask-draw button above guards
+          // `mapInstanceRef?.current` the same way, and a ref that hasn't
+          // mounted yet just means no bbox goes out, matching this panel's
+          // pre-#727 (whole-dataset) preview behaviour. The typeof guard is
+          // the same idea one step further: a caller-supplied ref whose
+          // current value exists but is not a real MaplibreMap (a partial
+          // test double, an early-lifecycle stub) must degrade to "no bbox"
+          // too, not throw out of a form submit handler.
+          const map = mapInstanceRef?.current;
+          const bounds = typeof map?.getBounds === 'function' ? map.getBounds() : undefined;
+          const bbox: [number, number, number, number] | undefined = bounds
+            ? [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]
+            : undefined;
+          previewMutation.mutate({ seq: previewSeqRef.current, bbox });
+        }
       }}
       onKeyDown={(e) => {
         // Escape while a clip-mask draw is pending cancels the DRAW, not the

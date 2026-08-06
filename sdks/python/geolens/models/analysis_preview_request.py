@@ -33,6 +33,11 @@ class AnalysisPreviewRequest:
 
         Attributes:
             operation (AnalysisPreviewRequestOperation):
+            bbox (list[float] | None | Unset): [minx, miny, maxx, maxy] in EPSG:4326, typically the map's current viewport.
+                When present, only source features intersecting the envelope are considered before the preview's row cap
+                applies, so a capped result reflects what is on screen rather than an arbitrary sample in ingest order
+                (fix(#727)). Applies to every operation, not just one, so it is deliberately absent from _ANALYSIS_PARAM_OWNERS
+                — omit it to preview the whole dataset, unchanged from before this field existed.
             distance_meters (float | None | Unset): Buffer distance in meters (buffer only)
             join_dataset_id (None | Unset | UUID): Dataset to join against; each source feature gains a count of the
                 features from it that intersect (spatial_join only)
@@ -47,6 +52,7 @@ class AnalysisPreviewRequest:
     """
 
     operation: AnalysisPreviewRequestOperation
+    bbox: list[float] | None | Unset = UNSET
     distance_meters: float | None | Unset = UNSET
     join_dataset_id: None | Unset | UUID = UNSET
     join_fields: list[str] | None | Unset = UNSET
@@ -60,6 +66,15 @@ class AnalysisPreviewRequest:
         )
 
         operation: str = self.operation
+
+        bbox: list[float] | None | Unset
+        if isinstance(self.bbox, Unset):
+            bbox = UNSET
+        elif isinstance(self.bbox, list):
+            bbox = self.bbox
+
+        else:
+            bbox = self.bbox
 
         distance_meters: float | None | Unset
         if isinstance(self.distance_meters, Unset):
@@ -107,6 +122,8 @@ class AnalysisPreviewRequest:
                 "operation": operation,
             }
         )
+        if bbox is not UNSET:
+            field_dict["bbox"] = bbox
         if distance_meters is not UNSET:
             field_dict["distance_meters"] = distance_meters
         if join_dataset_id is not UNSET:
@@ -128,6 +145,23 @@ class AnalysisPreviewRequest:
 
         d = dict(src_dict)
         operation = check_analysis_preview_request_operation(d.pop("operation"))
+
+        def _parse_bbox(data: object) -> list[float] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                bbox_type_0 = cast(list[float], data)
+
+                return bbox_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[float] | None | Unset, data)
+
+        bbox = _parse_bbox(d.pop("bbox", UNSET))
 
         def _parse_distance_meters(data: object) -> float | None | Unset:
             if data is None:
@@ -208,6 +242,7 @@ class AnalysisPreviewRequest:
 
         analysis_preview_request = cls(
             operation=operation,
+            bbox=bbox,
             distance_meters=distance_meters,
             join_dataset_id=join_dataset_id,
             join_fields=join_fields,

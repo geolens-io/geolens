@@ -948,6 +948,7 @@ export function MapBuilderPage() {
       featureCount: result.geojson.features.length,
       truncated: result.truncated,
       totalCount: result.totalCount,
+      viewportScoped: result.viewportScoped,
       onDismiss: layers.handleDismissEphemeral,
       onSaveAsDataset: ephemeralAnalysis ? handleSaveAnalysisPreview : undefined,
     };
@@ -2089,6 +2090,7 @@ export function MapBuilderPage() {
               onDismiss={previewRowProps.onDismiss}
               truncated={previewRowProps.truncated}
               totalCount={previewRowProps.totalCount}
+              viewportScoped={previewRowProps.viewportScoped}
               onSaveAsDataset={previewRowProps.onSaveAsDataset}
             />
           )}

@@ -363,3 +363,32 @@ def render_mask_expr(mask: dict[str, Any]) -> str:
     rendered = shapely.to_geojson(geom)
     escaped = rendered.replace("'", "''")
     return f"ST_SetSRID(ST_GeomFromGeoJSON('{escaped}'), 4326)"
+
+
+def render_bbox_predicate(bbox: list[float], *, src: str) -> str:
+    """Render a viewport-scope prefilter: ``&&`` against a GIST-indexed column.
+
+    fix(#727): a capped preview's ``ORDER BY gid`` returns the first
+    ``PREVIEW_FEATURE_CAP`` rows in ingest order, which for a file-sourced
+    dataset is usually the source file's order — usually spatially clustered.
+    A 500-row cap over a 22k-feature layer then draws two arbitrary clumps
+    instead of a spatial sample, which reads as a failed operation rather than
+    a capped one. Scoping the source rows to the map's current viewport BEFORE
+    the cap applies turns the 500 rows into "the operation applied to what is
+    on screen" — an honest preview — without touching ``ORDER BY gid`` itself,
+    which is what lets the row cap stop the scan early (see the ``fix(#700
+    review)`` comment on the lateral shape this predicate joins).
+
+    ``&&`` (bounding-box overlap), not ``ST_Intersects`` — the callers that
+    need exact intersection already add their own ``ST_Intersects`` beside
+    their own ``&&`` (see ``render_select_by_location_where``); this predicate
+    exists only to bound WHICH rows the cap sees, not to filter with pixel
+    accuracy, so the plain index-only operator is enough and cheaper.
+
+    Bounds are the caller's responsibility (``AnalysisPreviewRequest``
+    validates finiteness and ordering at the request boundary before this
+    ever runs) — mirrors ``render_mask_expr``'s division of labor, where the
+    injection boundary is "validate, then format", not "format defensively".
+    """
+    minx, miny, maxx, maxy = (float(v) for v in bbox)
+    return f"{src}.geom_4326 && ST_MakeEnvelope({minx!r}, {miny!r}, {maxx!r}, {maxy!r}, 4326)"

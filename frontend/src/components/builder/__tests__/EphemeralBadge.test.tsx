@@ -61,6 +61,44 @@ describe('EphemeralBadge', () => {
     expect(screen.getByText('Result · 500 of 10,651 features')).toBeInTheDocument();
   });
 
+  // fix(#727): the honest-partial-result state this issue exists to fix — a
+  // capped preview reads as a failed operation unless the badge (and the
+  // stack row it shares copy with, via ephemeral-preview.ts) discloses BOTH
+  // that it is partial and what it is partial AGAINST. A viewport-scoped
+  // total names the extent instead of implying it describes the whole
+  // dataset the way an unscoped total does.
+  it('names the viewport when the total was computed against it', () => {
+    render(
+      <EphemeralBadge
+        featureCount={180}
+        totalCount={22324}
+        truncated
+        viewportScoped
+        onDismiss={vi.fn()}
+      />
+    );
+    expect(screen.getByText('Result · 180 of 22,324 features in view')).toBeInTheDocument();
+    // Not the unscoped sentence — the two must never render side by side.
+    expect(screen.queryByText('Result · 180 of 22,324 features')).not.toBeInTheDocument();
+  });
+
+  it('does not claim viewport scoping when the total is whole-dataset', () => {
+    render(
+      <EphemeralBadge featureCount={500} totalCount={22324} truncated onDismiss={vi.fn()} />
+    );
+    expect(screen.getByText('Result · 500 of 22,324 features')).toBeInTheDocument();
+    expect(screen.queryByText(/in view/)).not.toBeInTheDocument();
+  });
+
+  it('ignores viewportScoped when the result is not truncated', () => {
+    // A complete result has nothing to be honest ABOUT — viewportScoped with
+    // no truncation must not leak "in view" onto an ordinary count.
+    render(
+      <EphemeralBadge featureCount={42} viewportScoped onDismiss={vi.fn()} />
+    );
+    expect(screen.getByText('Result · 42 features')).toBeInTheDocument();
+  });
+
   // fix(#787 item 1): the badge sat at z-[8], under every z-10 PluginHost slot, so
   // an open plugin panel taller than the bottom-left offset covered it.
   it('stacks above the PluginHost slots', () => {

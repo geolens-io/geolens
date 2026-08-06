@@ -1,3 +1,4 @@
+import math
 import re
 import uuid
 from datetime import date, datetime
@@ -1046,6 +1047,43 @@ class AnalysisPreviewRequest(BaseModel):
             "(spatial_join only)"
         ),
     )
+    bbox: list[float] | None = Field(
+        default=None,
+        description=(
+            "[minx, miny, maxx, maxy] in EPSG:4326, typically the map's "
+            "current viewport. When present, only source features "
+            "intersecting the envelope are considered before the preview's "
+            "row cap applies, so a capped result reflects what is on screen "
+            "rather than an arbitrary sample in ingest order (fix(#727)). "
+            "Applies to every operation, not just one, so it is deliberately "
+            "absent from _ANALYSIS_PARAM_OWNERS — omit it to preview the "
+            "whole dataset, unchanged from before this field existed."
+        ),
+    )
+
+    @field_validator("bbox")
+    @classmethod
+    def _validate_bbox(cls, value: list[float] | None) -> list[float] | None:
+        if value is None:
+            return value
+        if len(value) != 4:
+            raise ValueError(
+                "bbox must have exactly 4 coordinates [minx, miny, maxx, maxy]"
+            )
+        if not all(math.isfinite(v) for v in value):
+            raise ValueError("bbox coordinates must be finite numbers")
+        minx, miny, maxx, maxy = value
+        # No antimeridian-crossing support here, unlike the OGC bbox parsers
+        # elsewhere in this codebase — this field feeds ST_MakeEnvelope
+        # directly (see render_bbox_predicate), which has no wraparound
+        # semantics of its own, so a minx > maxx envelope would silently
+        # render as an empty or nonsensical box rather than the two-envelope
+        # split the OGC paths use. Reject it instead of guessing.
+        if minx > maxx:
+            raise ValueError("bbox minx is greater than maxx")
+        if miny > maxy:
+            raise ValueError("bbox miny is greater than maxy")
+        return value
 
     @model_validator(mode="before")
     @classmethod

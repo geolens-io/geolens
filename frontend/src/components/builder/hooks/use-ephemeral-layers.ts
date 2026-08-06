@@ -31,6 +31,13 @@ export function useEphemeralLayers(
      *  <1100px rail) — so the field is deliberately surface-agnostic. */
     truncated?: boolean;
     totalCount?: number;
+    /** fix(#727): set when totalCount was computed against the map's
+     *  viewport rather than the whole dataset — so "N of TOTAL" can name the
+     *  previewed extent instead of implying TOTAL describes the same area
+     *  the source dataset does. Chat previews never set this: they send no
+     *  bbox, so their totalCount (when present) is always the whole-dataset
+     *  count, unchanged from before this field existed. */
+    viewportScoped?: boolean;
     /** feat(#675): present when the overlay came from a chat run_analysis
      *  preview the builder can hand off to the Analysis panel. */
     analysis?: EphemeralAnalysisHandoff;
@@ -156,6 +163,7 @@ export function useEphemeralLayers(
     meta?: {
       truncated?: boolean;
       totalCount?: number;
+      viewportScoped?: boolean;
       analysis?: EphemeralAnalysisHandoff;
       source?: 'analysis-panel';
     },

@@ -14,6 +14,10 @@ export interface EphemeralCountInput {
   truncated?: boolean;
   /** Total feature count before truncation. */
   totalCount?: number;
+  /** fix(#727): totalCount was computed against the map's viewport, not the
+   *  whole dataset — see the field of the same name on useEphemeralLayers'
+   *  state, which this is threaded from. */
+  viewportScoped?: boolean;
 }
 
 /**
@@ -28,10 +32,21 @@ export interface EphemeralCountInput {
  */
 export function ephemeralCountLabel(
   t: BuilderTranslator,
-  { featureCount, truncated, totalCount }: EphemeralCountInput,
+  { featureCount, truncated, totalCount, viewportScoped }: EphemeralCountInput,
 ): string {
   if (!truncated) return t('ephemeralBadge.featureCount', { count: featureCount });
   if (totalCount != null) {
+    // fix(#727): a viewport-scoped total is honest about "of WHAT" — without
+    // naming the extent, "180 of 22,324" reads exactly like the pre-fix
+    // capped-in-ingest-order case this issue exists to stop looking like a
+    // failed operation, even though the 180 now really is what's on screen.
+    if (viewportScoped) {
+      return t('ephemeralBadge.featureCountTruncatedScoped', {
+        count: featureCount,
+        total: totalCount,
+        defaultValue: '{{count, number}} of {{total, number}} features in view',
+      });
+    }
     return t('ephemeralBadge.featureCountTruncated', {
       count: featureCount,
       // fix(#788): both numbers passed raw — the locale strings group them via
