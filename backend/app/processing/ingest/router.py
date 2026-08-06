@@ -93,7 +93,9 @@ from app.processing.ingest.presigned import (
     finalize_presigned_object,
     lock_presigned_job,
     require_completable_presigned_job,
+    require_signable_job_lifetime,
     should_assemble_multipart,
+    sign_url_with_deadline,
 )
 from app.processing.ingest.tasks import regenerate_vrt
 from app.processing.ingest.validation import validate_file_content
@@ -248,6 +250,11 @@ async def request_presigned_upload(
     s3_key = f"staging/{job.id}/{request.filename}"
     physical_s3_key = resolve_current_storage_key(s3_key)
     threshold = settings.presigned_multipart_threshold_mb * 1024 * 1024
+    # fix(#1235 review r4): a gate, not a value. Every signature below computes
+    # its own expiration inside the signing thread; this call is here so a job
+    # with no usable lifetime left is refused before an upload id is ever
+    # initiated, rather than after — the return is deliberately discarded.
+    require_signable_job_lifetime(job.created_at)
 
     if request.file_size > threshold:
         upload_id: str | None = None
@@ -261,8 +268,13 @@ async def request_presigned_upload(
                 raise initiation_cancel
             num_parts = math.ceil(request.file_size / PART_SIZE)
             urls = [
+                # fix(#1235 review r5/r8): each part computes its own
+                # expiration, INSIDE the signing thread — see
+                # `sign_url_with_deadline` for why the two must be adjacent.
                 await run_in_thread_draining(
+                    sign_url_with_deadline,
                     storage.generate_presigned_part_url,
+                    job.created_at,
                     physical_s3_key,
                     upload_id,
                     part_num,
@@ -277,7 +289,11 @@ async def request_presigned_upload(
                     upload_id=upload_id,
                     job_id=job.id,
                 )
-            if isinstance(exc, asyncio.CancelledError):
+            # fix(#1235 review r5): an HTTPException from here is the lifetime
+            # refusal, which must survive as its own 409 — the abort above has
+            # already run, and mapping it to "Storage service unavailable"
+            # would blame the provider for the job's clock.
+            if isinstance(exc, (asyncio.CancelledError, HTTPException)):
                 raise
             logger.exception("presigned_multipart_failed", s3_key=s3_key)
             raise HTTPException(
@@ -311,18 +327,28 @@ async def request_presigned_upload(
     else:
         try:
             url = await run_in_thread_draining(
+                sign_url_with_deadline,
                 storage.generate_presigned_put_url,
+                job.created_at,  # expires with the job, not 3600s from now
                 physical_s3_key,
                 request.content_type,
             )
         except (
             Exception
-        ):  # broad: S3/MinIO presign-put can throw varied SDK errors; map to 502
+        ) as exc:  # broad: S3/MinIO presign-put can throw varied SDK errors; map to 502
+            # fix(#1235 review r9): the fourth signing path needed the same
+            # passthrough as the multipart branch. Signing moved into the
+            # thread, so the lifetime refusal now raises through here, and this
+            # handler turned a closed upload window into "Storage service
+            # unavailable". No CancelledError case: this except is `Exception`,
+            # which never catches one, and nothing is spent on a one-shot PUT.
+            if isinstance(exc, HTTPException):
+                raise
             logger.exception("presigned_put_failed", s3_key=s3_key)
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="Storage service unavailable",
-            )
+            ) from exc
         job.user_metadata = {
             "presigned": True,
             "s3_key": s3_key,
@@ -403,7 +429,14 @@ async def complete_presigned_upload(
                 [{"ETag": p.etag, "PartNumber": p.part_number} for p in request.parts],
             )
             if completion_cancel is not None:
-                await _await_provider_call_draining(storage.delete(physical_s3_key))
+                # fix(#1233): do NOT delete the assembled object here. The
+                # upload id was consumed by CompleteMultipartUpload above, so
+                # the object's presence is the only record that assembly
+                # succeeded — `should_assemble_multipart` reads exactly that to
+                # let a retry skip re-assembly (#1202 r3). Deleting it left the
+                # client's natural retry re-assembling with a spent id, 502ing
+                # forever with no way back. Drain and re-raise only; the
+                # cancellation is not a rejection of the bytes.
                 raise completion_cancel
         except Exception as exc:  # broad: S3/MinIO multipart-complete can throw varied SDK errors; map to 502
             await abort_presigned_multipart_upload(

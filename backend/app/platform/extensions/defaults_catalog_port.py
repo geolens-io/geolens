@@ -103,6 +103,16 @@ class DefaultCatalogPort:
 
         return require_completable_presigned_job(job, restart_hint=restart_hint)
 
+    def require_signable_job_lifetime(self, created_at):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.presigned import require_signable_job_lifetime
+
+        return require_signable_job_lifetime(created_at)
+
+    def sign_url_with_deadline(self, storage_method, created_at, *args):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.presigned import sign_url_with_deadline
+
+        return sign_url_with_deadline(storage_method, created_at, *args)
+
     async def finalize_presigned_object(self, **kwargs):  # type: ignore[no-untyped-def]
         from app.processing.ingest.presigned import finalize_presigned_object
 

@@ -1691,7 +1691,13 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # helpers (lock/assemble-check/finalize) the reupload door reaches through
         # the port. Three lines each, matching the existing entries.
         # fix(#1213 review r3): +7 — the completability guard's delegation.
-        "backend/app/platform/extensions/defaults_catalog_port.py": 420,
+        # fix(#1235 review r3): +5 — the remaining-lifetime delegation, which
+        # the reupload door reaches through the port like every other
+        # processing helper it uses.
+        # fix(#1235 review r8): +5 — the sign-with-deadline delegation. The
+        # reupload door hands this to a worker thread, so the whole callable
+        # has to cross the port rather than just the lifetime number.
+        "backend/app/platform/extensions/defaults_catalog_port.py": 430,
         # feat(#683): +58 — run_analysis_preview carries a clip mask DATASET
         # now, which costs a widened signature (one param per line once ruff
         # wraps it) plus the mask's shape and size gates. Those live here on
@@ -2007,7 +2013,29 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # no-headroom rule. Cap 1717 -> 1523, exact.
     # fix(#1213 review r3): -8 — the one-shot block became a call to the
     # shared require_completable_presigned_job, which owns both facts.
-    "backend/app/processing/ingest/router.py": 1515,
+    # fix(#1233): +7 — the cancel branch no longer deletes the assembled
+    # object, and the comment records why: the upload id is already spent, so
+    # that object is the only record assembly succeeded and the retry's only
+    # way past it.
+    # fix(#1235 review r3): +10 — both signing sites anchor their expiration
+    # to the job deadline, with the comment recording why the part loop
+    # computes it once (later parts inherit the earlier deadline, which is
+    # conservative in the right direction).
+    # fix(#1235 review r4): +1 — the TTL call moved above the multipart branch
+    # so a job with no usable lifetime left is refused before an upload id is
+    # ever initiated, which trades two in-branch computations for one hoisted
+    # one plus the comment saying why the placement matters.
+    # fix(#1235 review r5): +9 — the part loop recomputes the TTL per
+    # signature (once-before-the-loop expired later parts PAST the deadline),
+    # and the multipart except block re-raises HTTPException so the lifetime
+    # refusal survives as a 409 instead of being reported as a storage outage.
+    # fix(#1235 review r8): -2 — signing moved behind sign_url_with_deadline,
+    # which took the per-site reasoning comments with it into presigned.py.
+    # Ratchet DOWN in the same commit, per the no-headroom rule.
+    # fix(#1235 review r9): +8 — the single-PUT branch re-raises HTTPException
+    # so the in-thread lifetime refusal stays a 409 there too, as it already
+    # did on the other three signing paths.
+    "backend/app/processing/ingest/router.py": 1548,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901

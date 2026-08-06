@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import tempfile
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -12,6 +13,7 @@ import structlog
 from fastapi import HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import MIN_SIGNABLE_JOB_LIFETIME_SECONDS, settings
 from app.core.persistent_config import UPLOAD_MAX_SIZE_MB
 from app.core.async_io import await_draining, run_in_thread_draining
 from app.modules.quota.service import check_upload_quota
@@ -75,6 +77,91 @@ async def abort_presigned_multipart_upload(
             s3_key=key,
             job_id=str(job_id),
         )
+
+
+def remaining_job_lifetime_seconds(created_at: datetime) -> int:
+    """Seconds a presigned URL for this job may still legitimately be honoured.
+
+    fix(#1235 review r3): URL expiry anchors at SIGNING time, the job deadline
+    anchors at `created_at`, and the two drift by however long the request
+    takes between the job INSERT and each signature. The part-URL loop signs
+    sequentially through a worker thread, so on a many-part file the last
+    signatures can be seconds late — and the window scales as an operator
+    lowers `pending_job_timeout_seconds`. In that gap S3 accepts bytes the
+    pending sweep is already entitled to fail the job for.
+
+    Anchoring to the deadline removes the class rather than narrowing it: the
+    URL expires exactly when the job does, whenever it was signed. Callers
+    that sign several URLs may compute this ONCE before the loop — later
+    signatures then carry a slightly earlier deadline, which is conservative
+    in the right direction.
+
+    May be zero or negative. Signing that is the caller's decision and the
+    answer is always no — see `require_signable_job_lifetime`, which is what
+    every handler should call.
+    """
+    deadline = created_at + timedelta(seconds=settings.pending_job_timeout_seconds)
+    return int((deadline - datetime.now(timezone.utc)).total_seconds())
+
+
+def require_signable_job_lifetime(created_at: datetime) -> int:
+    """Remaining lifetime, refusing outright when too little of it is left.
+
+    fix(#1235 review r4): the previous `max(1, ...)` floor was described as
+    producing a URL "expired on arrival". It does the opposite. `ExpiresIn` is
+    relative to SIGNING time, so flooring at 1 mints a URL that is USABLE for
+    one more second — past the deadline this whole change exists to enforce.
+    There is no `ExpiresIn` value that means "already dead": the only way to
+    avoid handing out a live URL is to not sign one.
+
+    409 rather than 422: the presign door's 400s mean "this request cannot be
+    served as asked" (wrong storage mode, rejected extension) and its 422 means
+    "your file is wrong" (too large). Neither fits a request that was valid and
+    lost to the job's own clock — that is a state conflict, which is what the
+    ingest router already answers 409 for elsewhere.
+
+    Both doors call this above the multipart branch as a gate, so the common
+    refusal costs nothing — there is no initiated upload id yet. Every actual
+    signature also reaches it via `sign_url_with_deadline`, from inside the
+    signing thread, where a refusal DOES land in the multipart try; that
+    handler aborts the upload and re-raises this exception unchanged.
+
+    fix(#1235 review r6): the margin lives in `core/config` with the setting
+    whose lower bound must equal it, so a timeout that could not clear this
+    check no longer boots at all. Reaching this refusal therefore means the
+    request itself was slow enough to eat the window between the job INSERT
+    and this signature — not that the deployment is misconfigured.
+    """
+    remaining = remaining_job_lifetime_seconds(created_at)
+    if remaining < MIN_SIGNABLE_JOB_LIFETIME_SECONDS:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This upload's time window has closed. Start a new upload.",
+        )
+    return remaining
+
+
+def sign_url_with_deadline(storage_method, created_at: datetime, *args):
+    """Compute the remaining lifetime and sign, as two adjacent instructions.
+
+    fix(#1235 review r8): a SYNC callable, handed to `run_in_thread_draining`
+    so both halves happen inside the signing thread. Recomputing per signature
+    (r5) fixed the loop's own delay but left one more layer of the same drift:
+    the computation ran on the event loop, and `ExpiresIn` starts counting when
+    boto signs. Any gap between the two — executor saturation, a busy loop, GIL
+    contention before the thread is picked up — pushed expiry that far past the
+    job deadline. Each round of this bug has been a smaller copy of the last.
+
+    This one terminates the recursion rather than shrinking it again: there is
+    no scheduler boundary left between reading the clock and signing, because
+    the two are adjacent statements in one thread. The residual is the time
+    between two adjacent instructions, which no arrangement of code can remove.
+
+    Every storage method here takes `expiration` as its final positional
+    argument, so callers pass the leading arguments and this appends the one
+    that must be computed late.
+    """
+    return storage_method(*args, require_signable_job_lifetime(created_at))
 
 
 def raise_if_over_max_upload_size(actual_size: int, max_size_mb: int) -> None:

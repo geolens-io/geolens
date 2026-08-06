@@ -1,7 +1,7 @@
 """fix(#724): the pending reaper must not fail jobs that are genuinely queued.
 
 ``fail_stale_jobs`` marked every ``pending`` IngestJob older than
-``PENDING_TIMEOUT_SECONDS`` as failed with "never queued". That conflated two
+``stale_pending_cutoff_seconds`` as failed with "never queued". That conflated two
 different states, and since fix(#695) deferred analysis to priority -10 —
 where waiting behind a steady upload stream is by design and unbounded — the
 wrong one became reachable in normal operation.
@@ -18,16 +18,21 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
+from unittest.mock import patch
+from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import MIN_SIGNABLE_JOB_LIFETIME_SECONDS, settings
 from app.platform.jobs.models import IngestJob
 from tests.factories import get_user_id
 from app.platform.jobs.router import (
-    PENDING_TIMEOUT_SECONDS,
     fail_stale_jobs,
     get_job_status,
+    post_expiry_sweep_after_seconds,
+    stale_pending_cutoff_seconds,
 )
+from app.processing.ingest.presigned import require_signable_job_lifetime
 
 pytestmark = pytest.mark.anyio
 
@@ -50,7 +55,9 @@ async def _stale_pending_job(
     )
     session.add(job)
     await session.flush()
-    old = datetime.now(timezone.utc) - timedelta(seconds=PENDING_TIMEOUT_SECONDS + 600)
+    old = datetime.now(timezone.utc) - timedelta(
+        seconds=stale_pending_cutoff_seconds(completion_bound=False) + 600
+    )
     await session.execute(
         text(
             "UPDATE catalog.ingest_jobs SET created_at = :old WHERE id = :id"
@@ -176,3 +183,507 @@ class TestStatusPollDoesNotReapQueuedJobs:
         await test_db_session.refresh(job)
         assert job.status == "failed"
         assert "without being processed" in (job.error_message or "")
+
+
+async def _make_pending_job(session, *, age_seconds: int, file_path: str):
+    """A pending job aged past a cutoff, with file_path as given."""
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import select, update
+
+    from app.modules.auth.models import User
+    from app.platform.jobs.models import IngestJob
+
+    admin = (
+        await session.execute(select(User).where(User.username == "admin"))
+    ).scalar_one()
+    job = IngestJob(
+        source_filename="roads.geojson",
+        created_by=admin.id,
+        status="pending",
+        file_path=file_path,
+        user_metadata={"presigned": True},
+    )
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+    await session.execute(
+        update(IngestJob)
+        .where(IngestJob.id == job.id)
+        .values(created_at=datetime.now(timezone.utc) - timedelta(seconds=age_seconds))
+    )
+    await session.commit()
+    return job
+
+
+class TestBoundPendingSweep:
+    """fix(#1234): the 1h abandonment clause must not race a completion.
+
+    A presigned completion sets `file_path` and then commits. Between those the
+    row is `pending` WITH a `file_path`, and the 1h sweep used to fail it out
+    from under the request — the loser is a completion that actually worked.
+    The policy itself stays; it just applies only to rows that never bound.
+    """
+
+    @staticmethod
+    async def _make_job(session, *, age_seconds: int, file_path: str):
+        from datetime import datetime, timedelta, timezone
+
+        from sqlalchemy import select, update
+
+        from app.modules.auth.models import User
+        from app.platform.jobs.models import IngestJob
+
+        admin = (
+            await session.execute(select(User).where(User.username == "admin"))
+        ).scalar_one()
+        job = IngestJob(
+            source_filename="roads.geojson",
+            created_by=admin.id,
+            status="pending",
+            file_path=file_path,
+            user_metadata={"presigned": True},
+        )
+        session.add(job)
+        await session.commit()
+        await session.refresh(job)
+        await session.execute(
+            update(IngestJob)
+            .where(IngestJob.id == job.id)
+            .values(
+                created_at=datetime.now(timezone.utc) - timedelta(seconds=age_seconds)
+            )
+        )
+        await session.commit()
+        return job
+
+    async def test_a_completed_uncommitted_job_survives_the_1h_sweep(
+        self, test_db_session
+    ) -> None:
+        from app.platform.jobs.router import fail_stale_jobs
+
+        job = await self._make_job(
+            test_db_session,
+            age_seconds=7200,
+            file_path="staging/x/frozen/roads.geojson",
+        )
+
+        await fail_stale_jobs(test_db_session)
+
+        await test_db_session.refresh(job)
+        assert job.status == "pending", (
+            "the 1h abandonment clause failed a job that had already bound its "
+            "bytes — the completion that set file_path was still committing"
+        )
+
+    async def test_an_unbound_job_still_fails_at_1h(self, test_db_session) -> None:
+        """The policy itself is deliberate and stays."""
+        from app.platform.jobs.router import fail_stale_jobs
+
+        job = await self._make_job(test_db_session, age_seconds=7200, file_path="")
+
+        await fail_stale_jobs(test_db_session)
+
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert "never queued" in (job.error_message or "")
+
+    async def test_the_sweep_still_fails_a_local_path_bound_job_at_1h(
+        self, test_db_session
+    ) -> None:
+        """The sweep-path twin of the poll case above."""
+        from app.platform.jobs.router import fail_stale_jobs
+
+        job = await self._make_job(
+            test_db_session, age_seconds=7200, file_path="/tmp/fake.geojson"
+        )
+
+        await fail_stale_jobs(test_db_session)
+
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert "never queued" in (job.error_message or "")
+
+    async def test_a_bound_pending_row_fails_after_24h(self, test_db_session) -> None:
+        """The other half: exempting bound rows from the 1h clause would make
+        them immortal, because the retention purge only considers terminal
+        rows. The message must not claim the upload never queued."""
+        from app.platform.jobs.router import fail_stale_jobs
+
+        job = await self._make_job(
+            test_db_session,
+            age_seconds=90000,
+            file_path="staging/x/frozen/roads.geojson",
+        )
+
+        await fail_stale_jobs(test_db_session)
+
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert "completed but never committed" in (job.error_message or "")
+
+
+def test_put_url_ttl_cannot_outlive_the_job() -> None:
+    """fix(#1234, #1235 r2): the one-shot PUT URL needed the clamp too.
+
+    Its 3600 default happens to equal today's default timeout, which is what
+    hid it: configure the timeout lower and the URL silently outlives the job.
+    """
+    from app.core.config import settings
+    from app.platform.storage.s3 import S3StorageProvider
+
+    provider = S3StorageProvider.__new__(S3StorageProvider)
+    captured = {}
+
+    class _Client:
+        def generate_presigned_url(self, **kwargs):
+            captured.update(kwargs)
+            return "https://s3.invalid/put"
+
+    provider.client = _Client()
+    provider.bucket = "b"
+
+    with patch.object(settings, "pending_job_timeout_seconds", 900):
+        provider.generate_presigned_put_url("staging/x/f.tif")
+
+    assert captured["ExpiresIn"] == 900
+
+
+def test_part_url_ttl_cannot_outlive_the_job() -> None:
+    """fix(#1234): the server was selling 7200s part URLs on a 3600s lifetime."""
+    from app.core.config import settings
+    from app.platform.storage.s3 import S3StorageProvider
+
+    provider = S3StorageProvider.__new__(S3StorageProvider)
+    captured = {}
+
+    class _Client:
+        def generate_presigned_url(self, **kwargs):
+            captured.update(kwargs)
+            return "https://s3.invalid/part"
+
+    provider.client = _Client()
+    provider.bucket = "b"
+
+    provider.generate_presigned_part_url("staging/x/f.tif", "upload-1", 1)
+
+    assert captured["ExpiresIn"] == settings.pending_job_timeout_seconds
+    assert captured["ExpiresIn"] < 7200
+
+
+class TestPollingPathHonoursTheSameGuard:
+    """fix(#1235 review r2): the POLL is the path that actually fires.
+
+    `get_job_status`'s own comment says so — the frontend polls it every 2s for
+    any job it is tracking. #1234 guarded the background sweep and left this
+    one on the old predicates, so a poll that blocked on a completing job's row
+    lock resumed after the commit and failed the row it had just waited for.
+    """
+
+    @staticmethod
+    async def _poll(client, headers, job_id):
+        return await client.get(f"/jobs/{job_id}", headers=headers)
+
+    async def test_a_poll_does_not_fail_a_bound_pending_job(
+        self, client, admin_auth_header, test_db_session
+    ) -> None:
+        job = await _make_pending_job(
+            test_db_session,
+            age_seconds=7200,
+            file_path="staging/x/frozen/roads.geojson",
+        )
+
+        resp = await self._poll(client, admin_auth_header, job.id)
+
+        assert resp.status_code == 200, resp.text
+        await test_db_session.refresh(job)
+        assert job.status == "pending", (
+            "the poll failed a job that had already bound its bytes — the "
+            "completion that set file_path was still committing"
+        )
+
+    async def test_a_poll_still_fails_an_unbound_pending_job(
+        self, client, admin_auth_header, test_db_session
+    ) -> None:
+        """The 1h abandonment policy is deliberate and stays on this path too."""
+        job = await _make_pending_job(test_db_session, age_seconds=7200, file_path="")
+
+        resp = await self._poll(client, admin_auth_header, job.id)
+
+        assert resp.status_code == 200, resp.text
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert "without being processed" in (job.error_message or "")
+
+    async def test_a_poll_still_fails_a_local_path_bound_job_at_1h(
+        self, client, admin_auth_header, test_db_session
+    ) -> None:
+        """fix(#1235 review r2 refinement): the protected class is the
+        `staging/` PREFIX, not "file_path is set".
+
+        A direct upload whose dispatch failed binds an ABSOLUTE local path and
+        has nothing to do with the completion race. Giving it the 24h backstop
+        would leave it pending for a day, and /jobs/{id}/retry is unavailable
+        until a job is `failed` — turning 1h-to-recoverable into
+        24h-to-recoverable on a real path.
+        """
+        job = await _make_pending_job(
+            test_db_session, age_seconds=7200, file_path="/tmp/fake.geojson"
+        )
+
+        resp = await self._poll(client, admin_auth_header, job.id)
+
+        assert resp.status_code == 200, resp.text
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert "without being processed" in (job.error_message or "")
+
+    async def test_a_poll_fails_a_bound_pending_job_after_24h(
+        self, client, admin_auth_header, test_db_session
+    ) -> None:
+        """The backstop reaches this path as well, with the honest message."""
+        job = await _make_pending_job(
+            test_db_session,
+            age_seconds=90000,
+            file_path="staging/x/frozen/roads.geojson",
+        )
+
+        resp = await self._poll(client, admin_auth_header, job.id)
+
+        assert resp.status_code == 200, resp.text
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert "completed but never committed" in (job.error_message or "")
+
+
+def test_every_pending_fail_site_uses_the_shared_clauses() -> None:
+    """fix(#1235 review r2): the census, pinned.
+
+    Four sites flip pending -> failed on a timeout and #1234 guarded two. This
+    asserts no site reconstructs the predicates inline, so a fifth cannot be
+    added past the guard by being written carefully.
+
+    KNOWN BLIND SPOT: this greps source, so it catches a NEW inline predicate
+    set but not a call that is present-yet-unreachable. The behavioural tests
+    above are what fail in that case.
+    """
+    import inspect
+
+    from app.platform.jobs import router as jobs_router
+    from app.platform.jobs import worker as jobs_worker
+
+    for module in (jobs_router, jobs_worker):
+        source = inspect.getsource(module)
+        # The only legitimate definition site is the helper itself.
+        inline = source.count('IngestJob.status == "pending",')
+        allowed = 1 if module is jobs_router else 0
+        assert inline == allowed, (
+            f"{module.__name__} builds the pending-fail predicates inline "
+            f"({inline} occurrences, expected {allowed}) — route it through "
+            "stale_pending_clauses instead"
+        )
+
+
+class TestUrlExpiryAnchorsToTheJobDeadline:
+    """fix(#1235 review r3): URL expiry anchored at SIGNING time while the job
+    deadline anchors at created_at, so the two drifted by the in-request time
+    between the job INSERT and each signature — and the part loop signs
+    sequentially, so a many-part file's last URLs drifted furthest. In that gap
+    S3 accepts bytes the sweep is already entitled to fail the job for.
+
+    Unit-level on the helper because the drift is a property of the arithmetic,
+    not of any one door; both doors call it and the fakes in the contract
+    suites record what they were handed.
+    """
+
+    @staticmethod
+    def _backdated(minutes: int):
+        from datetime import datetime, timedelta, timezone
+
+        return datetime.now(timezone.utc) - timedelta(minutes=minutes)
+
+    def test_a_ten_minute_old_job_gets_the_remaining_lifetime(self) -> None:
+        from app.core.config import settings
+        from app.processing.ingest.presigned import remaining_job_lifetime_seconds
+
+        with patch.object(settings, "pending_job_timeout_seconds", 3600):
+            ttl = remaining_job_lifetime_seconds(self._backdated(10))
+
+        # 3600 - 600 = 3000. (The review's "~2400" example implies a 20-minute
+        # backdate; the arithmetic here is deliberate and checked.)
+        assert 2995 <= ttl <= 3000, (
+            f"expected ~3000s of remaining lifetime, got {ttl} — the URL is "
+            "anchored to signing time, not to the job deadline"
+        )
+
+    def test_a_fresh_job_gets_very_nearly_the_whole_window(self) -> None:
+        """The other direction: anchoring must not shorten a fresh job's URL."""
+        from app.core.config import settings
+        from app.processing.ingest.presigned import remaining_job_lifetime_seconds
+
+        with patch.object(settings, "pending_job_timeout_seconds", 3600):
+            ttl = remaining_job_lifetime_seconds(self._backdated(0))
+
+        assert 3595 <= ttl <= 3600, ttl
+
+    def test_a_job_past_its_deadline_reports_a_negative_remainder(self) -> None:
+        """fix(#1235 review r4): the helper must not launder a dead job into a
+        live URL. It used to floor at 1, which reads as "expired on arrival" and
+        is the opposite: ExpiresIn is relative to SIGNING time, so 1 buys the
+        client one more usable second past the deadline."""
+        from app.core.config import settings
+        from app.processing.ingest.presigned import remaining_job_lifetime_seconds
+
+        with patch.object(settings, "pending_job_timeout_seconds", 3600):
+            ttl = remaining_job_lifetime_seconds(self._backdated(120))
+
+        assert ttl < 0, (
+            f"expected a negative remainder for a job 2h past a 1h deadline, "
+            f"got {ttl} — a floored value becomes a signable, USABLE ExpiresIn"
+        )
+
+    def test_the_window_shrinks_with_a_lowered_timeout(self) -> None:
+        """The drift scales as an operator lowers the timeout, which is what
+        makes this worth fixing rather than tolerating."""
+        from app.core.config import settings
+        from app.processing.ingest.presigned import remaining_job_lifetime_seconds
+
+        with patch.object(settings, "pending_job_timeout_seconds", 900):
+            ttl = remaining_job_lifetime_seconds(self._backdated(10))
+
+        assert 295 <= ttl <= 300, ttl
+
+
+class TestEveryLifetimeTimerDerivesFromTheOneSetting:
+    """fix(#1235 review r4): #1234 made the pending lifetime configurable and
+    converted only some of the consumers of the numbers that used to be its
+    fixed value. Each survivor broke differently once an operator moved it, so
+    what is asserted here is the closure — every lifetime-derived timer moves
+    with the setting — rather than three particular call sites being patched.
+
+    ``JOB_TIMEOUT_SECONDS`` is deliberately absent: it is the worker lease on a
+    RUNNING job, and it shares a number with the default upload lifetime and
+    nothing else.
+    """
+
+    def test_the_unbound_cutoff_is_the_setting(self) -> None:
+        with patch.object(settings, "pending_job_timeout_seconds", 12345):
+            assert stale_pending_cutoff_seconds(completion_bound=False) == 12345
+
+    def test_the_bound_backstop_stays_beyond_the_upload_lifetime(self) -> None:
+        """The 24h backstop was a fixed 86400. Configure the timeout past a day
+        and a legitimate completion at hour 25 committed the frozen path into a
+        row that was instantly eligible for its own backstop."""
+        long_timeout = 100_000  # ~27.8h, comfortably past the old fixed 86400
+        with patch.object(settings, "pending_job_timeout_seconds", long_timeout):
+            cutoff = stale_pending_cutoff_seconds(completion_bound=True)
+
+        assert cutoff > long_timeout, (
+            f"the bound backstop ({cutoff}s) is not beyond the upload lifetime "
+            f"({long_timeout}s) — a completion arriving inside its own still-"
+            "valid window is immediately sweepable"
+        )
+
+    def test_the_bound_backstop_default_is_unchanged(self) -> None:
+        """Deriving it must not move the shipped 24h behaviour."""
+        with patch.object(settings, "pending_job_timeout_seconds", 3600):
+            assert stale_pending_cutoff_seconds(completion_bound=True) == 86400
+
+    def test_the_post_expiry_sweep_waits_out_the_configured_url(self) -> None:
+        """fix(#1235 review r4): this cutoff derived from a fixed 3600. With a
+        longer timeout the sweep ran while the PUT URL was still live, and the
+        reaped marker takes the row out of every later pass — so an object
+        recreated after it survived forever."""
+        with patch.object(settings, "pending_job_timeout_seconds", 100_000):
+            assert post_expiry_sweep_after_seconds() > 100_000
+
+    def test_the_post_expiry_sweep_default_is_unchanged(self) -> None:
+        with patch.object(settings, "pending_job_timeout_seconds", 3600):
+            assert post_expiry_sweep_after_seconds() == 4500
+
+
+class TestPresignRefusesRatherThanSigningADeadWindow:
+    """fix(#1235 review r4): there is no ExpiresIn that means "already dead".
+
+    The helper used to floor the remaining lifetime at 1, described as a URL
+    "expired on arrival". ExpiresIn is relative to SIGNING time, so that floor
+    minted a URL usable for one more second past the deadline the change exists
+    to enforce. The only way not to hand out a live URL is not to sign one.
+    """
+
+    @staticmethod
+    def _backdated(seconds: int):
+        return datetime.now(timezone.utc) - timedelta(seconds=seconds)
+
+    def test_a_healthy_job_gets_its_remaining_lifetime(self) -> None:
+        with patch.object(settings, "pending_job_timeout_seconds", 3600):
+            ttl = require_signable_job_lifetime(self._backdated(600))
+
+        assert 2995 <= ttl <= 3000, ttl
+
+    def test_a_job_past_its_deadline_is_refused(self) -> None:
+        with patch.object(settings, "pending_job_timeout_seconds", 3600):
+            with pytest.raises(HTTPException) as excinfo:
+                require_signable_job_lifetime(self._backdated(7200))
+
+        assert excinfo.value.status_code == 409, (
+            "a job past its deadline was signed for anyway — any positive "
+            "ExpiresIn hands the client a URL that still works"
+        )
+
+    def test_a_sliver_of_lifetime_is_refused_too(self) -> None:
+        """A URL with seconds left is not a shorter upload window, it is a
+        failure the client cannot tell apart from a broken server."""
+        with patch.object(settings, "pending_job_timeout_seconds", 3600):
+            with pytest.raises(HTTPException):
+                require_signable_job_lifetime(
+                    self._backdated(3600 - MIN_SIGNABLE_JOB_LIFETIME_SECONDS + 5)
+                )
+
+
+class TestThePollPathSkipsUpdatesItCannotMatch:
+    """fix(#1235 review r4): the r2 rewrite dropped the outer elapsed check, so
+    BOTH pending UPDATEs ran on every 2s poll of every pending job. The DB
+    predicates remain the authority; the elapsed check is a fast-path skip.
+    """
+
+    @staticmethod
+    def _updates(statements: list[str]) -> list[str]:
+        return [s for s in statements if s.lstrip().upper().startswith("UPDATE")]
+
+    async def _poll_recording_statements(self, session, job) -> list[str]:
+        seen: list[str] = []
+        real = session.execute
+
+        async def _recording(statement, *args, **kwargs):
+            seen.append(str(statement))
+            return await real(statement, *args, **kwargs)
+
+        with patch.object(session, "execute", _recording):
+            await get_job_status(job.id, _request(), _user(job.created_by), session)
+        return seen
+
+    async def test_a_young_pending_job_costs_no_updates(
+        self, test_db_session: AsyncSession
+    ) -> None:
+        job = await _make_pending_job(test_db_session, age_seconds=30, file_path="")
+
+        statements = await self._poll_recording_statements(test_db_session, job)
+
+        assert self._updates(statements) == [], (
+            "a 30-second-old pending job issued stale-pending UPDATEs on a "
+            "routine poll, and the frontend polls this route every 2s"
+        )
+
+    async def test_a_genuinely_stale_job_is_still_failed(
+        self, test_db_session: AsyncSession
+    ) -> None:
+        """The skip must not become the guard: past the cutoff the UPDATE runs
+        and the row is failed exactly as before."""
+        job = await _make_pending_job(test_db_session, age_seconds=7200, file_path="")
+
+        statements = await self._poll_recording_statements(test_db_session, job)
+
+        assert self._updates(statements), "the stale job was never updated"
+        await test_db_session.refresh(job)
+        assert job.status == "failed"

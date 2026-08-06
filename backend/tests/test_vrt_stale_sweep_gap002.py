@@ -112,8 +112,9 @@ def _make_mock_db_for_fail_stale(
     """Build a mock AsyncSession for fail_stale_jobs.
 
     execute() side effects (in order):
-      1. stale pending IngestJobs → scalars() returns list
-      2. stale running IngestJobs → scalars() returns list
+      1. stale UNBOUND pending IngestJobs (1h) → scalars() returns list
+      2. stale BOUND pending IngestJobs (24h, fix(#1234)) → empty here
+      3. stale running IngestJobs → scalars() returns list
       3. stale VrtGeneration UPDATE → scalars() returns generation ids
       4. stale regenerating RasterAsset UPDATE → scalars() returns dataset ids
       5. purge DELETE .. RETURNING (id, file_path, user_metadata) → .all()
@@ -127,6 +128,10 @@ def _make_mock_db_for_fail_stale(
     results = []
     for returned_ids in [
         stale_jobs_pending or [],
+        # fix(#1234): the pending sweep is two clauses now — unbound rows at
+        # 1h, then rows that bound bytes but never committed at 24h. These
+        # fixtures exercise the first, so the second returns nothing.
+        [],
         stale_jobs_running or [],
         [generation.id for generation in (stale_vrt_generations or [])],
         [asset.dataset_id for asset in (stale_vrt_assets or [])],
@@ -363,10 +368,10 @@ async def test_fail_stale_jobs_purges_terminal_jobs_past_retention():
     mock_db = _make_mock_db_for_fail_stale(purge_candidates=[(None,)])
     await fail_stale_jobs(mock_db)
 
-    # 4 sweeps + the purge DELETE + the post-expiry staging SELECT
-    # (fix(#1202 review r8)). The purge is still index 4.
-    assert mock_db.execute.await_count == 6
-    purge_stmt = mock_db.execute.await_args_list[4].args[0]
+    # 5 sweeps (the pending clause is two statements since fix(#1234)) + the
+    # purge DELETE + the post-expiry staging SELECT. The purge shifts to 5.
+    assert mock_db.execute.await_count == 7
+    purge_stmt = mock_db.execute.await_args_list[5].args[0]
     assert isinstance(purge_stmt, Delete)
     where_sql = str(purge_stmt.compile(compile_kwargs={"literal_binds": True}))
     assert "'pending'" in where_sql and "'running'" in where_sql, (
@@ -527,9 +532,9 @@ async def test_fail_stale_jobs_retention_zero_disables_purge(monkeypatch):
     mock_db = _make_mock_db_for_fail_stale()
     await fail_stale_jobs(mock_db)
 
-    # 4 sweeps and no purge DELETE, plus the post-expiry staging SELECT, which
-    # is independent of retention being disabled (fix(#1202 review r8)).
-    assert mock_db.execute.await_count == 5
+    # 5 sweeps (two pending clauses since fix(#1234)) and no purge DELETE, plus
+    # the post-expiry staging SELECT, which is independent of retention.
+    assert mock_db.execute.await_count == 6
 
 
 # ---------------------------------------------------------------------------

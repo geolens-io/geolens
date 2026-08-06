@@ -5,7 +5,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 
 from app.core import config as config_module
-from app.core.config import Settings
+from app.core.config import MIN_SIGNABLE_JOB_LIFETIME_SECONDS, Settings
 
 # Settings constructor kwargs (lowercase field names).
 # JWT_SECRET_KEY must be ≥ 32 chars to satisfy validate_jwt_secret_length.
@@ -719,3 +719,45 @@ class TestSecretStrMasking:
         """empty_str_to_none still applies to SecretStr fields."""
         s = _make_settings(anthropic_api_key="")
         assert s.anthropic_api_key is None
+
+
+class TestPendingJobTimeoutBounds:
+    """fix(#1235 review r5, r6): both ends, enforced at config load.
+
+    Each end had the same shape — a value the settings model accepted under
+    which no upload could ever succeed, so the deployment booted clean and
+    failed only when a user tried. Above 604800 boto signs URLs whose
+    `X-Amz-Expires` exceeds the SigV4 maximum and S3 rejects every request; at
+    or below the signing margin the job's whole lifetime is shorter than the
+    shortest URL worth issuing, so every presign answers 409.
+    """
+
+    def test_the_sigv4_ceiling_is_accepted(self):
+        s = _make_settings(pending_job_timeout_seconds=604800)
+        assert s.pending_job_timeout_seconds == 604800
+
+    def test_past_the_sigv4_ceiling_is_refused(self):
+        with pytest.raises(Exception) as excinfo:
+            _make_settings(pending_job_timeout_seconds=604801)
+        assert "pending_job_timeout_seconds" in str(excinfo.value)
+
+    def test_a_timeout_at_the_signing_margin_is_refused(self):
+        """fix(#1235 review r6): the dead zone is excluded by the bound, not
+        discovered by the operator when every upload starts failing."""
+        with pytest.raises(Exception) as excinfo:
+            _make_settings(
+                pending_job_timeout_seconds=MIN_SIGNABLE_JOB_LIFETIME_SECONDS
+            )
+        assert "pending_job_timeout_seconds" in str(excinfo.value)
+
+    def test_just_past_the_signing_margin_is_accepted(self):
+        """The bound excludes the dead zone and nothing beyond it."""
+        s = _make_settings(
+            pending_job_timeout_seconds=MIN_SIGNABLE_JOB_LIFETIME_SECONDS + 1
+        )
+        assert s.pending_job_timeout_seconds == MIN_SIGNABLE_JOB_LIFETIME_SECONDS + 1
+
+    def test_zero_is_still_refused(self):
+        """The original gt=0 intent survives inside the higher floor."""
+        with pytest.raises(Exception):
+            _make_settings(pending_job_timeout_seconds=0)

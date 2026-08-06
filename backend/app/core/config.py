@@ -44,6 +44,15 @@ KNOWN_BAD_JWT_SECRETS = frozenset(
 )
 
 
+# fix(#1235 review r6): the shortest presigned-upload window worth issuing.
+# Lives HERE, not next to its only consumer in processing/ingest/presigned.py,
+# because `pending_job_timeout_seconds`'s lower bound has to be this exact
+# number — a bound one edit away from the margin it guards is how the dead
+# zone opened in the first place — and core must never import from processing.
+# Consumer: `require_signable_job_lifetime`.
+MIN_SIGNABLE_JOB_LIFETIME_SECONDS = 60
+
+
 class Settings(BaseSettings):
     postgres_user: str = "geolens"
     postgres_password: SecretStr
@@ -92,6 +101,39 @@ class Settings(BaseSettings):
         ".zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls,.parquet"
     )
     presigned_multipart_threshold_mb: int = Field(default=100, gt=0)
+    # fix(#1234): a presigned job is abandoned after this long, and the part
+    # URLs it hands out must not outlive it — the server was selling 7200s
+    # URLs against a 3600s job lifetime. Lives here rather than in
+    # platform/jobs because platform/storage has to read it too, and
+    # platform/jobs already imports platform/storage, so the reverse import
+    # would cycle.
+    #
+    # fix(#1235 review r5): bounded at the SigV4 ceiling. A presigned URL's
+    # X-Amz-Expires may not exceed 604800 seconds (7 days); above that boto
+    # still signs happily and S3 rejects every request, so an unbounded setting
+    # produced a deployment that booted clean and could not upload at all.
+    #
+    # fix(#1235 review r6): and floored past the dead zone at the other end.
+    # `require_signable_job_lifetime` refuses to sign when fewer than
+    # MIN_SIGNABLE_JOB_LIFETIME_SECONDS remain, so a timeout at or below that
+    # was an accepted setting under which every presign 409s — the same
+    # boots-clean-cannot-upload shape as the ceiling, and it belongs in boot
+    # validation rather than in per-request behaviour.
+    #
+    # What the floor promises is narrow and worth stating: the accepted range
+    # contains no value that is self-defeating BY CONSTRUCTION. It cannot
+    # promise a presign never refuses, because the remaining lifetime is
+    # measured from the job INSERT and a sufficiently slow request eats into
+    # it at any setting.
+    #
+    # Lowering it is safe at any time EXCEPT while presigned uploads are in
+    # flight: URLs already issued keep the old, longer life, while the
+    # post-expiry staging sweep immediately starts using the new, shorter
+    # window. Lower it during a quiet period, or wait out the previous value
+    # first. See `_sweep_expired_presigned_staging` in platform/jobs/router.py.
+    pending_job_timeout_seconds: int = Field(
+        default=3600, gt=MIN_SIGNABLE_JOB_LIFETIME_SECONDS, le=604800
+    )
     procrastinate_schema: str = "catalog"
 
     public_app_url: str | None = None

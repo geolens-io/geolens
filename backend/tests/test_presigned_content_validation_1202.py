@@ -14,6 +14,7 @@ that only tightens refusals lets the false-positive half regress silently.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import uuid
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -60,6 +61,8 @@ class _FakeS3Storage:
         self.range_reads: list[tuple[str, int, int]] = []
         self.whole_object_reads: list[str] = []
         self.copies: list[tuple[str, str]] = []
+        # Every expiration the doors hand to a signing call (fix(#1235 r3)).
+        self.signed_ttls: list[int] = []
         # Multipart state, modelled the way S3 actually behaves: uploaded
         # parts are NOT visible as an object, and the upload id is spent by a
         # successful completion. The retry guard keys off exactly that.
@@ -67,7 +70,12 @@ class _FakeS3Storage:
         self.pending_parts: dict[str, bytes] = {}
         self.multipart_completions: list[tuple[str, str]] = []
 
-    def generate_presigned_put_url(self, key: str, content_type: str) -> str:
+    def generate_presigned_put_url(
+        self, key: str, content_type: str, expiration: int = 3600
+    ) -> str:
+        # fix(#1235 review r3): mirrors the provider signature — the doors now
+        # pass a deadline-anchored expiration.
+        self.signed_ttls.append(expiration)
         return f"https://s3.invalid/{key}?signed=1"
 
     def initiate_multipart_upload(
@@ -80,6 +88,7 @@ class _FakeS3Storage:
     def generate_presigned_part_url(
         self, key: str, upload_id: str, part_number: int, expiration: int = 7200
     ) -> str:
+        self.signed_ttls.append(expiration)
         return f"https://s3.invalid/{key}?part={part_number}&upload={upload_id}"
 
     def complete_multipart_upload(self, key: str, upload_id: str, parts: list) -> None:
@@ -915,3 +924,387 @@ class TestFinalizeCleanupContract:
             "a cancellation during the frozen delete left the refused staging "
             "bytes addressable through the client's still-valid PUT URL"
         )
+
+
+async def test_a_cancel_during_assembly_leaves_the_retry_a_way_back(
+    client, admin_auth_header, test_db_session, both_doors, monkeypatch
+) -> None:
+    """fix(#1233): the cancel branch used to delete the assembled object.
+
+    CompleteMultipartUpload has already consumed the upload id by then, and the
+    object's presence is the ONLY record that assembly succeeded — it is what
+    `should_assemble_multipart` reads to let a retry skip re-assembly (#1202
+    r3). Deleting it sent the client's natural retry back into assembly with a
+    spent id, which 502s forever with no way back.
+
+    A cancellation is not a rejection of the bytes, so the fix is to drain and
+    re-raise only.
+    """
+    from app.processing.ingest import router as ingest_router
+
+    monkeypatch.setattr(settings, "presigned_multipart_threshold_mb", 1)
+    payload = _VALID_GEOJSON + b" " * (2 * 1024 * 1024)
+
+    resp = await client.post(
+        "/ingest/upload/presigned",
+        json={
+            "filename": "roads.geojson",
+            "file_size": len(payload),
+            "content_type": "application/octet-stream",
+        },
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["upload_id"], "precondition: this is a multipart presign"
+    both_doors.pending_parts[body["s3_key"]] = payload
+
+    # Assembly succeeds, THEN the request is cancelled — the exact interleaving
+    # the branch exists for. capture_cancel returns the result plus the cancel.
+    real_capture = ingest_router.run_in_thread_draining_capture_cancel
+    fired = {"n": 0}
+
+    async def _assemble_then_cancel(fn, *args):
+        result, _cancel = await real_capture(fn, *args)
+        fired["n"] += 1
+        if fired["n"] == 1:
+            return result, asyncio.CancelledError()
+        return result, None
+
+    parts = [{"etag": "etag-1", "part_number": 1}]
+    with patch.object(
+        ingest_router, "run_in_thread_draining_capture_cancel", _assemble_then_cancel
+    ):
+        # A cancellation inside the app surfaces through httpx as a
+        # transport-level error rather than CancelledError, because the handler
+        # never returns a response. The exception type is harness detail; the
+        # claim under test is what the cancelled attempt LEFT BEHIND.
+        with contextlib.suppress(BaseException):
+            await client.post(
+                f"/ingest/upload/presigned/{body['job_id']}/complete",
+                json={"parts": parts},
+                headers=admin_auth_header,
+            )
+    assert fired["n"] == 1, "precondition: the cancel branch actually ran"
+
+    # The assembled object must survive: it is the retry's only way past
+    # assembly, and the upload id it would otherwise re-present is spent.
+    assert body["s3_key"] in both_doors.objects, (
+        "the cancel branch destroyed the assembly record; the retry below can "
+        "only re-assemble with a consumed upload id"
+    )
+
+    retried = await client.post(
+        f"/ingest/upload/presigned/{body['job_id']}/complete",
+        json={},
+        headers=admin_auth_header,
+    )
+
+    assert retried.status_code == 200, retried.text
+    assert len(both_doors.multipart_completions) == 1, both_doors.multipart_completions
+
+
+@pytest.mark.parametrize("multipart", [False, True], ids=["put-url", "part-urls"])
+async def test_the_door_signs_urls_against_the_job_deadline(
+    client, admin_auth_header, both_doors, monkeypatch, multipart
+) -> None:
+    """fix(#1235 review r3): both URL kinds, through the real door.
+
+    The helper's arithmetic is unit-tested in test_stale_pending_reaper.py;
+    this pins that the door actually PASSES it, for the single-PUT and the
+    part-loop sites alike. Without it the provider default (3600 / 7200)
+    arrives instead, anchored to signing time.
+    """
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "pending_job_timeout_seconds", 900)
+    if multipart:
+        monkeypatch.setattr(settings, "presigned_multipart_threshold_mb", 1)
+        payload_size = 3 * 1024 * 1024
+    else:
+        payload_size = len(_VALID_GEOJSON)
+
+    resp = await client.post(
+        "/ingest/upload/presigned",
+        json={
+            "filename": "roads.geojson",
+            "file_size": payload_size,
+            "content_type": "application/octet-stream",
+        },
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 201, resp.text
+    assert both_doors.signed_ttls, "no signature recorded"
+    # The job was created moments ago, so every URL should carry very nearly
+    # the whole 900s window — and crucially NOT the 3600/7200 provider default.
+    for ttl in both_doors.signed_ttls:
+        assert 890 <= ttl <= 900, both_doors.signed_ttls
+
+
+async def test_each_part_url_is_signed_against_the_deadline_not_the_first_signature(
+    client, admin_auth_header, both_doors, monkeypatch
+) -> None:
+    """fix(#1235 review r5): the once-before-the-loop computation was the bug
+    in miniature, not a conservative shortcut.
+
+    `ExpiresIn` counts from the moment each signature is created, so reusing
+    one remainder across the loop means a part signed d seconds in expires d
+    seconds PAST the job deadline — the same signing-time drift r3 set out to
+    remove, scaled down to the loop's duration. Recomputed per signature, each
+    successive TTL must be strictly SMALLER, because each one ends at the same
+    wall-clock instant.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from app.processing.ingest import presigned as presigned_module
+    from app.processing.ingest import router as ingest_router
+
+    monkeypatch.setattr(settings, "pending_job_timeout_seconds", 3600)
+    monkeypatch.setattr(settings, "presigned_multipart_threshold_mb", 1)
+    # 1 MB parts so a 3 MB payload signs three URLs; the real 10 MB PART_SIZE
+    # would make this a single-part upload and assert nothing about the loop.
+    monkeypatch.setattr(ingest_router, "PART_SIZE", 1024 * 1024)
+
+    class _AdvancingClock:
+        """A clock that jumps 30s per reading, standing in for a slow loop."""
+
+        def __init__(self) -> None:
+            self._base = datetime.now(timezone.utc)
+            self._readings = 0
+
+        def now(self, tz=None):
+            reading = self._base + timedelta(seconds=30 * self._readings)
+            self._readings += 1
+            return reading
+
+    monkeypatch.setattr(presigned_module, "datetime", _AdvancingClock())
+
+    resp = await client.post(
+        "/ingest/upload/presigned",
+        json={
+            "filename": "roads.geojson",
+            "file_size": 3 * 1024 * 1024,
+            "content_type": "application/octet-stream",
+        },
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 201, resp.text
+    ttls = both_doors.signed_ttls
+    assert len(ttls) >= 3, f"expected a multi-part signature loop, got {ttls}"
+    assert all(later < earlier for earlier, later in zip(ttls, ttls[1:])), (
+        f"part TTLs did not shrink across the loop: {ttls} — every part was "
+        "signed with one remainder computed before the loop, so the later "
+        "parts expire that much past the job deadline"
+    )
+
+
+async def test_a_loop_that_outruns_the_window_answers_409_not_502(
+    client, admin_auth_header, both_doors, monkeypatch
+) -> None:
+    """fix(#1235 review r5): the per-signature refusal has to survive the
+    multipart error handler.
+
+    Signing inside the loop means the refusal can now fire mid-loop. That code
+    sits under an `except BaseException` whose job is mapping SDK errors to
+    502, so without the HTTPException passthrough a closed upload window would
+    be reported as "Storage service unavailable" — blaming the provider for
+    the job's own clock. The abort still runs either way.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from app.processing.ingest import presigned as presigned_module
+    from app.processing.ingest import router as ingest_router
+
+    monkeypatch.setattr(settings, "pending_job_timeout_seconds", 900)
+    monkeypatch.setattr(settings, "presigned_multipart_threshold_mb", 1)
+    monkeypatch.setattr(ingest_router, "PART_SIZE", 1024 * 1024)
+
+    class _RunawayClock:
+        """Burns 400s per reading, so the window closes inside the loop."""
+
+        def __init__(self) -> None:
+            self._base = datetime.now(timezone.utc)
+            self._readings = 0
+
+        def now(self, tz=None):
+            reading = self._base + timedelta(seconds=400 * self._readings)
+            self._readings += 1
+            return reading
+
+    monkeypatch.setattr(presigned_module, "datetime", _RunawayClock())
+
+    resp = await client.post(
+        "/ingest/upload/presigned",
+        json={
+            "filename": "roads.geojson",
+            "file_size": 3 * 1024 * 1024,
+            "content_type": "application/octet-stream",
+        },
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 409, resp.text
+    assert not both_doors.live_upload_ids, (
+        "the initiated multipart upload was left live after the refusal"
+    )
+
+
+async def test_scheduler_delay_before_the_thread_runs_does_not_extend_the_url(
+    client, admin_auth_header, both_doors, monkeypatch
+) -> None:
+    """fix(#1235 review r8): the last layer of the same drift.
+
+    r5 recomputed the remaining lifetime per signature, but on the EVENT LOOP,
+    before `run_in_thread_draining` had queued anything. `ExpiresIn` starts
+    counting when boto signs, so whatever sat between scheduling and execution
+    — a saturated executor, a busy loop — pushed expiry that far past the job
+    deadline again.
+
+    The delay is injected where it actually lives: between the router calling
+    `run_in_thread_draining` and the callable running. Computing inside the
+    thread means the signature sees the post-delay clock. Computing before
+    scheduling means it does not, and the URL outlives the job by the delay.
+
+    The clock advances only when this test says so, never per reading, so the
+    assertion does not depend on how many times the code happens to look at it.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from app.processing.ingest import presigned as presigned_module
+    from app.processing.ingest import router as ingest_router
+
+    window = 3600
+    scheduling_delay = 300
+
+    monkeypatch.setattr(settings, "pending_job_timeout_seconds", window)
+
+    class _ManualClock:
+        def __init__(self) -> None:
+            self._base = datetime.now(timezone.utc)
+            self.elapsed = 0
+
+        def now(self, tz=None):
+            return self._base + timedelta(seconds=self.elapsed)
+
+        def advance(self, seconds: int) -> None:
+            self.elapsed += seconds
+
+    clock = _ManualClock()
+    monkeypatch.setattr(presigned_module, "datetime", clock)
+
+    real_run_in_thread = ingest_router.run_in_thread_draining
+
+    async def _delayed_run_in_thread(fn, *args):
+        clock.advance(scheduling_delay)
+        return await real_run_in_thread(fn, *args)
+
+    monkeypatch.setattr(ingest_router, "run_in_thread_draining", _delayed_run_in_thread)
+
+    resp = await client.post(
+        "/ingest/upload/presigned",
+        json={
+            "filename": "roads.geojson",
+            "file_size": len(_VALID_GEOJSON),
+            "content_type": "application/octet-stream",
+        },
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 201, resp.text
+    assert both_doors.signed_ttls, "no signature recorded"
+    signed = both_doors.signed_ttls[-1]
+    assert signed <= window - scheduling_delay, (
+        f"signed {signed}s against a {window}s window after a "
+        f"{scheduling_delay}s scheduling gap — the expiration was computed "
+        "before the thread ran, so the URL outlives the job deadline by the gap"
+    )
+
+
+def test_neither_door_computes_an_expiration_before_scheduling() -> None:
+    """fix(#1235 review r8): the reupload door is a mirror, pinned as one.
+
+    The behavioural test above drives the upload door, where the delay can be
+    injected. This asserts the reupload twin has the same shape, because the
+    two doors have drifted before and the mirror is the half nobody runs.
+
+    The broken shape is specific and greppable: a lifetime computed as an
+    ARGUMENT to the scheduling call, which evaluates on the event loop before
+    the thread exists. Signing must go through `sign_url_with_deadline`.
+    """
+    import inspect
+
+    from app.modules.catalog.datasets.api import router_reupload
+    from app.processing.ingest import router as ingest_router
+
+    for module in (ingest_router, router_reupload):
+        source = inspect.getsource(module)
+        assert "require_signable_job_lifetime(job.created_at)," not in source, (
+            f"{module.__name__} passes a pre-computed lifetime into a signing "
+            "call; it evaluates on the event loop, so any scheduling delay "
+            "lands past the job deadline. Route it through sign_url_with_deadline"
+        )
+        assert "sign_url_with_deadline" in source, (
+            f"{module.__name__} does not sign through sign_url_with_deadline"
+        )
+
+
+async def test_a_one_shot_put_that_outruns_the_window_answers_409_not_502(
+    client, admin_auth_header, both_doors, monkeypatch
+) -> None:
+    """fix(#1235 review r9): the single-PUT twin of the multipart case.
+
+    Moving the computation into the signing thread (r8) means the lifetime
+    refusal now raises through this branch's broad `except Exception`, whose
+    job is mapping SDK errors to 502. The multipart branch got its passthrough
+    in r5; this is the fourth and last signing path, and without the same
+    re-raise a closed upload window reads as a storage outage.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from app.processing.ingest import presigned as presigned_module
+    from app.processing.ingest import router as ingest_router
+
+    window = 900
+    monkeypatch.setattr(settings, "pending_job_timeout_seconds", window)
+
+    class _ManualClock:
+        def __init__(self) -> None:
+            self._base = datetime.now(timezone.utc)
+            self.elapsed = 0
+
+        def now(self, tz=None):
+            return self._base + timedelta(seconds=self.elapsed)
+
+        def advance(self, seconds: int) -> None:
+            self.elapsed += seconds
+
+    clock = _ManualClock()
+    monkeypatch.setattr(presigned_module, "datetime", clock)
+
+    real_run_in_thread = ingest_router.run_in_thread_draining
+
+    async def _window_closing_run_in_thread(fn, *args):
+        # The whole window elapses between the pre-branch gate and the signing
+        # thread, so the refusal fires where only the in-thread computation
+        # can see it.
+        clock.advance(window)
+        return await real_run_in_thread(fn, *args)
+
+    monkeypatch.setattr(
+        ingest_router, "run_in_thread_draining", _window_closing_run_in_thread
+    )
+
+    resp = await client.post(
+        "/ingest/upload/presigned",
+        json={
+            "filename": "roads.geojson",
+            "file_size": len(_VALID_GEOJSON),
+            "content_type": "application/octet-stream",
+        },
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 409, resp.text
+    assert "Storage service unavailable" not in resp.text

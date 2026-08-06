@@ -78,7 +78,6 @@ async def _recover_stale_jobs_for_current_scope() -> None:
 
     now = datetime.now(timezone.utc)
     stale_cutoff = now - timedelta(seconds=JOB_TIMEOUT_SECONDS)
-    pending_cutoff = now - timedelta(hours=1)
 
     async with async_session() as session:
         # Advisory lock: only one worker runs recovery at a time.
@@ -128,16 +127,23 @@ async def _recover_stale_jobs_for_current_scope() -> None:
                 job_id=str(job.id),
             )
 
-        # Recover orphaned pending jobs (never queued)
+        # Recover orphaned pending jobs (never queued).
+        # fix(#1235 review r2): through the shared clauses, which this site
+        # never had — it was missing BOTH the live-queue predicate (#724, so
+        # it could fail a job whose task was merely waiting) and the
+        # bound/unbound split (#1234, so it could fail a completion mid-commit
+        # every time a worker booted).
+        from app.platform.jobs.router import (
+            STALE_PENDING_UNBOUND_MESSAGE,
+            stale_pending_clauses,
+        )
+
         orphaned_result = await session.execute(
             update(IngestJob)
-            .where(
-                IngestJob.status == "pending",
-                IngestJob.created_at < pending_cutoff,
-            )
+            .where(*stale_pending_clauses(now, completion_bound=False))
             .values(
                 status="failed",
-                error_message="Stale: job was pending for over 1 hour (never queued)",
+                error_message=STALE_PENDING_UNBOUND_MESSAGE,
                 completed_at=now,
             )
             .returning(IngestJob)
@@ -145,7 +151,7 @@ async def _recover_stale_jobs_for_current_scope() -> None:
         orphaned_jobs = list(orphaned_result.scalars())
         for job in orphaned_jobs:
             job.status = "failed"
-            job.error_message = "Stale: job was pending for over 1 hour (never queued)"
+            job.error_message = STALE_PENDING_UNBOUND_MESSAGE
             job.completed_at = now
             log.warning(
                 "Recovered orphaned pending job",

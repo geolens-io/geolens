@@ -20,7 +20,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
 from app.core.async_io import (
-    await_draining,
     run_in_thread_draining,
     run_in_thread_draining_capture_cancel,
 )
@@ -729,6 +728,11 @@ async def request_presigned_reupload(
     threshold = settings.presigned_multipart_threshold_mb * 1024 * 1024
 
     part_size = get_catalog_port().ingest_part_size()
+    # fix(#1235 review r4): a gate, not a value — every signature below computes
+    # its own expiration inside the signing thread, and this call is here only
+    # so a job with no usable lifetime left is refused before an upload id
+    # exists. The return is deliberately discarded. Same as the upload door.
+    get_catalog_port().require_signable_job_lifetime(job.created_at)
 
     if request.file_size > threshold:
         upload_id: str | None = None
@@ -742,8 +746,13 @@ async def request_presigned_reupload(
                 raise initiation_cancel
             num_parts = math.ceil(request.file_size / part_size)
             urls = [
+                # fix(#1235 review r5/r8): each part computes its own
+                # expiration INSIDE the signing thread. Same as the upload
+                # door; `sign_url_with_deadline` carries the reasoning.
                 await run_in_thread_draining(
+                    get_catalog_port().sign_url_with_deadline,
                     storage.generate_presigned_part_url,
+                    job.created_at,
                     physical_s3_key,
                     upload_id,
                     part_num,
@@ -758,7 +767,10 @@ async def request_presigned_reupload(
                     upload_id=upload_id,
                     job_id=job.id,
                 )
-            if isinstance(exc, asyncio.CancelledError):
+            # fix(#1235 review r5): an HTTPException from here is the lifetime
+            # refusal and must survive as its own 409; the abort above has
+            # already run. Same as the upload door.
+            if isinstance(exc, (asyncio.CancelledError, HTTPException)):
                 raise
             logger.exception("presigned_reupload_multipart_failed", s3_key=s3_key)
             raise HTTPException(
@@ -793,7 +805,9 @@ async def request_presigned_reupload(
         )
     else:
         url = await run_in_thread_draining(
+            get_catalog_port().sign_url_with_deadline,
             storage.generate_presigned_put_url,
+            job.created_at,  # expires with the job, not 3600s from now
             physical_s3_key,
             request.content_type,
         )
@@ -890,7 +904,14 @@ async def complete_presigned_reupload(
                 [{"ETag": p.etag, "PartNumber": p.part_number} for p in request.parts],
             )
             if completion_cancel is not None:
-                await await_draining(storage.delete(physical_s3_key))
+                # fix(#1233): do NOT delete the assembled object here. The
+                # upload id was consumed by CompleteMultipartUpload above, so
+                # the object's presence is the only record that assembly
+                # succeeded — `should_assemble_multipart` reads exactly that to
+                # let a retry skip re-assembly (#1202 r3). Deleting it left the
+                # client's natural retry re-assembling with a spent id, 502ing
+                # forever with no way back. Drain and re-raise only; the
+                # cancellation is not a rejection of the bytes.
                 raise completion_cancel
         except Exception as exc:  # broad: storage providers raise varied SDK errors
             await get_catalog_port().abort_presigned_multipart_upload(
