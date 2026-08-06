@@ -4,6 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pwdlib import PasswordHash
+from pwdlib.exceptions import UnknownHashError
 from pwdlib.hashers.bcrypt import BcryptHasher
 
 from app.modules.auth.models import User
@@ -63,7 +64,27 @@ class LocalAuthProvider:
             password_hash.verify(password, DUMMY_HASH)
             raise AuthenticationError("Invalid credentials")
 
-        if not verify_password(password, user.password_hash or ""):
+        if user.password_hash is None:
+            # fix(#1230 codex r10): OAuth-only users have no local password
+            # hash (oauth/service.py never sets one) -- `user.password_hash
+            # or ""` used to hand pwdlib an empty string, which it cannot
+            # parse as any known hash format. That raised UnknownHashError
+            # uncaught here, 500ing the login request and skipping the
+            # user.login.failure audit emit entirely (the except clause in
+            # the router only catches AuthenticationError). Still run a
+            # real verify against the dummy hash for timing-attack parity
+            # with the "user not found" branch above, then always fail --
+            # there is no real password for this account to match.
+            password_hash.verify(password, DUMMY_HASH)
+            raise AuthenticationError("Invalid credentials")
+
+        try:
+            valid = verify_password(password, user.password_hash)
+        except UnknownHashError:
+            # Defense in depth: any other unparseable/corrupted stored hash
+            # is a login failure, not a 500.
+            valid = False
+        if not valid:
             raise AuthenticationError("Invalid credentials")
 
         return AuthenticatedIdentity(

@@ -188,6 +188,326 @@ class TestLogin:
 
 
 # ---------------------------------------------------------------------------
+# Login/logout audit tests (fix #1230)
+# ---------------------------------------------------------------------------
+
+
+class TestLoginAudit:
+    """Password login success/failure and logout were invisible in the audit
+    trail before #1230 -- only the OAuth path emitted login events."""
+
+    async def test_login_success_creates_audit_log(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """A successful password login writes a user.login.success row."""
+        resp = await client.post(
+            "/auth/login",
+            data={"username": ADMIN_USER, "password": ADMIN_PASS},
+        )
+        assert resp.status_code == 200
+
+        log_resp = await client.get(
+            "/admin/audit-logs/",
+            params={"action": "user.login.success"},
+            headers=admin_auth_header,
+        )
+        assert log_resp.status_code == 200
+        data = log_resp.json()
+        assert data["total"] >= 1
+        assert any(log["username"] == ADMIN_USER for log in data["logs"])
+
+    async def test_login_failure_creates_audit_log(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """A wrong password writes a user.login.failure row.
+
+        user_id must be None: LocalAuthProvider deliberately does not
+        disclose whether the username exists, and the audit row must not
+        either. The submitted password must never appear in details.
+        """
+        resp = await client.post(
+            "/auth/login",
+            data={"username": ADMIN_USER, "password": "definitely-the-wrong-password"},
+        )
+        assert resp.status_code == 401
+
+        # fix(#1230 second-opinion review): scope to rows for OUR attempted
+        # username rather than indexing logs[0] -- under pytest -n concurrent
+        # writes, a sibling test's own login.failure row can otherwise land
+        # "first" in this query's ordering.
+        log_resp = await client.get(
+            "/admin/audit-logs/",
+            params={"action": "user.login.failure", "limit": 200},
+            headers=admin_auth_header,
+        )
+        assert log_resp.status_code == 200
+        matches = [
+            log
+            for log in log_resp.json()["logs"]
+            if (log["details"] or {}).get("username") == ADMIN_USER
+        ]
+        assert len(matches) >= 1
+        for entry in matches:
+            assert entry["user_id"] is None
+            assert "password" not in (entry["details"] or {})
+
+    async def test_login_failure_nonexistent_user_creates_audit_log(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """A login attempt for a username that does not exist is also audited."""
+        unique_username = f"nonexistent_user_audit_{uuid.uuid4().hex[:8]}"
+        resp = await client.post(
+            "/auth/login",
+            data={"username": unique_username, "password": "anypass123"},
+        )
+        assert resp.status_code == 401
+
+        # search filters on action/resource_type/username-of-a-known-user, not
+        # JSONB details, so filter client-side on the attempted username.
+        log_resp = await client.get(
+            "/admin/audit-logs/",
+            params={"action": "user.login.failure", "limit": 200},
+            headers=admin_auth_header,
+        )
+        assert log_resp.status_code == 200
+        logs = log_resp.json()["logs"]
+        assert any(
+            (log["details"] or {}).get("username") == unique_username for log in logs
+        )
+
+    async def test_login_deactivated_user_creates_audit_log(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """fix(#1230 codex r1 P1): denial paths past credential-check are also
+        audited, not just AuthenticationError -- a deactivated account trying
+        to log in is exactly the kind of attempt an operator needs to see.
+        """
+        unique = uuid.uuid4().hex[:8]
+        username = f"deactaudit_{unique}"
+        user_data = await _create_user_via_admin(
+            client, admin_auth_header, username=username, password="TestPass1234!"
+        )
+        resp = await client.post(
+            f"/admin/users/{user_data['id']}/deactivate/", headers=admin_auth_header
+        )
+        assert resp.status_code == 200
+
+        resp = await client.post(
+            "/auth/login",
+            data={"username": username, "password": "TestPass1234!"},
+        )
+        assert resp.status_code == 403
+
+        log_resp = await client.get(
+            "/admin/audit-logs/",
+            params={"action": "user.login.failure", "limit": 200},
+            headers=admin_auth_header,
+        )
+        assert log_resp.status_code == 200
+        logs = log_resp.json()["logs"]
+        entries = [log for log in logs if log["user_id"] == user_data["id"]]
+        assert len(entries) >= 1
+        assert entries[0]["details"]["reason"] == "account_not_active"
+
+    async def test_login_pending_user_creates_audit_log(
+        self, client: AsyncClient, admin_auth_header: dict, monkeypatch
+    ):
+        """fix(#1230 second-opinion review): the pending_approval denial path
+        had no test coverage -- mirrors test_login_deactivated_user_creates_
+        audit_log for the sibling denial branch.
+        """
+        monkeypatch.setattr(
+            REGISTRATION_ENABLED,
+            "get",
+            AsyncMock(return_value=True),
+        )
+        unique = uuid.uuid4().hex[:8]
+        username = f"pendaudit_{unique}"
+        password = "TestPass1234!"
+        reg_resp = await client.post(
+            "/auth/register/",
+            json={"username": username, "password": password},
+        )
+        assert reg_resp.status_code == 201
+
+        list_resp = await client.get(
+            "/admin/users/?status=pending",
+            headers=admin_auth_header,
+        )
+        assert list_resp.status_code == 200
+        pending_user = next(
+            u for u in list_resp.json()["users"] if u["username"] == username
+        )
+
+        resp = await client.post(
+            "/auth/login",
+            data={"username": username, "password": password},
+        )
+        assert resp.status_code == 403
+
+        log_resp = await client.get(
+            "/admin/audit-logs/",
+            params={"action": "user.login.failure", "limit": 200},
+            headers=admin_auth_header,
+        )
+        assert log_resp.status_code == 200
+        logs = log_resp.json()["logs"]
+        entries = [log for log in logs if log["user_id"] == pending_user["id"]]
+        assert len(entries) >= 1
+        assert entries[0]["details"]["reason"] == "pending_approval"
+
+    async def test_login_disallowed_domain_creates_audit_log(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """fix(#1230 second-opinion review): the email_domain_not_allowed
+        denial path had no test coverage. Mirrors
+        test_domain_enforcement.py::test_disallowed_domain_login_rejected,
+        with an audit-log assertion added.
+        """
+        unique = uuid.uuid4().hex[:8]
+        username = f"domainaudit_{unique}"
+        password = "TestPass1234!"
+        disallowed_email = f"{username}@evil.example.net"
+        create_resp = await client.post(
+            "/admin/users/",
+            json={
+                "username": username,
+                "password": password,
+                "email": disallowed_email,
+                "role": "viewer",
+            },
+            headers=admin_auth_header,
+        )
+        assert create_resp.status_code == 201, create_resp.text
+        user_id = create_resp.json()["id"]
+
+        settings_resp = await client.put(
+            "/settings/",
+            json={"settings": {"allowed_email_domains": ["allowed.example.com"]}},
+            headers=admin_auth_header,
+        )
+        assert settings_resp.status_code == 200
+        try:
+            resp = await client.post(
+                "/auth/login",
+                data={"username": username, "password": password},
+            )
+            assert resp.status_code == 403
+
+            log_resp = await client.get(
+                "/admin/audit-logs/",
+                params={"action": "user.login.failure", "limit": 200},
+                headers=admin_auth_header,
+            )
+            assert log_resp.status_code == 200
+            logs = log_resp.json()["logs"]
+            entries = [log for log in logs if log["user_id"] == user_id]
+            assert len(entries) >= 1
+            assert entries[0]["details"]["reason"] == "email_domain_not_allowed"
+        finally:
+            await client.put(
+                "/settings/",
+                json={"settings": {"allowed_email_domains": []}},
+                headers=admin_auth_header,
+            )
+
+    async def test_login_oauth_only_user_creates_audit_log_not_500(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """fix(#1230 codex r10 P1): an OAuth-created user has password_hash=
+        None (oauth/service.py never sets one). Submitting the password form
+        for that username used to hand pwdlib an empty-string "hash" it
+        can't parse, raising UnknownHashError uncaught -- a 500 instead of
+        401, and no user.login.failure row (the router only catches
+        AuthenticationError). Must behave exactly like any other wrong-
+        password attempt: 401 + an audited failure with no user_id.
+        """
+        from app.modules.auth.models import User
+
+        unique = uuid.uuid4().hex[:8]
+        username = f"oauthonly_{unique}"
+        oauth_user = User(
+            username=username,
+            email=f"{username}@example.com",
+            password_hash=None,
+            auth_provider="oauth",
+            status="active",
+            is_active=True,
+        )
+        test_db_session.add(oauth_user)
+        await test_db_session.commit()
+
+        resp = await client.post(
+            "/auth/login",
+            data={"username": username, "password": "whatever-password-123"},
+        )
+        assert resp.status_code == 401, resp.text
+
+        log_resp = await client.get(
+            "/admin/audit-logs/",
+            params={"action": "user.login.failure", "limit": 200},
+            headers=admin_auth_header,
+        )
+        assert log_resp.status_code == 200
+        matches = [
+            log
+            for log in log_resp.json()["logs"]
+            if (log["details"] or {}).get("username") == username
+        ]
+        assert len(matches) >= 1
+        assert matches[0]["user_id"] is None
+
+    async def test_login_failure_truncates_long_username(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """fix(#1230 codex r1 P1): OAuth2PasswordRequestForm applies no length
+        limit to username, so a failed login must not persist an unbounded
+        string in details -- bound it to User.username's own width (150).
+        """
+        oversized_username = "x" * 5000
+        resp = await client.post(
+            "/auth/login",
+            data={"username": oversized_username, "password": "anypass123"},
+        )
+        assert resp.status_code == 401
+
+        log_resp = await client.get(
+            "/admin/audit-logs/",
+            params={"action": "user.login.failure", "limit": 200},
+            headers=admin_auth_header,
+        )
+        assert log_resp.status_code == 200
+        logs = log_resp.json()["logs"]
+        matches = [
+            log
+            for log in logs
+            if (log["details"] or {}).get("username", "").startswith("xxxx")
+        ]
+        assert len(matches) >= 1
+        assert len(matches[0]["details"]["username"]) <= 150
+
+    async def test_logout_creates_audit_log(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """POST /auth/logout writes a user.logout row.
+
+        Logout revokes the token that authorized the call (SEC-S15), so the
+        follow-up admin query needs a freshly minted token.
+        """
+        resp = await client.post("/auth/logout", headers=admin_auth_header)
+        assert resp.status_code == 204
+
+        fresh_headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+        log_resp = await client.get(
+            "/admin/audit-logs/",
+            params={"action": "user.logout"},
+            headers=fresh_headers,
+        )
+        assert log_resp.status_code == 200
+        assert log_resp.json()["total"] >= 1
+
+
+# ---------------------------------------------------------------------------
 # Token / me tests
 # ---------------------------------------------------------------------------
 

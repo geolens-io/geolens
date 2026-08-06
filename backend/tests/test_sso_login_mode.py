@@ -172,6 +172,52 @@ class TestPasswordLoginEnabledGate:
             await _delete_provider(test_db_session, provider)
             await test_db_session.commit()
 
+    async def test_non_admin_login_creates_audit_log_when_flag_off(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ) -> None:
+        """fix(#1230 second-opinion review): the password_login_disabled
+        denial path had no test coverage. Mirrors
+        test_non_admin_login_rejected_when_flag_off, with an audit-log
+        assertion added.
+        """
+        username = _unique("sso_audit_viewer")
+        password = "TestPass1234!"
+        create_resp = await client.post(
+            "/admin/users/",
+            json={"username": username, "password": password, "role": "viewer"},
+            headers=admin_auth_header,
+        )
+        assert create_resp.status_code == 201, create_resp.text
+        user_id = create_resp.json()["id"]
+
+        provider = await _make_enabled_oauth_provider(test_db_session)
+        await test_db_session.commit()
+        try:
+            await _set_password_login_enabled(client, admin_auth_header, False)
+            resp = await client.post(
+                "/auth/login",
+                data={"username": username, "password": password},
+            )
+            assert resp.status_code == 403
+
+            log_resp = await client.get(
+                "/admin/audit-logs/",
+                params={"action": "user.login.failure", "limit": 200},
+                headers=admin_auth_header,
+            )
+            assert log_resp.status_code == 200
+            logs = log_resp.json()["logs"]
+            entries = [log for log in logs if log["user_id"] == user_id]
+            assert len(entries) >= 1
+            assert entries[0]["details"]["reason"] == "password_login_disabled"
+        finally:
+            await _reset_password_login_enabled(client, admin_auth_header)
+            await _delete_provider(test_db_session, provider)
+            await test_db_session.commit()
+
     async def test_non_admin_login_succeeds_when_flag_on(
         self, client: AsyncClient, admin_auth_header: dict
     ) -> None:
