@@ -10,7 +10,10 @@ import pytest
 from prometheus_client import Counter, Gauge
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from app.observability.metrics import shutdown_worker_metrics
+from app.observability.metrics import (
+    _sweep_dead_worker_metrics_once,
+    shutdown_worker_metrics,
+)
 from app.observability.metrics.instrumentator import create_instrumentator
 from app.observability.metrics.jobs import (
     _refresh_job_metrics,
@@ -362,6 +365,85 @@ def test_multiprocess_pool_gauge_uses_livesum_not_per_pid(tmp_path):
     assert len(samples) == 1
     assert samples[0].value == 8.0
     assert "pid" not in samples[0].labels
+
+
+_LIVEALL_RSS_WRITER = """
+import os
+import sys
+import time
+from app.observability.metrics.memory import worker_rss_bytes
+
+worker_rss_bytes.labels(pid=str(os.getpid())).set(int(os.environ["_TEST_RSS_BYTES"]))
+print(os.getpid(), flush=True)
+if os.environ.get("_TEST_STAY_ALIVE"):
+    time.sleep(10)
+"""
+
+
+def test_sweep_dead_worker_metrics_reaps_only_dead_pids(tmp_path):
+    """fix(#1240, #651 review round 2): a worker that's OOM-killed/SIGKILLed
+    never runs shutdown_worker_metrics() (it dies mid-request, not at a
+    lifespan boundary), so its series would otherwise linger until the whole
+    container restarts. The periodic sweep must reap ONLY pids that are no
+    longer running -- a still-alive sibling's series must survive the same
+    pass, or the sweep would be indistinguishable from just deleting
+    everything on a timer.
+    """
+    multiproc_dir = str(tmp_path)
+    env_base = {**os.environ, "PROMETHEUS_MULTIPROC_DIR": multiproc_dir}
+
+    # "Dead" worker: writes a value and exits normally with no graceful
+    # shutdown call -- from the sweep's point of view this is indistinguishable
+    # from a SIGKILL, since both just leave a file behind for a pid that no
+    # longer exists.
+    dead = subprocess.run(
+        [sys.executable, "-c", _LIVEALL_RSS_WRITER],
+        cwd=str(_BACKEND_ROOT),
+        env={**env_base, "_TEST_RSS_BYTES": str(111 * 1024 * 1024)},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert dead.returncode == 0, dead.stderr
+    dead_pid = int(dead.stdout.strip())
+
+    # "Alive" worker: kept running past the sweep so its series can be
+    # asserted untouched.
+    alive_proc = subprocess.Popen(
+        [sys.executable, "-c", _LIVEALL_RSS_WRITER],
+        cwd=str(_BACKEND_ROOT),
+        env={
+            **env_base,
+            "_TEST_RSS_BYTES": str(222 * 1024 * 1024),
+            "_TEST_STAY_ALIVE": "1",
+        },
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        alive_pid = int(alive_proc.stdout.readline().strip())
+
+        with patch.dict(os.environ, {"PROMETHEUS_MULTIPROC_DIR": multiproc_dir}):
+            _sweep_dead_worker_metrics_once()
+
+        from prometheus_client import CollectorRegistry, multiprocess
+
+        registry = CollectorRegistry()
+        multiprocess.MultiProcessCollector(registry, path=multiproc_dir)
+        families = {f.name: f for f in registry.collect()}
+        samples = [
+            s
+            for s in families["geolens_worker_rss_bytes"].samples
+            if s.name == "geolens_worker_rss_bytes"
+        ]
+        pids_present = {int(s.labels["pid"]) for s in samples}
+
+        assert dead_pid not in pids_present
+        assert alive_pid in pids_present
+    finally:
+        alive_proc.terminate()
+        alive_proc.wait(timeout=10)
 
 
 def test_shutdown_worker_metrics_marks_process_dead_when_multiprocess_active():

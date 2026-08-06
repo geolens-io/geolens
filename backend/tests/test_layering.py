@@ -1868,7 +1868,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # lifespan shutdown block so a recycled uvicorn worker drops its
     # prometheus_client multiprocess mmap files instead of leaving a stale
     # series for the next scrape to keep summing. Cap 1292 -> 1296, exact.
-    "backend/app/api/main.py": 1296,
+    # fix(#1240, #651 review round 2): +9 — start/cancel metrics_sweep_task
+    # (sweep_dead_worker_metrics) alongside the existing pool/memory
+    # background tasks, so an OOM-killed/SIGKILLed worker's multiprocess
+    # gauge files get reaped even though its own graceful shutdown hook
+    # never ran. Cap 1296 -> 1305, exact.
+    "backend/app/api/main.py": 1305,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative

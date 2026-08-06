@@ -14,11 +14,21 @@ multiprocess.MultiProcessCollector whenever PROMETHEUS_MULTIPROC_DIR is set
 otherwise -- so this stays a no-op for the dev single-worker default.
 """
 
+import asyncio
+import glob
 import os
+from collections.abc import Iterator
 
+import structlog
 from fastapi import FastAPI
 
 from .instrumentator import create_instrumentator
+
+logger = structlog.stdlib.get_logger(__name__)
+
+# How often every worker sweeps PROMETHEUS_MULTIPROC_DIR for gauge files left
+# by a sibling that died without running its own shutdown hook.
+_SWEEP_INTERVAL_SECONDS = 60
 
 
 def init_metrics(app: FastAPI):
@@ -38,9 +48,78 @@ def shutdown_worker_metrics() -> None:
     PROMETHEUS_MULTIPROC_DIR and keep being summed into every future scrape
     as a stale series. No-op when multiprocess mode isn't active (e.g. the
     dev single-worker default has no PROMETHEUS_MULTIPROC_DIR set).
+
+    This only runs on a graceful lifespan shutdown -- see
+    sweep_dead_worker_metrics() for the OOM-kill/SIGKILL case, where this
+    function never gets a chance to run at all.
     """
     if "PROMETHEUS_MULTIPROC_DIR" not in os.environ:
         return
     from prometheus_client import multiprocess
 
     multiprocess.mark_process_dead(os.getpid())
+
+
+def _dead_worker_pids() -> Iterator[int]:
+    """PIDs with a live-mode multiprocess file but no longer running.
+
+    Reads pids off of gauge_live*_<pid>.db filenames (prometheus_client's own
+    naming scheme) and checks each with a signal-0 kill, the same liveness
+    probe prometheus_client's own docs recommend for this exact reaping
+    pattern. A pid that gets reused by an unrelated process before the next
+    sweep would be skipped as "alive" -- an accepted, documented limitation
+    of pid-based reaping, not something this sweep can close from inside a
+    dying process.
+    """
+    multiproc_dir = os.environ.get("PROMETHEUS_MULTIPROC_DIR")
+    if not multiproc_dir:
+        return
+    seen: set[int] = set()
+    for path in glob.glob(os.path.join(multiproc_dir, "gauge_live*_*.db")):
+        pid_str = os.path.basename(path).rsplit("_", 1)[-1].removesuffix(".db")
+        try:
+            pid = int(pid_str)
+        except ValueError:
+            continue
+        if pid in seen or pid == os.getpid():
+            continue
+        seen.add(pid)
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            yield pid
+        except PermissionError:
+            # Process exists (just not signalable by us) -- treat as alive.
+            continue
+
+
+def _sweep_dead_worker_metrics_once() -> None:
+    """Run one reap pass (no loop, no sleep) -- split out for tests."""
+    if "PROMETHEUS_MULTIPROC_DIR" not in os.environ:
+        return
+    from prometheus_client import multiprocess
+
+    for pid in _dead_worker_pids():
+        multiprocess.mark_process_dead(pid)
+
+
+async def sweep_dead_worker_metrics() -> None:
+    """Background loop: reap multiprocess files left by a hard-killed worker.
+
+    fix(#1240, #651 review round 2): shutdown_worker_metrics() only runs on a
+    graceful lifespan shutdown. A worker OOM-killed or SIGKILLed (the #643
+    scenario this whole gauge exists to catch) never reaches that shutdown
+    path, while the uvicorn supervisor stays up and respawns a replacement in
+    the same PROMETHEUS_MULTIPROC_DIR -- so the dead worker's RSS and pool
+    gauges would otherwise linger, inflating /metrics, until the whole
+    container restarts. No-op when multiprocess mode isn't active. Safe to
+    run in every worker: mark_process_dead() is idempotent once a pid's files
+    are gone, so a race between two workers sweeping the same dead pid is
+    harmless.
+    """
+    while True:
+        try:
+            _sweep_dead_worker_metrics_once()
+        except Exception:  # broad: sweep is non-fatal; must not crash the loop
+            logger.warning("Failed to sweep dead worker metrics", exc_info=True)
+        await asyncio.sleep(_SWEEP_INTERVAL_SECONDS)
