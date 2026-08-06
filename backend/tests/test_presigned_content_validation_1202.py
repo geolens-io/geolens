@@ -1248,3 +1248,63 @@ def test_neither_door_computes_an_expiration_before_scheduling() -> None:
         assert "sign_url_with_deadline" in source, (
             f"{module.__name__} does not sign through sign_url_with_deadline"
         )
+
+
+async def test_a_one_shot_put_that_outruns_the_window_answers_409_not_502(
+    client, admin_auth_header, both_doors, monkeypatch
+) -> None:
+    """fix(#1235 review r9): the single-PUT twin of the multipart case.
+
+    Moving the computation into the signing thread (r8) means the lifetime
+    refusal now raises through this branch's broad `except Exception`, whose
+    job is mapping SDK errors to 502. The multipart branch got its passthrough
+    in r5; this is the fourth and last signing path, and without the same
+    re-raise a closed upload window reads as a storage outage.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from app.processing.ingest import presigned as presigned_module
+    from app.processing.ingest import router as ingest_router
+
+    window = 900
+    monkeypatch.setattr(settings, "pending_job_timeout_seconds", window)
+
+    class _ManualClock:
+        def __init__(self) -> None:
+            self._base = datetime.now(timezone.utc)
+            self.elapsed = 0
+
+        def now(self, tz=None):
+            return self._base + timedelta(seconds=self.elapsed)
+
+        def advance(self, seconds: int) -> None:
+            self.elapsed += seconds
+
+    clock = _ManualClock()
+    monkeypatch.setattr(presigned_module, "datetime", clock)
+
+    real_run_in_thread = ingest_router.run_in_thread_draining
+
+    async def _window_closing_run_in_thread(fn, *args):
+        # The whole window elapses between the pre-branch gate and the signing
+        # thread, so the refusal fires where only the in-thread computation
+        # can see it.
+        clock.advance(window)
+        return await real_run_in_thread(fn, *args)
+
+    monkeypatch.setattr(
+        ingest_router, "run_in_thread_draining", _window_closing_run_in_thread
+    )
+
+    resp = await client.post(
+        "/ingest/upload/presigned",
+        json={
+            "filename": "roads.geojson",
+            "file_size": len(_VALID_GEOJSON),
+            "content_type": "application/octet-stream",
+        },
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 409, resp.text
+    assert "Storage service unavailable" not in resp.text

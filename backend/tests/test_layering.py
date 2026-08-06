@@ -2032,7 +2032,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1235 review r8): -2 — signing moved behind sign_url_with_deadline,
     # which took the per-site reasoning comments with it into presigned.py.
     # Ratchet DOWN in the same commit, per the no-headroom rule.
-    "backend/app/processing/ingest/router.py": 1540,
+    # fix(#1235 review r9): +8 — the single-PUT branch re-raises HTTPException
+    # so the in-thread lifetime refusal stays a 409 there too, as it already
+    # did on the other three signing paths.
+    "backend/app/processing/ingest/router.py": 1548,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901

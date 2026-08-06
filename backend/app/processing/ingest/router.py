@@ -335,12 +335,20 @@ async def request_presigned_upload(
             )
         except (
             Exception
-        ):  # broad: S3/MinIO presign-put can throw varied SDK errors; map to 502
+        ) as exc:  # broad: S3/MinIO presign-put can throw varied SDK errors; map to 502
+            # fix(#1235 review r9): the fourth signing path needed the same
+            # passthrough as the multipart branch. Signing moved into the
+            # thread, so the lifetime refusal now raises through here, and this
+            # handler turned a closed upload window into "Storage service
+            # unavailable". No CancelledError case: this except is `Exception`,
+            # which never catches one, and nothing is spent on a one-shot PUT.
+            if isinstance(exc, HTTPException):
+                raise
             logger.exception("presigned_put_failed", s3_key=s3_key)
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="Storage service unavailable",
-            )
+            ) from exc
         job.user_metadata = {
             "presigned": True,
             "s3_key": s3_key,
