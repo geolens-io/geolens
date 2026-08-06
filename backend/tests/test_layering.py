@@ -2080,6 +2080,62 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # line: that is the gap #958 was filed about. The next change to any of
     # them writes the first entry.
     "backend/app/platform/config_ops/service.py": 1201,
+    # fix(#1236): first entry — crossed the router-glob gate's default
+    # 1500-line cap. The lines bought a bounded re-check pass for
+    # `_sweep_expired_presigned_staging` (closes the #1235 review r5 known
+    # gap: a timeout-lowering restart could orphan a recreated staging
+    # object forever), a further-bounded finalization margin for a PUT still
+    # transferring past the SigV4 ceiling (codex P1), and deferring the
+    # terminal-job retention purge for presigned rows a live URL could still
+    # recreate (codex P1). Cap 1500 -> 1501, exact.
+    # fix(#1236 review r2, codex P1 x2): +33 — the finalization margin was
+    # reusing `_COMMIT_HEADROOM_SECONDS`, an APPLICATION commit-round-trip
+    # number that never bounded a presigned PUT (which bypasses the app
+    # entirely) and didn't scale with `presigned_multipart_threshold_mb`.
+    # Replaced with `recheck_transfer_margin_seconds()`, derived from that
+    # setting's max single-part size and an assumed floor throughput; the
+    # retention purge's deferral now adds the same margin instead of stopping
+    # at the bare SigV4 ceiling. Cap 1501 -> 1534, exact.
+    # fix(#1236 review r3, codex P1): +41 — that margin still read the
+    # CURRENT `presigned_multipart_threshold_mb`, so lowering it during a
+    # restart could shrink the margin under a transfer issued when it was
+    # higher — the #1236 class again, one level down. The sweep now derives
+    # each job's margin from its own persisted `expected_size` (computed per
+    # row, in the loop, since a bulk DELETE cannot); the retention purge,
+    # which cannot branch per row, falls back to S3's own single-PUT ceiling
+    # instead of the current setting. Cap 1534 -> 1575, exact.
+    # fix(second-opinion review on #1236 review r3): +13 — the setting has no
+    # configured upper bound, so a declared `expected_size` could exceed the
+    # purge fallback's 5GiB assumption whenever an operator raised it past
+    # that. `recheck_transfer_margin_seconds()` now clamps unconditionally at
+    # `_S3_SINGLE_PUT_MAX_BYTES` rather than trusting either the job's
+    # declared size or the setting. Cap 1575 -> 1588, exact.
+    # fix(#1236 review r4, codex P1): -43 — rounds r2/r3 both scaled the
+    # margin from a client-declared size (a setting, then a job's own
+    # `expected_size`); r4 found neither was ever enforced —
+    # `generate_presigned_put_url` signs no content-length constraint, so a
+    # declaration bounds nothing. The margin is now a single fixed constant
+    # (S3's own single-PUT ceiling) for every job, which let the per-row
+    # `expected_size` branch in the sweep's loop and the whole
+    # `recheck_transfer_margin_seconds()` function collapse back out. Ratchet
+    # DOWN in the same commit, per the no-headroom rule. Cap 1588 -> 1545,
+    # exact.
+    # fix(#1236 review r5, codex P2): +16 — a non-null `s3_key` was treated
+    # as ownership in the retention purge's deferral predicate, but
+    # `create_fan_out_jobs` clones the parent's `user_metadata` wholesale, so
+    # every fan-out child inherits the PARENT's `s3_key` too. The predicate
+    # now requires the key's prefix match the ROW'S OWN id (a LIKE string
+    # match, same ownership rule `owned_presigned_staging_key` already
+    # enforces), so a terminal child no longer rides along on the parent's
+    # ~8.9-day exemption. Cap 1545 -> 1561, exact.
+    "backend/app/platform/jobs/router.py": 1561,
+    # fix(second-opinion review on #1236 review r3): first entry — crossed
+    # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
+    # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side
+    # fixed margin in `_sweep_expired_presigned_staging` is what actually
+    # closes the gap; this Field bound only stops a fresh boot from
+    # configuring past S3's own single-PUT ceiling in the first place).
+    "backend/app/core/config.py": 1004,
     "backend/app/processing/ingest/tasks_vrt.py": 1071,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this

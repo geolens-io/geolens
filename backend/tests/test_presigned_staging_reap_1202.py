@@ -454,7 +454,14 @@ class TestPostExpirySweep:
         base.update(overrides)
         return StaleCleanupOutcome(**base)
 
-    async def _make_job(self, test_db_session, *, age_seconds: int, status="complete"):
+    async def _make_job(
+        self,
+        test_db_session,
+        *,
+        age_seconds: int,
+        status="complete",
+        expected_size: int | None = None,
+    ):
         from datetime import datetime, timedelta, timezone
 
         from sqlalchemy import select, update
@@ -476,6 +483,13 @@ class TestPostExpirySweep:
         await test_db_session.refresh(job)
 
         staging_key = f"staging/{job.id}/roads.geojson"
+        metadata = {"presigned": True, "s3_key": staging_key}
+        if expected_size is not None:
+            # Mirrors what the presign door persists at signing time
+            # (ingest/router.py) — the size declared for THIS job's URL,
+            # independent of whatever `presigned_multipart_threshold_mb`
+            # reads as later.
+            metadata["expected_size"] = expected_size
         # created_at is server-defaulted, so age it explicitly rather than
         # relying on wall-clock drift.
         await test_db_session.execute(
@@ -483,7 +497,7 @@ class TestPostExpirySweep:
             .where(IngestJob.id == job.id)
             .values(
                 file_path=f"staging/{job.id}/frozen/roads.geojson",
-                user_metadata={"presigned": True, "s3_key": staging_key},
+                user_metadata=metadata,
                 created_at=datetime.now(timezone.utc) - timedelta(seconds=age_seconds),
             )
         )
@@ -596,6 +610,431 @@ class TestPostExpirySweep:
         ).scalar_one()
         await test_db_session.refresh(refreshed)
         assert "s3_key_reaped" not in (refreshed.user_metadata or {})
+
+    async def test_a_timeout_lowering_restart_no_longer_orphans_the_recreated_object(
+        self, test_db_session, monkeypatch
+    ) -> None:
+        """#1236 repro. An operator lowers ``pending_job_timeout_seconds`` and
+        restarts while a PUT URL signed under the OLD, longer setting is still
+        live. The ordinary pass derives its window from the CURRENT setting,
+        so it reaps and marks the row early; a re-PUT through the still-valid
+        URL then recreates the object. Before this fix the marker exempted
+        the row from every later pass, orphaning the recreated object
+        forever. Reproduced across two "runs" against the same row —
+        ``pending_job_timeout_seconds`` changes between them, standing in for
+        the restart, and the second run's ``now=`` stands in for wall-clock
+        time actually passing — rather than an actual process restart.
+
+        Also covers the codex P1 follow-up: the re-check's first delete
+        attempt (right at the SigV4 ceiling) must not finalize the row on the
+        spot — a PUT accepted just under the ceiling can still be transferring
+        past it — so finalization needs `_RECHECK_TRANSFER_MARGIN_SECONDS`
+        MORE to elapse before the row is retired for good.
+
+        Assertions key off this test's OWN ``staging_key`` and job row rather
+        than the aggregate ``StaleCleanupOutcome`` counts or an exact set of
+        every ``storage.delete`` call: per the isolation note above
+        ``test_db_session``, this file's test database is NOT rolled back
+        between tests, and the final ``now=`` jump is deliberately beyond
+        ``MAX_PRESIGNED_URL_LIFETIME_SECONDS`` — comfortably old enough to
+        also re-sweep unrelated already-reaped rows left behind by sibling
+        tests earlier in the same run.
+        """
+        from datetime import timedelta, timezone
+
+        from sqlalchemy import select
+
+        from app.core.config import MAX_PRESIGNED_URL_LIFETIME_SECONDS, settings
+        from app.platform.jobs import router as jobs_router
+        from app.platform.jobs.models import IngestJob
+        from app.platform.jobs.router import _RECHECK_TRANSFER_MARGIN_SECONDS
+
+        # "Run 1": job created while pending_job_timeout_seconds was the
+        # 3600s default. A URL signed near creation is legitimately live
+        # until the job turns 3600s old.
+        job, staging_key = await self._make_job(test_db_session, age_seconds=1500)
+        storage = AsyncMock()
+        monkeypatch.setattr(
+            "app.platform.storage.get_storage", lambda: storage, raising=True
+        )
+
+        async def _row() -> IngestJob:
+            return (
+                await test_db_session.execute(
+                    select(IngestJob).where(IngestJob.id == job.id)
+                )
+            ).scalar_one()
+
+        # "Run 2" / the restart: the operator lowers the setting to 120s.
+        # post_expiry_sweep_after_seconds() is now 120 + 900 = 1020, well
+        # under this job's age of 1500 — even though its URL, minted under
+        # the pre-restart 3600s setting, will not expire until age 3600.
+        with patch.object(settings, "pending_job_timeout_seconds", 120):
+            await jobs_router._sweep_expired_presigned_staging(
+                test_db_session, self._outcome()
+            )
+
+        assert staging_key in {c.args[0] for c in storage.delete.await_args_list}
+        reaped_row = await _row()
+        assert reaped_row.user_metadata["s3_key_reaped"] is True
+        assert "s3_key_reaped_final" not in reaped_row.user_metadata
+
+        # The client's still-valid pre-restart URL recreates the object.
+        storage.delete.reset_mock()
+
+        # A pass run shortly after must NOT re-check this row yet — the
+        # re-check cost is bounded to once, not paid on every pass.
+        await jobs_router._sweep_expired_presigned_staging(
+            test_db_session, self._outcome()
+        )
+        assert staging_key not in {c.args[0] for c in storage.delete.await_args_list}
+
+        # Once MAX_PRESIGNED_URL_LIFETIME_SECONDS have elapsed since
+        # creation — the latest moment ANY URL for this job, signed under
+        # ANY setting the deployment ever ran, can still be live — the
+        # re-check pass fires and re-attempts the delete. It must NOT
+        # finalize yet: a PUT accepted a moment before the ceiling can still
+        # be uploading past it, so retiring the row here would risk the
+        # exact orphan this fix exists to close.
+        # `reaped_row.created_at` is read fresh from the row the ordinary
+        # pass backdated — `job` itself still holds the pre-backdate value
+        # from before `_make_job`'s follow-up UPDATE.
+        created_at = reaped_row.created_at
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        recheck_now = created_at + timedelta(
+            seconds=MAX_PRESIGNED_URL_LIFETIME_SECONDS + 1
+        )
+        storage.delete.reset_mock()
+        await jobs_router._sweep_expired_presigned_staging(
+            test_db_session, self._outcome(), now=recheck_now
+        )
+
+        assert staging_key in {c.args[0] for c in storage.delete.await_args_list}
+        not_yet_final_row = await _row()
+        assert not_yet_final_row.user_metadata["s3_key_reaped"] is True
+        assert "s3_key_reaped_final" not in not_yet_final_row.user_metadata
+
+        # A pass run before the transfer margin has ALSO elapsed re-attempts
+        # the (now no-op) delete again but still does not finalize.
+        storage.delete.reset_mock()
+        await jobs_router._sweep_expired_presigned_staging(
+            test_db_session,
+            self._outcome(),
+            now=recheck_now + timedelta(seconds=1),
+        )
+        assert staging_key in {c.args[0] for c in storage.delete.await_args_list}
+        still_not_final_row = await _row()
+        assert "s3_key_reaped_final" not in still_not_final_row.user_metadata
+
+        # Only once _RECHECK_TRANSFER_MARGIN_SECONDS have ALSO passed beyond
+        # the ceiling is no such transfer credible any longer, and the row is
+        # retired for good.
+        final_now = recheck_now + timedelta(
+            seconds=_RECHECK_TRANSFER_MARGIN_SECONDS + 1
+        )
+        storage.delete.reset_mock()
+        await jobs_router._sweep_expired_presigned_staging(
+            test_db_session, self._outcome(), now=final_now
+        )
+        assert staging_key in {c.args[0] for c in storage.delete.await_args_list}
+        final_row = await _row()
+        assert final_row.user_metadata["s3_key_reaped_final"] is True
+
+        # And it is now excluded for good — a later pass costs no further
+        # delete call against THIS key, however much more time passes.
+        storage.delete.reset_mock()
+        await jobs_router._sweep_expired_presigned_staging(
+            test_db_session,
+            self._outcome(),
+            now=final_now + timedelta(seconds=1),
+        )
+        assert staging_key not in {c.args[0] for c in storage.delete.await_args_list}
+
+    async def test_a_tiny_declared_size_still_gets_the_full_hard_limit_margin(
+        self, test_db_session, monkeypatch
+    ) -> None:
+        """codex P1 review r4: rounds r2/r3 both derived the finalization
+        margin from a client-declared size — first the current
+        `presigned_multipart_threshold_mb`, then a job's own persisted
+        `expected_size`. Neither is enforced: `generate_presigned_put_url`
+        signs only `ContentType`, never a content-length constraint, so a
+        client can declare one byte and stream a multi-gigabyte object
+        anyway. A tiny declared `expected_size` must NOT shorten the
+        margin — finalization always waits out the full, fixed
+        `_RECHECK_TRANSFER_MARGIN_SECONDS`, regardless of what was declared.
+        """
+        from datetime import timedelta, timezone
+
+        from sqlalchemy import select
+
+        from app.core.config import MAX_PRESIGNED_URL_LIFETIME_SECONDS
+        from app.platform.jobs import router as jobs_router
+        from app.platform.jobs.models import IngestJob
+        from app.platform.jobs.router import _RECHECK_TRANSFER_MARGIN_SECONDS
+
+        # This job's URL was signed against a ONE-BYTE declared size — the
+        # smallest a client could claim while actually streaming anything up
+        # to S3's real single-PUT limit, since nothing enforces the match.
+        job, staging_key = await self._make_job(
+            test_db_session, age_seconds=10_000, expected_size=1
+        )
+        storage = AsyncMock()
+        monkeypatch.setattr(
+            "app.platform.storage.get_storage", lambda: storage, raising=True
+        )
+
+        async def _row() -> IngestJob:
+            return (
+                await test_db_session.execute(
+                    select(IngestJob).where(IngestJob.id == job.id)
+                )
+            ).scalar_one()
+
+        # Ordinary pass reaps and marks (not final).
+        await jobs_router._sweep_expired_presigned_staging(
+            test_db_session, self._outcome()
+        )
+        reaped_row = await _row()
+        created_at = reaped_row.created_at
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+
+        # Just past the ceiling plus a SHORT margin (what a naive read of
+        # the one-byte declaration might imply) — must NOT finalize: a
+        # multi-gigabyte PUT accepted just under the ceiling could still be
+        # writing this far past it.
+        short_margin_seconds = 3600  # the absolute floor, and then some
+        assert short_margin_seconds < _RECHECK_TRANSFER_MARGIN_SECONDS, (
+            "test setup: the hard-limit margin must be the bigger one"
+        )
+        too_soon_at = created_at + timedelta(
+            seconds=MAX_PRESIGNED_URL_LIFETIME_SECONDS + short_margin_seconds + 1
+        )
+        storage.delete.reset_mock()
+        await jobs_router._sweep_expired_presigned_staging(
+            test_db_session, self._outcome(), now=too_soon_at
+        )
+        not_yet_final_row = await _row()
+        assert "s3_key_reaped_final" not in not_yet_final_row.user_metadata, (
+            "finalized off a size-scaled margin instead of the fixed, "
+            "unconditional S3 single-PUT hard-limit margin"
+        )
+
+        # Past the ceiling plus the FULL fixed margin, it finalizes.
+        final_now = created_at + timedelta(
+            seconds=MAX_PRESIGNED_URL_LIFETIME_SECONDS
+            + _RECHECK_TRANSFER_MARGIN_SECONDS
+            + 1
+        )
+        storage.delete.reset_mock()
+        await jobs_router._sweep_expired_presigned_staging(
+            test_db_session, self._outcome(), now=final_now
+        )
+        assert staging_key in {c.args[0] for c in storage.delete.await_args_list}
+        final_row = await _row()
+        assert final_row.user_metadata["s3_key_reaped_final"] is True
+
+    async def test_retention_purge_defers_a_presigned_job_within_the_url_lifetime(
+        self, test_db_session, monkeypatch
+    ) -> None:
+        """codex P1 on this PR: the retention purge in ``fail_stale_jobs`` is a
+        SEPARATE deletion path from ``_sweep_expired_presigned_staging`` and
+        runs before it. Left unguarded, a short ``ingest_jobs_retention_days``
+        (1 day is a supported, tested value elsewhere in this suite) could
+        delete a presigned job's ROW — the only place the sweep's markers
+        live — while a URL signed under a longer pre-restart setting is still
+        valid. A later PUT would then recreate an object no row anywhere
+        references: worse than the marker gap this PR closes, because
+        nothing could ever find it again.
+
+        codex P1 review r2: the deferral must extend through the SAME
+        transfer margin the sweep's own finalization waits out, not stop at
+        the bare SigV4 ceiling — a single-part PUT begun just before the
+        ceiling can still be transferring past it, and purging (which reaps
+        the key immediately, unconditionally) at the bare ceiling would
+        recreate the exact orphan this test's first case exists to prevent,
+        just via the purge path instead of the sweep's.
+        """
+        from sqlalchemy import select
+
+        from app.core.config import MAX_PRESIGNED_URL_LIFETIME_SECONDS, settings
+        from app.platform.jobs import router as jobs_router
+        from app.platform.jobs.models import IngestJob
+        from app.platform.jobs.router import _RECHECK_TRANSFER_MARGIN_SECONDS
+
+        # Past the 1-day retention cutoff but well under the 7-day SigV4
+        # ceiling — exactly the window a still-live pre-restart URL occupies.
+        still_tracked_job, _still_tracked_key = await self._make_job(
+            test_db_session, age_seconds=100_000
+        )
+        # Past the ceiling but still within the transfer margin a PUT begun
+        # just under it may still need — must be deferred exactly like the
+        # first case, not purged just because the bare ceiling has passed.
+        within_margin_job, _within_margin_key = await self._make_job(
+            test_db_session, age_seconds=MAX_PRESIGNED_URL_LIFETIME_SECONDS + 100
+        )
+        # Past the ceiling AND the margin — no URL for it, nor any transfer
+        # it could have accepted, can possibly still be live, so purging (and
+        # reaping its key immediately, same as the ordinary end-of-job
+        # sweeps) is safe.
+        safe_to_purge_job, safe_to_purge_key = await self._make_job(
+            test_db_session,
+            age_seconds=(
+                MAX_PRESIGNED_URL_LIFETIME_SECONDS
+                + _RECHECK_TRANSFER_MARGIN_SECONDS
+                + 100
+            ),
+        )
+        storage = AsyncMock()
+        monkeypatch.setattr(
+            "app.platform.storage.get_storage", lambda: storage, raising=True
+        )
+        monkeypatch.setattr(settings, "ingest_jobs_retention_days", 1)
+
+        await jobs_router.fail_stale_jobs(test_db_session, detailed=True)
+
+        async def _exists(job_id) -> bool:
+            row = (
+                await test_db_session.execute(
+                    select(IngestJob.id).where(IngestJob.id == job_id)
+                )
+            ).scalar_one_or_none()
+            return row is not None
+
+        assert await _exists(still_tracked_job.id), (
+            "a presigned job within the URL lifetime must survive the "
+            "retention purge, or nothing can ever track its recreated object"
+        )
+        assert await _exists(within_margin_job.id), (
+            "a presigned job within the transfer margin past the ceiling "
+            "must also survive the purge — an accepted PUT can still land"
+        )
+        assert not await _exists(safe_to_purge_job.id)
+        assert safe_to_purge_key in {c.args[0] for c in storage.delete.await_args_list}
+
+    async def test_retention_purge_does_not_exempt_a_fan_out_child_for_a_key_it_does_not_own(
+        self, test_db_session, monkeypatch
+    ) -> None:
+        """codex P2 review r5: `create_fan_out_jobs` clones the parent's
+        ``user_metadata`` wholesale (processing/ingest/service.py), so every
+        fan-out child carries the PARENT's ``s3_key`` too —
+        ``owned_presigned_staging_key`` deliberately rejects that as
+        ownership (the key's prefix names the PARENT's id, not the child's).
+        The retention-purge deferral above must draw the same line: a
+        non-null ``s3_key`` alone is not ownership, and a child that can
+        never legitimately reap or finalize that key must not ride along on
+        the parent's ~8.9-day exemption. Left unguarded, a terminal fan-out
+        child would outlive a 1-day retention setting by roughly 9x.
+        """
+        from datetime import datetime, timedelta, timezone
+
+        from sqlalchemy import select, update
+
+        from app.core.config import MAX_PRESIGNED_URL_LIFETIME_SECONDS
+        from app.modules.auth.models import User
+        from app.platform.jobs import router as jobs_router
+        from app.platform.jobs.models import IngestJob
+
+        admin = (
+            await test_db_session.execute(select(User).where(User.username == "admin"))
+        ).scalar_one()
+
+        # The parent: a genuine presigned upload, well past the 1-day
+        # retention cutoff but safely within the SigV4 ceiling — the row
+        # that legitimately still owns and needs `parent_staging_key`.
+        parent = IngestJob(
+            source_filename="roads.geojson",
+            created_by=admin.id,
+            status="complete",
+            user_metadata={"presigned": True},
+        )
+        test_db_session.add(parent)
+        await test_db_session.commit()
+        await test_db_session.refresh(parent)
+        parent_staging_key = f"staging/{parent.id}/roads.geojson"
+        await test_db_session.execute(
+            update(IngestJob)
+            .where(IngestJob.id == parent.id)
+            .values(
+                file_path=f"staging/{parent.id}/frozen/roads.geojson",
+                user_metadata={"presigned": True, "s3_key": parent_staging_key},
+                created_at=datetime.now(timezone.utc) - timedelta(seconds=100_000),
+            )
+        )
+
+        # A fan-out child: FAILED, same age, carrying the PARENT's s3_key
+        # (exactly what create_fan_out_jobs clones) plus fan_out_parent_id.
+        # This is the row a 1-day retention setting expects to be purged.
+        child = IngestJob(
+            source_filename="roads.geojson",
+            created_by=admin.id,
+            status="failed",
+            user_metadata={"presigned": True},
+        )
+        test_db_session.add(child)
+        await test_db_session.commit()
+        await test_db_session.refresh(child)
+        await test_db_session.execute(
+            update(IngestJob)
+            .where(IngestJob.id == child.id)
+            .values(
+                user_metadata={
+                    "presigned": True,
+                    "s3_key": parent_staging_key,  # inherited, not owned
+                    "fan_out_parent_id": str(parent.id),
+                },
+                created_at=datetime.now(timezone.utc) - timedelta(seconds=100_000),
+            )
+        )
+        await test_db_session.commit()
+
+        storage = AsyncMock()
+        monkeypatch.setattr(
+            "app.platform.storage.get_storage", lambda: storage, raising=True
+        )
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "ingest_jobs_retention_days", 1)
+
+        await jobs_router.fail_stale_jobs(test_db_session, detailed=True)
+
+        async def _exists(job_id) -> bool:
+            row = (
+                await test_db_session.execute(
+                    select(IngestJob.id).where(IngestJob.id == job_id)
+                )
+            ).scalar_one_or_none()
+            return row is not None
+
+        assert not await _exists(child.id), (
+            "a fan-out child inherits the parent's s3_key but not "
+            "ownership of it, and must not ride along on the parent's "
+            "~8.9-day exemption — it should purge on the configured "
+            "1-day retention like any other terminal row"
+        )
+        assert await _exists(parent.id), (
+            "test setup: the parent genuinely owns the key and IS within "
+            f"MAX_PRESIGNED_URL_LIFETIME_SECONDS ({MAX_PRESIGNED_URL_LIFETIME_SECONDS}s)"
+            " of it, so it must still be deferred"
+        )
+        # `fail_stale_jobs` also runs the ordinary post-expiry sweep in the
+        # same call, and the parent's own age legitimately crosses ITS
+        # cutoff too — so the key is deleted once, attributed to the
+        # parent's own sweep pass. What this fix prevents is the CHILD's
+        # purge independently reaping it a second time through the
+        # ownership bypass; `owned_presigned_staging_key` returning None for
+        # the child keeps it out of `deleted_presigned_keys` entirely, so
+        # the call count must not exceed the one legitimate reap.
+        delete_calls_for_key = [
+            c.args[0]
+            for c in storage.delete.await_args_list
+            if c.args[0] == parent_staging_key
+        ]
+        assert len(delete_calls_for_key) <= 1, (
+            "the key was reaped more than once — the child's purge reaped "
+            "a key it does not own, in addition to the parent's own sweep"
+        )
 
 
 class TestFailedSourceRetention:

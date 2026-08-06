@@ -8,10 +8,10 @@ from typing import Literal, cast, overload
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import delete, func, not_, select, text, update
+from sqlalchemy import and_, delete, func, not_, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
+from app.core.config import MAX_PRESIGNED_URL_LIFETIME_SECONDS, settings
 from app.core.dependencies import get_client_ip, get_db
 from app.core.identity import Identity
 from app.modules.auth.dependencies import (
@@ -262,8 +262,51 @@ def post_expiry_sweep_after_seconds() -> int:
     return settings.pending_job_timeout_seconds + _POST_EXPIRY_SWEEP_MARGIN_SECONDS
 
 
-# Set once the post-expiry sweep has run for a job, so it never runs twice.
+# Set on the post-expiry sweep's first pass over a job. Not permanent on its
+# own — see _STAGING_REAPED_FINAL_MARKER below (fix #1236).
 _STAGING_REAPED_MARKER = "s3_key_reaped"
+
+# fix(#1236): set once the sweep's RE-CHECK pass has run AND cleared the
+# transfer margin below, which only happens after
+# MAX_PRESIGNED_URL_LIFETIME_SECONDS have elapsed since `created_at` — the
+# latest moment any URL for the job, signed under any setting the deployment
+# ever ran, can still be live. Only rows carrying this marker are excluded
+# from every future pass; _STAGING_REAPED_MARKER alone no longer is.
+_STAGING_REAPED_FINAL_MARKER = "s3_key_reaped_final"
+
+# fix(#1236 review, codex P1): SigV4 bounds when a URL may be SIGNED for, not
+# when an already-accepted PUT finishes transferring bytes — S3 validates the
+# signature at request start, not completion. A slow single-part upload begun
+# just under the ceiling can still be writing after it, so the re-check's
+# first delete attempt must not retire the row on the spot: only once an
+# additional margin has ALSO elapsed is a live transfer no longer credible.
+#
+# fix(#1236 review r2, codex P1): that margin used to reuse
+# `_COMMIT_HEADROOM_SECONDS` — APPLICATION commit-round-trip headroom.
+# Presigned PUTs bypass the app entirely, so it never actually bounded
+# anything about them.
+#
+# fix(#1236 review r3/second-opinion/r4, codex P1 x3): rounds r2-r3 then
+# scaled the margin from `presigned_multipart_threshold_mb` and, after that
+# proved config-fragile, from a job's own declared `expected_size` instead.
+# Round 4 found the actual root cause under BOTH attempts:
+# `generate_presigned_put_url` signs only `ContentType`, never a
+# content-length constraint, so nothing ever enforced `expected_size` —
+# a client can declare one byte and stream anything up to S3's real limit
+# regardless. A margin derived from an unenforced declaration was tighter
+# than the fixed ceiling, but never actually SAFE, which is worse than
+# simply being wide: fixed and correct beats tight and wrong. The margin is
+# now S3's own single-PUT ceiling, unconditionally, for every job — the one
+# bound nothing but S3 itself enforces, so no per-job data or setting can
+# ever undermine it. (Signing `Content-Length` into the URL so a mismatched
+# PUT gets rejected by S3, making a declared-size margin trustworthy, was
+# the other option; not worth the API-surface change for a low-frequency
+# finalization check.)
+_MIN_ASSUMED_UPLOAD_KBPS = 32  # ~256kbit/s: slow, but a still-progressing PUT
+_S3_SINGLE_PUT_MAX_BYTES = 5 * 1024 * 1024 * 1024  # AWS hard limit, 5GiB
+_RECHECK_TRANSFER_MARGIN_SECONDS = max(
+    3600, (_S3_SINGLE_PUT_MAX_BYTES // 1024) // _MIN_ASSUMED_UPLOAD_KBPS
+)
 
 
 async def _sweep_expired_presigned_staging(
@@ -277,8 +320,12 @@ async def _sweep_expired_presigned_staging(
     successful job is the per-dataset latest-complete that the retention purge
     exempts forever. Those sweeps close the URL's past; this closes its future.
 
-    Runs exactly once per job, ever: the marker takes the row out of the query
-    below, so the exempt rows do not cost a storage call on every pass forever.
+    Runs up to twice per job, ever: an ordinary pass reaps once and sets
+    ``_STAGING_REAPED_MARKER``, which excludes the row from the ordinary
+    window from then on but not from the re-check window below. Only
+    ``_STAGING_REAPED_FINAL_MARKER`` — set once the re-check has actually run
+    — takes a row out of the query for good, so the steady-state cost stays
+    one excluded row per pass rather than one delete forever.
 
     Delete first, mark second — the opposite of ``_reap_committed_staged_paths``
     and for a different reason. That one must not destroy an artifact a
@@ -287,41 +334,75 @@ async def _sweep_expired_presigned_staging(
     leaks the object permanently. A crash between the two costs one redundant
     delete on the next pass instead, which is a no-op.
 
-    KNOWN GAP (#1235 review r5), bounded to one operator action: the window is
-    computed from the CURRENT setting, but a live URL was signed against the
-    setting in force when it was issued. Lower `pending_job_timeout_seconds`
-    and restart while presigned uploads are in flight, and this sweep runs
-    early against those older, longer-lived URLs — it reaps, sets the marker,
-    and a still-valid PUT afterwards recreates an object every later pass then
-    skips. Persisting the issued deadline per job would close it, but only for
-    jobs presigned after that ships, which is not the set at risk during the
-    upgrade that introduces it; and it costs a JSONB-to-timestamptz cast in the
-    candidate WHERE, where a single malformed value fails the whole sweep. The
-    setting's own comment carries the operator guidance instead: lower it while
-    nothing is in flight, or wait out the previous value.
+    fix(#1236): closes the #1235 review r5 known gap. The ordinary window is
+    computed from the CURRENT `pending_job_timeout_seconds`, but a live URL was
+    signed against whatever value was in force when it was issued. Lower the
+    setting and restart while presigned uploads are in flight, and the
+    ordinary pass ran early against those older, longer-lived URLs — it reaped
+    the object and set the first marker while a PUT could still recreate it,
+    and that marker used to exempt the row forever.
+
+    The fix does not need to know which deadline a given URL actually carries
+    — persisting that per job was rejected in #1235 for exactly that reason,
+    plus a JSONB-to-timestamptz cast in the candidate WHERE that could throw
+    and fail the whole bulk pass. Instead it uses the one bound every URL
+    obeys regardless of history: SigV4 rejects any `X-Amz-Expires` beyond
+    `MAX_PRESIGNED_URL_LIFETIME_SECONDS`, and `pending_job_timeout_seconds` has
+    always been capped at that same ceiling, so no URL for a job can still be
+    live past `created_at + MAX_PRESIGNED_URL_LIFETIME_SECONDS` no matter which
+    setting minted it. A row already carrying the first marker gets a delete
+    attempt every pass once it crosses that age, which either recovers an
+    object a stale marker was hiding or costs one no-op DeleteObject against a
+    key that was never recreated — but does not finalize it until
+    `_RECHECK_TRANSFER_MARGIN_SECONDS` past that same age has ALSO elapsed
+    (codex P1 on this PR): SigV4 expiry stops new requests, not one already
+    accepted, so a slow PUT begun just under the ceiling can still be writing
+    after it. Only once no such transfer is credible does the final marker
+    retire the row for good.
+
+    fix(#1236 review r4, codex P1): that margin is FIXED at S3's own
+    single-PUT ceiling for every job, not derived from anything a client
+    declared or an operator configured — see `_RECHECK_TRANSFER_MARGIN_SECONDS`
+    above for why rounds r2/r3 both proved unsafe.
     """
-    cutoff = (now or datetime.now(timezone.utc)) - timedelta(
-        seconds=post_expiry_sweep_after_seconds()
+    now = now or datetime.now(timezone.utc)
+    first_pass_cutoff = now - timedelta(seconds=post_expiry_sweep_after_seconds())
+    recheck_cutoff = now - timedelta(seconds=MAX_PRESIGNED_URL_LIFETIME_SECONDS)
+    recheck_final_cutoff = recheck_cutoff - timedelta(
+        seconds=_RECHECK_TRANSFER_MARGIN_SECONDS
     )
+    not_yet_reaped = IngestJob.user_metadata[_STAGING_REAPED_MARKER].astext.is_(None)
     candidates = (
         await db.execute(
-            select(IngestJob.id, IngestJob.file_path, IngestJob.user_metadata).where(
+            select(
+                IngestJob.id,
+                IngestJob.file_path,
+                IngestJob.user_metadata,
+                IngestJob.created_at,
+            ).where(
                 IngestJob.status.not_in(("pending", "running")),
-                IngestJob.created_at < cutoff,
                 IngestJob.user_metadata["s3_key"].astext.is_not(None),
-                IngestJob.user_metadata[_STAGING_REAPED_MARKER].astext.is_(None),
+                IngestJob.user_metadata[_STAGING_REAPED_FINAL_MARKER].astext.is_(None),
+                or_(
+                    and_(not_yet_reaped, IngestJob.created_at < first_pass_cutoff),
+                    and_(
+                        not_(not_yet_reaped),
+                        IngestJob.created_at < recheck_cutoff,
+                    ),
+                ),
             )
         )
     ).all()
 
     reaped = 0
     failures = 0
-    for job_row_id, file_path, metadata in candidates:
+    for job_row_id, file_path, metadata, created_at in candidates:
         staging_key = owned_presigned_staging_key(job_row_id, metadata, file_path)
         if staging_key is None:
             # Not this job's key to delete — a fan-out child holding the
             # parent's inherited s3_key lands here, same rule as everywhere.
             continue
+        is_recheck_pass = (metadata or {}).get(_STAGING_REAPED_MARKER) is not None
         try:
             from app.platform.storage import get_storage
 
@@ -331,17 +412,19 @@ async def _sweep_expired_presigned_staging(
             log.warning(
                 "Failed to reap expired presigned staging object",
                 storage_key=staging_key,
+                recheck_pass=is_recheck_pass,
             )
             continue
         # A Core UPDATE with a fresh dict, not an in-place mutation of the
         # loaded value — JSONB does not track mutation, so an in-place edit
         # would never flush.
+        new_metadata = {**(metadata or {}), _STAGING_REAPED_MARKER: True}
+        if is_recheck_pass and created_at < recheck_final_cutoff:
+            new_metadata[_STAGING_REAPED_FINAL_MARKER] = True
         await db.execute(
             update(IngestJob)
             .where(IngestJob.id == job_row_id)
-            .values(
-                user_metadata={**(metadata or {}), _STAGING_REAPED_MARKER: True},
-            )
+            .values(user_metadata=new_metadata)
         )
         reaped += 1
 
@@ -699,6 +782,55 @@ async def fail_stale_jobs(
                 IngestJob.created_at.desc(),
             )
         )
+        # fix(#1236 review, codex P1): a presigned job's ROW is the only place
+        # _sweep_expired_presigned_staging's markers live. Purging it before
+        # any URL issued for it can possibly still be live removes that
+        # tracking outright — worse than the marker gap this PR closes,
+        # because a re-PUT afterward recreates an object no row anywhere
+        # references, and retention (unlike the sweep's own cutoff) is
+        # commonly configured well under a week (1 day is an exercised
+        # value).
+        #
+        # fix(#1236 review r2, codex P1): deferred exactly as long as the
+        # sweep's own FINALIZATION window, not just its ceiling — an accepted
+        # PUT can still be transferring past MAX_PRESIGNED_URL_LIFETIME_SECONDS,
+        # which is why the sweep itself withholds its final marker for
+        # _RECHECK_TRANSFER_MARGIN_SECONDS longer. Purging on the bare
+        # ceiling reopened the exact race this row exists to close, just
+        # moved to the retention purge instead of the sweep. Past the
+        # combined window purging is safe and `deleted_presigned_keys` below
+        # still reaps the object at that same moment — the row just doesn't
+        # need to survive to see it happen.
+        #
+        # fix(#1236 review r4, codex P1): that margin is now the SAME fixed
+        # constant the sweep uses (see its definition for why r3's per-job
+        # `expected_size` scaling proved unsafe) — no per-row data needed, so
+        # this bulk DELETE never has to branch per row on JSONB.
+        #
+        # fix(#1236 review r5, codex P2): a non-null `s3_key` alone is not
+        # OWNERSHIP. `create_fan_out_jobs` clones the parent's `user_metadata`
+        # wholesale (processing/ingest/service.py), so every fan-out child
+        # carries the PARENT's `s3_key` too — the exact case
+        # `owned_presigned_staging_key` exists to reject, by requiring the
+        # key's prefix match the ROW'S OWN id. Without that same check here,
+        # every terminal fan-out child was exempted from retention for
+        # ~8.9 days regardless of how short `ingest_jobs_retention_days` was
+        # configured, since it can never be the row that legitimately reaps
+        # or finalizes that key. A `LIKE` prefix match is a safe string
+        # comparison — unlike a JSONB-to-numeric/timestamptz cast, it cannot
+        # throw and fail the whole bulk pass on a malformed value.
+        presigned_url_may_still_be_live = and_(
+            IngestJob.user_metadata["s3_key"].astext.is_not(None),
+            IngestJob.user_metadata["s3_key"].astext.like(
+                func.concat("staging/", IngestJob.id, "/%")
+            ),
+            IngestJob.created_at
+            >= now
+            - timedelta(
+                seconds=MAX_PRESIGNED_URL_LIFETIME_SECONDS
+                + _RECHECK_TRANSFER_MARGIN_SECONDS
+            ),
+        )
         # Single DELETE .. RETURNING re-applies every predicate atomically at
         # delete time — a SELECT-then-DELETE-by-id pair let /jobs/{id}/retry
         # flip a candidate back to pending between the two statements and
@@ -711,6 +843,7 @@ async def fail_stale_jobs(
                 < retention_cutoff,
                 IngestJob.id.not_in(latest_complete_ids),
                 IngestJob.id.not_in(latest_manifest_ids),
+                not_(presigned_url_may_still_be_live),
             )
             .returning(IngestJob.id, IngestJob.file_path, IngestJob.user_metadata)
         )
