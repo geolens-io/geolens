@@ -61,7 +61,29 @@ describe('viewportPreviewBbox', () => {
   });
 
   it('returns undefined for a genuinely seam-crossing normalized viewport', () => {
-    // Already in range, but crosses: e.g. Fiji, west=178, east=-178.
+    // Already in range on both ends, but decreasing: e.g. Fiji expressed in
+    // the RFC 7946 spec form (west=178, east=-178) rather than the monotonic
+    // form MapLibre's own getBounds() always returns. Caught by the
+    // monotonicity guard (rawEast >= rawWest), not the west/east comparison
+    // the pre-round-4 version used — this input is outside what a real
+    // MapLibre bounds object can produce, so degrading to "no bbox" is the
+    // same safe answer either way.
     expect(viewportPreviewBbox(bounds(178, -20, -178, -15))).toBeUndefined();
+  });
+
+  it('normalizes a non-crossing viewport that starts exactly at the seam (#727 codex P3 round 4)', () => {
+    // The bug: [180, 190] is a genuinely representable 10°-wide box —
+    // equivalent to [-180, -170], entirely on the western side of the seam —
+    // but the old wrap() kept west at +180 (already "in range" by its own
+    // inclusive check) while independently wrapping east down to -170,
+    // manufacturing a false west > east crossing out of a box that never had
+    // one and silently falling back to the whole dataset.
+    expect(viewportPreviewBbox(bounds(180, -10, 190, 10))).toEqual([-180, -10, -170, 10]);
+  });
+
+  it('keeps [170, 180] a valid non-crossing interval (#727 codex P3 round 4)', () => {
+    // The case the round-4 fix has to NOT break while fixing the one above:
+    // a box that legitimately ends exactly at +180 without crossing it.
+    expect(viewportPreviewBbox(bounds(170, -10, 180, 10))).toEqual([170, -10, 180, 10]);
   });
 });

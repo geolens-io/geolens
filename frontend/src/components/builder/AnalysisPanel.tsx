@@ -137,6 +137,14 @@ const UNIT_KEY: Record<BufferUnit, string> = {
  * panel's pre-#727 behaviour) for the two cases that cannot be represented as
  * one increasing envelope: a full-world viewport, and a genuinely
  * seam-crossing one.
+ *
+ * fix(#727 codex P3 round 4): west and east are normalized TOGETHER, not
+ * independently — west is wrapped once, and east is reconstructed by adding
+ * back the raw width, never wrapped on its own. 180 and -180 are the same
+ * meridian, so wrapping each end independently let a viewport starting
+ * exactly at the seam (e.g. [180, 190], a real 10°-wide box equivalent to
+ * [-180, -170]) keep its west edge at +180 while its east edge wrapped to
+ * -170, manufacturing a false crossing out of a box that never had one.
  */
 interface PreviewBoundsLike {
   getWest(): number;
@@ -152,22 +160,32 @@ export function viewportPreviewBbox(
   const north = bounds.getNorth();
   const rawWest = bounds.getWest();
   const rawEast = bounds.getEast();
-  // A span at or past a full turn covers every longitude at this latitude
-  // band; there is nothing a bbox restricts.
-  if (rawEast - rawWest >= 360) return undefined;
-  // Already-in-range values pass through byte-identical — the overwhelming
-  // common case, and skipping the modulo arithmetic there avoids introducing
-  // float noise (`-74.1` round-tripped through `% 360` lands a ULP off) on
-  // every ordinary viewport just to handle the rare wrapped one.
-  const wrap = (lng: number) =>
-    lng >= -180 && lng <= 180 ? lng : (((lng + 180) % 360) + 360) % 360 - 180;
-  const west = wrap(rawWest);
-  const east = wrap(rawEast);
-  // Wrapping can turn a monotonic pair into a crossing one (e.g. [179.5, 182]
-  // -> [179.5, -178]) — that IS the antimeridian case, and this preview's
-  // ST_MakeEnvelope predicate has no way to express it as one box.
-  if (west > east) return undefined;
-  return [west, south, east, north];
+  // Reject a decreasing raw pair and a span at or past a full turn. MapLibre's
+  // own getBounds() is always monotonic (rawEast >= rawWest is guaranteed),
+  // so a decreasing pair is outside this function's contract — degrade the
+  // same way as every other unrepresentable case. A >=360 span covers every
+  // longitude at this latitude band; there is nothing left for a bbox to
+  // restrict.
+  if (!(rawEast >= rawWest) || rawEast - rawWest >= 360) return undefined;
+  // Already representable byte-identically, no wrapping needed — the
+  // overwhelming common case, and skipping the arithmetic below avoids
+  // introducing float noise (`-74.1` round-tripped through `% 360` lands a
+  // ULP off) on every ordinary viewport just to handle a rare wrapped one.
+  if (rawWest >= -180 && rawEast <= 180) return [rawWest, south, rawEast, north];
+  // fix(#727 codex P3 round 4): wrap WEST only, then reconstruct east by
+  // adding back the raw (already validated non-negative, < 360) width —
+  // never wrap east independently. 180 and -180 are the SAME meridian, so a
+  // viewport starting exactly at the seam (e.g. [180, 190]) used to keep west
+  // at +180 (already "in range" by the old inclusive check) while wrapping
+  // east down to -170, manufacturing a false crossing out of a box
+  // ([-180, -170]) that never had one. Deriving east from west's normalized
+  // value instead of wrapping it separately makes the two ends agree on
+  // which representation of the seam they are using.
+  const west = (((rawWest + 180) % 360) + 360) % 360 - 180;
+  const east = west + (rawEast - rawWest);
+  // A normalized east past +180 means the box genuinely straddles the seam —
+  // not representable as one non-crossing envelope.
+  return east > 180 ? undefined : [west, south, east, north];
 }
 
 interface AnalysisPanelProps {
