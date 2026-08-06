@@ -23,7 +23,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
+from app.core.config import MIN_SIGNABLE_JOB_LIFETIME_SECONDS, settings
 from app.platform.jobs.models import IngestJob
 from tests.factories import get_user_id
 from app.platform.jobs.router import (
@@ -32,10 +32,7 @@ from app.platform.jobs.router import (
     post_expiry_sweep_after_seconds,
     stale_pending_cutoff_seconds,
 )
-from app.processing.ingest.presigned import (
-    MIN_SIGNABLE_JOB_LIFETIME_SECONDS,
-    require_signable_job_lifetime,
-)
+from app.processing.ingest.presigned import require_signable_job_lifetime
 
 pytestmark = pytest.mark.anyio
 

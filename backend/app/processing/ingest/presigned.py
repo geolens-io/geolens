@@ -13,7 +13,7 @@ import structlog
 from fastapi import HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
+from app.core.config import MIN_SIGNABLE_JOB_LIFETIME_SECONDS, settings
 from app.core.persistent_config import UPLOAD_MAX_SIZE_MB
 from app.core.async_io import await_draining, run_in_thread_draining
 from app.modules.quota.service import check_upload_quota
@@ -79,9 +79,6 @@ async def abort_presigned_multipart_upload(
         )
 
 
-MIN_SIGNABLE_JOB_LIFETIME_SECONDS = 60
-
-
 def remaining_job_lifetime_seconds(created_at: datetime) -> int:
     """Seconds a presigned URL for this job may still legitimately be honoured.
 
@@ -123,13 +120,16 @@ def require_signable_job_lifetime(created_at: datetime) -> int:
     lost to the job's own clock — that is a state conflict, which is what the
     ingest router already answers 409 for elsewhere.
 
-    Refuse BEFORE anything is spent. Both doors call this above the multipart
-    branch, so there is never an initiated upload id to abort on this path.
+    Both doors call this above the multipart branch, so the common refusal
+    costs nothing — there is no initiated upload id yet. Since r5 they also
+    call it per part signature, where a refusal DOES land inside the multipart
+    try; that handler aborts the upload and re-raises this exception unchanged.
 
-    Operator note: this refuses every presign if `pending_job_timeout_seconds`
-    is configured below the margin, because a job's whole lifetime is then
-    shorter than the shortest URL worth issuing. That is the honest reading of
-    such a setting, not a regression.
+    fix(#1235 review r6): the margin lives in `core/config` with the setting
+    whose lower bound must equal it, so a timeout that could not clear this
+    check no longer boots at all. Reaching this refusal therefore means the
+    request itself was slow enough to eat the window between the job INSERT
+    and this signature — not that the deployment is misconfigured.
     """
     remaining = remaining_job_lifetime_seconds(created_at)
     if remaining < MIN_SIGNABLE_JOB_LIFETIME_SECONDS:
