@@ -324,10 +324,23 @@ def recheck_transfer_margin_seconds(expected_size_bytes: object = None) -> int:
     older row predating this field, a malformed value, or a caller — like
     the retention purge — that cannot supply one per row.
 
+    fix(second-opinion review on #1236 review r3): also CLAMPED at that same
+    ceiling, unconditionally. `presigned_multipart_threshold_mb` has no
+    configured upper bound, so a declared `expected_size` bigger than
+    `_S3_SINGLE_PUT_MAX_BYTES` was possible whenever an operator raised the
+    threshold past 5GiB — and the retention purge's fallback (this function
+    called with no size) always assumes 5GiB is the worst case. Without the
+    clamp the sweep could derive a bigger margin than the purge actually
+    waits out, reopening the #1236 orphan class through the purge path for
+    oversized single-part jobs: real exploitability is low (S3 itself
+    rejects a single PUT past 5GiB, so an honestly-reported `expected_size`
+    should never legitimately exceed it), but the invariant belongs in code
+    that does not trust configuration, not in an operator's Field bound.
+
     Floored at an hour regardless of size.
     """
     try:
-        size_bytes = max(1, int(expected_size_bytes))
+        size_bytes = min(max(1, int(expected_size_bytes)), _S3_SINGLE_PUT_MAX_BYTES)
     except (TypeError, ValueError):
         size_bytes = _S3_SINGLE_PUT_MAX_BYTES
     return max(3600, (size_bytes // 1024) // _MIN_ASSUMED_UPLOAD_KBPS)

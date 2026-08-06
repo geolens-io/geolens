@@ -109,7 +109,13 @@ class Settings(BaseSettings):
     upload_allowed_extensions: str = (
         ".zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls,.parquet"
     )
-    presigned_multipart_threshold_mb: int = Field(default=100, gt=0)
+    # fix(second-opinion review on #1236 review r3): capped at S3's own
+    # single-PUT hard limit (5GiB). Belt-and-suspenders — the invariant that
+    # actually matters is enforced in code, not config: see the clamp in
+    # `recheck_transfer_margin_seconds()` (platform/jobs/router.py), which
+    # a bound here cannot substitute for since that function must also stay
+    # safe against a value read before this bound ever applied.
+    presigned_multipart_threshold_mb: int = Field(default=100, gt=0, le=5120)
     # fix(#1234): a presigned job is abandoned after this long, and the part
     # URLs it hands out must not outlive it — the server was selling 7200s
     # URLs against a 3600s job lifetime. Lives here rather than in

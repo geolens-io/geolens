@@ -426,6 +426,43 @@ async def test_validation_failure_still_sweeps_the_presigned_staging_object(
     )
 
 
+class TestRecheckTransferMarginSeconds:
+    """Second-opinion review on #1236 review r3: `presigned_multipart_threshold_mb`
+    has no upper bound (`gt=0` only, before this PR's `le=5120`), so a job's
+    declared `expected_size` could exceed S3's actual single-PUT hard limit
+    whenever an operator raised the threshold past 5GiB. The retention
+    purge's fallback (called with no per-job size) always assumes 5GiB is
+    the worst case; without a clamp, a bigger declared size would derive a
+    BIGGER sweep margin than that fallback, so the purge could delete a
+    job's row — the only place the sweep's markers live — before the
+    sweep's own longer margin considered a possible transfer finished.
+    Reopens the #1236 orphan class through the purge path for oversized
+    single-part jobs.
+    """
+
+    def test_an_oversized_declared_size_clamps_to_the_purge_fallback(self) -> None:
+        from app.platform.jobs.router import (
+            _S3_SINGLE_PUT_MAX_BYTES,
+            recheck_transfer_margin_seconds,
+        )
+
+        # What a threshold raised past 5120MB (bypassing the new Field bound
+        # via a pre-existing config value, or a caller that never validated
+        # it) could imply for a single-part job's declared size.
+        ten_gib = 10 * 1024 * 1024 * 1024
+        assert ten_gib > _S3_SINGLE_PUT_MAX_BYTES, "test setup: must exceed the ceiling"
+
+        oversized_margin = recheck_transfer_margin_seconds(ten_gib)
+        at_ceiling_margin = recheck_transfer_margin_seconds(_S3_SINGLE_PUT_MAX_BYTES)
+        purge_fallback_margin = recheck_transfer_margin_seconds()  # no per-job size
+
+        assert oversized_margin == at_ceiling_margin == purge_fallback_margin, (
+            "an oversized declared size must derive NO MORE margin than the "
+            "retention purge's own fallback assumes, or the purge could "
+            "delete a still-tracked row before the sweep considers it safe"
+        )
+
+
 class TestPostExpirySweep:
     """fix(#1202 review r8): the backstop that outlives the PUT URL.
 

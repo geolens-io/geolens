@@ -2104,7 +2104,20 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # row, in the loop, since a bulk DELETE cannot); the retention purge,
     # which cannot branch per row, falls back to S3's own single-PUT ceiling
     # instead of the current setting. Cap 1534 -> 1575, exact.
-    "backend/app/platform/jobs/router.py": 1575,
+    # fix(second-opinion review on #1236 review r3): +13 — the setting has no
+    # configured upper bound, so a declared `expected_size` could exceed the
+    # purge fallback's 5GiB assumption whenever an operator raised it past
+    # that. `recheck_transfer_margin_seconds()` now clamps unconditionally at
+    # `_S3_SINGLE_PUT_MAX_BYTES` rather than trusting either the job's
+    # declared size or the setting. Cap 1575 -> 1588, exact.
+    "backend/app/platform/jobs/router.py": 1588,
+    # fix(second-opinion review on #1236 review r3): first entry — crossed
+    # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
+    # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side
+    # clamp in `recheck_transfer_margin_seconds()` is what actually closes
+    # the gap; this Field bound only stops a fresh boot from configuring
+    # past S3's own single-PUT ceiling in the first place).
+    "backend/app/core/config.py": 1004,
     "backend/app/processing/ingest/tasks_vrt.py": 1071,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
