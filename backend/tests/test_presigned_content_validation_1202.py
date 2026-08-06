@@ -14,6 +14,7 @@ that only tightens refusals lets the false-positive half regress silently.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import uuid
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -915,3 +916,81 @@ class TestFinalizeCleanupContract:
             "a cancellation during the frozen delete left the refused staging "
             "bytes addressable through the client's still-valid PUT URL"
         )
+
+
+async def test_a_cancel_during_assembly_leaves_the_retry_a_way_back(
+    client, admin_auth_header, test_db_session, both_doors, monkeypatch
+) -> None:
+    """fix(#1233): the cancel branch used to delete the assembled object.
+
+    CompleteMultipartUpload has already consumed the upload id by then, and the
+    object's presence is the ONLY record that assembly succeeded — it is what
+    `should_assemble_multipart` reads to let a retry skip re-assembly (#1202
+    r3). Deleting it sent the client's natural retry back into assembly with a
+    spent id, which 502s forever with no way back.
+
+    A cancellation is not a rejection of the bytes, so the fix is to drain and
+    re-raise only.
+    """
+    from app.processing.ingest import router as ingest_router
+
+    monkeypatch.setattr(settings, "presigned_multipart_threshold_mb", 1)
+    payload = _VALID_GEOJSON + b" " * (2 * 1024 * 1024)
+
+    resp = await client.post(
+        "/ingest/upload/presigned",
+        json={
+            "filename": "roads.geojson",
+            "file_size": len(payload),
+            "content_type": "application/octet-stream",
+        },
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["upload_id"], "precondition: this is a multipart presign"
+    both_doors.pending_parts[body["s3_key"]] = payload
+
+    # Assembly succeeds, THEN the request is cancelled — the exact interleaving
+    # the branch exists for. capture_cancel returns the result plus the cancel.
+    real_capture = ingest_router.run_in_thread_draining_capture_cancel
+    fired = {"n": 0}
+
+    async def _assemble_then_cancel(fn, *args):
+        result, _cancel = await real_capture(fn, *args)
+        fired["n"] += 1
+        if fired["n"] == 1:
+            return result, asyncio.CancelledError()
+        return result, None
+
+    parts = [{"etag": "etag-1", "part_number": 1}]
+    with patch.object(
+        ingest_router, "run_in_thread_draining_capture_cancel", _assemble_then_cancel
+    ):
+        # A cancellation inside the app surfaces through httpx as a
+        # transport-level error rather than CancelledError, because the handler
+        # never returns a response. The exception type is harness detail; the
+        # claim under test is what the cancelled attempt LEFT BEHIND.
+        with contextlib.suppress(BaseException):
+            await client.post(
+                f"/ingest/upload/presigned/{body['job_id']}/complete",
+                json={"parts": parts},
+                headers=admin_auth_header,
+            )
+    assert fired["n"] == 1, "precondition: the cancel branch actually ran"
+
+    # The assembled object must survive: it is the retry's only way past
+    # assembly, and the upload id it would otherwise re-present is spent.
+    assert body["s3_key"] in both_doors.objects, (
+        "the cancel branch destroyed the assembly record; the retry below can "
+        "only re-assemble with a consumed upload id"
+    )
+
+    retried = await client.post(
+        f"/ingest/upload/presigned/{body['job_id']}/complete",
+        json={},
+        headers=admin_auth_header,
+    )
+
+    assert retried.status_code == 200, retried.text
+    assert len(both_doors.multipart_completions) == 1, both_doors.multipart_completions

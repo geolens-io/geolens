@@ -20,7 +20,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
 from app.core.async_io import (
-    await_draining,
     run_in_thread_draining,
     run_in_thread_draining_capture_cancel,
 )
@@ -890,7 +889,14 @@ async def complete_presigned_reupload(
                 [{"ETag": p.etag, "PartNumber": p.part_number} for p in request.parts],
             )
             if completion_cancel is not None:
-                await await_draining(storage.delete(physical_s3_key))
+                # fix(#1233): do NOT delete the assembled object here. The
+                # upload id was consumed by CompleteMultipartUpload above, so
+                # the object's presence is the only record that assembly
+                # succeeded — `should_assemble_multipart` reads exactly that to
+                # let a retry skip re-assembly (#1202 r3). Deleting it left the
+                # client's natural retry re-assembling with a spent id, 502ing
+                # forever with no way back. Drain and re-raise only; the
+                # cancellation is not a rejection of the bytes.
                 raise completion_cancel
         except Exception as exc:  # broad: storage providers raise varied SDK errors
             await get_catalog_port().abort_presigned_multipart_upload(
