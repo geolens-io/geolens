@@ -267,6 +267,69 @@ class TestLoginAudit:
             (log["details"] or {}).get("username") == unique_username for log in logs
         )
 
+    async def test_login_deactivated_user_creates_audit_log(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """fix(#1230 codex r1 P1): denial paths past credential-check are also
+        audited, not just AuthenticationError -- a deactivated account trying
+        to log in is exactly the kind of attempt an operator needs to see.
+        """
+        unique = uuid.uuid4().hex[:8]
+        username = f"deactaudit_{unique}"
+        user_data = await _create_user_via_admin(
+            client, admin_auth_header, username=username, password="TestPass1234!"
+        )
+        resp = await client.post(
+            f"/admin/users/{user_data['id']}/deactivate/", headers=admin_auth_header
+        )
+        assert resp.status_code == 200
+
+        resp = await client.post(
+            "/auth/login",
+            data={"username": username, "password": "TestPass1234!"},
+        )
+        assert resp.status_code == 403
+
+        log_resp = await client.get(
+            "/admin/audit-logs/",
+            params={"action": "user.login.failure", "limit": 200},
+            headers=admin_auth_header,
+        )
+        assert log_resp.status_code == 200
+        logs = log_resp.json()["logs"]
+        entries = [log for log in logs if log["user_id"] == user_data["id"]]
+        assert len(entries) >= 1
+        assert entries[0]["details"]["reason"] == "account_not_active"
+
+    async def test_login_failure_truncates_long_username(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """fix(#1230 codex r1 P1): OAuth2PasswordRequestForm applies no length
+        limit to username, so a failed login must not persist an unbounded
+        string in details -- bound it to User.username's own width (150).
+        """
+        oversized_username = "x" * 5000
+        resp = await client.post(
+            "/auth/login",
+            data={"username": oversized_username, "password": "anypass123"},
+        )
+        assert resp.status_code == 401
+
+        log_resp = await client.get(
+            "/admin/audit-logs/",
+            params={"action": "user.login.failure", "limit": 200},
+            headers=admin_auth_header,
+        )
+        assert log_resp.status_code == 200
+        logs = log_resp.json()["logs"]
+        matches = [
+            log
+            for log in logs
+            if (log["details"] or {}).get("username", "").startswith("xxxx")
+        ]
+        assert len(matches) >= 1
+        assert len(matches[0]["details"]["username"]) <= 150
+
     async def test_logout_creates_audit_log(
         self, client: AsyncClient, admin_auth_header: dict
     ):

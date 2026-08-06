@@ -93,29 +93,42 @@ async def login(
         audit_emit,
     )  # LAZY — preserved per D-17
 
+    # fix(#1230 codex r1 P1): OAuth2PasswordRequestForm applies no length
+    # limit to username, so an unauthenticated caller could otherwise persist
+    # an unbounded string in JSONB on every failed attempt (storage
+    # exhaustion). Bound it to User.username's own column width (String(150))
+    # before it ever reaches an audit row.
+    attempted_username = form_data.username[:150]
+
+    async def _audit_login_failure(reason: str, *, user_id: uuid.UUID | None) -> None:
+        """fix(#1230 codex r1 P1): audit every denial path, not just bad
+        credentials — pending/deactivated accounts, a disallowed email
+        domain, and password-login-disabled are all login failures an
+        operator needs to see, especially attempts against deactivated
+        accounts. Never includes the submitted password."""
+        await audit_emit(
+            db,
+            AuditEvent(
+                user_id=user_id,
+                action="user.login.failure",
+                resource_type="user",
+                details={"username": attempted_username, "reason": reason},
+                ip_address=get_client_ip(request),
+            ),
+        )
+        await db.commit()
+
     provider = LocalAuthProvider(db)
     try:
         identity = await provider.authenticate(
             username=form_data.username, password=form_data.password
         )
     except AuthenticationError:
-        # fix(#1230): password-login failures were invisible in the audit
-        # trail — only the OAuth path emitted login events. user_id stays
-        # None because LocalAuthProvider deliberately does not disclose
-        # whether the username exists (the dummy-hash verify above this is
-        # a timing-attack guard, both branches raise here identically).
-        # Never log the submitted password.
-        await audit_emit(
-            db,
-            AuditEvent(
-                user_id=None,
-                action="user.login.failure",
-                resource_type="user",
-                details={"username": form_data.username},
-                ip_address=get_client_ip(request),
-            ),
-        )
-        await db.commit()
+        # user_id stays None: LocalAuthProvider deliberately does not
+        # disclose whether the username exists (the dummy-hash verify above
+        # this is a timing-attack guard, both branches raise here
+        # identically), and the audit row must not either.
+        await _audit_login_failure("invalid_credentials", user_id=None)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
@@ -127,11 +140,13 @@ async def login(
     user = result.scalar_one_or_none()
     if user is not None:
         if user.status == "pending":
+            await _audit_login_failure("pending_approval", user_id=user.id)
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Your account is awaiting approval",
             )
         if user.status != "active" or not user.is_active:
+            await _audit_login_failure("account_not_active", user_id=user.id)
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Account not active",
@@ -141,7 +156,11 @@ async def login(
     # skip, get_uncached cache-bypass, and the manage_settings break-glass all
     # live in the shared gate (fix(#836)).
     if user is not None:
-        await enforce_email_domain_gate(db, user.email, break_glass_user=user)
+        try:
+            await enforce_email_domain_gate(db, user.email, break_glass_user=user)
+        except HTTPException:
+            await _audit_login_failure("email_domain_not_allowed", user_id=user.id)
+            raise
 
     # SSO-01/SSO-02 (Phase 1236 Plan 02): when password_login_enabled is False,
     # reject password login for non-admins.  manage_settings holders are always
@@ -157,6 +176,7 @@ async def login(
 
         has_break_glass = await user_has_capability(db, user, MANAGE_SETTINGS)
         if not has_break_glass:
+            await _audit_login_failure("password_login_disabled", user_id=user.id)
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Password login is disabled; sign in with your SSO provider",

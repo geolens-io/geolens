@@ -1311,25 +1311,90 @@ mind:
 
 ### Archive-then-delete by age
 
-Export first (adjust `date_to` to your retention boundary; the endpoint
-requires `manage_settings` and streams up to 100,000 rows per call, so a large
-window may need several date-bounded requests):
+Fix the retention boundary to **one** timestamp and reuse it for every step
+below — the export and the delete must agree on the exact same cutoff, not
+two separately-evaluated `now() - interval '90 days'` calls (which drift
+against each other across the minutes the procedure takes to run, and again
+on every batched commit inside the delete loop):
+
+```bash
+CUTOFF=$(date -u -d '-90 days' +%Y-%m-%dT%H:%M:%SZ)
+```
+
+If this is a **multi-tenant** deployment, the HTTP export below is already
+scoped to whichever tenant's host you call it against, but the SQL delete
+that follows connects directly as `$POSTGRES_USER` (bypassing RLS) and has no
+such scope by default — add the tenant filter shown below, or you will export
+one tenant's window and delete every tenant's history that predates it.
+Resolve the tenant's id from its slug first:
+
+```bash
+TENANT_ID=$(docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
+  "SELECT id FROM catalog.tenants WHERE slug = '<your-tenant-slug>'")
+```
+
+Single-tenant deployments: skip that step: `catalog.audit_logs.tenant_id` is
+NULL on every row (single-tenant never stamps it) and every SQL snippet
+below already tolerates an empty `$TENANT_ID`.
+
+**Count before you export.** The export endpoint caps at 100,000 rows per
+call — silently. A window with more matching rows than that returns only the
+100,000 newest ones in it, and deleting the full window afterward would
+discard rows that were never in the archive. Check first:
+
+```bash
+docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
+  "SELECT count(*) FROM catalog.audit_logs
+   WHERE created_at < '$CUTOFF'
+     AND ('$TENANT_ID' = '' OR tenant_id = '$TENANT_ID'::uuid)"
+```
+
+If that count is **at or under 100,000**, one export call covers the whole
+window:
 
 ```bash
 curl -sS -H "Authorization: Bearer $ADMIN_TOKEN" \
-  "https://<your-host>/api/admin/audit-logs/export/csv?date_to=$(date -u -d '-90 days' +%Y-%m-%dT%H:%M:%SZ)" \
+  "https://<your-host>/api/admin/audit-logs/export/csv?date_to=$CUTOFF" \
   -o audit-archive-$(date +%Y%m%d).csv
 ```
 
-Then delete the exported window. Run this from a low-traffic maintenance
-window: the table's only DELETE-supporting index is
+Verify the row count you exported (CSV line count minus the header, or the
+JSON array length) equals the count from the query above before proceeding
+to the delete. A mismatch means stop — do not delete.
+
+If the count is **over 100,000**, one call cannot capture the whole window,
+and narrowing `date_to` alone doesn't help — the export is always the
+*newest* rows in the range, so repeating the same call returns the same slice
+forever. Partition the range into disjoint `date_from`/`date_to` sub-windows
+instead (a week or a month at a time, whatever keeps each sub-window under
+100,000 rows given your write volume), export each one, and verify each
+sub-window's exported row count against a COUNT query scoped to that same
+sub-window — for example:
+
+```bash
+# Repeat with adjacent, non-overlapping date_from/date_to pairs that together
+# cover the full range up to $CUTOFF. Each pair's exported row count must
+# match: SELECT count(*) FROM catalog.audit_logs WHERE created_at >= date_from
+# AND created_at < date_to AND (tenant scope as above).
+curl -sS -H "Authorization: Bearer $ADMIN_TOKEN" \
+  "https://<your-host>/api/admin/audit-logs/export/csv?date_from=<window-start>&date_to=<window-end>" \
+  -o audit-archive-<window-start>.csv
+```
+
+Only once every sub-window is exported and verified does the full window
+have a complete archive — proceed to the delete below.
+
+Then delete the archived window, using the identical `$CUTOFF` and tenant
+scope from above. Run this from a low-traffic maintenance window: the
+table's only DELETE-supporting index is
 `ix_catalog_audit_logs_created_action_resource` (`created_at DESC, action,
 resource_type`), so an unbounded `DELETE ... WHERE created_at < ...` on a
 multi-million-row table can hold locks and bloat the table for a while.
 Batch it:
 
 ```bash
-docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
+docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -v cutoff="'$CUTOFF'" -v tenant_id="'$TENANT_ID'" <<'SQL'
 DO $$
 DECLARE
   deleted_count integer;
@@ -1338,7 +1403,8 @@ BEGIN
     DELETE FROM catalog.audit_logs
     WHERE id IN (
       SELECT id FROM catalog.audit_logs
-      WHERE created_at < now() - interval '90 days'
+      WHERE created_at < :cutoff::timestamptz
+        AND (:tenant_id = '' OR tenant_id = :tenant_id::uuid)
       LIMIT 5000
     );
     GET DIAGNOSTICS deleted_count = ROW_COUNT;
@@ -1349,9 +1415,9 @@ END $$;
 SQL
 ```
 
-Substitute your chosen window for `interval '90 days'`. Run `VACUUM (ANALYZE)
-catalog.audit_logs;` afterward if the delete removed a large fraction of the
-table — routine autovacuum handles smaller, regular prunes on its own.
+Run `VACUUM (ANALYZE) catalog.audit_logs;` afterward if the delete removed a
+large fraction of the table — routine autovacuum handles smaller, regular
+prunes on its own.
 
 **What is actually lost:** the deleted rows, permanently, including the
 ability to answer "who did X on day Y" for anything older than the window.
