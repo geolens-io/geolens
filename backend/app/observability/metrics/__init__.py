@@ -101,6 +101,114 @@ def _dead_worker_pids() -> Iterator[int]:
             continue
 
 
+def _iter_dead_pid_files(prefix: str, multiproc_dir: str) -> Iterator[tuple[int, str]]:
+    """Yield (pid, path) for prefix_<pid>.db files whose pid is no longer
+    running. Used for counter/histogram files, which are named
+    "<type>_<pid>.db" with no mode segment (unlike gauge's
+    "gauge_<mode>_<pid>.db") -- see _dead_worker_pids() for that one.
+    """
+    for path in glob.glob(os.path.join(multiproc_dir, f"{prefix}_*.db")):
+        pid_str = os.path.basename(path)[len(prefix) + 1 : -len(".db")]
+        try:
+            pid = int(pid_str)
+        except ValueError:
+            # Not a live pid's file -- e.g. the "_archived" consolidation
+            # file this sweep itself writes below.
+            continue
+        if pid == os.getpid():
+            continue
+        try:
+            os.kill(pid, 0)
+            continue  # still alive
+        except ProcessLookupError:
+            pass
+        except PermissionError:
+            continue  # exists, just not signalable by us -- treat as alive
+        yield pid, path
+
+
+# fix(#1240, #651 review round 4): non-numeric suffix so _iter_dead_pid_files
+# never mistakes this file itself for a dead worker's file.
+_ARCHIVE_SUFFIX = "archived"
+
+
+def _consolidate_dead_counter_and_histogram_files() -> None:
+    """Fold dead workers' counter/histogram files into one running total per
+    metric type, instead of leaving them to accumulate forever.
+
+    mark_process_dead() (used by shutdown_worker_metrics() and the gauge
+    reap above) deliberately never touches counter_<pid>.db /
+    histogram_<pid>.db -- unlike a gauge, a Counter/Histogram's stored value
+    is a cumulative total that the collector sums across every pid's file on
+    every scrape, so simply deleting a dead pid's file would silently
+    subtract its contribution and produce a downward step (a fabricated
+    counter "decrease" -- exactly the sawtooth bug #1240 exists to fix).
+    Under the prod default UVICORN_MAX_REQUESTS=10000, a long-running
+    container recycles workers indefinitely, so those files would otherwise
+    accumulate without bound, one per departed worker, and every scrape has
+    to open and sum all of them.
+
+    Folds each dead pid's file additively into a single "<type>_archived.db"
+    file instead: read every (key, value, timestamp) triple straight out of
+    the dead pid's raw mmap file (MmapedDict.read_all_values_from_file --
+    the same binary format prometheus_client's own worker processes write,
+    and the mechanism its multiprocess.MultiProcessCollector.merge() docstring
+    points to for exactly this "write merged data back to mmap files" case),
+    add it to whatever total is already stored under that same key in the
+    archive file, and delete the source. The archive file is just another
+    counter_*.db/histogram_*.db file as far as MultiProcessCollector.collect()
+    is concerned (it globs "*.db" and only inspects the "counter"/"histogram"
+    prefix, not the pid segment), so it keeps contributing to the summed
+    total exactly as the dead files it absorbed would have. Net effect: the
+    scraped total is unchanged, but file count stays O(live workers + 2)
+    instead of growing with every worker ever recycled.
+
+    Races itself safely across workers: every worker runs this sweep, so two
+    workers can see the same dead pid's file in the same pass. os.rename()
+    to a private, non-globbed name first is the mutual-exclusion step -- POSIX
+    rename is atomic, so only one worker's rename can succeed; the other gets
+    FileNotFoundError on its own rename attempt and moves on, so a dead pid's
+    value is folded into the archive exactly once. If this process is itself
+    killed after that rename but before the merge completes, the renamed
+    file is orphaned (invisible to both future scrapes and future sweeps) --
+    an accepted, documented residual risk of the same shape as the pid-reuse
+    limitation in _dead_worker_pids(), not a correctness bug in the common
+    case of a graceful sweep pass.
+    """
+    multiproc_dir = os.environ.get("PROMETHEUS_MULTIPROC_DIR")
+    if not multiproc_dir:
+        return
+    from prometheus_client.mmap_dict import MmapedDict
+
+    for prefix in ("counter", "histogram"):
+        archive: MmapedDict | None = None
+        for _pid, path in _iter_dead_pid_files(prefix, multiproc_dir):
+            claimed_path = f"{path}.claimed"
+            try:
+                os.rename(path, claimed_path)
+            except FileNotFoundError:
+                continue  # another worker's sweep already claimed this one
+
+            if archive is None:
+                archive_path = os.path.join(
+                    multiproc_dir, f"{prefix}_{_ARCHIVE_SUFFIX}.db"
+                )
+                archive = MmapedDict(archive_path)
+
+            # read_all_values_from_file yields (key, value, timestamp, pos) --
+            # the trailing byte offset is an implementation detail of the
+            # instance-level reader that write_value doesn't need.
+            for key, value, timestamp, _pos in MmapedDict.read_all_values_from_file(
+                claimed_path
+            ):
+                current, _ts = archive.read_value(key)
+                archive.write_value(key, current + value, timestamp)
+            os.remove(claimed_path)
+
+        if archive is not None:
+            archive.close()
+
+
 def _sweep_dead_worker_metrics_once() -> None:
     """Run one reap pass (no loop, no sleep) -- split out for tests."""
     if "PROMETHEUS_MULTIPROC_DIR" not in os.environ:
@@ -109,10 +217,11 @@ def _sweep_dead_worker_metrics_once() -> None:
 
     for pid in _dead_worker_pids():
         multiprocess.mark_process_dead(pid)
+    _consolidate_dead_counter_and_histogram_files()
 
 
 async def sweep_dead_worker_metrics() -> None:
-    """Background loop: reap multiprocess files left by a hard-killed worker.
+    """Background loop: reap and consolidate files left by dead workers.
 
     fix(#1240, #651 review round 2): shutdown_worker_metrics() only runs on a
     graceful lifespan shutdown. A worker OOM-killed or SIGKILLed (the #643
@@ -120,10 +229,21 @@ async def sweep_dead_worker_metrics() -> None:
     path, while the uvicorn supervisor stays up and respawns a replacement in
     the same PROMETHEUS_MULTIPROC_DIR -- so the dead worker's RSS and pool
     gauges would otherwise linger, inflating /metrics, until the whole
-    container restarts. No-op when multiprocess mode isn't active. Safe to
-    run in every worker: mark_process_dead() is idempotent once a pid's files
-    are gone, so a race between two workers sweeping the same dead pid is
-    harmless.
+    container restarts.
+
+    fix(#1240, #651 review round 4): under the prod default
+    UVICORN_MAX_REQUESTS=10000, a long-running container recycles workers
+    indefinitely, and mark_process_dead() intentionally never removes a dead
+    worker's counter_<pid>.db / histogram_<pid>.db (their cumulative values
+    still need to count toward the total). Left alone those files grow
+    without bound -- see _consolidate_dead_counter_and_histogram_files() for
+    how they get folded into one running archive file per metric type
+    instead.
+
+    No-op when multiprocess mode isn't active. Safe to run in every worker:
+    both the gauge reap and the counter/histogram consolidation are
+    idempotent/self-excluding once a dead pid's files are gone, so a race
+    between two workers sweeping the same dead pid is harmless.
     """
     while True:
         try:

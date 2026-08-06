@@ -3,6 +3,7 @@
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -11,6 +12,7 @@ from prometheus_client import Counter, Gauge
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.observability.metrics import (
+    _consolidate_dead_counter_and_histogram_files,
     _sweep_dead_worker_metrics_once,
     shutdown_worker_metrics,
 )
@@ -444,6 +446,195 @@ def test_sweep_dead_worker_metrics_reaps_only_dead_pids(tmp_path):
     finally:
         alive_proc.terminate()
         alive_proc.wait(timeout=10)
+
+
+_COUNTER_HISTOGRAM_WRITER = """
+import sys
+from prometheus_client import Counter, Histogram
+
+n = int(sys.argv[1])
+c = Counter("test_consolidate_requests_total", "reqs", ["handler"])
+h = Histogram("test_consolidate_duration_seconds", "dur", ["handler"])
+for _ in range(n):
+    c.labels(handler="/tiles").inc()
+    h.labels(handler="/tiles").observe(0.05)
+"""
+
+
+def _scrape_consolidate_metrics(multiproc_dir: str):
+    from prometheus_client import CollectorRegistry, multiprocess
+
+    registry = CollectorRegistry()
+    multiprocess.MultiProcessCollector(registry, path=multiproc_dir)
+    return {f.name: f for f in registry.collect()}
+
+
+def test_consolidate_dead_counter_and_histogram_files_preserves_totals(tmp_path):
+    """fix(#1240, #651 review round 4): mark_process_dead() deliberately
+    never removes counter_<pid>.db / histogram_<pid>.db (their cumulative
+    values still need to count toward the total), so under
+    UVICORN_MAX_REQUESTS recycling those files would otherwise accumulate
+    without bound across a long-running container's lifetime. The
+    consolidation sweep must fold three dead workers' files into ONE
+    archive file per metric type while leaving the scraped total and
+    histogram shape byte-for-byte the same as before consolidation --
+    exercising the real binary mmap read/write round trip
+    (MmapedDict.read_all_values_from_file / write_value), not a mock.
+    """
+    multiproc_dir = str(tmp_path)
+    env = {**os.environ, "PROMETHEUS_MULTIPROC_DIR": multiproc_dir}
+
+    # Three "dead" workers (write, then exit -- no graceful shutdown call).
+    for n in (5, 3, 7):
+        result = subprocess.run(
+            [sys.executable, "-c", _COUNTER_HISTOGRAM_WRITER, str(n)],
+            cwd=str(_BACKEND_ROOT),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode == 0, result.stderr
+
+    assert len(list(tmp_path.glob("counter_*.db"))) == 3
+    assert len(list(tmp_path.glob("histogram_*.db"))) == 3
+
+    before = _scrape_consolidate_metrics(multiproc_dir)
+    total_before = sum(
+        s.value
+        for s in before["test_consolidate_requests"].samples
+        if s.name == "test_consolidate_requests_total"
+    )
+    count_before = sum(
+        s.value
+        for s in before["test_consolidate_duration_seconds"].samples
+        if s.name == "test_consolidate_duration_seconds_count"
+    )
+    sum_before = sum(
+        s.value
+        for s in before["test_consolidate_duration_seconds"].samples
+        if s.name == "test_consolidate_duration_seconds_sum"
+    )
+    assert total_before == 15.0
+    assert count_before == 15.0
+
+    with patch.dict(os.environ, {"PROMETHEUS_MULTIPROC_DIR": multiproc_dir}):
+        _consolidate_dead_counter_and_histogram_files()
+
+    # File count is now bounded regardless of how many workers died.
+    assert list(tmp_path.glob("counter_*.db")) == [tmp_path / "counter_archived.db"]
+    assert list(tmp_path.glob("histogram_*.db")) == [tmp_path / "histogram_archived.db"]
+
+    after = _scrape_consolidate_metrics(multiproc_dir)
+    total_after = sum(
+        s.value
+        for s in after["test_consolidate_requests"].samples
+        if s.name == "test_consolidate_requests_total"
+    )
+    count_after = sum(
+        s.value
+        for s in after["test_consolidate_duration_seconds"].samples
+        if s.name == "test_consolidate_duration_seconds_count"
+    )
+    sum_after = sum(
+        s.value
+        for s in after["test_consolidate_duration_seconds"].samples
+        if s.name == "test_consolidate_duration_seconds_sum"
+    )
+    assert total_after == total_before
+    assert count_after == count_before
+    assert sum_after == sum_before
+
+    # Idempotent: a second pass with nothing new to consolidate must not
+    # change the totals (proves the archive file is never mistaken for a
+    # dead worker's own file and folded into itself).
+    with patch.dict(os.environ, {"PROMETHEUS_MULTIPROC_DIR": multiproc_dir}):
+        _consolidate_dead_counter_and_histogram_files()
+    still = _scrape_consolidate_metrics(multiproc_dir)
+    total_still = sum(
+        s.value
+        for s in still["test_consolidate_requests"].samples
+        if s.name == "test_consolidate_requests_total"
+    )
+    assert total_still == total_before
+
+
+def test_consolidate_dead_counter_files_is_race_safe_across_workers(tmp_path):
+    """fix(#1240, #651 review round 4): every live worker runs this sweep, so
+    two workers can race to consolidate the same dead pid's file in the same
+    pass. The os.rename() mutual-exclusion step must let only one of them
+    fold that file's value into the archive -- concurrent consolidation
+    calls must never double-count.
+
+    Forces genuine simultaneity (not just "launched close together", which
+    process-startup jitter alone could make sequential in practice and would
+    let a broken, unsynchronized implementation pass by accident): each
+    subprocess writes a ready-marker as soon as it starts, then busy-polls
+    for a go-file the test only creates once BOTH markers exist, so both
+    processes call the consolidation function within microseconds of each
+    other.
+    """
+    multiproc_dir = str(tmp_path)
+    env = {**os.environ, "PROMETHEUS_MULTIPROC_DIR": multiproc_dir}
+
+    result = subprocess.run(
+        [sys.executable, "-c", _COUNTER_HISTOGRAM_WRITER, "10"],
+        cwd=str(_BACKEND_ROOT),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+
+    ready_a, ready_b = tmp_path / "ready_a", tmp_path / "ready_b"
+    go = tmp_path / "go"
+    sweep_script = f"""
+import os
+import time
+
+ready = {{"a": {str(ready_a)!r}, "b": {str(ready_b)!r}}}[__import__("sys").argv[1]]
+open(ready, "w").close()
+
+deadline = time.monotonic() + 10
+while not os.path.exists({str(go)!r}):
+    if time.monotonic() > deadline:
+        raise TimeoutError("go file never appeared")
+    time.sleep(0.001)
+
+os.environ["PROMETHEUS_MULTIPROC_DIR"] = {multiproc_dir!r}
+from app.observability.metrics import _consolidate_dead_counter_and_histogram_files
+
+_consolidate_dead_counter_and_histogram_files()
+"""
+    procs = [
+        subprocess.Popen(
+            [sys.executable, "-c", sweep_script, label],
+            cwd=str(_BACKEND_ROOT),
+            env=env,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        for label in ("a", "b")
+    ]
+
+    deadline = time.monotonic() + 10
+    while not (ready_a.exists() and ready_b.exists()):
+        assert time.monotonic() < deadline, "sweeper subprocesses never became ready"
+        time.sleep(0.001)
+    go.touch()
+
+    for p in procs:
+        stderr = p.communicate(timeout=30)[1]
+        assert p.returncode == 0, stderr
+
+    after = _scrape_consolidate_metrics(multiproc_dir)
+    total_after = sum(
+        s.value
+        for s in after["test_consolidate_requests"].samples
+        if s.name == "test_consolidate_requests_total"
+    )
+    assert total_after == 10.0
 
 
 def test_shutdown_worker_metrics_marks_process_dead_when_multiprocess_active():
