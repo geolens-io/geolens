@@ -211,12 +211,26 @@ def test_multiprocess_histogram_sums_across_simulated_workers(tmp_path):
     assert _scrape_count() == first_scrape
 
 
+# Uses the real production Gauge (not a synthetic stand-in) so this test
+# actually exercises memory.py's multiprocess_mode="liveall" declaration --
+# a synthetic Gauge would default to "all" and miss the exact bug Codex
+# found in round 1 of review (see test_..._cleaned_up_after_shutdown below).
 _RSS_GAUGE_WRITER = """
 import os
-from prometheus_client import Gauge
+from app.observability.metrics.memory import worker_rss_bytes
 
-g = Gauge("geolens_worker_rss_bytes", "rss", ["pid"])
-g.labels(pid=str(os.getpid())).set(int(os.environ["_TEST_RSS_BYTES"]))
+worker_rss_bytes.labels(pid=str(os.getpid())).set(int(os.environ["_TEST_RSS_BYTES"]))
+"""
+
+# Same Gauge, but calls shutdown_worker_metrics() immediately after writing
+# a value -- simulates a worker recycled under UVICORN_MAX_REQUESTS.
+_RSS_GAUGE_WRITER_THEN_SHUTDOWN = """
+import os
+from app.observability.metrics import shutdown_worker_metrics
+from app.observability.metrics.memory import worker_rss_bytes
+
+worker_rss_bytes.labels(pid=str(os.getpid())).set(int(os.environ["_TEST_RSS_BYTES"]))
+shutdown_worker_metrics()
 """
 
 
@@ -253,6 +267,58 @@ def test_multiprocess_rss_gauge_shows_every_live_worker(tmp_path):
     # Two distinct worker processes, both visible in the one merged scrape.
     assert {s.labels["pid"] for s in samples}.__len__() == 2
     assert sorted(s.value for s in samples) == sorted(values)
+
+
+def test_multiprocess_rss_gauge_series_cleaned_up_after_shutdown(tmp_path):
+    """fix(#1240, #651 review round 1): a recycled worker's RSS series must
+    actually disappear once shutdown_worker_metrics() marks it dead.
+
+    prometheus_client's mark_process_dead() only unlinks mmap files for
+    Gauges declared with a "live*" multiprocess_mode -- the default "all"
+    keeps a dead pid's last value forever. worker_rss_bytes declares
+    "liveall" specifically so this cleanup works; a regression back to the
+    default would make this assertion fail (samples would still show the
+    recycled worker's stale value).
+    """
+    multiproc_dir = str(tmp_path)
+    env_base = {**os.environ, "PROMETHEUS_MULTIPROC_DIR": multiproc_dir}
+
+    # Worker A: recycled (writes a value, then shuts down cleanly).
+    result_a = subprocess.run(
+        [sys.executable, "-c", _RSS_GAUGE_WRITER_THEN_SHUTDOWN],
+        cwd=str(_BACKEND_ROOT),
+        env={**env_base, "_TEST_RSS_BYTES": str(100 * 1024 * 1024)},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result_a.returncode == 0, result_a.stderr
+
+    # Worker B: still alive (no shutdown call).
+    result_b = subprocess.run(
+        [sys.executable, "-c", _RSS_GAUGE_WRITER],
+        cwd=str(_BACKEND_ROOT),
+        env={**env_base, "_TEST_RSS_BYTES": str(150 * 1024 * 1024)},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result_b.returncode == 0, result_b.stderr
+
+    from prometheus_client import CollectorRegistry, multiprocess
+
+    registry = CollectorRegistry()
+    multiprocess.MultiProcessCollector(registry, path=multiproc_dir)
+    families = {f.name: f for f in registry.collect()}
+    samples = [
+        s
+        for s in families["geolens_worker_rss_bytes"].samples
+        if s.name == "geolens_worker_rss_bytes"
+    ]
+
+    # Only worker B's value survives -- worker A's recycled series is gone,
+    # not merely stale.
+    assert [s.value for s in samples] == [150 * 1024 * 1024]
 
 
 _POOL_GAUGE_WRITER = """

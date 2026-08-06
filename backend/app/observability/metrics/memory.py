@@ -10,14 +10,14 @@ worker crosses the memory watermark, so runaway growth is diagnosable from
 Reads /proc directly (Linux containers; no psutil dependency). On platforms
 without /proc (macOS dev) the loop idles silently.
 
-Multi-worker caveat (codex P2 on #650): each uvicorn worker owns its own
-prometheus_client registry and /metrics is served by whichever worker takes
-the scrape, so one scrape sees one worker — a repo-wide property of the
-metrics stack (pool/jobs/HTTP metrics behave the same; multiprocess mode is
-tracked separately, see #651). The gauge is labeled by pid so successive
-scrapes accumulate as distinct per-worker series in the TSDB instead of
-silently flip-flopping one series; the structured-log heartbeat/watermark
-remains the authoritative per-worker signal.
+fix(#1240, #651): the api service runs in prometheus_client multiprocess
+mode, so a scrape reports every live worker's gauge in one response instead
+of whichever single worker answered. The gauge's own `pid` label plus
+`multiprocess_mode="liveall"` (rather than the default `"all"`) means a
+recycled worker's series actually disappears once its mmap file is removed
+by `shutdown_worker_metrics()` on that worker's own shutdown -- `"all"`
+would keep a dead pid's last value forever, since prometheus_client's
+`mark_process_dead()` only unlinks files for `live*`-mode gauges.
 """
 
 import asyncio
@@ -33,6 +33,7 @@ worker_rss_bytes = Gauge(
     "geolens_worker_rss_bytes",
     "Resident set size of an API worker process",
     ["pid"],
+    multiprocess_mode="liveall",
 )
 
 _INTERVAL_SECONDS = 60
