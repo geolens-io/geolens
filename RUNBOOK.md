@@ -1359,11 +1359,21 @@ discard rows that were never in the archive. Check first:
 ```bash
 docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
   "SELECT count(*) FROM catalog.audit_logs
-   WHERE created_at < '$CUTOFF'
+   WHERE created_at <= '$CUTOFF'
      AND (NULLIF('$TENANT_ID', '')::uuid IS NULL OR tenant_id = NULLIF('$TENANT_ID', '')::uuid)"
 ```
 
 (`NULLIF('$TENANT_ID', '')` turns an empty `$TENANT_ID` into SQL `NULL` *before* the `::uuid` cast runs — casting the empty string itself, e.g. `''::uuid`, is invalid input and errors regardless of which side of the `OR` would end up mattering.)
+
+Use `<=`, not `<`, and use it consistently in every count/export/delete step below.
+The export endpoint's `date_to` filter is inclusive (`created_at <= date_to`,
+not exclusive) and there is no way to ask it for an exclusive bound. If the
+delete used `<` while the count/export used `<=`, and a row happened to land
+exactly on `$CUTOFF`, the two predicates would cover different sets: at the
+100,000-row cap that boundary row can displace an older in-range row out of
+the export while that older row still gets deleted — never archived, but
+gone. Matching the delete's boundary to the export's removes the mismatch
+outright rather than trying to work around it.
 
 Export as **JSON**, not CSV, for this procedure: the row count is then a
 plain array length, checkable with `jq length`. A CSV line count minus the
@@ -1379,13 +1389,31 @@ If that count is **at or under 100,000**, one export call covers the whole
 window:
 
 ```bash
-curl -sS -H "Authorization: Bearer $ADMIN_TOKEN" \
+curl -sS -f -H "Authorization: Bearer $ADMIN_TOKEN" \
   "https://<your-host>/api/admin/audit-logs/export/json?date_to=$CUTOFF" \
-  -o "audit-archive-${ARCHIVE_TAG}.json"
+  -o "audit-archive-${ARCHIVE_TAG}.json" \
+  || { echo "export request failed -- aborting, do NOT delete" >&2; exit 1; }
 ```
 
-Verify the exported row count equals the count from the query above before
-proceeding to the delete. A mismatch means stop — do not delete:
+`-f`/`--fail` is not optional here: without it, an expired token, a wrong
+host, or any other 4xx/5xx still exits 0 and writes the error body (e.g.
+`{"detail":"Not authenticated"}`) to the output file as if it were the
+archive. `--fail` makes curl exit non-zero and discard that body instead of
+saving it.
+
+Before trusting the row count, confirm the file is actually a JSON array —
+an auth failure or a proxy error page that slips past `--fail` (a 200 with
+an unexpected body) would otherwise report a `jq length` of 0 or 1, which
+can look like a real, if small, count rather than "the archive is garbage":
+
+```bash
+jq -e 'type == "array"' "audit-archive-${ARCHIVE_TAG}.json" >/dev/null \
+  || { echo "not a JSON array -- aborting, do NOT delete" >&2; exit 1; }
+```
+
+Only then verify the exported row count equals the count from the query
+above before proceeding to the delete. A mismatch means stop — do not
+delete:
 
 ```bash
 jq length "audit-archive-${ARCHIVE_TAG}.json"
@@ -1401,25 +1429,36 @@ sub-window's exported row count (`jq length`, same as above) against a COUNT
 query scoped to that same sub-window — for example:
 
 ```bash
-# Repeat with adjacent, non-overlapping date_from/date_to pairs that together
-# cover the full range up to $CUTOFF. Each pair's exported row count must
-# match: SELECT count(*) FROM catalog.audit_logs WHERE created_at >= date_from
-# AND created_at < date_to AND (tenant scope as above). <window-start> must
-# also be part of the filename -- distinct sub-windows of the SAME tenant/run
+# Repeat with adjacent date_from/date_to pairs that together cover the full
+# range up to $CUTOFF. Each pair's exported row count must match:
+# SELECT count(*) FROM catalog.audit_logs WHERE created_at >= date_from
+# AND created_at <= date_to AND (tenant scope as above) -- both bounds
+# inclusive, matching the export endpoint's own semantics (see the <=
+# note above the single-call case). Both bounds being inclusive means a
+# row landing exactly on a shared boundary appears in both adjacent
+# windows' exports; that duplicates an archive entry, which is harmless
+# (the delete below still removes it exactly once), but do not offset
+# date_from by an epsilon to "fix" it -- that would silently exclude the
+# boundary row from every export instead. <window-start> must also be
+# part of the filename -- distinct sub-windows of the SAME tenant/run
 # still need distinct files.
-curl -sS -H "Authorization: Bearer $ADMIN_TOKEN" \
+curl -sS -f -H "Authorization: Bearer $ADMIN_TOKEN" \
   "https://<your-host>/api/admin/audit-logs/export/json?date_from=<window-start>&date_to=<window-end>" \
-  -o "audit-archive-${ARCHIVE_TAG}-<window-start>.json"
+  -o "audit-archive-${ARCHIVE_TAG}-<window-start>.json" \
+  || { echo "export request failed -- aborting, do NOT delete" >&2; exit 1; }
+jq -e 'type == "array"' "audit-archive-${ARCHIVE_TAG}-<window-start>.json" >/dev/null \
+  || { echo "not a JSON array -- aborting, do NOT delete" >&2; exit 1; }
 ```
 
-Only once every sub-window is exported and verified does the full window
-have a complete archive — proceed to the delete below.
+Only once every sub-window is exported, confirmed to be a real JSON array,
+and verified by count does the full window have a complete archive —
+proceed to the delete below.
 
 Then delete the archived window, using the identical `$CUTOFF` and tenant
 scope from above. Run this from a low-traffic maintenance window: the
 table's only DELETE-supporting index is
 `ix_catalog_audit_logs_created_action_resource` (`created_at DESC, action,
-resource_type`), so an unbounded `DELETE ... WHERE created_at < ...` on a
+resource_type`), so an unbounded `DELETE ... WHERE created_at <= ...` on a
 multi-million-row table can hold locks and bloat the table for a while.
 Batch it:
 
@@ -1445,7 +1484,7 @@ BEGIN
     DELETE FROM catalog.audit_logs
     WHERE id IN (
       SELECT id FROM catalog.audit_logs
-      WHERE created_at < cutoff_ts
+      WHERE created_at <= cutoff_ts
         AND (tenant_uuid IS NULL OR tenant_id = tenant_uuid)
       LIMIT 5000
     );
