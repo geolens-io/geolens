@@ -2096,7 +2096,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # setting's max single-part size and an assumed floor throughput; the
     # retention purge's deferral now adds the same margin instead of stopping
     # at the bare SigV4 ceiling. Cap 1501 -> 1534, exact.
-    "backend/app/platform/jobs/router.py": 1534,
+    # fix(#1236 review r3, codex P1): +41 — that margin still read the
+    # CURRENT `presigned_multipart_threshold_mb`, so lowering it during a
+    # restart could shrink the margin under a transfer issued when it was
+    # higher — the #1236 class again, one level down. The sweep now derives
+    # each job's margin from its own persisted `expected_size` (computed per
+    # row, in the loop, since a bulk DELETE cannot); the retention purge,
+    # which cannot branch per row, falls back to S3's own single-PUT ceiling
+    # instead of the current setting. Cap 1534 -> 1575, exact.
+    "backend/app/platform/jobs/router.py": 1575,
     "backend/app/processing/ingest/tasks_vrt.py": 1071,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this

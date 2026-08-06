@@ -454,7 +454,14 @@ class TestPostExpirySweep:
         base.update(overrides)
         return StaleCleanupOutcome(**base)
 
-    async def _make_job(self, test_db_session, *, age_seconds: int, status="complete"):
+    async def _make_job(
+        self,
+        test_db_session,
+        *,
+        age_seconds: int,
+        status="complete",
+        expected_size: int | None = None,
+    ):
         from datetime import datetime, timedelta, timezone
 
         from sqlalchemy import select, update
@@ -476,6 +483,13 @@ class TestPostExpirySweep:
         await test_db_session.refresh(job)
 
         staging_key = f"staging/{job.id}/roads.geojson"
+        metadata = {"presigned": True, "s3_key": staging_key}
+        if expected_size is not None:
+            # Mirrors what the presign door persists at signing time
+            # (ingest/router.py) — the size declared for THIS job's URL,
+            # independent of whatever `presigned_multipart_threshold_mb`
+            # reads as later.
+            metadata["expected_size"] = expected_size
         # created_at is server-defaulted, so age it explicitly rather than
         # relying on wall-clock drift.
         await test_db_session.execute(
@@ -483,7 +497,7 @@ class TestPostExpirySweep:
             .where(IngestJob.id == job.id)
             .values(
                 file_path=f"staging/{job.id}/frozen/roads.geojson",
-                user_metadata={"presigned": True, "s3_key": staging_key},
+                user_metadata=metadata,
                 created_at=datetime.now(timezone.utc) - timedelta(seconds=age_seconds),
             )
         )
@@ -736,6 +750,94 @@ class TestPostExpirySweep:
             now=final_now + timedelta(seconds=1),
         )
         assert staging_key not in {c.args[0] for c in storage.delete.await_args_list}
+
+    async def test_the_transfer_margin_survives_a_threshold_lowering_restart(
+        self, test_db_session, monkeypatch
+    ) -> None:
+        """codex P1 review r3: `recheck_transfer_margin_seconds()` must not
+        read the CURRENT `presigned_multipart_threshold_mb` for a job whose
+        URL was signed under the OLD, higher value — the #1236 class this PR
+        exists to close, one level down. A 500MB single-part PUT accepted
+        just under the SigV4 ceiling needs a margin computed for 500MB; if an
+        operator lowers the threshold during a restart, this job's own
+        persisted ``expected_size`` must still drive its margin, not the
+        smaller current setting.
+        """
+        from datetime import timedelta, timezone
+
+        from sqlalchemy import select
+
+        from app.core.config import MAX_PRESIGNED_URL_LIFETIME_SECONDS, settings
+        from app.platform.jobs import router as jobs_router
+        from app.platform.jobs.models import IngestJob
+        from app.platform.jobs.router import recheck_transfer_margin_seconds
+
+        five_hundred_mb = 500 * 1024 * 1024
+        # This job's URL was signed while presigned_multipart_threshold_mb
+        # allowed a 500MB single-part upload.
+        job, staging_key = await self._make_job(
+            test_db_session, age_seconds=10_000, expected_size=five_hundred_mb
+        )
+        storage = AsyncMock()
+        monkeypatch.setattr(
+            "app.platform.storage.get_storage", lambda: storage, raising=True
+        )
+
+        async def _row() -> IngestJob:
+            return (
+                await test_db_session.execute(
+                    select(IngestJob).where(IngestJob.id == job.id)
+                )
+            ).scalar_one()
+
+        # Ordinary pass reaps and marks (not final) — unaffected by the
+        # margin logic, which only gates the LATER finalization.
+        await jobs_router._sweep_expired_presigned_staging(
+            test_db_session, self._outcome()
+        )
+        reaped_row = await _row()
+        created_at = reaped_row.created_at
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+
+        # The restart: an operator lowers the threshold to the 100MB
+        # default, well below the 500MB this job's URL actually carries.
+        monkeypatch.setattr(settings, "presigned_multipart_threshold_mb", 100)
+
+        five_hundred_mb_margin = recheck_transfer_margin_seconds(five_hundred_mb)
+        hundred_mb_margin = recheck_transfer_margin_seconds(100 * 1024 * 1024)
+        assert five_hundred_mb_margin > hundred_mb_margin, (
+            "test setup: the scenario needs the two margins to differ"
+        )
+
+        # Just past the ceiling plus the WRONG margin — what the CURRENT
+        # (lowered) setting would imply. If the sweep read that instead of
+        # this job's own declared size, it would wrongly finalize here.
+        wrongly_final_at = created_at + timedelta(
+            seconds=MAX_PRESIGNED_URL_LIFETIME_SECONDS + hundred_mb_margin + 1
+        )
+        storage.delete.reset_mock()
+        await jobs_router._sweep_expired_presigned_staging(
+            test_db_session, self._outcome(), now=wrongly_final_at
+        )
+        not_yet_final_row = await _row()
+        assert "s3_key_reaped_final" not in not_yet_final_row.user_metadata, (
+            "finalized off the CURRENT (lowered) threshold instead of this "
+            "job's own persisted 500MB expected_size"
+        )
+
+        # Past the ceiling plus the CORRECT margin — derived from this job's
+        # own persisted size — it finalizes.
+        correctly_final_at = created_at + timedelta(
+            seconds=MAX_PRESIGNED_URL_LIFETIME_SECONDS + five_hundred_mb_margin + 1
+        )
+        storage.delete.reset_mock()
+        await jobs_router._sweep_expired_presigned_staging(
+            test_db_session, self._outcome(), now=correctly_final_at
+        )
+        assert staging_key in {c.args[0] for c in storage.delete.await_args_list}
+        final_row = await _row()
+        assert final_row.user_metadata["s3_key_reaped_final"] is True
 
     async def test_retention_purge_defers_a_presigned_job_within_the_url_lifetime(
         self, test_db_session, monkeypatch
