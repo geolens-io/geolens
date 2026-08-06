@@ -636,6 +636,19 @@ services:
       # container (the runtime guard checks these).
       MINIO_ROOT_USER: "${MINIO_ROOT_USER:-}"
       MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-}"
+      # ops(#1211): abandoned presigned multipart uploads leave parts no app
+      # sweep can see (no object exists at the key until completion). MinIO
+      # ignores S3 AbortIncompleteMultipartUpload lifecycle rules
+      # (minio/minio#19115, "working as intended"); its equivalent is the
+      # api-subsystem stale-uploads sweep. Parse-safe operator override with
+      # the defaults preserved (never `:?` — INST-01). The 24h default assumes
+      # the default 1h upload-job lifetime (PENDING_JOB_TIMEOUT_SECONDS=3600,
+      # which also bounds presigned part-URL validity — #1235). Coupling: if
+      # PENDING_JOB_TIMEOUT_SECONDS is raised past ~23h, raise the expiry to
+      # at least that lifetime plus headroom, or the sweep aborts parts of
+      # still-live uploads. See RUNBOOK.md "Abandoned multipart uploads".
+      MINIO_API_STALE_UPLOADS_EXPIRY: "${MINIO_API_STALE_UPLOADS_EXPIRY:-24h}"
+      MINIO_API_STALE_UPLOADS_CLEANUP_INTERVAL: "${MINIO_API_STALE_UPLOADS_CLEANUP_INTERVAL:-6h}"
     volumes:
       - minio_data:/data
     healthcheck:
