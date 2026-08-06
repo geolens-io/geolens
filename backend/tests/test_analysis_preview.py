@@ -1429,27 +1429,35 @@ class TestBboxScopedPreview:
         assert resp.status_code == 200, resp.text
         assert resp.json()["source_feature_count"] == 2
 
-    async def test_bbox_source_count_runs_before_release_session_rollback(
+    async def test_bbox_source_count_holds_a_preview_slot_too(
         self,
         client: AsyncClient,
         admin_auth_header: dict,
         test_db_session: AsyncSession,
         monkeypatch: pytest.MonkeyPatch,
     ):
-        """fix(#727) ordering trap: the bbox-scoped count reads dataset.
-        table_name off the ORM object, so it must run before release_session's
-        rollback — a post-rollback read raises MissingGreenlet. Same
-        in_transaction() probe as the #716 session-release test."""
+        """fix(#727 codex P1 round 1): the bbox-scoped count runs through
+        execute_safe now (not a bare db.execute before the semaphore), so it
+        counts against the SAME global preview bound as the geometry query —
+        otherwise N concurrent viewport-scoped previews could each hold a
+        connection open for an unbounded, unmetered count query, exhausting
+        the pool the semaphore exists to protect (the exact class fix(#716)/
+        fix(#1014) already cover for the geometry query). Modeled on
+        test_the_exact_count_query_holds_a_slot_too's `.locked()` probe
+        against a one-slot semaphore."""
+        import asyncio
+
         from app.modules.catalog.datasets.domain import service_analysis
 
-        seen: list[bool] = []
-        real = service_analysis._resolve_bbox_source_count
+        monkeypatch.setattr(service_analysis, "_preview_slots", asyncio.Semaphore(1))
+        real = service_analysis.execute_safe
+        held: list[bool] = []
 
-        async def _recording(db, dataset, bbox):
-            seen.append(db.in_transaction())
-            return await real(db, dataset, bbox)
+        async def _recording_execute_safe(db, sql, **kwargs):
+            held.append(service_analysis._preview_slots.locked())
+            return await real(db, sql, **kwargs)
 
-        monkeypatch.setattr(service_analysis, "_resolve_bbox_source_count", _recording)
+        monkeypatch.setattr(service_analysis, "execute_safe", _recording_execute_safe)
 
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
@@ -1463,13 +1471,59 @@ class TestBboxScopedPreview:
             headers=admin_auth_header,
         )
         assert resp.status_code == 200, resp.text
-        assert seen, "_resolve_bbox_source_count was never called"
-        assert seen[0] is True, (
-            "the bbox-scoped count ran AFTER release_session's rollback — the "
-            "session was no longer in a transaction, and the next ORM read "
-            "(dataset.table_name inside the count helper) would raise "
-            "MissingGreenlet against a real expired instance"
+        # A bbox-scoped buffer preview is a two-statement operation now: the
+        # bbox count and the geometry query. Without the count this would pass
+        # trivially on a single query and prove nothing.
+        assert len(held) == 2, (
+            f"expected a bbox-count query and a geometry query, saw {len(held)}"
         )
+        assert held == [True, True], (
+            "a sandbox query ran outside the preview semaphore: previews can "
+            "hold more connections than the bound allows"
+        )
+
+    async def test_bbox_source_count_degrades_to_none_on_sandbox_error(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """fix(#727 codex P2 round 1): a bbox-scoped denominator that could not
+        be computed within the query budget must come back null, not a
+        LIMIT-capped number dressed up as exact — the response's documented
+        contract for both source_feature_count and match_count."""
+        from app.modules.catalog.datasets.domain import service_analysis
+        from app.platform.sandbox.schemas import SandboxError
+
+        real = service_analysis.execute_safe
+        calls = 0
+
+        async def _fail_first_call(db, sql, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise SandboxError("query_timeout", "boom")
+            return await real(db, sql, **kwargs)
+
+        monkeypatch.setattr(service_analysis, "execute_safe", _fail_first_call)
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        resp = await client.post(
+            _preview_url(ds.id),
+            json={
+                "operation": "buffer",
+                "distance_meters": 10,
+                "bbox": [-10.0, -10.0, 10.0, 10.0],
+            },
+            headers=admin_auth_header,
+        )
+        # The bbox count fails; the geometry query (call 2) still succeeds —
+        # a broken denominator must not take down the whole preview.
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["source_feature_count"] is None
+        assert resp.json()["feature_count"] == 2
 
 
 # ---------------------------------------------------------------------------

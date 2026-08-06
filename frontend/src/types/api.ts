@@ -1975,7 +1975,13 @@ export interface AnalysisPreviewResponse {
   feature_count: number;
   truncated: boolean;
   bbox: number[] | null;
-  /** Source dataset total (1:1 ops only; null when the op filters rows, e.g. clip). */
+  /**
+   * Source dataset total (1:1 ops only; null when the op filters rows, e.g.
+   * clip). When the request carried a bbox this is a live count of rows
+   * intersecting it rather than the dataset's cached whole-table total
+   * (fix(#727)) — also null when that live count could not be computed
+   * within the query budget, same as match_count.
+   */
   source_feature_count?: number | null;
   /**
    * Exact total across the WHOLE source, not just the previewed features.

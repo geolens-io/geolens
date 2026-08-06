@@ -672,7 +672,7 @@ export type AnalysisPreviewResponse = {
     /**
      * Source Feature Count
      *
-     * Total feature count of the source dataset (1:1 operations only; null when the operation filters rows, e.g. clip)
+     * Total feature count of the source dataset (1:1 operations only; null when the operation filters rows, e.g. clip). When the request carried a bbox this is a LIVE count of rows intersecting it rather than the dataset's cached whole-table total (fix(#727)) — also null, same as match_count, when that live count could not be computed within the query budget
      */
     source_feature_count?: number | null;
     /**

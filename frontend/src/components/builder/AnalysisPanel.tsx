@@ -119,6 +119,57 @@ const UNIT_KEY: Record<BufferUnit, string> = {
   mi: 'Miles',
 };
 
+/**
+ * A viewport-scoping bbox for the preview request, or `undefined` when the
+ * viewport cannot be sent as one non-crossing envelope.
+ *
+ * fix(#727 codex P2): `map.getBounds()` is MONOTONIC and UNWRAPPED — MapLibre
+ * takes min/max over the four raw corner longitudes, so an antimeridian-
+ * straddling viewport or a pan through extra world copies (`renderWorldCopies`
+ * is on by default) returns values like `[179.5, …, 182, …]` or even
+ * `[899.5, …, 902, …]` (documented against a different consumer in
+ * `terrain-coverage.ts`'s module comment). `geom_4326` always stores
+ * longitudes in the standard `[-180, 180]` range, so handing those raw values
+ * to `ST_MakeEnvelope` silently misses real on-screen data — sending a bbox
+ * that is WRONG is worse than sending none, because it looks scoped and
+ * isn't. Rather than build antimeridian-splitting support this preview's
+ * single-envelope backend predicate does not have, degrade to "no bbox" (this
+ * panel's pre-#727 behaviour) for the two cases that cannot be represented as
+ * one increasing envelope: a full-world viewport, and a genuinely
+ * seam-crossing one.
+ */
+interface PreviewBoundsLike {
+  getWest(): number;
+  getSouth(): number;
+  getEast(): number;
+  getNorth(): number;
+}
+
+export function viewportPreviewBbox(
+  bounds: PreviewBoundsLike,
+): [number, number, number, number] | undefined {
+  const south = bounds.getSouth();
+  const north = bounds.getNorth();
+  const rawWest = bounds.getWest();
+  const rawEast = bounds.getEast();
+  // A span at or past a full turn covers every longitude at this latitude
+  // band; there is nothing a bbox restricts.
+  if (rawEast - rawWest >= 360) return undefined;
+  // Already-in-range values pass through byte-identical — the overwhelming
+  // common case, and skipping the modulo arithmetic there avoids introducing
+  // float noise (`-74.1` round-tripped through `% 360` lands a ULP off) on
+  // every ordinary viewport just to handle the rare wrapped one.
+  const wrap = (lng: number) =>
+    lng >= -180 && lng <= 180 ? lng : (((lng + 180) % 360) + 360) % 360 - 180;
+  const west = wrap(rawWest);
+  const east = wrap(rawEast);
+  // Wrapping can turn a monotonic pair into a crossing one (e.g. [179.5, 182]
+  // -> [179.5, -178]) — that IS the antimeridian case, and this preview's
+  // ST_MakeEnvelope predicate has no way to express it as one box.
+  if (west > east) return undefined;
+  return [west, south, east, north];
+}
+
 interface AnalysisPanelProps {
   layers: MapLayerResponse[];
   /** fix(#757)/fix(#760): keys the remembered form and the rehydrated job to
@@ -1279,9 +1330,7 @@ export function AnalysisPanel({
           // too, not throw out of a form submit handler.
           const map = mapInstanceRef?.current;
           const bounds = typeof map?.getBounds === 'function' ? map.getBounds() : undefined;
-          const bbox: [number, number, number, number] | undefined = bounds
-            ? [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]
-            : undefined;
+          const bbox = bounds ? viewportPreviewBbox(bounds) : undefined;
           previewMutation.mutate({ seq: previewSeqRef.current, bbox });
         }
       }}

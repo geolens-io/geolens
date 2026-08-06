@@ -146,59 +146,60 @@ async def resolve_source_feature_count(
     return int(result.scalar_one())
 
 
-# fix(#727): the viewport denominator's bound. Not MAX_SOURCE_FEATURES (a
-# materialize-time ceiling that varies per operation, and this runs on every
-# 1:1 preview regardless of which one) and not PREVIEW_FEATURE_CAP (that caps
-# the GEOMETRY the map draws; this caps a count(*) probe, a different and much
-# cheaper query — `&&` rides the GIST index directly instead of evaluating a
-# per-row expression). Generous, because a correct total is the whole point —
-# "500 of N" is only honest if N is real — while still bounded so a viewport
-# spanning an entire dense dataset cannot turn an index-driven prefilter count
-# into an unbounded scan.
-_BBOX_SOURCE_COUNT_CAP = 200_000
-
-
 async def _resolve_bbox_source_count(
-    db: AsyncSession, dataset: Dataset, bbox: list[float]
-) -> int:
-    """Exact 1:1-operation denominator scoped to a preview's viewport bbox.
+    db: AsyncSession, table_ref: str, bbox: list[float], user_id: uuid.UUID
+) -> int | None:
+    """Exact 1:1-operation denominator scoped to a preview's viewport bbox, or
+    ``None`` if it could not be computed within the query budget.
 
     Deliberately bypasses the cached ``dataset.feature_count`` snapshot
     ``resolve_source_feature_count`` prefers — that snapshot is a WHOLE-table
     total, and the whole point of this query is that the whole-table total is
     the wrong denominator once a preview is scoped to what is on screen:
     pairing "500 of 22,324" with a result that only ever looked at the visible
-    extent asserts something the result does not support. Bounded the same
-    way that function bounds its own live-count fallback — a ``LIMIT cap + 1``
-    inside a subquery — so this probe cannot become the expensive half of a
-    preview however large the visible extent's row count turns out to be.
+    extent asserts something the result does not support.
 
-    Resolves the tenant-physical table ref itself (mirroring
-    ``resolve_source_feature_count`` rather than reusing the caller's
-    logical-schema ``table_ref``): that ``table_ref`` is only valid once
-    ``execute_safe`` rewrites its logical ``data`` schema to the tenant's
-    physical one, and this runs as a plain query on the caller's own session,
-    which gets no such rewrite.
+    fix(#727 codex P1/P2 round 1): runs through ``execute_safe`` — the SAME
+    rails as the geometry query and ``_resolve_match_count`` — rather than a
+    bespoke ``LIMIT cap + 1`` probe on the caller's own session. Two review
+    findings, one fix:
 
-    MUST run before the caller's ``release_session`` rollback — see the call
-    site and ``run_analysis_preview``'s docstring. It reads ``dataset.
-    table_name``, which a post-rollback read would raise ``MissingGreenlet``
-    on (every ORM instance on the session expires with it).
+    - P1: a bare ``db.execute`` ran before ``_preview_slots`` and before
+      ``release_session``'s rollback, so N concurrent viewport-scoped
+      previews could each hold the request session's connection for the
+      whole count — unbounded by the semaphore and by any statement timeout,
+      reintroducing the exact pool-exhaustion class fix(#716)/fix(#1014)
+      exist to prevent. ``execute_safe`` opens its own connection under the
+      caller's ``concurrency_key`` and this call now lives inside
+      ``run_analysis_preview``'s ``_preview_slots`` block, alongside the
+      geometry query and the match-count probe.
+    - P2: a ``LIMIT cap + 1`` count is a "did it exceed the cap" probe, not a
+      total — ``resolve_source_feature_count`` uses it that way (the caller
+      treats hitting the cap as "reject", never displays the number). Reusing
+      it here for a value the response labels ``source_feature_count`` and
+      the frontend prints as an exact denominator ("500 of 200,001 features
+      in view") would silently lie past the cap — the same class of
+      dishonesty this issue exists to fix. ``execute_safe``'s statement
+      timeout is the real bound instead: a real count when it finishes, and
+      ``None`` — a value this field's contract already documents as "could
+      not be computed", the same escape hatch ``match_count`` uses — when it
+      does not, rather than a capped number dressed up as an exact one.
+
+    Takes ``table_ref`` (already resolved to the LOGICAL ``data`` schema, the
+    same one the geometry query uses), not ``dataset`` — ``execute_safe``
+    does the tenant-schema rewrite itself, so unlike the first version of this
+    function there is no ordering dependency on the caller's ORM session or
+    its ``release_session`` rollback.
     """
-    from app.core.db.tenant_schema import tenant_data_schema
-    from app.core.db.tenant_session import current_tenant_var
-    from app.core.tenancy import is_multi_tenant
-
-    schema = tenant_data_schema(current_tenant_var.get() if is_multi_tenant() else None)
-    ref = _safe_table_ref(dataset.table_name, schema=schema)
     predicate = render_bbox_predicate(bbox, src="_t")
-    result = await db.execute(
-        text(
-            f"SELECT count(*) FROM (SELECT 1 FROM {ref} AS _t"  # noqa: S608
-            f" WHERE {predicate} LIMIT :lim) AS _n"
-        ).bindparams(lim=_BBOX_SOURCE_COUNT_CAP + 1)
-    )
-    return int(result.scalar_one())
+    count_sql = f"SELECT count(*)::bigint AS source_count FROM {table_ref} AS _t WHERE {predicate}"
+    try:
+        result = await execute_safe(
+            db, count_sql, row_limit=1, concurrency_key=str(user_id)
+        )
+    except SandboxError:
+        return None
+    return int(result.rows[0][0]) if result.rows else None
 
 
 def build_preview_sql(
@@ -448,15 +449,16 @@ async def run_analysis_preview(
     # → HTTP 500. `rollback()` returns the connection (measured: checkedout
     # 1 → 0), so a preview costs one slot instead of two.
     source_feature_count = dataset.feature_count
-    if request.bbox is not None and request.operation not in _ROW_FILTERING_OPERATIONS:
-        # fix(#727): overrides the cached whole-table snapshot above for the
-        # 1:1 operations it applies to (row-filtering operations already
-        # report None below and are untouched). MUST run here, before the
-        # rollback two lines down — see _resolve_bbox_source_count's
-        # docstring for why.
-        source_feature_count = await _resolve_bbox_source_count(
-            db, dataset, request.bbox
-        )
+    # fix(#727): whether the cached snapshot above gets overridden by a live,
+    # bbox-scoped count. Just the operation/bbox check here — cheap, no I/O —
+    # the count itself runs inside the _preview_slots block below, alongside
+    # the geometry query and the match-count probe (fix(#727 codex P1 round
+    # 1)): it goes through execute_safe now, which opens its own connection
+    # and needs neither `dataset` nor this session's transaction state, so it
+    # has no ordering dependency on the rollback two lines down either.
+    bbox_scoped_count_needed = (
+        request.bbox is not None and request.operation not in _ROW_FILTERING_OPERATIONS
+    )
     if release_session:
         await db.rollback()
     # fix(#1014): fail fast at the bound rather than queueing. The client is
@@ -480,6 +482,18 @@ async def run_analysis_preview(
             "Try again in a moment.",
         )
     async with _preview_slots:
+        # fix(#727 codex P1 round 1): the bbox-scoped denominator lives in
+        # this slot too, not before it — see bbox_scoped_count_needed's
+        # comment above. Read first, before the geometry query, so a preview
+        # whose denominator query loses the race for the sandbox's per-user
+        # advisory lock (both go through execute_safe with the same
+        # concurrency_key) still gets a geometry result even if the count
+        # comes back None.
+        source_feature_count = (
+            await _resolve_bbox_source_count(db, table_ref, request.bbox, user_id)
+            if bbox_scoped_count_needed and request.bbox is not None
+            else source_feature_count
+        )
         result = await execute_safe(
             db,
             sql,

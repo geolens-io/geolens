@@ -1521,12 +1521,20 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # per-read ST_CurveToLine wrap is gone. Budget 506 -> 505, exact.
         #
         # fix(#727): +89 for viewport-scoped previews — resolve_source_
-        # feature_count's bbox-scoped sibling (_resolve_bbox_source_count
-        # plus its bound constant), the bbox predicate threaded through
-        # build_preview_sql's WHERE composition, the intersect-branch
-        # scope-decision comment, and the docstring updates on
-        # run_analysis_preview explaining both. Budget 505 -> 594, exact.
-        "backend/app/modules/catalog/datasets/domain/service_analysis.py": 594,
+        # feature_count's bbox-scoped sibling (_resolve_bbox_source_count),
+        # the bbox predicate threaded through build_preview_sql's WHERE
+        # composition, the intersect-branch scope-decision comment, and the
+        # docstring updates on run_analysis_preview explaining both. Budget
+        # 505 -> 594.
+        #
+        # fix(#727 codex P1/P2 round 1): +14 — the bbox count moved from a
+        # bare db.execute before the preview semaphore to execute_safe
+        # inside it (a concurrent-preview pool-exhaustion finding), which
+        # also made it degrade to None on SandboxError instead of exposing a
+        # LIMIT-capped count as an exact total (a second, related finding —
+        # see _resolve_bbox_source_count's docstring for both). Budget
+        # 594 -> 608, exact.
+        "backend/app/modules/catalog/datasets/domain/service_analysis.py": 608,
         "backend/app/modules/catalog/maps/service_crud.py": 550,
         # fix(#474, #475): localized ranking/eager loading plus the OGC
         # ids/externalIds filters cross the default by nine lines. Keep the
@@ -2160,7 +2168,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # description, and the _validate_bbox field_validator (length, finiteness,
     # ordering) that gives 422s an actionable message instead of a generic
     # ST_MakeEnvelope failure. 1167 -> 1205.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1205,
+    #
+    # fix(#727 codex P2 round 1): +4 — source_feature_count's description now
+    # names the live-bbox-scoped-count and could-not-be-computed cases, so a
+    # reader of the schema (or the generated SDK docs) sees the same contract
+    # _resolve_bbox_source_count's docstring states. 1205 -> 1209.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1209,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch

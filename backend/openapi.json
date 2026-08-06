@@ -1123,7 +1123,7 @@
                 "type": "null"
               }
             ],
-            "description": "Total feature count of the source dataset (1:1 operations only; null when the operation filters rows, e.g. clip)",
+            "description": "Total feature count of the source dataset (1:1 operations only; null when the operation filters rows, e.g. clip). When the request carried a bbox this is a LIVE count of rows intersecting it rather than the dataset's cached whole-table total (fix(#727)) \u2014 also null, same as match_count, when that live count could not be computed within the query budget",
             "title": "Source Feature Count"
           },
           "truncated": {
