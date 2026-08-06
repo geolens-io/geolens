@@ -1321,6 +1321,16 @@ on every batched commit inside the delete loop):
 CUTOFF=$(date -u -d '-90 days' +%Y-%m-%dT%H:%M:%SZ)
 ```
 
+Every `docker compose exec -T db psql ...` command in this section assumes
+the bundled Postgres container. Managed/external Postgres
+([§3](#3-restore--managed--external-postgres-mode)): drop the
+`docker compose exec -T db` prefix and connect `psql` directly instead,
+passing your provider's `-h`, `-p`, and `-U` (the same substitution used in
+§2 and §6) — for example `psql -h <host> -p <port> -U "$POSTGRES_USER" -d
+"$POSTGRES_DB"`, or `psql "$DATABASE_URL_OVERRIDE"` if `.env` already has the
+migrator credential set. The HTTP export commands further down are
+unaffected either way — they go through the API, not a direct DB connection.
+
 If this deployment uses per-tenant host routing (more than one row in
 `catalog.tenants`), the HTTP export below is already scoped to whichever
 tenant's host you call it against, but the SQL delete that follows connects
