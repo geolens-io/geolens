@@ -411,6 +411,52 @@ class TestLoginAudit:
                 headers=admin_auth_header,
             )
 
+    async def test_login_oauth_only_user_creates_audit_log_not_500(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """fix(#1230 codex r10 P1): an OAuth-created user has password_hash=
+        None (oauth/service.py never sets one). Submitting the password form
+        for that username used to hand pwdlib an empty-string "hash" it
+        can't parse, raising UnknownHashError uncaught -- a 500 instead of
+        401, and no user.login.failure row (the router only catches
+        AuthenticationError). Must behave exactly like any other wrong-
+        password attempt: 401 + an audited failure with no user_id.
+        """
+        from app.modules.auth.models import User
+
+        unique = uuid.uuid4().hex[:8]
+        username = f"oauthonly_{unique}"
+        oauth_user = User(
+            username=username,
+            email=f"{username}@example.com",
+            password_hash=None,
+            auth_provider="oauth",
+            status="active",
+            is_active=True,
+        )
+        test_db_session.add(oauth_user)
+        await test_db_session.commit()
+
+        resp = await client.post(
+            "/auth/login",
+            data={"username": username, "password": "whatever-password-123"},
+        )
+        assert resp.status_code == 401, resp.text
+
+        log_resp = await client.get(
+            "/admin/audit-logs/",
+            params={"action": "user.login.failure", "limit": 200},
+            headers=admin_auth_header,
+        )
+        assert log_resp.status_code == 200
+        matches = [
+            log
+            for log in log_resp.json()["logs"]
+            if (log["details"] or {}).get("username") == username
+        ]
+        assert len(matches) >= 1
+        assert matches[0]["user_id"] is None
+
     async def test_login_failure_truncates_long_username(
         self, client: AsyncClient, admin_auth_header: dict
     ):
