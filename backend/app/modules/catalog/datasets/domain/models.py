@@ -366,11 +366,6 @@ class Dataset(Base):
     __tablename__ = "datasets"
     __table_args__ = (
         CheckConstraint(
-            "quality_score_numeric IS NULL OR "
-            "(quality_score_numeric >= 0 AND quality_score_numeric <= 1)",
-            name="chk_quality_score_range",
-        ),
-        CheckConstraint(
             # fix(#430 codex r5): 'GEOMETRY' = generic mixed-geometry sentinel
             # stored by create_empty_dataset (fix #430 BA-32). Migration
             # 0011_allow_generic_geometry_type is the source of truth.
@@ -439,7 +434,6 @@ class Dataset(Base):
         MutableDict.as_mutable(JSONB), nullable=True
     )
     quality_statement: Mapped[str | None] = mapped_column(Text, nullable=True)
-    quality_score_numeric: Mapped[float | None] = mapped_column(Float, nullable=True)
     is_3d: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     n_dims: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     z_min: Mapped[float | None] = mapped_column(Float, nullable=True)
