@@ -1996,6 +1996,11 @@ export interface AnalysisPreviewResponse {
    *   the join keeps every source row, so one source row matching four join
    *   rows contributes 4 here and 1 to the result. Use source_feature_count
    *   for that operation's total.
+   *
+   * "WHOLE source" means the request's bbox when one was sent, same sense
+   * source_feature_count uses. For intersect specifically this total is
+   * bbox-scoped too (fix(#727)) — it rides the same statement the geometry
+   * preview runs, unlike select_by_location's separate uncapped count query.
    */
   match_count?: number | null;
 }

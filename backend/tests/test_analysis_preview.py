@@ -2046,18 +2046,40 @@ class TestBuildPreviewSql:
             assert "_src.geom_4326 && ST_MakeEnvelope(0.0, 0.0, 1.0, 1.0, 4326)" in sql
             assert sql.endswith("ORDER BY gid")
 
-    def test_bbox_not_threaded_into_intersect(self):
-        """intersect renders through a separate JOIN+GROUP BY pipeline
-        (render_intersect_preview) that build_preview_sql does not touch for
-        bbox — a deliberate scope decision (see the fix(#727) comment on the
-        intersect branch), not an oversight this test should let regress
-        silently into either direction."""
+    def test_bbox_threaded_into_intersect(self):
+        """fix(#727 codex round 2): intersect renders through a separate
+        JOIN+GROUP BY pipeline (render_intersect_preview/render_intersect_pairs)
+        that does not share build_preview_sql's WHERE composition, so it needs
+        its own explicit bbox plumbing — this pins that it actually receives
+        one rather than silently discarding it (the frontend sends bbox for
+        every operation uniformly, so a discarded bbox here would keep
+        clustering intersect previews in gid order, the exact bug #727 exists
+        to fix, for one operation only)."""
         req = AnalysisPreviewRequest(
             operation="intersect",
             mask_dataset_id=uuid.uuid4(),
             bbox=[0.0, 0.0, 1.0, 1.0],
         )
         sql = build_preview_sql('"data"."t1"', req, '"data"."m1"')
+        assert "_src.geom_4326 && ST_MakeEnvelope(0.0, 0.0, 1.0, 1.0, 4326)" in sql
+        # The filter must land on the SOURCE (_src), inside the inner subquery
+        # that feeds the pair-generating join — not on the mask/overlay layer,
+        # and not as an outer wrapper around the whole aggregate (which would
+        # filter OUTPUT pieces instead of scoping which source rows are
+        # considered, changing the shape of the row cap's early-stop rather
+        # than just its size).
+        assert sql.index("_src.geom_4326 && ST_MakeEnvelope") < sql.index("GROUP BY")
+
+    def test_bbox_not_threaded_into_intersect_materialize(self):
+        """fix(#727 codex round 2): render_intersect_pairs's bbox param is
+        PREVIEW-ONLY. A saved dataset must be the WHOLE overlay, not whatever
+        was on screen when Create dataset was clicked — the materialize
+        worker's call site (processing/analysis/tasks.py) must keep omitting
+        it, so this pins the DEFAULT stays unscoped rather than assuming a
+        caller always passes bbox explicitly."""
+        from app.platform.analysis_sql import render_intersect_pairs
+
+        sql = render_intersect_pairs('"data"."t1"', '"data"."m1"')
         assert "ST_MakeEnvelope" not in sql
 
     def test_clip_mask_vertex_cap(self):

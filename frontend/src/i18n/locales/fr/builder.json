@@ -1010,7 +1010,7 @@
     "byFieldNone": "Sans regroupement — tout fusionner",
     "truncatedNoticeTotal_one": "Affichage de la première des {{total, number}} entités sources",
     "truncatedNoticeTotal_other": "Affichage des {{count, number}} premières entités sur {{total, number}} entités sources",
-    "truncatedNoticeTotalScoped_one": "Affichage de la première des {{total, number}} entités sources dans l'étendue prévisualisée",
+    "truncatedNoticeTotalScoped_one": "Affichage des {{count, number}} premières entités sur {{total, number}} entités sources dans l'étendue prévisualisée",
     "truncatedNoticeTotalScoped_other": "Affichage des {{count, number}} premières entités sur {{total, number}} entités sources dans l'étendue prévisualisée",
     "truncatedNoticeMatched_one": "Affichage de la première entité sur {{total, number}} entités correspondantes",
     "truncatedNoticeMatched_other": "Affichage des {{count, number}} premières entités sur {{total, number}} entités correspondantes",

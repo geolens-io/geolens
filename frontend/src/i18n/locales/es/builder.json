@@ -1010,7 +1010,7 @@
     "byFieldNone": "Sin agrupación — combinar todo",
     "truncatedNoticeTotal_one": "Mostrando la primera de {{total, number}} entidades de origen",
     "truncatedNoticeTotal_other": "Mostrando las primeras {{count, number}} de {{total, number}} entidades de origen",
-    "truncatedNoticeTotalScoped_one": "Mostrando la primera de {{total, number}} entidades de origen en la extensión previsualizada",
+    "truncatedNoticeTotalScoped_one": "Mostrando las primeras {{count, number}} de {{total, number}} entidades de origen en la extensión previsualizada",
     "truncatedNoticeTotalScoped_other": "Mostrando las primeras {{count, number}} de {{total, number}} entidades de origen en la extensión previsualizada",
     "truncatedNoticeMatched_one": "Mostrando la primera de {{total, number}} entidades coincidentes",
     "truncatedNoticeMatched_other": "Mostrando las primeras {{count, number}} de {{total, number}} entidades coincidentes",

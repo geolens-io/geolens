@@ -1010,7 +1010,7 @@
     "byFieldNone": "Keine Gruppierung — alles zusammenführen",
     "truncatedNoticeTotal_one": "Das erste von {{total, number}} Quell-Features wird angezeigt",
     "truncatedNoticeTotal_other": "Die ersten {{count, number}} von {{total, number}} Quell-Features werden angezeigt",
-    "truncatedNoticeTotalScoped_one": "Das erste von {{total, number}} Quell-Features im Vorschauausschnitt wird angezeigt",
+    "truncatedNoticeTotalScoped_one": "Die ersten {{count, number}} von {{total, number}} Quell-Features im Vorschauausschnitt werden angezeigt",
     "truncatedNoticeTotalScoped_other": "Die ersten {{count, number}} von {{total, number}} Quell-Features im Vorschauausschnitt werden angezeigt",
     "truncatedNoticeMatched_one": "Das erste von {{total, number}} übereinstimmenden Features wird angezeigt",
     "truncatedNoticeMatched_other": "Die ersten {{count, number}} von {{total, number}} übereinstimmenden Features werden angezeigt",

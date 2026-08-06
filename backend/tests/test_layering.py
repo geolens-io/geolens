@@ -1534,7 +1534,13 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # LIMIT-capped count as an exact total (a second, related finding —
         # see _resolve_bbox_source_count's docstring for both). Budget
         # 594 -> 608, exact.
-        "backend/app/modules/catalog/datasets/domain/service_analysis.py": 608,
+        #
+        # fix(#727 codex round 2): +2 — the intersect branch now passes
+        # request.bbox through to render_intersect_preview instead of
+        # discarding it (a second review round found the discard left one
+        # operation still clustering previews in gid order despite the
+        # frontend sending bbox uniformly). Budget 608 -> 610, exact.
+        "backend/app/modules/catalog/datasets/domain/service_analysis.py": 610,
         "backend/app/modules/catalog/maps/service_crud.py": 550,
         # fix(#474, #475): localized ranking/eager loading plus the OGC
         # ids/externalIds filters cross the default by nine lines. Keep the
@@ -2173,7 +2179,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # names the live-bbox-scoped-count and could-not-be-computed cases, so a
     # reader of the schema (or the generated SDK docs) sees the same contract
     # _resolve_bbox_source_count's docstring states. 1205 -> 1209.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1209,
+    #
+    # fix(#727 codex round 2): +6 — match_count's description now covers
+    # intersect's bbox-scoped total (it rides the same statement the
+    # geometry preview runs, unlike select_by_location's separate uncapped
+    # count query) now that the intersect branch actually receives bbox.
+    # 1209 -> 1215.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1215,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch

@@ -1118,15 +1118,21 @@ class AnalysisPreviewResponse(BaseModel):
         default=None,
         description=(
             "Exact total across the WHOLE source, not just the previewed "
-            "features. What it counts is per-operation, so read it against "
-            "the operation you sent rather than as one number: "
-            "select_by_location gives the selected source features and "
-            "intersect gives the output pieces, and for both of those it IS "
-            "the output total; spatial_join gives intersecting source/join "
-            "PAIRS, which is NOT the output total, because the join keeps "
-            "every source row (use source_feature_count for that operation). "
-            "Null for operations that report no such total, and when the "
-            "count could not be computed within the query budget"
+            "features — WHOLE meaning the request's bbox when one was sent, "
+            "the same sense source_feature_count uses that word. What it "
+            "counts is per-operation, so read it against the operation you "
+            "sent rather than as one number: select_by_location gives the "
+            "selected source features and intersect gives the output "
+            "pieces, and for both of those it IS the output total; "
+            "spatial_join gives intersecting source/join PAIRS, which is "
+            "NOT the output total, because the join keeps every source row "
+            "(use source_feature_count for that operation). For intersect "
+            "specifically, a bbox on the request scopes this total too — it "
+            "rides the SAME statement the geometry preview runs, unlike "
+            "select_by_location's, which is a separate uncapped query the "
+            "request's bbox does not reach. Null for operations that report "
+            "no such total, and when the count could not be computed within "
+            "the query budget"
         ),
     )
 

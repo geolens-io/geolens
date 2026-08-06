@@ -221,15 +221,17 @@ def build_preview_sql(
         # below. See render_intersect_preview for why match_count rides this
         # statement as a window rather than costing a second overlay.
         #
-        # fix(#727): bbox is deliberately NOT threaded into this branch. Its
-        # own pipeline (render_intersect_pairs) subdivides and re-groups the
-        # mask by gid before this query ever sees `_src`, so a `_src.geom_4326
-        # &&` prefilter would need its own review of where it is safe to add
-        # without changing the grouped row count. intersect keeps today's
-        # behaviour; every other operation below shares one WHERE clause and
-        # picks up the viewport scope there.
+        # fix(#727 codex round 2): bbox passes straight through — see
+        # render_intersect_preview/render_intersect_pairs for where it lands
+        # in this pipeline's own query shape. It does NOT share the WHERE
+        # clause every other operation below composes through (this branch
+        # returns before reaching it), so it needed its own plumbing rather
+        # than falling out of the shared code path for free.
         return render_intersect_preview(
-            table_ref, mask_table_ref, geojson_precision=_GEOJSON_PRECISION
+            table_ref,
+            mask_table_ref,
+            geojson_precision=_GEOJSON_PRECISION,
+            bbox=request.bbox,
         )
     extra_cols = ""
     extra_joins = ""
