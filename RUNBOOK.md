@@ -1372,12 +1372,34 @@ fi
 ARCHIVE_TAG="${TENANT_SLUG}-$(date -u +%Y%m%dT%H%M%SZ)"
 ```
 
-#### Single-tenant deployments (or a deliberately unscoped run)
+#### Single-tenant deployments
 
-`catalog.audit_logs.tenant_id` is NULL on every row here (single-tenant never
-stamps it), so there is nothing to filter by. This branch never resolves or
-reads a `$TENANT_ID` at all — it is a separate set of commands below, not a
-fallback the per-tenant branch reaches by leaving a variable unset:
+This branch is for confirmed single-tenant deployments **only** — it is not
+a generic "run unscoped" option, and must not be used on a deployment with
+per-tenant host routing even if you intend to touch every tenant's rows. The
+reason is the export step, not the delete: the HTTP export is always scoped
+to whichever tenant's host you call it against (there is no cross-tenant
+export call), so on a deployment with per-tenant routing enabled this
+branch's unscoped count/delete would remove every other tenant's audit
+history that the export never captured — permanent loss with no archive, not
+merely a scoping mistake. Verify the deployment is genuinely single-tenant
+before running anything below:
+
+```bash
+set -a; . ./.env; set +a   # if not already loaded in this shell
+if [ "${GEOLENS_TENANCY_MODE:-single_tenant}" = "multi_tenant" ]; then
+  echo "GEOLENS_TENANCY_MODE=multi_tenant -- this deployment has per-tenant" \
+       "routing. Use the per-tenant branch above for each tenant instead;" \
+       "aborting rather than running an unscoped delete here." >&2
+  exit 1
+fi
+```
+
+`catalog.audit_logs.tenant_id` is NULL on every row once that check passes
+(single-tenant never stamps it), so there is nothing left to filter by. This
+branch never resolves or reads a `$TENANT_ID` — it is a separate set of
+commands below, not a fallback the per-tenant branch reaches by leaving a
+variable unset:
 
 ```bash
 ARCHIVE_TAG="default-$(date -u +%Y%m%dT%H%M%SZ)"
@@ -1404,7 +1426,7 @@ command for the branch you chose above:
 ```
 
 ```bash
-# Single-tenant / deliberately unscoped (no tenant predicate at all):
+# Single-tenant (no tenant predicate -- confirmed above, not the default):
 "${PSQL[@]}" -tAc \
   "SELECT count(*) FROM catalog.audit_logs WHERE created_at <= '$CUTOFF'"
 ```
@@ -1499,8 +1521,8 @@ and verified by count does the full window have a complete archive —
 proceed to the delete below.
 
 Then delete the archived window, using the identical `$CUTOFF` and the SAME
-branch (per-tenant or single-tenant/unscoped) you used for the count above —
-run this from a low-traffic maintenance window: the table's only
+branch (per-tenant or single-tenant) you used for the count above — run this
+from a low-traffic maintenance window: the table's only
 DELETE-supporting index is `ix_catalog_audit_logs_created_action_resource`
 (`created_at DESC, action, resource_type`), so an unbounded
 `DELETE ... WHERE created_at <= ...` on a multi-million-row table can hold
@@ -1546,7 +1568,7 @@ SQL
 ```
 
 ```bash
-# Single-tenant / deliberately unscoped (no tenant predicate at all):
+# Single-tenant (no tenant predicate -- confirmed above, not the default):
 "${PSQL[@]}" -v cutoff="'$CUTOFF'" <<'SQL'
 SET geolens.retention_cutoff = :cutoff;
 DO $$
