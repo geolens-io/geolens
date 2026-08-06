@@ -1334,11 +1334,25 @@ PSQL=(docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB")
 # bundled line above:
 # PSQL=(psql -h <host> -p <port> -U "$POSTGRES_USER" -d "$POSTGRES_DB")
 #
-# If reusing DATABASE_URL_OVERRIDE from .env, strip its SQLAlchemy driver
-# suffix first: libpq's URI parser accepts only the postgresql:// and
-# postgres:// schemes, and rejects the postgresql+asyncpg:// /
-# postgresql+psycopg:// forms .env.example documents for that variable.
-# PG_URI=$(echo "$DATABASE_URL_OVERRIDE" | sed -E 's#^postgresql\+[a-zA-Z0-9_]+://#postgresql://#')
+# On a deployment with per-tenant host routing, whichever credential you
+# use here must be able to see and modify rows across every tenant -- NOT
+# the app's own least-privilege runtime login. Boot refuses to start
+# GEOLENS_TENANCY_MODE=multi_tenant with a runtime role that can bypass
+# row-level security (backend/app/core/db/rls.py), by design, and
+# catalog.audit_logs carries exactly that RLS policy (migration 0022): a
+# session without BYPASSRLS and without `app.current_tenant` set only ever
+# sees zero rows through it, so the count/delete commands below would
+# silently do nothing rather than the documented thing. Use the SAME
+# privileged/migrator-class credential §2 calls out for schema changes
+# ("the least-privilege runtime login in .env is deliberately not allowed
+# to do any of this"), not the steady-state DATABASE_URL_OVERRIDE your
+# running deployment authenticates with day to day.
+#
+# If that privileged credential happens to be a postgresql+asyncpg:// or
+# postgresql+psycopg:// SQLAlchemy URL, strip the driver suffix first --
+# libpq's URI parser accepts only the postgresql:// and postgres://
+# schemes:
+# PG_URI=$(echo "<your-privileged-connection-url>" | sed -E 's#^postgresql\+[a-zA-Z0-9_]+://#postgresql://#')
 # PSQL=(psql "$PG_URI")
 ```
 
