@@ -25,11 +25,25 @@ probe_writable_dir() {
 
 mkdir -p "${STAGING_DIR}" "${APP_HOME}" "${UV_CACHE_DIR}"
 
+# fix(#1240, #651): prometheus_client multiprocess mode, api service only (see
+# #651: the worker's own /metrics endpoint stays single-process). Created
+# here, alongside the other runtime-writable dirs, so the chown/chmod block
+# below covers it too -- this container starts as root and drops to appuser
+# via setpriv before exec, and prometheus_client's mmap-backed metric files
+# are written by that dropped-privilege process, not by this root shell.
+if [ -n "${PROMETHEUS_MULTIPROC_DIR:-}" ]; then
+    mkdir -p "${PROMETHEUS_MULTIPROC_DIR}"
+fi
+
 if [ "$(id -u)" -eq 0 ]; then
     chown -R "${APP_UID}:${APP_GID}" "${STAGING_DIR}" "${APP_HOME}" 2>/dev/null || true
     chmod -R u+rwX,g+rwX "${STAGING_DIR}" "${APP_HOME}" 2>/dev/null || true
     probe_writable_dir "${STAGING_DIR}" "Upload staging directory"
     probe_writable_dir "${UV_CACHE_DIR}" "uv cache directory"
+    if [ -n "${PROMETHEUS_MULTIPROC_DIR:-}" ]; then
+        chown -R "${APP_UID}:${APP_GID}" "${PROMETHEUS_MULTIPROC_DIR}" 2>/dev/null || true
+        chmod -R u+rwX,g+rwX "${PROMETHEUS_MULTIPROC_DIR}" 2>/dev/null || true
+    fi
 else
     probe_writable_dir "${STAGING_DIR}" "Upload staging directory"
     probe_writable_dir "${UV_CACHE_DIR}" "uv cache directory"
@@ -114,19 +128,16 @@ case "${GEOLENS_API_RUN_MIGRATIONS:-true}" in
 esac
 
 # fix(#1240, #651): clear stale prometheus_client multiprocess mmap files
-# before any worker starts. PROMETHEUS_MULTIPROC_DIR is only ever set on the
-# api service (see #651: the worker's own /metrics endpoint stays
-# single-process and is intentionally unaffected). Runs once here, in the
-# parent process before uvicorn forks its workers, so a leftover .db file
-# from a previous container generation (e.g. a different UVICORN_WORKERS
-# topology) can never pollute this generation's Counter/Histogram sums --
-# multiprocess.MultiProcessCollector aggregates every *.db file under the
-# directory regardless of which process generation wrote it. The directory
-# itself lives on the api service's tmpfs /tmp mount, so a container restart
-# already discards it; this guards the case an operator points the var at a
-# non-ephemeral path instead.
+# before any worker starts (the directory itself was created and chowned
+# above). A leftover .db file from a previous container generation (e.g. a
+# different UVICORN_WORKERS topology) would otherwise pollute this
+# generation's Counter/Histogram sums -- multiprocess.MultiProcessCollector
+# aggregates every *.db file under the directory regardless of which process
+# generation wrote it. Runs once here, in the parent process before uvicorn
+# forks its workers. The directory itself lives on the api service's tmpfs
+# /tmp mount, so a container restart already discards it; this guards the
+# case an operator points the var at a non-ephemeral path instead.
 if [ -n "${PROMETHEUS_MULTIPROC_DIR:-}" ]; then
-    mkdir -p "${PROMETHEUS_MULTIPROC_DIR}"
     rm -f "${PROMETHEUS_MULTIPROC_DIR}"/*.db 2>/dev/null || true
 fi
 
