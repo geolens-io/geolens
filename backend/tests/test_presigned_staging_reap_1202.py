@@ -611,6 +611,12 @@ class TestPostExpirySweep:
         the restart, and the second run's ``now=`` stands in for wall-clock
         time actually passing — rather than an actual process restart.
 
+        Also covers the codex P1 follow-up: the re-check's first delete
+        attempt (right at the SigV4 ceiling) must not finalize the row on the
+        spot — a PUT accepted just under the ceiling can still be transferring
+        past it — so finalization needs `_RECHECK_TRANSFER_MARGIN_SECONDS`
+        MORE to elapse before the row is retired for good.
+
         Assertions key off this test's OWN ``staging_key`` and job row rather
         than the aggregate ``StaleCleanupOutcome`` counts or an exact set of
         every ``storage.delete`` call: per the isolation note above
@@ -627,6 +633,7 @@ class TestPostExpirySweep:
         from app.core.config import MAX_PRESIGNED_URL_LIFETIME_SECONDS, settings
         from app.platform.jobs import router as jobs_router
         from app.platform.jobs.models import IngestJob
+        from app.platform.jobs.router import _RECHECK_TRANSFER_MARGIN_SECONDS
 
         # "Run 1": job created while pending_job_timeout_seconds was the
         # 3600s default. A URL signed near creation is legitimately live
@@ -671,7 +678,10 @@ class TestPostExpirySweep:
         # Once MAX_PRESIGNED_URL_LIFETIME_SECONDS have elapsed since
         # creation — the latest moment ANY URL for this job, signed under
         # ANY setting the deployment ever ran, can still be live — the
-        # re-check pass fires and sweeps the recreated object for good.
+        # re-check pass fires and re-attempts the delete. It must NOT
+        # finalize yet: a PUT accepted a moment before the ceiling can still
+        # be uploading past it, so retiring the row here would risk the
+        # exact orphan this fix exists to close.
         # `reaped_row.created_at` is read fresh from the row the ordinary
         # pass backdated — `job` itself still holds the pre-backdate value
         # from before `_make_job`'s follow-up UPDATE.
@@ -687,6 +697,33 @@ class TestPostExpirySweep:
         )
 
         assert staging_key in {c.args[0] for c in storage.delete.await_args_list}
+        not_yet_final_row = await _row()
+        assert not_yet_final_row.user_metadata["s3_key_reaped"] is True
+        assert "s3_key_reaped_final" not in not_yet_final_row.user_metadata
+
+        # A pass run before the transfer margin has ALSO elapsed re-attempts
+        # the (now no-op) delete again but still does not finalize.
+        storage.delete.reset_mock()
+        await jobs_router._sweep_expired_presigned_staging(
+            test_db_session,
+            self._outcome(),
+            now=recheck_now + timedelta(seconds=1),
+        )
+        assert staging_key in {c.args[0] for c in storage.delete.await_args_list}
+        still_not_final_row = await _row()
+        assert "s3_key_reaped_final" not in still_not_final_row.user_metadata
+
+        # Only once _RECHECK_TRANSFER_MARGIN_SECONDS have ALSO passed beyond
+        # the ceiling is no such transfer credible any longer, and the row is
+        # retired for good.
+        final_now = recheck_now + timedelta(
+            seconds=_RECHECK_TRANSFER_MARGIN_SECONDS + 1
+        )
+        storage.delete.reset_mock()
+        await jobs_router._sweep_expired_presigned_staging(
+            test_db_session, self._outcome(), now=final_now
+        )
+        assert staging_key in {c.args[0] for c in storage.delete.await_args_list}
         final_row = await _row()
         assert final_row.user_metadata["s3_key_reaped_final"] is True
 
@@ -696,9 +733,62 @@ class TestPostExpirySweep:
         await jobs_router._sweep_expired_presigned_staging(
             test_db_session,
             self._outcome(),
-            now=recheck_now + timedelta(seconds=1),
+            now=final_now + timedelta(seconds=1),
         )
         assert staging_key not in {c.args[0] for c in storage.delete.await_args_list}
+
+    async def test_retention_purge_defers_a_presigned_job_within_the_url_lifetime(
+        self, test_db_session, monkeypatch
+    ) -> None:
+        """codex P1 on this PR: the retention purge in ``fail_stale_jobs`` is a
+        SEPARATE deletion path from ``_sweep_expired_presigned_staging`` and
+        runs before it. Left unguarded, a short ``ingest_jobs_retention_days``
+        (1 day is a supported, tested value elsewhere in this suite) could
+        delete a presigned job's ROW — the only place the sweep's markers
+        live — while a URL signed under a longer pre-restart setting is still
+        valid. A later PUT would then recreate an object no row anywhere
+        references: worse than the marker gap this PR closes, because
+        nothing could ever find it again.
+        """
+        from sqlalchemy import select
+
+        from app.core.config import MAX_PRESIGNED_URL_LIFETIME_SECONDS, settings
+        from app.platform.jobs import router as jobs_router
+        from app.platform.jobs.models import IngestJob
+
+        # Past the 1-day retention cutoff but well under the 7-day SigV4
+        # ceiling — exactly the window a still-live pre-restart URL occupies.
+        still_tracked_job, _still_tracked_key = await self._make_job(
+            test_db_session, age_seconds=100_000
+        )
+        # Past the ceiling too — no URL for it can possibly still be live, so
+        # purging (and reaping its key immediately, same as the ordinary
+        # end-of-job sweeps) is safe.
+        safe_to_purge_job, safe_to_purge_key = await self._make_job(
+            test_db_session, age_seconds=MAX_PRESIGNED_URL_LIFETIME_SECONDS + 100
+        )
+        storage = AsyncMock()
+        monkeypatch.setattr(
+            "app.platform.storage.get_storage", lambda: storage, raising=True
+        )
+        monkeypatch.setattr(settings, "ingest_jobs_retention_days", 1)
+
+        await jobs_router.fail_stale_jobs(test_db_session, detailed=True)
+
+        async def _exists(job_id) -> bool:
+            row = (
+                await test_db_session.execute(
+                    select(IngestJob.id).where(IngestJob.id == job_id)
+                )
+            ).scalar_one_or_none()
+            return row is not None
+
+        assert await _exists(still_tracked_job.id), (
+            "a presigned job within the URL lifetime must survive the "
+            "retention purge, or nothing can ever track its recreated object"
+        )
+        assert not await _exists(safe_to_purge_job.id)
+        assert safe_to_purge_key in {c.args[0] for c in storage.delete.await_args_list}
 
 
 class TestFailedSourceRetention:

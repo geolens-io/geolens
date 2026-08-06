@@ -266,12 +266,23 @@ def post_expiry_sweep_after_seconds() -> int:
 # own — see _STAGING_REAPED_FINAL_MARKER below (fix #1236).
 _STAGING_REAPED_MARKER = "s3_key_reaped"
 
-# fix(#1236): set once the sweep's RE-CHECK pass has run, which only happens
-# after MAX_PRESIGNED_URL_LIFETIME_SECONDS have elapsed since `created_at` —
-# the latest moment any URL for the job, signed under any setting the
-# deployment ever ran, can still be live. Only rows carrying this marker are
-# excluded from every future pass; _STAGING_REAPED_MARKER alone no longer is.
+# fix(#1236): set once the sweep's RE-CHECK pass has run AND cleared the
+# transfer margin below, which only happens after
+# MAX_PRESIGNED_URL_LIFETIME_SECONDS have elapsed since `created_at` — the
+# latest moment any URL for the job, signed under any setting the deployment
+# ever ran, can still be live. Only rows carrying this marker are excluded
+# from every future pass; _STAGING_REAPED_MARKER alone no longer is.
 _STAGING_REAPED_FINAL_MARKER = "s3_key_reaped_final"
+
+# fix(#1236 review, codex P1): SigV4 bounds when a URL may be SIGNED for, not
+# when an already-accepted PUT finishes transferring bytes — S3 validates the
+# signature at request start, not completion. A slow single-part upload begun
+# just under the ceiling can still be writing after it, so the re-check's
+# first delete attempt must not retire the row on the spot: only once this
+# margin has ALSO elapsed is a live transfer no longer credible. Reuses
+# `_COMMIT_HEADROOM_SECONDS`'s value under its own name — same "still
+# finishing past the nominal deadline" shape, different call site.
+_RECHECK_TRANSFER_MARGIN_SECONDS = _COMMIT_HEADROOM_SECONDS
 
 
 async def _sweep_expired_presigned_staging(
@@ -315,18 +326,31 @@ async def _sweep_expired_presigned_staging(
     `MAX_PRESIGNED_URL_LIFETIME_SECONDS`, and `pending_job_timeout_seconds` has
     always been capped at that same ceiling, so no URL for a job can still be
     live past `created_at + MAX_PRESIGNED_URL_LIFETIME_SECONDS` no matter which
-    setting minted it. A row already carrying the first marker gets exactly
-    one more delete attempt once it crosses that age, which either recovers an
+    setting minted it. A row already carrying the first marker gets a delete
+    attempt every pass once it crosses that age, which either recovers an
     object a stale marker was hiding or costs one no-op DeleteObject against a
-    key that was never recreated — then the final marker retires it for good.
+    key that was never recreated — but does not finalize it until
+    `_RECHECK_TRANSFER_MARGIN_SECONDS` past that same age has ALSO elapsed
+    (codex P1 on this PR): SigV4 expiry stops new requests, not one already
+    accepted, so a slow PUT begun just under the ceiling can still be writing
+    after it. Only once no such transfer is credible does the final marker
+    retire the row for good.
     """
     now = now or datetime.now(timezone.utc)
     first_pass_cutoff = now - timedelta(seconds=post_expiry_sweep_after_seconds())
     recheck_cutoff = now - timedelta(seconds=MAX_PRESIGNED_URL_LIFETIME_SECONDS)
+    recheck_final_cutoff = recheck_cutoff - timedelta(
+        seconds=_RECHECK_TRANSFER_MARGIN_SECONDS
+    )
     not_yet_reaped = IngestJob.user_metadata[_STAGING_REAPED_MARKER].astext.is_(None)
     candidates = (
         await db.execute(
-            select(IngestJob.id, IngestJob.file_path, IngestJob.user_metadata).where(
+            select(
+                IngestJob.id,
+                IngestJob.file_path,
+                IngestJob.user_metadata,
+                IngestJob.created_at,
+            ).where(
                 IngestJob.status.not_in(("pending", "running")),
                 IngestJob.user_metadata["s3_key"].astext.is_not(None),
                 IngestJob.user_metadata[_STAGING_REAPED_FINAL_MARKER].astext.is_(None),
@@ -343,7 +367,7 @@ async def _sweep_expired_presigned_staging(
 
     reaped = 0
     failures = 0
-    for job_row_id, file_path, metadata in candidates:
+    for job_row_id, file_path, metadata, created_at in candidates:
         staging_key = owned_presigned_staging_key(job_row_id, metadata, file_path)
         if staging_key is None:
             # Not this job's key to delete — a fan-out child holding the
@@ -366,7 +390,7 @@ async def _sweep_expired_presigned_staging(
         # loaded value — JSONB does not track mutation, so an in-place edit
         # would never flush.
         new_metadata = {**(metadata or {}), _STAGING_REAPED_MARKER: True}
-        if is_recheck_pass:
+        if is_recheck_pass and created_at < recheck_final_cutoff:
             new_metadata[_STAGING_REAPED_FINAL_MARKER] = True
         await db.execute(
             update(IngestJob)
@@ -729,6 +753,24 @@ async def fail_stale_jobs(
                 IngestJob.created_at.desc(),
             )
         )
+        # fix(#1236 review, codex P1): a presigned job's ROW is the only place
+        # _sweep_expired_presigned_staging's markers live. Purging it before
+        # any URL issued for it can possibly still be live removes that
+        # tracking outright — worse than the marker gap this PR closes,
+        # because a re-PUT afterward recreates an object no row anywhere
+        # references, and retention (unlike the sweep's own cutoff) is
+        # commonly configured well under a week (1 day is an exercised
+        # value). Deferred exactly as long as the sweep's own re-check
+        # window: past MAX_PRESIGNED_URL_LIFETIME_SECONDS since creation no
+        # URL can be live under any setting the deployment ever ran, so
+        # purging is safe and `deleted_presigned_keys` below still reaps the
+        # object at that same moment — the row just doesn't need to survive
+        # to see it happen.
+        presigned_url_may_still_be_live = and_(
+            IngestJob.user_metadata["s3_key"].astext.is_not(None),
+            IngestJob.created_at
+            >= now - timedelta(seconds=MAX_PRESIGNED_URL_LIFETIME_SECONDS),
+        )
         # Single DELETE .. RETURNING re-applies every predicate atomically at
         # delete time — a SELECT-then-DELETE-by-id pair let /jobs/{id}/retry
         # flip a candidate back to pending between the two statements and
@@ -741,6 +783,7 @@ async def fail_stale_jobs(
                 < retention_cutoff,
                 IngestJob.id.not_in(latest_complete_ids),
                 IngestJob.id.not_in(latest_manifest_ids),
+                not_(presigned_url_may_still_be_live),
             )
             .returning(IngestJob.id, IngestJob.file_path, IngestJob.user_metadata)
         )

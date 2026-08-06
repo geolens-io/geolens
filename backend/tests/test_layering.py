@@ -2080,6 +2080,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # line: that is the gap #958 was filed about. The next change to any of
     # them writes the first entry.
     "backend/app/platform/config_ops/service.py": 1201,
+    # fix(#1236): first entry — crossed the router-glob gate's default
+    # 1500-line cap. The lines bought a bounded re-check pass for
+    # `_sweep_expired_presigned_staging` (closes the #1235 review r5 known
+    # gap: a timeout-lowering restart could orphan a recreated staging
+    # object forever), a further-bounded finalization margin for a PUT still
+    # transferring past the SigV4 ceiling (codex P1), and deferring the
+    # terminal-job retention purge for presigned rows a live URL could still
+    # recreate (codex P1). Cap 1500 -> 1501, exact.
+    "backend/app/platform/jobs/router.py": 1501,
     "backend/app/processing/ingest/tasks_vrt.py": 1071,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
