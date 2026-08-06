@@ -2110,13 +2110,23 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # that. `recheck_transfer_margin_seconds()` now clamps unconditionally at
     # `_S3_SINGLE_PUT_MAX_BYTES` rather than trusting either the job's
     # declared size or the setting. Cap 1575 -> 1588, exact.
-    "backend/app/platform/jobs/router.py": 1588,
+    # fix(#1236 review r4, codex P1): -43 — rounds r2/r3 both scaled the
+    # margin from a client-declared size (a setting, then a job's own
+    # `expected_size`); r4 found neither was ever enforced —
+    # `generate_presigned_put_url` signs no content-length constraint, so a
+    # declaration bounds nothing. The margin is now a single fixed constant
+    # (S3's own single-PUT ceiling) for every job, which let the per-row
+    # `expected_size` branch in the sweep's loop and the whole
+    # `recheck_transfer_margin_seconds()` function collapse back out. Ratchet
+    # DOWN in the same commit, per the no-headroom rule. Cap 1588 -> 1545,
+    # exact.
+    "backend/app/platform/jobs/router.py": 1545,
     # fix(second-opinion review on #1236 review r3): first entry — crossed
     # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
     # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side
-    # clamp in `recheck_transfer_margin_seconds()` is what actually closes
-    # the gap; this Field bound only stops a fresh boot from configuring
-    # past S3's own single-PUT ceiling in the first place).
+    # fixed margin in `_sweep_expired_presigned_staging` is what actually
+    # closes the gap; this Field bound only stops a fresh boot from
+    # configuring past S3's own single-PUT ceiling in the first place).
     "backend/app/core/config.py": 1004,
     "backend/app/processing/ingest/tasks_vrt.py": 1071,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.

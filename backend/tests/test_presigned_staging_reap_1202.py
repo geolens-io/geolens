@@ -426,43 +426,6 @@ async def test_validation_failure_still_sweeps_the_presigned_staging_object(
     )
 
 
-class TestRecheckTransferMarginSeconds:
-    """Second-opinion review on #1236 review r3: `presigned_multipart_threshold_mb`
-    has no upper bound (`gt=0` only, before this PR's `le=5120`), so a job's
-    declared `expected_size` could exceed S3's actual single-PUT hard limit
-    whenever an operator raised the threshold past 5GiB. The retention
-    purge's fallback (called with no per-job size) always assumes 5GiB is
-    the worst case; without a clamp, a bigger declared size would derive a
-    BIGGER sweep margin than that fallback, so the purge could delete a
-    job's row — the only place the sweep's markers live — before the
-    sweep's own longer margin considered a possible transfer finished.
-    Reopens the #1236 orphan class through the purge path for oversized
-    single-part jobs.
-    """
-
-    def test_an_oversized_declared_size_clamps_to_the_purge_fallback(self) -> None:
-        from app.platform.jobs.router import (
-            _S3_SINGLE_PUT_MAX_BYTES,
-            recheck_transfer_margin_seconds,
-        )
-
-        # What a threshold raised past 5120MB (bypassing the new Field bound
-        # via a pre-existing config value, or a caller that never validated
-        # it) could imply for a single-part job's declared size.
-        ten_gib = 10 * 1024 * 1024 * 1024
-        assert ten_gib > _S3_SINGLE_PUT_MAX_BYTES, "test setup: must exceed the ceiling"
-
-        oversized_margin = recheck_transfer_margin_seconds(ten_gib)
-        at_ceiling_margin = recheck_transfer_margin_seconds(_S3_SINGLE_PUT_MAX_BYTES)
-        purge_fallback_margin = recheck_transfer_margin_seconds()  # no per-job size
-
-        assert oversized_margin == at_ceiling_margin == purge_fallback_margin, (
-            "an oversized declared size must derive NO MORE margin than the "
-            "retention purge's own fallback assumes, or the purge could "
-            "delete a still-tracked row before the sweep considers it safe"
-        )
-
-
 class TestPostExpirySweep:
     """fix(#1202 review r8): the backstop that outlives the PUT URL.
 
@@ -665,7 +628,7 @@ class TestPostExpirySweep:
         Also covers the codex P1 follow-up: the re-check's first delete
         attempt (right at the SigV4 ceiling) must not finalize the row on the
         spot — a PUT accepted just under the ceiling can still be transferring
-        past it — so finalization needs `recheck_transfer_margin_seconds()`
+        past it — so finalization needs `_RECHECK_TRANSFER_MARGIN_SECONDS`
         MORE to elapse before the row is retired for good.
 
         Assertions key off this test's OWN ``staging_key`` and job row rather
@@ -684,7 +647,7 @@ class TestPostExpirySweep:
         from app.core.config import MAX_PRESIGNED_URL_LIFETIME_SECONDS, settings
         from app.platform.jobs import router as jobs_router
         from app.platform.jobs.models import IngestJob
-        from app.platform.jobs.router import recheck_transfer_margin_seconds
+        from app.platform.jobs.router import _RECHECK_TRANSFER_MARGIN_SECONDS
 
         # "Run 1": job created while pending_job_timeout_seconds was the
         # 3600s default. A URL signed near creation is legitimately live
@@ -764,11 +727,11 @@ class TestPostExpirySweep:
         still_not_final_row = await _row()
         assert "s3_key_reaped_final" not in still_not_final_row.user_metadata
 
-        # Only once recheck_transfer_margin_seconds() have ALSO passed beyond
+        # Only once _RECHECK_TRANSFER_MARGIN_SECONDS have ALSO passed beyond
         # the ceiling is no such transfer credible any longer, and the row is
         # retired for good.
         final_now = recheck_now + timedelta(
-            seconds=recheck_transfer_margin_seconds() + 1
+            seconds=_RECHECK_TRANSFER_MARGIN_SECONDS + 1
         )
         storage.delete.reset_mock()
         await jobs_router._sweep_expired_presigned_staging(
@@ -788,32 +751,33 @@ class TestPostExpirySweep:
         )
         assert staging_key not in {c.args[0] for c in storage.delete.await_args_list}
 
-    async def test_the_transfer_margin_survives_a_threshold_lowering_restart(
+    async def test_a_tiny_declared_size_still_gets_the_full_hard_limit_margin(
         self, test_db_session, monkeypatch
     ) -> None:
-        """codex P1 review r3: `recheck_transfer_margin_seconds()` must not
-        read the CURRENT `presigned_multipart_threshold_mb` for a job whose
-        URL was signed under the OLD, higher value — the #1236 class this PR
-        exists to close, one level down. A 500MB single-part PUT accepted
-        just under the SigV4 ceiling needs a margin computed for 500MB; if an
-        operator lowers the threshold during a restart, this job's own
-        persisted ``expected_size`` must still drive its margin, not the
-        smaller current setting.
+        """codex P1 review r4: rounds r2/r3 both derived the finalization
+        margin from a client-declared size — first the current
+        `presigned_multipart_threshold_mb`, then a job's own persisted
+        `expected_size`. Neither is enforced: `generate_presigned_put_url`
+        signs only `ContentType`, never a content-length constraint, so a
+        client can declare one byte and stream a multi-gigabyte object
+        anyway. A tiny declared `expected_size` must NOT shorten the
+        margin — finalization always waits out the full, fixed
+        `_RECHECK_TRANSFER_MARGIN_SECONDS`, regardless of what was declared.
         """
         from datetime import timedelta, timezone
 
         from sqlalchemy import select
 
-        from app.core.config import MAX_PRESIGNED_URL_LIFETIME_SECONDS, settings
+        from app.core.config import MAX_PRESIGNED_URL_LIFETIME_SECONDS
         from app.platform.jobs import router as jobs_router
         from app.platform.jobs.models import IngestJob
-        from app.platform.jobs.router import recheck_transfer_margin_seconds
+        from app.platform.jobs.router import _RECHECK_TRANSFER_MARGIN_SECONDS
 
-        five_hundred_mb = 500 * 1024 * 1024
-        # This job's URL was signed while presigned_multipart_threshold_mb
-        # allowed a 500MB single-part upload.
+        # This job's URL was signed against a ONE-BYTE declared size — the
+        # smallest a client could claim while actually streaming anything up
+        # to S3's real single-PUT limit, since nothing enforces the match.
         job, staging_key = await self._make_job(
-            test_db_session, age_seconds=10_000, expected_size=five_hundred_mb
+            test_db_session, age_seconds=10_000, expected_size=1
         )
         storage = AsyncMock()
         monkeypatch.setattr(
@@ -827,8 +791,7 @@ class TestPostExpirySweep:
                 )
             ).scalar_one()
 
-        # Ordinary pass reaps and marks (not final) — unaffected by the
-        # margin logic, which only gates the LATER finalization.
+        # Ordinary pass reaps and marks (not final).
         await jobs_router._sweep_expired_presigned_staging(
             test_db_session, self._outcome()
         )
@@ -837,40 +800,36 @@ class TestPostExpirySweep:
         if created_at.tzinfo is None:
             created_at = created_at.replace(tzinfo=timezone.utc)
 
-        # The restart: an operator lowers the threshold to the 100MB
-        # default, well below the 500MB this job's URL actually carries.
-        monkeypatch.setattr(settings, "presigned_multipart_threshold_mb", 100)
-
-        five_hundred_mb_margin = recheck_transfer_margin_seconds(five_hundred_mb)
-        hundred_mb_margin = recheck_transfer_margin_seconds(100 * 1024 * 1024)
-        assert five_hundred_mb_margin > hundred_mb_margin, (
-            "test setup: the scenario needs the two margins to differ"
+        # Just past the ceiling plus a SHORT margin (what a naive read of
+        # the one-byte declaration might imply) — must NOT finalize: a
+        # multi-gigabyte PUT accepted just under the ceiling could still be
+        # writing this far past it.
+        short_margin_seconds = 3600  # the absolute floor, and then some
+        assert short_margin_seconds < _RECHECK_TRANSFER_MARGIN_SECONDS, (
+            "test setup: the hard-limit margin must be the bigger one"
         )
-
-        # Just past the ceiling plus the WRONG margin — what the CURRENT
-        # (lowered) setting would imply. If the sweep read that instead of
-        # this job's own declared size, it would wrongly finalize here.
-        wrongly_final_at = created_at + timedelta(
-            seconds=MAX_PRESIGNED_URL_LIFETIME_SECONDS + hundred_mb_margin + 1
+        too_soon_at = created_at + timedelta(
+            seconds=MAX_PRESIGNED_URL_LIFETIME_SECONDS + short_margin_seconds + 1
         )
         storage.delete.reset_mock()
         await jobs_router._sweep_expired_presigned_staging(
-            test_db_session, self._outcome(), now=wrongly_final_at
+            test_db_session, self._outcome(), now=too_soon_at
         )
         not_yet_final_row = await _row()
         assert "s3_key_reaped_final" not in not_yet_final_row.user_metadata, (
-            "finalized off the CURRENT (lowered) threshold instead of this "
-            "job's own persisted 500MB expected_size"
+            "finalized off a size-scaled margin instead of the fixed, "
+            "unconditional S3 single-PUT hard-limit margin"
         )
 
-        # Past the ceiling plus the CORRECT margin — derived from this job's
-        # own persisted size — it finalizes.
-        correctly_final_at = created_at + timedelta(
-            seconds=MAX_PRESIGNED_URL_LIFETIME_SECONDS + five_hundred_mb_margin + 1
+        # Past the ceiling plus the FULL fixed margin, it finalizes.
+        final_now = created_at + timedelta(
+            seconds=MAX_PRESIGNED_URL_LIFETIME_SECONDS
+            + _RECHECK_TRANSFER_MARGIN_SECONDS
+            + 1
         )
         storage.delete.reset_mock()
         await jobs_router._sweep_expired_presigned_staging(
-            test_db_session, self._outcome(), now=correctly_final_at
+            test_db_session, self._outcome(), now=final_now
         )
         assert staging_key in {c.args[0] for c in storage.delete.await_args_list}
         final_row = await _row()
@@ -902,7 +861,7 @@ class TestPostExpirySweep:
         from app.core.config import MAX_PRESIGNED_URL_LIFETIME_SECONDS, settings
         from app.platform.jobs import router as jobs_router
         from app.platform.jobs.models import IngestJob
-        from app.platform.jobs.router import recheck_transfer_margin_seconds
+        from app.platform.jobs.router import _RECHECK_TRANSFER_MARGIN_SECONDS
 
         # Past the 1-day retention cutoff but well under the 7-day SigV4
         # ceiling — exactly the window a still-live pre-restart URL occupies.
@@ -923,7 +882,7 @@ class TestPostExpirySweep:
             test_db_session,
             age_seconds=(
                 MAX_PRESIGNED_URL_LIFETIME_SECONDS
-                + recheck_transfer_margin_seconds()
+                + _RECHECK_TRANSFER_MARGIN_SECONDS
                 + 100
             ),
         )

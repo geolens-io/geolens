@@ -284,66 +284,29 @@ _STAGING_REAPED_FINAL_MARKER = "s3_key_reaped_final"
 # fix(#1236 review r2, codex P1): that margin used to reuse
 # `_COMMIT_HEADROOM_SECONDS` — APPLICATION commit-round-trip headroom.
 # Presigned PUTs bypass the app entirely, so it never actually bounded
-# anything about them. Replaced with a margin scaled by the largest object a
-# single-part URL (the only recreation vector; multipart needs a still-live
-# upload id, consumed by CompleteMultipartUpload) may legitimately carry,
-# assuming no accepted transfer sustains less than `_MIN_ASSUMED_UPLOAD_KBPS`.
+# anything about them.
 #
-# fix(#1236 review r3, codex P1): "may legitimately carry" is a property of
-# the JOB, fixed at the moment its URL was signed — not of whatever
-# `presigned_multipart_threshold_mb` reads as NOW. Lowering that setting
-# during a restart is exactly the #1236 class this whole PR exists to close:
-# a URL issued under the OLD, higher threshold can carry a transfer the
-# CURRENT setting no longer accounts for. Two call sites, two fixes for the
-# one root cause:
-#
-# - The SWEEP re-checks one already-fetched ROW at a time, so it passes
-#   THAT job's own persisted `expected_size` — declared when its URL was
-#   actually signed — instead of reading the current setting.
-# - The retention PURGE is one atomic bulk DELETE (kept that way to avoid
-#   reopening the SELECT-then-DELETE-by-id race #434/codex-P2-r10 already
-#   closed), so it cannot branch per row without a JSONB-to-numeric cast in
-#   the WHERE clause that could throw and fail the whole pass — the same
-#   shape of risk #1236's own known-gap writeup rejected for a timestamptz
-#   cast. It falls back to S3's own single-PUT ceiling instead, which no
-#   app setting can lower.
+# fix(#1236 review r3/second-opinion/r4, codex P1 x3): rounds r2-r3 then
+# scaled the margin from `presigned_multipart_threshold_mb` and, after that
+# proved config-fragile, from a job's own declared `expected_size` instead.
+# Round 4 found the actual root cause under BOTH attempts:
+# `generate_presigned_put_url` signs only `ContentType`, never a
+# content-length constraint, so nothing ever enforced `expected_size` —
+# a client can declare one byte and stream anything up to S3's real limit
+# regardless. A margin derived from an unenforced declaration was tighter
+# than the fixed ceiling, but never actually SAFE, which is worse than
+# simply being wide: fixed and correct beats tight and wrong. The margin is
+# now S3's own single-PUT ceiling, unconditionally, for every job — the one
+# bound nothing but S3 itself enforces, so no per-job data or setting can
+# ever undermine it. (Signing `Content-Length` into the URL so a mismatched
+# PUT gets rejected by S3, making a declared-size margin trustworthy, was
+# the other option; not worth the API-surface change for a low-frequency
+# finalization check.)
 _MIN_ASSUMED_UPLOAD_KBPS = 32  # ~256kbit/s: slow, but a still-progressing PUT
 _S3_SINGLE_PUT_MAX_BYTES = 5 * 1024 * 1024 * 1024  # AWS hard limit, 5GiB
-
-
-def recheck_transfer_margin_seconds(expected_size_bytes: object = None) -> int:
-    """Longest a single-part PUT could still be writing past the SigV4
-    ceiling, at the assumed floor throughput.
-
-    Prefers ``expected_size_bytes`` — a job's own declared-at-signing-time
-    size — over any current setting, so a later config change cannot shrink
-    the margin out from under an upload already in flight. Falls back to
-    S3's own single-PUT ceiling (not the current
-    ``presigned_multipart_threshold_mb``, which is exactly the setting a
-    restart could have just lowered) when no per-job size is available: an
-    older row predating this field, a malformed value, or a caller — like
-    the retention purge — that cannot supply one per row.
-
-    fix(second-opinion review on #1236 review r3): also CLAMPED at that same
-    ceiling, unconditionally. `presigned_multipart_threshold_mb` has no
-    configured upper bound, so a declared `expected_size` bigger than
-    `_S3_SINGLE_PUT_MAX_BYTES` was possible whenever an operator raised the
-    threshold past 5GiB — and the retention purge's fallback (this function
-    called with no size) always assumes 5GiB is the worst case. Without the
-    clamp the sweep could derive a bigger margin than the purge actually
-    waits out, reopening the #1236 orphan class through the purge path for
-    oversized single-part jobs: real exploitability is low (S3 itself
-    rejects a single PUT past 5GiB, so an honestly-reported `expected_size`
-    should never legitimately exceed it), but the invariant belongs in code
-    that does not trust configuration, not in an operator's Field bound.
-
-    Floored at an hour regardless of size.
-    """
-    try:
-        size_bytes = min(max(1, int(expected_size_bytes)), _S3_SINGLE_PUT_MAX_BYTES)
-    except (TypeError, ValueError):
-        size_bytes = _S3_SINGLE_PUT_MAX_BYTES
-    return max(3600, (size_bytes // 1024) // _MIN_ASSUMED_UPLOAD_KBPS)
+_RECHECK_TRANSFER_MARGIN_SECONDS = max(
+    3600, (_S3_SINGLE_PUT_MAX_BYTES // 1024) // _MIN_ASSUMED_UPLOAD_KBPS
+)
 
 
 async def _sweep_expired_presigned_staging(
@@ -391,20 +354,23 @@ async def _sweep_expired_presigned_staging(
     attempt every pass once it crosses that age, which either recovers an
     object a stale marker was hiding or costs one no-op DeleteObject against a
     key that was never recreated — but does not finalize it until
-    `recheck_transfer_margin_seconds()` past that same age has ALSO elapsed
+    `_RECHECK_TRANSFER_MARGIN_SECONDS` past that same age has ALSO elapsed
     (codex P1 on this PR): SigV4 expiry stops new requests, not one already
     accepted, so a slow PUT begun just under the ceiling can still be writing
     after it. Only once no such transfer is credible does the final marker
     retire the row for good.
 
-    fix(#1236 review r3, codex P1): that margin is computed PER ROW, from
-    each job's own persisted `expected_size`, inside the loop below — not
-    once up front from the current `presigned_multipart_threshold_mb`, which
-    an operator may have lowered since this particular job's URL was signed.
+    fix(#1236 review r4, codex P1): that margin is FIXED at S3's own
+    single-PUT ceiling for every job, not derived from anything a client
+    declared or an operator configured — see `_RECHECK_TRANSFER_MARGIN_SECONDS`
+    above for why rounds r2/r3 both proved unsafe.
     """
     now = now or datetime.now(timezone.utc)
     first_pass_cutoff = now - timedelta(seconds=post_expiry_sweep_after_seconds())
     recheck_cutoff = now - timedelta(seconds=MAX_PRESIGNED_URL_LIFETIME_SECONDS)
+    recheck_final_cutoff = recheck_cutoff - timedelta(
+        seconds=_RECHECK_TRANSFER_MARGIN_SECONDS
+    )
     not_yet_reaped = IngestJob.user_metadata[_STAGING_REAPED_MARKER].astext.is_(None)
     candidates = (
         await db.execute(
@@ -453,12 +419,8 @@ async def _sweep_expired_presigned_staging(
         # loaded value — JSONB does not track mutation, so an in-place edit
         # would never flush.
         new_metadata = {**(metadata or {}), _STAGING_REAPED_MARKER: True}
-        if is_recheck_pass:
-            margin = recheck_transfer_margin_seconds(
-                (metadata or {}).get("expected_size")
-            )
-            if created_at < recheck_cutoff - timedelta(seconds=margin):
-                new_metadata[_STAGING_REAPED_FINAL_MARKER] = True
+        if is_recheck_pass and created_at < recheck_final_cutoff:
+            new_metadata[_STAGING_REAPED_FINAL_MARKER] = True
         await db.execute(
             update(IngestJob)
             .where(IngestJob.id == job_row_id)
@@ -833,29 +795,24 @@ async def fail_stale_jobs(
         # sweep's own FINALIZATION window, not just its ceiling — an accepted
         # PUT can still be transferring past MAX_PRESIGNED_URL_LIFETIME_SECONDS,
         # which is why the sweep itself withholds its final marker for
-        # recheck_transfer_margin_seconds() longer. Purging on the bare
+        # _RECHECK_TRANSFER_MARGIN_SECONDS longer. Purging on the bare
         # ceiling reopened the exact race this row exists to close, just
         # moved to the retention purge instead of the sweep. Past the
         # combined window purging is safe and `deleted_presigned_keys` below
         # still reaps the object at that same moment — the row just doesn't
         # need to survive to see it happen.
         #
-        # fix(#1236 review r3, codex P1): called with no per-job size, so this
-        # always gets `recheck_transfer_margin_seconds()`'s S3-hard-limit
-        # fallback rather than the current `presigned_multipart_threshold_mb`
-        # — the ONE bulk DELETE cannot branch per row on each job's own
-        # `expected_size` without a JSONB-to-numeric cast that could throw
-        # and fail the whole pass (the sweep, which fetches rows individually,
-        # uses the per-job value instead — see that function's docstring).
-        # The fallback is config-immune by construction, so a lowered
-        # threshold during a restart cannot shrink this deferral either.
+        # fix(#1236 review r4, codex P1): that margin is now the SAME fixed
+        # constant the sweep uses (see its definition for why r3's per-job
+        # `expected_size` scaling proved unsafe) — no per-row data needed, so
+        # this bulk DELETE never has to branch per row on JSONB.
         presigned_url_may_still_be_live = and_(
             IngestJob.user_metadata["s3_key"].astext.is_not(None),
             IngestJob.created_at
             >= now
             - timedelta(
                 seconds=MAX_PRESIGNED_URL_LIFETIME_SECONDS
-                + recheck_transfer_margin_seconds()
+                + _RECHECK_TRANSFER_MARGIN_SECONDS
             ),
         )
         # Single DELETE .. RETURNING re-applies every predicate atomically at
