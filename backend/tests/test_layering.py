@@ -2088,7 +2088,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # transferring past the SigV4 ceiling (codex P1), and deferring the
     # terminal-job retention purge for presigned rows a live URL could still
     # recreate (codex P1). Cap 1500 -> 1501, exact.
-    "backend/app/platform/jobs/router.py": 1501,
+    # fix(#1236 review r2, codex P1 x2): +33 — the finalization margin was
+    # reusing `_COMMIT_HEADROOM_SECONDS`, an APPLICATION commit-round-trip
+    # number that never bounded a presigned PUT (which bypasses the app
+    # entirely) and didn't scale with `presigned_multipart_threshold_mb`.
+    # Replaced with `recheck_transfer_margin_seconds()`, derived from that
+    # setting's max single-part size and an assumed floor throughput; the
+    # retention purge's deferral now adds the same margin instead of stopping
+    # at the bare SigV4 ceiling. Cap 1501 -> 1534, exact.
+    "backend/app/platform/jobs/router.py": 1534,
     "backend/app/processing/ingest/tasks_vrt.py": 1071,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this

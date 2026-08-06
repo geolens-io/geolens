@@ -278,11 +278,34 @@ _STAGING_REAPED_FINAL_MARKER = "s3_key_reaped_final"
 # when an already-accepted PUT finishes transferring bytes — S3 validates the
 # signature at request start, not completion. A slow single-part upload begun
 # just under the ceiling can still be writing after it, so the re-check's
-# first delete attempt must not retire the row on the spot: only once this
-# margin has ALSO elapsed is a live transfer no longer credible. Reuses
-# `_COMMIT_HEADROOM_SECONDS`'s value under its own name — same "still
-# finishing past the nominal deadline" shape, different call site.
-_RECHECK_TRANSFER_MARGIN_SECONDS = _COMMIT_HEADROOM_SECONDS
+# first delete attempt must not retire the row on the spot: only once an
+# additional margin has ALSO elapsed is a live transfer no longer credible.
+#
+# fix(#1236 review r2, codex P1): that margin used to reuse
+# `_COMMIT_HEADROOM_SECONDS` — APPLICATION commit-round-trip headroom.
+# Presigned PUTs bypass the app entirely, so it never actually bounded
+# anything about them, and it does not scale if an operator raises the
+# setting below. The single-part object-key URL is the only recreation
+# vector (multipart needs a still-live upload id, consumed by
+# CompleteMultipartUpload), and `presigned_multipart_threshold_mb` is the
+# largest object it may legitimately carry — anything bigger is routed to
+# multipart at request time. Assuming no accepted transfer sustains less than
+# `_MIN_ASSUMED_UPLOAD_KBPS` derives a margin that scales with what an
+# operator actually configured, instead of a borrowed, unrelated constant.
+_MIN_ASSUMED_UPLOAD_KBPS = 32  # ~256kbit/s: slow, but a still-progressing PUT
+
+
+def recheck_transfer_margin_seconds() -> int:
+    """Longest a single-part PUT accepted just under the SigV4 ceiling could
+    still be writing, computed at call time so it tracks
+    ``presigned_multipart_threshold_mb`` if an operator raises it.
+
+    Floored at an hour: below the default 100MB threshold the throughput
+    assumption alone computes to less, and an hour is the minimum margin
+    worth enforcing regardless of how small the threshold is configured.
+    """
+    max_single_part_kb = settings.presigned_multipart_threshold_mb * 1024
+    return max(3600, max_single_part_kb // _MIN_ASSUMED_UPLOAD_KBPS)
 
 
 async def _sweep_expired_presigned_staging(
@@ -330,7 +353,7 @@ async def _sweep_expired_presigned_staging(
     attempt every pass once it crosses that age, which either recovers an
     object a stale marker was hiding or costs one no-op DeleteObject against a
     key that was never recreated — but does not finalize it until
-    `_RECHECK_TRANSFER_MARGIN_SECONDS` past that same age has ALSO elapsed
+    `recheck_transfer_margin_seconds()` past that same age has ALSO elapsed
     (codex P1 on this PR): SigV4 expiry stops new requests, not one already
     accepted, so a slow PUT begun just under the ceiling can still be writing
     after it. Only once no such transfer is credible does the final marker
@@ -340,7 +363,7 @@ async def _sweep_expired_presigned_staging(
     first_pass_cutoff = now - timedelta(seconds=post_expiry_sweep_after_seconds())
     recheck_cutoff = now - timedelta(seconds=MAX_PRESIGNED_URL_LIFETIME_SECONDS)
     recheck_final_cutoff = recheck_cutoff - timedelta(
-        seconds=_RECHECK_TRANSFER_MARGIN_SECONDS
+        seconds=recheck_transfer_margin_seconds()
     )
     not_yet_reaped = IngestJob.user_metadata[_STAGING_REAPED_MARKER].astext.is_(None)
     candidates = (
@@ -760,16 +783,26 @@ async def fail_stale_jobs(
         # because a re-PUT afterward recreates an object no row anywhere
         # references, and retention (unlike the sweep's own cutoff) is
         # commonly configured well under a week (1 day is an exercised
-        # value). Deferred exactly as long as the sweep's own re-check
-        # window: past MAX_PRESIGNED_URL_LIFETIME_SECONDS since creation no
-        # URL can be live under any setting the deployment ever ran, so
-        # purging is safe and `deleted_presigned_keys` below still reaps the
-        # object at that same moment — the row just doesn't need to survive
-        # to see it happen.
+        # value).
+        #
+        # fix(#1236 review r2, codex P1): deferred exactly as long as the
+        # sweep's own FINALIZATION window, not just its ceiling — an accepted
+        # PUT can still be transferring past MAX_PRESIGNED_URL_LIFETIME_SECONDS,
+        # which is why the sweep itself withholds its final marker for
+        # recheck_transfer_margin_seconds() longer. Purging on the bare
+        # ceiling reopened the exact race this row exists to close, just
+        # moved to the retention purge instead of the sweep. Past the
+        # combined window purging is safe and `deleted_presigned_keys` below
+        # still reaps the object at that same moment — the row just doesn't
+        # need to survive to see it happen.
         presigned_url_may_still_be_live = and_(
             IngestJob.user_metadata["s3_key"].astext.is_not(None),
             IngestJob.created_at
-            >= now - timedelta(seconds=MAX_PRESIGNED_URL_LIFETIME_SECONDS),
+            >= now
+            - timedelta(
+                seconds=MAX_PRESIGNED_URL_LIFETIME_SECONDS
+                + recheck_transfer_margin_seconds()
+            ),
         )
         # Single DELETE .. RETURNING re-applies every predicate atomically at
         # delete time — a SELECT-then-DELETE-by-id pair let /jobs/{id}/retry

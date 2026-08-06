@@ -614,7 +614,7 @@ class TestPostExpirySweep:
         Also covers the codex P1 follow-up: the re-check's first delete
         attempt (right at the SigV4 ceiling) must not finalize the row on the
         spot — a PUT accepted just under the ceiling can still be transferring
-        past it — so finalization needs `_RECHECK_TRANSFER_MARGIN_SECONDS`
+        past it — so finalization needs `recheck_transfer_margin_seconds()`
         MORE to elapse before the row is retired for good.
 
         Assertions key off this test's OWN ``staging_key`` and job row rather
@@ -633,7 +633,7 @@ class TestPostExpirySweep:
         from app.core.config import MAX_PRESIGNED_URL_LIFETIME_SECONDS, settings
         from app.platform.jobs import router as jobs_router
         from app.platform.jobs.models import IngestJob
-        from app.platform.jobs.router import _RECHECK_TRANSFER_MARGIN_SECONDS
+        from app.platform.jobs.router import recheck_transfer_margin_seconds
 
         # "Run 1": job created while pending_job_timeout_seconds was the
         # 3600s default. A URL signed near creation is legitimately live
@@ -713,11 +713,11 @@ class TestPostExpirySweep:
         still_not_final_row = await _row()
         assert "s3_key_reaped_final" not in still_not_final_row.user_metadata
 
-        # Only once _RECHECK_TRANSFER_MARGIN_SECONDS have ALSO passed beyond
+        # Only once recheck_transfer_margin_seconds() have ALSO passed beyond
         # the ceiling is no such transfer credible any longer, and the row is
         # retired for good.
         final_now = recheck_now + timedelta(
-            seconds=_RECHECK_TRANSFER_MARGIN_SECONDS + 1
+            seconds=recheck_transfer_margin_seconds() + 1
         )
         storage.delete.reset_mock()
         await jobs_router._sweep_expired_presigned_staging(
@@ -749,23 +749,44 @@ class TestPostExpirySweep:
         valid. A later PUT would then recreate an object no row anywhere
         references: worse than the marker gap this PR closes, because
         nothing could ever find it again.
+
+        codex P1 review r2: the deferral must extend through the SAME
+        transfer margin the sweep's own finalization waits out, not stop at
+        the bare SigV4 ceiling — a single-part PUT begun just before the
+        ceiling can still be transferring past it, and purging (which reaps
+        the key immediately, unconditionally) at the bare ceiling would
+        recreate the exact orphan this test's first case exists to prevent,
+        just via the purge path instead of the sweep's.
         """
         from sqlalchemy import select
 
         from app.core.config import MAX_PRESIGNED_URL_LIFETIME_SECONDS, settings
         from app.platform.jobs import router as jobs_router
         from app.platform.jobs.models import IngestJob
+        from app.platform.jobs.router import recheck_transfer_margin_seconds
 
         # Past the 1-day retention cutoff but well under the 7-day SigV4
         # ceiling — exactly the window a still-live pre-restart URL occupies.
         still_tracked_job, _still_tracked_key = await self._make_job(
             test_db_session, age_seconds=100_000
         )
-        # Past the ceiling too — no URL for it can possibly still be live, so
-        # purging (and reaping its key immediately, same as the ordinary
-        # end-of-job sweeps) is safe.
-        safe_to_purge_job, safe_to_purge_key = await self._make_job(
+        # Past the ceiling but still within the transfer margin a PUT begun
+        # just under it may still need — must be deferred exactly like the
+        # first case, not purged just because the bare ceiling has passed.
+        within_margin_job, _within_margin_key = await self._make_job(
             test_db_session, age_seconds=MAX_PRESIGNED_URL_LIFETIME_SECONDS + 100
+        )
+        # Past the ceiling AND the margin — no URL for it, nor any transfer
+        # it could have accepted, can possibly still be live, so purging (and
+        # reaping its key immediately, same as the ordinary end-of-job
+        # sweeps) is safe.
+        safe_to_purge_job, safe_to_purge_key = await self._make_job(
+            test_db_session,
+            age_seconds=(
+                MAX_PRESIGNED_URL_LIFETIME_SECONDS
+                + recheck_transfer_margin_seconds()
+                + 100
+            ),
         )
         storage = AsyncMock()
         monkeypatch.setattr(
@@ -786,6 +807,10 @@ class TestPostExpirySweep:
         assert await _exists(still_tracked_job.id), (
             "a presigned job within the URL lifetime must survive the "
             "retention purge, or nothing can ever track its recreated object"
+        )
+        assert await _exists(within_margin_job.id), (
+            "a presigned job within the transfer margin past the ceiling "
+            "must also survive the purge — an accepted PUT can still land"
         )
         assert not await _exists(safe_to_purge_job.id)
         assert safe_to_purge_key in {c.args[0] for c in storage.delete.await_args_list}
