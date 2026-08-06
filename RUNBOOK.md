@@ -1321,12 +1321,13 @@ on every batched commit inside the delete loop):
 CUTOFF=$(date -u -d '-90 days' +%Y-%m-%dT%H:%M:%SZ)
 ```
 
-If this is a **multi-tenant** deployment, the HTTP export below is already
-scoped to whichever tenant's host you call it against, but the SQL delete
-that follows connects directly as `$POSTGRES_USER` (bypassing RLS) and has no
-such scope by default — add the tenant filter shown below, or you will export
-one tenant's window and delete every tenant's history that predates it.
-Resolve the tenant's id from its slug first:
+If this deployment uses per-tenant host routing (more than one row in
+`catalog.tenants`), the HTTP export below is already scoped to whichever
+tenant's host you call it against, but the SQL delete that follows connects
+directly as `$POSTGRES_USER` (bypassing RLS) and has no such scope by
+default — add the tenant filter shown below, or you will export one
+tenant's window and delete every tenant's history that predates it. Resolve
+the tenant's id from its slug first:
 
 ```bash
 TENANT_ID=$(docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
