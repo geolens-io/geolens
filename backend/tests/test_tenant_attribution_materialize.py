@@ -368,7 +368,11 @@ async def _stamped_tenant_ids(db_url: str, dataset_id) -> tuple:
             sa.text(
                 "SELECT d.tenant_id AS dataset_tenant_id,"
                 "       r.tenant_id AS record_tenant_id,"
-                "       d.table_name AS table_name"
+                "       d.table_name AS table_name,"
+                # fix(#1218 review r2): the origin pointer rides along so the
+                # test below can check it against the same row's real tenant.
+                "       d.origin_uri AS origin_uri,"
+                "       d.origin_ref AS origin_ref"
                 " FROM catalog.datasets d"
                 " JOIN catalog.records r ON r.id = d.record_id"
                 " WHERE d.id = :dataset_id"
@@ -416,6 +420,57 @@ class TestMaterializeStampsTenantAttribution:
             "insert in create_dataset ran without the tenant GUC.\n"
             f"  stored={row.record_tenant_id!r} expected={env.tenant_a!r}"
         )
+
+    async def test_registered_origin_pointer_names_the_tenant_schema(
+        self, tenant_analysis
+    ):
+        """fix(#1218 review r2): the origin pointer follows physical placement.
+
+        ``register_existing_table`` derived the pointer from
+        ``dataset.tenant_id``, which is NULL on the ORM instance at that
+        moment — the INSERT sends NULL and
+        ``trg_stamp_current_tenant_on_insert`` fills the column inside the
+        database. So every multi-tenant registration recorded
+        ``postgis://data.<table>`` for a table that actually lives in
+        ``data_t_<tenant>``: a system-managed pointer aimed at the wrong
+        tenant's schema, which #1220's refresh would then follow.
+
+        The fix passes the schema the function itself resolved from the active
+        tenant context and used to verify, grant, and read the table, so the
+        pointer cannot disagree with where the data is.
+        """
+        env = tenant_analysis
+        src = await _seed_source_dataset(env, env.tenant_a)
+        job_id = await _create_job(env, env.tenant_a)
+
+        from app.processing.analysis.tasks import materialize_analysis
+
+        await materialize_analysis(
+            tenant_id=env.tenant_a,
+            job_id=str(job_id),
+            dataset_id=str(src.id),
+            user_id=str(env.user_a_id),
+            operation="centroid",
+            title=f"Origin Pointer {uuid.uuid4().hex[:6]}",
+        )
+
+        job = await _job_row(env.db_url, job_id)
+        assert job.status == "complete", job.error_message
+        assert job.dataset_id is not None
+
+        row = await _stamped_tenant_ids(env.db_url, job.dataset_id)
+        expected_schema = f"data_t_{env.tenant_a.replace('-', '_')}"
+        qualified = f"{expected_schema}.{row.table_name}"
+
+        assert row.origin_uri == f"postgis://{qualified}", (
+            "origin_uri does not name the tenant schema the table lives in.\n"
+            f"  stored={row.origin_uri!r} expected='postgis://{qualified}'"
+        )
+        assert row.origin_ref == {"kind": "postgis", "table_name": qualified}
+        # The pointer and the ref are two spellings of one fact.
+        assert row.origin_uri == f"postgis://{row.origin_ref['table_name']}"
+        # And the shared schema must not appear anywhere in it.
+        assert not row.origin_uri.startswith("postgis://data.")
 
     async def test_stamp_is_lost_when_the_guc_is_absent_at_registration(
         self, tenant_analysis, monkeypatch

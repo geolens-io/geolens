@@ -2226,7 +2226,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # external federation out of v1). The URI and the ref's table_name are two
     # spellings of one fact, so set_postgis_origin composes both and this call
     # site stays one line. Cap 1044 -> 1051, exact.
-    "backend/app/processing/ingest/service.py": 1051,
+    # fix(#1218 review r2): +8 — the call site passes the _schema it resolved
+    # from the active tenant context instead of dataset.tenant_id, which is
+    # NULL on the ORM instance because the insert trigger fills that column in
+    # the database. The comment records why, so nobody "simplifies" it back to
+    # reading the row. Cap 1051 -> 1059, exact.
+    "backend/app/processing/ingest/service.py": 1059,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.

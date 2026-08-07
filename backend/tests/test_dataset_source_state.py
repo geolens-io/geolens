@@ -255,30 +255,30 @@ class TestSetDatasetOrigin:
     def test_postgis_pointer_and_ref_name_the_same_table(self) -> None:
         """Two spellings of one fact; set_postgis_origin owns keeping them equal."""
         dataset = Dataset(record_id=uuid.uuid4(), table_name="parcels")
-        set_postgis_origin(dataset, "parcels", None)
+        set_postgis_origin(dataset, "parcels", schema="data")
         assert dataset.origin_uri == "postgis://data.parcels"
         assert dataset.origin_ref == {"kind": "postgis", "table_name": "data.parcels"}
         assert dataset.origin_uri == f"postgis://{dataset.origin_ref['table_name']}"
 
-    def test_postgis_origin_follows_the_ingest_schema_resolver(
-        self, monkeypatch
-    ) -> None:
+    def test_postgis_origin_names_the_schema_it_is_given(self) -> None:
         """A tenant's table lives in its own schema and the pointer must say so.
 
-        Single-tenant is the default here, and `tenant_data_schema` returns
-        the shared `data` schema in that mode whatever tenant_id holds, so
-        asserting only the default would never exercise the tenant branch.
+        The schema is a required keyword rather than something derived from
+        the dataset row, because dataset.tenant_id is NULL on the ORM instance
+        in multi-tenant mode: the insert trigger fills it in the database
+        (#1218 review r2). Callers hand over the schema they actually used.
         """
-        monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
-        tenant = uuid.UUID("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+        tenant_schema = "data_t_aaaaaaaa_bbbb_cccc_dddd_eeeeeeeeeeee"
         dataset = Dataset(record_id=uuid.uuid4(), table_name="parcels")
-        set_postgis_origin(dataset, "parcels", tenant)
-        assert dataset.origin_uri == (
-            "postgis://data_t_aaaaaaaa_bbbb_cccc_dddd_eeeeeeeeeeee.parcels"
-        )
-        assert dataset.origin_ref["table_name"] == (
-            "data_t_aaaaaaaa_bbbb_cccc_dddd_eeeeeeeeeeee.parcels"
-        )
+        set_postgis_origin(dataset, "parcels", schema=tenant_schema)
+        assert dataset.origin_uri == f"postgis://{tenant_schema}.parcels"
+        assert dataset.origin_ref["table_name"] == f"{tenant_schema}.parcels"
+
+    def test_postgis_origin_cannot_be_stamped_without_a_schema(self) -> None:
+        """Keyword-only and required: no positional tenant_id can slip back in."""
+        dataset = Dataset(record_id=uuid.uuid4(), table_name="parcels")
+        with pytest.raises(TypeError):
+            set_postgis_origin(dataset, "parcels")  # type: ignore[call-arg]
 
 
 # ---------------------------------------------------------------------------
@@ -911,6 +911,78 @@ class TestBackfill:
         finally:
             await savepoint.rollback()
 
+    async def test_two_claimants_on_one_surviving_table_stay_null(
+        self, test_db_session
+    ) -> None:
+        """The catalog half of the ambiguity guard (#1218 review r2).
+
+        Two tenants both registered `parcels` and one tenant's physical table
+        was later dropped. The physical count is then a clean 1, so the
+        relation guard is satisfied and BOTH catalog rows would bind to the
+        surviving tenant's schema — leaving one of them an orphan pointing
+        into another tenant's data.
+
+        Resolution requires exactly one physical relation AND exactly one
+        catalog claimant. This pins the second half; the sibling test above
+        pins the first, and neither subsumes the other.
+        """
+        module = _load_migration()
+        admin_id = await get_user_id(test_db_session, "admin")
+        shared_name = f"orphan_{uuid.uuid4().hex[:10]}"
+        tenant_id = uuid.uuid4()
+
+        survivor = await _pre_migration_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Claimant With Table",
+            source_format=None,
+            table_name=shared_name,
+        )
+        orphan_record = Record(
+            title="Claimant Whose Table Was Dropped",
+            record_type="vector_dataset",
+            visibility="private",
+            record_status="published",
+            created_by=admin_id,
+        )
+        test_db_session.add(orphan_record)
+        await test_db_session.flush()
+        orphaned = Dataset(
+            record_id=orphan_record.id,
+            table_name=shared_name,
+            source_format=None,
+            tenant_id=tenant_id,
+        )
+        test_db_session.add(orphaned)
+        await test_db_session.flush()
+
+        savepoint = await test_db_session.begin_nested()
+        try:
+            # Exactly ONE physical relation: the other tenant's table is gone.
+            await test_db_session.execute(
+                sa.text(f"CREATE TABLE data.{shared_name} (id integer)")
+            )
+            for statement in module.backfill_statements():
+                await test_db_session.execute(statement)
+
+            rows = (
+                await test_db_session.execute(
+                    sa.text(
+                        "SELECT id, origin_uri, origin_ref FROM catalog.datasets "
+                        "WHERE id = ANY(:ids)"
+                    ).bindparams(sa.bindparam("ids", value=[survivor.id, orphaned.id]))
+                )
+            ).all()
+            assert len(rows) == 2
+            for row in rows:
+                assert row.origin_uri is None, (
+                    "one physical table with two catalog claimants must not "
+                    "resolve for either of them"
+                )
+                assert row.origin_ref is None
+        finally:
+            await savepoint.rollback()
+
 
 # ---------------------------------------------------------------------------
 # The binding follows the current bytes
@@ -1000,7 +1072,7 @@ class TestReuploadRestampsTheBinding:
             visibility="private",
             source_format=None,
         )
-        set_postgis_origin(ds, ds.table_name, None)
+        set_postgis_origin(ds, ds.table_name, schema="data")
         ds.source_url = "https://descriptive.test/about-this-layer"
         stale = datetime(2020, 1, 1, tzinfo=timezone.utc)
         ds.last_refreshed_at = stale

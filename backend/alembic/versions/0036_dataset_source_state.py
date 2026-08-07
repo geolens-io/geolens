@@ -230,8 +230,23 @@ _STAC_BACKFILL = """
 # file), and the record_type predicate is still what keeps them out: a VRT is
 # composed from other datasets and has no origin of its own.
 #
-# The final predicate skips a catalog row whose physical table is gone,
-# rather than giving it a pointer built from a NULL schema.
+# RESOLUTION REQUIRES BOTH: exactly one physical relation carrying the name
+# (the HAVING count(*) = 1 above) AND exactly one catalog row claiming it (the
+# NOT EXISTS below). Ambiguity on either side leaves the row NULL.
+#
+# The two guards are NOT redundant and neither can be simplified away
+# (fix #1218 review rounds 1 and 2):
+#
+#   - Two physical relations, one claimant: the round-1 finding. The catalog
+#     side sees nothing wrong; only the physical count catches it.
+#   - One physical relation, two claimants: the round-2 finding. Two tenants
+#     both registered `parcels` and one tenant's table was later dropped, so
+#     the physical count is a clean 1 and BOTH catalog rows would otherwise
+#     bind to the surviving tenant's schema. One of them is an orphan holding
+#     a pointer into another tenant's data.
+#
+# The `IS NOT NULL` predicate also skips a catalog row whose physical table is
+# gone entirely, rather than building a pointer from a NULL schema.
 _POSTGIS_BACKFILL = f"""
     UPDATE catalog.datasets AS d
     SET origin_uri = 'postgis://' || ({_DATA_SCHEMA_SQL})
@@ -245,6 +260,15 @@ _POSTGIS_BACKFILL = f"""
       AND d.source_format IS NULL
       AND r.record_type IN ('vector_dataset', 'table')
       AND ({_DATA_SCHEMA_SQL}) IS NOT NULL
+      AND NOT EXISTS (
+          SELECT 1
+          FROM catalog.datasets AS d2
+          JOIN catalog.records AS r2 ON r2.id = d2.record_id
+          WHERE d2.table_name = d.table_name
+            AND d2.id <> d.id
+            AND d2.source_format IS NULL
+            AND r2.record_type IN ('vector_dataset', 'table')
+      )
 """
 
 # Uploaded files have no remote origin, so origin_uri stays NULL. The hash

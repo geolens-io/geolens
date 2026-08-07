@@ -32,7 +32,6 @@ Dataset ORM instance.
 
 from __future__ import annotations
 
-import uuid
 from typing import Any
 
 # Formats whose rows were pulled from a remote OGC/Esri service. Mirrors
@@ -103,36 +102,26 @@ def classify_origin(
     return "upload"
 
 
-def data_schema_for(tenant_id: uuid.UUID | str | None) -> str:
-    """Data-schema name for a dataset row, for use in a ``postgis://`` URI.
-
-    Mirrors ``tenant_data_schema`` but treats a null tenant as the shared
-    ``data`` schema in either tenancy mode, because a dataset row with a null
-    ``tenant_id`` lives there regardless of how the instance is configured.
-
-    Correct here because ingest places the table through the same resolver.
-    Migration 0036 deliberately does NOT reuse this rule: backfilling an
-    existing row means asking where its table actually is, so it reads
-    pg_class instead of trusting a tenant_id stamped independently of ingest.
-    """
-    if tenant_id is None:
-        return "data"
-    from app.core.db.tenant_schema import tenant_data_schema
-
-    return tenant_data_schema(str(tenant_id))
-
-
-def set_postgis_origin(
-    dataset: Any, table_name: str, tenant_id: uuid.UUID | str | None
-) -> None:
+def set_postgis_origin(dataset: Any, table_name: str, *, schema: str) -> None:
     """Stamp a registered PostGIS table's origin.
 
     Separate from the generic writer because the pointer and the ref's
     ``table_name`` are two spellings of one fact and have to agree. Composing
     them at the call site is how they drift, so the qualified name is built
     once here and the URI is derived from it.
+
+    ``schema`` is passed in rather than derived, and specifically NOT derived
+    from ``dataset.tenant_id`` (fix #1218 review round 2). In multi-tenant
+    mode the INSERT sends ``tenant_id`` as NULL and the
+    ``trg_stamp_current_tenant_on_insert`` trigger fills it from the
+    ``app.current_tenant`` GUC, so the real value exists only in the database
+    and the ORM attribute stays None — every multi-tenant registration would
+    have been pointed at ``data.<table>`` for a table living in
+    ``data_t_<tenant>``. Callers pass the schema they actually created,
+    granted, and read the table in, which makes the pointer agree with
+    physical placement by construction rather than by a parallel derivation.
     """
-    qualified = f"{data_schema_for(tenant_id)}.{table_name}"
+    qualified = f"{schema}.{table_name}"
     set_dataset_origin(
         dataset, "postgis", uri=f"postgis://{qualified}", table_name=qualified
     )
