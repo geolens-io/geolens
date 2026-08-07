@@ -186,12 +186,25 @@ def _url_is_safe(expr: str) -> str:
     code here follows ``alembic/env.py``, which already imports
     ``app.core.config`` and ``app.core.db``.
 
-    Known narrower than the Python original, in the safe direction for
-    everything except one case: ``parse_qsl`` percent-decodes a parameter NAME
-    before judging it, so ``?%74oken=`` reads as ``token`` there and not here.
-    Matching that in SQL needs a decoder Postgres does not provide. The
-    residual is a legacy URL with a percent-encoded credential parameter name;
-    every other shape this misses is a shape the Python rule also admits.
+    fix(#1218 review r6): the encoded-name gap is CLOSED, by refusing the
+    ambiguous class rather than adjudicating it. ``parse_qsl`` percent-decodes
+    a parameter NAME before judging it, so ``?%74oken=`` reads as ``token`` in
+    Python; the name alternation below sees the literal ``%74oken`` and would
+    have admitted it. Rather than reimplement percent-decoding in SQL — a
+    second copy of ``parse_qsl`` that can drift from the first, which is the
+    thing binding SENSITIVE_QUERY_PARAMS above exists to prevent — the last
+    arm refuses ANY url whose query encodes a parameter NAME at all,
+    regardless of what it decodes to. Parameter names are never legitimately
+    percent-encoded in a service or STAC URL, so this costs approximately no
+    real pointers.
+
+    VALUES keep their encoding rights: the name segment is bounded by the
+    FIRST ``=`` of its pair, so ``?typename=ns%3Aroads`` still backfills. That
+    distinction is the whole reason for the ``[^=&#]*`` classes rather than a
+    bare ``%``.
+
+    The predicate is now at least as strict as the Python rule on every shape
+    it is given.
     """
     from app.core.url_redaction import SENSITIVE_QUERY_PARAMS
 
@@ -201,6 +214,7 @@ def _url_is_safe(expr: str) -> str:
         {expr} ~* '^https?://'
         AND {expr} !~ '^[a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]*@'
         AND {expr} !~* '[?&]({alternation})='
+        AND {expr} !~ '[?&][^=&#]*%[0-9A-Fa-f][0-9A-Fa-f][^=&#]*='
     )"""
 
 

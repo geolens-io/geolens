@@ -1106,6 +1106,49 @@ class TestBackfill:
             )
         )
 
+        # fix(#1218 review r6): parse_qsl decodes a parameter NAME before
+        # judging it, so this reads as ?token= in Python. The SQL refuses any
+        # encoded NAME outright rather than decoding, closing the class.
+        encoded_name = await _pre_migration_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Cred Encoded Name",
+            source_format="wfs",
+        )
+        encoded_name.source_url = "https://gis.test/geoserver/wfs?%74oken=hunter2"
+
+        encoded_name_stac = await _pre_migration_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Cred Encoded Name STAC",
+            source_format="stac",
+        )
+        encoded_name_stac.source_url = "https://bucket.test/s.tif?%73ig=deadbeef"
+
+        # The admission half for r6: a percent-encoded VALUE is ordinary in a
+        # WFS typename and must still backfill. The name segment ends at the
+        # first '=' of its pair, which is what keeps these apart.
+        encoded_value = await _pre_migration_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Cred Encoded Value",
+            source_format="wfs",
+        )
+        encoded_value.source_url = (
+            "https://gis.test/geoserver/wfs?service=WFS&typename=ns%3Aroads"
+        )
+        test_db_session.add(
+            IngestJob(
+                dataset_id=encoded_value.id,
+                status="complete",
+                source_url=(
+                    "https://gis.test/geoserver/wfs?service=WFS&typename=ns%3Aroads"
+                ),
+                source_layer="ns:roads",
+                created_by=admin_id,
+            )
+        )
+
         stac_cred = await _pre_migration_dataset(
             test_db_session,
             created_by=admin_id,
@@ -1135,6 +1178,9 @@ class TestBackfill:
                                     benign.id,
                                     dirty_job.id,
                                     stac_cred.id,
+                                    encoded_name.id,
+                                    encoded_name_stac.id,
+                                    encoded_value.id,
                                 ],
                             )
                         )
@@ -1142,12 +1188,24 @@ class TestBackfill:
                 ).all()
             }
 
-            for unsafe in (userinfo, token_param, stac_cred):
+            for unsafe in (
+                userinfo,
+                token_param,
+                stac_cred,
+                encoded_name,
+                encoded_name_stac,
+            ):
                 row = rows[unsafe.id]
                 assert row.origin_uri is None, f"{row.source_url} was frozen in"
                 assert row.origin_ref is None
                 # The secret stays only where the operator can still edit it.
                 assert row.source_url == unsafe.source_url
+
+            encoded_value_row = rows[encoded_value.id]
+            assert encoded_value_row.origin_uri == encoded_value.source_url, (
+                "an encoded VALUE is ordinary; only encoded NAMES are refused"
+            )
+            assert encoded_value_row.origin_ref["layer_id"] == "ns:roads"
 
             benign_row = rows[benign.id]
             assert benign_row.origin_uri == benign.source_url, (
