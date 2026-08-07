@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -42,6 +43,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "audit_retention.sh"
 
 CONFIRM_PHRASE = "yes, this deployment has no per-tenant host routing"
+
+# Generous next to the ~2s a real run takes here; small enough that a
+# non-advancing split loop fails the suite rather than hanging it.
+_SCRIPT_TIMEOUT_SECONDS = 120
 
 _REQUIRED_TOOLS = ("psql", "jq")
 _MISSING_TOOLS = [tool for tool in _REQUIRED_TOOLS if shutil.which(tool) is None]
@@ -253,18 +258,32 @@ def _run_script(
     *args: str,
     shim_mode: str = "ok",
     shim_tenant: str = "",
+    env_overrides: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess:
     env = _pg_env(db)
     env["PATH"] = f"{curl_stub_dir}{os.pathsep}{env['PATH']}"
     env["ADMIN_TOKEN"] = "stub-token"
     env["RETENTION_SHIM_MODE"] = shim_mode
     env["RETENTION_SHIM_TENANT"] = shim_tenant
-    return subprocess.run(
-        ["bash", str(SCRIPT), "--api-url", "https://example.invalid/api", *args],
-        env=env,
-        capture_output=True,
-        text=True,
-    )
+    if env_overrides:
+        env.update(env_overrides)
+    try:
+        return subprocess.run(
+            ["bash", str(SCRIPT), "--api-url", "https://example.invalid/api", *args],
+            env=env,
+            capture_output=True,
+            text=True,
+            # The window-splitting loop advances by moving WINDOW_FROM forward;
+            # a regression that fails to advance re-exports the same rows
+            # forever. Bounding the run turns that into a test failure instead
+            # of a hung CI job.
+            timeout=_SCRIPT_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise AssertionError(
+            f"{SCRIPT} did not finish within {_SCRIPT_TIMEOUT_SECONDS}s; the "
+            "window-splitting loop is most likely not advancing."
+        ) from exc
 
 
 def _archives(archive_dir: Path) -> list[Path]:
@@ -441,6 +460,77 @@ def test_window_over_the_export_cap_is_split_and_fully_archived(
     archived = {row["timestamp"] for row in _archived_rows(archive_dir)}
     assert len(archived) == 10
     assert _row_count(db) == 0
+
+
+def test_max_rows_one_splits_a_two_row_window(
+    clean_audit_table, curl_stub_dir, tmp_path
+):
+    """--max-rows 1 over two rows at distinct timestamps (#1260 review).
+
+    The first sub-window boundary is the oldest row's own timestamp, so the
+    window end equals the window start. That is a perfectly splittable window,
+    not the unsplittable case: only one row sits at that instant. The loop has
+    to export it and step to the next distinct timestamp.
+    """
+    db = clean_audit_table
+    _seed_rows(db, days_ago=[200])
+    _seed_rows(db, days_ago=[150])
+    assert (
+        int(_psql("SELECT count(DISTINCT created_at) FROM catalog.audit_logs", db)) == 2
+    )
+
+    archive_dir = tmp_path / "archives"
+    result = _run_script(
+        db,
+        curl_stub_dir,
+        "--days",
+        "90",
+        "--confirm-single-tenant",
+        CONFIRM_PHRASE,
+        "--archive-dir",
+        str(archive_dir),
+        "--max-rows",
+        "1",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert len(_archives(archive_dir)) == 2
+    assert len({row["id"] for row in _archived_rows(archive_dir)}) == 2
+    assert _row_count(db) == 0
+
+
+def test_more_rows_at_one_instant_than_max_rows_deletes_nothing(
+    clean_audit_table, curl_stub_dir, tmp_path
+):
+    """The genuinely unsplittable case still refuses.
+
+    No choice of bounds makes a window exportable when one instant holds more
+    rows than a single export call can return.
+    """
+    db = clean_audit_table
+    # One INSERT statement, so now() is evaluated once and both rows land on
+    # the identical timestamp.
+    _seed_rows(db, days_ago=[200, 200])
+    assert (
+        int(_psql("SELECT count(DISTINCT created_at) FROM catalog.audit_logs", db)) == 1
+    )
+
+    result = _run_script(
+        db,
+        curl_stub_dir,
+        "--days",
+        "90",
+        "--confirm-single-tenant",
+        CONFIRM_PHRASE,
+        "--archive-dir",
+        str(tmp_path / "archives"),
+        "--max-rows",
+        "1",
+    )
+
+    assert result.returncode != 0
+    assert "share the instant" in result.stderr
+    assert _row_count(db) == 2
 
 
 def test_repeated_runs_do_not_overwrite_an_earlier_archive(
@@ -708,6 +798,155 @@ def test_a_bad_export_deletes_nothing(
     assert result.returncode != 0
     assert expected_message in result.stderr
     assert _row_count(db) == 3
+
+
+# ---------------------------------------------------------------------------
+# Row-level security
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def rls_db(curl_stub_dir):
+    """A database whose audit table is RLS-protected, plus a non-bypass login.
+
+    Its own database and its own role, both dropped afterwards, because the
+    shared Postgres at :5434 is cluster-global: enabling RLS or leaving a role
+    behind on the module-scoped scratch database would reach every other test.
+
+    The policy uses the two-argument ``current_setting(..., true)`` so a session
+    with no ``app.current_tenant`` gets NULL rather than an error. That is what
+    reproduces the *silent* failure: the credential reads the table, matches
+    nothing, and every count comes back 0.
+    """
+    admin_db = settings.postgres_db
+    worker = os.environ.get("PYTEST_XDIST_WORKER", "master")
+    suffix = uuid.uuid4().hex[:8]
+    name = f"geolens_auditrls_{worker}_{suffix}"
+    role = f"geolens_auditrls_role_{worker}_{suffix}"
+    password = "rls-test-password"
+
+    _psql(f'CREATE DATABASE "{name}"', admin_db)
+    _psql(f"CREATE ROLE \"{role}\" LOGIN PASSWORD '{password}'", admin_db)
+    try:
+        _psql(_SCRATCH_DDL, name)
+        _psql(
+            f"""
+            ALTER TABLE catalog.audit_logs ENABLE ROW LEVEL SECURITY;
+            CREATE POLICY tenant_isolation ON catalog.audit_logs
+                USING (tenant_id = current_setting('app.current_tenant', true)::uuid);
+            GRANT USAGE ON SCHEMA catalog TO "{role}";
+            GRANT SELECT, DELETE ON catalog.audit_logs TO "{role}";
+            GRANT SELECT ON catalog.tenants TO "{role}";
+            """,
+            name,
+        )
+        yield name, role, password
+    finally:
+        _psql(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)', admin_db, check=False)
+        _psql(f'DROP ROLE IF EXISTS "{role}"', admin_db, check=False)
+
+
+def test_credential_that_cannot_bypass_rls_fails_loudly(
+    rls_db, curl_stub_dir, tmp_path
+):
+    """A runtime login must not produce a silent, successful no-op (#1260 review).
+
+    catalog.audit_logs carries a tenant_isolation policy, so the app's own
+    least-privilege credential reads zero rows through it. The connectivity
+    preflight cannot catch that: a ``LIMIT 0`` succeeds for a session RLS would
+    filter to nothing. Without a per-query guard the run counts 0, reports
+    "Nothing to archive or delete" and exits 0 while the table is untouched and
+    growing.
+    """
+    db, role, password = rls_db
+    _seed_rows(db, days_ago=[200, 150, 120])
+
+    quoted = quote(password, safe="")
+    runtime_url = (
+        f"postgresql://{role}:{quoted}"
+        f"@{settings.postgres_host}:{settings.postgres_port}/{db}"
+    )
+    result = _run_script(
+        db,
+        curl_stub_dir,
+        "--days",
+        "90",
+        "--confirm-single-tenant",
+        CONFIRM_PHRASE,
+        "--archive-dir",
+        str(tmp_path / "archives"),
+        "--db-url",
+        runtime_url,
+    )
+
+    assert result.returncode != 0
+    assert "row-level security" in (result.stderr + result.stdout).lower()
+    assert "Nothing to archive or delete" not in result.stdout
+    assert _row_count(db) == 3
+
+
+def test_privileged_credential_still_works_against_the_same_rls_table(
+    rls_db, curl_stub_dir, tmp_path
+):
+    """The RLS guard is a no-op for a session that can bypass it.
+
+    Same database and same policy as the test above, so the credential is the
+    only variable. A guard that failed closed for everyone would be useless.
+    """
+    db, _role, _password = rls_db
+    _seed_rows(db, days_ago=[200, 150, 120])
+    _seed_rows(db, days_ago=[5])
+
+    archive_dir = tmp_path / "archives"
+    result = _run_script(
+        db,
+        curl_stub_dir,
+        "--days",
+        "90",
+        "--confirm-single-tenant",
+        CONFIRM_PHRASE,
+        "--archive-dir",
+        str(archive_dir),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert len(_archived_rows(archive_dir)) == 3
+    assert _row_count(db) == 1
+
+
+def test_row_security_set_does_not_leak_into_parsed_values(
+    clean_audit_table, curl_stub_dir, tmp_path
+):
+    """`SET` must stay invisible under -tA, or every parsed value is corrupt.
+
+    psql prints a "SET" command tag that -q suppresses. If it ever reached
+    stdout it would be read as the first value of every query, so the cutoff
+    and every count would be garbage. This pins the observable consequence
+    rather than the flag.
+    """
+    db = clean_audit_table
+    _seed_rows(db, days_ago=[200, 150, 120, 100, 95])
+
+    result = _run_script(
+        db,
+        curl_stub_dir,
+        "--days",
+        "90",
+        "--confirm-single-tenant",
+        CONFIRM_PHRASE,
+        "--archive-dir",
+        str(tmp_path / "archives"),
+        "--dry-run",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Rows at or before the cutoff in scope: 5" in result.stdout
+    assert "SET" not in [line.strip() for line in result.stdout.splitlines()]
+    # A leaked tag would land in the cutoff string the run echoes back.
+    cutoff_line = next(
+        line for line in result.stdout.splitlines() if "Retention cutoff" in line
+    )
+    assert re.search(r": \d{4}-\d{2}-\d{2}T[\d:.]+Z$", cutoff_line), cutoff_line
 
 
 # ---------------------------------------------------------------------------

@@ -1409,6 +1409,11 @@ Consecutive sub-windows share their boundary instant, so a row on a boundary is
 archived twice — harmless, and much safer than offsetting a bound by an epsilon,
 which would drop that row from every export instead.
 
+The one case that cannot be split is a single instant holding more rows than
+`--max-rows`, since no choice of bounds makes that window exportable; the run
+stops and names the timestamp. Raise `--max-rows` (up to 100000) or archive that
+instant by hand.
+
 If you want a CSV copy for human review, export it separately *after* a run has
 completed; never use CSV as the verification input.
 
@@ -1462,15 +1467,23 @@ A SQLAlchemy driver suffix is stripped for you: `postgresql+asyncpg://` and
 parser accepts.
 
 Whichever credential you use must be able to see and modify rows across every
-tenant — **not** the app's least-privilege runtime login. Boot refuses to start
-`GEOLENS_TENANCY_MODE=multi_tenant` with a runtime role that can bypass
-row-level security (`backend/app/core/db/rls.py`), by design, and
-`catalog.audit_logs` carries exactly that RLS policy (migration 0022): a session
-without `BYPASSRLS` and without `app.current_tenant` set only ever sees zero
-rows through it, so the counts and deletes would silently do nothing rather than
-the documented thing. Use the same privileged/migrator-class credential §2 calls
-out for schema changes, not the steady-state `DATABASE_URL_OVERRIDE` your running
-deployment authenticates with day to day.
+tenant — **not** the app's least-privilege runtime login. `catalog.audit_logs`
+carries the `tenant_isolation` row-level security policy (migration 0022), and a
+session without `BYPASSRLS` reads zero rows through it, so that credential would
+count nothing, delete nothing, and report success. Use the same
+privileged/migrator-class credential §2 calls out for schema changes, not the
+steady-state `DATABASE_URL_OVERRIDE` your deployment authenticates with day to
+day. Boot already refuses to start `GEOLENS_TENANCY_MODE=multi_tenant` with a
+runtime role that *can* bypass RLS (`backend/app/core/db/rls.py`), by design, so
+the two credentials really are different accounts.
+
+The script enforces this per query rather than trusting you to get it right:
+every statement it runs is preceded by `SET row_security = off`, which is a
+no-op for a session that can bypass RLS and an error — "query would be affected
+by row-level security policy" — for one that cannot. The run stops there. A
+connectivity check could not have caught it, because `SELECT ... LIMIT 0`
+succeeds for a login RLS reduces to nothing, which is exactly why the wrong
+credential used to look like an empty retention window.
 
 The export goes through the API, not a direct database connection, so this
 choice does not affect it.

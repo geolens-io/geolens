@@ -268,7 +268,26 @@ fi
 psql_value() {
     local sql="$1"
     shift
-    printf '%s\n' "$sql" | "${PSQL[@]}" -X -q -v ON_ERROR_STOP=1 -tA "$@"
+    # fix(#1248): `SET row_security = off` on EVERY connection, not once at
+    # startup -- each call here is its own psql process and its own session, so
+    # a one-time SET elsewhere would not survive to the query that matters.
+    #
+    # It is the RLS bypass check, expressed where it cannot be skipped. For a
+    # session that can bypass row-level security (superuser, BYPASSRLS, or the
+    # table owner without FORCE) it is a no-op. For anything else -- notably the
+    # app's own least-privilege runtime login -- any query touching an RLS table
+    # then fails with "query would be affected by row-level security policy",
+    # which ON_ERROR_STOP turns into a non-zero exit. Without it that credential
+    # reads through the tenant_isolation policy on catalog.audit_logs, sees zero
+    # rows, and the run reports "nothing to archive or delete" and exits 0: a
+    # silent no-op that looks exactly like a correctly-empty window.
+    #
+    # -q is load-bearing here and not cosmetic. SET emits a "SET" command tag on
+    # stdout, which under -tA would be parsed as the first value of every query;
+    # -q suppresses it. Measured: `-X -q -tA` returns "42\n" with or without the
+    # SET, while dropping -q returns "SET\n42\n".
+    printf 'SET row_security = off;\n%s\n' "$sql" \
+        | "${PSQL[@]}" -X -q -v ON_ERROR_STOP=1 -tA "$@"
 }
 
 # ---------------------------------------------------------------------------
@@ -308,12 +327,20 @@ window_predicate() {
 # ---------------------------------------------------------------------------
 
 say "Connecting via $CONN_DESC ..."
+# Connectivity and "does this table exist" only. The credential's ability to
+# see past row-level security is NOT established here -- a LIMIT 0 succeeds for
+# a session that RLS would filter to nothing. That check lives in psql_value,
+# on every query, so a credential that cannot bypass RLS fails loudly on the
+# first real statement instead of quietly counting zero rows.
 psql_value "SELECT 1 FROM catalog.audit_logs LIMIT 0" >/dev/null \
     || die "cannot read catalog.audit_logs through $CONN_DESC.
 Check the connection, and that the credential is a privileged/migrator-class
-login: catalog.audit_logs carries a row-level security policy, and a session
-without BYPASSRLS and without app.current_tenant set sees zero rows through it
--- which would make every count and delete below silently do nothing."
+login. If the failure mentions row-level security, that is this script
+refusing to run as a credential that RLS would filter: catalog.audit_logs
+carries the tenant_isolation policy (migration 0022), and reading through it
+would silently do nothing instead of the documented thing. Use the same
+privileged credential RUNBOOK.md §2 calls out for schema changes, not the
+steady-state runtime login your deployment authenticates with day to day."
 
 # The cutoff is evaluated once, here, and never again. Every later step is
 # handed this exact string.
@@ -510,12 +537,47 @@ while :; do
         "SELECT count(*) FROM catalog.audit_logs
          WHERE $(window_predicate ":'wf'::timestamptz" ":'wt'::timestamptz")" \
         "${PSQL_VARS[@]}" -v "wf=$WINDOW_FROM" -v "wt=$sub_window_to")"
-    if [ "$expected" -gt "$MAX_ROWS" ] || [ "$sub_window_to" = "$WINDOW_FROM" ]; then
+    # Genuinely unsplittable: one instant holds more rows than a single export
+    # call can return, so no choice of bounds makes this window exportable.
+    if [ "$expected" -gt "$MAX_ROWS" ]; then
         die "more than $MAX_ROWS rows share the instant $sub_window_to, so the window cannot be split small enough for one export call. Raise --max-rows (up to 100000), or archive that instant by hand. Nothing has been deleted."
     fi
 
     export_window "$WINDOW_FROM" "$sub_window_to" "$expected"
-    WINDOW_FROM="$sub_window_to"
+
+    # Loop variant: WINDOW_FROM strictly increases on every iteration, and the
+    # set of distinct created_at values at or before the cutoff is finite, so
+    # the loop terminates. Both branches below must preserve that -- nothing is
+    # deleted during the archive phase, so a WINDOW_FROM that merely stays put
+    # would spin forever re-exporting the same rows.
+    if [ "$sub_window_to" = "$WINDOW_FROM" ]; then
+        # The window just exported was a single instant. That is normal, not an
+        # error: with --max-rows 1 the first row IS the boundary, and one row at
+        # one timestamp splits perfectly well. Leaving WINDOW_FROM here would
+        # never advance, so step to the next distinct timestamp.
+        #
+        # This is the ONE place a strict `>` is correct, and it does not
+        # contradict the inclusive-bounds rule everywhere else: next_from is the
+        # SMALLEST created_at greater than the instant just archived, so by
+        # construction no row exists strictly between them and the two windows
+        # leave no gap. Widening this to `>=` would return WINDOW_FROM again and
+        # hang.
+        next_from="$(psql_value \
+            "SELECT to_char(min(created_at) AT TIME ZONE 'UTC', '$TS_FORMAT')
+             FROM catalog.audit_logs
+             WHERE created_at > :'wf'::timestamptz
+               AND created_at <= :'cutoff'::timestamptz
+               AND $SCOPE_SQL" \
+            "${PSQL_VARS[@]}" -v "wf=$WINDOW_FROM")"
+        [ -n "$next_from" ] || break
+        WINDOW_FROM="$next_from"
+    else
+        # sub_window_to is a max over rows at or after WINDOW_FROM and differs
+        # from it, so it is strictly greater. The next window starts on that
+        # same instant (inclusive), which duplicates the boundary row into two
+        # archives by design.
+        WINDOW_FROM="$sub_window_to"
+    fi
 done
 
 if [ "$ARCHIVED_TOTAL" -lt "$TOTAL_IN_WINDOW" ]; then
