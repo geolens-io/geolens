@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -176,7 +177,25 @@ def _make_reupload_db(job: MagicMock) -> AsyncMock:
     result_mock = MagicMock()
     result_mock.scalar_one_or_none.return_value = job
     mock_db.execute = AsyncMock(return_value=result_mock)
+    # feat(#1219): the handler now inserts a refresh run row before deferring.
+    # `create_pending_run` reads the parent dataset's stored tenant_id and
+    # wraps its INSERT in a SAVEPOINT so a duplicate-active-run violation can
+    # be turned into a 409 without poisoning the transaction. An AsyncMock's
+    # `begin_nested()` returns a coroutine, which is not an async context
+    # manager, so it has to be spelled out here.
+    mock_db.scalar = AsyncMock(return_value=None)
+    mock_db.begin_nested = MagicMock(return_value=_null_async_cm())
     return mock_db
+
+
+def _null_async_cm():
+    """A do-nothing async context manager for a mocked SAVEPOINT."""
+
+    @asynccontextmanager
+    async def _cm():
+        yield None
+
+    return _cm()
 
 
 def _bind_reupload_job(

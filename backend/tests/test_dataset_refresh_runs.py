@@ -1200,6 +1200,53 @@ class TestAbandonedRunSweep:
         await test_db_session.refresh(run)
         assert run.status == "pending"
 
+    async def test_cancelling_releases_the_dataset_for_a_new_run(
+        self, test_db_session
+    ) -> None:
+        """The release valve for admission control.
+
+        `uq_refresh_runs_one_active` means a run stuck in `pending` blocks
+        every later refresh of that dataset, so the sweep is not only
+        bookkeeping — it is what stops a dead worker from wedging a dataset
+        forever. Cancelling moves the row out of the index's predicate, which
+        is a property of the index and the sweep TOGETHER; neither test alone
+        would notice it breaking.
+        """
+        run, job = await _stale_run(
+            test_db_session,
+            job_status="failed",
+            age_seconds=_WELL_PAST_CUTOFF,
+            run_status="pending",
+        )
+        dataset_id = run.dataset_id
+
+        # While it is stuck, the dataset is closed for business.
+        with pytest.raises(DatasetBusyError):
+            await create_pending_run(
+                test_db_session,
+                dataset_id=dataset_id,
+                origin_kind="upload",
+                trigger="manual",
+                triggered_by=job.created_by,
+                ingest_job_id=None,
+                feature_count_before=1,
+            )
+
+        assert await sweep_abandoned_refresh_runs(test_db_session) >= 1
+        await test_db_session.commit()
+
+        # And open again once the sweep has proven the task gone.
+        await create_pending_run(
+            test_db_session,
+            dataset_id=dataset_id,
+            origin_kind="upload",
+            trigger="manual",
+            triggered_by=job.created_by,
+            ingest_job_id=None,
+            feature_count_before=1,
+        )
+        await test_db_session.commit()
+
     async def test_leaves_terminal_runs_alone(self, test_db_session) -> None:
         run, _ = await _stale_run(
             test_db_session,

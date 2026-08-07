@@ -2137,6 +2137,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # version_number) instead would be a second way to name one row.
     # Cap 1868 -> 1874, exact.
     "backend/app/processing/ingest/tasks_common.py": 1874,
+    # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
+    # tasks_reupload crossed 1000 when two independently-reviewed features
+    # met in one file: #1222's failed-contact bookkeeping (spawn-armed
+    # binding-guarded stamp, ~90 lines with its helper and comments) and
+    # #1219's refresh-run integration (run claim on dispatch, run
+    # finalization on both outcomes, the savepoint-scoped run row on the
+    # failure path). Both sides earned their lines in their own reviews;
+    # the sum simply tripped the inclusion threshold. Entered at its
+    # measured size.
+    "backend/app/processing/ingest/tasks_reupload.py": 1055,
     # --- entered by the inclusion rule, fix(#958) -------------------------
     # These five were the ungated modules at or above _RATCHET_INCLUSION_LOC
     # when the rule was written. They arrive at their measured size with no

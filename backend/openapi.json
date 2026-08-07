@@ -5001,18 +5001,10 @@
       "DatasetRefreshRunResponse": {
         "description": "One refresh attempt, success or failure (ADR-002 Decision 4).\n\nFive fields are redacted for callers who are neither the dataset owner nor\nan admin: ``triggered_by``, ``triggered_by_username``, ``error_code``,\n``error_message`` and ``schema_diff``. A public dataset's refresh history\notherwise enumerates who edits it, and failure text leaks internal origin\ndetail. The redaction is enumerated against NAMED third-party readers as\nwell as anonymous ones \u2014 a signed-in stranger is the case that gets\nmissed.",
         "properties": {
-          "claimed_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "When a worker began executing the run. Queue wait is this minus started_at; null while the run is still queued.",
-            "title": "Claimed At"
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
           },
           "dataset_id": {
             "format": "uuid",
@@ -5032,68 +5024,6 @@
             "description": "The version this run produced. Null for a run that never committed a swap.",
             "title": "Dataset Version Id"
           },
-          "error_code": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Error Code"
-          },
-          "error_message": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Short redacted failure reason",
-            "title": "Error Message"
-          },
-          "feature_count_after": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Feature Count After"
-          },
-          "feature_count_before": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Feature Count Before"
-          },
-          "finished_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Finished At"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
           "ingest_job_id": {
             "anyOf": [
               {
@@ -5112,31 +5042,14 @@
             "title": "Origin Kind",
             "type": "string"
           },
-          "schema_diff": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/SchemaDiff"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Schema drift measured against the incoming data at swap time. Null for a run that never reached the swap."
-          },
-          "started_at": {
-            "description": "Dispatch time, not claim time \u2014 queue wait is visible",
-            "format": "date-time",
-            "title": "Started At",
+          "trigger": {
+            "description": "manual, api, or cli",
+            "title": "Trigger",
             "type": "string"
           },
           "status": {
             "description": "pending, running, succeeded, failed, or cancelled",
             "title": "Status",
-            "type": "string"
-          },
-          "trigger": {
-            "description": "manual, api, or cli",
-            "title": "Trigger",
             "type": "string"
           },
           "triggered_by": {
@@ -5161,6 +5074,93 @@
               }
             ],
             "title": "Triggered By Username"
+          },
+          "started_at": {
+            "description": "Dispatch time, not claim time \u2014 queue wait is visible",
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "claimed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When a worker began executing the run. Queue wait is this minus started_at; null while the run is still queued.",
+            "title": "Claimed At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "feature_count_before": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feature Count Before"
+          },
+          "feature_count_after": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feature Count After"
+          },
+          "schema_diff": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SchemaDiff"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Schema drift measured against the incoming data at swap time. Null for a run that never reached the swap."
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Short redacted failure reason",
+            "title": "Error Message"
           }
         },
         "required": [

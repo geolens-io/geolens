@@ -7225,10 +7225,10 @@ export interface components {
          */
         DatasetRefreshRunResponse: {
             /**
-             * Claimed At
-             * @description When a worker began executing the run. Queue wait is this minus started_at; null while the run is still queued.
+             * Id
+             * Format: uuid
              */
-            claimed_at?: string | null;
+            id: string;
             /**
              * Dataset Id
              * Format: uuid
@@ -7239,24 +7239,6 @@ export interface components {
              * @description The version this run produced. Null for a run that never committed a swap.
              */
             dataset_version_id?: string | null;
-            /** Error Code */
-            error_code?: string | null;
-            /**
-             * Error Message
-             * @description Short redacted failure reason
-             */
-            error_message?: string | null;
-            /** Feature Count After */
-            feature_count_after?: number | null;
-            /** Feature Count Before */
-            feature_count_before?: number | null;
-            /** Finished At */
-            finished_at?: string | null;
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
             /**
              * Ingest Job Id
              * @description The ingest job that carried out the work. Nulls out when the job row is purged by retention; the run itself survives.
@@ -7267,8 +7249,20 @@ export interface components {
              * @description upload, postgis, service, stac, or raster
              */
             origin_kind: string;
-            /** @description Schema drift measured against the incoming data at swap time. Null for a run that never reached the swap. */
-            schema_diff?: components["schemas"]["SchemaDiff"] | null;
+            /**
+             * Trigger
+             * @description manual, api, or cli
+             */
+            trigger: string;
+            /**
+             * Status
+             * @description pending, running, succeeded, failed, or cancelled
+             */
+            status: string;
+            /** Triggered By */
+            triggered_by?: string | null;
+            /** Triggered By Username */
+            triggered_by_username?: string | null;
             /**
              * Started At
              * Format: date-time
@@ -7276,19 +7270,25 @@ export interface components {
              */
             started_at: string;
             /**
-             * Status
-             * @description pending, running, succeeded, failed, or cancelled
+             * Claimed At
+             * @description When a worker began executing the run. Queue wait is this minus started_at; null while the run is still queued.
              */
-            status: string;
+            claimed_at?: string | null;
+            /** Finished At */
+            finished_at?: string | null;
+            /** Feature Count Before */
+            feature_count_before?: number | null;
+            /** Feature Count After */
+            feature_count_after?: number | null;
+            /** @description Schema drift measured against the incoming data at swap time. Null for a run that never reached the swap. */
+            schema_diff?: components["schemas"]["SchemaDiff"] | null;
+            /** Error Code */
+            error_code?: string | null;
             /**
-             * Trigger
-             * @description manual, api, or cli
+             * Error Message
+             * @description Short redacted failure reason
              */
-            trigger: string;
-            /** Triggered By */
-            triggered_by?: string | null;
-            /** Triggered By Username */
-            triggered_by_username?: string | null;
+            error_message?: string | null;
         };
         /** DatasetRelationshipCreate */
         DatasetRelationshipCreate: {

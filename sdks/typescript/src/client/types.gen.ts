@@ -2969,11 +2969,9 @@ export type DatasetRefreshRunListResponse = {
  */
 export type DatasetRefreshRunResponse = {
     /**
-     * Claimed At
-     *
-     * When a worker began executing the run. Queue wait is this minus started_at; null while the run is still queued.
+     * Id
      */
-    claimed_at?: string | null;
+    id: string;
     /**
      * Dataset Id
      */
@@ -2984,32 +2982,6 @@ export type DatasetRefreshRunResponse = {
      * The version this run produced. Null for a run that never committed a swap.
      */
     dataset_version_id?: string | null;
-    /**
-     * Error Code
-     */
-    error_code?: string | null;
-    /**
-     * Error Message
-     *
-     * Short redacted failure reason
-     */
-    error_message?: string | null;
-    /**
-     * Feature Count After
-     */
-    feature_count_after?: number | null;
-    /**
-     * Feature Count Before
-     */
-    feature_count_before?: number | null;
-    /**
-     * Finished At
-     */
-    finished_at?: string | null;
-    /**
-     * Id
-     */
-    id: string;
     /**
      * Ingest Job Id
      *
@@ -3023,27 +2995,17 @@ export type DatasetRefreshRunResponse = {
      */
     origin_kind: string;
     /**
-     * Schema drift measured against the incoming data at swap time. Null for a run that never reached the swap.
-     */
-    schema_diff?: SchemaDiff | null;
-    /**
-     * Started At
+     * Trigger
      *
-     * Dispatch time, not claim time — queue wait is visible
+     * manual, api, or cli
      */
-    started_at: string;
+    trigger: string;
     /**
      * Status
      *
      * pending, running, succeeded, failed, or cancelled
      */
     status: string;
-    /**
-     * Trigger
-     *
-     * manual, api, or cli
-     */
-    trigger: string;
     /**
      * Triggered By
      */
@@ -3052,6 +3014,44 @@ export type DatasetRefreshRunResponse = {
      * Triggered By Username
      */
     triggered_by_username?: string | null;
+    /**
+     * Started At
+     *
+     * Dispatch time, not claim time — queue wait is visible
+     */
+    started_at: string;
+    /**
+     * Claimed At
+     *
+     * When a worker began executing the run. Queue wait is this minus started_at; null while the run is still queued.
+     */
+    claimed_at?: string | null;
+    /**
+     * Finished At
+     */
+    finished_at?: string | null;
+    /**
+     * Feature Count Before
+     */
+    feature_count_before?: number | null;
+    /**
+     * Feature Count After
+     */
+    feature_count_after?: number | null;
+    /**
+     * Schema drift measured against the incoming data at swap time. Null for a run that never reached the swap.
+     */
+    schema_diff?: SchemaDiff | null;
+    /**
+     * Error Code
+     */
+    error_code?: string | null;
+    /**
+     * Error Message
+     *
+     * Short redacted failure reason
+     */
+    error_message?: string | null;
 };
 
 /**
