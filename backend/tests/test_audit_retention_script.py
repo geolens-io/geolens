@@ -290,6 +290,35 @@ def _archives(archive_dir: Path) -> list[Path]:
     return sorted(archive_dir.glob("audit-archive-*.json"))
 
 
+def _assert_windows_within_cap(stdout: str, max_rows: int) -> None:
+    """No window the script asks the endpoint for may exceed the cap.
+
+    This reads the sizes off the script's own per-window log rather than off
+    the archives, and the difference matters. The real endpoint silently
+    returns only the newest ``max_rows`` rows of an over-cap range, and the
+    stub models that with a LIMIT -- so archive *lengths* can never exceed the
+    cap no matter how badly the splitter behaves, and asserting on them would
+    be vacuous. What can actually go wrong is the script sizing a window above
+    the cap in the first place, which this reads directly.
+
+    Measured caveat: in every scenario a faithful stub can produce, this is
+    SHADOWED by the script's own archive/database row-count check, which fires
+    first -- an over-cap window comes back truncated and the counts disagree.
+    So treat this as defence in depth that states the intended property, not as
+    the live gate. Verified by removing the over-cap handling entirely: the run
+    failed on "archive row count mismatch ... counts 5 ... holds 4" before this
+    assertion was reached.
+    """
+    sizes = [
+        int(n) for n in re.findall(r"window \d+: \S+ \.\. \S+ \((\d+) rows\)", stdout)
+    ]
+    assert sizes, f"no per-window log lines found in:\n{stdout}"
+    for size in sizes:
+        assert size <= max_rows, (
+            f"script requested a {size}-row window, above the {max_rows} cap"
+        )
+
+
 def _archived_rows(archive_dir: Path) -> list[dict]:
     rows: list[dict] = []
     for path in _archives(archive_dir):
@@ -459,6 +488,7 @@ def test_window_over_the_export_cap_is_split_and_fully_archived(
     # twice; what must never happen is a row archived zero times.
     archived = {row["timestamp"] for row in _archived_rows(archive_dir)}
     assert len(archived) == 10
+    _assert_windows_within_cap(result.stdout, 3)
     assert _row_count(db) == 0
 
 
@@ -496,6 +526,48 @@ def test_max_rows_one_splits_a_two_row_window(
     assert result.returncode == 0, result.stderr
     assert len(_archives(archive_dir)) == 2
     assert len({row["id"] for row in _archived_rows(archive_dir)}) == 2
+    _assert_windows_within_cap(result.stdout, 1)
+    assert _row_count(db) == 0
+
+
+def test_cap_cutting_through_a_timestamp_tie_backs_off(
+    clean_audit_table, curl_stub_dir, tmp_path
+):
+    """The export cap can land inside a group of rows sharing one instant.
+
+    Two rows at t1 and three at t2 with --max-rows 4: the 4th oldest row is at
+    t2, so the naive boundary [t1, t2] selects all five and looks unsplittable.
+    It is not. [t1, t1] holds two and [t2, t2] holds three, both under the cap,
+    so the split has to back off to the last distinct timestamp before the tie
+    rather than give up. Scaled-down form of the 2-at-t1 plus 99-at-t2 case
+    from the #1260 review.
+    """
+    db = clean_audit_table
+    # One INSERT per group, so now() is evaluated once per group and each group
+    # shares an instant.
+    _seed_rows(db, days_ago=[200, 200])
+    _seed_rows(db, days_ago=[150, 150, 150])
+    assert (
+        int(_psql("SELECT count(DISTINCT created_at) FROM catalog.audit_logs", db)) == 2
+    )
+
+    archive_dir = tmp_path / "archives"
+    result = _run_script(
+        db,
+        curl_stub_dir,
+        "--days",
+        "90",
+        "--confirm-single-tenant",
+        CONFIRM_PHRASE,
+        "--archive-dir",
+        str(archive_dir),
+        "--max-rows",
+        "4",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert len({row["id"] for row in _archived_rows(archive_dir)}) == 5
+    _assert_windows_within_cap(result.stdout, 4)
     assert _row_count(db) == 0
 
 

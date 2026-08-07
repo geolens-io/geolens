@@ -1409,10 +1409,13 @@ Consecutive sub-windows share their boundary instant, so a row on a boundary is
 archived twice — harmless, and much safer than offsetting a bound by an epsilon,
 which would drop that row from every export instead.
 
-The one case that cannot be split is a single instant holding more rows than
-`--max-rows`, since no choice of bounds makes that window exportable; the run
-stops and names the timestamp. Raise `--max-rows` (up to 100000) or archive that
-instant by hand.
+Timestamps are not unique, so a split can land in the middle of a group of rows
+sharing one instant. When that happens the script backs off to the last distinct
+timestamp before the group and exports what precedes it, rather than treating
+the window as unsplittable. The only case it genuinely cannot split is a *single
+instant* holding more rows than `--max-rows`, because no choice of bounds makes
+that window exportable; the run stops and names the timestamp. Raise
+`--max-rows` (up to 100000) or archive that instant by hand.
 
 If you want a CSV copy for human review, export it separately *after* a run has
 completed; never use CSV as the verification input.

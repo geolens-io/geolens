@@ -521,10 +521,38 @@ while :; do
 
     # More rows than one export call can return. Narrowing date_to alone does
     # not help: the endpoint always returns the NEWEST rows in the range, so
-    # repeating the same call returns the same slice forever. Split instead --
-    # take the timestamp of the MAX_ROWS-th oldest row and end this window
-    # there. The next window starts at that same instant, so consecutive windows
-    # overlap by one instant and cannot leave a gap between them.
+    # repeating the same call returns the same slice forever. Split instead.
+    #
+    # Timestamps are not unique -- ties are ordinary on a busy instance -- so
+    # the MAX_ROWS-th oldest row can land in the MIDDLE of a group of rows
+    # sharing one instant. That is what makes this fiddly, and the four cases
+    # below are the whole space. Let `sub` be the timestamp of the MAX_ROWS-th
+    # oldest row in [wf, cutoff] and `expected` be count[wf, sub]:
+    #
+    #   (a) expected <= MAX_ROWS and sub > wf
+    #       The cap landed cleanly between instants. Export [wf, sub]; the next
+    #       window reopens at sub, duplicating that instant's rows into two
+    #       archives by design.
+    #   (b) expected <= MAX_ROWS and sub == wf
+    #       The whole window is one instant, which fits. Normal at --max-rows 1,
+    #       where the oldest row IS the boundary. Export [wf, wf] and step to
+    #       the next distinct timestamp.
+    #   (c) expected > MAX_ROWS and sub > wf
+    #       The cap cut through the tie AT sub, and rows exist before it. The
+    #       tie may well be exportable on its own, so back off to the last
+    #       distinct timestamp before sub and export what precedes it. That is
+    #       always <= MAX_ROWS: every row at or before the backed-off boundary
+    #       is strictly older than sub, so every one of them was already inside
+    #       the LIMIT that reached sub.
+    #   (d) expected > MAX_ROWS and sub == wf
+    #       One instant alone holds more rows than a single export call can
+    #       return. No choice of bounds fixes that, so this is the only die.
+    #
+    # Loop variant, over all of them: every path exports a window whose
+    # expected <= MAX_ROWS, then either strictly increases WINDOW_FROM or
+    # breaks. The set of distinct created_at values at or before the cutoff is
+    # finite, so the loop terminates. Nothing is deleted during the archive
+    # phase, so a WINDOW_FROM that merely stayed put would spin forever.
     sub_window_to="$(psql_value \
         "SELECT to_char(max(created_at) AT TIME ZONE 'UTC', '$TS_FORMAT') FROM (
              SELECT created_at FROM catalog.audit_logs
@@ -537,31 +565,51 @@ while :; do
         "SELECT count(*) FROM catalog.audit_logs
          WHERE $(window_predicate ":'wf'::timestamptz" ":'wt'::timestamptz")" \
         "${PSQL_VARS[@]}" -v "wf=$WINDOW_FROM" -v "wt=$sub_window_to")"
-    # Genuinely unsplittable: one instant holds more rows than a single export
-    # call can return, so no choice of bounds makes this window exportable.
+
     if [ "$expected" -gt "$MAX_ROWS" ]; then
-        die "more than $MAX_ROWS rows share the instant $sub_window_to, so the window cannot be split small enough for one export call. Raise --max-rows (up to 100000), or archive that instant by hand. Nothing has been deleted."
+        if [ "$sub_window_to" = "$WINDOW_FROM" ]; then
+            # Case (d).
+            die "more than $MAX_ROWS rows share the instant $sub_window_to, so the window cannot be split small enough for one export call. Raise --max-rows (up to 100000), or archive that instant by hand. Nothing has been deleted."
+        fi
+        # Case (c). The strict `<` finds the neighbouring distinct timestamp;
+        # it is not a window bound. Every bound this script exports or deletes
+        # on is inclusive, and the only strict comparisons in the whole script
+        # are this one and the `>` below, both of which locate an ADJACENT
+        # distinct timestamp rather than delimiting a window. Keeping that
+        # distinction is what stops either of them being "corrected" into an
+        # inclusive form later: with `<=` here the back-off would return
+        # sub_window_to unchanged and nothing would improve.
+        sub_window_to="$(psql_value \
+            "SELECT to_char(max(created_at) AT TIME ZONE 'UTC', '$TS_FORMAT')
+             FROM catalog.audit_logs
+             WHERE created_at >= :'wf'::timestamptz
+               AND created_at < :'sub'::timestamptz
+               AND $SCOPE_SQL" \
+            "${PSQL_VARS[@]}" -v "wf=$WINDOW_FROM" -v "sub=$sub_window_to")"
+        # WINDOW_FROM always names a real row (it is either the window's oldest
+        # created_at, a previous boundary, or a previous next_from), and
+        # sub > WINDOW_FROM here, so [wf, sub) is non-empty and this has a value.
+        [ -n "$sub_window_to" ] || die "could not back off from a tied sub-window boundary."
+        expected="$(psql_value \
+            "SELECT count(*) FROM catalog.audit_logs
+             WHERE $(window_predicate ":'wf'::timestamptz" ":'wt'::timestamptz")" \
+            "${PSQL_VARS[@]}" -v "wf=$WINDOW_FROM" -v "wt=$sub_window_to")"
+        # Unreachable given the argument in case (c) above; kept because the
+        # cost is one comparison and the alternative to a loud failure here is
+        # an export call silently truncated at the cap.
+        if [ "$expected" -gt "$MAX_ROWS" ]; then
+            die "internal error: backing off to $sub_window_to still selects $expected rows, above the $MAX_ROWS cap. Nothing has been deleted."
+        fi
     fi
 
     export_window "$WINDOW_FROM" "$sub_window_to" "$expected"
 
-    # Loop variant: WINDOW_FROM strictly increases on every iteration, and the
-    # set of distinct created_at values at or before the cutoff is finite, so
-    # the loop terminates. Both branches below must preserve that -- nothing is
-    # deleted during the archive phase, so a WINDOW_FROM that merely stays put
-    # would spin forever re-exporting the same rows.
     if [ "$sub_window_to" = "$WINDOW_FROM" ]; then
-        # The window just exported was a single instant. That is normal, not an
-        # error: with --max-rows 1 the first row IS the boundary, and one row at
-        # one timestamp splits perfectly well. Leaving WINDOW_FROM here would
-        # never advance, so step to the next distinct timestamp.
-        #
-        # This is the ONE place a strict `>` is correct, and it does not
-        # contradict the inclusive-bounds rule everywhere else: next_from is the
-        # SMALLEST created_at greater than the instant just archived, so by
-        # construction no row exists strictly between them and the two windows
-        # leave no gap. Widening this to `>=` would return WINDOW_FROM again and
-        # hang.
+        # Cases (b) and (c)-collapsed-to-one-instant. Leaving WINDOW_FROM here
+        # would never advance, so step to the next distinct timestamp. next_from
+        # is the SMALLEST created_at greater than the instant just archived, so
+        # no row exists between the two windows and they leave no gap. Widening
+        # this `>` to `>=` returns WINDOW_FROM again and hangs.
         next_from="$(psql_value \
             "SELECT to_char(min(created_at) AT TIME ZONE 'UTC', '$TS_FORMAT')
              FROM catalog.audit_logs
@@ -572,10 +620,8 @@ while :; do
         [ -n "$next_from" ] || break
         WINDOW_FROM="$next_from"
     else
-        # sub_window_to is a max over rows at or after WINDOW_FROM and differs
-        # from it, so it is strictly greater. The next window starts on that
-        # same instant (inclusive), which duplicates the boundary row into two
-        # archives by design.
+        # Case (a). sub_window_to is a max over rows at or after WINDOW_FROM and
+        # differs from it, so it is strictly greater.
         WINDOW_FROM="$sub_window_to"
     fi
 done
