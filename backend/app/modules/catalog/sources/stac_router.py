@@ -53,6 +53,16 @@ def _validate_stac_http_url(v: str) -> str:
     return v
 
 
+def _validate_optional_stac_http_url(v: str | None) -> str | None:
+    """``_validate_stac_http_url`` for a nullable field.
+
+    The nullable case has to be spelled out: a field validator runs on an
+    explicit ``None`` too, and ``HttpUrl(None)`` raises, which would reject
+    every import from a catalog whose items carry no rel=self link.
+    """
+    return None if v is None else _validate_stac_http_url(v)
+
+
 async def _fetch_cog_info(url: str) -> dict | None:
     """Fetch COG metadata + statistics from Titiler for a remote asset URL.
 
@@ -210,6 +220,14 @@ class StacSearchRequest(BaseModel):
 class StacItemSummary(BaseModel):
     id: str = Field(description="Item identifier.")
     collection: str | None = Field(default=None, description="Parent collection ID.")
+    item_href: str | None = Field(
+        default=None,
+        description=(
+            "The item's own canonical URL, from its rel=self link. Echo it "
+            "back on import so the dataset's origin can point at the item as "
+            "well as the asset; null when the catalog omits a self link."
+        ),
+    )
     title: str = Field(description="Item title (falls back to ID).")
     bbox: list[float] | None = Field(default=None, description="Item bounding box.")
     datetime: str | None = Field(
@@ -266,6 +284,16 @@ class StacImportItem(BaseModel):
     _validate_data_asset_href = field_validator("data_asset_href")(
         _validate_stac_http_url
     )
+    # feat(#1222): the item's own href, as returned by search. Optional so an
+    # older client (or a catalog whose items carry no rel=self link) still
+    # imports; the dataset then simply has no item pointer and its health
+    # probe checks the asset alone.
+    item_href: str | None = Field(
+        default=None,
+        max_length=4096,
+        description="The item's own canonical URL, echoed from search results.",
+    )
+    _validate_item_href = field_validator("item_href")(_validate_optional_stac_http_url)
     bbox: list[float] | None = Field(default=None, description="Item bounding box.")
     epsg: int | None = Field(default=None, description="EPSG code.")
     datetime_start: str | None = Field(
@@ -589,11 +617,17 @@ async def stac_import(
                 # also what the duplicate-source guard keys on, so pointing
                 # origin_uri at it keeps that guard identical when ADR-002
                 # Decision 6 re-keys it off the PATCHable source_url.
+                # feat(#1222): item_href joins the payload now that search
+                # surfaces it. It is the only stored value that can answer
+                # "was this item withdrawn from the catalog?" — the asset href
+                # answers a different question, and a 200 on one says nothing
+                # about the other.
                 set_dataset_origin(
                     dataset,
                     "stac",
                     uri=item.data_asset_href,
                     asset_href=item.data_asset_href,
+                    item_href=item.item_href,
                     collection_id=item.collection,
                 )
                 db.add(dataset)

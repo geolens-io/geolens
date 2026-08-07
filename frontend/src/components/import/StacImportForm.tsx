@@ -158,6 +158,10 @@ export function StacImportForm() {
         collection: i.collection,
         title: i.title,
         data_asset_href: i.data_asset_href!,
+        // feat(#1222): echo the item's own href back so the dataset's origin
+        // can point at the item, not only its asset. The health probe needs
+        // both to tell "the file is gone" from "the publisher withdrew it".
+        item_href: i.item_href,
         bbox: i.bbox,
         epsg: i.epsg,
         datetime_start: i.datetime_start,

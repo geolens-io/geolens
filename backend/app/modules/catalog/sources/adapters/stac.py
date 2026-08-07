@@ -16,6 +16,7 @@ from typing import Any, TypedDict
 import httpx
 import structlog
 
+from app.core.url_redaction import has_url_credentials
 from app.modules.catalog.sources.security import make_safe_client
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -37,6 +38,41 @@ def _projection_epsg(properties: dict[str, Any]) -> int | None:
     legacy_epsg = properties.get("proj:epsg")
     if isinstance(legacy_epsg, int) and not isinstance(legacy_epsg, bool):
         return legacy_epsg
+    return None
+
+
+def _self_link_href(feature: dict[str, Any]) -> str | None:
+    """The item's own canonical href, from its ``rel="self"`` link.
+
+    feat(#1222): search is the ONE place GeoLens ever holds a STAC item
+    document, so it is the only place the item's own href can be captured —
+    the import request carries an item id and an asset href, and neither
+    composes back into the item URL for a catalog that does not follow the
+    ``/collections/{c}/items/{id}`` layout. Without this, ``origin_ref``'s
+    reserved ``item_href`` key stays permanently unwritten and the health
+    probe can only ever check the asset, never whether the item was
+    withdrawn from the catalog.
+
+    Three ways a self link is dropped rather than surfaced, and the third is
+    the one that matters. Relative and non-http(s) hrefs go because the probe
+    would have nothing safe to fetch. A CREDENTIALED href goes because the
+    import request validator refuses one outright (a signed URL must never
+    reach ``origin_ref``, ADR-002 invariant 4) — and since search is what
+    fills the field the UI echoes back, surfacing one here would turn an
+    optional convenience into a 422 that fails the caller's whole import
+    batch. Dropping at capture keeps the refusal for hand-crafted clients,
+    where it is the right answer, and off the path GeoLens itself drives.
+    """
+    for link in feature.get("links") or []:
+        if not isinstance(link, dict) or link.get("rel") != "self":
+            continue
+        href = link.get("href")
+        if not isinstance(href, str):
+            continue
+        if href.lower().startswith(("http://", "https://")) and not has_url_credentials(
+            href
+        ):
+            return href
     return None
 
 
@@ -222,6 +258,7 @@ async def search_stac_items(
             {
                 "id": f.get("id"),
                 "collection": f.get("collection"),
+                "item_href": _self_link_href(f),
                 "bbox": f.get("bbox"),
                 "datetime": dt,
                 "datetime_start": dt_start,

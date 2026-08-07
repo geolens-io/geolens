@@ -1917,6 +1917,7 @@ export interface StacSearchRequest {
 export interface StacItemSummary {
   id: string;
   collection: string | null;
+  item_href: string | null;
   title: string;
   bbox: number[] | null;
   datetime: string | null;
@@ -1943,6 +1944,7 @@ export interface StacImportItem {
   collection: string | null;
   title: string;
   data_asset_href: string;
+  item_href: string | null;
   bbox: number[] | null;
   epsg: number | null;
   datetime_start: string | null;

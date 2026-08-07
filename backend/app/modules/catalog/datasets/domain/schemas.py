@@ -15,8 +15,22 @@ from pydantic import (
 
 from app.core.url_redaction import has_url_credentials
 from app.core.text import normalize_nfc as _nfc
+from app.modules.catalog.sources.origin_probe import DETAIL_CODES
 from app.platform.analysis_sql import MAX_SPATIAL_JOIN_FIELDS
 
+
+# feat(#1222): built from the probe's own closed vocabulary rather than
+# retyped, so the two cannot drift. The wording matters as much as the list:
+# this field is served on every dataset read, so a client author has to be
+# told it is an enumerated code and not a message to show verbatim, or the
+# next person to touch the probe will "improve" it into a sentence carrying
+# provider text.
+SOURCE_HEALTH_DETAIL_DESCRIPTION = (
+    "Why the origin is not healthy, as one of a fixed set of GeoLens codes: "
+    + ", ".join(sorted(DETAIL_CODES))
+    + ". Null when healthy or never probed. Never provider text, a URL, or a "
+    "response body — nothing the origin sent is stored here."
+)
 
 _COLUMN_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _LANGUAGE_TAG_RE = re.compile(r"^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")
@@ -370,7 +384,7 @@ class DatasetResponse(BaseModel):
         ),
     )
     source_health_detail: str | None = Field(
-        default=None, description="Short redacted reason for a non-healthy state"
+        default=None, description=SOURCE_HEALTH_DETAIL_DESCRIPTION
     )
     schema_drift_status: str = Field(
         default="unknown",
@@ -885,6 +899,39 @@ class VrtGenerationItem(BaseModel):
 class VrtGenerationListResponse(BaseModel):
     generations: list[VrtGenerationItem]
     total: int
+
+
+class SourceHealthResponse(BaseModel):
+    """Result of one on-demand origin probe (ADR-002, #1222).
+
+    Deliberately the same three words ``VrtSourceHealth.status`` uses, so the
+    UI renders one legend across VRT members and standalone origins. This
+    endpoint always probes, so it never returns the fourth value: ``unknown``
+    is the response-boundary projection of a never-determined NULL column and
+    reaches clients through ``DatasetResponse``, not through here.
+    """
+
+    dataset_id: uuid.UUID
+    origin: str | None = Field(
+        description="Origin kind that was probed: service or stac."
+    )
+    source_health: Literal["healthy", "missing", "inaccessible"] = Field(
+        description=(
+            "healthy — the origin answered and the resource is there. "
+            "missing — the origin answered authoritatively that it is gone "
+            "(404/410). inaccessible — GeoLens could not determine either "
+            "way, which includes 401/403: access was lost, the data may be "
+            "intact."
+        )
+    )
+    source_health_detail: str | None = Field(
+        default=None,
+        description=SOURCE_HEALTH_DETAIL_DESCRIPTION,
+    )
+    last_checked_at: datetime | None = Field(
+        default=None,
+        description="When GeoLens last contacted this origin, success or failure.",
+    )
 
 
 class AttributeMetadataUpdate(BaseModel):

@@ -35,7 +35,7 @@ from app.modules.catalog.datasets.domain.service import get_dataset
 from app.core.db.tenant_session import current_tenant_var, defer_async_with_tenant
 from app.core.dependencies import get_db
 from app.platform.extensions import get_catalog_port, get_permission_extension
-from app.modules.catalog.sources.security import make_safe_client
+from app.modules.catalog.sources.origin_probe import remote_asset_exists
 from app.platform.storage.titiler_url import resolve_storage_key
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
@@ -71,26 +71,6 @@ async def _load_source_datasets(
         .where(Dataset.id.in_(dataset_ids))
     )
     return {dataset.id: dataset for dataset in result.scalars().unique().all()}
-
-
-async def _remote_asset_exists(asset_uri: str) -> bool:
-    """Probe a remote raster without downloading its body.
-
-    Remote STAC assets are deliberately not passed to the configured object
-    storage provider. The safe client pins validated public IPs and revalidates
-    redirects, while the range request and context-manager close bound the
-    amount of response data consumed by this health endpoint.
-    """
-    try:
-        async with make_safe_client(timeout=10.0) as client:
-            async with client.stream(
-                "GET", asset_uri, headers={"Range": "bytes=0-0"}
-            ) as response:
-                return response.status_code < 400
-    except (
-        Exception
-    ):  # broad: provider/network/SSRF failures all map to an inaccessible health state
-        return False
 
 
 @router.get("/{dataset_id}/vrt-sources/", response_model=VrtSourceListResponse)
@@ -298,7 +278,7 @@ async def get_vrt_status(
         tenant_id = current_tenant_var.get()
         exists_results = await asyncio.gather(
             *(
-                _remote_asset_exists(row.asset_uri)
+                remote_asset_exists(row.asset_uri)
                 if row.storage_backend == "remote"
                 else storage.exists(
                     resolve_storage_key(row.asset_uri, tenant_id=tenant_id)

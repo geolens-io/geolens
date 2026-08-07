@@ -367,7 +367,13 @@ class TestIngestRouterTriggeredBy:
 
 @pytest.mark.anyio
 async def test_remote_vrt_source_health_uses_bounded_safe_http_probe(monkeypatch):
+    # fix(#1222): the probe moved to app.modules.catalog.sources.origin_probe so the
+    # standalone STAC/service health check reuses it. router_vrt still holds
+    # the name, so calling it through the router module keeps this test's
+    # original claim — the VRT flow probes through the safe client — while
+    # the patch target follows the implementation.
     from app.modules.catalog.datasets.api import router_vrt
+    from app.modules.catalog.sources import origin_probe as probe_mod
 
     captured: dict[str, object] = {}
 
@@ -391,9 +397,9 @@ async def test_remote_vrt_source_health_uses_bounded_safe_http_probe(monkeypatch
             captured.update(method=method, url=url, headers=headers)
             return _Response()
 
-    monkeypatch.setattr(router_vrt, "make_safe_client", lambda **_: _Client())
+    monkeypatch.setattr(probe_mod, "make_safe_client", lambda **_: _Client())
 
-    assert await router_vrt._remote_asset_exists("https://example.test/remote-cog.tif")
+    assert await router_vrt.remote_asset_exists("https://example.test/remote-cog.tif")
     assert captured == {
         "method": "GET",
         "url": "https://example.test/remote-cog.tif",

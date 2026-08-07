@@ -22,6 +22,8 @@ class StacItemSummary:
         title (str): Item title (falls back to ID).
         asset_count (int): Number of assets on this item.
         collection (None | str | Unset): Parent collection ID.
+        item_href (None | str | Unset): The item's own canonical URL, from its rel=self link. Echo it back on import so
+            the dataset's origin can point at the item as well as the asset; null when the catalog omits a self link.
         bbox (list[float] | None | Unset): Item bounding box.
         datetime_ (None | str | Unset): Primary datetime (ISO 8601).
         datetime_start (None | str | Unset): Start datetime for ranges.
@@ -40,6 +42,7 @@ class StacItemSummary:
     title: str
     asset_count: int
     collection: None | str | Unset = UNSET
+    item_href: None | str | Unset = UNSET
     bbox: list[float] | None | Unset = UNSET
     datetime_: None | str | Unset = UNSET
     datetime_start: None | str | Unset = UNSET
@@ -65,6 +68,12 @@ class StacItemSummary:
             collection = UNSET
         else:
             collection = self.collection
+
+        item_href: None | str | Unset
+        if isinstance(self.item_href, Unset):
+            item_href = UNSET
+        else:
+            item_href = self.item_href
 
         bbox: list[float] | None | Unset
         if isinstance(self.bbox, Unset):
@@ -146,6 +155,8 @@ class StacItemSummary:
         )
         if collection is not UNSET:
             field_dict["collection"] = collection
+        if item_href is not UNSET:
+            field_dict["item_href"] = item_href
         if bbox is not UNSET:
             field_dict["bbox"] = bbox
         if datetime_ is not UNSET:
@@ -188,6 +199,15 @@ class StacItemSummary:
             return cast(None | str | Unset, data)
 
         collection = _parse_collection(d.pop("collection", UNSET))
+
+        def _parse_item_href(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        item_href = _parse_item_href(d.pop("item_href", UNSET))
 
         def _parse_bbox(data: object) -> list[float] | None | Unset:
             if data is None:
@@ -303,6 +323,7 @@ class StacItemSummary:
             title=title,
             asset_count=asset_count,
             collection=collection,
+            item_href=item_href,
             bbox=bbox,
             datetime_=datetime_,
             datetime_start=datetime_start,

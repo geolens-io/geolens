@@ -2307,7 +2307,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # non-refreshable origin reads "unknown"; and that it is a different thing
     # from the quality score's own freshness, which the frontend already
     # computes under that word. Cap 1271 -> 1286, exact.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1286,
+    # feat(#1222): +47 — SourceHealthResponse (the probe endpoint's reply) and
+    # SOURCE_HEALTH_DETAIL_DESCRIPTION. Most of it is description text, and it
+    # earns its place twice over: the three health words have to mean the same
+    # thing here as on VrtSourceHealth or the UI cannot render one legend, and
+    # the detail description has to say OUT LOUD that the field is an
+    # enumerated GeoLens code rather than a message to show verbatim. It is
+    # built from the probe's own DETAIL_CODES instead of retyping the list, so
+    # the schema and the vocabulary cannot drift. Cap 1286 -> 1333, exact.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1333,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch

@@ -85,12 +85,14 @@ ORIGIN_REF_KEYS: dict[str, frozenset[str]] = {
     # `url` is not the same value as `datasets.origin_uri`, which deliberately
     # keeps the enriched form ingest composed, as provenance.
     "service": frozenset({"service_type", "url", "layer_id"}),
-    # `asset_href` is additive to ADR-002's declared stac shape. The STAC
-    # import request carries the item id, the collection id, and the chosen
-    # data-asset href — never the item's own href — so writing that asset URL
-    # into a key named `item_href` would be a lie in the payload. The key is
-    # reserved and stays unwritten until the import request carries it
-    # (#1222 owns the STAC health probe that will want it).
+    # `asset_href` is additive to ADR-002's declared stac shape, and the two
+    # href keys are NOT interchangeable: `asset_href` is the COG the tiler
+    # reads, `item_href` is the STAC item document that publishes it. A 200 on
+    # one says nothing about the other, which is exactly why the health probe
+    # (#1222) wants both. `item_href` was reserved-but-unwritten until #1222
+    # taught STAC search to surface the item's rel=self link and the import
+    # request to echo it back; it stays absent for catalogs that publish no
+    # self link, and for datasets imported before that landed.
     "stac": frozenset({"item_href", "asset_href", "collection_id", "asset_key"}),
     "upload": frozenset({"filename", "file_hash"}),
     # Gate 2: GeoLens-internal table only. No host/port/DSN/credential key.

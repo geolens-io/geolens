@@ -640,6 +640,8 @@ from .shared_layer_response_style_config_type_0 import (
     SharedLayerResponseStyleConfigType0,
 )
 from .shared_map_response import SharedMapResponse
+from .source_health_response import SourceHealthResponse
+from .source_health_response_source_health import SourceHealthResponseSourceHealth
 from .sse_actions_event import SSEActionsEvent
 from .sse_chat_done_event import SSEChatDoneEvent
 from .sse_error_event import SSEErrorEvent
@@ -1193,6 +1195,8 @@ __all__ = (
     "ShareTokenRequest",
     "ShareTokenRequestExpiresInDaysType0",
     "ShareTokenResponse",
+    "SourceHealthResponse",
+    "SourceHealthResponseSourceHealth",
     "SSEActionsEvent",
     "SSEChatDoneEvent",
     "SSEErrorEvent",
