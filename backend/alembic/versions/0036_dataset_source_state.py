@@ -62,16 +62,39 @@ _UPLOAD_FORMATS = (
 # wrong pointer is worse than none, since NULL at least reads as "unknown".
 # A dropped table yields NULL here, which correctly leaves origin_uri NULL.
 #
+# Unambiguous-or-NULL (fix #1218 review, P1). Table names are unique per
+# tenant but NOT across tenants (uq_datasets_table_name_tenant is partial on
+# tenant_id), so in a multi-tenant install two tenants can both own a
+# `parcels` table. An unconstrained LIMIT 1 would hand one tenant's dataset a
+# pointer into the OTHER tenant's schema, permanently and silently.
+#
+# `HAVING count(*) = 1` makes that inexpressible: the aggregate yields a row
+# only when exactly one candidate schema holds a matching relation, and a
+# scalar subquery over zero rows is NULL, which the `IS NOT NULL` predicate
+# below then skips. Ambiguous rows keep a NULL pointer and read as "unknown".
+#
+# Ambiguity is per table NAME, not per row: this subquery can see only
+# `d.table_name`, so it cannot tell the two colliding datasets apart, and
+# BOTH stay NULL. Resolving them would mean trusting `tenant_id`, which is
+# the thing the comment above establishes we cannot trust. NULL for both is
+# the only answer that cannot be wrong. A dropped table (count = 0) lands in
+# the same branch, which is the behaviour this had before.
+#
+# relkind is filtered because count(*) is now load-bearing: an index or
+# sequence sharing the table's name in another data schema would otherwise
+# push the count to 2 and null out a row that resolves perfectly well.
+#
 # A correlated scalar subquery rather than a LATERAL join: PostgreSQL does not
 # expose an UPDATE's target table to LATERAL items in its FROM clause, but it
 # does to a correlated subquery in SET and WHERE.
 _DATA_SCHEMA_SQL = r"""
-    (SELECT n.nspname
+    (SELECT min(n.nspname)
      FROM pg_class c
      JOIN pg_namespace n ON n.oid = c.relnamespace
      WHERE c.relname = d.table_name
+       AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
        AND (n.nspname = 'data' OR n.nspname LIKE 'data\_t\_%')
-     LIMIT 1)
+     HAVING count(*) = 1)
 """
 
 

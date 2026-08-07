@@ -163,6 +163,11 @@ async def create_raster_dataset(
         source_format="geotiff",
         source_filename=source_filename,
         srid=meta.get("epsg"),
+        # fix(#1218 review): see create_dataset — every creation path stamps
+        # this, or post-migration rows report null while backfilled ones do
+        # not. Python value, not func.now(): a SQL expression leaves the
+        # attribute expired and the next read lazy-loads.
+        last_refreshed_at=datetime.now(timezone.utc),
     )
     # feat(#1218): a raster dataset IS the COG; the pre-conversion upload is a
     # transient input, so the origin is the uploaded file and there is no

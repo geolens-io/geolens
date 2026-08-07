@@ -832,3 +832,351 @@ class TestBackfill:
             assert row.origin_ref is None
         finally:
             await savepoint.rollback()
+
+    async def test_same_table_name_in_two_tenant_schemas_stays_null(
+        self, test_db_session
+    ) -> None:
+        """Cross-tenant collisions resolve to NULL, never to the wrong tenant.
+
+        fix(#1218 review, P1): table names are unique per tenant but not
+        across tenants, so two tenants can both own a `parcels` table. The
+        schema lookup keys on `d.table_name` alone and cannot tell the two
+        catalog rows apart, so per-row resolution is not expressible here —
+        both rows staying NULL is the only answer that cannot be wrong. An
+        unconstrained LIMIT 1 would instead hand one dataset a pointer into
+        the other tenant's schema, permanently and silently.
+        """
+        module = _load_migration()
+        admin_id = await get_user_id(test_db_session, "admin")
+        shared_name = f"collide_{uuid.uuid4().hex[:10]}"
+        # The shared-schema row keeps tenant_id NULL; the tenant row carries
+        # one. That is what makes the name collision legal in the first place:
+        # uq_datasets_table_name_global is partial on tenant_id IS NULL, and
+        # uq_datasets_table_name_tenant keys on (tenant_id, table_name).
+        tenant_id = uuid.uuid4()
+        tenant_schema = f"data_t_{str(tenant_id).replace('-', '_')}"
+
+        first = await _pre_migration_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Collision Shared Schema",
+            source_format=None,
+            table_name=shared_name,
+        )
+        # Built directly rather than through the factory: tenant_id has to be
+        # set at INSERT time, or the partial unique index on tenant_id IS NULL
+        # rejects the row before it can become the tenant-owned twin.
+        tenant_record = Record(
+            title="Collision Tenant Schema",
+            record_type="vector_dataset",
+            visibility="private",
+            record_status="published",
+            created_by=admin_id,
+        )
+        test_db_session.add(tenant_record)
+        await test_db_session.flush()
+        second = Dataset(
+            record_id=tenant_record.id,
+            table_name=shared_name,
+            source_format=None,
+            tenant_id=tenant_id,
+        )
+        test_db_session.add(second)
+        await test_db_session.flush()
+
+        savepoint = await test_db_session.begin_nested()
+        try:
+            await test_db_session.execute(sa.text(f'CREATE SCHEMA "{tenant_schema}"'))
+            await test_db_session.execute(
+                sa.text(f"CREATE TABLE data.{shared_name} (id integer)")
+            )
+            await test_db_session.execute(
+                sa.text(f'CREATE TABLE "{tenant_schema}".{shared_name} (id integer)')
+            )
+            for statement in module.backfill_statements():
+                await test_db_session.execute(statement)
+
+            rows = (
+                await test_db_session.execute(
+                    sa.text(
+                        "SELECT id, origin_uri, origin_ref FROM catalog.datasets "
+                        "WHERE id = ANY(:ids)"
+                    ).bindparams(sa.bindparam("ids", value=[first.id, second.id]))
+                )
+            ).all()
+            assert len(rows) == 2
+            for row in rows:
+                assert row.origin_uri is None, "ambiguous schema must not resolve"
+                assert row.origin_ref is None
+        finally:
+            await savepoint.rollback()
+
+
+# ---------------------------------------------------------------------------
+# The binding follows the current bytes
+# ---------------------------------------------------------------------------
+
+
+_SWAP_METADATA = {
+    "srid": 4326,
+    "geometry_type": "POINT",
+    "feature_count": 3,
+    "extent_wkt": "POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))",
+    "column_info": [
+        {"name": "name", "type": "character varying", "ordinal_position": 1},
+    ],
+}
+
+
+async def _run_reupload_swap(session, dataset, *, admin_id, **kwargs) -> None:
+    """Drive _apply_reupload_swap against a real staging table."""
+    from unittest.mock import AsyncMock, patch
+
+    from app.processing.ingest.tasks import _apply_reupload_swap
+
+    staging_table = f"{dataset.table_name}_staging"
+    await session.execute(
+        sa.text(
+            f"CREATE TABLE data.{staging_table} ("
+            "gid SERIAL PRIMARY KEY, "
+            "geom geometry(Point, 4326), "
+            "geom_4326 geometry(Geometry, 4326), "
+            "name TEXT)"
+        )
+    )
+    with (
+        patch(
+            "app.processing.ingest.metadata.refresh_attribute_metadata",
+            new_callable=AsyncMock,
+        ) as mock_refresh,
+        patch(
+            "app.processing.ingest.metadata.compute_quality_score",
+            new_callable=AsyncMock,
+        ) as mock_quality,
+    ):
+        mock_refresh.return_value = None
+        # A COMPLETE QualityDetail. These tests commit, and the row outlives
+        # them on the shared per-worker database, so a partial dict here does
+        # not just fail this test — it makes every later GET /datasets/ that
+        # includes the row raise a 500 on response validation. Costed 9
+        # failures across test_datasets.py before it was caught.
+        mock_quality.return_value = {
+            "overall": 90.0,
+            "metadata_completeness": 90.0,
+            "geometry_validity": 100.0,
+            "attribute_completeness": 90.0,
+            "crs_defined": 100.0,
+        }
+        await _apply_reupload_swap(
+            session,
+            dataset=dataset,
+            staging_table=staging_table,
+            metadata=_SWAP_METADATA,
+            sample_values={"name": ["A"]},
+            user_id=str(admin_id),
+            original_srid=4326,
+            **kwargs,
+        )
+
+
+class TestReuploadRestampsTheBinding:
+    async def test_file_reupload_of_a_postgis_dataset_becomes_an_upload(
+        self, test_db_session
+    ) -> None:
+        """The binding must describe where the CURRENT bytes came from.
+
+        Without the restamp the API serves a computed origin of `upload`
+        (source_format is now a file suffix) beside a stored ref still
+        claiming `postgis`, and a later refresh would follow the stale
+        pointer at a table these bytes no longer came from.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Reupload Was Postgis",
+            # Private: these rows outlive the test on the shared
+            # per-worker DB, so keep them out of public-list assertions.
+            visibility="private",
+            source_format=None,
+        )
+        set_postgis_origin(ds, ds.table_name, None)
+        ds.source_url = "https://descriptive.test/about-this-layer"
+        stale = datetime(2020, 1, 1, tzinfo=timezone.utc)
+        ds.last_refreshed_at = stale
+        await test_db_session.commit()
+        assert ds.origin_ref["kind"] == "postgis"
+
+        await _run_reupload_swap(
+            test_db_session,
+            ds,
+            admin_id=admin_id,
+            source_filename="parcels.geojson",
+            source_format="geojson",
+            file_hash="sha256:abc123",
+            origin_ref={"filename": "parcels.geojson", "file_hash": "sha256:abc123"},
+        )
+        await test_db_session.commit()
+        await test_db_session.refresh(ds)
+
+        assert ds.origin_ref == {
+            "kind": "upload",
+            "filename": "parcels.geojson",
+            "file_hash": "sha256:abc123",
+        }
+        assert ds.origin_uri is None, "an upload has no remote pointer"
+        assert classify_origin(ds.source_format) == "upload"
+        # The user-editable prose field is NOT collateral damage.
+        assert ds.source_url == "https://descriptive.test/about-this-layer"
+        assert ds.last_refreshed_at is not None and ds.last_refreshed_at > stale
+
+    async def test_service_reupload_stays_a_service_origin(
+        self, test_db_session
+    ) -> None:
+        """Kind is derived, not hardcoded to upload.
+
+        _apply_reupload_swap serves the service re-pull path too, so stamping
+        `upload` unconditionally would flatten a service dataset's binding and
+        drop the pointer a refresh needs.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Reupload Service",
+            # Private: these rows outlive the test on the shared
+            # per-worker DB, so keep them out of public-list assertions.
+            visibility="private",
+            source_format="wfs",
+        )
+        await test_db_session.commit()
+
+        await _run_reupload_swap(
+            test_db_session,
+            ds,
+            admin_id=admin_id,
+            source_filename="parcels",
+            source_format="wfs",
+            source_url="https://gis.test/geoserver/wfs",
+            origin_ref={
+                "service_type": "wfs",
+                "url": "https://gis.test/geoserver/wfs",
+                "layer_id": None,
+            },
+        )
+        await test_db_session.commit()
+        await test_db_session.refresh(ds)
+
+        assert ds.origin_ref == {
+            "kind": "service",
+            "service_type": "wfs",
+            "url": "https://gis.test/geoserver/wfs",
+        }
+        assert ds.origin_uri == "https://gis.test/geoserver/wfs"
+
+    async def test_reupload_ref_still_goes_through_the_allowlist(
+        self, test_db_session
+    ) -> None:
+        """The reupload path is not a side door around the key allowlist."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Reupload Allowlist",
+            # Private: these rows outlive the test on the shared
+            # per-worker DB, so keep them out of public-list assertions.
+            visibility="private",
+            source_format="geojson",
+        )
+        await test_db_session.commit()
+
+        with pytest.raises(ValueError, match="rejects key"):
+            await _run_reupload_swap(
+                test_db_session,
+                ds,
+                admin_id=admin_id,
+                source_filename="parcels.geojson",
+                source_format="geojson",
+                origin_ref={"filename": "parcels.geojson", "token": "leaked"},
+            )
+        await test_db_session.rollback()
+
+
+class TestFirstIngestStampsLastRefreshed:
+    async def test_created_dataset_carries_its_creation_instant(
+        self, test_db_session
+    ) -> None:
+        """Runtime and backfill must agree on the floor.
+
+        Migration 0036 gives a pre-existing dataset records.created_at when it
+        has no version history; a dataset created after the migration must
+        land on effectively the same instant rather than reporting null
+        forever.
+
+        Compared with a tolerance rather than for equality: the stamp is a
+        Python datetime while records.created_at comes from the database's own
+        server_default, so the two clocks agree to well within a second but
+        not to the microsecond. A SQL func.now() would make them identical and
+        is deliberately not used — it leaves the attribute expired after
+        flush, so dataset_to_response's read of it lazy-loads against a closed
+        session (9 suite failures before that was tracked down).
+        """
+        from app.modules.catalog.datasets.domain.service import create_dataset
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await create_dataset(
+            test_db_session,
+            f"lr_{uuid.uuid4().hex[:12]}",
+            "Last Refreshed At Creation",
+            admin_id,
+            source_format="geojson",
+            source_filename="x.geojson",
+            geometry_type="Point",
+            srid=4326,
+        )
+        # Captured pre-commit: attributes expire on commit, and a bare attribute
+        # read would then lazy-load outside the greenlet context.
+        dataset_id = dataset.id
+        await test_db_session.commit()
+
+        row = (
+            await test_db_session.execute(
+                sa.text(
+                    "SELECT d.last_refreshed_at, r.created_at "
+                    "FROM catalog.datasets d "
+                    "JOIN catalog.records r ON r.id = d.record_id "
+                    "WHERE d.id = :id"
+                ).bindparams(sa.bindparam("id", value=dataset_id))
+            )
+        ).one()
+
+        assert row.last_refreshed_at is not None
+        assert abs(row.last_refreshed_at - row.created_at) < timedelta(seconds=30)
+
+    async def test_creation_endpoint_serializes_without_a_lazy_load(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+    ) -> None:
+        """The freshly-created row must serialize on the spot.
+
+        POST /datasets/create/ builds a DatasetResponse from the instance it
+        just made. Stamping last_refreshed_at with a SQL expression leaves the
+        attribute expired, so dataset_to_response's read of it fires a lazy
+        SELECT and the endpoint 500s. That regression showed up only in
+        unrelated files (test_audit, test_features_crud), so it is pinned here
+        where the field lives.
+        """
+        resp = await client.post(
+            "/datasets/create/",
+            json={
+                "title": f"Lazy Load Guard {uuid.uuid4().hex[:8]}",
+                "columns": [{"name": "label", "type": "text"}],
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+        body = resp.json()
+        assert body["last_refreshed_at"] is not None
+        assert body["origin"] == "created"
+        assert body["source_health"] == UNKNOWN

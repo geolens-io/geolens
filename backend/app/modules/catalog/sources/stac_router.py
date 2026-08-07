@@ -6,7 +6,7 @@ search items, and import selected items as raster datasets.
 
 import asyncio
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Literal
 
 import structlog
@@ -578,6 +578,12 @@ async def stac_import(
                     source_url=item.data_asset_href,
                     source_filename=item.id,
                     srid=item.epsg,
+                    # fix(#1218 review): stamped like every other creation
+                    # path, so post-migration imports do not report null while
+                    # backfilled ones carry a timestamp. Python value, not
+                    # func.now(): a SQL expression leaves the attribute
+                    # expired and the next read lazy-loads.
+                    last_refreshed_at=datetime.now(timezone.utc),
                 )
                 # feat(#1218): system-managed origin pointer. The asset href is
                 # also what the duplicate-source guard keys on, so pointing

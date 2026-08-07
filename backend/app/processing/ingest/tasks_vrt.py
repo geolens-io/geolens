@@ -132,6 +132,13 @@ async def create_vrt_dataset(
         source_format=None,  # VRT datasets have no source_format (avoids chk constraint)
         source_filename=source_filename,
         srid=meta.get("epsg"),
+        # fix(#1218 review): stamped like every other creation path. A VRT has
+        # no origin (it is composed from other datasets), but assembling it IS
+        # a successful materialization, and migration 0036 backfills a
+        # timestamp onto pre-existing VRTs the same way. Python value, not
+        # func.now(): a SQL expression leaves the attribute expired and the
+        # next read lazy-loads.
+        last_refreshed_at=datetime.now(timezone.utc),
     )
     session.add(dataset)
     await session.flush()

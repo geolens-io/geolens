@@ -382,6 +382,10 @@ async def reupload_file(
                 source_format=source_format,
                 original_srid=srid,
                 file_hash=file_hash,
+                # fix(#1218 review): the new bytes came from a file, so the
+                # binding says upload — even when the dataset was originally
+                # a registered table or a service import.
+                origin_ref={"filename": source_filename, "file_hash": file_hash},
             )
             # Captured pre-commit: the ORM attribute may be expired after commit.
             live_table_name = dataset.table_name
@@ -761,6 +765,14 @@ async def reupload_service(
                 source_format=source_format,
                 original_srid=metadata.get("srid"),
                 source_url=reupload_source_url,
+                # fix(#1218 review): base URL and layer id stay separate, as
+                # on the first-ingest path, so a refresh can re-address the
+                # layer without re-parsing the enriched pointer.
+                origin_ref={
+                    "service_type": source_format,
+                    "url": source_url_value,
+                    "layer_id": None if layer_id is None else str(layer_id),
+                },
             )
             # Captured pre-commit: the ORM attribute may be expired after commit.
             live_table_name = dataset.table_name

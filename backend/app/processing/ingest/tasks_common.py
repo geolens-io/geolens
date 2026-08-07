@@ -1622,8 +1622,16 @@ async def _apply_reupload_swap(
     original_srid: int | None,
     source_url: str | None = None,
     file_hash: str | None = None,
+    origin_ref: dict[str, Any] | None = None,
 ) -> None:
-    """Apply shared atomic swap + version invariants for all reupload sources."""
+    """Apply shared atomic swap + version invariants for all reupload sources.
+
+    ``origin_ref`` carries the typed per-origin payload for the bytes this
+    swap installs, minus the ``kind`` discriminator (derived from
+    ``source_format``). Same contract as ``IngestContext.origin_ref``: keys go
+    through the per-kind allowlist, and callers supply their own rather than
+    one being inferred here.
+    """
     from app.modules.audit.service import (
         AuditEvent,
         audit_emit,
@@ -1776,6 +1784,32 @@ async def _apply_reupload_swap(
     dataset.record.updated_by = actor_id
     if source_url is not None:
         dataset.source_url = source_url
+
+    # fix(#1218 review): restamp the binding, which must describe where the
+    # CURRENT bytes came from. Without this a file reupload of a
+    # registered-postgis or service dataset leaves the old pointer in place,
+    # so the API serves a computed origin of `upload` beside a stored ref
+    # still claiming `postgis` — and a later refresh would follow the stale
+    # pointer. The kind is derived from the NEW source_format exactly as first
+    # ingest derives it, so a service reupload stays a service origin instead
+    # of being flattened to an upload, and a file reupload correctly clears
+    # origin_uri (an upload has no remote pointer) while leaving the
+    # user-editable source_url alone.
+    #
+    # #1220's shared refresh executor takes over both writes below for
+    # server-side refresh; until it lands, this path owns them.
+    set_dataset_origin(
+        dataset,
+        classify_origin(source_format),
+        uri=source_url,
+        **(origin_ref or {}),
+    )
+    # The swap commit time, which is what migration 0036's backfill reads off
+    # max(dataset_versions.uploaded_at) for a pre-existing dataset. A Python
+    # datetime rather than func.now(): a SQL expression leaves the attribute
+    # expired after flush, and the next read of dataset.last_refreshed_at then
+    # lazy-loads against a session that may already be closed.
+    dataset.last_refreshed_at = datetime.now(timezone.utc)
 
     quality_score = await compute_quality_score(
         session,

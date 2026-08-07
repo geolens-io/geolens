@@ -2115,7 +2115,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # dataset. Most of it is the field's comment recording why the caller
     # supplies the payload rather than this module inferring one.
     # Cap 1796 -> 1816, exact.
-    "backend/app/processing/ingest/tasks_common.py": 1816,
+    # fix(#1218 review): +32 — _apply_reupload_swap restamps the origin
+    # binding and last_refreshed_at, so the stored ref keeps describing where
+    # the CURRENT bytes came from after a reupload changes the origin kind.
+    # Most of it is the comment explaining why the kind is derived rather than
+    # hardcoded to upload (a service reupload must stay a service origin) and
+    # that #1220's executor takes both writes over, and why the timestamp is a
+    # Python datetime rather than func.now() (a SQL expression leaves the
+    # attribute expired, so the next read lazy-loads). Cap 1816 -> 1850, exact.
+    "backend/app/processing/ingest/tasks_common.py": 1850,
     # --- entered by the inclusion rule, fix(#958) -------------------------
     # These five were the ungated modules at or above _RATCHET_INCLUSION_LOC
     # when the rule was written. They arrive at their measured size with no
@@ -2179,7 +2187,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # closes the gap; this Field bound only stops a fresh boot from
     # configuring past S3's own single-PUT ceiling in the first place).
     "backend/app/core/config.py": 1004,
-    "backend/app/processing/ingest/tasks_vrt.py": 1071,
+    # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
+    # other creation path, so a post-migration VRT does not report null while
+    # a backfilled one carries a timestamp, with a note on why it is a Python
+    # datetime and not func.now(). Cap 1071 -> 1078, exact.
+    "backend/app/processing/ingest/tasks_vrt.py": 1078,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
     # reaper never touched the key the client's PUT URL can still recreate.

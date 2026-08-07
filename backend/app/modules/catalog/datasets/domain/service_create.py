@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -233,6 +234,19 @@ async def create_dataset(
     dataset = Dataset(
         record_id=record.id,
         table_name=table_name,
+        # fix(#1218 review): first ingest IS the first successful
+        # materialization, so stamp it here rather than leaving every
+        # post-migration dataset reporting null forever. This mirrors the
+        # floor migration 0036's backfill uses (records.created_at), so a
+        # dataset created before the migration and one created after report
+        # the same kind of thing.
+        #
+        # A Python datetime, NOT func.now(): a SQL expression leaves the
+        # attribute EXPIRED after flush, so the next read of
+        # dataset.last_refreshed_at issues a lazy SELECT — which explodes once
+        # the session is closed, exactly where dataset_to_response reads it.
+        # Every stamping site uses a Python value for that reason.
+        last_refreshed_at=datetime.now(timezone.utc),
         srid=ing.srid,
         geometry_type=ing.geometry_type,
         feature_count=ing.feature_count,
