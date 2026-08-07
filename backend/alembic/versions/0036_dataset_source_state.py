@@ -159,6 +159,10 @@ def upgrade() -> None:
     for statement in backfill_statements():
         op.execute(statement)
 
+    # The authority pass. See purge_credential_bearing_pointers: the SQL above
+    # is a pre-filter, this is what actually decides.
+    purge_credential_bearing_pointers(op.get_bind())
+
     # last_checked_at, source_health, source_health_detail and
     # schema_drift_status are left NULL on every row on purpose: GeoLens has
     # never contacted an origin, so any value here would be invented.
@@ -186,54 +190,33 @@ def _url_is_safe(expr: str) -> str:
     code here follows ``alembic/env.py``, which already imports
     ``app.core.config`` and ``app.core.db``.
 
-    fix(#1218 reviews r6 and r7): the name-normalization gap is closed as a
-    CLASS, not a spelling. Rounds 6 and 7 each reported one encoding of the
-    same idea (``?%74oken=``, then ``?+token+=``), so the arm below is derived
-    from the transforms themselves.
+    fix(#1218 review r7): this predicate is a PRE-FILTER, not the authority.
+    ``purge_credential_bearing_pointers`` runs the real ``has_url_credentials``
+    over everything the backfill populated and clears any offender it finds,
+    so completeness of the arms below is no longer a correctness requirement.
+    That restructure exists because three review rounds each reported one
+    spelling of the same class (``?token=``, ``?%74oken=``, ``?+token+=``):
+    a regex mirror has to be re-proven complete every time ``parse_qsl`` grows
+    a normalization, and nothing fails loudly when it stops being complete.
 
-    Every normalization the runtime pair applies to a query NAME before
-    judging it, read off ``parse_qsl`` and ``_is_sensitive_query_param``
-    (``app/core/url_redaction.py``) and MEASURED against this Python, not
-    recalled:
-
-    ==========================  ============  ==============================
-    transform                   example       how this predicate handles it
-    ==========================  ============  ==============================
-    pair split on ``&``         ``&token=``   anchored on ``[?&]``
-    pair split on ``;``         ``;token=``   NOT a separator in Python 3.14
-                                              (``parse_qsl('a=1;token=s')``
-                                              yields one pair), so nothing
-                                              to handle
-    percent-decode              ``%74oken``   refused by the name arm
-    plus-to-space               ``+token+``   refused by the name arm
-    ``.strip()`` whitespace     ``' token '`` refused by the name arm
-    ``.lower()`` case fold      ``TOKEN``     already matched, the
-                                              alternation runs case
-                                              insensitively (``!~*``)
-    empty name                  ``?=secret``  decodes to ``''``, never in
-                                              SENSITIVE_QUERY_PARAMS
-    ==========================  ============  ==============================
-
-    Case folding is the one transform NOT handled by refusal, deliberately:
-    refusing uppercase names would reject ``?SERVICE=WFS`` and every other
-    ordinary OGC parameter. Matching case-insensitively handles it exactly,
-    so there is nothing ambiguous left to refuse.
-
-    Everything else collapses to one rule: a NAME containing ``%``, ``+``, or
-    whitespace is refused outright, whatever it decodes to. Decoding in SQL
-    would be a second copy of ``parse_qsl`` that can drift from the first,
-    which is the thing binding SENSITIVE_QUERY_PARAMS above exists to prevent.
-    Names never legitimately carry those characters in a service or STAC URL,
-    so the refusal costs approximately no real pointers.
+    What the arms buy, now that they are not load-bearing, is cheapness: the
+    common shapes never reach the Python pass at all. They cover the literal
+    names, plus the two encodings that turn a harmless-looking name into a
+    sensitive one — percent-escapes and ``+`` (which ``parse_qsl`` decodes to a
+    space that ``_is_sensitive_query_param`` then strips). Whitespace rides
+    along in the same character class for free. Every other normalization,
+    and every shape a pattern cannot express — a fullwidth ``＠`` that NFKC
+    turns into a delimiter, a malformed authority ``urlsplit`` refuses — is
+    the authority pass's job.
 
     VALUES keep their encoding rights: the name segment is bounded by the
     FIRST ``=`` of its pair, so ``?typename=ns%3Aroads`` and ``?q=a+b`` both
     still backfill. That distinction is the whole reason for the ``[^=&#]*``
     classes rather than a bare character test.
 
-    To check this list is still complete, re-read those two functions: the
-    predicate is at least as strict as the Python rule on every shape it is
-    given.
+    Case is handled exactly rather than conservatively: the alternation runs
+    case-insensitively (``!~*``), so ``?TOKEN=`` matches without refusing the
+    ordinary uppercase parameters real OGC services use.
     """
     from app.core.url_redaction import SENSITIVE_QUERY_PARAMS
 
@@ -487,3 +470,71 @@ def downgrade() -> None:
         "origin_uri",
     ):
         op.drop_column("datasets", column, schema="catalog")
+
+
+# Keys in origin_ref whose value is a URL. Kept beside the pass that reads
+# them so a new URL-bearing key in ORIGIN_REF_KEYS is one edit away from being
+# checked rather than silently unchecked.
+_URL_REF_KEYS = ("url", "asset_href", "item_href")
+
+
+def purge_credential_bearing_pointers(bind) -> int:
+    """Re-check every backfilled pointer with the REAL credential rule.
+
+    fix(#1218 review r7): this is the authority, and the SQL predicate is a
+    pre-filter in front of it. Three review rounds each reported one spelling
+    of a single class (``?token=``, then ``?%74oken=``, then ``?+token+=``),
+    which is the signal that enumerating spellings in SQL is the wrong shape:
+    a regex mirror of ``has_url_credentials`` has to be re-proven complete
+    every time ``parse_qsl`` grows a normalization, and nothing fails loudly
+    when it stops being complete.
+
+    Running the real function closes the class by construction. Anything the
+    SQL misses is caught here, including shapes a regex cannot reasonably
+    express: ``has_url_credentials`` returns True when ``urlsplit`` REFUSES an
+    authority, so a fullwidth ``＠`` that NFKC turns into a delimiter, or a
+    malformed ``https://[::1``, are both credential-bearing to Python and
+    invisible to any ASCII pattern.
+
+    Both pointer columns are cleared together on an offender. Leaving a
+    half-populated ref would be the "wrong pointer is worse than none" failure
+    this migration avoids everywhere else; the origin still classifies from
+    ``source_format``, so only the pointer is lost.
+
+    Row counts make this ordinary: the scan touches datasets carrying an
+    origin at all, and only those with a URL-shaped field are inspected.
+    Returns the number of rows cleared, so a caller (and the test) can assert
+    on it rather than infer.
+    """
+    from app.core.url_redaction import has_url_credentials
+
+    rows = bind.execute(
+        sa.text(
+            "SELECT id, origin_uri, origin_ref FROM catalog.datasets "
+            "WHERE origin_uri IS NOT NULL OR origin_ref IS NOT NULL"
+        )
+    ).all()
+
+    offenders = []
+    for row in rows:
+        candidates = []
+        if isinstance(row.origin_uri, str):
+            candidates.append(row.origin_uri)
+        if isinstance(row.origin_ref, dict):
+            candidates.extend(
+                value
+                for key in _URL_REF_KEYS
+                if isinstance(value := row.origin_ref.get(key), str)
+            )
+        if any(has_url_credentials(candidate) for candidate in candidates):
+            offenders.append(row.id)
+
+    if offenders:
+        bind.execute(
+            sa.text(
+                "UPDATE catalog.datasets "
+                "SET origin_uri = NULL, origin_ref = NULL "
+                "WHERE id = ANY(:ids)"
+            ).bindparams(sa.bindparam("ids", value=offenders))
+        )
+    return len(offenders)

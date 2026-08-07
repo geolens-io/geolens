@@ -679,6 +679,13 @@ class TestBackfill:
             )
             for statement in module.backfill_statements():
                 await test_db_session.execute(statement)
+            # upgrade() runs the authority pass right after the SQL, so every
+            # backfill test runs it too or it asserts on a half-built state.
+            await test_db_session.run_sync(
+                lambda sync_session: module.purge_credential_bearing_pointers(
+                    sync_session.connection()
+                )
+            )
 
             rows = {
                 row.id: row
@@ -834,6 +841,13 @@ class TestBackfill:
         try:
             for statement in module.backfill_statements():
                 await test_db_session.execute(statement)
+            # upgrade() runs the authority pass right after the SQL, so every
+            # backfill test runs it too or it asserts on a half-built state.
+            await test_db_session.run_sync(
+                lambda sync_session: module.purge_credential_bearing_pointers(
+                    sync_session.connection()
+                )
+            )
             row = (
                 await test_db_session.execute(
                     sa.text(
@@ -872,6 +886,13 @@ class TestBackfill:
         try:
             for statement in module.backfill_statements():
                 await test_db_session.execute(statement)
+            # upgrade() runs the authority pass right after the SQL, so every
+            # backfill test runs it too or it asserts on a half-built state.
+            await test_db_session.run_sync(
+                lambda sync_session: module.purge_credential_bearing_pointers(
+                    sync_session.connection()
+                )
+            )
             row = (
                 await test_db_session.execute(
                     sa.text(
@@ -947,6 +968,13 @@ class TestBackfill:
             )
             for statement in module.backfill_statements():
                 await test_db_session.execute(statement)
+            # upgrade() runs the authority pass right after the SQL, so every
+            # backfill test runs it too or it asserts on a half-built state.
+            await test_db_session.run_sync(
+                lambda sync_session: module.purge_credential_bearing_pointers(
+                    sync_session.connection()
+                )
+            )
 
             rows = (
                 await test_db_session.execute(
@@ -1016,6 +1044,13 @@ class TestBackfill:
             )
             for statement in module.backfill_statements():
                 await test_db_session.execute(statement)
+            # upgrade() runs the authority pass right after the SQL, so every
+            # backfill test runs it too or it asserts on a half-built state.
+            await test_db_session.run_sync(
+                lambda sync_session: module.purge_credential_bearing_pointers(
+                    sync_session.connection()
+                )
+            )
 
             rows = (
                 await test_db_session.execute(
@@ -1178,6 +1213,26 @@ class TestBackfill:
             )
         )
 
+        # fix(#1218 review r7): shapes the SQL pre-filter CANNOT express, so
+        # the Python authority pass is the only thing that catches them.
+        # has_url_credentials returns True whenever urlsplit REFUSES an
+        # authority, and both of these make it refuse.
+        fullwidth_at = await _pre_migration_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Cred Fullwidth At",
+            source_format="wfs",
+        )
+        fullwidth_at.source_url = "https://bob:hunter2＠gis.test/geoserver/wfs"
+
+        malformed_authority = await _pre_migration_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Cred Malformed Authority",
+            source_format="stac",
+        )
+        malformed_authority.source_url = "https://[::1/scene.tif"
+
         stac_cred = await _pre_migration_dataset(
             test_db_session,
             created_by=admin_id,
@@ -1191,6 +1246,13 @@ class TestBackfill:
         try:
             for statement in module.backfill_statements():
                 await test_db_session.execute(statement)
+            # upgrade() runs the authority pass right after the SQL, so every
+            # backfill test runs it too or it asserts on a half-built state.
+            await test_db_session.run_sync(
+                lambda sync_session: module.purge_credential_bearing_pointers(
+                    sync_session.connection()
+                )
+            )
             rows = {
                 r.id: r
                 for r in (
@@ -1213,6 +1275,8 @@ class TestBackfill:
                                     plus_name.id,
                                     plus_name_stac.id,
                                     space_name.id,
+                                    fullwidth_at.id,
+                                    malformed_authority.id,
                                 ],
                             )
                         )
@@ -1229,6 +1293,8 @@ class TestBackfill:
                 plus_name,
                 plus_name_stac,
                 space_name,
+                fullwidth_at,
+                malformed_authority,
             ):
                 row = rows[unsafe.id]
                 assert row.origin_uri is None, f"{row.source_url} was frozen in"
