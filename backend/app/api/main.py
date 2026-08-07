@@ -23,7 +23,11 @@ from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.router import api_router
-from app.observability.metrics import init_metrics
+from app.observability.metrics import (
+    init_metrics,
+    shutdown_worker_metrics,
+    sweep_dead_worker_metrics,
+)
 from app.platform.cache.provider import init_tile_cache
 
 # settings already imported above for the tempdir override — do NOT reimport
@@ -332,6 +336,10 @@ async def lifespan(app: FastAPI):
     # fix(#643): per-worker RSS gauge + log watermark so an OOM-bound worker
     # is visible in normal logs before the kernel kills it.
     memory_metrics_task = asyncio.create_task(update_memory_metrics())
+    # fix(#1240, #651 review round 2): reap gauge_live*.db files left by a
+    # sibling worker that was OOM-killed/SIGKILLed rather than shut down
+    # gracefully -- shutdown_worker_metrics() below never runs for that case.
+    metrics_sweep_task = asyncio.create_task(sweep_dead_worker_metrics())
 
     async def _stale_jobs_sweeper() -> None:
         """Periodically fail jobs whose worker crashed mid-run.
@@ -410,12 +418,17 @@ async def lifespan(app: FastAPI):
 
     pool_metrics_task.cancel()
     memory_metrics_task.cancel()
+    metrics_sweep_task.cancel()
     stale_jobs_task.cancel()
     rate_limit_warmer_task.cancel()
     await task_app.close_async()
     await close_tile_pool()
     await _titiler_client.aclose()
     await engine.dispose()
+    # fix(#1240, #651): drop this worker's multiprocess metric files so a
+    # respawn under UVICORN_MAX_REQUESTS recycling doesn't leave a stale
+    # series behind for the next scrape to keep summing.
+    shutdown_worker_metrics()
 
 
 _DESCRIPTION = """\

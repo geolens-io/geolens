@@ -543,12 +543,22 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "process_resident_memory_bytes{job=~\"geolens-.*\"}",
+          "expr": "process_resident_memory_bytes{job=\"geolens-worker\"}",
           "refId": "A",
-          "legendFormat": "{{job}}"
+          "legendFormat": "worker"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(geolens_worker_rss_bytes)",
+          "refId": "B",
+          "legendFormat": "api"
         }
       ],
       "title": "Process resident memory (by service)",
+      "description": "fix(#1240, #651 review round 3): the api job runs prometheus_client multiprocess mode, so its served registry only contains MultiProcessCollector and stops exporting the default process_resident_memory_bytes -- geolens_worker_rss_bytes (summed across live workers) is the multiprocess-safe equivalent. The worker stays single-process and keeps exporting process_resident_memory_bytes directly.",
       "type": "timeseries"
     },
     {
