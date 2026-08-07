@@ -78,6 +78,7 @@ separate post-step (headless browser capture + `PUT /maps/{id}/thumbnail/`).
 | `init-test-db.sh` | Initialize a host-accessible `geolens_test` database (extensions, schemas, roles) for local `psql` debugging. Not used by CI. CI and pytest each bootstrap their own test databases. |
 | `backup-entrypoint.sh` | Scheduled `pg_dump` backups with retention + optional S3 upload (the default Docker Compose backup service) |
 | `restore.sh` | Restore a database backup |
+| `audit_retention.sh` | Apply a retention window to `catalog.audit_logs`: export the window through the API, verify the archive, then delete exactly those rows (`RUNBOOK.md` §8) |
 | `run-baseline.sh` | Run performance baselines |
 | `analyze-query-plans.sh` | Analyze slow query plans |
 | `cleanup-test-pollution.sql` | Remove leftover test data (manual `psql`) |
