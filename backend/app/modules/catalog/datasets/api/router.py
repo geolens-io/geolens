@@ -41,8 +41,12 @@ from app.modules.catalog.datasets.domain.schemas import (
     DatasetDeleteRequest,
     DatasetListResponse,
     DatasetMetaUpdate,
+    DatasetRefreshRunListResponse,
+    DatasetRefreshRunResponse,
     DatasetResponse,
+    SchemaDiff,
 )
+from app.platform.refresh.service import list_runs_for_dataset
 from app.platform.cache import get_cache, tenant_cache_key
 from app.platform.cache.provider import get_tile_cache
 from app.platform.cache.tiles import invalidate_catalog_cache
@@ -582,6 +586,78 @@ async def get_dataset_history(
                 created_at=log.created_at,
             )
             for log in logs
+        ],
+        total=total,
+    )
+
+
+@router.get("/{dataset_id}/refresh-runs", response_model=DatasetRefreshRunListResponse)
+async def list_dataset_refresh_runs(
+    dataset_id: uuid.UUID,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    user: Identity | None = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
+) -> DatasetRefreshRunListResponse:
+    """Refresh history for a dataset: every attempt, including the failures.
+
+    Durable across the `ingest_jobs` retention purge — that purge is why this
+    table exists rather than the jobs table serving as the record (#1219).
+
+    Access follows Rule 1 on the read path, and ADR-002 Decision 4e adds field
+    redaction on top: a caller who is neither the dataset owner nor an admin
+    sees the timeline and outcomes but not who triggered each run, nor the
+    failure text, nor the schema diff. Without that, a PUBLIC dataset's
+    history enumerates its editors and leaks origin detail through error
+    strings. The redaction is tested against a NAMED signed-in third party as
+    well as an anonymous reader; a requester-scoped check that only exercises
+    the anonymous case reads as complete and is not.
+    """
+    dataset = await get_dataset(db, dataset_id)
+    if dataset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dataset not found",
+        )
+
+    user_roles = await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
+    can_view_detail = bool(
+        user and (dataset.record.created_by == user.id or "admin" in user_roles)
+    )
+
+    runs, total = await list_runs_for_dataset(db, dataset_id, skip=skip, limit=limit)
+    actors = (
+        await _load_actor_identities(db, [run.triggered_by for run in runs])
+        if can_view_detail
+        else {}
+    )
+    usernames = {actor_id: actor.username for actor_id, actor in actors.items()}
+
+    return DatasetRefreshRunListResponse(
+        runs=[
+            DatasetRefreshRunResponse(
+                id=run.id,
+                dataset_id=run.dataset_id,
+                dataset_version_id=run.dataset_version_id,
+                ingest_job_id=run.ingest_job_id,
+                origin_kind=run.origin_kind,
+                trigger=run.trigger,
+                status=run.status,
+                triggered_by=run.triggered_by if can_view_detail else None,
+                triggered_by_username=usernames.get(run.triggered_by),
+                started_at=run.started_at,
+                finished_at=run.finished_at,
+                feature_count_before=run.feature_count_before,
+                feature_count_after=run.feature_count_after,
+                schema_diff=(
+                    SchemaDiff(**run.schema_diff)
+                    if can_view_detail and run.schema_diff
+                    else None
+                ),
+                error_code=run.error_code if can_view_detail else None,
+                error_message=run.error_message if can_view_detail else None,
+            )
+            for run in runs
         ],
         total=total,
     )

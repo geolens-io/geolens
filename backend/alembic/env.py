@@ -19,6 +19,7 @@ import app.modules.audit.models  # noqa: F401
 import app.modules.catalog.datasets.domain.models  # noqa: F401
 import app.modules.embed_tokens.models  # noqa: F401
 import app.platform.jobs.models  # noqa: F401
+import app.platform.refresh.models  # noqa: F401
 import app.modules.catalog.collections.models  # noqa: F401
 import app.modules.catalog.maps.models  # noqa: F401
 import app.processing.raster.models  # noqa: F401

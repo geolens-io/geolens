@@ -4977,6 +4977,190 @@
         "title": "DatasetMeta",
         "type": "object"
       },
+      "DatasetRefreshRunListResponse": {
+        "properties": {
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/DatasetRefreshRunResponse"
+            },
+            "title": "Runs",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "runs",
+          "total"
+        ],
+        "title": "DatasetRefreshRunListResponse",
+        "type": "object"
+      },
+      "DatasetRefreshRunResponse": {
+        "description": "One refresh attempt, success or failure (ADR-002 Decision 4).\n\nFive fields are redacted for callers who are neither the dataset owner nor\nan admin: ``triggered_by``, ``triggered_by_username``, ``error_code``,\n``error_message`` and ``schema_diff``. A public dataset's refresh history\notherwise enumerates who edits it, and failure text leaks internal origin\ndetail. The redaction is enumerated against NAMED third-party readers as\nwell as anonymous ones \u2014 a signed-in stranger is the case that gets\nmissed.",
+        "properties": {
+          "dataset_id": {
+            "format": "uuid",
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "dataset_version_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The version this run produced. Null for a run that never committed a swap.",
+            "title": "Dataset Version Id"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Short redacted failure reason",
+            "title": "Error Message"
+          },
+          "feature_count_after": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feature Count After"
+          },
+          "feature_count_before": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feature Count Before"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "ingest_job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The ingest job that carried out the work. Nulls out when the job row is purged by retention; the run itself survives.",
+            "title": "Ingest Job Id"
+          },
+          "origin_kind": {
+            "description": "upload, postgis, service, stac, or raster",
+            "title": "Origin Kind",
+            "type": "string"
+          },
+          "schema_diff": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SchemaDiff"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Schema drift measured against the incoming data at swap time. Null for a run that never reached the swap."
+          },
+          "started_at": {
+            "description": "Dispatch time, not claim time \u2014 queue wait is visible",
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "description": "pending, running, succeeded, failed, or cancelled",
+            "title": "Status",
+            "type": "string"
+          },
+          "trigger": {
+            "description": "manual, api, or cli",
+            "title": "Trigger",
+            "type": "string"
+          },
+          "triggered_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Triggered By"
+          },
+          "triggered_by_username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Triggered By Username"
+          }
+        },
+        "required": [
+          "id",
+          "dataset_id",
+          "origin_kind",
+          "trigger",
+          "status",
+          "started_at"
+        ],
+        "title": "DatasetRefreshRunResponse",
+        "type": "object"
+      },
       "DatasetRelationshipCreate": {
         "properties": {
           "target_dataset_id": {
@@ -35886,6 +36070,174 @@
           }
         ],
         "summary": "Get Quicklook",
+        "tags": [
+          "Datasets"
+        ]
+      }
+    },
+    "/datasets/{dataset_id}/refresh-runs": {
+      "get": {
+        "description": "Refresh history for a dataset: every attempt, including the failures.\n\nDurable across the `ingest_jobs` retention purge \u2014 that purge is why this\ntable exists rather than the jobs table serving as the record (#1219).\n\nAccess follows Rule 1 on the read path, and ADR-002 Decision 4e adds field\nredaction on top: a caller who is neither the dataset owner nor an admin\nsees the timeline and outcomes but not who triggered each run, nor the\nfailure text, nor the schema diff. Without that, a PUBLIC dataset's\nhistory enumerates its editors and leaks origin detail through error\nstrings. The redaction is tested against a NAMED signed-in third party as\nwell as an anonymous reader; a requester-scoped check that only exercises\nthe anonymous case reads as complete and is not.",
+        "operationId": "list_dataset_refresh_runs_datasets__dataset_id__refresh_runs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "skip",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Skip",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetRefreshRunListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad request \u2014 invalid payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Forbidden \u2014 caller lacks write access"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Conflict \u2014 resource state prevents the operation"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many requests \u2014 retry after the advertised interval",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the request may be retried",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Service unavailable \u2014 the database could not serve the request"
+          }
+        },
+        "security": [
+          {},
+          {
+            "OAuth2PasswordBearer": []
+          },
+          {
+            "ApiKeyHeader": []
+          },
+          {
+            "ApiKeyQuery": []
+          }
+        ],
+        "summary": "List Dataset Refresh Runs",
         "tags": [
           "Datasets"
         ]

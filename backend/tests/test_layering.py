@@ -2131,7 +2131,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # stamps the same contact for service/STAC origins — the import fetched
     # from the origin too, and a fresh service dataset otherwise reported
     # "never contacted" until manually probed. Cap 1861 -> 1868, exact.
-    "backend/app/processing/ingest/tasks_common.py": 1868,
+    # feat(#1219): +6 — _apply_reupload_swap now RETURNS the DatasetVersion it
+    # created, flushed so its id is populated, because the refresh run row
+    # links to that id. Resolving it at the call site by (dataset_id,
+    # version_number) instead would be a second way to name one row.
+    # Cap 1868 -> 1874, exact.
+    "backend/app/processing/ingest/tasks_common.py": 1874,
     # --- entered by the inclusion rule, fix(#958) -------------------------
     # These five were the ungated modules at or above _RATCHET_INCLUSION_LOC
     # when the rule was written. They arrive at their measured size with no
@@ -2187,7 +2192,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # match, same ownership rule `owned_presigned_staging_key` already
     # enforces), so a terminal child no longer rides along on the parent's
     # ~8.9-day exemption. Cap 1545 -> 1561, exact.
-    "backend/app/platform/jobs/router.py": 1561,
+    # feat(#1219): +12 — the abandoned-refresh-run sweep runs in this pass,
+    # placed after the two job sweeps because a job flipped to `failed` by
+    # them is one of the two proofs the run sweep needs. Most of the lines are
+    # the comment recording that ordering and why the count is logged rather
+    # than added to StaleCleanupOutcome (several callers rebuild that dataclass
+    # field by field). Cap 1561 -> 1573, exact.
+    "backend/app/platform/jobs/router.py": 1573,
     # fix(second-opinion review on #1236 review r3): first entry — crossed
     # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
     # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side
@@ -2195,6 +2206,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # closes the gap; this Field bound only stops a fresh boot from
     # configuring past S3's own single-PUT ceiling in the first place).
     "backend/app/core/config.py": 1004,
+    # feat(#1219): first entry — crossed _RATCHET_INCLUSION_LOC, exactly as
+    # the inclusion rule's own comment predicted for this file ("watched by
+    # nothing until they cross 1000. The threshold catches them then"). The
+    # lines bought the refresh run row's creation at DISPATCH: the
+    # create_pending_run call in reupload_commit, the origin-kind decision it
+    # shares with the branch below it, and a defer-guard rollback that
+    # finalizes the run as failed when the queue is unreachable, so a dispatch
+    # that provably never happened does not read as `pending` for an hour.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1005,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python
@@ -2323,7 +2343,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # enumerated GeoLens code rather than a message to show verbatim. It is
     # built from the probe's own DETAIL_CODES instead of retyping the list, so
     # the schema and the vocabulary cannot drift. Cap 1286 -> 1333, exact.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1333,
+    # feat(#1219, #1223): +56 — DatasetRefreshRunResponse and its list
+    # wrapper. Most of the growth is descriptions that state facts a reader
+    # cannot get from the field name: started_at is DISPATCH time (so queue
+    # wait is visible), ingest_job_id nulls out when the job is purged while
+    # the run survives, and the response docstring enumerates the five fields
+    # Decision 4e redacts for third-party readers. Cap 1333 -> 1389, exact.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1389,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch

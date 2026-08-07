@@ -1331,3 +1331,59 @@ class AnalysisMaterializeResponse(BaseModel):
 
     job_id: uuid.UUID
     status: str
+
+
+class DatasetRefreshRunResponse(BaseModel):
+    """One refresh attempt, success or failure (ADR-002 Decision 4).
+
+    Five fields are redacted for callers who are neither the dataset owner nor
+    an admin: ``triggered_by``, ``triggered_by_username``, ``error_code``,
+    ``error_message`` and ``schema_diff``. A public dataset's refresh history
+    otherwise enumerates who edits it, and failure text leaks internal origin
+    detail. The redaction is enumerated against NAMED third-party readers as
+    well as anonymous ones — a signed-in stranger is the case that gets
+    missed.
+    """
+
+    id: uuid.UUID
+    dataset_id: uuid.UUID
+    dataset_version_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "The version this run produced. Null for a run that never committed a swap."
+        ),
+    )
+    ingest_job_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "The ingest job that carried out the work. Nulls out when the job "
+            "row is purged by retention; the run itself survives."
+        ),
+    )
+    origin_kind: str = Field(description="upload, postgis, service, stac, or raster")
+    trigger: str = Field(description="manual, api, or cli")
+    status: str = Field(description="pending, running, succeeded, failed, or cancelled")
+    triggered_by: uuid.UUID | None = None
+    triggered_by_username: str | None = None
+    started_at: datetime = Field(
+        description="Dispatch time, not claim time — queue wait is visible"
+    )
+    finished_at: datetime | None = None
+    feature_count_before: int | None = None
+    feature_count_after: int | None = None
+    schema_diff: SchemaDiff | None = Field(
+        default=None,
+        description=(
+            "Schema drift measured against the incoming data at swap time. "
+            "Null for a run that never reached the swap."
+        ),
+    )
+    error_code: str | None = None
+    error_message: str | None = Field(
+        default=None, description="Short redacted failure reason"
+    )
+
+
+class DatasetRefreshRunListResponse(BaseModel):
+    runs: list[DatasetRefreshRunResponse]
+    total: int

@@ -2280,6 +2280,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/datasets/{dataset_id}/refresh-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Dataset Refresh Runs
+         * @description Refresh history for a dataset: every attempt, including the failures.
+         *
+         *     Durable across the `ingest_jobs` retention purge — that purge is why this
+         *     table exists rather than the jobs table serving as the record (#1219).
+         *
+         *     Access follows Rule 1 on the read path, and ADR-002 Decision 4e adds field
+         *     redaction on top: a caller who is neither the dataset owner nor an admin
+         *     sees the timeline and outcomes but not who triggered each run, nor the
+         *     failure text, nor the schema diff. Without that, a PUBLIC dataset's
+         *     history enumerates its editors and leaks origin detail through error
+         *     strings. The redaction is tested against a NAMED signed-in third party as
+         *     well as an anonymous reader; a requester-scoped check that only exercises
+         *     the anonymous case reads as complete and is not.
+         */
+        get: operations["list_dataset_refresh_runs_datasets__dataset_id__refresh_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/datasets/{dataset_id}/related/": {
         parameters: {
             query?: never;
@@ -7171,6 +7203,87 @@ export interface components {
              * @description Ordered vector-tile property allowlist; null restores zoom defaults, [] emits geometry-only tiles, list emits those properties at any zoom.
              */
             tile_columns?: string[] | null;
+        };
+        /** DatasetRefreshRunListResponse */
+        DatasetRefreshRunListResponse: {
+            /** Runs */
+            runs: components["schemas"]["DatasetRefreshRunResponse"][];
+            /** Total */
+            total: number;
+        };
+        /**
+         * DatasetRefreshRunResponse
+         * @description One refresh attempt, success or failure (ADR-002 Decision 4).
+         *
+         *     Five fields are redacted for callers who are neither the dataset owner nor
+         *     an admin: ``triggered_by``, ``triggered_by_username``, ``error_code``,
+         *     ``error_message`` and ``schema_diff``. A public dataset's refresh history
+         *     otherwise enumerates who edits it, and failure text leaks internal origin
+         *     detail. The redaction is enumerated against NAMED third-party readers as
+         *     well as anonymous ones — a signed-in stranger is the case that gets
+         *     missed.
+         */
+        DatasetRefreshRunResponse: {
+            /**
+             * Dataset Id
+             * Format: uuid
+             */
+            dataset_id: string;
+            /**
+             * Dataset Version Id
+             * @description The version this run produced. Null for a run that never committed a swap.
+             */
+            dataset_version_id?: string | null;
+            /** Error Code */
+            error_code?: string | null;
+            /**
+             * Error Message
+             * @description Short redacted failure reason
+             */
+            error_message?: string | null;
+            /** Feature Count After */
+            feature_count_after?: number | null;
+            /** Feature Count Before */
+            feature_count_before?: number | null;
+            /** Finished At */
+            finished_at?: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Ingest Job Id
+             * @description The ingest job that carried out the work. Nulls out when the job row is purged by retention; the run itself survives.
+             */
+            ingest_job_id?: string | null;
+            /**
+             * Origin Kind
+             * @description upload, postgis, service, stac, or raster
+             */
+            origin_kind: string;
+            /** @description Schema drift measured against the incoming data at swap time. Null for a run that never reached the swap. */
+            schema_diff?: components["schemas"]["SchemaDiff"] | null;
+            /**
+             * Started At
+             * Format: date-time
+             * @description Dispatch time, not claim time — queue wait is visible
+             */
+            started_at: string;
+            /**
+             * Status
+             * @description pending, running, succeeded, failed, or cancelled
+             */
+            status: string;
+            /**
+             * Trigger
+             * @description manual, api, or cli
+             */
+            trigger: string;
+            /** Triggered By */
+            triggered_by?: string | null;
+            /** Triggered By Username */
+            triggered_by_username?: string | null;
         };
         /** DatasetRelationshipCreate */
         DatasetRelationshipCreate: {
@@ -24598,6 +24711,114 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    list_dataset_refresh_runs_datasets__dataset_id__refresh_runs_get: {
+        parameters: {
+            query?: {
+                skip?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatasetRefreshRunListResponse"];
+                };
             };
             /** @description Bad request — invalid payload */
             400: {

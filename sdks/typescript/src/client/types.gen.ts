@@ -2941,6 +2941,114 @@ export type DatasetMeta = {
 };
 
 /**
+ * DatasetRefreshRunListResponse
+ */
+export type DatasetRefreshRunListResponse = {
+    /**
+     * Runs
+     */
+    runs: Array<DatasetRefreshRunResponse>;
+    /**
+     * Total
+     */
+    total: number;
+};
+
+/**
+ * DatasetRefreshRunResponse
+ *
+ * One refresh attempt, success or failure (ADR-002 Decision 4).
+ *
+ * Five fields are redacted for callers who are neither the dataset owner nor
+ * an admin: ``triggered_by``, ``triggered_by_username``, ``error_code``,
+ * ``error_message`` and ``schema_diff``. A public dataset's refresh history
+ * otherwise enumerates who edits it, and failure text leaks internal origin
+ * detail. The redaction is enumerated against NAMED third-party readers as
+ * well as anonymous ones — a signed-in stranger is the case that gets
+ * missed.
+ */
+export type DatasetRefreshRunResponse = {
+    /**
+     * Dataset Id
+     */
+    dataset_id: string;
+    /**
+     * Dataset Version Id
+     *
+     * The version this run produced. Null for a run that never committed a swap.
+     */
+    dataset_version_id?: string | null;
+    /**
+     * Error Code
+     */
+    error_code?: string | null;
+    /**
+     * Error Message
+     *
+     * Short redacted failure reason
+     */
+    error_message?: string | null;
+    /**
+     * Feature Count After
+     */
+    feature_count_after?: number | null;
+    /**
+     * Feature Count Before
+     */
+    feature_count_before?: number | null;
+    /**
+     * Finished At
+     */
+    finished_at?: string | null;
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Ingest Job Id
+     *
+     * The ingest job that carried out the work. Nulls out when the job row is purged by retention; the run itself survives.
+     */
+    ingest_job_id?: string | null;
+    /**
+     * Origin Kind
+     *
+     * upload, postgis, service, stac, or raster
+     */
+    origin_kind: string;
+    /**
+     * Schema drift measured against the incoming data at swap time. Null for a run that never reached the swap.
+     */
+    schema_diff?: SchemaDiff | null;
+    /**
+     * Started At
+     *
+     * Dispatch time, not claim time — queue wait is visible
+     */
+    started_at: string;
+    /**
+     * Status
+     *
+     * pending, running, succeeded, failed, or cancelled
+     */
+    status: string;
+    /**
+     * Trigger
+     *
+     * manual, api, or cli
+     */
+    trigger: string;
+    /**
+     * Triggered By
+     */
+    triggered_by?: string | null;
+    /**
+     * Triggered By Username
+     */
+    triggered_by_username?: string | null;
+};
+
+/**
  * DatasetRelationshipCreate
  */
 export type DatasetRelationshipCreate = {
@@ -18181,6 +18289,77 @@ export type GetQuicklookDatasetsDatasetIdQuicklookGetResponses = {
      */
     200: unknown;
 };
+
+export type ListDatasetRefreshRunsDatasetsDatasetIdRefreshRunsGetData = {
+    body?: never;
+    path: {
+        /**
+         * Dataset Id
+         */
+        dataset_id: string;
+    };
+    query?: {
+        /**
+         * Skip
+         */
+        skip?: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/datasets/{dataset_id}/refresh-runs';
+};
+
+export type ListDatasetRefreshRunsDatasetsDatasetIdRefreshRunsGetErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type ListDatasetRefreshRunsDatasetsDatasetIdRefreshRunsGetError = ListDatasetRefreshRunsDatasetsDatasetIdRefreshRunsGetErrors[keyof ListDatasetRefreshRunsDatasetsDatasetIdRefreshRunsGetErrors];
+
+export type ListDatasetRefreshRunsDatasetsDatasetIdRefreshRunsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: DatasetRefreshRunListResponse;
+};
+
+export type ListDatasetRefreshRunsDatasetsDatasetIdRefreshRunsGetResponse = ListDatasetRefreshRunsDatasetsDatasetIdRefreshRunsGetResponses[keyof ListDatasetRefreshRunsDatasetsDatasetIdRefreshRunsGetResponses];
 
 export type ListRelatedDatasetsDatasetsDatasetIdRelatedGetData = {
     body?: never;

@@ -1630,7 +1630,7 @@ async def _apply_reupload_swap(
     source_url: str | None = None,
     file_hash: str | None = None,
     origin_ref: dict[str, Any] | None = None,
-) -> None:
+) -> Any:
     """Apply shared atomic swap + version invariants for all reupload sources.
 
     ``origin_ref`` carries the typed per-origin payload for the bytes this
@@ -1638,6 +1638,11 @@ async def _apply_reupload_swap(
     ``source_format``). Same contract as ``IngestContext.origin_ref``: keys go
     through the per-kind allowlist, and callers supply their own rather than
     one being inferred here.
+
+    Returns the ``DatasetVersion`` this swap produced, flushed so its id is
+    populated. feat(#1219): the refresh run row links to that id, and building
+    the version here while resolving it by (dataset_id, version_number) at the
+    call site would be two ways to name one row.
     """
     from app.modules.audit.service import (
         AuditEvent,
@@ -1838,19 +1843,19 @@ async def _apply_reupload_swap(
     )
     dataset.quality_detail = quality_score
 
-    session.add(
-        DatasetVersion(
-            dataset_id=dataset.id,
-            version_number=new_version,
-            source_filename=source_filename,
-            source_format=source_format,
-            feature_count=metadata["feature_count"],
-            srid=metadata["srid"],
-            geometry_type=metadata["geometry_type"],
-            file_hash=file_hash,
-            uploaded_by=actor_id,
-        )
+    version = DatasetVersion(
+        dataset_id=dataset.id,
+        version_number=new_version,
+        source_filename=source_filename,
+        source_format=source_format,
+        feature_count=metadata["feature_count"],
+        srid=metadata["srid"],
+        geometry_type=metadata["geometry_type"],
+        file_hash=file_hash,
+        uploaded_by=actor_id,
     )
+    session.add(version)
+    await session.flush()
     await audit_emit(
         session,
         AuditEvent(
@@ -1866,3 +1871,4 @@ async def _apply_reupload_swap(
             },
         ),
     )
+    return version
