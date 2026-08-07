@@ -169,6 +169,41 @@ def _quoted(values: Sequence[str]) -> str:
     return ", ".join(f"'{value}'" for value in values)
 
 
+def _url_is_safe(expr: str) -> str:
+    """SQL predicate mirroring ``has_url_credentials`` for one URL column.
+
+    fix(#1218 review r5): a legacy service URL can carry ``user:pass@`` or a
+    ``?token=`` parameter. Those predate the submission-time gate
+    (``_validate_service_url`` in ``modules/catalog/sources/schemas.py:91``,
+    which refuses both on ``ProbeRequest`` and ``ServicePreviewRequest``), so a
+    NEW ingest cannot persist one, but an OLD row can still hold it. Copying it
+    into ``origin_uri``/``origin_ref`` would be strictly worse than leaving it
+    in ``source_url``: those two columns are read-only on ``DatasetResponse``,
+    so an operator who spots the secret cannot edit it away.
+
+    The parameter names come from ``SENSITIVE_QUERY_PARAMS`` itself rather than
+    a transcription, so this cannot drift from the runtime rule. Importing app
+    code here follows ``alembic/env.py``, which already imports
+    ``app.core.config`` and ``app.core.db``.
+
+    Known narrower than the Python original, in the safe direction for
+    everything except one case: ``parse_qsl`` percent-decodes a parameter NAME
+    before judging it, so ``?%74oken=`` reads as ``token`` there and not here.
+    Matching that in SQL needs a decoder Postgres does not provide. The
+    residual is a legacy URL with a percent-encoded credential parameter name;
+    every other shape this misses is a shape the Python rule also admits.
+    """
+    from app.core.url_redaction import SENSITIVE_QUERY_PARAMS
+
+    # Every name is [a-z0-9_-], so no regex metacharacter needs escaping.
+    alternation = "|".join(sorted(SENSITIVE_QUERY_PARAMS))
+    return f"""(
+        {expr} ~* '^https?://'
+        AND {expr} !~ '^[a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]*@'
+        AND {expr} !~* '[?&]({alternation})='
+    )"""
+
+
 # Service datasets: source_url is the enriched URL ingest composed.
 # ``tasks_vector`` stores ``<base>/<layer_id>`` for ArcGIS FeatureServer
 # layers, so the trailing numeric segment splits back out into ``layer_id``
@@ -234,7 +269,8 @@ _SERVICE_BACKFILL = f"""
                 'kind', 'service',
                 'service_type', d.source_format,
                 'url', COALESCE(
-                    (SELECT j.source_url {_LATEST_JOB}),
+                    (SELECT CASE WHEN {_url_is_safe("j.source_url")}
+                                 THEN j.source_url END {_LATEST_JOB}),
                     CASE
                         WHEN d.source_format = 'arcgis_featureserver'
                              AND d.source_url ~ '/[0-9]+$'
@@ -255,7 +291,7 @@ _SERVICE_BACKFILL = f"""
             )
         )
     WHERE d.source_format IN ({_quoted(_SERVICE_FORMATS)})
-      AND d.source_url ~* '^https?://'
+      AND {_url_is_safe("d.source_url")}
 """
 
 # STAC datasets point at the referenced asset. ``stac_router`` stores the
@@ -264,14 +300,14 @@ _SERVICE_BACKFILL = f"""
 # value the duplicate-source guard keys on today, so re-keying that guard to
 # origin_uri (ADR-002 Decision 6) leaves its behaviour unchanged on
 # existing rows.
-_STAC_BACKFILL = """
+_STAC_BACKFILL = f"""
     UPDATE catalog.datasets AS d
     SET origin_uri = d.source_url,
         origin_ref = jsonb_build_object(
             'kind', 'stac', 'asset_href', d.source_url
         )
     WHERE d.source_format = 'stac'
-      AND d.source_url ~* '^https?://'
+      AND {_url_is_safe("d.source_url")}
 """
 
 # Registered PostGIS tables: no source_format, referenced in place.

@@ -1035,6 +1035,135 @@ class TestBackfill:
         finally:
             await savepoint.rollback()
 
+    async def test_credential_bearing_urls_are_never_frozen_into_the_pointer(
+        self, test_db_session
+    ) -> None:
+        """A legacy secret must not be copied into a read-only column.
+
+        fix(#1218 review r5): source_url is PATCHable, so an operator who
+        spots a credential in it can edit it away. origin_uri and origin_ref
+        are read-only on DatasetResponse, so a secret copied there is stuck.
+        New ingests cannot produce one — _validate_service_url refuses both
+        shapes at submission (sources/schemas.py:91) — but rows predating that
+        gate still hold them.
+        """
+        module = _load_migration()
+        admin_id = await get_user_id(test_db_session, "admin")
+
+        userinfo = await _pre_migration_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Cred Userinfo",
+            source_format="wfs",
+        )
+        userinfo.source_url = "https://bob:hunter2@gis.test/geoserver/wfs"
+
+        token_param = await _pre_migration_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Cred Token Param",
+            source_format="arcgis_featureserver",
+        )
+        token_param.source_url = (
+            "https://gis.test/rest/services/P/FeatureServer/3?token=hunter2"
+        )
+
+        # The admission half: a benign query param must still backfill, or the
+        # guard has quietly stopped every legacy service row from resolving.
+        benign = await _pre_migration_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Cred Benign Query",
+            source_format="wfs",
+        )
+        benign.source_url = "https://gis.test/geoserver/wfs?service=WFS&version=2.0.0"
+        test_db_session.add(
+            IngestJob(
+                dataset_id=benign.id,
+                status="complete",
+                source_url="https://gis.test/geoserver/wfs?service=WFS&version=2.0.0",
+                source_layer="topp:benign",
+                created_by=admin_id,
+            )
+        )
+
+        # A clean dataset URL whose recovered JOB url carries the secret: the
+        # guard has to cover that second source too, not just the first.
+        dirty_job = await _pre_migration_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Cred Dirty Job",
+            source_format="wfs",
+        )
+        dirty_job.source_url = "https://gis.test/geoserver/wfs/topp:secret"
+        test_db_session.add(
+            IngestJob(
+                dataset_id=dirty_job.id,
+                status="complete",
+                source_url="https://svc:pw@gis.test/geoserver/wfs",
+                source_layer="topp:secret",
+                created_by=admin_id,
+            )
+        )
+
+        stac_cred = await _pre_migration_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Cred STAC Presigned",
+            source_format="stac",
+        )
+        stac_cred.source_url = "https://bucket.test/scene.tif?X-Amz-Signature=deadbeef"
+        await test_db_session.flush()
+
+        savepoint = await test_db_session.begin_nested()
+        try:
+            for statement in module.backfill_statements():
+                await test_db_session.execute(statement)
+            rows = {
+                r.id: r
+                for r in (
+                    await test_db_session.execute(
+                        sa.text(
+                            "SELECT id, source_url, origin_uri, origin_ref "
+                            "FROM catalog.datasets WHERE id = ANY(:ids)"
+                        ).bindparams(
+                            sa.bindparam(
+                                "ids",
+                                value=[
+                                    userinfo.id,
+                                    token_param.id,
+                                    benign.id,
+                                    dirty_job.id,
+                                    stac_cred.id,
+                                ],
+                            )
+                        )
+                    )
+                ).all()
+            }
+
+            for unsafe in (userinfo, token_param, stac_cred):
+                row = rows[unsafe.id]
+                assert row.origin_uri is None, f"{row.source_url} was frozen in"
+                assert row.origin_ref is None
+                # The secret stays only where the operator can still edit it.
+                assert row.source_url == unsafe.source_url
+
+            benign_row = rows[benign.id]
+            assert benign_row.origin_uri == benign.source_url, (
+                "the guard must not refuse an ordinary WFS query string"
+            )
+            assert benign_row.origin_ref["layer_id"] == "topp:benign"
+
+            dirty_job_row = rows[dirty_job.id]
+            assert "svc:pw@" not in (dirty_job_row.origin_uri or "")
+            assert "svc:pw@" not in str(dirty_job_row.origin_ref)
+            # The job's layer survives; only its credential-bearing url is dropped.
+            assert dirty_job_row.origin_ref["layer_id"] == "topp:secret"
+            assert "url" not in dirty_job_row.origin_ref
+        finally:
+            await savepoint.rollback()
+
 
 # ---------------------------------------------------------------------------
 # The binding follows the current bytes
