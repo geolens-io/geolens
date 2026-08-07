@@ -1412,6 +1412,141 @@ def test_a_password_in_both_places_is_refused(password_db, curl_stub_dir, tmp_pa
 
 
 # ---------------------------------------------------------------------------
+# The window has to be immutable
+# ---------------------------------------------------------------------------
+
+
+def test_a_future_cutoff_is_refused(clean_audit_table, curl_stub_dir, tmp_path):
+    """The whole procedure assumes the window cannot change while it runs.
+
+    Audit rows are written with created_at = now(), so a window ending in the
+    future keeps gaining rows between the count, the export and the delete, and
+    no count taken of it stays true. Exporting makes it concrete by writing its
+    own audit.export rows inside the window, which the endpoint excludes from
+    its output while a database-side query does not (#1260 review).
+    """
+    db = clean_audit_table
+    _seed_rows(db, days_ago=[200, 150])
+
+    future = _psql(
+        "SELECT to_char((now() + interval '1 day') AT TIME ZONE 'UTC', "
+        '\'YYYY-MM-DD"T"HH24:MI:SS.US"Z"\')',
+        db,
+    )
+    result = _run_script(
+        db,
+        curl_stub_dir,
+        "--cutoff",
+        future,
+        "--confirm-single-tenant",
+        CONFIRM_PHRASE,
+        "--archive-dir",
+        str(tmp_path / "archives"),
+    )
+
+    assert result.returncode != 0
+    assert "is not in the past" in result.stderr
+    # The reason, not just the refusal: a reader has to learn why.
+    assert "created_at = now()" in result.stderr
+    assert _row_count(db) == 2
+
+
+def test_a_cutoff_just_barely_in_the_future_is_refused(
+    clean_audit_table, curl_stub_dir, tmp_path
+):
+    """The guard is `>= now()`, so far-future values are not all it catches.
+
+    The exact boundary -- a cutoff equal to the script's own now() at the
+    instant it checks -- cannot be reached from outside. Any timestamp captured
+    before the script starts is already in the past by the time the script
+    evaluates it, which is why the obvious version of this test passes for the
+    wrong reason: it exercises a *past* cutoff. The `>=` in the source pins the
+    boundary itself; this pins the region beside it, at a distance chosen to be
+    immune to timing rather than to look tight.
+    """
+    db = clean_audit_table
+    _seed_rows(db, days_ago=[200])
+
+    soon = _psql(
+        "SELECT to_char((now() + interval '60 seconds') AT TIME ZONE 'UTC', "
+        '\'YYYY-MM-DD"T"HH24:MI:SS.US"Z"\')',
+        db,
+    )
+    result = _run_script(
+        db,
+        curl_stub_dir,
+        "--cutoff",
+        soon,
+        "--confirm-single-tenant",
+        CONFIRM_PHRASE,
+        "--archive-dir",
+        str(tmp_path / "archives"),
+    )
+
+    assert result.returncode != 0
+    assert "is not in the past" in result.stderr
+    assert _row_count(db) == 1
+
+
+def test_days_always_resolves_to_a_past_cutoff(
+    clean_audit_table, curl_stub_dir, tmp_path
+):
+    """--days N for N >= 1 cannot trip the guard, so it needs no second check.
+
+    This is the assertion that keeps that true rather than a second guard in
+    the --days branch.
+    """
+    db = clean_audit_table
+    _seed_rows(db, days_ago=[200])
+
+    result = _run_script(
+        db,
+        curl_stub_dir,
+        "--days",
+        "1",
+        "--confirm-single-tenant",
+        CONFIRM_PHRASE,
+        "--archive-dir",
+        str(tmp_path / "archives"),
+        "--dry-run",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "is not in the past" not in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# Archives must not be committable
+# ---------------------------------------------------------------------------
+
+
+def test_default_archive_directory_is_gitignored():
+    """Second line of defence behind the RUNBOOK's explicit --archive-dir.
+
+    The default is ./audit-archives and the RUNBOOK tells operators to run the
+    script from the repository root, so without this entry a later `git add .`
+    would stage an export of usernames, IPs and activity.
+    """
+
+    def ignored(path: str) -> bool:
+        return (
+            subprocess.run(
+                ["git", "check-ignore", "-q", path],
+                cwd=REPO_ROOT,
+                capture_output=True,
+            ).returncode
+            == 0
+        )
+
+    # Ask git rather than grep .gitignore: the property is that the path is
+    # ignored, and a matching line could still be overridden by a later
+    # negation. The second assertion is the positive control -- without it, a
+    # check-ignore that always returned 0 would look identical to a pass.
+    assert ignored("audit-archives/audit-archive-example.json")
+    assert not ignored("backend/tests/test_audit_retention_script.py")
+
+
+# ---------------------------------------------------------------------------
 # Host tool requirements
 # ---------------------------------------------------------------------------
 

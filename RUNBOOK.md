@@ -1333,14 +1333,24 @@ export ADMIN_TOKEN=<an admin bearer token>
 ./scripts/audit_retention.sh \
   --api-url https://<your-host>/api \
   --days 90 \
+  --archive-dir /var/backups/geolens/audit-archives \
   --confirm-single-tenant "yes, this deployment has no per-tenant host routing"
 
 # Per-tenant host routing: one run per tenant, against that tenant's host.
 ./scripts/audit_retention.sh \
   --api-url https://<tenant-host>/api \
   --days 90 \
+  --archive-dir /var/backups/geolens/audit-archives \
   --tenant-slug <your-tenant-slug>
 ```
+
+**Give `--archive-dir` a path outside the checkout**, alongside wherever §1
+puts your database backups. The archives belong with your backups rather than
+your source tree, and keeping them out of the working copy means no later
+`git add .` can stage an export of usernames, IP addresses and activity. The
+default is `./audit-archives`, which lands in the repository root when you run
+the script from there; `.gitignore` covers that directory as a second line of
+defence, but the directory you actually want is the one next to your backups.
 
 `--help` lists every flag. The ones worth knowing before the first run:
 
@@ -1349,7 +1359,7 @@ export ADMIN_TOKEN=<an admin bearer token>
 | `--days N` / `--cutoff TS` | The retention boundary. Exactly one is required; there is no default window. |
 | `--tenant-slug SLUG` / `--confirm-single-tenant PHRASE` | The scope. Exactly one is required. |
 | `--dry-run` | Export and verify, then stop without deleting. Use it for the first run on any deployment. |
-| `--archive-dir DIR` | Where archives land (default `./audit-archives`). |
+| `--archive-dir DIR` | Where archives land (default `./audit-archives`). Point it outside the checkout. |
 | `--db-url URL` | External/managed Postgres (below). |
 | `--batch-size N` | Rows per delete statement, default 5000. |
 | `--max-rows N` | Rows per export call, default 100000. |

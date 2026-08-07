@@ -535,6 +535,33 @@ else
         -v d="$DAYS")"
 fi
 [ -n "$CUTOFF" ] || die "failed to resolve the retention cutoff."
+
+# fix(#1248): the cutoff must lie strictly in the past, and this is a
+# correctness precondition rather than a nicety. Everything downstream rests on
+# the window being immutable for the length of the run -- rows are only ever
+# inserted with created_at = now(), so nothing new can appear inside a window
+# that ends in the past, which is what lets a count taken now still describe
+# the rows deleted later. A cutoff at or after now() breaks that premise
+# outright: ordinary activity keeps landing inside the window while the script
+# works, so no count it takes could be trusted.
+#
+# The export makes that concrete. Exporting writes its own audit.export request
+# and outcome rows, at now(), and the endpoint excludes them from its output
+# while a database-side query does not -- so a future window cannot even be
+# archived consistently. Refusing here fixes the cause; teaching the identity
+# check to ignore those rows would only paper over the symptom and leave a
+# mutable window in play.
+#
+# Checked against the frozen value rather than the raw argument, so what is
+# validated is exactly what every later step uses. --days N is always in the
+# past for N >= 1 (already enforced at parse time), so this can only ever fire
+# for --cutoff.
+if [ "$(psql_value "SELECT (:'cutoff'::timestamptz >= now())" -v "cutoff=$CUTOFF")" = "t" ]; then
+    die "the retention cutoff $CUTOFF is not in the past.
+This procedure only works on a window that cannot change while it runs: audit rows are written with created_at = now(), so a window ending now or later keeps gaining rows between the count, the export and the delete, and no count taken of it would still be true by the time anything were deleted. Exporting would also add its own audit.export rows inside the window.
+Pick a cutoff strictly in the past, or use --days N."
+fi
+
 say "Retention cutoff (frozen for this run): $CUTOFF"
 
 # Resolve the tenant before anything else touches the table. A slug that
