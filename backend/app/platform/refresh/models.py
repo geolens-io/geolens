@@ -29,7 +29,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -59,6 +59,20 @@ class DatasetRefreshRun(Base):
         CheckConstraint(
             "origin_kind IN ('upload', 'postgis', 'service', 'stac', 'raster')",
             name="chk_refresh_runs_origin_kind",
+        ),
+        # Admission control in the schema. ADR-002 Decision 5b: at most one
+        # mutation per dataset at a time, and v1 REJECTS rather than queues.
+        # A partial unique index makes that atomic at request time — the loser
+        # of a race gets an IntegrityError the dispatch handler turns into 409
+        # dataset_busy, instead of two runs reaching the worker and finding
+        # each other at the advisory lock. A check-then-insert could not:
+        # between the SELECT and the INSERT there is a window, and this is
+        # exactly the window two humans clicking commit occupy.
+        Index(
+            "uq_refresh_runs_one_active",
+            "dataset_id",
+            unique=True,
+            postgresql_where=text("status IN ('pending', 'running')"),
         ),
         # The history query: newest-first for one dataset.
         Index("ix_dataset_refresh_runs_dataset_started", "dataset_id", "started_at"),
@@ -91,6 +105,16 @@ class DatasetRefreshRun(Base):
     dataset_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("catalog.datasets.id", ondelete="CASCADE"), nullable=False
     )
+    # TSEAM-01 dormant tenant_id — nullable, no FK enforcement, matching the
+    # column on `datasets`. This table is NOT in migration 0018's
+    # stamping-trigger set, so `create_pending_run` writes it explicitly from
+    # the parent dataset's STORED value rather than from the ORM attribute:
+    # in multi-tenant mode the trigger fills the parent's column in the
+    # database and the ORM attribute stays None, so copying the attribute
+    # would silently write NULL (the #1218 finding, one table over).
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
     # The version this run produced, when it produced one. A failed run links
     # to nothing, which is the whole reason this is not a DatasetVersion.
     dataset_version_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -110,9 +134,15 @@ class DatasetRefreshRun(Base):
         ForeignKey("catalog.users.id", ondelete="SET NULL"), nullable=True
     )
     # Dispatch time, NOT claim time. The worker leaves it alone when it moves
-    # the row to `running`, so queue wait is the running-stamp minus this.
+    # the row to `running`.
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    # When the worker began executing. Queue wait is claimed_at - started_at,
+    # which is only measurable because these are three separate columns; fold
+    # any two together and the number is gone.
+    claimed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
     finished_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

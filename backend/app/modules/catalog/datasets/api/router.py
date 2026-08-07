@@ -646,6 +646,7 @@ async def list_dataset_refresh_runs(
                 triggered_by=run.triggered_by if can_view_detail else None,
                 triggered_by_username=usernames.get(run.triggered_by),
                 started_at=run.started_at,
+                claimed_at=run.claimed_at,
                 finished_at=run.finished_at,
                 feature_count_before=run.feature_count_before,
                 feature_count_after=run.feature_count_after,

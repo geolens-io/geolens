@@ -1368,6 +1368,13 @@ class DatasetRefreshRunResponse(BaseModel):
     started_at: datetime = Field(
         description="Dispatch time, not claim time — queue wait is visible"
     )
+    claimed_at: datetime | None = Field(
+        default=None,
+        description=(
+            "When a worker began executing the run. Queue wait is this minus "
+            "started_at; null while the run is still queued."
+        ),
+    )
     finished_at: datetime | None = None
     feature_count_before: int | None = None
     feature_count_after: int | None = None

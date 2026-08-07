@@ -39,6 +39,8 @@ class DatasetRefreshRunResponse:
             started_at (datetime.datetime): Dispatch time, not claim time — queue wait is visible
             status (str): pending, running, succeeded, failed, or cancelled
             trigger (str): manual, api, or cli
+            claimed_at (datetime.datetime | None | Unset): When a worker began executing the run. Queue wait is this minus
+                started_at; null while the run is still queued.
             dataset_version_id (None | Unset | UUID): The version this run produced. Null for a run that never committed a
                 swap.
             error_code (None | str | Unset):
@@ -60,6 +62,7 @@ class DatasetRefreshRunResponse:
     started_at: datetime.datetime
     status: str
     trigger: str
+    claimed_at: datetime.datetime | None | Unset = UNSET
     dataset_version_id: None | Unset | UUID = UNSET
     error_code: None | str | Unset = UNSET
     error_message: None | str | Unset = UNSET
@@ -86,6 +89,14 @@ class DatasetRefreshRunResponse:
         status = self.status
 
         trigger = self.trigger
+
+        claimed_at: None | str | Unset
+        if isinstance(self.claimed_at, Unset):
+            claimed_at = UNSET
+        elif isinstance(self.claimed_at, datetime.datetime):
+            claimed_at = self.claimed_at.isoformat()
+        else:
+            claimed_at = self.claimed_at
 
         dataset_version_id: None | str | Unset
         if isinstance(self.dataset_version_id, Unset):
@@ -169,6 +180,8 @@ class DatasetRefreshRunResponse:
                 "trigger": trigger,
             }
         )
+        if claimed_at is not UNSET:
+            field_dict["claimed_at"] = claimed_at
         if dataset_version_id is not UNSET:
             field_dict["dataset_version_id"] = dataset_version_id
         if error_code is not UNSET:
@@ -208,6 +221,23 @@ class DatasetRefreshRunResponse:
         status = d.pop("status")
 
         trigger = d.pop("trigger")
+
+        def _parse_claimed_at(data: object) -> datetime.datetime | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                claimed_at_type_0 = isoparse(data)
+
+                return claimed_at_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(datetime.datetime | None | Unset, data)
+
+        claimed_at = _parse_claimed_at(d.pop("claimed_at", UNSET))
 
         def _parse_dataset_version_id(data: object) -> None | Unset | UUID:
             if data is None:
@@ -354,6 +384,7 @@ class DatasetRefreshRunResponse:
             started_at=started_at,
             status=status,
             trigger=trigger,
+            claimed_at=claimed_at,
             dataset_version_id=dataset_version_id,
             error_code=error_code,
             error_message=error_message,

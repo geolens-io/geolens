@@ -47,6 +47,7 @@ from app.platform.jobs.defer_guard import (
 )
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.service import (
+    DatasetBusyError,
     create_pending_run,
     make_refresh_run_failed_rollback,
 )
@@ -582,16 +583,37 @@ async def reupload_commit(
     # ingest_jobs row that might have hinted at it is purged after the
     # retention window. `trigger` is `manual` because a human clicked commit;
     # `api` and `cli` belong to #1220's server-side refresh endpoint.
+    #
+    # The insert is also the admission gate (Decision 5b): a partial unique
+    # index allows one active run per dataset, so a second concurrent commit
+    # is refused HERE, atomically, rather than being discovered by the second
+    # worker at the advisory lock with both jobs already queued.
     is_service_refresh = bool(job.source_url and not job.file_path)
-    await create_pending_run(
-        db,
-        dataset_id=dataset_id,
-        origin_kind="service" if is_service_refresh else "upload",
-        trigger="manual",
-        triggered_by=user.id,
-        ingest_job_id=job.id,
-        feature_count_before=dataset.feature_count,
-    )
+    try:
+        await create_pending_run(
+            db,
+            dataset_id=dataset_id,
+            origin_kind="service" if is_service_refresh else "upload",
+            trigger="manual",
+            triggered_by=user.id,
+            ingest_job_id=job.id,
+            feature_count_before=dataset.feature_count,
+        )
+    except DatasetBusyError as exc:
+        # Nothing this request wrote is committed, so the job row it merged
+        # metadata into rolls back with it and stays `pending` — the caller can
+        # commit the same job again once the active run finishes.
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "dataset_busy",
+                "message": (
+                    "A refresh is already running for this dataset. "
+                    "Wait for it to finish, then try again."
+                ),
+            },
+        ) from exc
 
     await db.commit()
 

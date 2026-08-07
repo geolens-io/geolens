@@ -7225,6 +7225,11 @@ export interface components {
          */
         DatasetRefreshRunResponse: {
             /**
+             * Claimed At
+             * @description When a worker began executing the run. Queue wait is this minus started_at; null while the run is still queued.
+             */
+            claimed_at?: string | null;
+            /**
              * Dataset Id
              * Format: uuid
              */

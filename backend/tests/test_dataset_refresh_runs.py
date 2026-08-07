@@ -43,6 +43,7 @@ from app.platform.refresh.service import (
     RUN_ORIGIN_KINDS,
     RUN_STATUSES,
     RUN_TRIGGERS,
+    DatasetBusyError,
     claim_run_for_job,
     create_pending_run,
     drift_status_from_diff,
@@ -53,6 +54,7 @@ from app.platform.refresh.service import (
     record_refresh_success,
     redact_run_error,
     sweep_abandoned_refresh_runs,
+    transition_run,
 )
 from tests.factories import create_dataset as _create_dataset, get_user_id
 
@@ -383,6 +385,7 @@ class TestRunLifecycle:
             feature_count_before=42,
         )
         await test_db_session.commit()
+        await claim_run_for_job(test_db_session, job.id)
 
         diff = _diff(added=[{"name": "zone", "type": "String"}], new_count=57)
         run_id = await record_refresh_success(
@@ -421,6 +424,7 @@ class TestRunLifecycle:
             feature_count_before=42,
         )
         await test_db_session.commit()
+        await claim_run_for_job(test_db_session, job.id)
         await record_refresh_success(
             test_db_session,
             ingest_job_id=job.id,
@@ -451,6 +455,7 @@ class TestRunLifecycle:
             feature_count_before=42,
         )
         await test_db_session.commit()
+        await claim_run_for_job(test_db_session, second_job.id)
         await record_refresh_success(
             test_db_session,
             ingest_job_id=second_job.id,
@@ -591,6 +596,430 @@ class TestRunLifecycle:
         assert len(inner_calls) == 1
         assert run.status == "failed"
         assert run.error_code == "dispatch_failed"
+
+
+class TestAdmissionControl:
+    """One active run per dataset, enforced by the schema (amendment 2.4)."""
+
+    async def test_a_second_active_run_is_refused(self, test_db_session) -> None:
+        dataset, job = await _seed(test_db_session)
+        await create_pending_run(
+            test_db_session,
+            dataset_id=dataset.id,
+            origin_kind="upload",
+            trigger="manual",
+            triggered_by=job.created_by,
+            ingest_job_id=job.id,
+            feature_count_before=42,
+        )
+        await test_db_session.commit()
+
+        second_job = IngestJob(
+            dataset_id=dataset.id, status="pending", created_by=job.created_by
+        )
+        test_db_session.add(second_job)
+        await test_db_session.commit()
+
+        with pytest.raises(DatasetBusyError):
+            await create_pending_run(
+                test_db_session,
+                dataset_id=dataset.id,
+                origin_kind="upload",
+                trigger="manual",
+                triggered_by=job.created_by,
+                ingest_job_id=second_job.id,
+                feature_count_before=42,
+            )
+
+    async def test_the_refusal_leaves_the_transaction_usable(
+        self, test_db_session
+    ) -> None:
+        """The SAVEPOINT is what lets the handler render a 409 at all.
+
+        Without it the IntegrityError poisons the session and every later
+        statement — including the rollback the handler needs — fails too.
+        """
+        dataset, job = await _seed(test_db_session)
+        await create_pending_run(
+            test_db_session,
+            dataset_id=dataset.id,
+            origin_kind="upload",
+            trigger="manual",
+            triggered_by=job.created_by,
+            ingest_job_id=job.id,
+            feature_count_before=42,
+        )
+        await test_db_session.commit()
+
+        with pytest.raises(DatasetBusyError):
+            await create_pending_run(
+                test_db_session,
+                dataset_id=dataset.id,
+                origin_kind="upload",
+                trigger="manual",
+                triggered_by=job.created_by,
+                ingest_job_id=None,
+                feature_count_before=42,
+            )
+
+        # The session still works.
+        assert await test_db_session.scalar(sa.text("SELECT 1")) == 1
+
+    async def test_a_retired_run_frees_the_dataset(self, test_db_session) -> None:
+        """The admission half. A refusal test alone cannot notice that the
+        index started rejecting legitimate sequential refreshes."""
+        dataset, job = await _seed(test_db_session)
+        first = await create_pending_run(
+            test_db_session,
+            dataset_id=dataset.id,
+            origin_kind="upload",
+            trigger="manual",
+            triggered_by=job.created_by,
+            ingest_job_id=job.id,
+            feature_count_before=42,
+        )
+        await test_db_session.commit()
+        await claim_run_for_job(test_db_session, job.id)
+        await record_refresh_failure(
+            test_db_session,
+            ingest_job_id=job.id,
+            error_code="file_refresh_failed",
+            error_message="boom",
+            contacted_origin=False,
+        )
+        await test_db_session.commit()
+
+        second = await create_pending_run(
+            test_db_session,
+            dataset_id=dataset.id,
+            origin_kind="upload",
+            trigger="manual",
+            triggered_by=job.created_by,
+            ingest_job_id=job.id,
+            feature_count_before=42,
+        )
+        await test_db_session.commit()
+        # A retry is a NEW row (Decision 4d): the history is append-only, and
+        # the first run's outcome is not rewritten into the second's.
+        assert second.id != first.id
+        await test_db_session.refresh(first)
+        assert first.status == "failed"
+
+    async def test_an_unrelated_violation_is_not_reported_as_busy(
+        self, test_db_session
+    ) -> None:
+        """Matching IntegrityError alone would turn every future constraint on
+        this table into a misleading 409. A dangling dataset_id is a broken
+        request, not a busy dataset, and must surface as itself."""
+        with pytest.raises(IntegrityError):
+            await create_pending_run(
+                test_db_session,
+                dataset_id=uuid.uuid4(),
+                origin_kind="upload",
+                trigger="manual",
+                triggered_by=None,
+                ingest_job_id=None,
+                feature_count_before=1,
+            )
+        await test_db_session.rollback()
+
+    async def test_two_datasets_do_not_block_each_other(self, test_db_session) -> None:
+        """The index is keyed on dataset_id, not global."""
+        first_dataset, first_job = await _seed(test_db_session)
+        second_dataset, second_job = await _seed(test_db_session)
+        for dataset, job in ((first_dataset, first_job), (second_dataset, second_job)):
+            await create_pending_run(
+                test_db_session,
+                dataset_id=dataset.id,
+                origin_kind="upload",
+                trigger="manual",
+                triggered_by=job.created_by,
+                ingest_job_id=job.id,
+                feature_count_before=1,
+            )
+        await test_db_session.commit()
+
+
+class TestCompareAndSetTransitions:
+    """No transition may overwrite a state it did not expect (amendment 2.3)."""
+
+    async def _pending(self, session):
+        dataset, job = await _seed(session)
+        run = await create_pending_run(
+            session,
+            dataset_id=dataset.id,
+            origin_kind="service",
+            trigger="manual",
+            triggered_by=job.created_by,
+            ingest_job_id=job.id,
+            feature_count_before=42,
+        )
+        await session.commit()
+        return dataset, job, run
+
+    async def test_claim_stamps_claimed_at_and_leaves_started_at(
+        self, test_db_session
+    ) -> None:
+        _, job, run = await self._pending(test_db_session)
+        dispatched_at = run.started_at
+        assert run.claimed_at is None
+
+        assert await claim_run_for_job(test_db_session, job.id) == run.id
+        await test_db_session.commit()
+        await test_db_session.refresh(run)
+
+        assert run.status == "running"
+        assert run.claimed_at is not None
+        # Queue wait is only measurable because these stay separate.
+        assert run.started_at == dispatched_at
+        assert run.claimed_at >= run.started_at
+
+    async def test_a_second_claim_loses_the_race(self, test_db_session) -> None:
+        _, job, run = await self._pending(test_db_session)
+        assert await claim_run_for_job(test_db_session, job.id) == run.id
+        await test_db_session.commit()
+        await test_db_session.refresh(run)
+        first_claim = run.claimed_at
+
+        assert await claim_run_for_job(test_db_session, job.id) is None
+        await test_db_session.commit()
+        await test_db_session.refresh(run)
+        # The loser wrote nothing at all — not even a fresh claimed_at.
+        assert run.claimed_at == first_claim
+
+    async def test_transition_refuses_a_state_it_did_not_expect(
+        self, test_db_session
+    ) -> None:
+        """The compare-and-set itself, isolated from the active-run lookup.
+
+        The lookup in `record_refresh_*` filters terminal rows out, so a test
+        that only goes through those functions is exercising the FILTER, not
+        the CAS — the two look identical from outside and only one of them
+        covers the interleaving where the row changes between the lookup and
+        the update. This drives `transition_run` directly, which is that
+        window.
+        """
+        _, job, run = await self._pending(test_db_session)
+        await claim_run_for_job(test_db_session, job.id)
+        await test_db_session.commit()
+
+        # The caller believes it is still `pending`; the row says `running`.
+        assert (
+            await transition_run(
+                test_db_session, run.id, expected=("pending",), to="succeeded"
+            )
+            is False
+        )
+        await test_db_session.commit()
+        await test_db_session.refresh(run)
+        assert run.status == "running"
+
+        # And the matching expectation still wins, or the guard has simply
+        # stopped letting anything through.
+        assert (
+            await transition_run(
+                test_db_session, run.id, expected=("running",), to="succeeded"
+            )
+            is True
+        )
+        await test_db_session.commit()
+        await test_db_session.refresh(run)
+        assert run.status == "succeeded"
+
+    async def test_transition_cannot_resurrect_a_terminal_run(
+        self, test_db_session
+    ) -> None:
+        """A worker that resurfaces after the sweep cancelled its run holds a
+        run id that was valid when it looked it up. Only the expected-state
+        test stops it writing an outcome over the correction."""
+        _, job, run = await self._pending(test_db_session)
+        await claim_run_for_job(test_db_session, job.id)
+        await test_db_session.commit()
+
+        run_id = run.id
+        run.status = "cancelled"
+        await test_db_session.commit()
+
+        assert (
+            await transition_run(
+                test_db_session,
+                run_id,
+                expected=("running",),
+                to="succeeded",
+                values={"feature_count_after": 99},
+            )
+            is False
+        )
+        await test_db_session.commit()
+        await test_db_session.refresh(run)
+        assert run.status == "cancelled"
+        assert run.feature_count_after is None
+
+    async def test_success_cannot_overwrite_a_cancelled_run(
+        self, test_db_session
+    ) -> None:
+        """The race the sweep makes real: a worker resurfaces after the sweep
+        wrote `cancelled`. A blind UPDATE would report success for a run
+        nobody was watching any more."""
+        dataset, job, run = await self._pending(test_db_session)
+        await claim_run_for_job(test_db_session, job.id)
+        await test_db_session.commit()
+
+        run.status = "cancelled"
+        run.error_code = ABANDONED_ERROR_CODE
+        await test_db_session.commit()
+
+        assert (
+            await record_refresh_success(
+                test_db_session,
+                ingest_job_id=job.id,
+                dataset=dataset,
+                dataset_version_id=None,
+                feature_count_after=99,
+                schema_diff=_diff(),
+                contacted_origin=True,
+            )
+            is None
+        )
+        await test_db_session.commit()
+        await test_db_session.refresh(run)
+        assert run.status == "cancelled"
+        assert run.feature_count_after is None
+
+    async def test_failure_cannot_overwrite_a_succeeded_run(
+        self, test_db_session
+    ) -> None:
+        dataset, job, run = await self._pending(test_db_session)
+        await claim_run_for_job(test_db_session, job.id)
+        await record_refresh_success(
+            test_db_session,
+            ingest_job_id=job.id,
+            dataset=dataset,
+            dataset_version_id=None,
+            feature_count_after=7,
+            schema_diff=_diff(),
+            contacted_origin=False,
+        )
+        await test_db_session.commit()
+
+        assert (
+            await record_refresh_failure(
+                test_db_session,
+                ingest_job_id=job.id,
+                error_code="file_refresh_failed",
+                error_message="late arrival",
+                contacted_origin=False,
+            )
+            is None
+        )
+        await test_db_session.commit()
+        await test_db_session.refresh(run)
+        assert run.status == "succeeded"
+        assert run.error_code is None
+
+    async def test_failure_before_the_claim_still_records(
+        self, test_db_session
+    ) -> None:
+        """The reason `expected` is a tuple: reupload_service revalidates its
+        URL for SSRF before phase 1, so that failure lands on a run that was
+        never claimed. Refusing it would lose the only record of the attempt."""
+        _, job, run = await self._pending(test_db_session)
+        assert (
+            await record_refresh_failure(
+                test_db_session,
+                ingest_job_id=job.id,
+                error_code="service_refresh_failed",
+                error_message="ssrf refusal",
+                contacted_origin=False,
+            )
+            == run.id
+        )
+        await test_db_session.commit()
+        await test_db_session.refresh(run)
+        assert run.status == "failed"
+        assert run.claimed_at is None
+
+
+class TestTenantStamp:
+    async def test_tenant_id_is_copied_from_the_parent_dataset(
+        self, test_db_session
+    ) -> None:
+        """Read from the STORED column, not the ORM attribute: in
+        multi-tenant mode a trigger fills the parent's column in the database
+        while the attribute stays None."""
+        dataset, job = await _seed(test_db_session)
+        dataset_id, job_id, actor_id = dataset.id, job.id, job.created_by
+        tenant_id = uuid.uuid4()
+        # Written straight to the column, the way the stamping trigger writes
+        # it in multi-tenant mode.
+        await test_db_session.execute(
+            sa.text("UPDATE catalog.datasets SET tenant_id = :t WHERE id = :id"),
+            {"t": tenant_id, "id": dataset_id},
+        )
+        await test_db_session.commit()
+        # Nothing cached may supply the answer: every ORM attribute in this
+        # session is now expired, so the value can only have come from the
+        # database. That is the whole claim under test.
+        test_db_session.expire_all()
+
+        run = await create_pending_run(
+            test_db_session,
+            dataset_id=dataset_id,
+            origin_kind="upload",
+            trigger="manual",
+            triggered_by=actor_id,
+            ingest_job_id=job_id,
+            feature_count_before=1,
+        )
+        await test_db_session.commit()
+        await test_db_session.refresh(run)
+        assert run.tenant_id == tenant_id
+
+    async def test_single_tenant_leaves_it_null(self, test_db_session) -> None:
+        dataset, job = await _seed(test_db_session)
+        run = await create_pending_run(
+            test_db_session,
+            dataset_id=dataset.id,
+            origin_kind="upload",
+            trigger="manual",
+            triggered_by=job.created_by,
+            ingest_job_id=job.id,
+            feature_count_before=1,
+        )
+        await test_db_session.commit()
+        await test_db_session.refresh(run)
+        assert run.tenant_id is None
+
+
+class TestImmutableJobBinding:
+    def test_no_write_path_reassigns_ingest_job_id(self) -> None:
+        """The binding is set once at dispatch. A retry is a new row, never a
+        re-pointed old one, so nothing may name this column in an UPDATE."""
+        source = (
+            Path(__file__).resolve().parents[1] / "app/platform/refresh/service.py"
+        ).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+
+        offenders: list[str] = []
+        for node in ast.walk(tree):
+            # `.values(...)` on an update(), and the values dicts callers build
+            # and pass through `transition_run`.
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                if node.func.attr == "values":
+                    offenders += [
+                        kw.arg for kw in node.keywords if kw.arg == "ingest_job_id"
+                    ]
+            if isinstance(node, ast.Dict):
+                offenders += [
+                    key.value
+                    for key in node.keys
+                    if isinstance(key, ast.Constant) and key.value == "ingest_job_id"
+                ]
+
+        assert offenders == [], (
+            "ingest_job_id appears in an UPDATE's values — the run's job "
+            f"binding must be immutable after dispatch: {offenders}"
+        )
 
 
 class TestSchemaInvariants:
@@ -1033,6 +1462,170 @@ class TestDispatchCreatesTheRun:
         assert runs[0].status == "failed"
         assert runs[0].error_code == "dispatch_failed"
 
+    async def test_a_second_dispatch_is_refused_with_dataset_busy(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """ADR-002 Decision 5b at the door, not at the advisory lock.
+
+        Two humans clicking commit is the ordinary case, not the exotic one.
+        Refusing the second here means only one job is ever queued; refusing it
+        in the worker would mean two jobs raced for the same staging table.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _create_dataset(test_db_session, created_by=admin_id)
+
+        with _stubbed_reupload_dispatch():
+            first_job = await _upload_for_reupload(
+                client, dataset.id, admin_auth_header
+            )
+            second_job = await _upload_for_reupload(
+                client, dataset.id, admin_auth_header
+            )
+
+            accepted = await client.post(
+                f"/datasets/{dataset.id}/reupload/{first_job}/commit",
+                json={},
+                headers=admin_auth_header,
+            )
+            assert accepted.status_code == 202, accepted.text
+
+            refused = await client.post(
+                f"/datasets/{dataset.id}/reupload/{second_job}/commit",
+                json={},
+                headers=admin_auth_header,
+            )
+
+        assert refused.status_code == 409, refused.text
+        assert refused.json()["detail"]["code"] == "dataset_busy"
+
+        # Exactly one run, and the refused job stays committable later.
+        runs, total = await list_runs_for_dataset(test_db_session, dataset.id)
+        assert total == 1
+        assert runs[0].ingest_job_id == uuid.UUID(first_job)
+        second = await test_db_session.get(IngestJob, uuid.UUID(second_job))
+        await test_db_session.refresh(second)
+        assert second.status == "pending"
+
+
+class TestCommitTimeRecompute:
+    """The persisted diff describes the STAGED data, never the preview.
+
+    A preview can be minutes old, and for a live service the rows it described
+    are not the rows about to be installed. Persisting the preview would put a
+    number in the history that no committed data ever matched.
+    """
+
+    def _port(self):
+        from app.platform.extensions import get_processing_port
+
+        return get_processing_port()
+
+    async def test_persisted_diff_reflects_the_staged_data_not_the_preview(
+        self, test_db_session
+    ) -> None:
+        dataset, job = await _seed(
+            test_db_session,
+            column_info=[{"name": "id", "type": "Integer"}],
+            feature_count=10,
+        )
+        port = self._port()
+
+        # What the preview saw: the service had gained one column.
+        preview_diff = port.compute_schema_diff(
+            dataset.column_info,
+            [{"name": "id", "type": "Integer"}, {"name": "zone", "type": "String"}],
+            dataset.feature_count,
+            10,
+        )
+        assert [c["name"] for c in preview_diff["columns_added"]] == ["zone"]
+
+        # What the worker actually staged, minutes later: the service moved on.
+        staged_columns = [
+            {"name": "id", "type": "Integer"},
+            {"name": "zone", "type": "String"},
+            {"name": "owner", "type": "String"},
+        ]
+        recomputed = port.compute_schema_diff(
+            dataset.column_info, staged_columns, dataset.feature_count, 31
+        )
+
+        run = await create_pending_run(
+            test_db_session,
+            dataset_id=dataset.id,
+            origin_kind="service",
+            trigger="manual",
+            triggered_by=job.created_by,
+            ingest_job_id=job.id,
+            feature_count_before=dataset.feature_count,
+        )
+        await test_db_session.commit()
+        await claim_run_for_job(test_db_session, job.id)
+        await record_refresh_success(
+            test_db_session,
+            ingest_job_id=job.id,
+            dataset=dataset,
+            dataset_version_id=None,
+            feature_count_after=31,
+            schema_diff=recomputed,
+            contacted_origin=True,
+        )
+        await test_db_session.commit()
+        await test_db_session.refresh(run)
+
+        assert [c["name"] for c in run.schema_diff["columns_added"]] == [
+            "owner",
+            "zone",
+        ]
+        assert run.schema_diff != preview_diff
+        assert run.schema_diff["row_count_new"] == 31
+        assert run.feature_count_after == 31
+
+    def test_the_recompute_runs_before_the_swap_overwrites_its_inputs(self) -> None:
+        """Order is the whole correctness argument, so pin it.
+
+        `_apply_reupload_swap` assigns dataset.column_info and feature_count
+        from the staging metadata. Compute the diff after that call and both
+        sides of the comparison are the NEW data, so every diff comes back
+        empty and every dataset reports schema_drift_status='none'. That
+        failure is silent — a permissive default with no symptom — which is
+        exactly why it gets a structural test rather than trust.
+        """
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "app/processing/ingest/tasks_reupload.py"
+        ).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+
+        checked = 0
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            diff_lines = [
+                call.lineno
+                for call in ast.walk(node)
+                if isinstance(call, ast.Call)
+                and isinstance(call.func, ast.Attribute)
+                and call.func.attr == "compute_schema_diff"
+            ]
+            swap_lines = [
+                call.lineno
+                for call in ast.walk(node)
+                if isinstance(call, ast.Call)
+                and isinstance(call.func, ast.Name)
+                and call.func.id == "_apply_reupload_swap"
+            ]
+            if not diff_lines or not swap_lines:
+                continue
+            checked += 1
+            assert max(diff_lines) < min(swap_lines), (
+                f"{node.name}: compute_schema_diff must run BEFORE "
+                "_apply_reupload_swap overwrites dataset.column_info"
+            )
+
+        assert checked == 2, (
+            f"expected both reupload tasks to recompute the diff; found {checked}"
+        )
+
 
 class TestHistoryPaging:
     async def test_newest_first_and_total_counts_everything(
@@ -1040,6 +1633,9 @@ class TestHistoryPaging:
     ) -> None:
         dataset, job = await _seed(test_db_session)
         base = datetime.now(timezone.utc)
+        # Each run is retired before the next is created: uq_refresh_runs_one_
+        # active permits exactly one pending-or-running row per dataset, which
+        # is the point of the index and is also what a real history looks like.
         for offset in range(3):
             run = await create_pending_run(
                 test_db_session,
@@ -1051,6 +1647,8 @@ class TestHistoryPaging:
                 feature_count_before=offset,
             )
             run.started_at = base - timedelta(minutes=offset)
+            run.status = "succeeded"
+            await test_db_session.flush()
         await test_db_session.commit()
 
         page, total = await list_runs_for_dataset(

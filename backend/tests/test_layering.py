@@ -2214,7 +2214,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # shares with the branch below it, and a defer-guard rollback that
     # finalizes the run as failed when the queue is unreachable, so a dispatch
     # that provably never happened does not read as `pending` for an hour.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1005,
+    # feat(#1219 amendment): +22 — the dispatch door is now the admission
+    # gate. `uq_refresh_runs_one_active` refuses a second active run per
+    # dataset, and this handler turns that IntegrityError into ADR-002
+    # Decision 5b's 409 `dataset_busy`. The lines are the try/except, the
+    # rollback that keeps the refused job re-committable, and the comment
+    # recording why admission belongs here rather than at the worker's
+    # advisory lock. Cap 1005 -> 1027, exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1027,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python
@@ -2349,7 +2356,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # wait is visible), ingest_job_id nulls out when the job is purged while
     # the run survives, and the response docstring enumerates the five fields
     # Decision 4e redacts for third-party readers. Cap 1333 -> 1389, exact.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1389,
+    # feat(#1219 amendment): +7 — claimed_at, the third timestamp. started_at
+    # is dispatch, claimed_at is when a worker picked the run up, finished_at
+    # is the outcome; queue wait is only measurable because all three exist
+    # separately, which the field's description has to say or a reader will
+    # assume two of them are redundant. Cap 1389 -> 1396, exact.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1396,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch

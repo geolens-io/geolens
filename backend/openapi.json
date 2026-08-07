@@ -5001,6 +5001,19 @@
       "DatasetRefreshRunResponse": {
         "description": "One refresh attempt, success or failure (ADR-002 Decision 4).\n\nFive fields are redacted for callers who are neither the dataset owner nor\nan admin: ``triggered_by``, ``triggered_by_username``, ``error_code``,\n``error_message`` and ``schema_diff``. A public dataset's refresh history\notherwise enumerates who edits it, and failure text leaks internal origin\ndetail. The redaction is enumerated against NAMED third-party readers as\nwell as anonymous ones \u2014 a signed-in stranger is the case that gets\nmissed.",
         "properties": {
+          "claimed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When a worker began executing the run. Queue wait is this minus started_at; null while the run is still queued.",
+            "title": "Claimed At"
+          },
           "dataset_id": {
             "format": "uuid",
             "title": "Dataset Id",

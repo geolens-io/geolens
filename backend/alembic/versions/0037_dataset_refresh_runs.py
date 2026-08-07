@@ -39,6 +39,12 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("dataset_id", postgresql.UUID(as_uuid=True), nullable=False),
+        # TSEAM-01 dormant tenant_id: nullable, no FK enforcement, no RLS
+        # policy. This table is NOT in migration 0018's stamping-trigger set,
+        # so the value is written explicitly at run creation from the parent
+        # dataset's stored column. RLS enablement belongs to #998; no table in
+        # this database has it turned on today.
+        sa.Column("tenant_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column("dataset_version_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column("ingest_job_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column("origin_kind", sa.String(length=20), nullable=False),
@@ -51,6 +57,10 @@ def upgrade() -> None:
             server_default=sa.text("now()"),
             nullable=False,
         ),
+        # When the worker began executing, distinct from started_at (dispatch)
+        # and finished_at (outcome). Queue wait is claimed_at - started_at;
+        # conflating any two of the three loses that measurement.
+        sa.Column("claimed_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("feature_count_before", sa.BigInteger(), nullable=True),
         sa.Column("feature_count_after", sa.BigInteger(), nullable=True),
@@ -109,6 +119,21 @@ def upgrade() -> None:
         ),
         schema="catalog",
     )
+    # Admission control, in the schema rather than in a check-then-insert.
+    # ADR-002 Decision 5b says at most one mutation per dataset at a time and
+    # that v1 REJECTS a concurrent trigger with 409 dataset_busy. Enforcing it
+    # with a partial unique index makes the decision atomic at request time:
+    # the loser of a race gets an IntegrityError the dispatch handler turns
+    # into that 409, instead of two runs both reaching the worker and
+    # discovering each other at the advisory lock.
+    op.create_index(
+        "uq_refresh_runs_one_active",
+        "dataset_refresh_runs",
+        ["dataset_id"],
+        unique=True,
+        schema="catalog",
+        postgresql_where=sa.text("status IN ('pending', 'running')"),
+    )
     op.create_index(
         "ix_dataset_refresh_runs_dataset_started",
         "dataset_refresh_runs",
@@ -160,6 +185,11 @@ def downgrade() -> None:
     )
     op.drop_index(
         "ix_dataset_refresh_runs_dataset_started",
+        table_name="dataset_refresh_runs",
+        schema="catalog",
+    )
+    op.drop_index(
+        "uq_refresh_runs_one_active",
         table_name="dataset_refresh_runs",
         schema="catalog",
     )

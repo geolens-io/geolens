@@ -24,11 +24,15 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import structlog
 from sqlalchemy import select, text, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.url_redaction import redact_url_credentials
 from app.platform.refresh.models import DatasetRefreshRun
+
+logger = structlog.get_logger(__name__)
 
 # Mirrors the three CHECK constraints on the table. Kept as tuples so a caller
 # can validate before the database does and get a Python error naming the
@@ -104,6 +108,17 @@ def drift_status_from_diff(schema_diff: dict[str, Any] | None) -> str | None:
     return "drifted" if any(structural) else "none"
 
 
+class DatasetBusyError(Exception):
+    """Another refresh run for this dataset is already pending or running.
+
+    Raised by ``create_pending_run`` when the partial unique index refuses a
+    second active row. The dispatch handler turns it into ADR-002 Decision 5b's
+    409 ``dataset_busy``. It is a domain error rather than an HTTPException so
+    ``platform/`` does not depend on FastAPI, and so the CLI and the future
+    server-side refresh endpoint can render it their own way.
+    """
+
+
 async def create_pending_run(
     session: AsyncSession,
     *,
@@ -120,6 +135,14 @@ async def create_pending_run(
     Decision 4b is that the run row and whatever else the request writes land
     together, and the task is deferred only after that commit succeeds.
 
+    Raises ``DatasetBusyError`` when this dataset already has an active run.
+    The refusal comes from ``uq_refresh_runs_one_active`` rather than from a
+    SELECT here, because a check-then-insert leaves a window between the two
+    statements and that window is precisely where a double-click lands. The
+    INSERT runs inside a SAVEPOINT so the failure does not poison the caller's
+    transaction — the handler still has to render a 409 and, on the reupload
+    door, the job row it already wrote is rolled back with the request.
+
     ``started_at`` and ``created_at`` are stamped in Python rather than left to
     ``server_default``. A server default leaves the attribute expired after
     flush, and the next read lazy-loads — which under AnyIO raises
@@ -130,9 +153,21 @@ async def create_pending_run(
     if trigger not in RUN_TRIGGERS:
         raise ValueError(f"unknown trigger {trigger!r}")
 
+    # Read the parent's STORED tenant_id rather than copying an ORM attribute.
+    # In multi-tenant mode the stamping trigger fills `datasets.tenant_id` in
+    # the database while the ORM attribute stays None, so the attribute would
+    # have written NULL on exactly the installs the column exists for. This
+    # table carries no trigger of its own (it is not in migration 0018's set),
+    # which is why the value is written here at all.
+    tenant_id = await session.scalar(
+        text("SELECT tenant_id FROM catalog.datasets WHERE id = :dataset_id"),
+        {"dataset_id": dataset_id},
+    )
+
     now = datetime.now(timezone.utc)
     run = DatasetRefreshRun(
         dataset_id=dataset_id,
+        tenant_id=tenant_id,
         ingest_job_id=ingest_job_id,
         origin_kind=origin_kind,
         trigger=trigger,
@@ -142,32 +177,114 @@ async def create_pending_run(
         created_at=now,
         feature_count_before=feature_count_before,
     )
-    session.add(run)
-    await session.flush()
+    try:
+        async with session.begin_nested():
+            session.add(run)
+            await session.flush()
+    except IntegrityError as exc:
+        if _ACTIVE_RUN_INDEX not in str(getattr(exc, "orig", exc)):
+            raise
+        raise DatasetBusyError(
+            "A refresh is already in progress for this dataset."
+        ) from exc
     return run
+
+
+# The index name is matched against the driver's error text so an unrelated
+# constraint violation — a bad FK, a CHECK — still propagates as itself rather
+# than being reported to the user as "busy". Matching on IntegrityError alone
+# would turn every future constraint on this table into a misleading 409.
+_ACTIVE_RUN_INDEX = "uq_refresh_runs_one_active"
+
+
+async def _active_run_id_for_job(
+    session: AsyncSession, ingest_job_id: uuid.UUID
+) -> uuid.UUID | None:
+    """The non-terminal run bound to this job, if any.
+
+    At most one can exist: ``uq_refresh_runs_one_active`` allows one active run
+    per dataset, and a job belongs to exactly one dataset.
+    """
+    return await session.scalar(
+        select(DatasetRefreshRun.id).where(
+            DatasetRefreshRun.ingest_job_id == ingest_job_id,
+            DatasetRefreshRun.status.in_(ACTIVE_RUN_STATUSES),
+        )
+    )
+
+
+async def transition_run(
+    session: AsyncSession,
+    run_id: uuid.UUID,
+    *,
+    expected: tuple[str, ...],
+    to: str,
+    values: dict[str, Any] | None = None,
+) -> bool:
+    """Compare-and-set one run's status. True when this caller won.
+
+    Every status write goes through here, and every one of them names the
+    state it believes the row is in. A blind ``UPDATE ... WHERE id`` would let
+    a worker that lost its lease overwrite a terminal status the stale-run
+    sweep had already written — the row would then report an outcome that
+    contradicts what actually happened, which is worse than reporting nothing.
+
+    Zero rows updated is not an error and not a retry signal: it means another
+    actor owns this run now. Log it and back off, which is what the callers do.
+
+    ``expected`` is a tuple because one legitimate caller has two acceptable
+    prior states: a run can fail BEFORE it is claimed (``reupload_service``
+    revalidates its URL for SSRF before phase 1), so the failure path accepts
+    `pending` as well as `running`. What matters, and what the tuple never
+    contains, is a terminal state.
+    """
+    result = await session.execute(
+        update(DatasetRefreshRun)
+        .where(
+            DatasetRefreshRun.id == run_id,
+            DatasetRefreshRun.status.in_(expected),
+        )
+        .values(status=to, **(values or {}))
+        .returning(DatasetRefreshRun.id)
+    )
+    if result.scalar_one_or_none() is not None:
+        return True
+    logger.info(
+        "refresh_run_transition_lost",
+        run_id=str(run_id),
+        expected=list(expected),
+        attempted=to,
+    )
+    return False
 
 
 async def claim_run_for_job(
     session: AsyncSession, ingest_job_id: uuid.UUID
 ) -> uuid.UUID | None:
-    """Move this job's run to ``running``; return its id, or None if there is none.
+    """Move this job's run to ``running`` and stamp ``claimed_at``.
 
-    ``started_at`` is deliberately left at dispatch time, so queue wait is
-    measurable as the gap between it and the row's update.
+    Returns the run id when this caller won the transition, else None.
 
-    Returning None is normal, not an error: a re-upload dispatched before this
-    table existed has no run row, and the worker must still complete.
+    None is normal, not an error, and covers two different cases the caller
+    treats identically: there is no run row at all (a re-upload dispatched
+    before this table existed), or another actor already moved it. Both mean
+    "this worker does not own a run", and the ingest work proceeds regardless —
+    the run row is history, never a gate on the data path.
+
+    ``started_at`` stays at dispatch time; ``claimed_at`` is stamped here, and
+    the gap between them IS the queue wait.
     """
-    result = await session.execute(
-        update(DatasetRefreshRun)
-        .where(
-            DatasetRefreshRun.ingest_job_id == ingest_job_id,
-            DatasetRefreshRun.status == "pending",
-        )
-        .values(status="running")
-        .returning(DatasetRefreshRun.id)
+    run_id = await _active_run_id_for_job(session, ingest_job_id)
+    if run_id is None:
+        return None
+    won = await transition_run(
+        session,
+        run_id,
+        expected=("pending",),
+        to="running",
+        values={"claimed_at": datetime.now(timezone.utc)},
     )
-    return result.scalar_one_or_none()
+    return run_id if won else None
 
 
 def project_refresh_success(
@@ -214,6 +331,11 @@ async def record_refresh_success(
     run's terminal status and the job's ``complete`` status land together. That
     atomicity is what lets the stale-run sweep treat "job complete, run still
     running" as impossible rather than as a state it has to guess about.
+
+    Expects ``running``: this worker claimed the run in phase 1, and anything
+    else means it lost ownership in between. The dataset projection still runs
+    — the swap DID happen and the drift it measured is true regardless of who
+    owns the bookkeeping row.
     """
     now = datetime.now(timezone.utc)
     project_refresh_success(
@@ -222,22 +344,22 @@ async def record_refresh_success(
         contacted_origin=contacted_origin,
         now=now,
     )
-    result = await session.execute(
-        update(DatasetRefreshRun)
-        .where(
-            DatasetRefreshRun.ingest_job_id == ingest_job_id,
-            DatasetRefreshRun.status.in_(ACTIVE_RUN_STATUSES),
-        )
-        .values(
-            status="succeeded",
-            finished_at=now,
-            dataset_version_id=dataset_version_id,
-            feature_count_after=feature_count_after,
-            schema_diff=schema_diff,
-        )
-        .returning(DatasetRefreshRun.id)
+    run_id = await _active_run_id_for_job(session, ingest_job_id)
+    if run_id is None:
+        return None
+    won = await transition_run(
+        session,
+        run_id,
+        expected=("running",),
+        to="succeeded",
+        values={
+            "finished_at": now,
+            "dataset_version_id": dataset_version_id,
+            "feature_count_after": feature_count_after,
+            "schema_diff": schema_diff,
+        },
     )
-    return result.scalar_one_or_none()
+    return run_id if won else None
 
 
 async def record_refresh_failure(
@@ -260,24 +382,36 @@ async def record_refresh_failure(
     parameterized SQL rather than the ORM class because the failure handler
     runs in a fresh session with no dataset loaded, and ``platform/`` may not
     import the catalog ORM at module scope.
+
+    Accepts both non-terminal states. A run usually fails after it was claimed,
+    but not always: ``reupload_service`` revalidates its URL for SSRF before
+    phase 1, so that failure arrives while the run is still ``pending``, as
+    does the defer-guard rollback. Terminal states are excluded either way,
+    which is the guarantee that matters.
     """
     now = datetime.now(timezone.utc)
-    result = await session.execute(
-        update(DatasetRefreshRun)
-        .where(
-            DatasetRefreshRun.ingest_job_id == ingest_job_id,
-            DatasetRefreshRun.status.in_(ACTIVE_RUN_STATUSES),
+    row = (
+        await session.execute(
+            select(DatasetRefreshRun.id, DatasetRefreshRun.dataset_id).where(
+                DatasetRefreshRun.ingest_job_id == ingest_job_id,
+                DatasetRefreshRun.status.in_(ACTIVE_RUN_STATUSES),
+            )
         )
-        .values(
-            status="failed",
-            finished_at=now,
-            error_code=error_code[:64],
-            error_message=redact_run_error(error_message),
-        )
-        .returning(DatasetRefreshRun.id, DatasetRefreshRun.dataset_id)
-    )
-    row = result.one_or_none()
+    ).one_or_none()
     if row is None:
+        return None
+    won = await transition_run(
+        session,
+        row.id,
+        expected=ACTIVE_RUN_STATUSES,
+        to="failed",
+        values={
+            "finished_at": now,
+            "error_code": error_code[:64],
+            "error_message": redact_run_error(error_message),
+        },
+    )
+    if not won:
         return None
     if contacted_origin:
         await session.execute(
@@ -320,16 +454,20 @@ def make_refresh_run_failed_rollback(
     return _rollback
 
 
-# The dataset EXISTS clause looks redundant against a NOT NULL FK, and is
-# not. `dataset_refresh_runs` carries no tenant_id and no RLS policy, like
-# every other per-dataset child table, so under FORCE RLS this UPDATE would
-# otherwise see EVERY tenant's rows on EVERY tenant's sweep pass — while the
-# `ingest_jobs` sub-query beside it, on a table that DOES have a policy, saw
+# This statement is itself a compare-and-set: `status IN ('pending',
+# 'running')` is the expected-state test, and RETURNING gives the rowcount, so
+# the sweep can no more overwrite a terminal status than `transition_run` can.
+#
+# The dataset EXISTS clause looks redundant against a NOT NULL FK, and is not.
+# `dataset_refresh_runs` has no RLS policy of its own — its `tenant_id` is
+# dormant, like the one on `datasets` — so wherever RLS is ENABLED this UPDATE
+# would otherwise see every tenant's rows on every tenant's pass, while the
+# `ingest_jobs` sub-query beside it, on a table that does carry a policy, saw
 # only the current tenant's jobs and so read another tenant's live job as
-# absent. Joining through `catalog.datasets` puts the whole predicate inside
-# one visibility scope: the sweep can only reach runs whose dataset the
-# current session can see. In single-tenant mode RLS is disabled and the
-# clause is the no-op it appears to be.
+# absent. Joining through `catalog.datasets` puts the whole predicate in one
+# visibility scope. No table has RLS enabled today (enablement is #998's
+# work), so this is currently the no-op it appears to be — which is exactly
+# why it has to be written now rather than remembered later.
 #
 # The two proofs the sweep needs before it may write `cancelled`. ADR-002
 # Decision 4d is explicit that this status is a bookkeeping correction and

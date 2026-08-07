@@ -2969,6 +2969,12 @@ export type DatasetRefreshRunListResponse = {
  */
 export type DatasetRefreshRunResponse = {
     /**
+     * Claimed At
+     *
+     * When a worker began executing the run. Queue wait is this minus started_at; null while the run is still queued.
+     */
+    claimed_at?: string | null;
+    /**
      * Dataset Id
      */
     dataset_id: string;
