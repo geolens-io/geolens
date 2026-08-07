@@ -983,6 +983,107 @@ def test_metrics_endpoint_survives_concurrent_sweep(tmp_path):
     assert result.returncode == 0, f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
 
 
+_SAME_PROCESS_SWEEP_DURING_SCRAPE_SCRIPT = """
+import asyncio
+import fcntl
+import os
+import sys
+import time
+
+multiproc_dir = sys.argv[1]
+os.environ["PROMETHEUS_MULTIPROC_DIR"] = multiproc_dir
+
+from app.observability.metrics import (
+    _consolidate_dead_cumulative_metric_files,
+    _sweep_lock_path,
+)
+
+HOLD_SECONDS = 0.5
+
+
+async def mimic_scrape_middleware():
+    # Mirrors the real /metrics middleware exactly: non-blocking poll to
+    # acquire the shared lock, then await something dispatched to a thread
+    # pool (standing in for call_next() dispatching the sync
+    # instrumentator handler), then release.
+    lock_path = _sweep_lock_path(multiproc_dir)
+    with open(lock_path, "a+b") as lock_file:
+        while True:
+            try:
+                fcntl.flock(lock_file, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                await asyncio.sleep(0.005)
+        try:
+            await asyncio.to_thread(time.sleep, HOLD_SECONDS)
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+
+async def sweep_via_to_thread():
+    # Exactly what sweep_dead_worker_metrics()'s loop body does per pass.
+    await asyncio.to_thread(_consolidate_dead_cumulative_metric_files)
+
+
+async def main():
+    scrape_task = asyncio.create_task(mimic_scrape_middleware())
+    # Give the scrape a head start so it reliably holds the shared lock
+    # before the sweep attempts its exclusive one -- this is the exact
+    # ordering that deadlocked pre-fix (round 6 called
+    # _consolidate_dead_cumulative_metric_files() directly on the loop
+    # instead of via to_thread).
+    await asyncio.sleep(0.05)
+    await asyncio.gather(scrape_task, sweep_via_to_thread())
+
+
+asyncio.run(main())
+"""
+
+
+def test_same_process_sweep_during_scrape_does_not_deadlock(tmp_path):
+    """fix(#1240, #651 review round 8): flock() locks are per OPEN FILE
+    DESCRIPTION, not per-process -- a blocking fcntl.flock(LOCK_EX) call
+    made directly on a worker's event loop thread, while that SAME
+    worker's /metrics scrape middleware holds the shared lock via a
+    DIFFERENT file descriptor and is awaiting a thread-pool-dispatched
+    handler, cannot ever succeed: releasing the shared lock requires the
+    scrape's call_next() to resume, which requires the event loop to run,
+    which is exactly what the blocking exclusive-lock wait has frozen. This
+    is a same-process deadlock, invisible to the uvicorn supervisor -- the
+    worker just stops answering every request, not only /metrics.
+
+    round 6/7's existing tests (test_metrics_endpoint_survives_concurrent_sweep,
+    test_sweep_waits_for_inflight_scrape_before_renaming) don't catch this:
+    their "writer" side already runs its blocking flock() via
+    loop.run_in_executor()/a separate process, so they never exercised a
+    sweep call made directly on the SAME event loop the scrape's middleware
+    is using -- which is exactly how round 6 originally shipped the bug.
+
+    Runs the exact ordering that deadlocked before this fix (verified with
+    a throwaway script pre-fix: the subprocess had to be killed by its
+    outer timeout, never reaching completion) inside a subprocess with a
+    bounded timeout, since a real deadlock freezes the event loop itself --
+    no in-process asyncio-level timeout (asyncio.wait_for etc.) can recover
+    from that, only an external kill can. A subprocess.TimeoutExpired here
+    IS a regression: it means the deadlock came back.
+    """
+    multiproc_dir = str(tmp_path)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            _SAME_PROCESS_SWEEP_DURING_SCRAPE_SCRIPT,
+            multiproc_dir,
+        ],
+        cwd=str(_BACKEND_ROOT),
+        env={**os.environ, "PROMETHEUS_MULTIPROC_DIR": multiproc_dir},
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode == 0, f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+
+
 def test_shutdown_worker_metrics_marks_process_dead_when_multiprocess_active():
     """fix(#1240, #651): a recycled worker (UVICORN_MAX_REQUESTS, #643) must
     drop its own multiprocess files on shutdown, or a respawn leaves a stale

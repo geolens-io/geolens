@@ -283,16 +283,17 @@ def _consolidate_dead_cumulative_metric_files() -> None:
     _dead_worker_pids(), not a correctness bug in the common case of a
     graceful sweep pass.
 
-    Uses a blocking fcntl.flock() (unlike the scrape middleware's
-    non-blocking poll loop): this function already does several other
-    blocking syscalls in a row (glob, rename, mmap I/O) with no
-    run_in_executor wrapper, so it already blocks this worker's event loop
-    for its (brief, ~milliseconds) duration regardless: adding one more
-    blocking wait to that existing pattern doesn't change its character.
-    The scrape middleware is different -- it wraps every /metrics response
-    on the request-handling path, where blocking the event loop would add
-    latency to every OTHER concurrent request this worker is serving, not
-    just metrics scrapes -- so that side has to poll instead.
+    Uses a blocking fcntl.flock() internally (unlike the scrape middleware's
+    non-blocking poll loop) -- this is safe ONLY because the sole caller,
+    sweep_dead_worker_metrics(), always invokes this whole function via
+    asyncio.to_thread(), off the event loop thread entirely (fix(#1240,
+    #651 review round 8): a blocking LOCK_EX here that ran directly on the
+    event loop could deadlock against this worker's own /metrics scrape
+    middleware, which holds a shared lock via a DIFFERENT file descriptor
+    on the same lock file while awaiting a thread-pool-dispatched handler --
+    see sweep_dead_worker_metrics()'s docstring for the full mechanism). Do
+    not call this function directly from a coroutine running on a worker's
+    event loop; always go through the to_thread()-wrapped caller.
     """
     multiproc_dir = os.environ.get("PROMETHEUS_MULTIPROC_DIR")
     if not multiproc_dir:
@@ -378,10 +379,31 @@ async def sweep_dead_worker_metrics() -> None:
     both the gauge reap and the counter/histogram/summary consolidation are
     idempotent/self-excluding once a dead pid's files are gone, so a race
     between two workers sweeping the same dead pid is harmless.
+
+    fix(#1240, #651 review round 8): _sweep_dead_worker_metrics_once() runs
+    in a thread-pool executor (asyncio.to_thread), NOT directly on this
+    coroutine's event loop. flock() locks are per OPEN FILE DESCRIPTION, not
+    per-process -- if this worker's OWN /metrics scrape middleware is
+    concurrently holding the shared (reader) lock via its own fd while
+    awaiting call_next() (which dispatches the instrumentator's sync
+    handler to a thread pool and yields control back to this same event
+    loop), and this sweep then called fcntl.flock(LOCK_EX) directly, that
+    blocking syscall would run ON the event loop thread. The lock can only
+    become available once the middleware's call_next() completes and its
+    finally-block releases the shared lock -- but that completion has to be
+    delivered back to the loop via a callback, and the loop thread is the
+    one now frozen inside the kernel waiting for the exclusive lock. Same
+    process, two different file descriptors on the same lock file, real
+    deadlock: this worker would stop answering ANY request (not just
+    /metrics) until forcibly killed, invisibly to the uvicorn supervisor.
+    to_thread() moves the entire blocking pass (including its flock calls)
+    onto a separate OS thread, so even if that thread blocks waiting for
+    the scrape's shared lock to release, the event loop thread stays free
+    to run the scrape's call_next() continuation and its unlock.
     """
     while True:
         try:
-            _sweep_dead_worker_metrics_once()
+            await asyncio.to_thread(_sweep_dead_worker_metrics_once)
         except Exception:  # broad: sweep is non-fatal; must not crash the loop
             logger.warning("Failed to sweep dead worker metrics", exc_info=True)
         await asyncio.sleep(_SWEEP_INTERVAL_SECONDS)
