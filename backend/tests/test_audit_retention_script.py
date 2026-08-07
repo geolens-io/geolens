@@ -316,6 +316,7 @@ def _run_script(
     shim_tenant: str = "",
     env_overrides: dict[str, str] | None = None,
     extra_path_dirs: list[Path] | None = None,
+    path_override: str | None = None,
 ) -> subprocess.CompletedProcess:
     env = _pg_env(db)
     env["PATH"] = f"{curl_stub_dir}{os.pathsep}{env['PATH']}"
@@ -326,6 +327,8 @@ def _run_script(
     env["RETENTION_STUB_PGPASSWORD"] = settings.postgres_password.get_secret_value()
     for extra in reversed(extra_path_dirs or []):
         env["PATH"] = f"{extra}{os.pathsep}{env['PATH']}"
+    if path_override is not None:
+        env["PATH"] = path_override
     if env_overrides:
         env.update(env_overrides)
     try:
@@ -1198,6 +1201,304 @@ def test_a_password_on_the_command_line_is_refused(
     assert "GEOLENS_RETENTION_DB_URL" in result.stderr
     assert "PGPASSWORD" in result.stderr
     assert _row_count(db) == 1
+
+
+def test_a_query_string_password_on_the_command_line_is_refused(
+    password_db, curl_stub_dir, tmp_path
+):
+    """`?password=` is the second spelling of the same secret (#1260 review).
+
+    libpq's URI grammar lets any connection keyword ride in the query string,
+    `password` included, so a userinfo-only check leaves the refusal trivially
+    bypassable.
+    """
+    db, role = password_db
+
+    db_url = (
+        f"postgresql://{role}@{settings.postgres_host}:{settings.postgres_port}"
+        f"/{db}?password={_NASTY_PASSWORD_ENCODED}"
+    )
+    result = _run_script(
+        db,
+        curl_stub_dir,
+        "--days",
+        "90",
+        "--confirm-single-tenant",
+        CONFIRM_PHRASE,
+        "--archive-dir",
+        str(tmp_path / "archives"),
+        "--db-url",
+        db_url,
+    )
+
+    assert result.returncode != 0
+    assert "refusing a password in --db-url" in result.stderr
+    assert "?password=" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("keyword", "label"),
+    [
+        ("password", "plain"),
+        # libpq percent-decodes the keyword, so these are the same parameter.
+        ("%70assword", "leading byte encoded"),
+        ("passwor%64", "trailing byte encoded"),
+    ],
+)
+def test_a_query_string_password_is_extracted_and_delivered(
+    password_db, argv_recorder, curl_stub_dir, tmp_path, keyword, label
+):
+    """Through the env var, a query password is moved to PGPASSWORD and works.
+
+    Same delivery proof as the userinfo form: nothing secret in any child
+    command line, and the run authenticates, so the password demonstrably
+    arrived. The encoded spellings are here because matching "password=" as
+    literal text would miss them while libpq would not.
+    """
+    db, role = password_db
+    _seed_rows(db, days_ago=[200, 150])
+    recorder_dir, log = argv_recorder
+
+    db_url = (
+        f"postgresql://{role}@{settings.postgres_host}:{settings.postgres_port}"
+        f"/{db}?{keyword}={_NASTY_PASSWORD_ENCODED}"
+    )
+    archive_dir = tmp_path / "archives"
+    result = _run_script(
+        db,
+        curl_stub_dir,
+        "--days",
+        "90",
+        "--confirm-single-tenant",
+        CONFIRM_PHRASE,
+        "--archive-dir",
+        str(archive_dir),
+        extra_path_dirs=[recorder_dir],
+        env_overrides={
+            "GEOLENS_RETENTION_DB_URL": db_url,
+            "RETENTION_ARGV_LOG": str(log),
+            "RETENTION_REAL_PSQL": shutil.which("psql"),
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    calls = _recorded(log)
+    for call in calls:
+        flat = " ".join(call["argv"])
+        assert _NASTY_PASSWORD not in flat, f"password in {call['prog']} argv: {flat}"
+        assert _NASTY_PASSWORD_ENCODED not in flat, (
+            f"encoded password in {call['prog']} argv: {flat}"
+        )
+
+    script_psql = [
+        c
+        for c in calls
+        if c["prog"] == "psql" and any(a.startswith("postgresql://") for a in c["argv"])
+    ]
+    assert script_psql, "the script made no psql call carrying the connection URL"
+    assert all(c["pgpassword"] == _NASTY_PASSWORD for c in script_psql)
+    # The parameter is gone and, being the only one, took its "?" with it.
+    assert all(
+        not any("?" in a for a in c["argv"] if a.startswith("postgresql://"))
+        for c in script_psql
+    )
+    assert _row_count(db) == 0
+
+
+def test_a_wrong_query_string_password_fails_to_connect(
+    password_db, curl_stub_dir, tmp_path
+):
+    """Negative control for the extraction above."""
+    db, role = password_db
+    _seed_rows(db, days_ago=[200])
+
+    db_url = (
+        f"postgresql://{role}@{settings.postgres_host}:{settings.postgres_port}"
+        f"/{db}?password=definitely-not-the-password"
+    )
+    result = _run_script(
+        db,
+        curl_stub_dir,
+        "--days",
+        "90",
+        "--confirm-single-tenant",
+        CONFIRM_PHRASE,
+        "--archive-dir",
+        str(tmp_path / "archives"),
+        env_overrides={"GEOLENS_RETENTION_DB_URL": db_url},
+    )
+
+    assert result.returncode != 0
+    assert "password authentication failed" in result.stderr.lower()
+    assert _row_count(db) == 1
+
+
+def test_other_query_parameters_survive_the_extraction(
+    password_db, argv_recorder, curl_stub_dir, tmp_path
+):
+    """Removing a middle parameter must not corrupt the rest of the query."""
+    db, role = password_db
+    _seed_rows(db, days_ago=[200])
+    recorder_dir, log = argv_recorder
+
+    db_url = (
+        f"postgresql://{role}@{settings.postgres_host}:{settings.postgres_port}"
+        f"/{db}?application_name=retention"
+        f"&password={_NASTY_PASSWORD_ENCODED}&connect_timeout=10"
+    )
+    result = _run_script(
+        db,
+        curl_stub_dir,
+        "--days",
+        "90",
+        "--confirm-single-tenant",
+        CONFIRM_PHRASE,
+        "--archive-dir",
+        str(tmp_path / "archives"),
+        extra_path_dirs=[recorder_dir],
+        env_overrides={
+            "GEOLENS_RETENTION_DB_URL": db_url,
+            "RETENTION_ARGV_LOG": str(log),
+            "RETENTION_REAL_PSQL": shutil.which("psql"),
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    urls = [
+        a
+        for c in _recorded(log)
+        if c["prog"] == "psql"
+        for a in c["argv"]
+        if a.startswith("postgresql://")
+    ]
+    assert urls
+    for url in urls:
+        assert "password" not in url
+        assert url.endswith("?application_name=retention&connect_timeout=10"), url
+        assert "&&" not in url and "?&" not in url and not url.endswith("&")
+
+
+def test_a_password_in_both_places_is_refused(password_db, curl_stub_dir, tmp_path):
+    """Over-specified, and libpq resolves it in a surprising direction.
+
+    Measured against libpq 18: the query parameter wins and the userinfo one is
+    silently ignored, so an operator who changed the wrong half would connect
+    with a credential they thought they had replaced. Refused rather than
+    guessed at, and refused for both carriers.
+    """
+    db, role = password_db
+    _seed_rows(db, days_ago=[200])
+
+    db_url = (
+        f"postgresql://{role}:{_NASTY_PASSWORD_ENCODED}"
+        f"@{settings.postgres_host}:{settings.postgres_port}"
+        f"/{db}?password={_NASTY_PASSWORD_ENCODED}"
+    )
+    result = _run_script(
+        db,
+        curl_stub_dir,
+        "--days",
+        "90",
+        "--confirm-single-tenant",
+        CONFIRM_PHRASE,
+        "--archive-dir",
+        str(tmp_path / "archives"),
+        env_overrides={"GEOLENS_RETENTION_DB_URL": db_url},
+    )
+
+    assert result.returncode != 0
+    assert "carries a password twice" in result.stderr
+    assert _row_count(db) == 1
+
+
+# ---------------------------------------------------------------------------
+# Host tool requirements
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def path_without_psql(tmp_path, curl_stub_dir):
+    """A PATH holding what the script needs, minus psql and docker.
+
+    Symlinks rather than a copied PATH so the omission is explicit: anything
+    not listed here genuinely is not on the PATH the script sees.
+    """
+    bindir = tmp_path / "minimal-bin"
+    bindir.mkdir()
+    for tool in (
+        # bash runs the script; env/python3 back the curl stub's shebang.
+        "bash",
+        "env",
+        "python3",
+        "jq",
+        "grep",
+        "sed",
+        "cat",
+        "tr",
+        "date",
+        "mktemp",
+        "basename",
+        "dirname",
+        "sort",
+        "cmp",
+        "comm",
+        "wc",
+        "rm",
+    ):
+        found = shutil.which(tool)
+        if found:
+            (bindir / tool).symlink_to(found)
+    # curl comes from the stub directory, which also must not contain psql.
+    assert not (curl_stub_dir / "psql").exists()
+    return f"{curl_stub_dir}{os.pathsep}{bindir}"
+
+
+def test_bundled_branch_does_not_require_a_host_psql(
+    clean_audit_table, curl_stub_dir, tmp_path, path_without_psql
+):
+    """The documented default is Docker-only and never runs psql on the host.
+
+    It execs psql *inside* the db container, so requiring the binary here
+    aborted a correct install over something it does not use (#1260 review).
+    The run still fails, at docker, which is the requirement this branch really
+    has -- and failing there keeps the test from ever reaching a live stack.
+    """
+    result = _run_script(
+        clean_audit_table,
+        curl_stub_dir,
+        "--days",
+        "90",
+        "--confirm-single-tenant",
+        CONFIRM_PHRASE,
+        "--archive-dir",
+        str(tmp_path / "archives"),
+        path_override=path_without_psql,
+        # Unset so the bundled branch is selected rather than the PG* one.
+        env_overrides={"PGHOST": "", "PGSERVICE": ""},
+    )
+
+    assert "'psql' is required" not in result.stderr, result.stderr
+    assert "'docker' is required" in result.stderr
+
+
+def test_direct_connection_branch_still_requires_psql(
+    clean_audit_table, curl_stub_dir, tmp_path, path_without_psql
+):
+    """The other half of the same rule: the branches that do run psql say so."""
+    result = _run_script(
+        clean_audit_table,
+        curl_stub_dir,
+        "--days",
+        "90",
+        "--confirm-single-tenant",
+        CONFIRM_PHRASE,
+        "--archive-dir",
+        str(tmp_path / "archives"),
+        path_override=path_without_psql,
+    )
+
+    assert result.returncode != 0
+    assert "'psql' is required" in result.stderr
 
 
 # ---------------------------------------------------------------------------

@@ -1479,6 +1479,12 @@ retention pass, longer than any command it spawns. Nothing can retract it
 afterwards, so the password has to arrive by another route. The two above both
 work; the error message names them if you forget.
 
+That covers both places a libpq URL can carry one: `user:password@` and a
+`?password=` query parameter. Supplying it in both is refused as well, because
+libpq silently resolves that in favour of the query parameter and ignores the
+other — so changing the wrong half would connect with the credential you
+thought you had replaced.
+
 Secrets in the command lines the script *does* control are handled for you: a
 password from `GEOLENS_RETENTION_DB_URL` is moved into the environment before
 `psql` is invoked, and the admin bearer token reaches `curl` through a `0600`
@@ -1525,8 +1531,11 @@ at `--batch-size` rows per statement for that reason. Pass `--vacuum` if the run
 removed a large fraction of the table — routine autovacuum handles smaller,
 regular prunes on its own.
 
-Requires `psql`, `curl` and `jq` on the machine you run it from, plus `docker`
-for the bundled-container path.
+Requires `curl` and `jq` on the machine you run it from. Beyond that it depends
+on how you connect: the bundled path needs `docker` and nothing else, because it
+runs `psql` *inside* the db container, while the `--db-url`,
+`GEOLENS_RETENTION_DB_URL` and `PG*` paths need a `psql` client on the host. A
+Docker-only self-host does not need one installed.
 
 **What is actually lost:** the deleted rows, permanently, including the
 ability to answer "who did X on day Y" for anything older than the window.

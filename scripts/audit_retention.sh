@@ -73,6 +73,18 @@ need_command() {
     command -v "$1" >/dev/null 2>&1 || die "'$1' is required but not installed."
 }
 
+# Percent-encoding appears in three places in a libpq URI -- the userinfo
+# password, and both the keyword and the value of every query parameter -- so
+# the decode lives in one place. It is only sound for well-formed input, hence
+# the separate check: a stray '%' would become a bogus \x escape and a literal
+# backslash would be interpreted rather than passed through.
+is_percent_safe() {
+    printf '%s' "$1" | grep -qE '^([^%\]|%[0-9A-Fa-f][0-9A-Fa-f])*$'
+}
+percent_decode() {
+    printf '%b' "${1//%/\\x}"
+}
+
 usage() {
     cat <<EOF
 Usage: $SCRIPT_NAME --api-url URL (--days N | --cutoff TS)
@@ -227,7 +239,10 @@ else
     die "one of --tenant-slug or --confirm-single-tenant is required; this script does not detect your deployment's tenancy mode."
 fi
 
-need_command psql
+# curl and jq are used by every branch. psql is NOT: the bundled path runs it
+# inside the db container, so requiring it on the host aborts a Docker-only
+# self-host -- the documented default -- over a binary it never invokes. Each
+# connection branch below declares what it actually needs.
 need_command curl
 need_command jq
 
@@ -275,6 +290,84 @@ if [ -n "$DB_URL" ] || [ -n "${GEOLENS_RETENTION_DB_URL:-}" ]; then
         *)   _uri_user="$_userinfo"; _pw_enc="" ;;
     esac
 
+    # fix(#1248): userinfo is not the only place a password rides in a
+    # connection URI. Per the libpq URI grammar
+    # (https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNSTRING-URIS)
+    # the query string carries arbitrary connection KEYWORDS, and `password` is
+    # one of them -- so `?password=secret` is a second spelling of the same
+    # secret. Measured against libpq 18, three things make a naive text search
+    # for "password=" wrong:
+    #
+    #   * the KEYWORD itself is percent-decoded, so `?%70assword=` and
+    #     `?passwor%64=` both connect. The keyword has to be decoded before it
+    #     is compared, not matched literally.
+    #   * keywords are case-SENSITIVE: `?PASSWORD=` is rejected by libpq
+    #     outright ("invalid URI query parameter"), so only lowercase counts.
+    #   * a query `password` OVERRIDES the userinfo one. Measured: a URL with
+    #     the wrong password in userinfo and the right one in the query
+    #     connects, and the reverse fails.
+    #
+    # Enumerating the rest of the grammar so a later round does not have to:
+    # `passfile=` names a path rather than holding a secret, so it is left
+    # working untouched, and no other documented URI parameter carries a
+    # credential. userinfo and query `password` are the whole space.
+    case "$_uri_rest" in
+        *\?*) _uri_path="${_uri_rest%%\?*}"; _query="${_uri_rest#*\?}" ;;
+        *)     _uri_path="$_uri_rest"; _query="" ;;
+    esac
+
+    _query_pw_enc=""
+    _kept_query=""
+    _rest_q="$_query"
+    while [ -n "$_rest_q" ]; do
+        case "$_rest_q" in
+            *\&*) _pair="${_rest_q%%&*}"; _rest_q="${_rest_q#*&}" ;;
+            *)     _pair="$_rest_q"; _rest_q="" ;;
+        esac
+        if [ -z "$_pair" ]; then
+            continue
+        fi
+        case "$_pair" in
+            *=*) _k_enc="${_pair%%=*}"; _v_enc="${_pair#*=}" ;;
+            *)   _k_enc="$_pair"; _v_enc="" ;;
+        esac
+        _k="$_k_enc"
+        if is_percent_safe "$_k_enc"; then
+            _k="$(percent_decode "$_k_enc")"
+        fi
+        # An empty value is not a secret, so it is left in place rather than
+        # extracted -- stripping it would change what libpq resolves.
+        if [ "$_k" = "password" ] && [ -n "$_v_enc" ]; then
+            _query_pw_enc="$_v_enc"
+        elif [ -n "$_kept_query" ]; then
+            _kept_query="${_kept_query}&${_pair}"
+        else
+            _kept_query="$_pair"
+        fi
+    done
+
+    # Rebuild the tail without the extracted parameter. Joining only between
+    # kept pairs is what keeps a removed middle parameter from leaving "&&" or
+    # a dangling separator, and an emptied query string drops its "?" entirely.
+    if [ -n "$_kept_query" ]; then
+        _uri_rest="${_uri_path}?${_kept_query}"
+    else
+        _uri_rest="$_uri_path"
+    fi
+
+    if [ -n "$_pw_enc" ] && [ -n "$_query_pw_enc" ]; then
+        # Over-specified. libpq resolves this silently in favour of the query
+        # parameter, which is exactly where an operator's intent and the actual
+        # behaviour part company, so it is refused rather than guessed at.
+        die "$CONN_DESC carries a password twice, once in the URL's user info and once as a ?password= parameter.
+libpq would silently use the query parameter and ignore the other, so this script refuses rather than pick for you.
+Remove one of them."
+    fi
+
+    if [ -z "$_pw_enc" ]; then
+        _pw_enc="$_query_pw_enc"
+    fi
+
     if [ -n "$_pw_enc" ] && [ "$CONN_DESC" = "--db-url" ]; then
         # fix(#1248): refused, not warned. Moving the password out of psql's
         # command line accomplishes nothing while it sits in THIS script's own
@@ -282,7 +375,7 @@ if [ -n "$DB_URL" ] || [ -n "${GEOLENS_RETENTION_DB_URL:-}" ]; then
         # psql child it spawns -- making it the longest exposure of the three,
         # not a lesser one. There is nothing to retract it with, so the only
         # fix is not to accept it here.
-        die "refusing a password in --db-url: it is visible in this script's own command line, for the whole run, to every local account on this host.
+        die "refusing a password in --db-url (whether as user:password@ or as a ?password= parameter): it is visible in this script's own command line, for the whole run, to every local account on this host.
 Use one of these instead, both of which keep it off every command line:
 
   export GEOLENS_RETENTION_DB_URL='postgresql://user:password@host:5432/dbname'
@@ -295,13 +388,8 @@ or:
     fi
 
     if [ -n "$_pw_enc" ]; then
-        # The URI form percent-encodes; PGPASSWORD wants the raw bytes. Decode
-        # by turning every %XX into \xXX and letting bash's printf %b do it.
-        # That is only sound for a well-formed encoding, so require one rather
-        # than silently mangling: a stray '%' would otherwise become a bogus
-        # \x escape, and a literal backslash would be interpreted rather than
-        # passed through.
-        if ! printf '%s' "$_pw_enc" | grep -qE '^([^%\]|%[0-9A-Fa-f][0-9A-Fa-f])*$'; then
+        # The URI form percent-encodes; PGPASSWORD wants the raw bytes.
+        if ! is_percent_safe "$_pw_enc"; then
             die "the password in $CONN_DESC is not valid percent-encoding, so it cannot be moved out of the psql command line safely.
 Pass the URL without a password and put the password in PGPASSWORD (raw, not percent-encoded) instead."
         fi
@@ -312,7 +400,7 @@ Pass the URL without a password and put the password in PGPASSWORD (raw, not per
             die "the password in $CONN_DESC contains an encoded NUL, newline or carriage return, which cannot be passed through the environment intact.
 Pass the URL without a password and put the password in PGPASSWORD instead."
         fi
-        PGPASSWORD="$(printf '%b' "${_pw_enc//%/\\x}")"
+        PGPASSWORD="$(percent_decode "$_pw_enc")"
         export PGPASSWORD
 
         # Rebuild without the password. Dropping the '@' too when there is no
@@ -325,8 +413,10 @@ Pass the URL without a password and put the password in PGPASSWORD instead."
 
     fi
 
+    need_command psql
     PSQL=(psql "$PG_URI")
 elif [ -n "${PGHOST:-}" ] || [ -n "${PGSERVICE:-}" ]; then
+    need_command psql
     PSQL=(psql)
     CONN_DESC="PG* environment variables"
 else
