@@ -193,10 +193,20 @@ _STAC_BACKFILL = """
       AND d.source_url ~* '^https?://'
 """
 
-# Registered PostGIS tables: no source_format, referenced in place. VRT
-# datasets also store a null source_format (they have no single source file),
-# so the record_type predicate is what keeps them out — a VRT is composed
-# from other datasets and has no origin of its own.
+# Registered PostGIS tables: no source_format, referenced in place.
+#
+# Both record types registration can produce are covered. `create_dataset`
+# assigns 'table' when the source has no geometry and 'vector_dataset'
+# otherwise, and `register_existing_table` stamps the origin either way, so
+# restricting this to 'vector_dataset' would leave registered non-spatial
+# tables as the only rows whose pointer depends on whether they were
+# registered before or after this migration. ADR-002's predicate names the
+# common case rather than an exclusion (widened deliberately, #1218 review).
+#
+# VRT datasets also store a null source_format (they have no single source
+# file), and the record_type predicate is still what keeps them out: a VRT is
+# composed from other datasets and has no origin of its own.
+#
 # The final predicate skips a catalog row whose physical table is gone,
 # rather than giving it a pointer built from a NULL schema.
 _POSTGIS_BACKFILL = f"""
@@ -210,7 +220,7 @@ _POSTGIS_BACKFILL = f"""
     FROM catalog.records AS r
     WHERE r.id = d.record_id
       AND d.source_format IS NULL
-      AND r.record_type = 'vector_dataset'
+      AND r.record_type IN ('vector_dataset', 'table')
       AND ({_DATA_SCHEMA_SQL}) IS NOT NULL
 """
 

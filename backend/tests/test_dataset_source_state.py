@@ -123,10 +123,19 @@ class TestClassifyOrigin:
         assert classify_origin("stac", "raster_dataset") == "stac"
         assert classify_origin("created", "vector_dataset") == "created"
 
-    def test_absent_source_format_means_referenced_in_place(self) -> None:
-        """Registration stores no source_format — null is postgis, not unknown."""
-        assert classify_origin(None, "vector_dataset") == "postgis"
-        assert classify_origin("", "vector_dataset") == "postgis"
+    @pytest.mark.parametrize("record_type", ["vector_dataset", "table"])
+    def test_absent_source_format_means_referenced_in_place(
+        self, record_type: str
+    ) -> None:
+        """Registration stores no source_format — null is postgis, not unknown.
+
+        Both record types registration can produce are covered: create_dataset
+        assigns 'table' when the source has no geometry and 'vector_dataset'
+        otherwise, and register_existing_table stamps a postgis origin either
+        way. Asserted rather than assumed (#1218 review).
+        """
+        assert classify_origin(None, record_type) == "postgis"
+        assert classify_origin("", record_type) == "postgis"
 
     def test_record_type_defaults_to_vector_dataset(self) -> None:
         assert classify_origin("gpkg") == "upload"
@@ -456,6 +465,34 @@ class TestResponseExposure:
         # Computed, not stored — the column does not exist.
         assert body["origin"] == "upload"
 
+    @pytest.mark.parametrize("record_type", ["vector_dataset", "table"])
+    async def test_registered_table_reports_postgis_origin(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        record_type: str,
+    ) -> None:
+        """A registered table serves origin=postgis whether or not it has geometry.
+
+        The non-spatial half is the one worth pinning: create_dataset gives a
+        geometry-less registration record_type='table', and nothing else in
+        the suite would notice if that started classifying as an upload.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name=f"Registered {record_type}",
+            source_format=None,
+        )
+        ds.record.record_type = record_type
+        await test_db_session.commit()
+
+        resp = await client.get(f"/datasets/{ds.id}", headers=admin_auth_header)
+        assert resp.status_code == 200
+        assert resp.json()["origin"] == "postgis"
+
     async def test_stored_state_reaches_the_response(
         self,
         client: AsyncClient,
@@ -556,6 +593,20 @@ class TestBackfill:
             table_name="backfill_registered_tbl",
         )
 
+        # A geometry-less registration: create_dataset gives it
+        # record_type='table'. Covered because register_existing_table stamps
+        # the origin either way, so a backfill restricted to 'vector_dataset'
+        # would leave these permanently different from post-migration
+        # registrations (#1218 review).
+        nonspatial = await _pre_migration_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Backfill Registered Nonspatial",
+            source_format=None,
+            table_name="backfill_nonspatial_tbl",
+        )
+        nonspatial.record.record_type = "table"
+
         upload = await _pre_migration_dataset(
             test_db_session,
             created_by=admin_id,
@@ -592,6 +643,9 @@ class TestBackfill:
             await test_db_session.execute(
                 sa.text("CREATE TABLE data.backfill_registered_tbl (id integer)")
             )
+            await test_db_session.execute(
+                sa.text("CREATE TABLE data.backfill_nonspatial_tbl (id integer)")
+            )
             for statement in module.backfill_statements():
                 await test_db_session.execute(statement)
 
@@ -611,6 +665,7 @@ class TestBackfill:
                                     prose.id,
                                     stac.id,
                                     registered.id,
+                                    nonspatial.id,
                                     upload.id,
                                     created.id,
                                     orphan.id,
@@ -657,6 +712,15 @@ class TestBackfill:
             assert registered_row.origin_ref == {
                 "kind": "postgis",
                 "table_name": "data.backfill_registered_tbl",
+            }
+
+            nonspatial_row = rows[nonspatial.id]
+            assert nonspatial_row.origin_uri == (
+                "postgis://data.backfill_nonspatial_tbl"
+            )
+            assert nonspatial_row.origin_ref == {
+                "kind": "postgis",
+                "table_name": "data.backfill_nonspatial_tbl",
             }
 
             upload_row = rows[upload.id]
