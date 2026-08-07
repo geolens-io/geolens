@@ -67,6 +67,7 @@ WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
 
 say() { printf '%s\n' "$*"; }
+warn() { printf 'WARNING: %s\n' "$*" >&2; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
 need_command() {
@@ -108,6 +109,9 @@ Options:
   --db-url URL      Connect to an external/managed Postgres with this libpq URL
                     instead of the bundled db container. A SQLAlchemy driver
                     suffix (postgresql+asyncpg://) is stripped automatically.
+                    A password in the URL is moved out of psql's command line,
+                    but it is still visible in THIS script's own command line;
+                    prefer GEOLENS_RETENTION_DB_URL or PGPASSWORD.
   --batch-size N    Rows per delete statement (default: 5000).
   --max-rows N      Rows per export call (default: 100000, the endpoint's cap).
                     Windows larger than this are split automatically.
@@ -117,9 +121,12 @@ Options:
 
 Environment:
   ADMIN_TOKEN       Required. Bearer token for the export endpoint.
+  GEOLENS_RETENTION_DB_URL
+                    Same as --db-url, but never appears in any command line.
+                    Prefer it when the URL carries a password.
   PGHOST PGPORT PGUSER PGDATABASE PGPASSWORD PGSERVICE
-                    Used when --db-url is not given; setting PGHOST or
-                    PGSERVICE is what selects the direct-connection mode.
+                    Used when no URL is given; setting PGHOST or PGSERVICE is
+                    what selects the direct-connection mode.
   POSTGRES_USER POSTGRES_DB
                     Used for the bundled \`docker compose exec db\` path, read
                     from .env like the other scripts in this directory.
@@ -229,13 +236,84 @@ need_command jq
 #
 # Three paths, checked in order. The first two reach a managed or external
 # Postgres directly; only the last needs a local db container.
-if [ -n "$DB_URL" ]; then
+if [ -n "$DB_URL" ] || [ -n "${GEOLENS_RETENTION_DB_URL:-}" ]; then
+    if [ -n "$DB_URL" ]; then
+        _url_in="$DB_URL"
+        CONN_DESC="--db-url"
+    else
+        _url_in="$GEOLENS_RETENTION_DB_URL"
+        CONN_DESC="GEOLENS_RETENTION_DB_URL"
+    fi
+
     # libpq's URI parser accepts only postgresql:// and postgres://. A
     # privileged credential copied out of a SQLAlchemy config carries a driver
     # suffix, which libpq rejects outright.
-    PG_URI="$(printf '%s' "$DB_URL" | sed -E 's#^postgresql\+[A-Za-z0-9_]+://#postgresql://#')"
+    PG_URI="$(printf '%s' "$_url_in" | sed -E 's#^postgresql\+[A-Za-z0-9_]+://#postgresql://#')"
+
+    # fix(#1248): a password in the URI must not reach psql's argv. Command
+    # lines are world-readable (`ps`, /proc/<pid>/cmdline), so a URI handed
+    # straight to psql publishes the BYPASSRLS credential to every local
+    # account for the life of each query. Environment is the carrier instead:
+    # /proc/<pid>/environ is owner-only. The rest of the URI stays in argv,
+    # which keeps `ps` useful for debugging and leaks nothing.
+    #
+    # Split scheme://[userinfo@]authority[/path][?params] by hand rather than
+    # with a regex, because the parts are positional: userinfo ends at the LAST
+    # '@' (a password may contain an encoded one), and the password starts at
+    # the FIRST ':' of the userinfo.
+    _scheme="${PG_URI%%://*}://"
+    _after_scheme="${PG_URI#*://}"
+    _authority="${_after_scheme%%[/?]*}"
+    _uri_rest="${_after_scheme:${#_authority}}"
+    case "$_authority" in
+        *@*) _userinfo="${_authority%@*}"; _hostpart="${_authority##*@}" ;;
+        *)   _userinfo=""; _hostpart="$_authority" ;;
+    esac
+    case "$_userinfo" in
+        *:*) _uri_user="${_userinfo%%:*}"; _pw_enc="${_userinfo#*:}" ;;
+        *)   _uri_user="$_userinfo"; _pw_enc="" ;;
+    esac
+
+    if [ -n "$_pw_enc" ]; then
+        # The URI form percent-encodes; PGPASSWORD wants the raw bytes. Decode
+        # by turning every %XX into \xXX and letting bash's printf %b do it.
+        # That is only sound for a well-formed encoding, so require one rather
+        # than silently mangling: a stray '%' would otherwise become a bogus
+        # \x escape, and a literal backslash would be interpreted rather than
+        # passed through.
+        if ! printf '%s' "$_pw_enc" | grep -qE '^([^%\]|%[0-9A-Fa-f][0-9A-Fa-f])*$'; then
+            die "the password in $CONN_DESC is not valid percent-encoding, so it cannot be moved out of the psql command line safely.
+Pass the URL without a password and put the password in PGPASSWORD (raw, not percent-encoded) instead."
+        fi
+        # A decoded NUL or newline cannot survive a shell variable or a psql
+        # invocation intact, and command substitution would silently eat a
+        # trailing newline. Refuse rather than hand over a truncated password.
+        if printf '%s' "$_pw_enc" | grep -qiE '%0[0ad]'; then
+            die "the password in $CONN_DESC contains an encoded NUL, newline or carriage return, which cannot be passed through the environment intact.
+Pass the URL without a password and put the password in PGPASSWORD instead."
+        fi
+        PGPASSWORD="$(printf '%b' "${_pw_enc//%/\\x}")"
+        export PGPASSWORD
+
+        # Rebuild without the password. Dropping the '@' too when there is no
+        # user keeps `postgresql://:pw@host/db` from becoming `postgresql://@host/db`.
+        if [ -n "$_uri_user" ]; then
+            PG_URI="${_scheme}${_uri_user}@${_hostpart}${_uri_rest}"
+        else
+            PG_URI="${_scheme}${_hostpart}${_uri_rest}"
+        fi
+
+        if [ "$CONN_DESC" = "--db-url" ]; then
+            # Honest about the half this script cannot fix: its OWN argv still
+            # holds whatever was typed, for the whole run, which is longer than
+            # any psql child lives.
+            warn "the password given to --db-url is visible in this script's own command line for the duration of the run.
+It has been kept out of every psql command line, but to keep it out of \`ps\` entirely, pass the URL
+without a password and set PGPASSWORD, or put the whole URL in GEOLENS_RETENTION_DB_URL."
+        fi
+    fi
+
     PSQL=(psql "$PG_URI")
-    CONN_DESC="--db-url"
 elif [ -n "${PGHOST:-}" ] || [ -n "${PGSERVICE:-}" ]; then
     PSQL=(psql)
     CONN_DESC="PG* environment variables"
@@ -413,6 +491,15 @@ mkdir -p "$ARCHIVE_DIR"
 SAFE_LABEL="$(printf '%s' "$SCOPE_LABEL" | tr -c 'A-Za-z0-9._-' '-')"
 ARCHIVE_TAG="${SAFE_LABEL}-$(date -u +%Y%m%dT%H%M%SZ)-$$"
 
+# fix(#1248): the bearer token goes to curl in a file, not on its command line.
+# `-H "Authorization: Bearer $ADMIN_TOKEN"` publishes an admin credential to
+# every local account via `ps` for as long as the export streams, which on a
+# 100,000-row window is not brief. curl's `-H @file` form reads headers from a
+# file instead; the umask at the top of this script makes it 0600 inside a 0700
+# directory, and the EXIT trap removes it.
+AUTH_HEADER_FILE="$WORK_DIR/auth-header"
+printf 'Authorization: Bearer %s\n' "$ADMIN_TOKEN" > "$AUTH_HEADER_FILE"
+
 # Sum over every exported window. Adjacent windows share their boundary instant
 # (both bounds are inclusive), so a row on a boundary is archived twice and the
 # sum is >= the window total, never <. Duplicating an archive entry is harmless;
@@ -443,7 +530,7 @@ export_window() {
     # archive, and the delete would then run against a window that was never
     # exported. --fail makes curl exit non-zero and discard that body.
     curl -sS --fail \
-        -H "Authorization: Bearer $ADMIN_TOKEN" \
+        -H "@$AUTH_HEADER_FILE" \
         "${API_URL%/}/admin/audit-logs/export/json?date_from=${window_from}&date_to=${window_to}&max_rows=${MAX_ROWS}" \
         -o "$out" \
         || die "export request failed for $window_from .. $window_to -- nothing has been deleted."

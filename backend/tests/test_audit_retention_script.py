@@ -98,15 +98,35 @@ from urllib.parse import urlparse, parse_qs
 argv = sys.argv[1:]
 url = None
 out = None
+headers = []
 i = 0
 while i < len(argv):
     if argv[i] == "-o":
         out = argv[i + 1]
         i += 2
         continue
+    if argv[i] == "-H":
+        value = argv[i + 1]
+        # Real curl reads headers from a file when the value starts with '@'.
+        if value.startswith("@"):
+            with open(value[1:]) as fh:
+                headers.extend(line.rstrip("\n") for line in fh if line.strip())
+        else:
+            headers.append(value)
+        i += 2
+        continue
     if argv[i].startswith("http"):
         url = argv[i]
     i += 1
+
+_argv_log = os.environ.get("RETENTION_ARGV_LOG")
+if _argv_log:
+    with open(_argv_log, "a") as fh:
+        fh.write(json.dumps({"prog": "curl", "argv": argv}) + "\n")
+
+if not any(h.startswith("Authorization: Bearer ") for h in headers):
+    sys.stderr.write("curl stub: no Authorization header reached the request\n")
+    sys.exit(1)
 
 mode = os.environ.get("RETENTION_SHIM_MODE", "ok")
 if mode == "http_error":
@@ -141,10 +161,18 @@ SELECT coalesce(json_agg(t), '[]'::json) FROM (
     scope,
     int(params["max_rows"][0]),
 )
+# The script exports PGPASSWORD for its own psql when the URL carries a
+# password, and this stub inherits it. Harmless for real curl, fatal for a stub
+# that talks to Postgres, so the stub authenticates with credentials of its own
+# that the script never touches.
+_stub_env = os.environ.copy()
+_stub_env["PGUSER"] = os.environ["RETENTION_STUB_PGUSER"]
+_stub_env["PGPASSWORD"] = os.environ["RETENTION_STUB_PGPASSWORD"]
 proc = subprocess.run(
     ["psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-tA", "-c", sql],
     capture_output=True,
     text=True,
+    env=_stub_env,
 )
 if proc.returncode != 0:
     sys.stderr.write(proc.stderr)
@@ -166,6 +194,34 @@ if mode == "drop_id":
 with open(out, "w") as fh:
     json.dump(rows, fh)
 '''
+
+
+# Records every psql command line, then hands off to the real binary. Used
+# only by the argv-inspection tests, from a directory those tests prepend to
+# PATH, so no other test pays for the extra hop.
+_PSQL_RECORDER = r"""#!/usr/bin/env python3
+import json
+import os
+import sys
+
+log = os.environ["RETENTION_ARGV_LOG"]
+with open(log, "a") as fh:
+    fh.write(
+        json.dumps(
+            {
+                "prog": "psql",
+                "argv": sys.argv[1:],
+                # The covert channel itself, so a test can prove the secret was
+                # delivered and not merely absent from argv.
+                "pgpassword": os.environ.get("PGPASSWORD"),
+            }
+        )
+        + "\n"
+    )
+
+real = os.environ["RETENTION_REAL_PSQL"]
+os.execv(real, [real] + sys.argv[1:])
+"""
 
 
 def _pg_env(dbname: str) -> dict[str, str]:
@@ -259,12 +315,17 @@ def _run_script(
     shim_mode: str = "ok",
     shim_tenant: str = "",
     env_overrides: dict[str, str] | None = None,
+    extra_path_dirs: list[Path] | None = None,
 ) -> subprocess.CompletedProcess:
     env = _pg_env(db)
     env["PATH"] = f"{curl_stub_dir}{os.pathsep}{env['PATH']}"
     env["ADMIN_TOKEN"] = "stub-token"
     env["RETENTION_SHIM_MODE"] = shim_mode
     env["RETENTION_SHIM_TENANT"] = shim_tenant
+    env["RETENTION_STUB_PGUSER"] = settings.postgres_user
+    env["RETENTION_STUB_PGPASSWORD"] = settings.postgres_password.get_secret_value()
+    for extra in reversed(extra_path_dirs or []):
+        env["PATH"] = f"{extra}{os.pathsep}{env['PATH']}"
     if env_overrides:
         env.update(env_overrides)
     try:
@@ -870,6 +931,267 @@ def test_a_bad_export_deletes_nothing(
     assert result.returncode != 0
     assert expected_message in result.stderr
     assert _row_count(db) == 3
+
+
+# ---------------------------------------------------------------------------
+# Secrets must not reach child command lines
+# ---------------------------------------------------------------------------
+
+# Deliberately awkward: every character here has to be percent-encoded in a URI,
+# and the literal '%' exercises the decoder's own escape.
+_NASTY_PASSWORD = "p@ss/w:rd%x"
+_NASTY_PASSWORD_ENCODED = "p%40ss%2Fw%3Ard%25x"
+
+
+@pytest.fixture
+def password_db():
+    """Own database and own login role whose password needs encoding."""
+    admin_db = settings.postgres_db
+    worker = os.environ.get("PYTEST_XDIST_WORKER", "master")
+    suffix = uuid.uuid4().hex[:8]
+    name = f"geolens_auditpw_{worker}_{suffix}"
+    role = f"geolens_auditpw_role_{worker}_{suffix}"
+
+    _psql(f'CREATE DATABASE "{name}"', admin_db)
+    _psql(f"CREATE ROLE \"{role}\" LOGIN PASSWORD '{_NASTY_PASSWORD}'", admin_db)
+    try:
+        _psql(_SCRATCH_DDL, name)
+        _psql(
+            f"""
+            GRANT USAGE ON SCHEMA catalog TO "{role}";
+            GRANT SELECT, DELETE ON catalog.audit_logs TO "{role}";
+            GRANT SELECT ON catalog.tenants TO "{role}";
+            """,
+            name,
+        )
+        yield name, role
+    finally:
+        _psql(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)', admin_db, check=False)
+        _psql(f'DROP ROLE IF EXISTS "{role}"', admin_db, check=False)
+
+
+@pytest.fixture
+def argv_recorder(tmp_path):
+    """A `psql` on PATH that logs its command line, then execs the real one."""
+    bindir = tmp_path / "recorder-bin"
+    bindir.mkdir()
+    shim = bindir / "psql"
+    shim.write_text(_PSQL_RECORDER)
+    shim.chmod(0o755)
+    log = tmp_path / "argv.log"
+    log.touch()
+    return bindir, log
+
+
+def _recorded(log: Path) -> list[dict]:
+    return [json.loads(line) for line in log.read_text().splitlines() if line.strip()]
+
+
+def test_no_secret_reaches_a_child_command_line(
+    password_db, argv_recorder, curl_stub_dir, tmp_path
+):
+    """Passwords and bearer tokens must never appear in argv (#1260 review).
+
+    Command lines are world-readable through `ps` and /proc/<pid>/cmdline, so a
+    URI handed straight to psql, or `-H "Authorization: Bearer ..."` handed to
+    curl, publishes a BYPASSRLS credential and an admin token to every local
+    account. Environment and 0600 files are owner-only and carry them instead.
+
+    Absence alone would also be satisfied by dropping the secret entirely, so
+    this asserts delivery too: the run succeeds against a password-protected
+    role, and the recorded child environment carries the decoded password.
+    """
+    db, role = password_db
+    _seed_rows(db, days_ago=[200, 150])
+    recorder_dir, log = argv_recorder
+
+    db_url = (
+        f"postgresql://{role}:{_NASTY_PASSWORD_ENCODED}"
+        f"@{settings.postgres_host}:{settings.postgres_port}/{db}"
+    )
+    archive_dir = tmp_path / "archives"
+    result = _run_script(
+        db,
+        curl_stub_dir,
+        "--days",
+        "90",
+        "--confirm-single-tenant",
+        CONFIRM_PHRASE,
+        "--archive-dir",
+        str(archive_dir),
+        "--db-url",
+        db_url,
+        extra_path_dirs=[recorder_dir],
+        env_overrides={
+            "RETENTION_ARGV_LOG": str(log),
+            "RETENTION_REAL_PSQL": shutil.which("psql"),
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    calls = _recorded(log)
+    assert calls, "the recorder captured no child processes"
+    assert any(c["prog"] == "psql" for c in calls)
+    assert any(c["prog"] == "curl" for c in calls)
+
+    for call in calls:
+        flat = " ".join(call["argv"])
+        assert _NASTY_PASSWORD not in flat, f"password in {call['prog']} argv: {flat}"
+        assert _NASTY_PASSWORD_ENCODED not in flat, (
+            f"encoded password in {call['prog']} argv: {flat}"
+        )
+        assert "stub-token" not in flat, f"bearer token in {call['prog']} argv: {flat}"
+
+    # Delivery: the decoded password reached psql by the environment. Only the
+    # script's own psql calls are in scope -- the curl stub also runs psql, with
+    # credentials of its own that the script never sets.
+    script_psql = [
+        c
+        for c in calls
+        if c["prog"] == "psql" and any(a.startswith("postgresql://") for a in c["argv"])
+    ]
+    assert script_psql, "the script made no psql call carrying the connection URL"
+    assert all(c["pgpassword"] == _NASTY_PASSWORD for c in script_psql), [
+        c["pgpassword"] for c in script_psql
+    ]
+    # The non-secret remainder of the URL stays in argv, which keeps ps useful.
+    assert all(
+        any(a.startswith(f"postgresql://{role}@") for a in c["argv"])
+        for c in script_psql
+    )
+    assert _row_count(db) == 0
+
+
+def test_a_wrong_password_in_the_url_fails_to_connect(
+    password_db, curl_stub_dir, tmp_path
+):
+    """Negative control for the test above.
+
+    Without this, a server that did not enforce password authentication would
+    let the success there pass whether or not the password was ever delivered.
+    """
+    db, role = password_db
+    _seed_rows(db, days_ago=[200, 150])
+
+    db_url = (
+        f"postgresql://{role}:definitely-not-the-password"
+        f"@{settings.postgres_host}:{settings.postgres_port}/{db}"
+    )
+    result = _run_script(
+        db,
+        curl_stub_dir,
+        "--days",
+        "90",
+        "--confirm-single-tenant",
+        CONFIRM_PHRASE,
+        "--archive-dir",
+        str(tmp_path / "archives"),
+        "--db-url",
+        db_url,
+    )
+
+    assert result.returncode != 0
+    assert "password authentication failed" in result.stderr.lower()
+    assert _row_count(db) == 2
+
+
+def test_a_malformed_percent_encoded_password_is_refused(
+    password_db, curl_stub_dir, tmp_path
+):
+    """A stray '%' cannot be decoded, and guessing would mangle the password.
+
+    Refusing names the workaround instead, rather than silently connecting with
+    a wrong password or, worse, a half-decoded one.
+    """
+    db, role = password_db
+    _seed_rows(db, days_ago=[200, 150])
+
+    db_url = (
+        f"postgresql://{role}:not%valid"
+        f"@{settings.postgres_host}:{settings.postgres_port}/{db}"
+    )
+    result = _run_script(
+        db,
+        curl_stub_dir,
+        "--days",
+        "90",
+        "--confirm-single-tenant",
+        CONFIRM_PHRASE,
+        "--archive-dir",
+        str(tmp_path / "archives"),
+        "--db-url",
+        db_url,
+    )
+
+    assert result.returncode != 0
+    assert "not valid percent-encoding" in result.stderr
+    assert "PGPASSWORD" in result.stderr
+    assert _row_count(db) == 2
+
+
+def test_db_url_from_the_environment_avoids_the_scripts_own_argv(
+    password_db, curl_stub_dir, tmp_path
+):
+    """The half --db-url cannot fix: the script's own command line.
+
+    psql children are short-lived, but the script itself runs for the whole
+    retention pass with whatever was typed on its command line. The env var is
+    the way out, and passing a password through --db-url warns about it.
+    """
+    db, role = password_db
+    _seed_rows(db, days_ago=[200, 150])
+
+    db_url = (
+        f"postgresql://{role}:{_NASTY_PASSWORD_ENCODED}"
+        f"@{settings.postgres_host}:{settings.postgres_port}/{db}"
+    )
+    result = _run_script(
+        db,
+        curl_stub_dir,
+        "--days",
+        "90",
+        "--confirm-single-tenant",
+        CONFIRM_PHRASE,
+        "--archive-dir",
+        str(tmp_path / "archives"),
+        env_overrides={
+            "GEOLENS_RETENTION_DB_URL": db_url,
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Connecting via GEOLENS_RETENTION_DB_URL" in result.stdout
+    # No warning, because nothing secret was typed on a command line.
+    assert "visible in this script's own command line" not in result.stderr
+    assert _row_count(db) == 0
+
+
+def test_a_password_on_the_command_line_warns_about_it(
+    password_db, curl_stub_dir, tmp_path
+):
+    db, role = password_db
+    _seed_rows(db, days_ago=[200])
+
+    db_url = (
+        f"postgresql://{role}:{_NASTY_PASSWORD_ENCODED}"
+        f"@{settings.postgres_host}:{settings.postgres_port}/{db}"
+    )
+    result = _run_script(
+        db,
+        curl_stub_dir,
+        "--days",
+        "90",
+        "--confirm-single-tenant",
+        CONFIRM_PHRASE,
+        "--archive-dir",
+        str(tmp_path / "archives"),
+        "--db-url",
+        db_url,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "visible in this script's own command line" in result.stderr
+    assert "GEOLENS_RETENTION_DB_URL" in result.stderr
 
 
 # ---------------------------------------------------------------------------

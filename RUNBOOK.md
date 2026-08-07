@@ -1456,14 +1456,34 @@ the other scripts here. On a managed or external Postgres (§3) there is no `db`
 container, so use either:
 
 ```bash
-# A libpq connection URL:
+# A libpq connection URL, with the password kept out of the command line:
+export PGPASSWORD=...
 ./scripts/audit_retention.sh --db-url "postgresql://user@host:5432/geolens" ...
+
+# ...or the whole URL in the environment, password included:
+export GEOLENS_RETENTION_DB_URL="postgresql://user:pw@host:5432/geolens"
+./scripts/audit_retention.sh ...
 
 # ...or the standard libpq environment variables (setting PGHOST or PGSERVICE
 # is what selects this mode):
 export PGHOST=... PGPORT=5432 PGUSER=... PGDATABASE=geolens PGPASSWORD=...
 ./scripts/audit_retention.sh ...
 ```
+
+**Do not put a password in `--db-url` if you can avoid it.** Command lines are
+world-readable on most systems (`ps`, `/proc/<pid>/cmdline`), so anything typed
+there is visible to every local account for as long as the process runs. The
+script keeps secrets out of the command lines it *controls* — the password is
+moved into the environment before `psql` is invoked, and the admin bearer token
+reaches `curl` through a `0600` header file rather than `-H` — but it cannot
+retract its own command line, so a password passed that way is exposed for the
+whole run and the script warns about it. `GEOLENS_RETENTION_DB_URL` and
+`PGPASSWORD` avoid that entirely.
+
+A password inside the URL must be percent-encoded, as libpq requires
+(`p@ss/word` becomes `p%40ss%2Fword`). The script decodes it before handing it
+over; if the encoding is malformed it stops and tells you to use `PGPASSWORD`
+instead, rather than guessing and connecting with a mangled password.
 
 A SQLAlchemy driver suffix is stripped for you: `postgresql+asyncpg://` and
 `postgresql+psycopg://` both become `postgresql://`, which is what libpq's URI
