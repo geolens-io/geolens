@@ -2123,7 +2123,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # that #1220's executor takes both writes over, and why the timestamp is a
     # Python datetime rather than func.now() (a SQL expression leaves the
     # attribute expired, so the next read lazy-loads). Cap 1816 -> 1850, exact.
-    "backend/app/processing/ingest/tasks_common.py": 1850,
+    # fix(#1218 review r9): +7 — a successful service re-pull moves
+    # last_checked_at with last_refreshed_at, since last_checked_at is defined
+    # as the last origin contact of any kind and a re-pull just made one. A
+    # file reupload contacts no origin and leaves it alone, which is what the
+    # classify_origin branch and its comment buy. Cap 1850 -> 1857, exact.
+    "backend/app/processing/ingest/tasks_common.py": 1857,
     # --- entered by the inclusion rule, fix(#958) -------------------------
     # These five were the ungated modules at or above _RATCHET_INCLUSION_LOC
     # when the rule was written. They arrive at their measured size with no
