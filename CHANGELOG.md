@@ -42,6 +42,14 @@ and releases use semantic versioning.
   (#1240, #651).
 - **`quality_score_numeric` removed.** The column was never wired to
   anything; dropped via migration rather than carried forward unused (#1231).
+- **Python SDK: `AnalysisPreviewRequest`'s positional constructor argument
+  order shifted.** The new `bbox` field (#727) landed alphabetically before
+  `distance_meters` in the regenerated model, so code calling
+  `AnalysisPreviewRequest(operation, 500)` positionally now binds `500` to
+  `bbox` instead of `distance_meters` and gets a 422 on the next request.
+  Call with keyword arguments (`AnalysisPreviewRequest(operation=...,
+  distance_meters=500)`) to avoid this and any similar future reordering;
+  tracked for a permanent fix in #1257.
 
 ### Operations
 
