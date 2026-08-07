@@ -1810,6 +1810,13 @@ async def _apply_reupload_swap(
     # expired after flush, and the next read of dataset.last_refreshed_at then
     # lazy-loads against a session that may already be closed.
     dataset.last_refreshed_at = datetime.now(timezone.utc)
+    # fix(#1218 review r9): a service re-pull just contacted the remote origin,
+    # and last_checked_at is defined as the last origin contact of any kind —
+    # so a successful service refresh must move it with last_refreshed_at, in
+    # the same transaction. A file reupload contacts no origin and leaves it
+    # alone.
+    if classify_origin(source_format) == "service":
+        dataset.last_checked_at = dataset.last_refreshed_at
 
     quality_score = await compute_quality_score(
         session,

@@ -1516,6 +1516,9 @@ class TestReuploadRestampsTheBinding:
         # The user-editable prose field is NOT collateral damage.
         assert ds.source_url == "https://descriptive.test/about-this-layer"
         assert ds.last_refreshed_at is not None and ds.last_refreshed_at > stale
+        # fix(#1218 review r9): a file reupload contacts no origin, so the
+        # last-origin-contact stamp must NOT move.
+        assert ds.last_checked_at is None
 
     async def test_service_reupload_stays_a_service_origin(
         self, test_db_session
@@ -1560,6 +1563,12 @@ class TestReuploadRestampsTheBinding:
             "url": "https://gis.test/geoserver/wfs",
         }
         assert ds.origin_uri == "https://gis.test/geoserver/wfs"
+        # fix(#1218 review r9): the re-pull just contacted the remote origin,
+        # and last_checked_at is the last origin contact of any kind — a
+        # successful service refresh moves it with last_refreshed_at, in the
+        # same transaction.
+        assert ds.last_checked_at is not None
+        assert ds.last_checked_at == ds.last_refreshed_at
 
     async def test_reupload_ref_still_goes_through_the_allowlist(
         self, test_db_session
