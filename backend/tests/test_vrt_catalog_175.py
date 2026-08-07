@@ -71,6 +71,16 @@ def _make_mock_dataset(record_type: str, title: str = "Test Dataset") -> MagicMo
     ds.current_version = 1
     ds.source_url = None
     ds.quality_statement = None
+    # feat(#1218): source-origin & refresh state. A bare MagicMock returns a
+    # MagicMock for any attribute never set, which DatasetResponse rejects, so
+    # every new dataset column has to be pinned here explicitly.
+    ds.origin_uri = None
+    ds.origin_ref = None
+    ds.last_refreshed_at = None
+    ds.last_checked_at = None
+    ds.source_health = None
+    ds.source_health_detail = None
+    ds.schema_drift_status = None
 
     ds.record = MagicMock()
     ds.record.record_type = record_type

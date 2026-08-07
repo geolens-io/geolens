@@ -9,6 +9,7 @@ import structlog
 from app.core.db.tenant_session import current_tenant_var, tenant_task
 from app.core.tenancy import is_multi_tenant
 from app.platform.cache.tiles import invalidate_catalog_cache
+from app.platform.dataset_origin import set_dataset_origin
 from app.platform.jobs.heartbeat import (
     claim_job_attempt_and_start_heartbeat,
     require_ingest_job_update,
@@ -162,7 +163,16 @@ async def create_raster_dataset(
         source_format="geotiff",
         source_filename=source_filename,
         srid=meta.get("epsg"),
+        # fix(#1218 review): see create_dataset — every creation path stamps
+        # this, or post-migration rows report null while backfilled ones do
+        # not. Python value, not func.now(): a SQL expression leaves the
+        # attribute expired and the next read lazy-loads.
+        last_refreshed_at=datetime.now(timezone.utc),
     )
+    # feat(#1218): a raster dataset IS the COG; the pre-conversion upload is a
+    # transient input, so the origin is the uploaded file and there is no
+    # remote URI to point at (ADR-002 Decision 7).
+    set_dataset_origin(dataset, "upload", filename=source_filename)
     session.add(dataset)
     await session.flush()
 

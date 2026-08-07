@@ -393,6 +393,29 @@ class Dataset(Base):
             "original_srid IS NULL OR original_srid > 0",
             name="chk_datasets_original_srid_positive",
         ),
+        # feat(#1218): NULL is the only spelling of "never determined" — an
+        # 'unknown' literal is deliberately OUT of both value sets, so no
+        # query ever has to handle two spellings of one state. The API
+        # projects NULL to "unknown" at the response boundary instead.
+        # Migration 0036_dataset_source_state is the source of truth.
+        CheckConstraint(
+            "source_health IS NULL OR source_health IN "
+            "('healthy', 'missing', 'inaccessible')",
+            name="chk_datasets_source_health",
+        ),
+        CheckConstraint(
+            "schema_drift_status IS NULL OR schema_drift_status IN ('none', 'drifted')",
+            name="chk_datasets_schema_drift_status",
+        ),
+        # feat(#1218): backs the duplicate-source guard, which ADR-002
+        # Decision 6 re-keys from the user-PATCHable source_url to the
+        # system-managed origin_uri. Partial: upload and created datasets
+        # have no remote origin to point at, so most rows are NULL.
+        Index(
+            "ix_datasets_origin_uri",
+            "origin_uri",
+            postgresql_where=text("origin_uri IS NOT NULL"),
+        ),
         Index(
             "uq_datasets_table_name_global",
             "table_name",
@@ -445,6 +468,42 @@ class Dataset(Base):
     source_filename: Mapped[str | None] = mapped_column(String(500), nullable=True)
     original_srid: Mapped[int | None] = mapped_column(Integer, nullable=True)
     source_url: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+
+    # Source origin & refresh state (ADR-002, #1218). System-managed: none of
+    # these is in _DATASET_FIELD_MAP, so the metadata PATCH cannot reach them.
+    # source_url stays user-editable descriptive prose beside origin_uri, the
+    # machine pointer — two URL-ish fields, bounded by tests rather than by
+    # removing the one DCAT export depends on.
+    #
+    # origin_ref carries a `kind` discriminator plus a per-kind payload; every
+    # write goes through the key allowlist in
+    # app/platform/dataset_origin.py, which is what keeps a credential out of
+    # the binding and keeps external PostGIS federation out of v1.
+    origin_uri: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    origin_ref: Mapped[dict | None] = mapped_column(
+        MutableDict.as_mutable(JSONB), nullable=True
+    )
+    # Last committed successful swap, NOT last attempt. last_checked_at is the
+    # "we contacted the origin at all" timestamp — probe or refresh, success or
+    # failure. There is deliberately no last_verified_at: v1 has no
+    # verification layer, and a column named for one would be a lie in the
+    # schema (ADR-002 Decision 3 / invariant 9).
+    last_refreshed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_checked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Vocabulary reused from the VRT member probe (router_vrt.py) so one legend
+    # renders across VRT members and standalone origins.
+    source_health: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Short, redacted reason. Never a raw exception, a URL carrying
+    # query-string credentials, or a GDAL command line.
+    source_health_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Persisted rather than derived — unlike origin classification and
+    # staleness — because the pre-refresh schema is gone once the swap
+    # commits, so drift has no live inputs to recompute from.
+    schema_drift_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     # TSEAM-01 (Phase 1207): dormant tenant_id — nullable, no FK enforcement.
     tenant_id: Mapped[uuid.UUID | None] = mapped_column(

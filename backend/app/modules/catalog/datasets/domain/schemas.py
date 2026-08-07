@@ -323,6 +323,62 @@ class DatasetResponse(BaseModel):
         max_length=2000,
         description="URL the data was originally fetched from",
     )
+    # feat(#1218): read-only source-origin & refresh state. Every field below
+    # is system-managed — none is accepted by PATCH /datasets/{id}/metadata.
+    origin: str | None = Field(
+        default=None,
+        description=(
+            "How the data entered the catalog: upload, postgis, service, "
+            "stac, or created. Computed from source_format and record_type, "
+            "not stored; null for collections and VRTs, which have no origin "
+            "of their own."
+        ),
+    )
+    origin_uri: str | None = Field(
+        default=None,
+        max_length=2000,
+        description=(
+            "Machine-readable pointer back to the origin, written only by "
+            "ingest and refresh. Distinct from source_url, which is editable "
+            "descriptive metadata. Null for uploads and created datasets."
+        ),
+    )
+    origin_ref: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Typed per-origin payload with a `kind` discriminator, e.g. "
+            '{"kind": "service", "service_type": "wfs", "url": "...", '
+            '"layer_id": "0"}. Never contains credentials.'
+        ),
+    )
+    last_refreshed_at: datetime | None = Field(
+        default=None,
+        description="Last committed successful refresh — not the last attempt",
+    )
+    last_checked_at: datetime | None = Field(
+        default=None,
+        description=(
+            "Last time GeoLens contacted the origin at all, whether the "
+            "attempt succeeded or failed"
+        ),
+    )
+    source_health: str = Field(
+        default="unknown",
+        description=(
+            "healthy, missing, inaccessible, or unknown. 'unknown' means "
+            "never probed, or an origin kind with nothing to probe."
+        ),
+    )
+    source_health_detail: str | None = Field(
+        default=None, description="Short redacted reason for a non-healthy state"
+    )
+    schema_drift_status: str = Field(
+        default="unknown",
+        description=(
+            "none, drifted, or unknown. Set at refresh commit from the "
+            "schema diff; 'unknown' until a refresh has run."
+        ),
+    )
     quality_statement: str | None = None
     visibility: str = Field(
         description="Access level: private, restricted, internal, public"

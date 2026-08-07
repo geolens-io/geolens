@@ -22,6 +22,7 @@ from app.core.async_io import run_in_thread_draining
 from app.core.identity import Identity
 from app.core.config import settings
 from app.core.db.tenant_session import defer_async_with_tenant
+from app.platform.dataset_origin import set_postgis_origin
 from app.platform.extensions import get_processing_port
 from app.processing.ingest.metadata import (
     add_4326_column,
@@ -660,6 +661,20 @@ async def register_existing_table(
         visibility=request.visibility,
         ingestion=ingestion,
     )
+
+    # feat(#1218): registration copies no data and serves from the live table,
+    # so the origin IS that table. Gate 2 (no external PostGIS federation in
+    # v1) is why the ref carries a schema-qualified name and no connection
+    # detail — the allowlist accepts no host, port, DSN, or credential key.
+    #
+    # fix(#1218 review r2): pass the SAME _schema this function verified,
+    # granted, and extracted metadata in. Reading dataset.tenant_id instead
+    # pointed every multi-tenant registration at `data.<table>`: the INSERT
+    # sends tenant_id NULL and the trg_stamp_current_tenant_on_insert trigger
+    # fills it in the database, so the ORM attribute never sees the real
+    # value. _schema comes from the active tenant context and already fails
+    # closed in multi-tenant mode when that context is missing.
+    set_postgis_origin(dataset, table_name, schema=_schema)
 
     return dataset
 

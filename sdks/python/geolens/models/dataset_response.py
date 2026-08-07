@@ -16,6 +16,9 @@ import datetime
 if TYPE_CHECKING:
     from ..models.collection_ref import CollectionRef
     from ..models.column_info import ColumnInfo
+    from ..models.dataset_response_origin_ref_type_0 import (
+        DatasetResponseOriginRefType0,
+    )
     from ..models.dataset_response_stac_assets_type_0 import (
         DatasetResponseStacAssetsType0,
     )
@@ -60,14 +63,25 @@ class DatasetResponse:
             Computed on the detail endpoint only (fix #430 codex r18); list endpoints always report false. Default: False.
         is_3d (bool | None | Unset): True if geometry has Z dimension
         language (None | str | Unset): ISO 639-1 language code, e.g. en, fr
+        last_checked_at (datetime.datetime | None | Unset): Last time GeoLens contacted the origin at all, whether the
+            attempt succeeded or failed
         last_edited_at (datetime.datetime | None | Unset):
         last_edited_by_display (None | str | Unset):
+        last_refreshed_at (datetime.datetime | None | Unset): Last committed successful refresh — not the last attempt
         license_ (None | str | Unset):
         lineage_summary (None | str | Unset): Free-text provenance / lineage statement
         metadata_warnings (list[str] | None | Unset): Advisory warnings produced by a metadata update — e.g. a
             visibility or status change exposing keywords inherited from an analysis source the new audience cannot open
             (feat #1070). Only ever set on the PATCH response; the change has already applied.
         n_dims (int | None | Unset): Number of coordinate dimensions (2, 3, or 4)
+        origin (None | str | Unset): How the data entered the catalog: upload, postgis, service, stac, or created.
+            Computed from source_format and record_type, not stored; null for collections and VRTs, which have no origin of
+            their own.
+        origin_ref (DatasetResponseOriginRefType0 | None | Unset): Typed per-origin payload with a `kind` discriminator,
+            e.g. {"kind": "service", "service_type": "wfs", "url": "...", "layer_id": "0"}. Never contains credentials.
+        origin_uri (None | str | Unset): Machine-readable pointer back to the origin, written only by ingest and
+            refresh. Distinct from source_url, which is editable descriptive metadata. Null for uploads and created
+            datasets.
         original_srid (int | None | Unset): EPSG SRID of the uploaded source file
         owner_org (None | str | Unset): Owning organization name
         published_at (datetime.datetime | None | Unset):
@@ -80,8 +94,13 @@ class DatasetResponse:
         record_type (str | Unset): Record type: 'vector_dataset' (spatial features), 'raster_dataset' (single COG),
             'vrt_dataset' (VRT mosaic), 'table' (non-spatial tabular), 'map' (saved map), 'service' (catalogued remote
             service), 'collection' (flat dataset group). Default: 'vector_dataset'.
+        schema_drift_status (str | Unset): none, drifted, or unknown. Set at refresh commit from the schema diff;
+            'unknown' until a refresh has run. Default: 'unknown'.
         sensitivity_classification (None | str | Unset): e.g. public, confidential, restricted
         source_format (None | str | Unset): Original file format, e.g. GPKG, SHP
+        source_health (str | Unset): healthy, missing, inaccessible, or unknown. 'unknown' means never probed, or an
+            origin kind with nothing to probe. Default: 'unknown'.
+        source_health_detail (None | str | Unset): Short redacted reason for a non-healthy state
         source_organization (None | str | Unset):
         source_url (None | str | Unset): URL the data was originally fetched from
         srid (int | None | Unset): Current EPSG SRID of stored geometry
@@ -121,12 +140,17 @@ class DatasetResponse:
     has_generic_geometry: bool | Unset = False
     is_3d: bool | None | Unset = UNSET
     language: None | str | Unset = UNSET
+    last_checked_at: datetime.datetime | None | Unset = UNSET
     last_edited_at: datetime.datetime | None | Unset = UNSET
     last_edited_by_display: None | str | Unset = UNSET
+    last_refreshed_at: datetime.datetime | None | Unset = UNSET
     license_: None | str | Unset = UNSET
     lineage_summary: None | str | Unset = UNSET
     metadata_warnings: list[str] | None | Unset = UNSET
     n_dims: int | None | Unset = UNSET
+    origin: None | str | Unset = UNSET
+    origin_ref: DatasetResponseOriginRefType0 | None | Unset = UNSET
+    origin_uri: None | str | Unset = UNSET
     original_srid: int | None | Unset = UNSET
     owner_org: None | str | Unset = UNSET
     published_at: datetime.datetime | None | Unset = UNSET
@@ -135,8 +159,11 @@ class DatasetResponse:
     raster: None | RasterMetadata | Unset = UNSET
     record_status: str | Unset = "draft"
     record_type: str | Unset = "vector_dataset"
+    schema_drift_status: str | Unset = "unknown"
     sensitivity_classification: None | str | Unset = UNSET
     source_format: None | str | Unset = UNSET
+    source_health: str | Unset = "unknown"
+    source_health_detail: None | str | Unset = UNSET
     source_organization: None | str | Unset = UNSET
     source_url: None | str | Unset = UNSET
     srid: int | None | Unset = UNSET
@@ -152,6 +179,9 @@ class DatasetResponse:
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.dataset_response_origin_ref_type_0 import (
+            DatasetResponseOriginRefType0,
+        )
         from ..models.dataset_response_stac_assets_type_0 import (
             DatasetResponseStacAssetsType0,
         )
@@ -275,6 +305,14 @@ class DatasetResponse:
         else:
             language = self.language
 
+        last_checked_at: None | str | Unset
+        if isinstance(self.last_checked_at, Unset):
+            last_checked_at = UNSET
+        elif isinstance(self.last_checked_at, datetime.datetime):
+            last_checked_at = self.last_checked_at.isoformat()
+        else:
+            last_checked_at = self.last_checked_at
+
         last_edited_at: None | str | Unset
         if isinstance(self.last_edited_at, Unset):
             last_edited_at = UNSET
@@ -288,6 +326,14 @@ class DatasetResponse:
             last_edited_by_display = UNSET
         else:
             last_edited_by_display = self.last_edited_by_display
+
+        last_refreshed_at: None | str | Unset
+        if isinstance(self.last_refreshed_at, Unset):
+            last_refreshed_at = UNSET
+        elif isinstance(self.last_refreshed_at, datetime.datetime):
+            last_refreshed_at = self.last_refreshed_at.isoformat()
+        else:
+            last_refreshed_at = self.last_refreshed_at
 
         license_: None | str | Unset
         if isinstance(self.license_, Unset):
@@ -315,6 +361,26 @@ class DatasetResponse:
             n_dims = UNSET
         else:
             n_dims = self.n_dims
+
+        origin: None | str | Unset
+        if isinstance(self.origin, Unset):
+            origin = UNSET
+        else:
+            origin = self.origin
+
+        origin_ref: dict[str, Any] | None | Unset
+        if isinstance(self.origin_ref, Unset):
+            origin_ref = UNSET
+        elif isinstance(self.origin_ref, DatasetResponseOriginRefType0):
+            origin_ref = self.origin_ref.to_dict()
+        else:
+            origin_ref = self.origin_ref
+
+        origin_uri: None | str | Unset
+        if isinstance(self.origin_uri, Unset):
+            origin_uri = UNSET
+        else:
+            origin_uri = self.origin_uri
 
         original_srid: int | None | Unset
         if isinstance(self.original_srid, Unset):
@@ -362,6 +428,8 @@ class DatasetResponse:
 
         record_type = self.record_type
 
+        schema_drift_status = self.schema_drift_status
+
         sensitivity_classification: None | str | Unset
         if isinstance(self.sensitivity_classification, Unset):
             sensitivity_classification = UNSET
@@ -373,6 +441,14 @@ class DatasetResponse:
             source_format = UNSET
         else:
             source_format = self.source_format
+
+        source_health = self.source_health
+
+        source_health_detail: None | str | Unset
+        if isinstance(self.source_health_detail, Unset):
+            source_health_detail = UNSET
+        else:
+            source_health_detail = self.source_health_detail
 
         source_organization: None | str | Unset
         if isinstance(self.source_organization, Unset):
@@ -501,10 +577,14 @@ class DatasetResponse:
             field_dict["is_3d"] = is_3d
         if language is not UNSET:
             field_dict["language"] = language
+        if last_checked_at is not UNSET:
+            field_dict["last_checked_at"] = last_checked_at
         if last_edited_at is not UNSET:
             field_dict["last_edited_at"] = last_edited_at
         if last_edited_by_display is not UNSET:
             field_dict["last_edited_by_display"] = last_edited_by_display
+        if last_refreshed_at is not UNSET:
+            field_dict["last_refreshed_at"] = last_refreshed_at
         if license_ is not UNSET:
             field_dict["license"] = license_
         if lineage_summary is not UNSET:
@@ -513,6 +593,12 @@ class DatasetResponse:
             field_dict["metadata_warnings"] = metadata_warnings
         if n_dims is not UNSET:
             field_dict["n_dims"] = n_dims
+        if origin is not UNSET:
+            field_dict["origin"] = origin
+        if origin_ref is not UNSET:
+            field_dict["origin_ref"] = origin_ref
+        if origin_uri is not UNSET:
+            field_dict["origin_uri"] = origin_uri
         if original_srid is not UNSET:
             field_dict["original_srid"] = original_srid
         if owner_org is not UNSET:
@@ -529,10 +615,16 @@ class DatasetResponse:
             field_dict["record_status"] = record_status
         if record_type is not UNSET:
             field_dict["record_type"] = record_type
+        if schema_drift_status is not UNSET:
+            field_dict["schema_drift_status"] = schema_drift_status
         if sensitivity_classification is not UNSET:
             field_dict["sensitivity_classification"] = sensitivity_classification
         if source_format is not UNSET:
             field_dict["source_format"] = source_format
+        if source_health is not UNSET:
+            field_dict["source_health"] = source_health
+        if source_health_detail is not UNSET:
+            field_dict["source_health_detail"] = source_health_detail
         if source_organization is not UNSET:
             field_dict["source_organization"] = source_organization
         if source_url is not UNSET:
@@ -564,6 +656,9 @@ class DatasetResponse:
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.collection_ref import CollectionRef
         from ..models.column_info import ColumnInfo
+        from ..models.dataset_response_origin_ref_type_0 import (
+            DatasetResponseOriginRefType0,
+        )
         from ..models.dataset_response_stac_assets_type_0 import (
             DatasetResponseStacAssetsType0,
         )
@@ -784,6 +879,23 @@ class DatasetResponse:
 
         language = _parse_language(d.pop("language", UNSET))
 
+        def _parse_last_checked_at(data: object) -> datetime.datetime | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                last_checked_at_type_0 = isoparse(data)
+
+                return last_checked_at_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(datetime.datetime | None | Unset, data)
+
+        last_checked_at = _parse_last_checked_at(d.pop("last_checked_at", UNSET))
+
         def _parse_last_edited_at(data: object) -> datetime.datetime | None | Unset:
             if data is None:
                 return data
@@ -811,6 +923,23 @@ class DatasetResponse:
         last_edited_by_display = _parse_last_edited_by_display(
             d.pop("last_edited_by_display", UNSET)
         )
+
+        def _parse_last_refreshed_at(data: object) -> datetime.datetime | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                last_refreshed_at_type_0 = isoparse(data)
+
+                return last_refreshed_at_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(datetime.datetime | None | Unset, data)
+
+        last_refreshed_at = _parse_last_refreshed_at(d.pop("last_refreshed_at", UNSET))
 
         def _parse_license_(data: object) -> None | str | Unset:
             if data is None:
@@ -855,6 +984,43 @@ class DatasetResponse:
             return cast(int | None | Unset, data)
 
         n_dims = _parse_n_dims(d.pop("n_dims", UNSET))
+
+        def _parse_origin(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        origin = _parse_origin(d.pop("origin", UNSET))
+
+        def _parse_origin_ref(
+            data: object,
+        ) -> DatasetResponseOriginRefType0 | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                origin_ref_type_0 = DatasetResponseOriginRefType0.from_dict(data)
+
+                return origin_ref_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(DatasetResponseOriginRefType0 | None | Unset, data)
+
+        origin_ref = _parse_origin_ref(d.pop("origin_ref", UNSET))
+
+        def _parse_origin_uri(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        origin_uri = _parse_origin_uri(d.pop("origin_uri", UNSET))
 
         def _parse_original_srid(data: object) -> int | None | Unset:
             if data is None:
@@ -938,6 +1104,8 @@ class DatasetResponse:
 
         record_type = d.pop("record_type", UNSET)
 
+        schema_drift_status = d.pop("schema_drift_status", UNSET)
+
         def _parse_sensitivity_classification(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -957,6 +1125,19 @@ class DatasetResponse:
             return cast(None | str | Unset, data)
 
         source_format = _parse_source_format(d.pop("source_format", UNSET))
+
+        source_health = d.pop("source_health", UNSET)
+
+        def _parse_source_health_detail(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        source_health_detail = _parse_source_health_detail(
+            d.pop("source_health_detail", UNSET)
+        )
 
         def _parse_source_organization(data: object) -> None | str | Unset:
             if data is None:
@@ -1135,12 +1316,17 @@ class DatasetResponse:
             has_generic_geometry=has_generic_geometry,
             is_3d=is_3d,
             language=language,
+            last_checked_at=last_checked_at,
             last_edited_at=last_edited_at,
             last_edited_by_display=last_edited_by_display,
+            last_refreshed_at=last_refreshed_at,
             license_=license_,
             lineage_summary=lineage_summary,
             metadata_warnings=metadata_warnings,
             n_dims=n_dims,
+            origin=origin,
+            origin_ref=origin_ref,
+            origin_uri=origin_uri,
             original_srid=original_srid,
             owner_org=owner_org,
             published_at=published_at,
@@ -1149,8 +1335,11 @@ class DatasetResponse:
             raster=raster,
             record_status=record_status,
             record_type=record_type,
+            schema_drift_status=schema_drift_status,
             sensitivity_classification=sensitivity_classification,
             source_format=source_format,
+            source_health=source_health,
+            source_health_detail=source_health_detail,
             source_organization=source_organization,
             source_url=source_url,
             srid=srid,

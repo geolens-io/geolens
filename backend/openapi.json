@@ -5284,6 +5284,19 @@
             "description": "ISO 639-1 language code, e.g. en, fr",
             "title": "Language"
           },
+          "last_checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Last time GeoLens contacted the origin at all, whether the attempt succeeded or failed",
+            "title": "Last Checked At"
+          },
           "last_edited_at": {
             "anyOf": [
               {
@@ -5306,6 +5319,19 @@
               }
             ],
             "title": "Last Edited By Display"
+          },
+          "last_refreshed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Last committed successful refresh \u2014 not the last attempt",
+            "title": "Last Refreshed At"
           },
           "license": {
             "anyOf": [
@@ -5356,6 +5382,44 @@
             ],
             "description": "Number of coordinate dimensions (2, 3, or 4)",
             "title": "N Dims"
+          },
+          "origin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How the data entered the catalog: upload, postgis, service, stac, or created. Computed from source_format and record_type, not stored; null for collections and VRTs, which have no origin of their own.",
+            "title": "Origin"
+          },
+          "origin_ref": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Typed per-origin payload with a `kind` discriminator, e.g. {\"kind\": \"service\", \"service_type\": \"wfs\", \"url\": \"...\", \"layer_id\": \"0\"}. Never contains credentials.",
+            "title": "Origin Ref"
+          },
+          "origin_uri": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Machine-readable pointer back to the origin, written only by ingest and refresh. Distinct from source_url, which is editable descriptive metadata. Null for uploads and created datasets.",
+            "title": "Origin Uri"
           },
           "original_srid": {
             "anyOf": [
@@ -5444,6 +5508,12 @@
             "title": "Record Type",
             "type": "string"
           },
+          "schema_drift_status": {
+            "default": "unknown",
+            "description": "none, drifted, or unknown. Set at refresh commit from the schema diff; 'unknown' until a refresh has run.",
+            "title": "Schema Drift Status",
+            "type": "string"
+          },
           "sensitivity_classification": {
             "anyOf": [
               {
@@ -5478,6 +5548,24 @@
             ],
             "description": "Original file format, e.g. GPKG, SHP",
             "title": "Source Format"
+          },
+          "source_health": {
+            "default": "unknown",
+            "description": "healthy, missing, inaccessible, or unknown. 'unknown' means never probed, or an origin kind with nothing to probe.",
+            "title": "Source Health",
+            "type": "string"
+          },
+          "source_health_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Short redacted reason for a non-healthy state",
+            "title": "Source Health Detail"
           },
           "source_organization": {
             "anyOf": [

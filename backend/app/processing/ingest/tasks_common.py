@@ -22,6 +22,7 @@ from app.core.async_io import await_draining
 from procrastinate import App, PsycopgConnector
 
 from app.platform.cache.tiles import invalidate_catalog_cache
+from app.platform.dataset_origin import classify_origin, set_dataset_origin
 from app.core.config import settings
 from app.processing.embeddings.helpers import defer_embedding
 from app.platform.storage import get_storage
@@ -208,6 +209,14 @@ class IngestContext:
     user_metadata: dict[str, Any]
     source_url: str | None = None
     attempt_id: uuid.UUID | None = None
+    # feat(#1218): typed origin_ref payload for the dataset the finalize
+    # pipeline creates, minus the `kind` discriminator (derived from
+    # source_format). Keys are validated against the per-kind allowlist in
+    # app/platform/dataset_origin.py, so nothing unexpected — a credential
+    # most of all — can reach the column. Callers pass their own payload
+    # rather than one being inferred here: an incomplete ref is visible in
+    # the stored JSON, whereas a plausible default would not be.
+    origin_ref: dict[str, Any] | None = None
 
 
 @dataclass
@@ -1369,6 +1378,17 @@ async def _finalize_ingest(ctx: IngestContext):
     if final_status != "published":
         dataset.record.published_at = None
 
+    # feat(#1218): system-managed origin pointer, in the same transaction that
+    # creates the dataset. Service ingest supplies the enriched URL through
+    # ctx.source_url; an uploaded file has no remote origin to point at, so
+    # its origin_uri stays NULL and only the ref carries the filename.
+    set_dataset_origin(
+        dataset,
+        classify_origin(ctx.source_format),
+        uri=ctx.source_url,
+        **(ctx.origin_ref or {}),
+    )
+
     # Compute quality score (requires Dataset to exist for metadata checks)
     quality_score = await compute_quality_score(
         session,
@@ -1602,8 +1622,16 @@ async def _apply_reupload_swap(
     original_srid: int | None,
     source_url: str | None = None,
     file_hash: str | None = None,
+    origin_ref: dict[str, Any] | None = None,
 ) -> None:
-    """Apply shared atomic swap + version invariants for all reupload sources."""
+    """Apply shared atomic swap + version invariants for all reupload sources.
+
+    ``origin_ref`` carries the typed per-origin payload for the bytes this
+    swap installs, minus the ``kind`` discriminator (derived from
+    ``source_format``). Same contract as ``IngestContext.origin_ref``: keys go
+    through the per-kind allowlist, and callers supply their own rather than
+    one being inferred here.
+    """
     from app.modules.audit.service import (
         AuditEvent,
         audit_emit,
@@ -1756,6 +1784,32 @@ async def _apply_reupload_swap(
     dataset.record.updated_by = actor_id
     if source_url is not None:
         dataset.source_url = source_url
+
+    # fix(#1218 review): restamp the binding, which must describe where the
+    # CURRENT bytes came from. Without this a file reupload of a
+    # registered-postgis or service dataset leaves the old pointer in place,
+    # so the API serves a computed origin of `upload` beside a stored ref
+    # still claiming `postgis` — and a later refresh would follow the stale
+    # pointer. The kind is derived from the NEW source_format exactly as first
+    # ingest derives it, so a service reupload stays a service origin instead
+    # of being flattened to an upload, and a file reupload correctly clears
+    # origin_uri (an upload has no remote pointer) while leaving the
+    # user-editable source_url alone.
+    #
+    # #1220's shared refresh executor takes over both writes below for
+    # server-side refresh; until it lands, this path owns them.
+    set_dataset_origin(
+        dataset,
+        classify_origin(source_format),
+        uri=source_url,
+        **(origin_ref or {}),
+    )
+    # The swap commit time, which is what migration 0036's backfill reads off
+    # max(dataset_versions.uploaded_at) for a pre-existing dataset. A Python
+    # datetime rather than func.now(): a SQL expression leaves the attribute
+    # expired after flush, and the next read of dataset.last_refreshed_at then
+    # lazy-loads against a session that may already be closed.
+    dataset.last_refreshed_at = datetime.now(timezone.utc)
 
     quality_score = await compute_quality_score(
         session,
