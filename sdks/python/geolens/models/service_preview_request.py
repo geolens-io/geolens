@@ -18,36 +18,30 @@ T = TypeVar("T", bound="ServicePreviewRequest")
 class ServicePreviewRequest:
     """
     Attributes:
-        layer_name (str): Name of the specific layer to preview, from the probe layers list.
-        service_type (str): Service type from the probe response, e.g. 'WFS 2.0.0' or 'ArcGIS FeatureServer'.
         url (str): Normalized service URL from a previous probe response.
-        layer_id (int | None | str | Unset): ArcGIS layer ID, when applicable.
+        service_type (str): Service type from the probe response, e.g. 'WFS 2.0.0' or 'ArcGIS FeatureServer'.
+        layer_name (str): Name of the specific layer to preview, from the probe layers list.
         layer_title (None | str | Unset): Human-readable layer title from the probe LayerInfo.
-        object_id_field (None | str | Unset): ArcGIS OID field name used for orderByFields during preview pagination.
+        layer_id (int | None | str | Unset): ArcGIS layer ID, when applicable.
         token (None | str | Unset): Optional auth token for protected services.
+        object_id_field (None | str | Unset): ArcGIS OID field name used for orderByFields during preview pagination.
     """
 
-    layer_name: str
-    service_type: str
     url: str
-    layer_id: int | None | str | Unset = UNSET
+    service_type: str
+    layer_name: str
     layer_title: None | str | Unset = UNSET
-    object_id_field: None | str | Unset = UNSET
+    layer_id: int | None | str | Unset = UNSET
     token: None | str | Unset = UNSET
+    object_id_field: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        layer_name = self.layer_name
+        url = self.url
 
         service_type = self.service_type
 
-        url = self.url
-
-        layer_id: int | None | str | Unset
-        if isinstance(self.layer_id, Unset):
-            layer_id = UNSET
-        else:
-            layer_id = self.layer_id
+        layer_name = self.layer_name
 
         layer_title: None | str | Unset
         if isinstance(self.layer_title, Unset):
@@ -55,11 +49,11 @@ class ServicePreviewRequest:
         else:
             layer_title = self.layer_title
 
-        object_id_field: None | str | Unset
-        if isinstance(self.object_id_field, Unset):
-            object_id_field = UNSET
+        layer_id: int | None | str | Unset
+        if isinstance(self.layer_id, Unset):
+            layer_id = UNSET
         else:
-            object_id_field = self.object_id_field
+            layer_id = self.layer_id
 
         token: None | str | Unset
         if isinstance(self.token, Unset):
@@ -67,43 +61,40 @@ class ServicePreviewRequest:
         else:
             token = self.token
 
+        object_id_field: None | str | Unset
+        if isinstance(self.object_id_field, Unset):
+            object_id_field = UNSET
+        else:
+            object_id_field = self.object_id_field
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "layer_name": layer_name,
-                "service_type": service_type,
                 "url": url,
+                "service_type": service_type,
+                "layer_name": layer_name,
             }
         )
-        if layer_id is not UNSET:
-            field_dict["layer_id"] = layer_id
         if layer_title is not UNSET:
             field_dict["layer_title"] = layer_title
-        if object_id_field is not UNSET:
-            field_dict["object_id_field"] = object_id_field
+        if layer_id is not UNSET:
+            field_dict["layer_id"] = layer_id
         if token is not UNSET:
             field_dict["token"] = token
+        if object_id_field is not UNSET:
+            field_dict["object_id_field"] = object_id_field
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        layer_name = d.pop("layer_name")
+        url = d.pop("url")
 
         service_type = d.pop("service_type")
 
-        url = d.pop("url")
-
-        def _parse_layer_id(data: object) -> int | None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(int | None | str | Unset, data)
-
-        layer_id = _parse_layer_id(d.pop("layer_id", UNSET))
+        layer_name = d.pop("layer_name")
 
         def _parse_layer_title(data: object) -> None | str | Unset:
             if data is None:
@@ -114,14 +105,14 @@ class ServicePreviewRequest:
 
         layer_title = _parse_layer_title(d.pop("layer_title", UNSET))
 
-        def _parse_object_id_field(data: object) -> None | str | Unset:
+        def _parse_layer_id(data: object) -> int | None | str | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
                 return data
-            return cast(None | str | Unset, data)
+            return cast(int | None | str | Unset, data)
 
-        object_id_field = _parse_object_id_field(d.pop("object_id_field", UNSET))
+        layer_id = _parse_layer_id(d.pop("layer_id", UNSET))
 
         def _parse_token(data: object) -> None | str | Unset:
             if data is None:
@@ -132,14 +123,23 @@ class ServicePreviewRequest:
 
         token = _parse_token(d.pop("token", UNSET))
 
+        def _parse_object_id_field(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        object_id_field = _parse_object_id_field(d.pop("object_id_field", UNSET))
+
         service_preview_request = cls(
-            layer_name=layer_name,
-            service_type=service_type,
             url=url,
-            layer_id=layer_id,
+            service_type=service_type,
+            layer_name=layer_name,
             layer_title=layer_title,
-            object_id_field=object_id_field,
+            layer_id=layer_id,
             token=token,
+            object_id_field=object_id_field,
         )
 
         service_preview_request.additional_properties = d

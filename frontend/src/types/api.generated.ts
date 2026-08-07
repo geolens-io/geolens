@@ -5033,11 +5033,6 @@ export interface components {
              */
             configured: boolean;
             /**
-             * Error
-             * @description Short sanitized failure reason. Never contains the key or raw provider error bodies.
-             */
-            error?: string | null;
-            /**
              * Ok
              * @description Whether the live provider call succeeded. None when not configured (no call was made).
              */
@@ -5047,6 +5042,11 @@ export interface components {
              * @description HTTP status returned by the provider on failure, when available.
              */
             status?: number | null;
+            /**
+             * Error
+             * @description Short sanitized failure reason. Never contains the key or raw provider error bodies.
+             */
+            error?: string | null;
         };
         /**
          * AIProbeReport
@@ -5059,39 +5059,39 @@ export interface components {
         /** AIStatusResponse */
         AIStatusResponse: {
             /**
-             * Configured
-             * @description Whether an API key is configured. AI features require both 'enabled' and 'configured'.
+             * Provider
+             * @description Active AI provider name (e.g. 'anthropic', 'openai').
              */
-            configured: boolean;
+            provider: string | null;
+            /**
+             * Model
+             * @description Active model name (e.g. 'claude-sonnet-4-20250514').
+             */
+            model: string | null;
             /**
              * Enabled
              * @description Whether AI features are enabled for this instance.
              */
             enabled: boolean;
             /**
-             * Has Embeddings
-             * @description Whether at least one record has embeddings stored.
-             * @default false
+             * Configured
+             * @description Whether an API key is configured. AI features require both 'enabled' and 'configured'.
              */
-            has_embeddings: boolean;
-            /**
-             * Model
-             * @description Active model name (e.g. 'claude-sonnet-4-20250514').
-             */
-            model: string | null;
-            /** @description Live provider probe results. Only present when the request opted in via ?probe=true. */
-            probe?: components["schemas"]["AIProbeReport"] | null;
-            /**
-             * Provider
-             * @description Active AI provider name (e.g. 'anthropic', 'openai').
-             */
-            provider: string | null;
+            configured: boolean;
             /**
              * Semantic Search Enabled
              * @description Whether pgvector-backed semantic search is enabled.
              * @default false
              */
             semantic_search_enabled: boolean;
+            /**
+             * Has Embeddings
+             * @description Whether at least one record has embeddings stored.
+             * @default false
+             */
+            has_embeddings: boolean;
+            /** @description Live provider probe results. Only present when the request opted in via ?probe=true. */
+            probe?: components["schemas"]["AIProbeReport"] | null;
         };
         /** AIStatusUpdate */
         AIStatusUpdate: {
@@ -5113,15 +5113,21 @@ export interface components {
         /** AdminApiKeyCreateRequest */
         AdminApiKeyCreateRequest: {
             /**
-             * Expires At
-             * @description Optional expiry timestamp (RFC 3339, timezone-aware). Omit or null for a non-expiring key; expired keys stop authenticating.
+             * User Id
+             * Format: uuid
+             * @description ID of the user the new API key will belong to.
              */
-            expires_at?: string | null;
+            user_id: string;
             /**
              * Name
              * @description Human-readable label for the API key (e.g. 'CI pipeline', 'QGIS desktop').
              */
             name: string;
+            /**
+             * Expires At
+             * @description Optional expiry timestamp (RFC 3339, timezone-aware). Omit or null for a non-expiring key; expired keys stop authenticating.
+             */
+            expires_at?: string | null;
             /**
              * Scope
              * @description Privilege scope (#875). 'full' impersonates the owner completely, the pre-existing behavior. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. A service-account key minted for an application is the usual case for 'read_only'.
@@ -5129,31 +5135,9 @@ export interface components {
              * @enum {string}
              */
             scope: "full" | "read_only";
-            /**
-             * User Id
-             * Format: uuid
-             * @description ID of the user the new API key will belong to.
-             */
-            user_id: string;
         };
         /** AdminApiKeyListItem */
         AdminApiKeyListItem: {
-            /**
-             * Created At
-             * Format: date-time
-             * @description Timestamp when the key was created.
-             */
-            created_at: string;
-            /**
-             * Expires At
-             * @description Expiry timestamp; null means the key does not expire.
-             */
-            expires_at?: string | null;
-            /**
-             * Fingerprint
-             * @description Non-secret key identifier; null for legacy keys.
-             */
-            fingerprint: string | null;
             /**
              * Id
              * Format: uuid
@@ -5161,31 +5145,47 @@ export interface components {
              */
             id: string;
             /**
-             * Is Active
-             * @description Whether the key is active. Inactive keys cannot authenticate.
+             * User Id
+             * Format: uuid
+             * @description Owning user's ID.
              */
-            is_active: boolean;
-            /**
-             * Last Used At
-             * @description Timestamp of the most recent successful authentication using this key.
-             */
-            last_used_at: string | null;
+            user_id: string;
             /**
              * Name
              * @description Human-readable label.
              */
             name: string;
             /**
+             * Fingerprint
+             * @description Non-secret key identifier; null for legacy keys.
+             */
+            fingerprint: string | null;
+            /**
+             * Is Active
+             * @description Whether the key is active. Inactive keys cannot authenticate.
+             */
+            is_active: boolean;
+            /**
+             * Expires At
+             * @description Expiry timestamp; null means the key does not expire.
+             */
+            expires_at?: string | null;
+            /**
              * Scope
              * @description Privilege scope: 'full' or 'read_only' (#875).
              */
             scope: string;
             /**
-             * User Id
-             * Format: uuid
-             * @description Owning user's ID.
+             * Created At
+             * Format: date-time
+             * @description Timestamp when the key was created.
              */
-            user_id: string;
+            created_at: string;
+            /**
+             * Last Used At
+             * @description Timestamp of the most recent successful authentication using this key.
+             */
+            last_used_at: string | null;
         };
         /** AdminApiKeyListResponse */
         AdminApiKeyListResponse: {
@@ -5209,47 +5209,47 @@ export interface components {
         };
         /** AdminEmbedTokenResponse */
         AdminEmbedTokenResponse: {
-            /** Allowed Origins */
-            allowed_origins?: string[] | null;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Creator Username */
-            creator_username?: string | null;
-            /**
-             * Expires At
-             * Format: date-time
-             */
-            expires_at: string;
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            /** Is Active */
-            is_active: boolean;
-            /** Last Used At */
-            last_used_at?: string | null;
             /**
              * Map Id
              * Format: uuid
              */
             map_id: string;
-            /** Map Name */
-            map_name?: string | null;
             /** Name */
             name?: string | null;
-            /** Scoped Dataset Ids */
-            scoped_dataset_ids: string[];
             /** Token Hint */
             token_hint: string;
+            /** Scoped Dataset Ids */
+            scoped_dataset_ids: string[];
+            /** Allowed Origins */
+            allowed_origins?: string[] | null;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Is Active */
+            is_active: boolean;
             /**
              * Use Count
              * @default 0
              */
             use_count: number;
+            /** Last Used At */
+            last_used_at?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Map Name */
+            map_name?: string | null;
+            /** Creator Username */
+            creator_username?: string | null;
         };
         /** AdminJobListResponse */
         AdminJobListResponse: {
@@ -5267,26 +5267,22 @@ export interface components {
         /** AdminJobResponse */
         AdminJobResponse: {
             /**
-             * Can Retry
-             * @description Whether the failed job can be retried with its retained source.
+             * Id
+             * Format: uuid
+             * @description Unique ingestion job identifier.
              */
-            can_retry: boolean;
+            id: string;
             /**
-             * Completed At
-             * @description Timestamp when the job finished (success or failure).
+             * Status
+             * @description Current job status: 'pending', 'running', 'complete', 'failed', or 'cancelled'.
+             * @enum {string}
              */
-            completed_at: string | null;
+            status: "pending" | "running" | "complete" | "failed" | "cancelled" | "fanned_out";
             /**
-             * Created At
-             * Format: date-time
-             * @description Timestamp when the job was queued.
+             * Source Filename
+             * @description Original filename of the uploaded file, if applicable.
              */
-            created_at: string;
-            /**
-             * Created By
-             * @description ID of the user who initiated the job.
-             */
-            created_by: string | null;
+            source_filename: string | null;
             /**
              * Dataset Id
              * @description ID of the dataset created by this job, if completed successfully.
@@ -5298,32 +5294,15 @@ export interface components {
              */
             error_message: string | null;
             /**
-             * Id
-             * Format: uuid
-             * @description Unique ingestion job identifier.
+             * Can Retry
+             * @description Whether the failed job can be retried with its retained source.
              */
-            id: string;
+            can_retry: boolean;
             /**
              * Retry Reason
              * @description Why the job cannot be retried, when retry is unavailable.
              */
             retry_reason: string | null;
-            /**
-             * Source Filename
-             * @description Original filename of the uploaded file, if applicable.
-             */
-            source_filename: string | null;
-            /**
-             * Started At
-             * @description Timestamp when the worker began processing the job.
-             */
-            started_at: string | null;
-            /**
-             * Status
-             * @description Current job status: 'pending', 'running', 'complete', 'failed', or 'cancelled'.
-             * @enum {string}
-             */
-            status: "pending" | "running" | "complete" | "failed" | "cancelled" | "fanned_out";
             /**
              * User Metadata
              * @description User-supplied metadata captured at upload time (title, summary, tags, vrt_type, file_type, warnings, etc.). Heterogeneous shape across ingest paths -- canonical keys: title, summary, visibility, file_type, vrt_type, warnings.
@@ -5332,10 +5311,31 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             /**
+             * Created By
+             * @description ID of the user who initiated the job.
+             */
+            created_by: string | null;
+            /**
              * Username
              * @description Username of the user who initiated the job.
              */
             username: string | null;
+            /**
+             * Started At
+             * @description Timestamp when the worker began processing the job.
+             */
+            started_at: string | null;
+            /**
+             * Completed At
+             * @description Timestamp when the job finished (success or failure).
+             */
+            completed_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             * @description Timestamp when the job was queued.
+             */
+            created_at: string;
         };
         /** AdminShareTokenListResponse */
         AdminShareTokenListResponse: {
@@ -5346,6 +5346,21 @@ export interface components {
         };
         /** AdminShareTokenResponse */
         AdminShareTokenResponse: {
+            /** Id */
+            id?: string | null;
+            /**
+             * Map Id
+             * Format: uuid
+             */
+            map_id: string;
+            /** Map Name */
+            map_name: string;
+            /** Token */
+            token?: string | null;
+            /** Is Active */
+            is_active?: boolean | null;
+            /** Expires At */
+            expires_at?: string | null;
             /**
              * Created At
              * Format: date-time
@@ -5358,45 +5373,30 @@ export interface components {
              * @default 0
              */
             embed_token_count: number;
-            /** Expires At */
-            expires_at?: string | null;
-            /** Id */
-            id?: string | null;
-            /** Is Active */
-            is_active?: boolean | null;
-            /**
-             * Map Id
-             * Format: uuid
-             */
-            map_id: string;
-            /** Map Name */
-            map_name: string;
-            /** Token */
-            token?: string | null;
         };
         /** AdminUserCreate */
         AdminUserCreate: {
             /**
-             * Email
-             * @description Optional email address. Used for OAuth account linking and notifications.
+             * Username
+             * @description Login username (3-150 chars). Must be unique across the system.
              */
-            email?: string | null;
+            username: string;
             /**
              * Password
              * @description Initial password (policy: min 12 chars, 3+ character classes). The user can change this after first login.
              */
             password: string;
             /**
+             * Email
+             * @description Optional email address. Used for OAuth account linking and notifications.
+             */
+            email?: string | null;
+            /**
              * Role
              * @description User role: 'admin', 'editor', or 'viewer'. Defaults to 'viewer'.
              * @default viewer
              */
             role: string;
-            /**
-             * Username
-             * @description Login username (3-150 chars). Must be unique across the system.
-             */
-            username: string;
         };
         /** AlterColumnTypeRequest */
         AlterColumnTypeRequest: {
@@ -5412,25 +5412,17 @@ export interface components {
          */
         AnalysisMaterializeRequest: {
             /**
-             * By Field
-             * @description Optional group-by column for dissolve
+             * Operation
+             * @enum {string}
              */
-            by_field?: string | null;
+            operation: "buffer" | "centroid" | "clip" | "dissolve" | "spatial_join" | "measure" | "select_by_location" | "intersect";
+            /** Title */
+            title: string;
             /**
              * Distance Meters
              * @description Buffer distance in meters (buffer only)
              */
             distance_meters?: number | null;
-            /**
-             * Join Dataset Id
-             * @description Dataset to join against; each source feature gains a count of the features from it that intersect (spatial_join only)
-             */
-            join_dataset_id?: string | null;
-            /**
-             * Join Fields
-             * @description Columns to copy from the intersecting join feature, prefixed 'join_' in the output. Ties break on the lowest join-layer gid (spatial_join only)
-             */
-            join_fields?: string[] | null;
             /**
              * Mask
              * @description GeoJSON Polygon or MultiPolygon geometry in EPSG:4326 (clip and select_by_location)
@@ -5444,12 +5436,20 @@ export interface components {
              */
             mask_dataset_id?: string | null;
             /**
-             * Operation
-             * @enum {string}
+             * By Field
+             * @description Optional group-by column for dissolve
              */
-            operation: "buffer" | "centroid" | "clip" | "dissolve" | "spatial_join" | "measure" | "select_by_location" | "intersect";
-            /** Title */
-            title: string;
+            by_field?: string | null;
+            /**
+             * Join Dataset Id
+             * @description Dataset to join against; each source feature gains a count of the features from it that intersect (spatial_join only)
+             */
+            join_dataset_id?: string | null;
+            /**
+             * Join Fields
+             * @description Columns to copy from the intersecting join feature, prefixed 'join_' in the output. Ties break on the lowest join-layer gid (spatial_join only)
+             */
+            join_fields?: string[] | null;
         };
         /**
          * AnalysisMaterializeResponse
@@ -5473,25 +5473,15 @@ export interface components {
          */
         AnalysisPreviewRequest: {
             /**
-             * Bbox
-             * @description [minx, miny, maxx, maxy] in EPSG:4326, typically the map's current viewport. When present, only source features intersecting the envelope are considered before the preview's row cap applies, so a capped result reflects what is on screen rather than an arbitrary sample in ingest order (fix(#727)). Applies to every operation, not just one, so it is deliberately absent from _ANALYSIS_PARAM_OWNERS — omit it to preview the whole dataset, unchanged from before this field existed.
+             * Operation
+             * @enum {string}
              */
-            bbox?: number[] | null;
+            operation: "buffer" | "centroid" | "clip" | "spatial_join" | "measure" | "select_by_location" | "intersect";
             /**
              * Distance Meters
              * @description Buffer distance in meters (buffer only)
              */
             distance_meters?: number | null;
-            /**
-             * Join Dataset Id
-             * @description Dataset to join against; each source feature gains a count of the features from it that intersect (spatial_join only)
-             */
-            join_dataset_id?: string | null;
-            /**
-             * Join Fields
-             * @description Columns to copy from the intersecting join feature, prefixed 'join_' in the output. Ties break on the lowest join-layer gid (spatial_join only)
-             */
-            join_fields?: string[] | null;
             /**
              * Mask
              * @description GeoJSON Polygon or MultiPolygon geometry in EPSG:4326 (clip and select_by_location)
@@ -5505,49 +5495,59 @@ export interface components {
              */
             mask_dataset_id?: string | null;
             /**
-             * Operation
-             * @enum {string}
+             * Join Dataset Id
+             * @description Dataset to join against; each source feature gains a count of the features from it that intersect (spatial_join only)
              */
-            operation: "buffer" | "centroid" | "clip" | "spatial_join" | "measure" | "select_by_location" | "intersect";
+            join_dataset_id?: string | null;
+            /**
+             * Join Fields
+             * @description Columns to copy from the intersecting join feature, prefixed 'join_' in the output. Ties break on the lowest join-layer gid (spatial_join only)
+             */
+            join_fields?: string[] | null;
+            /**
+             * Bbox
+             * @description [minx, miny, maxx, maxy] in EPSG:4326, typically the map's current viewport. When present, only source features intersecting the envelope are considered before the preview's row cap applies, so a capped result reflects what is on screen rather than an arbitrary sample in ingest order (fix(#727)). Applies to every operation, not just one, so it is deliberately absent from _ANALYSIS_PARAM_OWNERS — omit it to preview the whole dataset, unchanged from before this field existed.
+             */
+            bbox?: number[] | null;
         };
         /**
          * AnalysisPreviewResponse
          * @description GeoJSON FeatureCollection preview of an analysis operation.
          */
         AnalysisPreviewResponse: {
-            /** Bbox */
-            bbox?: number[] | null;
-            /** Feature Count */
-            feature_count: number;
             /** Geojson */
             geojson: {
                 [key: string]: unknown;
             };
-            /**
-             * Match Count
-             * @description Exact total across the WHOLE source, not just the previewed features — WHOLE meaning the request's bbox when one was sent, the same sense source_feature_count uses that word. What it counts is per-operation, so read it against the operation you sent rather than as one number: select_by_location gives the selected source features and intersect gives the output pieces, and for both of those it IS the output total; spatial_join gives intersecting source/join PAIRS, which is NOT the output total, because the join keeps every source row (use source_feature_count for that operation). intersect and spatial_join both scope this total to a bbox on the request; select_by_location's count is a separate uncapped query the request's bbox does not reach, so it stays unscoped even though its preview rows are viewport-limited too. Null for operations that report no such total, and when the count could not be computed within the query budget
-             */
-            match_count?: number | null;
+            /** Feature Count */
+            feature_count: number;
+            /** Truncated */
+            truncated: boolean;
+            /** Bbox */
+            bbox?: number[] | null;
             /**
              * Source Feature Count
              * @description Total feature count of the source dataset (1:1 operations only; null when the operation filters rows, e.g. clip). When the request carried a bbox this is a LIVE count of rows intersecting it rather than the dataset's cached whole-table total (fix(#727)) — also null, same as match_count, when that live count could not be computed within the query budget
              */
             source_feature_count?: number | null;
-            /** Truncated */
-            truncated: boolean;
+            /**
+             * Match Count
+             * @description Exact total across the WHOLE source, not just the previewed features — WHOLE meaning the request's bbox when one was sent, the same sense source_feature_count uses that word. What it counts is per-operation, so read it against the operation you sent rather than as one number: select_by_location gives the selected source features and intersect gives the output pieces, and for both of those it IS the output total; spatial_join gives intersecting source/join PAIRS, which is NOT the output total, because the join keeps every source row (use source_feature_count for that operation). intersect and spatial_join both scope this total to a bbox on the request; select_by_location's count is a separate uncapped query the request's bbox does not reach, so it stays unscoped even though its preview rows are viewport-limited too. Null for operations that report no such total, and when the count could not be computed within the query budget
+             */
+            match_count?: number | null;
         };
         /** ApiKeyCreateRequest */
         ApiKeyCreateRequest: {
-            /**
-             * Expires At
-             * @description Optional expiry timestamp (RFC 3339, timezone-aware). Omit or null for a non-expiring key; expired keys stop authenticating.
-             */
-            expires_at?: string | null;
             /**
              * Name
              * @description Human-readable label for the API key
              */
             name: string;
+            /**
+             * Expires At
+             * @description Optional expiry timestamp (RFC 3339, timezone-aware). Omit or null for a non-expiring key; expired keys stop authenticating.
+             */
+            expires_at?: string | null;
             /**
              * Scope
              * @description Privilege scope (#875). 'full' impersonates the owner completely, the pre-existing behavior. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403.
@@ -5559,21 +5559,6 @@ export interface components {
         /** ApiKeyCreateResponse */
         ApiKeyCreateResponse: {
             /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /**
-             * Expires At
-             * @description Expiry timestamp; null means the key does not expire
-             */
-            expires_at?: string | null;
-            /**
-             * Fingerprint
-             * @description Non-secret key identifier (prefix and last four characters)
-             */
-            fingerprint: string;
-            /**
              * Id
              * Format: uuid
              */
@@ -5583,47 +5568,62 @@ export interface components {
              * @description The API key secret (shown only once)
              */
             key: string;
+            /**
+             * Fingerprint
+             * @description Non-secret key identifier (prefix and last four characters)
+             */
+            fingerprint: string;
             /** Name */
             name: string;
-            /**
-             * Scope
-             * @description Privilege scope: 'full' or 'read_only' (#875)
-             */
-            scope: string;
-        };
-        /** ApiKeyListItem */
-        ApiKeyListItem: {
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
             /**
              * Expires At
              * @description Expiry timestamp; null means the key does not expire
              */
             expires_at?: string | null;
             /**
-             * Fingerprint
-             * @description Non-secret key identifier; null for keys created before fingerprint support
+             * Scope
+             * @description Privilege scope: 'full' or 'read_only' (#875)
              */
-            fingerprint: string | null;
+            scope: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** ApiKeyListItem */
+        ApiKeyListItem: {
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            /** Is Active */
-            is_active: boolean;
-            /** Last Used At */
-            last_used_at: string | null;
             /** Name */
             name: string;
+            /**
+             * Fingerprint
+             * @description Non-secret key identifier; null for keys created before fingerprint support
+             */
+            fingerprint: string | null;
+            /** Is Active */
+            is_active: boolean;
+            /**
+             * Expires At
+             * @description Expiry timestamp; null means the key does not expire
+             */
+            expires_at?: string | null;
             /**
              * Scope
              * @description Privilege scope: 'full' or 'read_only' (#875)
              */
             scope: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Last Used At */
+            last_used_at: string | null;
         };
         /** ApiKeyListResponse */
         ApiKeyListResponse: {
@@ -5665,50 +5665,50 @@ export interface components {
         };
         /** AttributeMetadataResponse */
         AttributeMetadataResponse: {
-            /** Data Type */
-            data_type: string | null;
-            /**
-             * Dataset Id
-             * Format: uuid
-             */
-            dataset_id: string;
-            /** Description */
-            description: string | null;
-            /** Domain Type */
-            domain_type: string | null;
-            /**
-             * Example Values
-             * @description Sample values from the column
-             */
-            example_values?: unknown[] | null;
-            /** Field Name */
-            field_name: string;
             /**
              * Id
              * Format: uuid
              */
             id: string;
             /**
-             * Is Current
-             * @description False if column was removed in a later version
+             * Dataset Id
+             * Format: uuid
              */
-            is_current: boolean;
-            /** Is Nullable */
-            is_nullable?: boolean | null;
-            /**
-             * Ordinal Position
-             * @description Column position in the table (1-based)
-             */
-            ordinal_position?: number | null;
+            dataset_id: string;
+            /** Field Name */
+            field_name: string;
+            /** Title */
+            title: string | null;
+            /** Description */
+            description: string | null;
+            /** Data Type */
+            data_type: string | null;
+            /** Units */
+            units: string | null;
+            /** Domain Type */
+            domain_type: string | null;
             /**
              * Semantic Role
              * @description Inferred role: geometry, identifier, measure, etc.
              */
             semantic_role?: string | null;
-            /** Title */
-            title: string | null;
-            /** Units */
-            units: string | null;
+            /**
+             * Example Values
+             * @description Sample values from the column
+             */
+            example_values?: unknown[] | null;
+            /**
+             * Ordinal Position
+             * @description Column position in the table (1-based)
+             */
+            ordinal_position?: number | null;
+            /** Is Nullable */
+            is_nullable?: boolean | null;
+            /**
+             * Is Current
+             * @description False if column was removed in a later version
+             */
+            is_current: boolean;
             /**
              * User Modified Fields
              * @description Field names manually edited by a user
@@ -5717,28 +5717,28 @@ export interface components {
         };
         /** AttributeMetadataUpdate */
         AttributeMetadataUpdate: {
+            /**
+             * Title
+             * @description Human-friendly column display name
+             */
+            title?: string | null;
             /** Description */
             description?: string | null;
             /**
-             * Domain Type
-             * @description Value domain: continuous, categorical, coded, etc.
+             * Units
+             * @description Measurement units, e.g. meters, kg
              */
-            domain_type?: ("continuous" | "discrete" | "categorical" | "coded" | "codedValue" | "boolean" | "text" | "date" | "temporal" | "geometry" | "range") | null;
+            units?: string | null;
             /**
              * Semantic Role
              * @description Column role: geometry, identifier, measure, etc.
              */
             semantic_role?: ("geometry" | "identifier" | "measure" | "temporal" | "categorical" | "category" | "label" | "foreign_key" | "other") | null;
             /**
-             * Title
-             * @description Human-friendly column display name
+             * Domain Type
+             * @description Value domain: continuous, categorical, coded, etc.
              */
-            title?: string | null;
-            /**
-             * Units
-             * @description Measurement units, e.g. meters, kg
-             */
-            units?: string | null;
+            domain_type?: ("continuous" | "discrete" | "categorical" | "coded" | "codedValue" | "boolean" | "text" | "date" | "temporal" | "geometry" | "range") | null;
         };
         /** AuditLogListResponse */
         AuditLogListResponse: {
@@ -5749,67 +5749,70 @@ export interface components {
         };
         /** AuditLogResponse */
         AuditLogResponse: {
-            /** Action */
-            action: string;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Details */
-            details: {
-                [key: string]: unknown;
-            } | null;
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            /** Ip Address */
-            ip_address: string | null;
-            /** Resource Id */
-            resource_id: string | null;
-            /** Resource Name */
-            resource_name?: string | null;
-            /** Resource Type */
-            resource_type: string;
             /** User Id */
             user_id: string | null;
             /** Username */
             username?: string | null;
+            /** Action */
+            action: string;
+            /** Resource Type */
+            resource_type: string;
+            /** Resource Id */
+            resource_id: string | null;
+            /** Resource Name */
+            resource_name?: string | null;
+            /** Details */
+            details: {
+                [key: string]: unknown;
+            } | null;
+            /** Ip Address */
+            ip_address: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /** BackfillResponse */
         BackfillResponse: {
-            /**
-             * Created
-             * @description Number of new embeddings created.
-             */
-            created: number;
-            /**
-             * Errors
-             * @description Number of records that failed during embedding generation.
-             */
-            errors: number;
             /**
              * Processed
              * @description Number of records processed in this backfill batch.
              */
             processed: number;
             /**
+             * Created
+             * @description Number of new embeddings created.
+             */
+            created: number;
+            /**
              * Skipped
              * @description Number of records skipped because an embedding already existed.
              */
             skipped: number;
+            /**
+             * Errors
+             * @description Number of records that failed during embedding generation.
+             */
+            errors: number;
         };
         /** BasemapConfig */
         BasemapConfig: {
             /**
-             * Background Color
-             * @description Map canvas background color in #RRGGBB hex format, or null to use the basemap default.
+             * @description Basemap label prominence.
+             * @default full
              */
-            background_color?: string | null;
-            /** @description Whether the basemap renders above ('top') or below ('bottom', default) the data layers. null/undefined loads as 'bottom' on the client. Phase 1051 UX-03 (jsonb-additive, no migration). */
-            basemap_position?: components["schemas"]["BasemapPosition"] | null;
+            label_mode: components["schemas"]["BasemapLabelMode"];
+            /**
+             * @description Road and transit sublayer visibility where supported.
+             * @default full
+             */
+            road_visibility: components["schemas"]["BasemapSublayerVisibility"];
             /**
              * @description Administrative boundary sublayer visibility where supported.
              * @default full
@@ -5822,30 +5825,23 @@ export interface components {
              */
             building_visibility: boolean;
             /**
-             * @description Basemap label prominence.
-             * @default full
-             */
-            label_mode: components["schemas"]["BasemapLabelMode"];
-            /**
              * @description Land and water color treatment where supported.
              * @default default
              */
             land_water_tone: components["schemas"]["BasemapLandWaterTone"];
+            /** @description Optional contrast hint for relief-oriented basemap styling. */
+            relief_contrast?: components["schemas"]["BasemapReliefContrast"] | null;
             /**
              * Opacity
              * @description Master basemap opacity 0.0-1.0
              * @default 1
              */
             opacity: number;
-            /** @description Map projection: 'mercator' (default) or experimental 'globe'. null/undefined loads as 'mercator' on the client. */
-            projection?: components["schemas"]["BasemapProjection"] | null;
-            /** @description Optional contrast hint for relief-oriented basemap styling. */
-            relief_contrast?: components["schemas"]["BasemapReliefContrast"] | null;
             /**
-             * @description Road and transit sublayer visibility where supported.
-             * @default full
+             * Background Color
+             * @description Map canvas background color in #RRGGBB hex format, or null to use the basemap default.
              */
-            road_visibility: components["schemas"]["BasemapSublayerVisibility"];
+            background_color?: string | null;
             /**
              * Sublayer Overrides
              * @description Per-sublayer style overrides keyed by semantic sublayer ID (e.g. 'road', 'boundary', 'building'). Key set is opaque — unknown future sublayer IDs are accepted without rejection. See CONTEXT.md D-01.
@@ -5853,6 +5849,10 @@ export interface components {
             sublayer_overrides?: {
                 [key: string]: components["schemas"]["SublayerOverride"];
             } | null;
+            /** @description Whether the basemap renders above ('top') or below ('bottom', default) the data layers. null/undefined loads as 'bottom' on the client. Phase 1051 UX-03 (jsonb-additive, no migration). */
+            basemap_position?: components["schemas"]["BasemapPosition"] | null;
+            /** @description Map projection: 'mercator' (default) or experimental 'globe'. null/undefined loads as 'mercator' on the client. */
+            projection?: components["schemas"]["BasemapProjection"] | null;
         };
         /**
          * BasemapLabelMode
@@ -5882,25 +5882,10 @@ export interface components {
          */
         BasemapPublicResponse: {
             /**
-             * Attribution
-             * @description Attribution string for the basemap source.
-             */
-            attribution?: string | null;
-            /**
-             * Enabled
-             * @description Whether the basemap is currently selectable.
-             */
-            enabled: boolean;
-            /**
              * Id
              * @description Unique basemap identifier.
              */
             id: string;
-            /**
-             * Is Preset
-             * @description Whether this is a built-in preset.
-             */
-            is_preset: boolean;
             /**
              * Label
              * @description Display label.
@@ -5911,6 +5896,21 @@ export interface components {
              * @description Tile URL or style JSON URL with API key already substituted (or omitted) for client use.
              */
             url: string;
+            /**
+             * Enabled
+             * @description Whether the basemap is currently selectable.
+             */
+            enabled: boolean;
+            /**
+             * Is Preset
+             * @description Whether this is a built-in preset.
+             */
+            is_preset: boolean;
+            /**
+             * Attribution
+             * @description Attribution string for the basemap source.
+             */
+            attribution?: string | null;
         };
         /**
          * BasemapReliefContrast
@@ -5924,15 +5924,10 @@ export interface components {
         BasemapSublayerVisibility: "full" | "subtle" | "hidden";
         /** Body_login_auth_login_post */
         Body_login_auth_login_post: {
-            /** Client Id */
-            client_id?: string | null;
-            /**
-             * Client Secret
-             * Format: password
-             */
-            client_secret?: string | null;
             /** Grant Type */
             grant_type?: string | null;
+            /** Username */
+            username: string;
             /**
              * Password
              * Format: password
@@ -5943,8 +5938,13 @@ export interface components {
              * @default
              */
             scope: string;
-            /** Username */
-            username: string;
+            /** Client Id */
+            client_id?: string | null;
+            /**
+             * Client Secret
+             * Format: password
+             */
+            client_secret?: string | null;
         };
         /** Body_reupload_dataset_datasets__dataset_id__reupload_post */
         Body_reupload_dataset_datasets__dataset_id__reupload_post: {
@@ -5974,13 +5974,13 @@ export interface components {
         };
         /** BulkDeleteItem */
         BulkDeleteItem: {
-            /** Confirm Title */
-            confirm_title: string;
             /**
              * Dataset Id
              * Format: uuid
              */
             dataset_id: string;
+            /** Confirm Title */
+            confirm_title: string;
         };
         /**
          * BulkDeleteLayersFailure
@@ -6037,18 +6037,13 @@ export interface components {
              * Format: uuid
              */
             dataset_id: string;
-            /** Detail */
-            detail?: string | null;
             /** Status */
             status: string;
+            /** Detail */
+            detail?: string | null;
         };
         /** BulkRegisterItem */
         BulkRegisterItem: {
-            /**
-             * Summary
-             * @description Optional dataset description.
-             */
-            summary?: string | null;
             /**
              * Table Name
              * @description PostgreSQL table name to register.
@@ -6059,6 +6054,11 @@ export interface components {
              * @description Human-readable dataset title.
              */
             title: string;
+            /**
+             * Summary
+             * @description Optional dataset description.
+             */
+            summary?: string | null;
             /**
              * Visibility
              * @description Dataset visibility level.
@@ -6086,30 +6086,30 @@ export interface components {
         /** BulkRegisterResult */
         BulkRegisterResult: {
             /**
-             * Dataset Id
-             * @description ID of the created dataset on success.
+             * Table Name
+             * @description Source table that was processed.
              */
-            dataset_id?: string | null;
-            /**
-             * Error
-             * @description Error message on failure.
-             */
-            error?: string | null;
+            table_name: string;
             /**
              * Status
              * @description Per-row outcome: 'success', 'skipped', or 'error'.
              */
             status: string;
             /**
-             * Table Name
-             * @description Source table that was processed.
+             * Dataset Id
+             * @description ID of the created dataset on success.
              */
-            table_name: string;
+            dataset_id?: string | null;
             /**
              * Title
              * @description Title of the created dataset on success.
              */
             title?: string | null;
+            /**
+             * Error
+             * @description Error message on failure.
+             */
+            error?: string | null;
         };
         /** BulkRevokeRequest */
         BulkRevokeRequest: {
@@ -6123,6 +6123,21 @@ export interface components {
         };
         /** CatalogStatsResponse */
         CatalogStatsResponse: {
+            /**
+             * Total Datasets
+             * @description Total number of datasets in the catalog.
+             */
+            total_datasets: number;
+            /**
+             * Recent Additions
+             * @description Number of datasets added in the last 30 days.
+             */
+            recent_additions: number;
+            /**
+             * Total Storage Bytes
+             * @description Total storage used by all dataset tables, in bytes. Null if calculation is unavailable.
+             */
+            total_storage_bytes: number | null;
             /**
              * Datasets By Geometry Type
              * @description Histogram of datasets keyed by geometry type (Point, MultiPolygon, etc.).
@@ -6138,27 +6153,6 @@ export interface components {
                 [key: string]: number;
             };
             /**
-             * Recent Additions
-             * @description Number of datasets added in the last 30 days.
-             */
-            recent_additions: number;
-            /**
-             * Total Datasets
-             * @description Total number of datasets in the catalog.
-             */
-            total_datasets: number;
-            /**
-             * Total Storage Bytes
-             * @description Total storage used by all dataset tables, in bytes. Null if calculation is unavailable.
-             */
-            total_storage_bytes: number | null;
-            /**
-             * Total Users
-             * @description Total number of users in the system.
-             * @default 0
-             */
-            total_users: number;
-            /**
              * Users By Status
              * @description Histogram of users keyed by status (active, deactivated, pending).
              * @default {}
@@ -6166,6 +6160,12 @@ export interface components {
             users_by_status: {
                 [key: string]: number;
             };
+            /**
+             * Total Users
+             * @description Total number of users in the system.
+             * @default 0
+             */
+            total_users: number;
         };
         /** ChangePasswordRequest */
         ChangePasswordRequest: {
@@ -6179,111 +6179,95 @@ export interface components {
         };
         /** ChatAction */
         ChatAction: {
-            /** Bbox */
-            bbox?: number[] | null;
-            /** Clear Paint */
-            clear_paint?: string[] | null;
-            /** Columns */
-            columns?: string[] | null;
-            /** Dataset Id */
-            dataset_id?: string | null;
-            /** Dataset Name */
-            dataset_name?: string | null;
-            /** Distance Meters */
-            distance_meters?: number | null;
-            /** Expression */
-            expression?: unknown[] | null;
-            geojson?: components["schemas"]["GeoJSONFeatureCollection"] | null;
-            /** Label Config */
-            label_config?: {
-                [key: string]: unknown;
-            } | null;
-            /** Layer Id */
-            layer_id?: string | null;
-            /** Opacity */
-            opacity?: number | null;
-            /** Operation */
-            operation?: string | null;
-            /** Paint */
-            paint?: {
-                [key: string]: unknown;
-            } | null;
-            /** Replace Paint */
-            replace_paint?: boolean | null;
-            /** Row Count */
-            row_count?: number | null;
-            /** Rows */
-            rows?: unknown[][] | null;
-            /** Style Config */
-            style_config?: {
-                [key: string]: unknown;
-            } | null;
-            /** Truncated */
-            truncated?: boolean | null;
             /**
              * Type
              * @enum {string}
              */
             type: "set_filter" | "set_style" | "set_data_driven_style" | "set_label" | "toggle_visibility" | "add_layer" | "remove_layer" | "show_query_result" | "set_opacity";
+            /** Layer Id */
+            layer_id?: string | null;
+            /** Expression */
+            expression?: unknown[] | null;
+            /** Paint */
+            paint?: {
+                [key: string]: unknown;
+            } | null;
+            /** Clear Paint */
+            clear_paint?: string[] | null;
+            /** Replace Paint */
+            replace_paint?: boolean | null;
+            /** Style Config */
+            style_config?: {
+                [key: string]: unknown;
+            } | null;
+            /** Label Config */
+            label_config?: {
+                [key: string]: unknown;
+            } | null;
+            /** Dataset Id */
+            dataset_id?: string | null;
+            /** Dataset Name */
+            dataset_name?: string | null;
             /** Visible */
             visible?: boolean | null;
+            /** Opacity */
+            opacity?: number | null;
+            geojson?: components["schemas"]["GeoJSONFeatureCollection"] | null;
+            /** Bbox */
+            bbox?: number[] | null;
+            /** Rows */
+            rows?: unknown[][] | null;
+            /** Columns */
+            columns?: string[] | null;
+            /** Row Count */
+            row_count?: number | null;
+            /** Truncated */
+            truncated?: boolean | null;
+            /** Operation */
+            operation?: string | null;
+            /** Distance Meters */
+            distance_meters?: number | null;
         };
         /**
          * ChatHistoryMessage
          * @description A single message in the conversation history.
          */
         ChatHistoryMessage: {
-            /** Content */
-            content: string;
             /**
              * Role
              * @enum {string}
              */
             role: "user" | "assistant";
+            /** Content */
+            content: string;
         };
         /**
          * ChatMapLayer
          * @description Layer state sent from frontend for chat context.
          */
         ChatMapLayer: {
-            /** Column Info */
-            column_info?: {
-                [key: string]: unknown;
-            }[] | null;
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
             /** Dataset Id */
             dataset_id: string;
             /** Dataset Table Name */
             dataset_table_name: string;
+            /** Geometry Type */
+            geometry_type?: string | null;
+            /** Layer Type */
+            layer_type?: string | null;
+            /** Column Info */
+            column_info?: {
+                [key: string]: unknown;
+            }[] | null;
             /** Dataset Title */
             dataset_title?: string | null;
             /** Feature Count */
             feature_count?: number | null;
-            /** Filter */
-            filter?: unknown[] | {
-                [key: string]: unknown;
-            } | null;
-            /** Geometry Type */
-            geometry_type?: string | null;
-            /** Id */
-            id: string;
-            /** Label Config */
-            label_config?: {
-                [key: string]: unknown;
-            } | null;
-            /** Layer Type */
-            layer_type?: string | null;
-            /** Name */
-            name: string;
-            /** Paint */
-            paint?: {
-                [key: string]: unknown;
-            } | null;
             /** Sample Values */
             sample_values?: {
-                [key: string]: unknown;
-            } | null;
-            /** Style Config */
-            style_config?: {
                 [key: string]: unknown;
             } | null;
             /**
@@ -6291,26 +6275,42 @@ export interface components {
              * @default true
              */
             visible: boolean;
+            /** Filter */
+            filter?: unknown[] | {
+                [key: string]: unknown;
+            } | null;
+            /** Label Config */
+            label_config?: {
+                [key: string]: unknown;
+            } | null;
+            /** Style Config */
+            style_config?: {
+                [key: string]: unknown;
+            } | null;
+            /** Paint */
+            paint?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** ChatRequest */
         ChatRequest: {
-            /** History */
-            history?: components["schemas"]["ChatHistoryMessage"][];
-            /** Language */
-            language?: string | null;
-            /** Layers */
-            layers: components["schemas"]["ChatMapLayer"][];
-            /** Map Id */
-            map_id: string;
             /** Message */
             message: string;
+            /** Map Id */
+            map_id: string;
+            /** Layers */
+            layers: components["schemas"]["ChatMapLayer"][];
+            /** Language */
+            language?: string | null;
+            /** History */
+            history?: components["schemas"]["ChatHistoryMessage"][];
         };
         /** ChatResponse */
         ChatResponse: {
-            /** Actions */
-            actions: components["schemas"]["ChatAction"][];
             /** Explanation */
             explanation: string;
+            /** Actions */
+            actions: components["schemas"]["ChatAction"][];
         };
         /** CollectionAddDatasetsRequest */
         CollectionAddDatasetsRequest: {
@@ -6323,29 +6323,29 @@ export interface components {
         /** CollectionCreate */
         CollectionCreate: {
             /**
-             * Description
-             * @description Optional text description
-             * @example Datasets from the NYC Open Data portal
-             */
-            description?: string | null;
-            /**
              * Name
              * @description Display name for the collection
              * @example NYC Open Data
              */
             name: string;
+            /**
+             * Description
+             * @description Optional text description
+             * @example Datasets from the NYC Open Data portal
+             */
+            description?: string | null;
         };
         /**
          * CollectionFacetItem
          * @description A collection facet entry.
          */
         CollectionFacetItem: {
-            /** Dataset Count */
-            dataset_count: number;
             /** Id */
             id: string;
             /** Name */
             name: string;
+            /** Dataset Count */
+            dataset_count: number;
         };
         /** CollectionListResponse */
         CollectionListResponse: {
@@ -6370,47 +6370,47 @@ export interface components {
         /** CollectionResponse */
         CollectionResponse: {
             /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Created By */
-            created_by: string | null;
-            /** Dataset Count */
-            dataset_count: number;
-            /** Description */
-            description: string | null;
-            /** Extent Bbox */
-            extent_bbox?: number[] | null;
-            /**
              * Id
              * Format: uuid
              */
             id: string;
             /** Name */
             name: string;
-            /** Temporal End */
-            temporal_end?: string | null;
-            /** Temporal Start */
-            temporal_start?: string | null;
+            /** Description */
+            description: string | null;
+            /** Created By */
+            created_by: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
             /**
              * Updated At
              * Format: date-time
              */
             updated_at: string;
+            /** Dataset Count */
+            dataset_count: number;
+            /** Extent Bbox */
+            extent_bbox?: number[] | null;
+            /** Temporal Start */
+            temporal_start?: string | null;
+            /** Temporal End */
+            temporal_end?: string | null;
         };
         /** CollectionUpdate */
         CollectionUpdate: {
-            /**
-             * Description
-             * @description Updated description
-             */
-            description?: string | null;
             /**
              * Name
              * @description Updated display name
              */
             name?: string | null;
+            /**
+             * Description
+             * @description Updated description
+             */
+            description?: string | null;
         };
         /** ColumnChange */
         ColumnChange: {
@@ -6450,12 +6450,12 @@ export interface components {
         ColumnDdlFeedResponse: {
             /** Items */
             items: components["schemas"]["ColumnDdlEntry"][];
+            /** Total */
+            total: number;
             /** Limit */
             limit: number;
             /** Offset */
             offset: number;
-            /** Total */
-            total: number;
         };
         /** ColumnDef */
         ColumnDef: {
@@ -6479,20 +6479,20 @@ export interface components {
          * @description Describes a single column in a dataset's attribute table.
          */
         ColumnInfo: {
-            /** Domain Type */
-            domain_type?: string | null;
             /** Name */
             name: string;
-            /** Sample Values */
-            sample_values?: unknown[] | null;
+            /** Type */
+            type: string;
             /** Semantic Role */
             semantic_role?: string | null;
+            /** Domain Type */
+            domain_type?: string | null;
+            /** Sample Values */
+            sample_values?: unknown[] | null;
             /** Stats */
             stats?: {
                 [key: string]: unknown;
             } | null;
-            /** Type */
-            type: string;
         };
         /** ColumnListResponse */
         ColumnListResponse: {
@@ -6521,11 +6521,24 @@ export interface components {
         };
         /** ColumnStatsResponse */
         ColumnStatsResponse: {
+            /** Min */
+            min?: number | null;
+            /** Max */
+            max?: number | null;
             /**
              * Count
              * @default 0
              */
             count: number;
+            /** Mean */
+            mean?: number | null;
+            /**
+             * Quantiles
+             * @default []
+             */
+            quantiles: number[];
+            /** Stddev */
+            stddev?: number | null;
             /**
              * Data Type
              * @description 'categorical' for non-numeric columns; null for numeric.
@@ -6536,26 +6549,13 @@ export interface components {
              * @description Distinct non-null value count (categorical columns only).
              */
             distinct_count?: number | null;
-            /** Max */
-            max?: number | null;
-            /** Mean */
-            mean?: number | null;
-            /** Min */
-            min?: number | null;
-            /**
-             * Quantiles
-             * @default []
-             */
-            quantiles: number[];
-            /** Stddev */
-            stddev?: number | null;
         };
         /** ColumnValuesResponse */
         ColumnValuesResponse: {
-            /** Count */
-            count: number;
             /** Values */
             values: (string | number | null)[];
+            /** Count */
+            count: number;
         };
         /**
          * CommitRequest
@@ -6578,60 +6578,15 @@ export interface components {
          */
         CommitRequest: {
             /**
-             * Compression
-             * @description Raster only: target compression for COG output (e.g. 'LZW', 'DEFLATE').
-             */
-            compression?: string | null;
-            /**
-             * Geom Column
-             * @description CSV/Excel only: name of the WKT geometry column (alternative to x_column/y_column).
-             */
-            geom_column?: string | null;
-            /**
-             * Layer Name
-             * @description Multi-layer source only: name of the specific layer to ingest.
-             */
-            layer_name?: string | null;
-            /**
-             * Nodata Override
-             * @description Raster only: nodata value to use when source has none defined.
-             */
-            nodata_override?: number | string | null;
-            /**
-             * Resampling
-             * @description Raster only: resampling method for COG conversion (e.g. 'nearest', 'bilinear', 'cubic').
-             */
-            resampling?: string | null;
-            /**
-             * Srid Override
-             * @description EPSG code to use when source CRS is missing or incorrect. Forces reprojection during ingestion.
-             */
-            srid_override?: number | null;
-            /**
-             * Summary
-             * @description Optional dataset description shown in the catalog.
-             */
-            summary?: string | null;
-            /**
-             * Temporal End
-             * @description ISO 8601 end of the dataset's temporal extent.
-             */
-            temporal_end?: string | null;
-            /**
-             * Temporal Start
-             * @description ISO 8601 start of the dataset's temporal extent.
-             */
-            temporal_start?: string | null;
-            /**
              * Title
              * @description Human-readable dataset title.
              */
             title: string;
             /**
-             * Token
-             * @description Optional confirmation token returned by the preview step. Required for some workflows.
+             * Summary
+             * @description Optional dataset description shown in the catalog.
              */
-            token?: string | null;
+            summary?: string | null;
             /**
              * Visibility
              * @description Dataset visibility level: 'private' (owner-only), 'restricted' (RBAC-controlled), 'internal' (all users), 'public' (anonymous access).
@@ -6639,6 +6594,46 @@ export interface components {
              * @enum {string}
              */
             visibility: "private" | "restricted" | "internal" | "public";
+            /**
+             * Srid Override
+             * @description EPSG code to use when source CRS is missing or incorrect. Forces reprojection during ingestion.
+             */
+            srid_override?: number | null;
+            /**
+             * Token
+             * @description Optional confirmation token returned by the preview step. Required for some workflows.
+             */
+            token?: string | null;
+            /**
+             * Temporal Start
+             * @description ISO 8601 start of the dataset's temporal extent.
+             */
+            temporal_start?: string | null;
+            /**
+             * Temporal End
+             * @description ISO 8601 end of the dataset's temporal extent.
+             */
+            temporal_end?: string | null;
+            /**
+             * Compression
+             * @description Raster only: target compression for COG output (e.g. 'LZW', 'DEFLATE').
+             */
+            compression?: string | null;
+            /**
+             * Resampling
+             * @description Raster only: resampling method for COG conversion (e.g. 'nearest', 'bilinear', 'cubic').
+             */
+            resampling?: string | null;
+            /**
+             * Nodata Override
+             * @description Raster only: nodata value to use when source has none defined.
+             */
+            nodata_override?: number | string | null;
+            /**
+             * Layer Name
+             * @description Multi-layer source only: name of the specific layer to ingest.
+             */
+            layer_name?: string | null;
             /**
              * X Column
              * @description CSV/Excel only: name of the longitude/X coordinate column.
@@ -6649,6 +6644,11 @@ export interface components {
              * @description CSV/Excel only: name of the latitude/Y coordinate column.
              */
             y_column?: string | null;
+            /**
+             * Geom Column
+             * @description CSV/Excel only: name of the WKT geometry column (alternative to x_column/y_column).
+             */
+            geom_column?: string | null;
         };
         /** CommitResponse */
         CommitResponse: {
@@ -6659,15 +6659,15 @@ export interface components {
              */
             job_id: string;
             /**
-             * Message
-             * @description Human-readable commit result.
-             */
-            message: string;
-            /**
              * Status
              * @description Updated job status after commit.
              */
             status: string;
+            /**
+             * Message
+             * @description Human-readable commit result.
+             */
+            message: string;
         };
         /**
          * ConfigImportRequest
@@ -6675,19 +6675,19 @@ export interface components {
          */
         ConfigImportRequest: {
             /**
-             * Oauth Providers
-             * @description Optional OAuth providers to import. Client secrets must be re-supplied via the admin UI after import.
-             */
-            oauth_providers?: {
-                [key: string]: unknown;
-            }[] | null;
-            /**
              * Settings
              * @description Optional settings to import. Omit to import only OAuth providers.
              */
             settings?: {
                 [key: string]: unknown;
             } | null;
+            /**
+             * Oauth Providers
+             * @description Optional OAuth providers to import. Client secrets must be re-supplied via the admin UI after import.
+             */
+            oauth_providers?: {
+                [key: string]: unknown;
+            }[] | null;
         };
         /**
          * ConfigModeResponse
@@ -6703,22 +6703,33 @@ export interface components {
         /** ConfigResponse */
         ConfigResponse: {
             /**
+             * Registration Enabled
+             * @description Whether self-service registration is open
+             */
+            registration_enabled: boolean;
+            /**
              * Allow Signup
              * @description Whether self-serve registration is open. Alias for registration_enabled; login UI uses this to show/hide the signup link.
              * @default false
              */
             allow_signup: boolean;
             /**
+             * Email Verification Required
+             * @description When true, new self-registered users must verify their email before logging in. Default false for back-compat-safe parsing by older clients.
+             * @default false
+             */
+            email_verification_required: boolean;
+            /**
              * Auth Methods
              * @description Auth methods contributed by the active AuthExtension. Empty by default; compatible deployments may add methods such as ['saml']. Login UI can render conditional sign-in options without needing admin OAuthProvider access.
              */
             auth_methods?: string[];
             /**
-             * Banner Color
-             * @description Theme token for the site banner color: warning | info | success | destructive.
-             * @default warning
+             * Landing First
+             * @description When true, unauthenticated visits to '/' are redirected to '/login' as the product landing page. Default false (search catalog is the root).
+             * @default false
              */
-            banner_color: string;
+            landing_first: boolean;
             /**
              * Banner Enabled
              * @description When true and banner_text is non-empty, the site-wide announcement banner is shown. Default false.
@@ -6732,28 +6743,17 @@ export interface components {
              */
             banner_text: string;
             /**
-             * Email Verification Required
-             * @description When true, new self-registered users must verify their email before logging in. Default false for back-compat-safe parsing by older clients.
-             * @default false
+             * Banner Color
+             * @description Theme token for the site banner color: warning | info | success | destructive.
+             * @default warning
              */
-            email_verification_required: boolean;
-            /**
-             * Landing First
-             * @description When true, unauthenticated visits to '/' are redirected to '/login' as the product landing page. Default false (search catalog is the root).
-             * @default false
-             */
-            landing_first: boolean;
+            banner_color: string;
             /**
              * Password Login Enabled
              * @description When false, password login is disabled for users without manage_settings. Default true for back-compat-safe parsing by older clients.
              * @default true
              */
             password_login_enabled: boolean;
-            /**
-             * Registration Enabled
-             * @description Whether self-service registration is open
-             */
-            registration_enabled: boolean;
         };
         /** ConformanceResponse */
         ConformanceResponse: {
@@ -6768,6 +6768,8 @@ export interface components {
          * @description Aggregate connectivity validation result.
          */
         ConnectivityResult: {
+            /** @description Object storage probe result. */
+            storage: components["schemas"]["ServiceProbeResult"];
             /** @description Cache backend probe result. */
             cache: components["schemas"]["ServiceProbeResult"];
             /**
@@ -6777,22 +6779,20 @@ export interface components {
             oidc_providers: {
                 [key: string]: components["schemas"]["ServiceProbeResult"];
             };
-            /** @description Object storage probe result. */
-            storage: components["schemas"]["ServiceProbeResult"];
         };
         /**
          * ConnectorDefinitionResponse
          * @description Public, non-secret connector capabilities advertised by an overlay.
          */
         ConnectorDefinitionResponse: {
+            /** Name */
+            name: string;
+            /** Display Name */
+            display_name: string;
             /** Config Schema */
             config_schema: {
                 [key: string]: unknown;
             };
-            /** Display Name */
-            display_name: string;
-            /** Name */
-            name: string;
             /**
              * Supports Credentials
              * @default false
@@ -6806,12 +6806,12 @@ export interface components {
         };
         /** ConnectorDiscoverRequest */
         ConnectorDiscoverRequest: {
+            /** Credential Id */
+            credential_id?: string | null;
             /** Config */
             config?: {
                 [key: string]: unknown;
             };
-            /** Credential Id */
-            credential_id?: string | null;
         };
         /** ConnectorDiscoverResponse */
         ConnectorDiscoverResponse: {
@@ -6820,12 +6820,12 @@ export interface components {
         };
         /** ConnectorIngestRequest */
         ConnectorIngestRequest: {
+            /** Credential Id */
+            credential_id?: string | null;
             /** Config */
             config?: {
                 [key: string]: unknown;
             };
-            /** Credential Id */
-            credential_id?: string | null;
             /**
              * Resource Id
              * @description API-safe opaque handle returned by connector discovery.
@@ -6858,19 +6858,30 @@ export interface components {
              * @description API-safe opaque resource handle. This is never a provider URL, signed locator, or credential.
              */
             id: string;
+            /** Name */
+            name: string;
             /** Kind */
             kind: string;
             /** Metadata */
             metadata?: {
                 [key: string]: unknown;
             };
-            /** Name */
-            name: string;
         };
         /** ContactCreate */
         ContactCreate: {
+            /**
+             * Role
+             * @description ISO CI_RoleCode, e.g. pointOfContact, author
+             */
+            role: string;
+            /** Name */
+            name?: string | null;
             /** Email */
             email?: string | null;
+            /** Organization */
+            organization?: string | null;
+            /** Phone */
+            phone?: string | null;
             /**
              * Extra Json
              * @description Arbitrary extra fields stored as JSON
@@ -6878,17 +6889,6 @@ export interface components {
             extra_json?: {
                 [key: string]: unknown;
             } | null;
-            /** Name */
-            name?: string | null;
-            /** Organization */
-            organization?: string | null;
-            /** Phone */
-            phone?: string | null;
-            /**
-             * Role
-             * @description ISO CI_RoleCode, e.g. pointOfContact, author
-             */
-            role: string;
             /**
              * Sort Order
              * @description Display ordering (lower first)
@@ -6905,23 +6905,11 @@ export interface components {
         };
         /** ContactResponse */
         ContactResponse: {
-            /** Email */
-            email: string | null;
-            /** Extra Json */
-            extra_json: {
-                [key: string]: unknown;
-            } | null;
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            /** Name */
-            name: string | null;
-            /** Organization */
-            organization: string | null;
-            /** Phone */
-            phone: string | null;
             /**
              * Record Id
              * Format: uuid
@@ -6929,42 +6917,55 @@ export interface components {
             record_id: string;
             /** Role */
             role: string;
+            /** Name */
+            name: string | null;
+            /** Email */
+            email: string | null;
+            /** Organization */
+            organization: string | null;
+            /** Phone */
+            phone: string | null;
+            /** Extra Json */
+            extra_json: {
+                [key: string]: unknown;
+            } | null;
             /** Sort Order */
             sort_order: number;
         };
         /** ContactUpdate */
         ContactUpdate: {
-            /** Email */
-            email?: string | null;
-            /** Extra Json */
-            extra_json?: {
-                [key: string]: unknown;
-            } | null;
+            /** Role */
+            role?: string | null;
             /** Name */
             name?: string | null;
+            /** Email */
+            email?: string | null;
             /** Organization */
             organization?: string | null;
             /** Phone */
             phone?: string | null;
-            /** Role */
-            role?: string | null;
+            /** Extra Json */
+            extra_json?: {
+                [key: string]: unknown;
+            } | null;
             /** Sort Order */
             sort_order?: number | null;
         };
         /** CreateEmptyDatasetRequest */
         CreateEmptyDatasetRequest: {
-            /** Columns */
-            columns: components["schemas"]["ColumnDefinition"][];
             /** Title */
             title: string;
+            /** Columns */
+            columns: components["schemas"]["ColumnDefinition"][];
         };
         /** CreateLayerRequest */
         CreateLayerRequest: {
             /**
-             * Columns
-             * @description Optional initial column definitions
+             * Title
+             * @description Display name for the new layer
+             * @example Survey Points
              */
-            columns?: components["schemas"]["ColumnDef"][] | null;
+            title: string;
             /**
              * Geometry Type
              * @description OGC geometry type: Point, MultiPoint, LineString, MultiLineString, Polygon, or MultiPolygon
@@ -6977,30 +6978,13 @@ export interface components {
              */
             summary?: string | null;
             /**
-             * Title
-             * @description Display name for the new layer
-             * @example Survey Points
+             * Columns
+             * @description Optional initial column definitions
              */
-            title: string;
+            columns?: components["schemas"]["ColumnDef"][] | null;
         };
         /** CreateLayerResponse */
         CreateLayerResponse: {
-            /**
-             * Created At
-             * Format: date-time
-             * @description Creation timestamp
-             */
-            created_at: string;
-            /**
-             * Feature Count
-             * @description Number of features (0 for new layers)
-             */
-            feature_count: number;
-            /**
-             * Geometry Type
-             * @description OGC geometry type
-             */
-            geometry_type: string;
             /**
              * Id
              * Format: uuid
@@ -7008,20 +6992,36 @@ export interface components {
              */
             id: string;
             /**
-             * Table Name
-             * @description PostGIS table name in the data schema
-             */
-            table_name: string;
-            /**
              * Title
              * @description Display name
              */
             title: string;
             /**
+             * Table Name
+             * @description PostGIS table name in the data schema
+             */
+            table_name: string;
+            /**
+             * Geometry Type
+             * @description OGC geometry type
+             */
+            geometry_type: string;
+            /**
+             * Feature Count
+             * @description Number of features (0 for new layers)
+             */
+            feature_count: number;
+            /**
              * Visibility
              * @description Visibility level: private, internal, or public
              */
             visibility: string;
+            /**
+             * Created At
+             * Format: date-time
+             * @description Creation timestamp
+             */
+            created_at: string;
         };
         /**
          * DatasetChatRequest
@@ -7031,14 +7031,14 @@ export interface components {
          *     authoritatively from the DB — the client only names the dataset.
          */
         DatasetChatRequest: {
-            /** Dataset Id */
-            dataset_id: string;
-            /** History */
-            history?: components["schemas"]["ChatHistoryMessage"][];
-            /** Language */
-            language?: string | null;
             /** Message */
             message: string;
+            /** Dataset Id */
+            dataset_id: string;
+            /** Language */
+            language?: string | null;
+            /** History */
+            history?: components["schemas"]["ChatHistoryMessage"][];
         };
         /** DatasetDeleteRequest */
         DatasetDeleteRequest: {
@@ -7068,35 +7068,58 @@ export interface components {
          *     }
          */
         DatasetMeta: {
-            /** Access Constraints */
-            access_constraints?: string | null;
+            /** Title */
+            title?: string | null;
+            /** Summary */
+            summary?: string | null;
             /**
-             * Data Vintage End
-             * @description End of temporal coverage
+             * Visibility
+             * @description Access level: private, restricted, internal, or public
              */
-            data_vintage_end?: string | null;
+            visibility?: ("private" | "restricted" | "internal" | "public") | null;
+            /** License */
+            license?: string | null;
+            /** Source Organization */
+            source_organization?: string | null;
             /**
              * Data Vintage Start
              * @description Start of temporal coverage
              */
             data_vintage_start?: string | null;
             /**
-             * Is Dem
-             * @description Flag raster as a Digital Elevation Model for terrain rendering
+             * Data Vintage End
+             * @description End of temporal coverage
              */
-            is_dem?: boolean | null;
-            /**
-             * Language
-             * @description BCP 47 primary language tag, e.g. en, fr, or pt-BR
-             */
-            language?: string | null;
-            /** License */
-            license?: string | null;
+            data_vintage_end?: string | null;
             /**
              * Lineage Summary
              * @description Free-text provenance / lineage statement
              */
             lineage_summary?: string | null;
+            /**
+             * Update Frequency
+             * @description ISO maintenance frequency code
+             */
+            update_frequency?: string | null;
+            /** Usage Constraints */
+            usage_constraints?: string | null;
+            /** Access Constraints */
+            access_constraints?: string | null;
+            /**
+             * Sensitivity Classification
+             * @description e.g. public, confidential, restricted
+             */
+            sensitivity_classification?: string | null;
+            /**
+             * Theme Category
+             * @description ISO topic category codes
+             */
+            theme_category?: string[] | null;
+            /**
+             * Record Status
+             * @description Lifecycle status. Deliberately not pinned to an enum: the values come from the workflow extension's status_order(), so an overlay may define its own. Community default order: draft, ready, internal, published.
+             */
+            record_status?: string | null;
             /**
              * Owner Org
              * @description Owning organization name
@@ -7105,56 +7128,34 @@ export interface components {
             /** Quality Statement */
             quality_statement?: string | null;
             /**
-             * Record Status
-             * @description Lifecycle status. Deliberately not pinned to an enum: the values come from the workflow extension's status_order(), so an overlay may define its own. Community default order: draft, ready, internal, published.
-             */
-            record_status?: string | null;
-            /**
-             * Sensitivity Classification
-             * @description e.g. public, confidential, restricted
-             */
-            sensitivity_classification?: string | null;
-            /** Source Organization */
-            source_organization?: string | null;
-            /**
              * Source Url
              * @description URL the data was originally fetched from
              */
             source_url?: string | null;
-            /** Summary */
-            summary?: string | null;
             /**
-             * Theme Category
-             * @description ISO topic category codes
+             * Language
+             * @description BCP 47 primary language tag, e.g. en, fr, or pt-BR
              */
-            theme_category?: string[] | null;
+            language?: string | null;
+            /**
+             * Is Dem
+             * @description Flag raster as a Digital Elevation Model for terrain rendering
+             */
+            is_dem?: boolean | null;
             /**
              * Tile Columns
              * @description Ordered vector-tile property allowlist; null restores zoom defaults, [] emits geometry-only tiles, list emits those properties at any zoom.
              */
             tile_columns?: string[] | null;
-            /** Title */
-            title?: string | null;
-            /**
-             * Update Frequency
-             * @description ISO maintenance frequency code
-             */
-            update_frequency?: string | null;
-            /** Usage Constraints */
-            usage_constraints?: string | null;
-            /**
-             * Visibility
-             * @description Access level: private, restricted, internal, or public
-             */
-            visibility?: ("private" | "restricted" | "internal" | "public") | null;
         };
         /** DatasetRelationshipCreate */
         DatasetRelationshipCreate: {
             /**
-             * Label
-             * @description Optional display label for this relationship
+             * Target Dataset Id
+             * Format: uuid
+             * @description UUID of the dataset to link to
              */
-            label?: string | null;
+            target_dataset_id: string;
             /**
              * Source Column
              * @description Join column in the source dataset
@@ -7167,11 +7168,10 @@ export interface components {
              */
             target_column: string;
             /**
-             * Target Dataset Id
-             * Format: uuid
-             * @description UUID of the dataset to link to
+             * Label
+             * @description Optional display label for this relationship
              */
-            target_dataset_id: string;
+            label?: string | null;
         };
         /**
          * DatasetRelationshipListResponse
@@ -7195,72 +7195,54 @@ export interface components {
              * Format: uuid
              */
             id: string;
-            /** Label */
-            label: string | null;
-            /** Relationship Type */
-            relationship_type: string;
-            /** Source Column */
-            source_column: string;
             /**
              * Source Dataset Id
              * Format: uuid
              */
             source_dataset_id: string;
-            /** Target Column */
-            target_column: string;
             /**
              * Target Dataset Id
              * Format: uuid
              */
             target_dataset_id: string;
+            /** Source Column */
+            source_column: string;
+            /** Target Column */
+            target_column: string;
+            /** Relationship Type */
+            relationship_type: string;
+            /** Label */
+            label: string | null;
             /** Target Dataset Title */
             target_dataset_title?: string | null;
         };
         /** DatasetResponse */
         DatasetResponse: {
-            /** Access Constraints */
-            access_constraints?: string | null;
-            /** Collections */
-            collections?: components["schemas"]["CollectionRef"][] | null;
             /**
-             * Column Info
-             * @description Column names, types, and stats
+             * Id
+             * Format: uuid
              */
-            column_info?: components["schemas"]["ColumnInfo"][] | null;
+            id: string;
             /**
-             * Created At
-             * Format: date-time
+             * Record Id
+             * Format: uuid
+             * @description Parent catalog record UUID
              */
-            created_at: string;
-            /** Created By */
-            created_by: string | null;
-            /** Created By Display */
-            created_by_display: string;
+            record_id: string;
             /**
-             * Current Version
-             * @description Monotonic version counter
-             * @default 1
+             * Table Name
+             * @description Internal PostGIS table name
              */
-            current_version: number;
+            table_name: string;
+            /** Title */
+            title: string;
+            /** Summary */
+            summary: string | null;
             /**
-             * Data Vintage End
-             * @description End of temporal coverage
+             * Srid
+             * @description Current EPSG SRID of stored geometry
              */
-            data_vintage_end?: string | null;
-            /**
-             * Data Vintage Start
-             * @description Start of temporal coverage
-             */
-            data_vintage_start?: string | null;
-            /** @description Provenance for an analysis output. Null for a dataset that was not derived, and also for a requester who cannot access the source dataset — the two are deliberately indistinguishable. */
-            derived_from?: components["schemas"]["DerivedFromResponse"] | null;
-            /**
-             * Extent Bbox
-             * @description Bounding box [west, south, east, north] per RFC 7946 §5.2. west > east on an antimeridian-crossing extent.
-             */
-            extent_bbox?: number[] | null;
-            /** Feature Count */
-            feature_count: number | null;
+            srid?: number | null;
             /**
              * Geometry Type
              * @description OGC geometry type, e.g. MultiPolygon
@@ -7273,56 +7255,91 @@ export interface components {
              */
             has_generic_geometry: boolean;
             /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /**
              * Is 3D
              * @description True if geometry has Z dimension
              */
             is_3d?: boolean | null;
-            /**
-             * Language
-             * @description ISO 639-1 language code, e.g. en, fr
-             */
-            language?: string | null;
-            /**
-             * Last Checked At
-             * @description Last time GeoLens contacted the origin at all, whether the attempt succeeded or failed
-             */
-            last_checked_at?: string | null;
-            /** Last Edited At */
-            last_edited_at?: string | null;
-            /** Last Edited By Display */
-            last_edited_by_display?: string | null;
-            /**
-             * Last Refreshed At
-             * @description Last committed successful refresh — not the last attempt
-             */
-            last_refreshed_at?: string | null;
-            /** License */
-            license?: string | null;
-            /**
-             * Lineage Summary
-             * @description Free-text provenance / lineage statement
-             */
-            lineage_summary?: string | null;
-            /**
-             * Metadata Warnings
-             * @description Advisory warnings produced by a metadata update — e.g. a visibility or status change exposing keywords inherited from an analysis source the new audience cannot open (feat #1070). Only ever set on the PATCH response; the change has already applied.
-             */
-            metadata_warnings?: string[] | null;
             /**
              * N Dims
              * @description Number of coordinate dimensions (2, 3, or 4)
              */
             n_dims?: number | null;
             /**
+             * Z Min
+             * @description Minimum Z value across all features
+             */
+            z_min?: number | null;
+            /**
+             * Z Max
+             * @description Maximum Z value across all features
+             */
+            z_max?: number | null;
+            /** Feature Count */
+            feature_count: number | null;
+            /**
+             * Extent Bbox
+             * @description Bounding box [west, south, east, north] per RFC 7946 §5.2. west > east on an antimeridian-crossing extent.
+             */
+            extent_bbox?: number[] | null;
+            /**
+             * Column Info
+             * @description Column names, types, and stats
+             */
+            column_info?: components["schemas"]["ColumnInfo"][] | null;
+            /** License */
+            license?: string | null;
+            /** Source Organization */
+            source_organization?: string | null;
+            /**
+             * Data Vintage Start
+             * @description Start of temporal coverage
+             */
+            data_vintage_start?: string | null;
+            /**
+             * Data Vintage End
+             * @description End of temporal coverage
+             */
+            data_vintage_end?: string | null;
+            /** @description Automated quality assessment results */
+            quality_detail?: components["schemas"]["QualityDetail"] | null;
+            /**
+             * Source Format
+             * @description Original file format, e.g. GPKG, SHP
+             */
+            source_format?: string | null;
+            /** Source Filename */
+            source_filename: string | null;
+            /**
+             * Tile Columns
+             * @description Ordered vector-tile property allowlist; null uses zoom defaults, [] emits geometry-only tiles, list emits those properties at any zoom.
+             */
+            tile_columns?: string[] | null;
+            /**
+             * Original Srid
+             * @description EPSG SRID of the uploaded source file
+             */
+            original_srid?: number | null;
+            /**
+             * Current Version
+             * @description Monotonic version counter
+             * @default 1
+             */
+            current_version: number;
+            /**
+             * Source Url
+             * @description URL the data was originally fetched from
+             */
+            source_url?: string | null;
+            /**
              * Origin
              * @description How the data entered the catalog: upload, postgis, service, stac, or created. Computed from source_format and record_type, not stored; null for collections and VRTs, which have no origin of their own.
              */
             origin?: string | null;
+            /**
+             * Origin Uri
+             * @description Machine-readable pointer back to the origin, written only by ingest and refresh. Distinct from source_url, which is editable descriptive metadata. Null for uploads and created datasets.
+             */
+            origin_uri?: string | null;
             /**
              * Origin Ref
              * @description Typed per-origin payload with a `kind` discriminator, e.g. {"kind": "service", "service_type": "wfs", "url": "...", "layer_id": "0"}. Never contains credentials.
@@ -7331,64 +7348,15 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             /**
-             * Origin Uri
-             * @description Machine-readable pointer back to the origin, written only by ingest and refresh. Distinct from source_url, which is editable descriptive metadata. Null for uploads and created datasets.
+             * Last Refreshed At
+             * @description Last committed successful refresh — not the last attempt
              */
-            origin_uri?: string | null;
+            last_refreshed_at?: string | null;
             /**
-             * Original Srid
-             * @description EPSG SRID of the uploaded source file
+             * Last Checked At
+             * @description Last time GeoLens contacted the origin at all, whether the attempt succeeded or failed
              */
-            original_srid?: number | null;
-            /**
-             * Owner Org
-             * @description Owning organization name
-             */
-            owner_org?: string | null;
-            /** Published At */
-            published_at?: string | null;
-            /** @description Automated quality assessment results */
-            quality_detail?: components["schemas"]["QualityDetail"] | null;
-            /** Quality Statement */
-            quality_statement?: string | null;
-            /** @description Raster-specific metadata (null for vectors) */
-            raster?: components["schemas"]["RasterMetadata"] | null;
-            /**
-             * Record Id
-             * Format: uuid
-             * @description Parent catalog record UUID
-             */
-            record_id: string;
-            /**
-             * Record Status
-             * @description Lifecycle status. Deliberately not pinned to an enum: the values come from the workflow extension's status_order(), so an overlay may define its own. Community default order: draft, ready, internal, published.
-             * @default draft
-             */
-            record_status: string;
-            /**
-             * Record Type
-             * @description Record type: 'vector_dataset' (spatial features), 'raster_dataset' (single COG), 'vrt_dataset' (VRT mosaic), 'table' (non-spatial tabular), 'map' (saved map), 'service' (catalogued remote service), 'collection' (flat dataset group).
-             * @default vector_dataset
-             */
-            record_type: string;
-            /**
-             * Schema Drift Status
-             * @description none, drifted, or unknown. Set at refresh commit from the schema diff; 'unknown' until a refresh has run.
-             * @default unknown
-             */
-            schema_drift_status: string;
-            /**
-             * Sensitivity Classification
-             * @description e.g. public, confidential, restricted
-             */
-            sensitivity_classification?: string | null;
-            /** Source Filename */
-            source_filename: string | null;
-            /**
-             * Source Format
-             * @description Original file format, e.g. GPKG, SHP
-             */
-            source_format?: string | null;
+            last_checked_at?: string | null;
             /**
              * Source Health
              * @description healthy, missing, inaccessible, or unknown. 'unknown' means never probed, or an origin kind with nothing to probe.
@@ -7400,18 +7368,88 @@ export interface components {
              * @description Short redacted reason for a non-healthy state
              */
             source_health_detail?: string | null;
-            /** Source Organization */
-            source_organization?: string | null;
             /**
-             * Source Url
-             * @description URL the data was originally fetched from
+             * Schema Drift Status
+             * @description none, drifted, or unknown. Set at refresh commit from the schema diff; 'unknown' until a refresh has run.
+             * @default unknown
              */
-            source_url?: string | null;
+            schema_drift_status: string;
+            /** Quality Statement */
+            quality_statement?: string | null;
             /**
-             * Srid
-             * @description Current EPSG SRID of stored geometry
+             * Visibility
+             * @description Access level: private, restricted, internal, public
              */
-            srid?: number | null;
+            visibility: string;
+            /** Created By */
+            created_by: string | null;
+            /** Created By Display */
+            created_by_display: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Last Edited By Display */
+            last_edited_by_display?: string | null;
+            /** Last Edited At */
+            last_edited_at?: string | null;
+            /** Collections */
+            collections?: components["schemas"]["CollectionRef"][] | null;
+            /**
+             * Record Status
+             * @description Lifecycle status. Deliberately not pinned to an enum: the values come from the workflow extension's status_order(), so an overlay may define its own. Community default order: draft, ready, internal, published.
+             * @default draft
+             */
+            record_status: string;
+            /**
+             * Lineage Summary
+             * @description Free-text provenance / lineage statement
+             */
+            lineage_summary?: string | null;
+            /** @description Provenance for an analysis output. Null for a dataset that was not derived, and also for a requester who cannot access the source dataset — the two are deliberately indistinguishable. */
+            derived_from?: components["schemas"]["DerivedFromResponse"] | null;
+            /**
+             * Update Frequency
+             * @description ISO maintenance frequency code
+             */
+            update_frequency?: string | null;
+            /** Usage Constraints */
+            usage_constraints?: string | null;
+            /** Access Constraints */
+            access_constraints?: string | null;
+            /**
+             * Sensitivity Classification
+             * @description e.g. public, confidential, restricted
+             */
+            sensitivity_classification?: string | null;
+            /**
+             * Theme Category
+             * @description ISO topic category codes
+             */
+            theme_category?: string[] | null;
+            /**
+             * Owner Org
+             * @description Owning organization name
+             */
+            owner_org?: string | null;
+            /** Published At */
+            published_at?: string | null;
+            /** Updated By */
+            updated_by?: string | null;
+            /**
+             * Record Type
+             * @description Record type: 'vector_dataset' (spatial features), 'raster_dataset' (single COG), 'vrt_dataset' (VRT mosaic), 'table' (non-spatial tabular), 'map' (saved map), 'service' (catalogued remote service), 'collection' (flat dataset group).
+             * @default vector_dataset
+             */
+            record_type: string;
+            /** @description Raster-specific metadata (null for vectors) */
+            raster?: components["schemas"]["RasterMetadata"] | null;
             /**
              * Stac Assets
              * @description STAC-style asset dictionary
@@ -7421,131 +7459,93 @@ export interface components {
             } | null;
             /** Stac Extensions */
             stac_extensions?: string[] | null;
-            /** Summary */
-            summary: string | null;
             /**
-             * Table Name
-             * @description Internal PostGIS table name
+             * Language
+             * @description ISO 639-1 language code, e.g. en, fr
              */
-            table_name: string;
+            language?: string | null;
             /**
-             * Theme Category
-             * @description ISO topic category codes
+             * Metadata Warnings
+             * @description Advisory warnings produced by a metadata update — e.g. a visibility or status change exposing keywords inherited from an analysis source the new audience cannot open (feat #1070). Only ever set on the PATCH response; the change has already applied.
              */
-            theme_category?: string[] | null;
-            /**
-             * Tile Columns
-             * @description Ordered vector-tile property allowlist; null uses zoom defaults, [] emits geometry-only tiles, list emits those properties at any zoom.
-             */
-            tile_columns?: string[] | null;
-            /** Title */
-            title: string;
-            /**
-             * Update Frequency
-             * @description ISO maintenance frequency code
-             */
-            update_frequency?: string | null;
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at: string;
-            /** Updated By */
-            updated_by?: string | null;
-            /** Usage Constraints */
-            usage_constraints?: string | null;
-            /**
-             * Visibility
-             * @description Access level: private, restricted, internal, public
-             */
-            visibility: string;
-            /**
-             * Z Max
-             * @description Maximum Z value across all features
-             */
-            z_max?: number | null;
-            /**
-             * Z Min
-             * @description Minimum Z value across all features
-             */
-            z_min?: number | null;
+            metadata_warnings?: string[] | null;
         };
         /** DatasetRowsResponse */
         DatasetRowsResponse: {
+            /** Columns */
+            columns: components["schemas"]["ColumnChange"][];
+            /** Rows */
+            rows: {
+                [key: string]: unknown;
+            }[];
             /**
              * Approximate Total
              * @description Estimated total row count (may use pg stats)
              */
             approximate_total: number;
-            /** Columns */
-            columns: components["schemas"]["ColumnChange"][];
             /**
              * Next Cursor
              * @description Cursor value for the next page, null if last
              */
             next_cursor?: number | null;
-            /** Rows */
-            rows: {
-                [key: string]: unknown;
-            }[];
         };
         /** DatasetVersionListResponse */
         DatasetVersionListResponse: {
-            /** Total */
-            total: number;
             /** Versions */
             versions: components["schemas"]["DatasetVersionResponse"][];
+            /** Total */
+            total: number;
         };
         /** DatasetVersionResponse */
         DatasetVersionResponse: {
-            /**
-             * Dataset Id
-             * Format: uuid
-             */
-            dataset_id: string;
-            /** Feature Count */
-            feature_count: number | null;
-            /** File Hash */
-            file_hash: string | null;
-            /** Geometry Type */
-            geometry_type: string | null;
             /**
              * Id
              * Format: uuid
              */
             id: string;
+            /**
+             * Dataset Id
+             * Format: uuid
+             */
+            dataset_id: string;
+            /** Version Number */
+            version_number: number;
             /** Source Filename */
             source_filename: string | null;
             /** Source Format */
             source_format: string | null;
+            /** Feature Count */
+            feature_count: number | null;
             /** Srid */
             srid: number | null;
+            /** Geometry Type */
+            geometry_type: string | null;
+            /** File Hash */
+            file_hash: string | null;
+            /** Uploaded By */
+            uploaded_by: string | null;
             /**
              * Uploaded At
              * Format: date-time
              */
             uploaded_at: string;
-            /** Uploaded By */
-            uploaded_by: string | null;
-            /** Version Number */
-            version_number: number;
         };
         /** DbfTruncationCollisionWarning */
         DbfTruncationCollisionWarning: {
-            /** Details */
-            details: components["schemas"]["DbfTruncationDetail"][];
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             kind: "dbf_truncation_collision";
+            /** Details */
+            details: components["schemas"]["DbfTruncationDetail"][];
         };
         /** DbfTruncationDetail */
         DbfTruncationDetail: {
-            /** Originals */
-            originals: string[];
             /** Truncated */
             truncated: string;
+            /** Originals */
+            originals: string[];
         };
         /**
          * DerivedFromResponse
@@ -7568,11 +7568,6 @@ export interface components {
          */
         DerivedFromResponse: {
             /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /**
              * Dataset Id
              * Format: uuid
              * @description The dataset this one was derived from
@@ -7590,6 +7585,11 @@ export interface components {
             params: {
                 [key: string]: unknown;
             };
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /**
          * DetectEmbeddingDimsResponse
@@ -7613,10 +7613,10 @@ export interface components {
         /** DiscoveredTable */
         DiscoveredTable: {
             /**
-             * Estimated Rows
-             * @description PostgreSQL row count estimate from `pg_class.reltuples`.
+             * Table Name
+             * @description PostgreSQL table name in the `data` schema.
              */
-            estimated_rows: number | null;
+            table_name: string;
             /**
              * Geometry Type
              * @description Detected geometry type, or null for non-spatial tables.
@@ -7628,15 +7628,13 @@ export interface components {
              */
             srid: number | null;
             /**
-             * Table Name
-             * @description PostgreSQL table name in the `data` schema.
+             * Estimated Rows
+             * @description PostgreSQL row count estimate from `pg_class.reltuples`.
              */
-            table_name: string;
+            estimated_rows: number | null;
         };
         /** DistributionCreate */
         DistributionCreate: {
-            /** Description */
-            description?: string | null;
             /**
              * Distribution Type
              * @description e.g. download, api, ogc_wms, ogc_wfs
@@ -7648,28 +7646,30 @@ export interface components {
              */
             format: string;
             /**
-             * Is Primary
-             * @description Mark as the preferred distribution
-             * @default false
+             * Url
+             * @description Access URL for this distribution
              */
-            is_primary: boolean;
+            url: string;
+            /** Title */
+            title?: string | null;
+            /** Description */
+            description?: string | null;
+            /**
+             * Protocol
+             * @description Transfer protocol, e.g. HTTPS, OGC:WFS
+             */
+            protocol?: string | null;
             /**
              * Media Type
              * @description IANA media type, e.g. application/geo+json
              */
             media_type?: string | null;
             /**
-             * Protocol
-             * @description Transfer protocol, e.g. HTTPS, OGC:WFS
+             * Is Primary
+             * @description Mark as the preferred distribution
+             * @default false
              */
-            protocol?: string | null;
-            /** Title */
-            title?: string | null;
-            /**
-             * Url
-             * @description Access URL for this distribution
-             */
-            url: string;
+            is_primary: boolean;
         };
         /** DistributionListResponse */
         DistributionListResponse: {
@@ -7681,75 +7681,82 @@ export interface components {
         /** DistributionResponse */
         DistributionResponse: {
             /**
-             * Auto Generated
-             * @description True if created automatically by the system
-             */
-            auto_generated: boolean;
-            /** Description */
-            description: string | null;
-            /** Distribution Type */
-            distribution_type: string;
-            /** Format */
-            format: string | null;
-            /**
              * Id
              * Format: uuid
              */
             id: string;
-            /** Is Primary */
-            is_primary: boolean;
-            /** Media Type */
-            media_type: string | null;
-            /** Protocol */
-            protocol: string | null;
             /**
              * Record Id
              * Format: uuid
              */
             record_id: string;
-            /** Title */
-            title: string | null;
+            /** Distribution Type */
+            distribution_type: string;
+            /** Format */
+            format: string | null;
             /** Url */
             url: string;
+            /** Title */
+            title: string | null;
+            /** Description */
+            description: string | null;
+            /** Protocol */
+            protocol: string | null;
+            /** Media Type */
+            media_type: string | null;
+            /** Is Primary */
+            is_primary: boolean;
+            /**
+             * Auto Generated
+             * @description True if created automatically by the system
+             */
+            auto_generated: boolean;
         };
         /** DistributionUpdate */
         DistributionUpdate: {
-            /** Description */
-            description?: string | null;
             /** Distribution Type */
             distribution_type?: string | null;
             /** Format */
             format?: string | null;
-            /** Is Primary */
-            is_primary?: boolean | null;
-            /** Media Type */
-            media_type?: string | null;
-            /** Protocol */
-            protocol?: string | null;
-            /** Title */
-            title?: string | null;
             /** Url */
             url?: string | null;
+            /** Title */
+            title?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Protocol */
+            protocol?: string | null;
+            /** Media Type */
+            media_type?: string | null;
+            /** Is Primary */
+            is_primary?: boolean | null;
         };
         /** DownloadTokenResponse */
         DownloadTokenResponse: {
+            /**
+             * Token
+             * @description Short-lived download-scoped JWT (typ='download', TTL ≤ 120s)
+             */
+            token: string;
             /**
              * Expires In
              * @description Seconds until the download token expires
              * @default 120
              */
             expires_in: number;
-            /**
-             * Token
-             * @description Short-lived download-scoped JWT (typ='download', TTL ≤ 120s)
-             */
-            token: string;
         };
         /**
          * DryRunResponse
          * @description Result of a dry-run import showing what would change.
          */
         DryRunResponse: {
+            /**
+             * Settings
+             * @description Per-setting diff result keyed by setting name.
+             */
+            settings: {
+                [key: string]: unknown;
+            };
             /**
              * Oauth Providers
              * @description Per-provider diff result keyed by slug.
@@ -7762,42 +7769,41 @@ export interface components {
              * @description Short-lived signed confirmation token required to apply an overwrite. Bound to the normalized payload, overwrite mode, and current configuration state.
              */
             preview_token?: string | null;
-            /**
-             * Settings
-             * @description Per-setting diff result keyed by setting name.
-             */
-            settings: {
-                [key: string]: unknown;
-            };
         };
         /** DuplicateMapResponse */
         DuplicateMapResponse: {
-            basemap_config?: components["schemas"]["BasemapConfig"] | null;
-            /** Basemap Style */
-            basemap_style: string;
-            /** Bearing */
-            bearing: number;
-            /** Center Lat */
-            center_lat: number | null;
-            /** Center Lng */
-            center_lng: number | null;
             /**
-             * Created At
-             * Format: date-time
+             * Id
+             * Format: uuid
              */
-            created_at: string;
-            /** Created By */
-            created_by: string | null;
-            /** Created By Username */
-            created_by_username?: string | null;
+            id: string;
+            /** Name */
+            name: string;
             /** Description */
             description: string | null;
-            /**
-             * Excluded Layer Count
-             * @description Layers skipped due to access restrictions
-             * @default 0
-             */
-            excluded_layer_count: number;
+            /** Notes */
+            notes?: string | null;
+            /** Center Lng */
+            center_lng: number | null;
+            /** Center Lat */
+            center_lat: number | null;
+            /** Zoom */
+            zoom: number | null;
+            /** Bearing */
+            bearing: number;
+            /** Pitch */
+            pitch: number;
+            /** Basemap Style */
+            basemap_style: string;
+            /** Show Basemap Labels */
+            show_basemap_labels: boolean;
+            basemap_config?: components["schemas"]["BasemapConfig"] | null;
+            terrain_config?: components["schemas"]["TerrainConfig"] | null;
+            visibility: components["schemas"]["MapVisibility"];
+            /** Thumbnail Url */
+            thumbnail_url?: string | null;
+            /** Og Image Url */
+            og_image_url?: string | null;
             /**
              * Forked From Id
              * @description Source map UUID if this is a fork
@@ -7805,40 +7811,34 @@ export interface components {
             forked_from_id?: string | null;
             /** Forked From Name */
             forked_from_name?: string | null;
+            /** Created By */
+            created_by: string | null;
+            /** Created By Username */
+            created_by_username?: string | null;
             /**
-             * Id
-             * Format: uuid
+             * Created At
+             * Format: date-time
              */
-            id: string;
-            /** Layer Count */
-            layer_count: number;
-            /** Layers */
-            layers: components["schemas"]["MapLayerResponse"][];
-            /** Legend Title */
-            legend_title?: string | null;
-            /** Name */
-            name: string;
-            /** Notes */
-            notes?: string | null;
-            /** Og Image Url */
-            og_image_url?: string | null;
-            /** Pitch */
-            pitch: number;
-            /** Plugins */
-            plugins?: string[] | null;
-            /** Show Basemap Labels */
-            show_basemap_labels: boolean;
-            terrain_config?: components["schemas"]["TerrainConfig"] | null;
-            /** Thumbnail Url */
-            thumbnail_url?: string | null;
+            created_at: string;
             /**
              * Updated At
              * Format: date-time
              */
             updated_at: string;
-            visibility: components["schemas"]["MapVisibility"];
-            /** Zoom */
-            zoom: number | null;
+            /** Layers */
+            layers: components["schemas"]["MapLayerResponse"][];
+            /** Layer Count */
+            layer_count: number;
+            /** Plugins */
+            plugins?: string[] | null;
+            /** Legend Title */
+            legend_title?: string | null;
+            /**
+             * Excluded Layer Count
+             * @description Layers skipped due to access restrictions
+             * @default 0
+             */
+            excluded_layer_count: number;
         };
         /**
          * EditionInfoResponse
@@ -7865,14 +7865,6 @@ export interface components {
         /** EmbedTokenCreate */
         EmbedTokenCreate: {
             /**
-             * Allowed Origins
-             * @description Restrict embedding to these origins. Omit or null allows any origin; non-empty origin restrictions require advanced sharing controls.
-             * @example [
-             *       "https://dashboard.example.com"
-             *     ]
-             */
-            allowed_origins?: string[] | null;
-            /**
              * Expires In Days
              * @description Token lifetime in days (1-365). The default 30-day lifetime is always available; custom lifetimes require advanced sharing controls.
              * @default 30
@@ -7885,30 +7877,22 @@ export interface components {
              * @example Public dashboard embed
              */
             name?: string | null;
+            /**
+             * Allowed Origins
+             * @description Restrict embedding to these origins. Omit or null allows any origin; non-empty origin restrictions require advanced sharing controls.
+             * @example [
+             *       "https://dashboard.example.com"
+             *     ]
+             */
+            allowed_origins?: string[] | null;
         };
         /** EmbedTokenCreatedResponse */
         EmbedTokenCreatedResponse: {
-            /** Allowed Origins */
-            allowed_origins?: string[] | null;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /**
-             * Expires At
-             * Format: date-time
-             */
-            expires_at: string;
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            /** Is Active */
-            is_active: boolean;
-            /** Last Used At */
-            last_used_at?: string | null;
             /**
              * Map Id
              * Format: uuid
@@ -7916,17 +7900,33 @@ export interface components {
             map_id: string;
             /** Name */
             name?: string | null;
-            /** Raw Token */
-            raw_token: string;
-            /** Scoped Dataset Ids */
-            scoped_dataset_ids: string[];
             /** Token Hint */
             token_hint: string;
+            /** Scoped Dataset Ids */
+            scoped_dataset_ids: string[];
+            /** Allowed Origins */
+            allowed_origins?: string[] | null;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Is Active */
+            is_active: boolean;
             /**
              * Use Count
              * @default 0
              */
             use_count: number;
+            /** Last Used At */
+            last_used_at?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Raw Token */
+            raw_token: string;
         };
         /** EmbedTokenListResponse */
         EmbedTokenListResponse: {
@@ -7937,27 +7937,11 @@ export interface components {
         };
         /** EmbedTokenResponse */
         EmbedTokenResponse: {
-            /** Allowed Origins */
-            allowed_origins?: string[] | null;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /**
-             * Expires At
-             * Format: date-time
-             */
-            expires_at: string;
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            /** Is Active */
-            is_active: boolean;
-            /** Last Used At */
-            last_used_at?: string | null;
             /**
              * Map Id
              * Format: uuid
@@ -7965,15 +7949,31 @@ export interface components {
             map_id: string;
             /** Name */
             name?: string | null;
-            /** Scoped Dataset Ids */
-            scoped_dataset_ids: string[];
             /** Token Hint */
             token_hint: string;
+            /** Scoped Dataset Ids */
+            scoped_dataset_ids: string[];
+            /** Allowed Origins */
+            allowed_origins?: string[] | null;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Is Active */
+            is_active: boolean;
             /**
              * Use Count
              * @default 0
              */
             use_count: number;
+            /** Last Used At */
+            last_used_at?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /** EmbedTokenUpdate */
         EmbedTokenUpdate: {
@@ -7986,10 +7986,10 @@ export interface components {
         /** EmbeddingStatsResponse */
         EmbeddingStatsResponse: {
             /**
-             * Coverage Percent
-             * @description Embedding coverage as a percentage (0-100).
+             * Total Records
+             * @description Total number of records in the catalog.
              */
-            coverage_percent: number;
+            total_records: number;
             /**
              * Embedded Records
              * @description Number of records that have an embedding stored.
@@ -8001,10 +8001,10 @@ export interface components {
              */
             missing_records: number;
             /**
-             * Total Records
-             * @description Total number of records in the catalog.
+             * Coverage Percent
+             * @description Embedding coverage as a percentage (0-100).
              */
-            total_records: number;
+            coverage_percent: number;
         };
         /**
          * EnterpriseTabsResponse
@@ -8028,24 +8028,18 @@ export interface components {
          */
         FacetCountResponse: {
             /**
-             * Collections
-             * @description Collections containing matched records
-             * @default []
-             */
-            collections: components["schemas"]["CollectionFacetItem"][];
-            /**
-             * Keywords
-             * @description Top keyword tags with counts
-             * @default []
-             */
-            keywords: components["schemas"]["FacetValueCount"][];
-            /**
              * Record Type
              * @description Hit counts keyed by record type
              */
             record_type: {
                 [key: string]: number;
             };
+            /**
+             * Keywords
+             * @description Top keyword tags with counts
+             * @default []
+             */
+            keywords: components["schemas"]["FacetValueCount"][];
             /**
              * Source Organization
              * @description Top organizations with counts
@@ -8058,16 +8052,22 @@ export interface components {
              * @default []
              */
             srid: components["schemas"]["FacetValueCount"][];
+            /**
+             * Collections
+             * @description Collections containing matched records
+             * @default []
+             */
+            collections: components["schemas"]["CollectionFacetItem"][];
         };
         /**
          * FacetValueCount
          * @description A single facet value with count.
          */
         FacetValueCount: {
-            /** Count */
-            count: number;
             /** Value */
             value: string;
+            /** Count */
+            count: number;
         };
         /**
          * FanOutCommitRequest
@@ -8122,16 +8122,6 @@ export interface components {
          */
         FanOutLayerResult: {
             /**
-             * Dataset Id
-             * @description ID of the new Dataset record created for this layer. Null on failure.
-             */
-            dataset_id?: string | null;
-            /**
-             * Error
-             * @description User-safe error description when status='failed'. Never contains internal file paths.
-             */
-            error?: string | null;
-            /**
              * Layer Name
              * @description Layer name from the request.
              */
@@ -8142,11 +8132,21 @@ export interface components {
              */
             new_job_id?: string | null;
             /**
+             * Dataset Id
+             * @description ID of the new Dataset record created for this layer. Null on failure.
+             */
+            dataset_id?: string | null;
+            /**
              * Status
              * @description 'queued' if the task was dispatched; 'failed' if an error occurred.
              * @enum {string}
              */
             status: "queued" | "failed";
+            /**
+             * Error
+             * @description User-safe error description when status='failed'. Never contains internal file paths.
+             */
+            error?: string | null;
         };
         /**
          * FeatureCreate
@@ -8205,6 +8205,11 @@ export interface components {
          * @description A GeoJSON Feature.
          */
         GeoJSONFeature: {
+            /**
+             * Type
+             * @default Feature
+             */
+            type: string;
             /** Geometry */
             geometry?: {
                 [key: string]: unknown;
@@ -8213,11 +8218,6 @@ export interface components {
             properties?: {
                 [key: string]: unknown;
             } | null;
-            /**
-             * Type
-             * @default Feature
-             */
-            type: string;
         } & {
             [key: string]: unknown;
         };
@@ -8227,15 +8227,15 @@ export interface components {
          */
         GeoJSONFeatureCollection: {
             /**
-             * Features
-             * @default []
-             */
-            features: components["schemas"]["GeoJSONFeature"][];
-            /**
              * Type
              * @default FeatureCollection
              */
             type: string;
+            /**
+             * Features
+             * @default []
+             */
+            features: components["schemas"]["GeoJSONFeature"][];
         } & {
             [key: string]: unknown;
         };
@@ -8244,13 +8244,13 @@ export interface components {
          * @description A GeoJSON geometry object (RFC 7946).
          */
         GeoJSONGeometry: {
-            /** Coordinates */
-            coordinates: unknown[];
             /**
              * Type
              * @enum {string}
              */
             type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+            /** Coordinates */
+            coordinates: unknown[];
         };
         /**
          * GeoJSONGeometryCollection
@@ -8269,13 +8269,13 @@ export interface components {
          *     database 500. The write schemas add a raw-payload guard for a clear 422.
          */
         GeoJSONGeometryCollection: {
-            /** Geometries */
-            geometries: components["schemas"]["GeoJSONGeometry"][];
             /**
              * Type
              * @constant
              */
             type: "GeometryCollection";
+            /** Geometries */
+            geometries: components["schemas"]["GeoJSONGeometry"][];
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -8284,43 +8284,22 @@ export interface components {
         };
         /** HealthResponse */
         HealthResponse: {
+            /** Status */
+            status: string;
+            /** Version */
+            version: string;
             /** Build */
             build?: string | null;
             /** Providers */
             providers: {
                 [key: string]: components["schemas"]["ServiceHealth"];
             };
-            /** Status */
-            status: string;
-            /** Version */
-            version: string;
         };
         /**
          * ImportResult
          * @description Summary of what was applied during an import.
          */
         ImportResult: {
-            /**
-             * Oauth Accounts Deleted
-             * @description Number of dependent OAuth account links cascade-deleted in overwrite mode.
-             * @default 0
-             */
-            oauth_accounts_deleted: number;
-            /**
-             * Oauth Created
-             * @description Number of new OAuth providers created.
-             */
-            oauth_created: number;
-            /**
-             * Oauth Deleted
-             * @description Number of OAuth providers deleted (overwrite mode only).
-             */
-            oauth_deleted: number;
-            /**
-             * Oauth Updated
-             * @description Number of existing OAuth providers updated.
-             */
-            oauth_updated: number;
             /**
              * Settings Applied
              * @description Number of settings successfully updated.
@@ -8336,34 +8315,50 @@ export interface components {
              * @description Names of restricted setting keys that were skipped by the current runtime.
              */
             settings_skipped_restricted?: string[];
+            /**
+             * Oauth Created
+             * @description Number of new OAuth providers created.
+             */
+            oauth_created: number;
+            /**
+             * Oauth Updated
+             * @description Number of existing OAuth providers updated.
+             */
+            oauth_updated: number;
+            /**
+             * Oauth Deleted
+             * @description Number of OAuth providers deleted (overwrite mode only).
+             */
+            oauth_deleted: number;
+            /**
+             * Oauth Accounts Deleted
+             * @description Number of dependent OAuth account links cascade-deleted in overwrite mode.
+             * @default 0
+             */
+            oauth_accounts_deleted: number;
         };
         /** InfrastructureConfig */
         InfrastructureConfig: {
+            /**
+             * Storage Provider
+             * @description Active storage backend ('local' or 's3').
+             */
+            storage_provider: string;
             /**
              * Cache Provider
              * @description Active cache backend ('memory' or 'redis').
              */
             cache_provider: string;
             /**
-             * Cdn Configured
-             * @description Whether a CDN base URL is configured for tile delivery.
-             */
-            cdn_configured: boolean;
-            /**
-             * Database Pooler
-             * @description Active connection pooler mode ('sqlalchemy' or 'external').
-             */
-            database_pooler: string;
-            /**
              * Database Type
              * @description Database flavor (e.g. 'postgres', 'managed-postgres').
              */
             database_type: string;
             /**
-             * Storage Provider
-             * @description Active storage backend ('local' or 's3').
+             * Database Pooler
+             * @description Active connection pooler mode ('sqlalchemy' or 'external').
              */
-            storage_provider: string;
+            database_pooler: string;
             /**
              * Tile Cache
              * @description Tile caching backend in use.
@@ -8374,6 +8369,11 @@ export interface components {
              * @description Tile cache TTL in seconds.
              */
             tile_cache_ttl: number;
+            /**
+             * Cdn Configured
+             * @description Whether a CDN base URL is configured for tile delivery.
+             */
+            cdn_configured: boolean;
         };
         /** InfrastructureResponse */
         InfrastructureResponse: {
@@ -8398,12 +8398,46 @@ export interface components {
         /** JobStatusResponse */
         JobStatusResponse: {
             /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "running" | "complete" | "failed" | "cancelled" | "fanned_out";
+            /** Dataset Id */
+            dataset_id: string | null;
+            /** Source Filename */
+            source_filename: string | null;
+            /** Error Message */
+            error_message: string | null;
+            /** Can Retry */
+            can_retry: boolean;
+            /** Retry Reason */
+            retry_reason: string | null;
+            /** Warning Message */
+            warning_message?: string | null;
+            /** Warnings */
+            warnings?: (components["schemas"]["ReservedRenameWarning"] | components["schemas"]["DbfTruncationCollisionWarning"] | components["schemas"]["MercatorClipWarning"])[];
+            /** Progress */
+            progress?: number | null;
+            /** Current Step */
+            current_step?: ("queued" | "validating" | "ogr2ogr" | "finalize" | "complete" | "cog_convert" | "quicklook" | "analyzing" | "registering") | null;
+            /** Rows Processed */
+            rows_processed?: number | null;
+            /**
              * Archive Failed
              * @default false
              */
             archive_failed: boolean;
-            /** Can Retry */
-            can_retry: boolean;
+            /** Temporal Parse Errors */
+            temporal_parse_errors?: {
+                [key: string]: string;
+            };
+            /** Started At */
+            started_at: string | null;
             /** Completed At */
             completed_at: string | null;
             /**
@@ -8411,69 +8445,35 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
-            /** Current Step */
-            current_step?: ("queued" | "validating" | "ogr2ogr" | "finalize" | "complete" | "cog_convert" | "quicklook" | "analyzing" | "registering") | null;
-            /** Dataset Id */
-            dataset_id: string | null;
-            /** Error Message */
-            error_message: string | null;
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Progress */
-            progress?: number | null;
-            /** Retry Reason */
-            retry_reason: string | null;
-            /** Rows Processed */
-            rows_processed?: number | null;
-            /** Source Filename */
-            source_filename: string | null;
-            /** Started At */
-            started_at: string | null;
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "pending" | "running" | "complete" | "failed" | "cancelled" | "fanned_out";
-            /** Temporal Parse Errors */
-            temporal_parse_errors?: {
-                [key: string]: string;
-            };
-            /** Warning Message */
-            warning_message?: string | null;
-            /** Warnings */
-            warnings?: (components["schemas"]["ReservedRenameWarning"] | components["schemas"]["DbfTruncationCollisionWarning"] | components["schemas"]["MercatorClipWarning"])[];
         };
         /** KeywordCreate */
         KeywordCreate: {
             /** Keyword */
             keyword: string;
             /**
+             * Vocabulary Uri
+             * @description URI of the controlled vocabulary
+             */
+            vocabulary_uri?: string | null;
+            /**
              * Keyword Type
              * @description ISO MD_KeywordTypeCode, e.g. theme, place, discipline
              * @default theme
              */
             keyword_type: string;
-            /**
-             * Vocabulary Uri
-             * @description URI of the controlled vocabulary
-             */
-            vocabulary_uri?: string | null;
         };
         /** KeywordListResponse */
         KeywordListResponse: {
+            /** Keywords */
+            keywords: components["schemas"]["KeywordResponse"][];
+            /** Total */
+            total: number;
             /**
              * Inherited Audience Gap
              * @description True when at least one keyword is inherited AND this record's audience — at its stored state, or at the counterfactual audience_visibility/audience_record_status query parameters, which are honored only for the record's owner and admins — includes someone who cannot open the source dataset (feat #1070).
              * @default false
              */
             inherited_audience_gap: boolean;
-            /** Keywords */
-            keywords: components["schemas"]["KeywordResponse"][];
-            /** Total */
-            total: number;
         };
         /** KeywordResponse */
         KeywordResponse: {
@@ -8483,22 +8483,22 @@ export interface components {
              */
             id: string;
             /**
+             * Record Id
+             * Format: uuid
+             */
+            record_id: string;
+            /** Keyword */
+            keyword: string;
+            /** Vocabulary Uri */
+            vocabulary_uri: string | null;
+            /** Keyword Type */
+            keyword_type: string;
+            /**
              * Inherited
              * @description True when this keyword also exists on the dataset this record was derived from (feat #1070). Derived at read time from derived_from; only ever true for a requester who can access that source dataset, so everyone else sees false — matching the derived_from redaction.
              * @default false
              */
             inherited: boolean;
-            /** Keyword */
-            keyword: string;
-            /** Keyword Type */
-            keyword_type: string;
-            /**
-             * Record Id
-             * Format: uuid
-             */
-            record_id: string;
-            /** Vocabulary Uri */
-            vocabulary_uri: string | null;
         };
         /**
          * KeywordSuggestion
@@ -8530,6 +8530,11 @@ export interface components {
         /** LandingPage */
         LandingPage: {
             /**
+             * Title
+             * @description OGC API landing page title.
+             */
+            title: string;
+            /**
              * Description
              * @description Human-readable API description.
              */
@@ -8539,36 +8544,29 @@ export interface components {
              * @description Top-level navigation links to conformance, collections, and API document.
              */
             links: components["schemas"]["OGCLink"][];
-            /**
-             * Title
-             * @description OGC API landing page title.
-             */
-            title: string;
         };
         /** LayerInfo */
         LayerInfo: {
             /**
-             * Feature Count
-             * @description Total feature count if reported by the service.
+             * Name
+             * @description Internal layer identifier used by the source service.
              */
-            feature_count?: number | null;
+            name: string;
+            /**
+             * Title
+             * @description Human-readable layer title from the service capabilities.
+             */
+            title?: string | null;
             /**
              * Geometry Type
              * @description Detected geometry type for the layer.
              */
             geometry_type?: string | null;
             /**
-             * Kind
-             * @description Backend-classified layer kind. 'vector' = point/line/polygon feature data. 'raster' = imagery/coverage. Per Phase 1057 CLASS-07 D-09. Classification rule: raster IFF geometry_type contains 'raster', adapter is STAC, or layer has coverage_format/bands/mediaType:image/*. Everything else (including geometry_type=None after D-05 ogrinfo drop) defaults to 'vector'.
-             * @default vector
-             * @enum {string}
+             * Feature Count
+             * @description Total feature count if reported by the service.
              */
-            kind: "vector" | "raster";
-            /**
-             * Layer Id
-             * @description Numeric or string layer ID used by ArcGIS services.
-             */
-            layer_id?: number | string | null;
+            feature_count?: number | null;
             /**
              * Layer Type
              * @description Layer kind: 'layer' (spatial) or 'table' (non-spatial attribute table).
@@ -8576,29 +8574,31 @@ export interface components {
              */
             layer_type: string;
             /**
-             * Name
-             * @description Internal layer identifier used by the source service.
+             * Layer Id
+             * @description Numeric or string layer ID used by ArcGIS services.
              */
-            name: string;
+            layer_id?: number | string | null;
             /**
              * Object Id Field
              * @description ArcGIS object ID field name, used for stable pagination.
              */
             object_id_field?: string | null;
             /**
-             * Title
-             * @description Human-readable layer title from the service capabilities.
+             * Kind
+             * @description Backend-classified layer kind. 'vector' = point/line/polygon feature data. 'raster' = imagery/coverage. Per Phase 1057 CLASS-07 D-09. Classification rule: raster IFF geometry_type contains 'raster', adapter is STAC, or layer has coverage_format/bands/mediaType:image/*. Everything else (including geometry_type=None after D-05 ogrinfo drop) defaults to 'vector'.
+             * @default vector
+             * @enum {string}
              */
-            title?: string | null;
+            kind: "vector" | "raster";
         };
         /** LayerPreview */
         LayerPreview: {
+            /** Name */
+            name: string;
             /** Feature Count */
             feature_count?: number | null;
             /** Field Count */
             field_count?: number | null;
-            /** Name */
-            name: string;
         };
         /**
          * LineageDraftResponse
@@ -8613,24 +8613,29 @@ export interface components {
         };
         /** ManifestApplyEntryResult */
         ManifestApplyEntryResult: {
+            /** Dataset Key */
+            dataset_key: string;
             /**
              * Action
              * @enum {string}
              */
             action: "create" | "update" | "skip" | "error";
-            /** Dataset Id */
-            dataset_id?: string | null;
-            /** Dataset Key */
-            dataset_key: string;
-            /** Errors */
-            errors?: string[];
             /** Job Id */
             job_id?: string | null;
+            /** Dataset Id */
+            dataset_id?: string | null;
             /** Message */
             message: string;
+            /** Errors */
+            errors?: string[];
         };
         /** ManifestApplyRequest */
         ManifestApplyRequest: {
+            /**
+             * Manifest Version
+             * @constant
+             */
+            manifest_version: "1";
             catalog: components["schemas"]["ManifestCatalog"];
             /** Datasets */
             datasets: components["schemas"]["ManifestDataset"][];
@@ -8639,11 +8644,6 @@ export interface components {
              * @default false
              */
             dry_run: boolean;
-            /**
-             * Manifest Version
-             * @constant
-             */
-            manifest_version: "1";
         };
         /** ManifestApplyResponse */
         ManifestApplyResponse: {
@@ -8656,53 +8656,53 @@ export interface components {
         };
         /** ManifestCatalog */
         ManifestCatalog: {
-            contact?: components["schemas"]["ManifestContact"] | null;
+            /** Title */
+            title: string;
             /** Description */
             description?: string | null;
             /** Organization */
             organization?: string | null;
-            /** Title */
-            title: string;
+            contact?: components["schemas"]["ManifestContact"] | null;
         };
         /** ManifestContact */
         ManifestContact: {
-            /** Email */
-            email?: string | null;
             /** Name */
             name?: string | null;
+            /** Email */
+            email?: string | null;
             /** Url */
             url?: string | null;
         };
         /** ManifestDataset */
         ManifestDataset: {
-            /** Description */
-            description?: string | null;
             /**
              * Key
              * @description Stable dataset identity key used for idempotent apply operations.
              */
             key: string;
-            metadata?: components["schemas"]["ManifestMetadata"] | null;
-            publication: components["schemas"]["ManifestPublication"];
-            /** Sources */
-            sources: components["schemas"]["ManifestSource"][];
             /** Title */
             title: string;
+            /** Description */
+            description?: string | null;
+            /** Sources */
+            sources: components["schemas"]["ManifestSource"][];
+            metadata?: components["schemas"]["ManifestMetadata"] | null;
+            publication: components["schemas"]["ManifestPublication"];
         };
         /** ManifestMetadata */
         ManifestMetadata: {
-            /** Attribution */
-            attribution?: string | null;
-            /** Bbox */
-            bbox?: number[] | null;
+            /** Tags */
+            tags?: string[] | null;
+            /** Organization */
+            organization?: string | null;
             /** Crs */
             crs?: string | null;
             /** License */
             license?: string | null;
-            /** Organization */
-            organization?: string | null;
-            /** Tags */
-            tags?: string[] | null;
+            /** Attribution */
+            attribution?: string | null;
+            /** Bbox */
+            bbox?: number[] | null;
         };
         /** ManifestPublication */
         ManifestPublication: {
@@ -8714,14 +8714,6 @@ export interface components {
         };
         /** ManifestSource */
         ManifestSource: {
-            /** Description */
-            description?: string | null;
-            /** Format */
-            format?: string | null;
-            /** Layer */
-            layer?: string | null;
-            /** Title */
-            title?: string | null;
             /**
              * Type
              * @description Source modality. Vector sources require zip, gpkg, geojson, json, csv, xlsx, or xls; raster_cog sources require tif or tiff.
@@ -8733,30 +8725,30 @@ export interface components {
              * @description Relative path (no `..` traversal), HTTP(S) URL, or storage URI.
              */
             uri: string;
+            /** Title */
+            title?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Format */
+            format?: string | null;
+            /** Layer */
+            layer?: string | null;
         };
         /** MapAccessResponse */
         MapAccessResponse: {
-            /**
-             * Can Edit
-             * @description True when the current request may open the map builder
-             */
-            can_edit: boolean;
             /**
              * Can View
              * @description True when the current request may read the map
              */
             can_view: boolean;
+            /**
+             * Can Edit
+             * @description True when the current request may open the map builder
+             */
+            can_edit: boolean;
         };
         /** MapCreate */
         MapCreate: {
-            /** @description Curated map-level basemap appearance preferences */
-            basemap_config?: components["schemas"]["BasemapConfig"] | null;
-            /**
-             * Description
-             * @description Short description for sharing
-             * @example Buildings, parks, and transit routes in Manhattan
-             */
-            description?: string | null;
             /**
              * Name
              * @description Map display name
@@ -8764,12 +8756,20 @@ export interface components {
              */
             name: string;
             /**
+             * Description
+             * @description Short description for sharing
+             * @example Buildings, parks, and transit routes in Manhattan
+             */
+            description?: string | null;
+            /**
              * Notes
              * @description Private notes (not shown publicly)
              */
             notes?: string | null;
             /** @description Map-level terrain source and exaggeration preferences */
             terrain_config?: components["schemas"]["TerrainConfig"] | null;
+            /** @description Curated map-level basemap appearance preferences */
+            basemap_config?: components["schemas"]["BasemapConfig"] | null;
         };
         /** MapDefaultsResponse */
         MapDefaultsResponse: {
@@ -8791,39 +8791,24 @@ export interface components {
         };
         /** MapGenerateRequest */
         MapGenerateRequest: {
-            /** Language */
-            language?: string | null;
             /** Prompt */
             prompt: string;
+            /** Language */
+            language?: string | null;
         };
         /** MapGenerateResponse */
         MapGenerateResponse: {
-            /** Datasets Used */
-            datasets_used: string[];
-            /** Explanation */
-            explanation: string;
             /** Map Id */
             map_id: string;
             /** Map Name */
             map_name: string;
+            /** Explanation */
+            explanation: string;
+            /** Datasets Used */
+            datasets_used: string[];
         };
         /** MapHistoryEventResponse */
         MapHistoryEventResponse: {
-            /** Action */
-            action: string;
-            /** Actor Id */
-            actor_id?: string | null;
-            /** Actor Username */
-            actor_username?: string | null;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Details */
-            details?: {
-                [key: string]: unknown;
-            };
             /**
              * Id
              * Format: uuid
@@ -8834,25 +8819,40 @@ export interface components {
              * Format: uuid
              */
             map_id: string;
-            /** Summary */
-            summary: string;
+            /** Actor Id */
+            actor_id?: string | null;
+            /** Actor Username */
+            actor_username?: string | null;
+            /** Target Type */
+            target_type: string;
             /** Target Id */
             target_id?: string | null;
             /** Target Name */
             target_name?: string | null;
-            /** Target Type */
-            target_type: string;
+            /** Action */
+            action: string;
+            /** Summary */
+            summary: string;
+            /** Details */
+            details?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /** MapHistoryListResponse */
         MapHistoryListResponse: {
             /** Events */
             events: components["schemas"]["MapHistoryEventResponse"][];
-            /** Limit */
-            limit: number;
-            /** Skip */
-            skip: number;
             /** Total */
             total: number;
+            /** Skip */
+            skip: number;
+            /** Limit */
+            limit: number;
         };
         /** MapIconListResponse */
         MapIconListResponse: {
@@ -8861,25 +8861,25 @@ export interface components {
         };
         /** MapIconResponse */
         MapIconResponse: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Slug */
+            slug: string;
+            /** Media Type */
+            media_type: string;
+            /** Url */
+            url: string;
+            /** Sprite Id */
+            sprite_id: string;
+            /** Size Bytes */
+            size_bytes?: number | null;
             /**
              * Builtin
              * @default false
              */
             builtin: boolean;
-            /** Id */
-            id: string;
-            /** Media Type */
-            media_type: string;
-            /** Name */
-            name: string;
-            /** Size Bytes */
-            size_bytes?: number | null;
-            /** Slug */
-            slug: string;
-            /** Sprite Id */
-            sprite_id: string;
-            /** Url */
-            url: string;
         };
         /** MapLayerDiffRequest */
         MapLayerDiffRequest: {
@@ -8888,63 +8888,45 @@ export interface components {
              * @description Layers to append (max 200)
              */
             added?: components["schemas"]["MapLayerInput"][];
+            /** Updated */
+            updated?: components["schemas"]["MapLayerPatch"][];
+            /** Removed */
+            removed?: string[];
+            /**
+             * Order
+             * @description Optional stable layer ID order for existing layers
+             */
+            order?: string[] | null;
             /**
              * Fallback Full Replace
              * @description Client hint only; PATCH never performs full replacement
              * @default false
              */
             fallback_full_replace: boolean;
-            /**
-             * Order
-             * @description Optional stable layer ID order for existing layers
-             */
-            order?: string[] | null;
-            /** Removed */
-            removed?: string[];
-            /** Updated */
-            updated?: components["schemas"]["MapLayerPatch"][];
         };
         /** MapLayerInput */
         MapLayerInput: {
-            /**
-             * Dataset Id
-             * Format: uuid
-             */
-            dataset_id: string;
-            /**
-             * Display Name
-             * @description Label shown in the layer list
-             */
-            display_name?: string | null;
-            /**
-             * Filter
-             * @description MapLibre filter expression
-             */
-            filter?: unknown[] | null;
             /**
              * Id
              * @description Existing layer id to update in place (full-save reconcile)
              */
             id?: string | null;
             /**
-             * Label Config
-             * @description Text label configuration
+             * Dataset Id
+             * Format: uuid
              */
-            label_config?: {
-                [key: string]: unknown;
-            } | null;
+            dataset_id: string;
             /**
-             * Layer Type
-             * @description Auto-detected from record_type if omitted
+             * Sort Order
+             * @description Draw order (lower draws first)
+             * @default 0
              */
-            layer_type?: string | null;
+            sort_order: number;
             /**
-             * Layout
-             * @description MapLibre layout properties override
+             * Visible
+             * @default true
              */
-            layout?: {
-                [key: string]: unknown;
-            } | null;
+            visible: boolean;
             /**
              * Opacity
              * @description Layer opacity 0.0-1.0
@@ -8958,20 +8940,32 @@ export interface components {
             paint?: {
                 [key: string]: unknown;
             } | null;
+            /**
+             * Layout
+             * @description MapLibre layout properties override
+             */
+            layout?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Display Name
+             * @description Label shown in the layer list
+             */
+            display_name?: string | null;
+            /**
+             * Filter
+             * @description MapLibre filter expression
+             */
+            filter?: unknown[] | null;
+            /**
+             * Label Config
+             * @description Text label configuration
+             */
+            label_config?: {
+                [key: string]: unknown;
+            } | null;
             /** @description Popup configuration: {enabled, expression, visible_fields} */
             popup_config?: components["schemas"]["PopupConfig"] | null;
-            /**
-             * Show In Legend
-             * @description Whether to include in the map legend
-             * @default true
-             */
-            show_in_legend: boolean;
-            /**
-             * Sort Order
-             * @description Draw order (lower draws first)
-             * @default 0
-             */
-            sort_order: number;
             /**
              * Style Config
              * @description Data-driven and builder UI style configuration. Builder-only state lives under builder, e.g. fill_disabled, stroke_disabled, outline settings, heatmap metadata, and height_column.
@@ -8980,41 +8974,28 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             /**
-             * Visible
+             * Layer Type
+             * @description Auto-detected from record_type if omitted
+             */
+            layer_type?: string | null;
+            /**
+             * Show In Legend
+             * @description Whether to include in the map legend
              * @default true
              */
-            visible: boolean;
+            show_in_legend: boolean;
         };
         /** MapLayerPatch */
         MapLayerPatch: {
-            /** Display Name */
-            display_name?: string | null;
-            /**
-             * Filter
-             * @description MapLibre filter expression
-             */
-            filter?: unknown[] | null;
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            /**
-             * Label Config
-             * @description Text label configuration
-             */
-            label_config?: {
-                [key: string]: unknown;
-            } | null;
-            /** Layer Type */
-            layer_type?: string | null;
-            /**
-             * Layout
-             * @description MapLibre layout properties override
-             */
-            layout?: {
-                [key: string]: unknown;
-            } | null;
+            /** Sort Order */
+            sort_order?: number | null;
+            /** Visible */
+            visible?: boolean | null;
             /** Opacity */
             opacity?: number | null;
             /**
@@ -9024,32 +9005,44 @@ export interface components {
             paint?: {
                 [key: string]: unknown;
             } | null;
+            /**
+             * Layout
+             * @description MapLibre layout properties override
+             */
+            layout?: {
+                [key: string]: unknown;
+            } | null;
+            /** Display Name */
+            display_name?: string | null;
+            /**
+             * Filter
+             * @description MapLibre filter expression
+             */
+            filter?: unknown[] | null;
+            /**
+             * Label Config
+             * @description Text label configuration
+             */
+            label_config?: {
+                [key: string]: unknown;
+            } | null;
             popup_config?: components["schemas"]["PopupConfig"] | null;
-            /** Show In Legend */
-            show_in_legend?: boolean | null;
-            /** Sort Order */
-            sort_order?: number | null;
             /** Style Config */
             style_config?: {
                 [key: string]: unknown;
             } | null;
-            /** Visible */
-            visible?: boolean | null;
+            /** Layer Type */
+            layer_type?: string | null;
+            /** Show In Legend */
+            show_in_legend?: boolean | null;
         };
         /** MapLayerResponse */
         MapLayerResponse: {
-            /** Band Count */
-            band_count?: number | null;
-            /** Dataset Column Info */
-            dataset_column_info?: {
-                [key: string]: unknown;
-            }[] | null;
-            /** Dataset Extent Bbox */
-            dataset_extent_bbox: number[] | null;
-            /** Dataset Feature Count */
-            dataset_feature_count?: number | null;
-            /** Dataset Geometry Type */
-            dataset_geometry_type: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
             /**
              * Dataset Id
              * Format: uuid
@@ -9057,68 +9050,75 @@ export interface components {
             dataset_id: string;
             /** Dataset Name */
             dataset_name: string;
-            /** Dataset Record Type */
-            dataset_record_type?: string | null;
+            /** Dataset Geometry Type */
+            dataset_geometry_type: string | null;
+            /** Dataset Table Name */
+            dataset_table_name: string;
+            /** Dataset Extent Bbox */
+            dataset_extent_bbox: number[] | null;
+            /** Dataset Column Info */
+            dataset_column_info?: {
+                [key: string]: unknown;
+            }[] | null;
+            /** Dataset Feature Count */
+            dataset_feature_count?: number | null;
             /** Dataset Sample Values */
             dataset_sample_values?: {
                 [key: string]: unknown;
             } | null;
-            /** Dataset Status */
-            dataset_status?: string | null;
-            /** Dataset Table Name */
-            dataset_table_name: string;
-            /** Dataset Visibility */
-            dataset_visibility?: string | null;
-            /** Dem Vertical Units */
-            dem_vertical_units?: string | null;
             /** Display Name */
             display_name?: string | null;
-            /** Filter */
-            filter?: unknown[] | null;
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Is 3D */
-            is_3d?: boolean | null;
-            /** Is Dem */
-            is_dem?: boolean | null;
-            /** Label Config */
-            label_config?: {
-                [key: string]: unknown;
-            } | null;
-            /**
-             * Layer Type
-             * @default vector_geolens
-             */
-            layer_type: string;
-            /** Layout */
-            layout: {
-                [key: string]: unknown;
-            };
+            /** Sort Order */
+            sort_order: number;
+            /** Visible */
+            visible: boolean;
             /** Opacity */
             opacity: number;
             /** Paint */
             paint: {
                 [key: string]: unknown;
             };
+            /** Layout */
+            layout: {
+                [key: string]: unknown;
+            };
+            /**
+             * Layer Type
+             * @default vector_geolens
+             */
+            layer_type: string;
+            /** Dataset Record Type */
+            dataset_record_type?: string | null;
+            /** Filter */
+            filter?: unknown[] | null;
+            /** Label Config */
+            label_config?: {
+                [key: string]: unknown;
+            } | null;
             popup_config?: components["schemas"]["PopupConfig"] | null;
+            /** Style Config */
+            style_config?: {
+                [key: string]: unknown;
+            } | null;
             /**
              * Show In Legend
              * @default true
              */
             show_in_legend: boolean;
-            /** Sort Order */
-            sort_order: number;
-            /** Style Config */
-            style_config?: {
-                [key: string]: unknown;
-            } | null;
+            /** Is 3D */
+            is_3d?: boolean | null;
+            /** Is Dem */
+            is_dem?: boolean | null;
+            /** Dem Vertical Units */
+            dem_vertical_units?: string | null;
+            /** Band Count */
+            band_count?: number | null;
             /** Tile Version */
             tile_version?: number | null;
-            /** Visible */
-            visible: boolean;
+            /** Dataset Visibility */
+            dataset_visibility?: string | null;
+            /** Dataset Status */
+            dataset_status?: string | null;
         };
         /** MapListResponse */
         MapListResponse: {
@@ -9129,26 +9129,38 @@ export interface components {
         };
         /** MapResponse */
         MapResponse: {
-            basemap_config?: components["schemas"]["BasemapConfig"] | null;
-            /** Basemap Style */
-            basemap_style: string;
-            /** Bearing */
-            bearing: number;
-            /** Center Lat */
-            center_lat: number | null;
-            /** Center Lng */
-            center_lng: number | null;
             /**
-             * Created At
-             * Format: date-time
+             * Id
+             * Format: uuid
              */
-            created_at: string;
-            /** Created By */
-            created_by: string | null;
-            /** Created By Username */
-            created_by_username?: string | null;
+            id: string;
+            /** Name */
+            name: string;
             /** Description */
             description: string | null;
+            /** Notes */
+            notes?: string | null;
+            /** Center Lng */
+            center_lng: number | null;
+            /** Center Lat */
+            center_lat: number | null;
+            /** Zoom */
+            zoom: number | null;
+            /** Bearing */
+            bearing: number;
+            /** Pitch */
+            pitch: number;
+            /** Basemap Style */
+            basemap_style: string;
+            /** Show Basemap Labels */
+            show_basemap_labels: boolean;
+            basemap_config?: components["schemas"]["BasemapConfig"] | null;
+            terrain_config?: components["schemas"]["TerrainConfig"] | null;
+            visibility: components["schemas"]["MapVisibility"];
+            /** Thumbnail Url */
+            thumbnail_url?: string | null;
+            /** Og Image Url */
+            og_image_url?: string | null;
             /**
              * Forked From Id
              * @description Source map UUID if this is a fork
@@ -9156,40 +9168,28 @@ export interface components {
             forked_from_id?: string | null;
             /** Forked From Name */
             forked_from_name?: string | null;
+            /** Created By */
+            created_by: string | null;
+            /** Created By Username */
+            created_by_username?: string | null;
             /**
-             * Id
-             * Format: uuid
+             * Created At
+             * Format: date-time
              */
-            id: string;
-            /** Layer Count */
-            layer_count: number;
-            /** Layers */
-            layers: components["schemas"]["MapLayerResponse"][];
-            /** Legend Title */
-            legend_title?: string | null;
-            /** Name */
-            name: string;
-            /** Notes */
-            notes?: string | null;
-            /** Og Image Url */
-            og_image_url?: string | null;
-            /** Pitch */
-            pitch: number;
-            /** Plugins */
-            plugins?: string[] | null;
-            /** Show Basemap Labels */
-            show_basemap_labels: boolean;
-            terrain_config?: components["schemas"]["TerrainConfig"] | null;
-            /** Thumbnail Url */
-            thumbnail_url?: string | null;
+            created_at: string;
             /**
              * Updated At
              * Format: date-time
              */
             updated_at: string;
-            visibility: components["schemas"]["MapVisibility"];
-            /** Zoom */
-            zoom: number | null;
+            /** Layers */
+            layers: components["schemas"]["MapLayerResponse"][];
+            /** Layer Count */
+            layer_count: number;
+            /** Plugins */
+            plugins?: string[] | null;
+            /** Legend Title */
+            legend_title?: string | null;
         };
         /**
          * MapStyleImportRequest
@@ -9206,22 +9206,16 @@ export interface components {
          *     openapi-python-client generate a navigable named model class.
          */
         MapStyleImportRequest: {
-            /** Bearing */
-            bearing?: number | null;
             /**
-             * Center
-             * @description [longitude, latitude] map center
+             * Version
+             * @description MapLibre style version (always 8 in current spec)
              */
-            center?: number[] | null;
-            /** Glyphs */
-            glyphs?: string | null;
+            version?: number | null;
             /**
-             * Layers
-             * @description MapLibre layer specifications
+             * Name
+             * @description Display name for the imported map
              */
-            layers?: {
-                [key: string]: unknown;
-            }[] | null;
+            name?: string | null;
             /**
              * Metadata
              * @description Free-form metadata bag (used by GeoLens for center/zoom/basemap hints)
@@ -9230,10 +9224,14 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             /**
-             * Name
-             * @description Display name for the imported map
+             * Center
+             * @description [longitude, latitude] map center
              */
-            name?: string | null;
+            center?: number[] | null;
+            /** Zoom */
+            zoom?: number | null;
+            /** Bearing */
+            bearing?: number | null;
             /** Pitch */
             pitch?: number | null;
             /**
@@ -9245,6 +9243,8 @@ export interface components {
             } | null;
             /** Sprite */
             sprite?: string | null;
+            /** Glyphs */
+            glyphs?: string | null;
             /**
              * Terrain
              * @description MapLibre terrain config (source + exaggeration)
@@ -9253,12 +9253,12 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             /**
-             * Version
-             * @description MapLibre style version (always 8 in current spec)
+             * Layers
+             * @description MapLibre layer specifications
              */
-            version?: number | null;
-            /** Zoom */
-            zoom?: number | null;
+            layers?: {
+                [key: string]: unknown;
+            }[] | null;
         } & {
             [key: string]: unknown;
         };
@@ -9270,16 +9270,6 @@ export interface components {
         /** MapStyleImportSummary */
         MapStyleImportSummary: {
             /**
-             * Layers Imported
-             * @default 0
-             */
-            layers_imported: number;
-            /**
-             * Layers Skipped
-             * @default 0
-             */
-            layers_skipped: number;
-            /**
              * Sources Matched
              * @default 0
              */
@@ -9289,6 +9279,16 @@ export interface components {
              * @default 0
              */
             sources_unsupported: number;
+            /**
+             * Layers Imported
+             * @default 0
+             */
+            layers_imported: number;
+            /**
+             * Layers Skipped
+             * @default 0
+             */
+            layers_skipped: number;
             /** Warnings */
             warnings?: components["schemas"]["MapStyleImportWarning"][];
         };
@@ -9296,105 +9296,105 @@ export interface components {
         MapStyleImportWarning: {
             /** Code */
             code: string;
-            /** Layer Id */
-            layer_id?: string | null;
             /** Message */
             message: string;
             /** Source Id */
             source_id?: string | null;
+            /** Layer Id */
+            layer_id?: string | null;
         };
         /** MapSummaryResponse */
         MapSummaryResponse: {
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Created By Username */
-            created_by_username?: string | null;
-            /** Description */
-            description: string | null;
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            /** Layer Count */
-            layer_count: number;
             /** Name */
             name: string;
-            /** Thumbnail Updated At */
-            thumbnail_updated_at?: string | null;
+            /** Description */
+            description: string | null;
+            visibility: components["schemas"]["MapVisibility"];
             /** Thumbnail Url */
             thumbnail_url?: string | null;
+            /** Thumbnail Updated At */
+            thumbnail_updated_at?: string | null;
+            /** Layer Count */
+            layer_count: number;
+            /** Created By Username */
+            created_by_username?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
             /**
              * Updated At
              * Format: date-time
              */
             updated_at: string;
-            visibility: components["schemas"]["MapVisibility"];
         };
         /** MapUpdate */
         MapUpdate: {
-            /** @description Curated map-level basemap appearance preferences */
-            basemap_config?: components["schemas"]["BasemapConfig"] | null;
+            /** Name */
+            name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Notes */
+            notes?: string | null;
             /**
-             * Basemap Style
-             * @description Basemap style ID or URL
+             * Center Lng
+             * @description Map center longitude
              */
-            basemap_style?: string | null;
-            /**
-             * Bearing
-             * @description Map rotation in degrees
-             */
-            bearing?: number | null;
+            center_lng?: number | null;
             /**
              * Center Lat
              * @description Map center latitude
              */
             center_lat?: number | null;
             /**
-             * Center Lng
-             * @description Map center longitude
+             * Zoom
+             * @description Map zoom level
              */
-            center_lng?: number | null;
-            /** Description */
-            description?: string | null;
+            zoom?: number | null;
             /**
-             * Layers
-             * @description Full replacement layer list (max 200 layers)
+             * Bearing
+             * @description Map rotation in degrees
              */
-            layers?: components["schemas"]["MapLayerInput"][] | null;
-            /**
-             * Legend Title
-             * @description Custom map-level legend title. Null/empty leaves the legend without a heading override (ENH-06).
-             */
-            legend_title?: string | null;
-            /** Name */
-            name?: string | null;
-            /** Notes */
-            notes?: string | null;
+            bearing?: number | null;
             /**
              * Pitch
              * @description Map tilt in degrees (0-85)
              */
             pitch?: number | null;
             /**
-             * Plugins
-             * @description Enabled plugin IDs, e.g. ['measurement']
+             * Basemap Style
+             * @description Basemap style ID or URL
              */
-            plugins?: string[] | null;
+            basemap_style?: string | null;
             /** Show Basemap Labels */
             show_basemap_labels?: boolean | null;
+            /** @description Curated map-level basemap appearance preferences */
+            basemap_config?: components["schemas"]["BasemapConfig"] | null;
             /** @description Map-level terrain source and exaggeration preferences */
             terrain_config?: components["schemas"]["TerrainConfig"] | null;
             /** @description private, internal, or public */
             visibility?: components["schemas"]["MapVisibility"] | null;
             /**
-             * Zoom
-             * @description Map zoom level
+             * Layers
+             * @description Full replacement layer list (max 200 layers)
              */
-            zoom?: number | null;
+            layers?: components["schemas"]["MapLayerInput"][] | null;
+            /**
+             * Plugins
+             * @description Enabled plugin IDs, e.g. ['measurement']
+             */
+            plugins?: string[] | null;
+            /**
+             * Legend Title
+             * @description Custom map-level legend title. Null/empty leaves the legend without a heading override (ENH-06).
+             */
+            legend_title?: string | null;
         };
         /**
          * MapVisibility
@@ -9415,24 +9415,24 @@ export interface components {
          *     reduced form.
          */
         MercatorClipDetail: {
+            /** Dropped Features */
+            dropped_features: number;
+            /** Clipped Features */
+            clipped_features: number;
             /**
              * Clip Skipped
              * @default false
              */
             clip_skipped: boolean;
-            /** Clipped Features */
-            clipped_features: number;
-            /** Dropped Features */
-            dropped_features: number;
         };
         /** MercatorClipWarning */
         MercatorClipWarning: {
-            details: components["schemas"]["MercatorClipDetail"];
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             kind: "mercator_clip";
+            details: components["schemas"]["MercatorClipDetail"];
         };
         /**
          * MetadataAssistRequest
@@ -9484,15 +9484,15 @@ export interface components {
              */
             channel: string;
             /**
-             * Error
-             * @description Safe error string (exception type name + short message) if ok=False, else null. Never contains secrets.
-             */
-            error?: string | null;
-            /**
              * Ok
              * @description True if the channel delivered the test notification without error.
              */
             ok: boolean;
+            /**
+             * Error
+             * @description Safe error string (exception type name + short message) if ok=False, else null. Never contains secrets.
+             */
+            error?: string | null;
         };
         /**
          * NotificationTestResponse
@@ -9504,6 +9504,11 @@ export interface components {
          */
         NotificationTestResponse: {
             /**
+             * Sent
+             * @description True if at least one channel successfully delivered the test notification.
+             */
+            sent: boolean;
+            /**
              * Channels
              * @description Per-channel delivery results. Empty when no channel is configured.
              */
@@ -9513,11 +9518,6 @@ export interface components {
              * @description Human-readable summary of the test result.
              */
             message: string;
-            /**
-             * Sent
-             * @description True if at least one channel successfully delivered the test notification.
-             */
-            sent: boolean;
         };
         /**
          * OAuthProviderCreate
@@ -9525,10 +9525,21 @@ export interface components {
          */
         OAuthProviderCreate: {
             /**
-             * Authorize Url
-             * @description Authorization endpoint. Only needed when discovery_url is not set.
+             * Slug
+             * @description URL-safe identifier used in callback URLs (e.g. 'google', 'azure-ad'). Lowercase, digits, and hyphens only.
              */
-            authorize_url?: string | null;
+            slug: string;
+            /**
+             * Display Name
+             * @description Human-readable label shown on the login page button.
+             */
+            display_name: string;
+            /**
+             * Provider Type
+             * @description OAuth or SAML provider type. 'google' and 'microsoft' auto-populate the discovery URL; 'oidc' is generic OAuth/OIDC; 'github' uses GitHub's fixed OAuth2 endpoints (no discovery URL); 'saml' is available only on SAML-enabled deployments.
+             * @enum {string}
+             */
+            provider_type: "google" | "microsoft" | "oidc" | "saml" | "github";
             /**
              * Client Id
              * @description OAuth client ID issued by the IdP. Required for OAuth/OIDC providers; omit for SAML.
@@ -9540,27 +9551,57 @@ export interface components {
              */
             client_secret?: string | null;
             /**
-             * Default Role
-             * @description Role assigned to new users created via this provider: 'viewer', 'editor', or 'admin'.
-             * @default viewer
-             */
-            default_role: string;
-            /**
              * Discovery Url
              * @description OIDC discovery URL ending in `.well-known/openid-configuration`. Auto-populated for Google and Microsoft.
              */
             discovery_url?: string | null;
             /**
-             * Display Name
-             * @description Human-readable label shown on the login page button.
+             * Authorize Url
+             * @description Authorization endpoint. Only needed when discovery_url is not set.
              */
-            display_name: string;
+            authorize_url?: string | null;
             /**
-             * Enabled
-             * @description Whether the provider button appears on the login page.
-             * @default true
+             * Token Url
+             * @description Token endpoint. Only needed when discovery_url is not set.
              */
-            enabled: boolean;
+            token_url?: string | null;
+            /**
+             * Userinfo Url
+             * @description Userinfo endpoint. Only needed when discovery_url is not set.
+             */
+            userinfo_url?: string | null;
+            /**
+             * Idp Entity Id
+             * @description SAML IdP entityID. Required for SAML providers.
+             */
+            idp_entity_id?: string | null;
+            /**
+             * Idp Sso Url
+             * @description SAML IdP SSO URL (HTTP-Redirect or HTTP-POST binding). Required for SAML providers.
+             */
+            idp_sso_url?: string | null;
+            /**
+             * Idp Certificate
+             * @description SAML IdP signing certificate (PEM). Required for SAML providers. Stored Fernet-encrypted at rest; never returned in responses.
+             */
+            idp_certificate?: string | null;
+            /**
+             * Sp Entity Id
+             * @description SP entityID for this provider. Required for SAML providers. Default suggestion: {public_api_url}/auth/saml/{slug}.
+             */
+            sp_entity_id?: string | null;
+            /**
+             * Scopes
+             * @description Space-separated OAuth scopes.
+             * @default openid profile email
+             */
+            scopes: string;
+            /**
+             * Default Role
+             * @description Role assigned to new users created via this provider: 'viewer', 'editor', or 'admin'.
+             * @default viewer
+             */
+            default_role: string;
             /**
              * Group Claim
              * @description Name of the JWT/userinfo claim (or SAML attribute) that contains group memberships. Set to enable group-based role mapping.
@@ -9574,58 +9615,22 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             /**
-             * Idp Certificate
-             * @description SAML IdP signing certificate (PEM). Required for SAML providers. Stored Fernet-encrypted at rest; never returned in responses.
+             * Enabled
+             * @description Whether the provider button appears on the login page.
+             * @default true
              */
-            idp_certificate?: string | null;
-            /**
-             * Idp Entity Id
-             * @description SAML IdP entityID. Required for SAML providers.
-             */
-            idp_entity_id?: string | null;
-            /**
-             * Idp Sso Url
-             * @description SAML IdP SSO URL (HTTP-Redirect or HTTP-POST binding). Required for SAML providers.
-             */
-            idp_sso_url?: string | null;
-            /**
-             * Provider Type
-             * @description OAuth or SAML provider type. 'google' and 'microsoft' auto-populate the discovery URL; 'oidc' is generic OAuth/OIDC; 'github' uses GitHub's fixed OAuth2 endpoints (no discovery URL); 'saml' is available only on SAML-enabled deployments.
-             * @enum {string}
-             */
-            provider_type: "google" | "microsoft" | "oidc" | "saml" | "github";
-            /**
-             * Scopes
-             * @description Space-separated OAuth scopes.
-             * @default openid profile email
-             */
-            scopes: string;
-            /**
-             * Slug
-             * @description URL-safe identifier used in callback URLs (e.g. 'google', 'azure-ad'). Lowercase, digits, and hyphens only.
-             */
-            slug: string;
-            /**
-             * Sp Entity Id
-             * @description SP entityID for this provider. Required for SAML providers. Default suggestion: {public_api_url}/auth/saml/{slug}.
-             */
-            sp_entity_id?: string | null;
-            /**
-             * Token Url
-             * @description Token endpoint. Only needed when discovery_url is not set.
-             */
-            token_url?: string | null;
-            /**
-             * Userinfo Url
-             * @description Userinfo endpoint. Only needed when discovery_url is not set.
-             */
-            userinfo_url?: string | null;
+            enabled: boolean;
         };
         /**
          * OAuthProviderPublic
          * @description Minimal provider info for the login page (no secrets, no config).
          */
         OAuthProviderPublic: {
+            /**
+             * Slug
+             * @description URL-safe identifier used in the callback URL.
+             */
+            slug: string;
             /**
              * Display Name
              * @description Label shown on the login page button.
@@ -9636,11 +9641,6 @@ export interface components {
              * @description Provider type, used by the frontend to pick the right icon.
              */
             provider_type: string;
-            /**
-             * Slug
-             * @description URL-safe identifier used in the callback URL.
-             */
-            slug: string;
         };
         /**
          * OAuthProviderResponse
@@ -9664,41 +9664,76 @@ export interface components {
          */
         OAuthProviderResponse: {
             /**
-             * Authorize Url
-             * @description Authorization endpoint.
+             * Id
+             * Format: uuid
+             * @description Unique provider identifier.
              */
-            authorize_url?: string | null;
+            id: string;
             /**
-             * Client Id
-             * @description OAuth client ID. Visible to admins; never exposes client_secret. Null for SAML providers.
+             * Slug
+             * @description URL-safe identifier used in the callback URL.
              */
-            client_id?: string | null;
-            /**
-             * Created At
-             * Format: date-time
-             * @description Timestamp the provider was created.
-             */
-            created_at: string;
-            /**
-             * Default Role
-             * @description Default role assigned to new users.
-             */
-            default_role: string;
-            /**
-             * Discovery Url
-             * @description OIDC discovery URL.
-             */
-            discovery_url?: string | null;
+            slug: string;
             /**
              * Display Name
              * @description Label shown on the login page button.
              */
             display_name: string;
             /**
-             * Enabled
-             * @description Whether the provider button appears on the login page.
+             * Provider Type
+             * @description Provider type: 'google', 'microsoft', 'oidc', or 'saml'.
              */
-            enabled: boolean;
+            provider_type: string;
+            /**
+             * Client Id
+             * @description OAuth client ID. Visible to admins; never exposes client_secret. Null for SAML providers.
+             */
+            client_id?: string | null;
+            /**
+             * Discovery Url
+             * @description OIDC discovery URL.
+             */
+            discovery_url?: string | null;
+            /**
+             * Authorize Url
+             * @description Authorization endpoint.
+             */
+            authorize_url?: string | null;
+            /**
+             * Token Url
+             * @description Token endpoint.
+             */
+            token_url?: string | null;
+            /**
+             * Userinfo Url
+             * @description Userinfo endpoint.
+             */
+            userinfo_url?: string | null;
+            /**
+             * Idp Entity Id
+             * @description SAML IdP entityID (SAML providers only).
+             */
+            idp_entity_id?: string | null;
+            /**
+             * Idp Sso Url
+             * @description SAML IdP SSO URL (SAML providers only).
+             */
+            idp_sso_url?: string | null;
+            /**
+             * Sp Entity Id
+             * @description SP entityID for this SAML provider (SAML providers only).
+             */
+            sp_entity_id?: string | null;
+            /**
+             * Scopes
+             * @description Space-separated OAuth scopes.
+             */
+            scopes: string;
+            /**
+             * Default Role
+             * @description Default role assigned to new users.
+             */
+            default_role: string;
             /**
              * Group Claim
              * @description Claim name used for group-based role mapping.
@@ -9712,57 +9747,22 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             /**
-             * Id
-             * Format: uuid
-             * @description Unique provider identifier.
+             * Enabled
+             * @description Whether the provider button appears on the login page.
              */
-            id: string;
+            enabled: boolean;
             /**
-             * Idp Entity Id
-             * @description SAML IdP entityID (SAML providers only).
+             * Created At
+             * Format: date-time
+             * @description Timestamp the provider was created.
              */
-            idp_entity_id?: string | null;
-            /**
-             * Idp Sso Url
-             * @description SAML IdP SSO URL (SAML providers only).
-             */
-            idp_sso_url?: string | null;
-            /**
-             * Provider Type
-             * @description Provider type: 'google', 'microsoft', 'oidc', or 'saml'.
-             */
-            provider_type: string;
-            /**
-             * Scopes
-             * @description Space-separated OAuth scopes.
-             */
-            scopes: string;
-            /**
-             * Slug
-             * @description URL-safe identifier used in the callback URL.
-             */
-            slug: string;
-            /**
-             * Sp Entity Id
-             * @description SP entityID for this SAML provider (SAML providers only).
-             */
-            sp_entity_id?: string | null;
-            /**
-             * Token Url
-             * @description Token endpoint.
-             */
-            token_url?: string | null;
+            created_at: string;
             /**
              * Updated At
              * Format: date-time
              * @description Timestamp the provider was last updated.
              */
             updated_at: string;
-            /**
-             * Userinfo Url
-             * @description Userinfo endpoint.
-             */
-            userinfo_url?: string | null;
         };
         /**
          * OAuthProviderUpdate
@@ -9770,10 +9770,20 @@ export interface components {
          */
         OAuthProviderUpdate: {
             /**
-             * Authorize Url
-             * @description Updated authorization endpoint.
+             * Slug
+             * @description New slug. Changes the callback URL — coordinate with the IdP before updating.
              */
-            authorize_url?: string | null;
+            slug?: string | null;
+            /**
+             * Display Name
+             * @description New display label.
+             */
+            display_name?: string | null;
+            /**
+             * Provider Type
+             * @description New provider type. Rarely changed after creation.
+             */
+            provider_type?: ("google" | "microsoft" | "oidc" | "saml" | "github") | null;
             /**
              * Client Id
              * @description New client ID. Set when rotating credentials.
@@ -9785,25 +9795,55 @@ export interface components {
              */
             client_secret?: string | null;
             /**
-             * Default Role
-             * @description Updated default role for new users.
-             */
-            default_role?: string | null;
-            /**
              * Discovery Url
              * @description Updated OIDC discovery URL.
              */
             discovery_url?: string | null;
             /**
-             * Display Name
-             * @description New display label.
+             * Authorize Url
+             * @description Updated authorization endpoint.
              */
-            display_name?: string | null;
+            authorize_url?: string | null;
             /**
-             * Enabled
-             * @description Set to false to hide the provider button without deleting the configuration.
+             * Token Url
+             * @description Updated token endpoint.
              */
-            enabled?: boolean | null;
+            token_url?: string | null;
+            /**
+             * Userinfo Url
+             * @description Updated userinfo endpoint.
+             */
+            userinfo_url?: string | null;
+            /**
+             * Idp Entity Id
+             * @description Updated SAML IdP entityID.
+             */
+            idp_entity_id?: string | null;
+            /**
+             * Idp Sso Url
+             * @description Updated SAML IdP SSO URL.
+             */
+            idp_sso_url?: string | null;
+            /**
+             * Idp Certificate
+             * @description Updated SAML IdP signing certificate (PEM). Setting this rotates the stored cert; omit to leave unchanged.
+             */
+            idp_certificate?: string | null;
+            /**
+             * Sp Entity Id
+             * @description Updated SP entityID.
+             */
+            sp_entity_id?: string | null;
+            /**
+             * Scopes
+             * @description Updated space-separated scopes.
+             */
+            scopes?: string | null;
+            /**
+             * Default Role
+             * @description Updated default role for new users.
+             */
+            default_role?: string | null;
             /**
              * Group Claim
              * @description Updated group claim name.
@@ -9817,50 +9857,10 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             /**
-             * Idp Certificate
-             * @description Updated SAML IdP signing certificate (PEM). Setting this rotates the stored cert; omit to leave unchanged.
+             * Enabled
+             * @description Set to false to hide the provider button without deleting the configuration.
              */
-            idp_certificate?: string | null;
-            /**
-             * Idp Entity Id
-             * @description Updated SAML IdP entityID.
-             */
-            idp_entity_id?: string | null;
-            /**
-             * Idp Sso Url
-             * @description Updated SAML IdP SSO URL.
-             */
-            idp_sso_url?: string | null;
-            /**
-             * Provider Type
-             * @description New provider type. Rarely changed after creation.
-             */
-            provider_type?: ("google" | "microsoft" | "oidc" | "saml" | "github") | null;
-            /**
-             * Scopes
-             * @description Updated space-separated scopes.
-             */
-            scopes?: string | null;
-            /**
-             * Slug
-             * @description New slug. Changes the callback URL — coordinate with the IdP before updating.
-             */
-            slug?: string | null;
-            /**
-             * Sp Entity Id
-             * @description Updated SP entityID.
-             */
-            sp_entity_id?: string | null;
-            /**
-             * Token Url
-             * @description Updated token endpoint.
-             */
-            token_url?: string | null;
-            /**
-             * Userinfo Url
-             * @description Updated userinfo endpoint.
-             */
-            userinfo_url?: string | null;
+            enabled?: boolean | null;
         };
         /**
          * OGCAsset
@@ -9869,12 +9869,12 @@ export interface components {
         OGCAsset: {
             /** Href */
             href: string;
-            /** Roles */
-            roles?: string[] | null;
-            /** Title */
-            title?: string | null;
             /** Type */
             type: string;
+            /** Title */
+            title?: string | null;
+            /** Roles */
+            roles?: string[] | null;
         };
         /**
          * OGCCollectionMetadata
@@ -9882,13 +9882,15 @@ export interface components {
          */
         OGCCollectionMetadata: {
             /**
-             * Crs
-             * @description Coordinate reference systems supported for items in this collection.
-             * @default [
-             *       "http://www.opengis.net/def/crs/OGC/1.3/CRS84"
-             *     ]
+             * Id
+             * @description Stable collection identifier (typically the dataset ID).
              */
-            crs: string[];
+            id: string;
+            /**
+             * Title
+             * @description Human-readable collection title.
+             */
+            title: string;
             /**
              * Description
              * @description Collection description.
@@ -9902,40 +9904,36 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             /**
-             * Id
-             * @description Stable collection identifier (typically the dataset ID).
-             */
-            id: string;
-            /**
              * Itemtype
              * @description Type of items in the collection: 'feature' for vector feature collections, 'coverage' for raster/VRT collections (which expose tiles instead of feature items).
              * @default feature
              */
             itemType: string;
             /**
+             * Crs
+             * @description Coordinate reference systems supported for items in this collection.
+             * @default [
+             *       "http://www.opengis.net/def/crs/OGC/1.3/CRS84"
+             *     ]
+             */
+            crs: string[];
+            /**
              * Links
              * @description Collection navigation links (self, items, queryables, etc.).
              */
             links: components["schemas"]["OGCLink"][];
-            /**
-             * Title
-             * @description Human-readable collection title.
-             */
-            title: string;
         };
         /**
          * OGCCollectionMetadataResponse
          * @description Response for /collections/datasets single collection metadata.
          */
         OGCCollectionMetadataResponse: {
-            /** Description */
-            description: string;
-            /** Extent */
-            extent?: {
-                [key: string]: unknown;
-            } | null;
             /** Id */
             id: string;
+            /** Title */
+            title: string;
+            /** Description */
+            description: string;
             /**
              * Itemtype
              * @default record
@@ -9945,12 +9943,14 @@ export interface components {
             links: {
                 [key: string]: unknown;
             }[];
+            /** Extent */
+            extent?: {
+                [key: string]: unknown;
+            } | null;
             /** Summaries */
             summaries?: {
                 [key: string]: unknown;
             } | null;
-            /** Title */
-            title: string;
         };
         /**
          * OGCCollectionsResponse
@@ -9972,13 +9972,13 @@ export interface components {
          * @description OGC API Records FeatureCollection with match counts.
          */
         OGCFeatureCollectionResponse: {
-            /** Features */
-            features: components["schemas"]["OGCRecordResponse"][];
             /**
-             * Links
-             * @description Pagination and self links
+             * Type
+             * @default FeatureCollection
              */
-            links?: components["schemas"]["OGCRecordLink"][] | null;
+            type: string;
+            /** Timestamp */
+            timeStamp?: string | null;
             /**
              * Numbermatched
              * @description Total records matching the query
@@ -9989,13 +9989,13 @@ export interface components {
              * @description Number of records in this response page
              */
             numberReturned: number;
-            /** Timestamp */
-            timeStamp?: string | null;
+            /** Features */
+            features: components["schemas"]["OGCRecordResponse"][];
             /**
-             * Type
-             * @default FeatureCollection
+             * Links
+             * @description Pagination and self links
              */
-            type: string;
+            links?: components["schemas"]["OGCRecordLink"][] | null;
         };
         /** OGCLink */
         OGCLink: {
@@ -10010,25 +10010,25 @@ export interface components {
              */
             rel: string;
             /**
-             * Title
-             * @description Optional human-readable label for the link.
-             */
-            title?: string | null;
-            /**
              * Type
              * @description Media type of the linked resource (e.g. 'application/json', 'application/geo+json').
              */
             type: string;
+            /**
+             * Title
+             * @description Optional human-readable label for the link.
+             */
+            title?: string | null;
         };
         /**
          * OGCRecordLink
          * @description Link object in OGC API Records.
          */
         OGCRecordLink: {
-            /** Href */
-            href: string;
             /** Rel */
             rel: string;
+            /** Href */
+            href: string;
             /** Type */
             type: string;
         };
@@ -10037,153 +10037,153 @@ export interface components {
          * @description Properties block of an OGC API Records Feature.
          */
         OGCRecordProperties: {
-            /** Band Count */
-            band_count?: number | null;
             /**
-             * Column Count
-             * @description Number of columns in the dataset (populated from column_info length).
+             * Type
+             * @default dataset
              */
-            column_count?: number | null;
-            /** Constraints */
-            constraints?: {
-                [key: string]: unknown;
-            } | null;
-            /** Contacts */
-            contacts: {
-                [key: string]: unknown;
-            }[];
-            /** Created */
-            created?: string | null;
-            /** Crs */
-            crs?: string | null;
-            /**
-             * Crs Is Geographic
-             * @description True when the raster CRS is geographic (gsd/res are degrees, not meters); None when the CRS class is unknown.
-             */
-            crs_is_geographic?: boolean | null;
-            /** Dataset Count */
-            dataset_count?: number | null;
+            type: string;
+            /** Title */
+            title: string;
             /** Description */
             description: string;
-            /** Distributions */
-            distributions?: {
-                [key: string]: unknown;
-            }[] | null;
-            /**
-             * Externalids
-             * @description Identifiers assigned by the described resource's source system.
-             */
-            externalIds?: string[];
-            /** Feature Count */
-            feature_count?: number | null;
-            /** Formats */
-            formats?: string[] | null;
-            /** Geometry Type */
-            geometry_type?: string | null;
-            /** Gsd */
-            gsd?: number | null;
-            /**
-             * Has Quicklook
-             * @default false
-             */
-            has_quicklook: boolean;
             /** Keywords */
             keywords: string[];
-            /** Language */
-            language?: string | null;
-            /** License */
-            license: string;
-            /** Lineage */
-            lineage?: string | null;
+            /** Created */
+            created?: string | null;
+            /** Updated */
+            updated?: string | null;
+            /** Updated By Display */
+            updated_by_display?: string | null;
             /**
              * Never Edited
              * @default false
              */
             never_edited: boolean;
+            /** Crs */
+            crs?: string | null;
+            /**
+             * Record Type
+             * @default vector_dataset
+             */
+            record_type: string;
+            /** Band Count */
+            band_count?: number | null;
+            /** Geometry Type */
+            geometry_type?: string | null;
+            /** Feature Count */
+            feature_count?: number | null;
+            /**
+             * Row Count
+             * @description Row count for tabular records (alias for feature_count when record_type='table').
+             */
+            row_count?: number | null;
+            /**
+             * Column Count
+             * @description Number of columns in the dataset (populated from column_info length).
+             */
+            column_count?: number | null;
+            /** License */
+            license: string;
+            /** Source Organization */
+            source_organization?: string | null;
+            /**
+             * Source Format
+             * @description Ingest source format ('geojson', 'shapefile', 'geotiff', 'wfs', 'stac', 'created', ...). Null for datasets registered from existing PostGIS tables and for composed VRT datasets.
+             */
+            source_format?: string | null;
             /** Quality Detail */
             quality_detail?: {
                 [key: string]: unknown;
             } | null;
             /** Quality Statement */
             quality_statement?: string | null;
-            /** Record Status */
-            record_status?: string | null;
+            /** Formats */
+            formats?: string[] | null;
+            /** Language */
+            language?: string | null;
             /**
-             * Record Type
-             * @default vector_dataset
+             * Externalids
+             * @description Identifiers assigned by the described resource's source system.
              */
-            record_type: string;
-            /** Rights */
-            rights?: string | null;
-            /**
-             * Row Count
-             * @description Row count for tabular records (alias for feature_count when record_type='table').
-             */
-            row_count?: number | null;
-            /** Source Count */
-            source_count?: number | null;
-            /**
-             * Source Format
-             * @description Ingest source format ('geojson', 'shapefile', 'geotiff', 'wfs', 'stac', 'created', ...). Null for datasets registered from existing PostGIS tables and for composed VRT datasets.
-             */
-            source_format?: string | null;
-            /** Source Organization */
-            source_organization?: string | null;
+            externalIds?: string[];
             /** Themes */
             themes: {
+                [key: string]: unknown;
+            }[];
+            /** Rights */
+            rights?: string | null;
+            /** Contacts */
+            contacts: {
                 [key: string]: unknown;
             }[];
             /** Time */
             time: {
                 [key: string]: unknown;
             };
-            /** Title */
-            title: string;
-            /**
-             * Type
-             * @default dataset
-             */
-            type: string;
+            /** Lineage */
+            lineage?: string | null;
             /** Update Frequency */
             update_frequency?: string | null;
-            /** Updated */
-            updated?: string | null;
-            /** Updated By Display */
-            updated_by_display?: string | null;
+            /** Constraints */
+            constraints?: {
+                [key: string]: unknown;
+            } | null;
+            /** Distributions */
+            distributions?: {
+                [key: string]: unknown;
+            }[] | null;
+            /** Record Status */
+            record_status?: string | null;
+            /**
+             * Has Quicklook
+             * @default false
+             */
+            has_quicklook: boolean;
+            /** Gsd */
+            gsd?: number | null;
+            /**
+             * Crs Is Geographic
+             * @description True when the raster CRS is geographic (gsd/res are degrees, not meters); None when the CRS class is unknown.
+             */
+            crs_is_geographic?: boolean | null;
             /** Vrt Type */
             vrt_type?: string | null;
+            /** Source Count */
+            source_count?: number | null;
+            /** Dataset Count */
+            dataset_count?: number | null;
         };
         /**
          * OGCRecordResponse
          * @description Single OGC API Records Feature.
          */
         OGCRecordResponse: {
+            /**
+             * Type
+             * @default Feature
+             */
+            type: string;
+            /** Id */
+            id: string;
+            /** Conformsto */
+            conformsTo?: string[] | null;
+            /** Time */
+            time: {
+                [key: string]: unknown;
+            };
+            /** Geometry */
+            geometry?: {
+                [key: string]: unknown;
+            } | null;
+            properties: components["schemas"]["OGCRecordProperties"];
+            /** Links */
+            links: components["schemas"]["OGCRecordLink"][];
             /** Assets */
             assets?: {
                 [key: string]: components["schemas"]["OGCAsset"];
             } | null;
             /** Bbox */
             bbox?: number[] | null;
-            /** Conformsto */
-            conformsTo?: string[] | null;
-            /** Geometry */
-            geometry?: {
-                [key: string]: unknown;
-            } | null;
-            /** Id */
-            id: string;
-            /** Links */
-            links: components["schemas"]["OGCRecordLink"][];
-            properties: components["schemas"]["OGCRecordProperties"];
-            /** Time */
-            time: {
-                [key: string]: unknown;
-            };
-            /**
-             * Type
-             * @default Feature
-             */
-            type: string;
         };
         /**
          * OgImageUploadRequest
@@ -10257,21 +10257,21 @@ export interface components {
         /** PresignedUploadRequest */
         PresignedUploadRequest: {
             /**
-             * Content Type
-             * @description MIME type to associate with the uploaded object.
-             * @default application/octet-stream
+             * Filename
+             * @description Original filename being uploaded. Used to determine the file extension and content disposition.
              */
-            content_type: string;
+            filename: string;
             /**
              * File Size
              * @description Total file size in bytes. Used to decide between single-part and multipart upload.
              */
             file_size: number;
             /**
-             * Filename
-             * @description Original filename being uploaded. Used to determine the file extension and content disposition.
+             * Content Type
+             * @description MIME type to associate with the uploaded object.
+             * @default application/octet-stream
              */
-            filename: string;
+            content_type: string;
         };
         /** PresignedUploadResponse */
         PresignedUploadResponse: {
@@ -10282,10 +10282,10 @@ export interface components {
              */
             job_id: string;
             /**
-             * Part Size
-             * @description Byte size of each part in a multipart upload.
+             * Urls
+             * @description One presigned PUT URL per part. Single-element list for single-part uploads.
              */
-            part_size?: number | null;
+            urls: string[];
             /**
              * S3 Key
              * @description Object key in the S3 bucket where the file will be stored.
@@ -10297,13 +10297,24 @@ export interface components {
              */
             upload_id?: string | null;
             /**
-             * Urls
-             * @description One presigned PUT URL per part. Single-element list for single-part uploads.
+             * Part Size
+             * @description Byte size of each part in a multipart upload.
              */
-            urls: string[];
+            part_size?: number | null;
         };
         /** PreviewResponse */
         PreviewResponse: {
+            /**
+             * Job Id
+             * Format: uuid
+             * @description Identifier of the ingestion job being previewed.
+             */
+            job_id: string;
+            /**
+             * Source Filename
+             * @description Original filename of the uploaded file, if known.
+             */
+            source_filename: string | null;
             /**
              * Columns
              * @description Detected attribute columns. Each entry includes name, type, and nullability.
@@ -10315,28 +10326,22 @@ export interface components {
              */
             crs: number | null;
             /**
-             * Detected Geometry Columns
-             * @description Auto-detected lat/lon or geometry columns for CSV/Excel sources. Null for native geospatial formats.
+             * Geometry Type
+             * @description Detected geometry type (Point, LineString, Polygon, MultiPolygon, etc.), or null for non-spatial data.
              */
-            detected_geometry_columns?: {
-                [key: string]: unknown;
-            } | null;
+            geometry_type: string | null;
             /**
              * Feature Count
              * @description Total number of features in the source file, if known.
              */
             feature_count: number | null;
             /**
-             * Geometry Type
-             * @description Detected geometry type (Point, LineString, Polygon, MultiPolygon, etc.), or null for non-spatial data.
+             * Sample Rows
+             * @description Up to 5 sample rows from the source file for preview purposes.
              */
-            geometry_type: string | null;
-            /**
-             * Job Id
-             * Format: uuid
-             * @description Identifier of the ingestion job being previewed.
-             */
-            job_id: string;
+            sample_rows: {
+                [key: string]: unknown;
+            }[];
             /**
              * Layer Name
              * @description Name of the layer being previewed. Defaults to the source filename for single-layer files.
@@ -10348,43 +10353,28 @@ export interface components {
              */
             layers?: components["schemas"]["LayerPreview"][] | null;
             /**
-             * Sample Rows
-             * @description Up to 5 sample rows from the source file for preview purposes.
+             * Detected Geometry Columns
+             * @description Auto-detected lat/lon or geometry columns for CSV/Excel sources. Null for native geospatial formats.
              */
-            sample_rows: {
+            detected_geometry_columns?: {
                 [key: string]: unknown;
-            }[];
-            /**
-             * Source Filename
-             * @description Original filename of the uploaded file, if known.
-             */
-            source_filename: string | null;
+            } | null;
         };
         /** ProbeRequest */
         ProbeRequest: {
-            /**
-             * Token
-             * @description Optional auth token for protected services (passed as query parameter or bearer token depending on service type).
-             */
-            token?: string | null;
             /**
              * Url
              * @description Service URL to probe. May be a WFS GetCapabilities URL or an ArcGIS service endpoint.
              */
             url: string;
+            /**
+             * Token
+             * @description Optional auth token for protected services (passed as query parameter or bearer token depending on service type).
+             */
+            token?: string | null;
         };
         /** ProbeResponse */
         ProbeResponse: {
-            /**
-             * Layers
-             * @description Layers exposed by the probed service.
-             */
-            layers: components["schemas"]["LayerInfo"][];
-            /**
-             * Selected Layer Id
-             * @description Auto-selected layer ID when the input URL contained a specific layer number.
-             */
-            selected_layer_id?: number | string | null;
             /**
              * Service Type
              * @description Detected service type, e.g. 'WFS 2.0' or 'ArcGIS FeatureServer'.
@@ -10395,6 +10385,16 @@ export interface components {
              * @description Normalized service URL after probing.
              */
             url: string;
+            /**
+             * Layers
+             * @description Layers exposed by the probed service.
+             */
+            layers: components["schemas"]["LayerInfo"][];
+            /**
+             * Selected Layer Id
+             * @description Auto-selected layer ID when the input URL contained a specific layer number.
+             */
+            selected_layer_id?: number | string | null;
         };
         /**
          * ProblemDetail
@@ -10406,55 +10406,55 @@ export interface components {
          *     }
          */
         ProblemDetail: {
-            /** Detail */
-            detail: string | {
-                [key: string]: unknown;
-            } | unknown[];
-            /** Status */
-            status: number;
-            /** Title */
-            title: string;
             /**
              * Type
              * @default about:blank
              */
             type: string;
+            /** Title */
+            title: string;
+            /** Status */
+            status: number;
+            /** Detail */
+            detail: string | {
+                [key: string]: unknown;
+            } | unknown[];
         };
         /** ProviderHealth */
         ProviderHealth: {
             /**
-             * Error
-             * @description Error message when status is 'error'.
+             * Status
+             * @description Provider health status: 'ok' or 'error'.
              */
-            error?: string | null;
+            status: string;
             /**
              * Latency Ms
              * @description Latency of the most recent health probe in milliseconds.
              */
             latency_ms: number;
             /**
-             * Status
-             * @description Provider health status: 'ok' or 'error'.
+             * Error
+             * @description Error message when status is 'error'.
              */
-            status: string;
+            error?: string | null;
         };
         /**
          * QualityDetail
          * @description Automated quality assessment results.
          */
         QualityDetail: {
-            /** Attribute Completeness */
-            attribute_completeness: number;
-            /** Computed At */
-            computed_at?: string | null;
-            /** Crs Defined */
-            crs_defined?: number | null;
-            /** Geometry Validity */
-            geometry_validity?: number | null;
-            /** Metadata Completeness */
-            metadata_completeness: number;
             /** Overall */
             overall: number;
+            /** Metadata Completeness */
+            metadata_completeness: number;
+            /** Geometry Validity */
+            geometry_validity?: number | null;
+            /** Attribute Completeness */
+            attribute_completeness: number;
+            /** Crs Defined */
+            crs_defined?: number | null;
+            /** Computed At */
+            computed_at?: string | null;
         };
         /**
          * QualityStatementDraftResponse
@@ -10470,25 +10470,25 @@ export interface components {
         /** RasterBandInfo */
         RasterBandInfo: {
             /**
-             * Color Interp
-             * @description Color interpretation, e.g. Red, Green, Gray
+             * Index
+             * @description 1-based band index
              */
-            color_interp?: string | null;
+            index: number;
             /**
              * Dtype
              * @description Pixel data type, e.g. uint8, float32
              */
             dtype: string;
             /**
-             * Index
-             * @description 1-based band index
-             */
-            index: number;
-            /**
              * Nodata
              * @description Nodata sentinel value for this band
              */
             nodata?: string | null;
+            /**
+             * Color Interp
+             * @description Color interpretation, e.g. Red, Green, Gray
+             */
+            color_interp?: string | null;
         };
         /** RasterConnect */
         RasterConnect: {
@@ -10498,46 +10498,40 @@ export interface components {
              */
             download_url?: string | null;
             /**
-             * S3 Uri
-             * @description S3 object URI, e.g. s3://bucket/key.tif
-             */
-            s3_uri?: string | null;
-            /**
              * Tile Url
              * @description Titiler tile endpoint for this raster
              */
             tile_url: string;
+            /**
+             * S3 Uri
+             * @description S3 object URI, e.g. s3://bucket/key.tif
+             */
+            s3_uri?: string | null;
         };
         /** RasterMetadata */
         RasterMetadata: {
-            /** Band Count */
-            band_count?: number | null;
-            /**
-             * Bands
-             * @default []
-             */
-            bands: components["schemas"]["RasterBandInfo"][];
-            /**
-             * Compression
-             * @description Internal compression, e.g. DEFLATE, LZW
-             */
-            compression?: string | null;
-            connect?: components["schemas"]["RasterConnect"] | null;
-            /**
-             * Crs Is Geographic
-             * @description True when the raster CRS is geographic (res_x/res_y are degrees, not meters); None when the CRS class is unknown.
-             */
-            crs_is_geographic?: boolean | null;
             /**
              * Epsg
              * @description EPSG code of the raster CRS
              */
             epsg?: number | null;
             /**
-             * Height
-             * @description Raster height in pixels
+             * Crs Is Geographic
+             * @description True when the raster CRS is geographic (res_x/res_y are degrees, not meters); None when the CRS class is unknown.
              */
-            height?: number | null;
+            crs_is_geographic?: boolean | null;
+            /**
+             * Res X
+             * @description Pixel resolution in X (CRS units)
+             */
+            res_x?: number | null;
+            /**
+             * Res Y
+             * @description Pixel resolution in Y (CRS units)
+             */
+            res_y?: number | null;
+            /** Band Count */
+            band_count?: number | null;
             /**
              * Is Dem
              * @description True if this raster is a DEM (single-band float) usable for 3D terrain/hillshade
@@ -10549,68 +10543,70 @@ export interface components {
              */
             nodata?: string | null;
             /**
-             * Res X
-             * @description Pixel resolution in X (CRS units)
+             * Compression
+             * @description Internal compression, e.g. DEFLATE, LZW
              */
-            res_x?: number | null;
+            compression?: string | null;
             /**
-             * Res Y
-             * @description Pixel resolution in Y (CRS units)
+             * Width
+             * @description Raster width in pixels
              */
-            res_y?: number | null;
+            width?: number | null;
             /**
-             * Resolution Strategy
-             * @description VRT resolution strategy, e.g. highest, average
+             * Height
+             * @description Raster height in pixels
              */
-            resolution_strategy?: string | null;
+            height?: number | null;
             /**
              * Size Bytes
              * @description File size on disk in bytes
              */
             size_bytes?: number | null;
             /**
-             * Source Count
-             * @description Number of source rasters in a VRT mosaic
+             * Tile Url
+             * @description Titiler XYZ tile endpoint
              */
-            source_count?: number | null;
+            tile_url?: string | null;
+            /**
+             * Bands
+             * @default []
+             */
+            bands: components["schemas"]["RasterBandInfo"][];
+            connect?: components["schemas"]["RasterConnect"] | null;
             /**
              * Status
              * @description Processing status, e.g. ready, failed
              */
             status?: string | null;
             /**
-             * Tile Url
-             * @description Titiler XYZ tile endpoint
-             */
-            tile_url?: string | null;
-            /**
              * Vrt Type
              * @description VRT variant: mosaic or timeseries
              */
             vrt_type?: string | null;
             /**
-             * Width
-             * @description Raster width in pixels
+             * Source Count
+             * @description Number of source rasters in a VRT mosaic
              */
-            width?: number | null;
+            source_count?: number | null;
+            /**
+             * Resolution Strategy
+             * @description VRT resolution strategy, e.g. highest, average
+             */
+            resolution_strategy?: string | null;
         };
         /** RasterPreviewResponse */
         RasterPreviewResponse: {
             /**
-             * Band Count
-             * @description Number of raster bands.
+             * Job Id
+             * Format: uuid
+             * @description Identifier of the raster ingestion job being previewed.
              */
-            band_count: number;
+            job_id: string;
             /**
-             * Compliance Reason
-             * @description Explanation of COG compliance status. Lists missing requirements when not compliant.
+             * Source Filename
+             * @description Original filename of the uploaded raster file.
              */
-            compliance_reason: string;
-            /**
-             * Compression
-             * @description Existing compression method (e.g. 'LZW', 'DEFLATE'), or null for uncompressed.
-             */
-            compression: string | null;
+            source_filename: string | null;
             /**
              * Crs Epsg
              * @description Detected EPSG code for the raster's CRS, if available.
@@ -10622,31 +10618,25 @@ export interface components {
              */
             crs_wkt: string | null;
             /**
-             * Dtype
-             * @description Pixel data type (e.g. 'uint8', 'float32').
+             * Band Count
+             * @description Number of raster bands.
              */
-            dtype: string;
+            band_count: number;
             /**
-             * File Size Bytes
-             * @description Source file size in bytes.
+             * Width
+             * @description Raster width in pixels.
              */
-            file_size_bytes: number | null;
+            width: number;
             /**
              * Height
              * @description Raster height in pixels.
              */
             height: number;
             /**
-             * Is Cog Compliant
-             * @description Whether the source file is already a Cloud-Optimized GeoTIFF.
+             * Dtype
+             * @description Pixel data type (e.g. 'uint8', 'float32').
              */
-            is_cog_compliant: boolean;
-            /**
-             * Job Id
-             * Format: uuid
-             * @description Identifier of the raster ingestion job being previewed.
-             */
-            job_id: string;
+            dtype: string;
             /**
              * Nodata
              * @description Nodata value for the raster, if defined.
@@ -10663,20 +10653,30 @@ export interface components {
              */
             res_y: number;
             /**
-             * Source Filename
-             * @description Original filename of the uploaded raster file.
+             * Compression
+             * @description Existing compression method (e.g. 'LZW', 'DEFLATE'), or null for uncompressed.
              */
-            source_filename: string | null;
+            compression: string | null;
+            /**
+             * File Size Bytes
+             * @description Source file size in bytes.
+             */
+            file_size_bytes: number | null;
+            /**
+             * Is Cog Compliant
+             * @description Whether the source file is already a Cloud-Optimized GeoTIFF.
+             */
+            is_cog_compliant: boolean;
+            /**
+             * Compliance Reason
+             * @description Explanation of COG compliance status. Lists missing requirements when not compliant.
+             */
+            compliance_reason: string;
             /**
              * Temporal Start
              * @description ISO 8601 acquisition timestamp parsed from raster metadata, if present.
              */
             temporal_start?: string | null;
-            /**
-             * Width
-             * @description Raster width in pixels.
-             */
-            width: number;
         };
         /**
          * RasterTileToken
@@ -10695,31 +10695,31 @@ export interface components {
          *     as fields, mirroring `VectorTileToken`, for clients that rebuild the URL.
          */
         RasterTileToken: {
-            /** Bounds */
-            bounds: number[] | null;
-            /** Exp */
-            exp: number;
-            /** Expires In */
-            expires_in: number;
-            /** Format */
-            format: string;
             /**
              * Kind
              * @constant
              */
             kind: "raster";
-            /** Maxzoom */
-            maxzoom: number;
-            /** Minzoom */
-            minzoom: number;
-            /** Scope */
-            scope: string;
-            /** Sig */
-            sig: string;
-            /** Tile Size */
-            tile_size: number;
             /** Tile Url */
             tile_url: string;
+            /** Sig */
+            sig: string;
+            /** Exp */
+            exp: number;
+            /** Scope */
+            scope: string;
+            /** Expires In */
+            expires_in: number;
+            /** Bounds */
+            bounds: number[] | null;
+            /** Minzoom */
+            minzoom: number;
+            /** Maxzoom */
+            maxzoom: number;
+            /** Tile Size */
+            tile_size: number;
+            /** Format */
+            format: string;
         };
         /** RefreshRequest */
         RefreshRequest: {
@@ -10728,11 +10728,6 @@ export interface components {
         };
         /** RegisterRequest */
         RegisterRequest: {
-            /**
-             * Summary
-             * @description Optional dataset description.
-             */
-            summary?: string | null;
             /**
              * Table Name
              * @description PostgreSQL table name in the `data` schema (max 63 chars per PostgreSQL identifier limit).
@@ -10743,6 +10738,11 @@ export interface components {
              * @description Human-readable dataset title shown in the catalog.
              */
             title: string;
+            /**
+             * Summary
+             * @description Optional dataset description.
+             */
+            summary?: string | null;
             /**
              * Visibility
              * @description Dataset visibility level.
@@ -10763,23 +10763,23 @@ export interface components {
         };
         /** RelatedDatasetItem */
         RelatedDatasetItem: {
-            /** Band Count */
-            band_count?: number | null;
-            /** Feature Count */
-            feature_count?: number | null;
-            /** Geometry Type */
-            geometry_type: string | null;
             /** Id */
             id: string;
             /** Name */
             name: string;
-            /** Record Type */
-            record_type?: string | null;
+            /** Geometry Type */
+            geometry_type: string | null;
             /**
              * Similarity
              * @description Cosine similarity score (0-1)
              */
             similarity: number;
+            /** Record Type */
+            record_type?: string | null;
+            /** Feature Count */
+            feature_count?: number | null;
+            /** Band Count */
+            band_count?: number | null;
         };
         /** RelatedDatasetsResponse */
         RelatedDatasetsResponse: {
@@ -10814,22 +10814,22 @@ export interface components {
         };
         /** ReservedRenameWarning */
         ReservedRenameWarning: {
-            /** Details */
-            details: components["schemas"]["ReservedRenameDetail"][];
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             kind: "reserved_rename";
+            /** Details */
+            details: components["schemas"]["ReservedRenameDetail"][];
         };
         /** ReuploadCommitRequest */
         ReuploadCommitRequest: {
-            /** Layer Name */
-            layer_name?: string | null;
             /** Srid Override */
             srid_override?: number | null;
             /** Token */
             token?: string | null;
+            /** Layer Name */
+            layer_name?: string | null;
         };
         /** ReuploadCommitResponse */
         ReuploadCommitResponse: {
@@ -10838,10 +10838,10 @@ export interface components {
              * Format: uuid
              */
             job_id: string;
-            /** Message */
-            message: string;
             /** Status */
             status: string;
+            /** Message */
+            message: string;
         };
         /** ReuploadPreviewRequest */
         ReuploadPreviewRequest: {
@@ -10850,34 +10850,34 @@ export interface components {
         };
         /** ReuploadPreviewResponse */
         ReuploadPreviewResponse: {
-            /** All Layers */
-            all_layers?: {
-                [key: string]: unknown;
-            }[] | null;
-            /** Columns */
-            columns: components["schemas"]["ColumnChange"][];
-            /** Crs */
-            crs: number | null;
-            /** Feature Count */
-            feature_count: number | null;
-            /** Geometry Type */
-            geometry_type: string | null;
             /**
              * Job Id
              * Format: uuid
              */
             job_id: string;
-            /** Layer Name */
-            layer_name: string;
-            /** Previous Source Layer */
-            previous_source_layer?: string | null;
+            /** Source Filename */
+            source_filename: string | null;
+            /** Columns */
+            columns: components["schemas"]["ColumnChange"][];
+            /** Crs */
+            crs: number | null;
+            /** Geometry Type */
+            geometry_type: string | null;
+            /** Feature Count */
+            feature_count: number | null;
             /** Sample Rows */
             sample_rows: {
                 [key: string]: unknown;
             }[];
+            /** Layer Name */
+            layer_name: string;
             schema_diff: components["schemas"]["SchemaDiff"];
-            /** Source Filename */
-            source_filename: string | null;
+            /** All Layers */
+            all_layers?: {
+                [key: string]: unknown;
+            }[] | null;
+            /** Previous Source Layer */
+            previous_source_layer?: string | null;
         };
         /** ReuploadResponse */
         ReuploadResponse: {
@@ -10886,62 +10886,67 @@ export interface components {
              * Format: uuid
              */
             job_id: string;
-            /** Message */
-            message: string;
             /**
              * Status
              * @default pending
              */
             status: string;
+            /** Message */
+            message: string;
         };
         /** ReuploadServicePreviewRequest */
         ReuploadServicePreviewRequest: {
-            /** Layer Id */
-            layer_id?: number | string | null;
+            /** Url */
+            url: string;
+            /** Service Type */
+            service_type: string;
             /** Layer Name */
             layer_name: string;
             /** Layer Title */
             layer_title?: string | null;
-            /** Object Id Field */
-            object_id_field?: string | null;
-            /** Service Type */
-            service_type: string;
+            /** Layer Id */
+            layer_id?: number | string | null;
             /** Token */
             token?: string | null;
-            /** Url */
-            url: string;
+            /** Object Id Field */
+            object_id_field?: string | null;
         };
         /**
          * SSEActionsEvent
          * @description Validated map-edit actions produced by streaming chat.
          */
         SSEActionsEvent: {
-            /** Actions */
-            actions: components["schemas"]["ChatAction"][];
             /**
              * Type
              * @constant
              */
             type: "actions";
+            /** Actions */
+            actions: components["schemas"]["ChatAction"][];
         };
         /**
          * SSEChatDoneEvent
          * @description Terminal payload for a successful streaming chat request.
          */
         SSEChatDoneEvent: {
-            /** Explanation */
-            explanation: string;
             /**
              * Type
              * @constant
              */
             type: "done";
+            /** Explanation */
+            explanation: string;
         };
         /**
          * SSEErrorEvent
          * @description Error payload carried inside an already-open SSE response.
          */
         SSEErrorEvent: {
+            /**
+             * Type
+             * @constant
+             */
+            type: "error";
             /** Message */
             message: string | {
                 [key: string]: unknown;
@@ -10952,73 +10957,68 @@ export interface components {
              * @default null
              */
             status: number | null;
-            /**
-             * Type
-             * @constant
-             */
-            type: "error";
         };
         /**
          * SSEMapDoneEvent
          * @description Terminal payload for a successful streaming map-generation request.
          */
         SSEMapDoneEvent: {
-            /** Datasets Used */
-            datasets_used: string[];
-            /** Explanation */
-            explanation: string;
-            /** Map Id */
-            map_id: string;
-            /** Map Name */
-            map_name: string;
             /**
              * Type
              * @constant
              */
             type: "done";
+            /** Map Id */
+            map_id: string;
+            /** Map Name */
+            map_name: string;
+            /** Explanation */
+            explanation: string;
+            /** Datasets Used */
+            datasets_used: string[];
         };
         /**
          * SSETokenEvent
          * @description Token payload carried by a ``token`` server-sent event.
          */
         SSETokenEvent: {
-            /** Text */
-            text: string;
             /**
              * Type
              * @constant
              */
             type: "token";
+            /** Text */
+            text: string;
         };
         /**
          * SSEToolResultEvent
          * @description Progress payload emitted when an AI tool finishes.
          */
         SSEToolResultEvent: {
-            /** Success */
-            success: boolean;
-            /** Tool */
-            tool: string;
             /**
              * Type
              * @constant
              */
             type: "tool_result";
+            /** Tool */
+            tool: string;
+            /** Success */
+            success: boolean;
         };
         /**
          * SSEToolStartEvent
          * @description Progress payload emitted when an AI tool starts.
          */
         SSEToolStartEvent: {
-            /** Label */
-            label: string;
-            /** Tool */
-            tool: string;
             /**
              * Type
              * @constant
              */
             type: "tool_start";
+            /** Tool */
+            tool: string;
+            /** Label */
+            label: string;
         };
         /**
          * SavedSearchCreate
@@ -11051,11 +11051,6 @@ export interface components {
          */
         SavedSearchResponse: {
             /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /**
              * Id
              * Format: uuid
              */
@@ -11066,6 +11061,11 @@ export interface components {
             params: {
                 [key: string]: unknown;
             };
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
             /**
              * Updated At
              * Format: date-time
@@ -11085,36 +11085,41 @@ export interface components {
              */
             columns_removed: components["schemas"]["ColumnChange"][];
             /**
-             * Row Count Delta
-             * @description row_count_new minus row_count_old
-             */
-            row_count_delta: number;
-            /** Row Count New */
-            row_count_new: number | null;
-            /** Row Count Old */
-            row_count_old: number | null;
-            /**
              * Type Changes
              * @description Columns whose data type changed
              */
             type_changes: components["schemas"]["TypeChange"][];
+            /** Row Count Old */
+            row_count_old: number | null;
+            /** Row Count New */
+            row_count_new: number | null;
+            /**
+             * Row Count Delta
+             * @description row_count_new minus row_count_old
+             */
+            row_count_delta: number;
         };
         /** ServiceHealth */
         ServiceHealth: {
-            /** Error */
-            error?: string | null;
-            /** Latency Ms */
-            latency_ms?: number | null;
             /** Status */
             status: string;
+            /** Latency Ms */
+            latency_ms?: number | null;
+            /** Error */
+            error?: string | null;
         };
         /** ServicePreviewRequest */
         ServicePreviewRequest: {
             /**
-             * Layer Id
-             * @description ArcGIS layer ID, when applicable.
+             * Url
+             * @description Normalized service URL from a previous probe response.
              */
-            layer_id?: number | string | null;
+            url: string;
+            /**
+             * Service Type
+             * @description Service type from the probe response, e.g. 'WFS 2.0.0' or 'ArcGIS FeatureServer'.
+             */
+            service_type: string;
             /**
              * Layer Name
              * @description Name of the specific layer to preview, from the probe layers list.
@@ -11126,28 +11131,34 @@ export interface components {
              */
             layer_title?: string | null;
             /**
-             * Object Id Field
-             * @description ArcGIS OID field name used for orderByFields during preview pagination.
+             * Layer Id
+             * @description ArcGIS layer ID, when applicable.
              */
-            object_id_field?: string | null;
-            /**
-             * Service Type
-             * @description Service type from the probe response, e.g. 'WFS 2.0.0' or 'ArcGIS FeatureServer'.
-             */
-            service_type: string;
+            layer_id?: number | string | null;
             /**
              * Token
              * @description Optional auth token for protected services.
              */
             token?: string | null;
             /**
-             * Url
-             * @description Normalized service URL from a previous probe response.
+             * Object Id Field
+             * @description ArcGIS OID field name used for orderByFields during preview pagination.
              */
-            url: string;
+            object_id_field?: string | null;
         };
         /** ServicePreviewResponse */
         ServicePreviewResponse: {
+            /**
+             * Job Id
+             * Format: uuid
+             * @description IngestJob ID for the preview. Use this to commit the import.
+             */
+            job_id: string;
+            /**
+             * Source Filename
+             * @description Layer name acting as a source filename for downstream ingestion logic.
+             */
+            source_filename: string | null;
             /**
              * Columns
              * @description Detected attribute columns: [{'name': str, 'type': str}, ...].
@@ -11161,26 +11172,15 @@ export interface components {
              */
             crs: number | null;
             /**
-             * Feature Count
-             * @description Total feature count if reported by the source service.
-             */
-            feature_count: number | null;
-            /**
              * Geometry Type
              * @description Detected geometry type.
              */
             geometry_type: string | null;
             /**
-             * Job Id
-             * Format: uuid
-             * @description IngestJob ID for the preview. Use this to commit the import.
+             * Feature Count
+             * @description Total feature count if reported by the source service.
              */
-            job_id: string;
-            /**
-             * Layer Name
-             * @description Layer name as it appears in the remote service.
-             */
-            layer_name: string;
+            feature_count: number | null;
             /**
              * Sample Rows
              * @description Up to 5 sample rows for preview display.
@@ -11189,26 +11189,16 @@ export interface components {
                 [key: string]: unknown;
             }[];
             /**
-             * Source Filename
-             * @description Layer name acting as a source filename for downstream ingestion logic.
+             * Layer Name
+             * @description Layer name as it appears in the remote service.
              */
-            source_filename: string | null;
+            layer_name: string;
         };
         /**
          * ServiceProbeResult
          * @description Result of a single service connectivity probe.
          */
         ServiceProbeResult: {
-            /**
-             * Error
-             * @description Error message when status is 'error'.
-             */
-            error?: string | null;
-            /**
-             * Latency Ms
-             * @description Round-trip latency in milliseconds.
-             */
-            latency_ms: number;
             /**
              * Name
              * @description Service name (e.g. 'storage', 'cache', 'oidc:google').
@@ -11220,6 +11210,16 @@ export interface components {
              * @enum {string}
              */
             status: "ok" | "error";
+            /**
+             * Latency Ms
+             * @description Round-trip latency in milliseconds.
+             */
+            latency_ms: number;
+            /**
+             * Error
+             * @description Error message when status is 'error'.
+             */
+            error?: string | null;
         };
         /**
          * SettingItem
@@ -11232,20 +11232,20 @@ export interface components {
              */
             key: string;
             /**
-             * Label
-             * @description Human-readable label for display in the admin UI.
+             * Value
+             * @description Current value. Type depends on the setting.
              */
-            label: string;
+            value: unknown;
             /**
              * Source
              * @description Where the value came from: 'default' (built-in default), 'overridden' (admin set via UI), or 'env_only' (configured via environment variable, read-only).
              */
             source: string;
             /**
-             * Value
-             * @description Current value. Type depends on the setting.
+             * Label
+             * @description Human-readable label for display in the admin UI.
              */
-            value: unknown;
+            label: string;
         };
         /**
          * SettingsAllResponse
@@ -11304,6 +11304,16 @@ export interface components {
         };
         /** ShareTokenResponse */
         ShareTokenResponse: {
+            /**
+             * Token
+             * @description Raw token on create, hint on retrieve
+             */
+            token: string;
+            /**
+             * Share Url
+             * @description Full shareable URL — only returned on create
+             */
+            share_url?: string | null;
             /** Expires At */
             expires_at?: string | null;
             /**
@@ -11311,134 +11321,124 @@ export interface components {
              * @default true
              */
             is_active: boolean;
-            /**
-             * Share Url
-             * @description Full shareable URL — only returned on create
-             */
-            share_url?: string | null;
-            /**
-             * Token
-             * @description Raw token on create, hint on retrieve
-             */
-            token: string;
         };
         /** SharedLayerResponse */
         SharedLayerResponse: {
-            /** Column Info */
-            column_info?: {
-                [key: string]: unknown;
-            }[] | null;
+            /** Id */
+            id: string;
             /** Dataset Id */
             dataset_id: string;
             /** Dataset Name */
             dataset_name: string;
-            /** Dataset Record Type */
-            dataset_record_type?: string | null;
-            /** Dem Vertical Units */
-            dem_vertical_units?: string | null;
             /** Display Name */
             display_name?: string | null;
-            /** Feature Count */
-            feature_count?: number | null;
-            /** Filter */
-            filter?: unknown[] | null;
+            /** Table Name */
+            table_name: string;
             /** Geometry Type */
             geometry_type: string | null;
-            /** Id */
-            id: string;
-            /** Is 3D */
-            is_3d?: boolean | null;
-            /** Is Dem */
-            is_dem?: boolean | null;
-            /** Label Config */
-            label_config?: {
+            /** Column Info */
+            column_info?: {
                 [key: string]: unknown;
-            } | null;
-            /**
-             * Layer Type
-             * @default vector_geolens
-             */
-            layer_type: string;
-            /** Layout */
-            layout: {
-                [key: string]: unknown;
-            };
+            }[] | null;
+            /** Sort Order */
+            sort_order: number;
+            /** Visible */
+            visible: boolean;
             /** Opacity */
             opacity: number;
             /** Paint */
             paint: {
                 [key: string]: unknown;
             };
+            /** Layout */
+            layout: {
+                [key: string]: unknown;
+            };
+            /**
+             * Layer Type
+             * @default vector_geolens
+             */
+            layer_type: string;
+            /** Dataset Record Type */
+            dataset_record_type?: string | null;
+            /** Filter */
+            filter?: unknown[] | null;
+            /** Label Config */
+            label_config?: {
+                [key: string]: unknown;
+            } | null;
             popup_config?: components["schemas"]["PopupConfig"] | null;
+            /** Style Config */
+            style_config?: {
+                [key: string]: unknown;
+            } | null;
             /**
              * Show In Legend
              * @default true
              */
             show_in_legend: boolean;
-            /** Sort Order */
-            sort_order: number;
-            /** Style Config */
-            style_config?: {
-                [key: string]: unknown;
-            } | null;
-            /** Table Name */
-            table_name: string;
             /** Tile Url */
             tile_url: string;
+            /** Is Dem */
+            is_dem?: boolean | null;
+            /** Dem Vertical Units */
+            dem_vertical_units?: string | null;
+            /** Is 3D */
+            is_3d?: boolean | null;
+            /** Feature Count */
+            feature_count?: number | null;
             /** Tile Version */
             tile_version?: number | null;
-            /** Visible */
-            visible: boolean;
         };
         /** SharedMapResponse */
         SharedMapResponse: {
-            basemap_config?: components["schemas"]["BasemapConfig"] | null;
-            /** Basemap Style */
-            basemap_style: string;
-            /** Bearing */
-            bearing: number;
-            /** Center Lat */
-            center_lat: number;
-            /** Center Lng */
-            center_lng: number;
-            /** Description */
-            description: string | null;
-            /**
-             * Has Non Public Layers
-             * @default false
-             */
-            has_non_public_layers: boolean;
-            /** Layers */
-            layers: components["schemas"]["SharedLayerResponse"][];
-            /** Legend Title */
-            legend_title?: string | null;
             /** Name */
             name: string;
+            /** Description */
+            description: string | null;
+            /** Center Lng */
+            center_lng: number;
+            /** Center Lat */
+            center_lat: number;
+            /** Zoom */
+            zoom: number;
+            /** Bearing */
+            bearing: number;
             /** Pitch */
             pitch: number;
+            /** Basemap Style */
+            basemap_style: string;
             /**
              * Show Basemap Labels
              * @default true
              */
             show_basemap_labels: boolean;
+            basemap_config?: components["schemas"]["BasemapConfig"] | null;
             terrain_config?: components["schemas"]["TerrainConfig"] | null;
-            /** Zoom */
-            zoom: number;
+            /**
+             * Has Non Public Layers
+             * @default false
+             */
+            has_non_public_layers: boolean;
+            /** Legend Title */
+            legend_title?: string | null;
+            /** Layers */
+            layers: components["schemas"]["SharedLayerResponse"][];
         };
         /** StacAsset */
         StacAsset: {
-            /** Description */
-            description?: string | null;
             /** Href */
             href: string;
+            /** Type */
+            type?: string | null;
+            /** Title */
+            title?: string | null;
+            /** Description */
+            description?: string | null;
             /** Roles */
             roles?: string[] | null;
             /** Size Bytes */
             size_bytes?: number | null;
-            /** Title */
-            title?: string | null;
-            /** Type */
-            type?: string | null;
         };
         /**
          * StacCatalog
@@ -11446,25 +11446,16 @@ export interface components {
          */
         StacCatalog: {
             /**
-             * Conformsto
-             * @description List of conformance URIs declaring which STAC and OGC API standards the catalog implements.
+             * Type
+             * @description STAC object type. Always 'Catalog' for the landing page.
+             * @default Catalog
              */
-            conformsTo: string[];
-            /**
-             * Description
-             * @description Human-readable catalog description.
-             */
-            description: string;
+            type: string;
             /**
              * Id
              * @description Stable identifier for the catalog.
              */
             id: string;
-            /**
-             * Links
-             * @description Catalog navigation links (self, root, search, collections, etc.).
-             */
-            links: components["schemas"]["StacLink"][];
             /**
              * Stac Version
              * @description STAC specification version implemented.
@@ -11477,11 +11468,20 @@ export interface components {
              */
             title: string;
             /**
-             * Type
-             * @description STAC object type. Always 'Catalog' for the landing page.
-             * @default Catalog
+             * Description
+             * @description Human-readable catalog description.
              */
-            type: string;
+            description: string;
+            /**
+             * Conformsto
+             * @description List of conformance URIs declaring which STAC and OGC API standards the catalog implements.
+             */
+            conformsTo: string[];
+            /**
+             * Links
+             * @description Catalog navigation links (self, root, search, collections, etc.).
+             */
+            links: components["schemas"]["StacLink"][];
         };
         /**
          * StacCollection
@@ -11489,11 +11489,39 @@ export interface components {
          */
         StacCollection: {
             /**
+             * Type
+             * @description STAC object type.
+             * @default Collection
+             */
+            type: string;
+            /**
+             * Stac Version
+             * @description STAC specification version.
+             * @default 1.0.0
+             */
+            stac_version: string;
+            /**
+             * Id
+             * @description Stable collection identifier.
+             */
+            id: string;
+            /**
+             * Title
+             * @description Human-readable collection title.
+             */
+            title?: string | null;
+            /**
              * Description
              * @description Collection description.
              * @default
              */
             description: string;
+            /**
+             * License
+             * @description SPDX license identifier or 'proprietary'.
+             * @default proprietary
+             */
+            license: string;
             /**
              * Extent
              * @description Spatial and temporal extent of items in the collection.
@@ -11502,38 +11530,10 @@ export interface components {
                 [key: string]: unknown;
             };
             /**
-             * Id
-             * @description Stable collection identifier.
-             */
-            id: string;
-            /**
-             * License
-             * @description SPDX license identifier or 'proprietary'.
-             * @default proprietary
-             */
-            license: string;
-            /**
              * Links
              * @description Collection navigation links.
              */
             links: components["schemas"]["StacLink"][];
-            /**
-             * Stac Version
-             * @description STAC specification version.
-             * @default 1.0.0
-             */
-            stac_version: string;
-            /**
-             * Title
-             * @description Human-readable collection title.
-             */
-            title?: string | null;
-            /**
-             * Type
-             * @description STAC object type.
-             * @default Collection
-             */
-            type: string;
         } & {
             [key: string]: unknown;
         };
@@ -11556,25 +11556,25 @@ export interface components {
         /** StacCollectionSummary */
         StacCollectionSummary: {
             /**
-             * Bbox
-             * @description Spatial extent as [west, south, east, north].
+             * Id
+             * @description Collection identifier.
              */
-            bbox?: number[] | null;
+            id: string;
+            /**
+             * Title
+             * @description Collection title.
+             */
+            title: string;
             /**
              * Description
              * @description Collection description.
              */
             description: string;
             /**
-             * Id
-             * @description Collection identifier.
+             * License
+             * @description SPDX license identifier.
              */
-            id: string;
-            /**
-             * Item Count
-             * @description Number of items if reported by the API.
-             */
-            item_count?: number | null;
+            license?: string | null;
             /**
              * Keywords
              * @description Collection keywords.
@@ -11582,38 +11582,38 @@ export interface components {
              */
             keywords: string[];
             /**
-             * License
-             * @description SPDX license identifier.
+             * Bbox
+             * @description Spatial extent as [west, south, east, north].
              */
-            license?: string | null;
-            /**
-             * Temporal End
-             * @description End of temporal extent (ISO 8601).
-             */
-            temporal_end?: string | null;
+            bbox?: number[] | null;
             /**
              * Temporal Start
              * @description Start of temporal extent (ISO 8601).
              */
             temporal_start?: string | null;
             /**
-             * Title
-             * @description Collection title.
+             * Temporal End
+             * @description End of temporal extent (ISO 8601).
              */
-            title: string;
+            temporal_end?: string | null;
+            /**
+             * Item Count
+             * @description Number of items if reported by the API.
+             */
+            item_count?: number | null;
         };
         /** StacCollectionsResponse */
         StacCollectionsResponse: {
-            /**
-             * Collections
-             * @description Available collections.
-             */
-            collections: components["schemas"]["StacCollectionSummary"][];
             /**
              * Url
              * @description STAC API URL that was queried.
              */
             url: string;
+            /**
+             * Collections
+             * @description Available collections.
+             */
+            collections: components["schemas"]["StacCollectionSummary"][];
         };
         /**
          * StacConformance
@@ -11637,10 +11637,20 @@ export interface components {
         /** StacConnectResponse */
         StacConnectResponse: {
             /**
+             * Url
+             * @description Normalized STAC API URL.
+             */
+            url: string;
+            /**
              * Catalog Id
              * @description Catalog identifier from the landing page.
              */
             catalog_id: string;
+            /**
+             * Title
+             * @description Catalog title.
+             */
+            title: string;
             /**
              * Description
              * @description Catalog description.
@@ -11651,16 +11661,6 @@ export interface components {
              * @description STAC specification version.
              */
             stac_version: string;
-            /**
-             * Title
-             * @description Catalog title.
-             */
-            title: string;
-            /**
-             * Url
-             * @description Normalized STAC API URL.
-             */
-            url: string;
         };
         /**
          * StacContext
@@ -11669,74 +11669,74 @@ export interface components {
         StacContext: {
             /** Limit */
             limit: number;
-            /** Matched */
-            matched: number;
             /** Returned */
             returned: number;
+            /** Matched */
+            matched: number;
         } & {
             [key: string]: unknown;
         };
         /** StacImportItem */
         StacImportItem: {
             /**
-             * Bbox
-             * @description Item bounding box.
+             * Id
+             * @description STAC item ID.
              */
-            bbox?: number[] | null;
+            id: string;
             /**
              * Collection
              * @description Parent collection ID.
              */
             collection?: string | null;
             /**
+             * Title
+             * @description Title to use for the GeoLens dataset.
+             */
+            title: string;
+            /**
              * Data Asset Href
              * @description URL of the COG asset to reference.
              */
             data_asset_href: string;
             /**
-             * Datetime End
-             * @description Temporal end.
+             * Bbox
+             * @description Item bounding box.
              */
-            datetime_end?: string | null;
-            /**
-             * Datetime Start
-             * @description Temporal start.
-             */
-            datetime_start?: string | null;
+            bbox?: number[] | null;
             /**
              * Epsg
              * @description EPSG code.
              */
             epsg?: number | null;
             /**
-             * Id
-             * @description STAC item ID.
+             * Datetime Start
+             * @description Temporal start.
              */
-            id: string;
+            datetime_start?: string | null;
+            /**
+             * Datetime End
+             * @description Temporal end.
+             */
+            datetime_end?: string | null;
             /**
              * Keywords
              * @description Keywords from STAC collection.
              * @default []
              */
             keywords: string[];
-            /**
-             * Title
-             * @description Title to use for the GeoLens dataset.
-             */
-            title: string;
         };
         /** StacImportRequest */
         StacImportRequest: {
-            /**
-             * Items
-             * @description Items to import (max 50 per request).
-             */
-            items: components["schemas"]["StacImportItem"][];
             /**
              * Url
              * @description STAC API URL for provenance.
              */
             url: string;
+            /**
+             * Items
+             * @description Items to import (max 50 per request).
+             */
+            items: components["schemas"]["StacImportItem"][];
             /**
              * Visibility
              * @description Visibility for imported datasets.
@@ -11748,49 +11748,49 @@ export interface components {
         /** StacImportResponse */
         StacImportResponse: {
             /**
-             * Created
-             * @description Number of datasets created.
-             */
-            created: number;
-            /**
-             * Errors
-             * @description Number of items that failed.
-             */
-            errors: number;
-            /**
              * Results
              * @description Per-item import results.
              */
             results: components["schemas"]["StacImportResult"][];
             /**
+             * Created
+             * @description Number of datasets created.
+             */
+            created: number;
+            /**
              * Skipped
              * @description Number of items skipped (duplicates).
              */
             skipped: number;
+            /**
+             * Errors
+             * @description Number of items that failed.
+             */
+            errors: number;
         };
         /** StacImportResult */
         StacImportResult: {
-            /**
-             * Dataset Id
-             * @description Created GeoLens dataset ID.
-             */
-            dataset_id?: string | null;
-            /**
-             * Error
-             * @description Error message if failed.
-             */
-            error?: string | null;
             /**
              * Item Id
              * @description STAC item ID that was processed.
              */
             item_id: string;
             /**
+             * Dataset Id
+             * @description Created GeoLens dataset ID.
+             */
+            dataset_id?: string | null;
+            /**
              * Status
              * @description Import result status.
              * @enum {string}
              */
             status: "created" | "skipped" | "error";
+            /**
+             * Error
+             * @description Error message if failed.
+             */
+            error?: string | null;
         };
         /**
          * StacItemAsset
@@ -11798,30 +11798,30 @@ export interface components {
          */
         StacItemAsset: {
             /**
-             * Description
-             * @description Human-readable asset description.
-             */
-            description?: string | null;
-            /**
              * Href
              * @description URL of the asset resource.
              */
             href: string;
             /**
-             * Roles
-             * @description Semantic roles such as data or visual.
+             * Type
+             * @description Asset media type.
              */
-            roles?: string[] | null;
+            type?: string | null;
             /**
              * Title
              * @description Human-readable asset title.
              */
             title?: string | null;
             /**
-             * Type
-             * @description Asset media type.
+             * Description
+             * @description Human-readable asset description.
              */
-            type?: string | null;
+            description?: string | null;
+            /**
+             * Roles
+             * @description Semantic roles such as data or visual.
+             */
+            roles?: string[] | null;
         } & {
             [key: string]: unknown;
         };
@@ -11842,7 +11842,12 @@ export interface components {
          *     }
          */
         StacItemCollectionResponse: {
-            context: components["schemas"]["StacContext"];
+            /**
+             * Type
+             * @default FeatureCollection
+             * @constant
+             */
+            type: "FeatureCollection";
             /** Features */
             features: components["schemas"]["StacItemResponse"][];
             /** Links */
@@ -11851,12 +11856,7 @@ export interface components {
             numberMatched: number;
             /** Numberreturned */
             numberReturned: number;
-            /**
-             * Type
-             * @default FeatureCollection
-             * @constant
-             */
-            type: "FeatureCollection";
+            context: components["schemas"]["StacContext"];
         } & {
             [key: string]: unknown;
         };
@@ -11871,25 +11871,25 @@ export interface components {
              */
             datetime: string | null;
             /**
-             * Description
-             * @description Human-readable item description.
+             * Start Datetime
+             * @description Start of the item's temporal interval.
              */
-            description?: string | null;
+            start_datetime?: string | null;
             /**
              * End Datetime
              * @description End of the item's temporal interval.
              */
             end_datetime?: string | null;
             /**
-             * Start Datetime
-             * @description Start of the item's temporal interval.
-             */
-            start_datetime?: string | null;
-            /**
              * Title
              * @description Human-readable item title.
              */
             title?: string | null;
+            /**
+             * Description
+             * @description Human-readable item description.
+             */
+            description?: string | null;
         } & {
             [key: string]: unknown;
         };
@@ -11909,10 +11909,32 @@ export interface components {
          *     }
          */
         StacItemResponse: {
-            /** Assets */
-            assets: {
-                [key: string]: components["schemas"]["StacItemAsset"];
-            };
+            /**
+             * Type
+             * @default Feature
+             * @constant
+             */
+            type: "Feature";
+            /**
+             * Stac Version
+             * @description STAC specification version.
+             */
+            stac_version: string;
+            /**
+             * Stac Extensions
+             * @description STAC extension schema URIs in use.
+             */
+            stac_extensions?: string[];
+            /**
+             * Id
+             * @description Stable item identifier.
+             */
+            id: string;
+            /**
+             * Geometry
+             * @description Item footprint as GeoJSON, or null when unavailable.
+             */
+            geometry: components["schemas"]["GeoJSONGeometryCollection"] | components["schemas"]["GeoJSONGeometry"] | null;
             /**
              * Bbox
              * @description Item bounding box with exactly four 2D or six 3D coordinates.
@@ -11930,95 +11952,58 @@ export interface components {
                 number,
                 number
             ] | null;
+            properties: components["schemas"]["StacItemProperties"];
+            /** Links */
+            links: components["schemas"]["StacLink"][];
+            /** Assets */
+            assets: {
+                [key: string]: components["schemas"]["StacItemAsset"];
+            };
             /**
              * Collection
              * @description Identifier of the containing STAC Collection.
              */
             collection?: string | null;
-            /**
-             * Geometry
-             * @description Item footprint as GeoJSON, or null when unavailable.
-             */
-            geometry: components["schemas"]["GeoJSONGeometryCollection"] | components["schemas"]["GeoJSONGeometry"] | null;
-            /**
-             * Id
-             * @description Stable item identifier.
-             */
-            id: string;
-            /** Links */
-            links: components["schemas"]["StacLink"][];
-            properties: components["schemas"]["StacItemProperties"];
-            /**
-             * Stac Extensions
-             * @description STAC extension schema URIs in use.
-             */
-            stac_extensions?: string[];
-            /**
-             * Stac Version
-             * @description STAC specification version.
-             */
-            stac_version: string;
-            /**
-             * Type
-             * @default Feature
-             * @constant
-             */
-            type: "Feature";
         } & {
             [key: string]: unknown;
         };
         /** StacItemSummary */
         StacItemSummary: {
             /**
-             * Asset Count
-             * @description Number of assets on this item.
+             * Id
+             * @description Item identifier.
              */
-            asset_count: number;
-            /**
-             * Bbox
-             * @description Item bounding box.
-             */
-            bbox?: number[] | null;
-            /**
-             * Cloud Cover
-             * @description Cloud cover percentage (eo extension).
-             */
-            cloud_cover?: number | null;
+            id: string;
             /**
              * Collection
              * @description Parent collection ID.
              */
             collection?: string | null;
             /**
-             * Data Asset Href
-             * @description URL of the primary data asset (COG).
+             * Title
+             * @description Item title (falls back to ID).
              */
-            data_asset_href?: string | null;
+            title: string;
             /**
-             * Data Asset Size Bytes
-             * @description Size of the primary data asset in bytes (from STAC file:size). None when not in manifest.
+             * Bbox
+             * @description Item bounding box.
              */
-            data_asset_size_bytes?: number | null;
-            /**
-             * Data Asset Type
-             * @description Media type of the data asset.
-             */
-            data_asset_type?: string | null;
+            bbox?: number[] | null;
             /**
              * Datetime
              * @description Primary datetime (ISO 8601).
              */
             datetime?: string | null;
             /**
-             * Datetime End
-             * @description End datetime for ranges.
-             */
-            datetime_end?: string | null;
-            /**
              * Datetime Start
              * @description Start datetime for ranges.
              */
             datetime_start?: string | null;
+            /**
+             * Datetime End
+             * @description End datetime for ranges.
+             */
+            datetime_end?: string | null;
             /**
              * Epsg
              * @description EPSG code from proj extension.
@@ -12030,20 +12015,35 @@ export interface components {
              */
             gsd?: number | null;
             /**
-             * Id
-             * @description Item identifier.
+             * Cloud Cover
+             * @description Cloud cover percentage (eo extension).
              */
-            id: string;
+            cloud_cover?: number | null;
+            /**
+             * Data Asset Href
+             * @description URL of the primary data asset (COG).
+             */
+            data_asset_href?: string | null;
+            /**
+             * Data Asset Type
+             * @description Media type of the data asset.
+             */
+            data_asset_type?: string | null;
+            /**
+             * Data Asset Size Bytes
+             * @description Size of the primary data asset in bytes (from STAC file:size). None when not in manifest.
+             */
+            data_asset_size_bytes?: number | null;
             /**
              * Thumbnail Href
              * @description Thumbnail URL if available.
              */
             thumbnail_href?: string | null;
             /**
-             * Title
-             * @description Item title (falls back to ID).
+             * Asset Count
+             * @description Number of assets on this item.
              */
-            title: string;
+            asset_count: number;
         };
         /**
          * StacLink
@@ -12056,11 +12056,6 @@ export interface components {
              */
             href: string;
             /**
-             * Method
-             * @description HTTP method to use (defaults to GET).
-             */
-            method?: string | null;
-            /**
              * Rel
              * @description Link relation type (e.g. 'self', 'root', 'parent', 'item', 'data').
              */
@@ -12070,6 +12065,11 @@ export interface components {
              * @description Media type of the linked resource (e.g. 'application/json').
              */
             type?: string | null;
+            /**
+             * Method
+             * @description HTTP method to use (defaults to GET).
+             */
+            method?: string | null;
         };
         /**
          * StacSearchBody
@@ -12090,10 +12090,10 @@ export interface components {
         StacSearchBody: {
             /** Bbox */
             bbox?: number[] | null;
-            /** Collections */
-            collections?: string[] | null;
             /** Datetime */
             datetime?: string | null;
+            /** Collections */
+            collections?: string[] | null;
             /** Ids */
             ids?: string[] | null;
             /** Intersects */
@@ -12116,15 +12116,20 @@ export interface components {
         /** StacSearchRequest */
         StacSearchRequest: {
             /**
-             * Bbox
-             * @description Bounding box filter as [west, south, east, north].
+             * Url
+             * @description STAC API root URL.
              */
-            bbox?: number[] | null;
+            url: string;
             /**
              * Collections
              * @description Filter by collection IDs.
              */
             collections?: string[] | null;
+            /**
+             * Bbox
+             * @description Bounding box filter as [west, south, east, north].
+             */
+            bbox?: number[] | null;
             /**
              * Datetime Range
              * @description Temporal filter in STAC datetime format (e.g. '2023-01-01/2023-12-31').
@@ -12136,11 +12141,6 @@ export interface components {
              * @default 20
              */
             limit: number;
-            /**
-             * Url
-             * @description STAC API root URL.
-             */
-            url: string;
         };
         /** StacSearchResponse */
         StacSearchResponse: {
@@ -12162,30 +12162,30 @@ export interface components {
         };
         /** StaleCleanupResponse */
         StaleCleanupResponse: {
-            /** Local Files Reaped */
-            local_files_reaped: number;
             /** Pending Failed */
             pending_failed: number;
             /** Running Failed */
             running_failed: number;
-            /** Staged Cleanup Failures */
-            staged_cleanup_failures: number;
-            /** Staged Paths Considered */
-            staged_paths_considered: number;
-            /** Staged Paths Skipped */
-            staged_paths_skipped: number;
-            /** Storage Objects Reaped */
-            storage_objects_reaped: number;
-            /** Terminal Jobs Purged */
-            terminal_jobs_purged: number;
-            /** Total Affected */
-            total_affected: number;
             /** Total Cleaned */
             total_cleaned: number;
             /** Vrt Assets Recovered */
             vrt_assets_recovered: number;
             /** Vrt Generations Failed */
             vrt_generations_failed: number;
+            /** Terminal Jobs Purged */
+            terminal_jobs_purged: number;
+            /** Staged Paths Considered */
+            staged_paths_considered: number;
+            /** Local Files Reaped */
+            local_files_reaped: number;
+            /** Storage Objects Reaped */
+            storage_objects_reaped: number;
+            /** Staged Paths Skipped */
+            staged_paths_skipped: number;
+            /** Staged Cleanup Failures */
+            staged_cleanup_failures: number;
+            /** Total Affected */
+            total_affected: number;
         };
         /**
          * StatusUpdate
@@ -12207,13 +12207,13 @@ export interface components {
         StatusUpdateResponse: {
             /** Id */
             id: string;
+            /** Record Status */
+            record_status: string;
             /**
              * Metadata Warnings
              * @description Advisory warnings from the status change — the same inherited-keyword disclosure check the metadata PATCH runs (feat #1070, fix #1178 review). The transition has already applied.
              */
             metadata_warnings?: string[] | null;
-            /** Record Status */
-            record_status: string;
         };
         /**
          * SublayerOverride
@@ -12234,6 +12234,16 @@ export interface components {
          */
         SublayerOverride: {
             /**
+             * Stroke Color
+             * @description Stroke color in #RRGGBB hex format, or null to use the basemap default.
+             */
+            stroke_color?: string | null;
+            /**
+             * Stroke Width
+             * @description Stroke width in pixels (0-20), or null to use the basemap default.
+             */
+            stroke_width?: number | null;
+            /**
              * Casing Color
              * @description Casing color in #RRGGBB hex format, or null to use the basemap default.
              */
@@ -12244,30 +12254,20 @@ export interface components {
              */
             casing_width?: number | null;
             /**
-             * Max Zoom
-             * @description Maximum zoom level at which the sublayer is visible (0-24), or null for default.
-             */
-            max_zoom?: number | null;
-            /**
              * Min Zoom
              * @description Minimum zoom level at which the sublayer is visible (0-24), or null for default.
              */
             min_zoom?: number | null;
             /**
+             * Max Zoom
+             * @description Maximum zoom level at which the sublayer is visible (0-24), or null for default.
+             */
+            max_zoom?: number | null;
+            /**
              * Opacity
              * @description Per-sublayer opacity (0-1), or null to use the basemap default. Composes on top of BasemapConfig.opacity (the whole-basemap master opacity): the rendered opacity is override.opacity * master_opacity (builder-audit #338 CORR-01). The UI opacity slider in BasemapSublayerEditorScene persists through this field: MapBuilderPage.handleSublayerOpacityChange -> setBasemapSublayerOpacity -> updateBasemapSublayerOverride writes config.sublayer_overrides[key].opacity.
              */
             opacity?: number | null;
-            /**
-             * Stroke Color
-             * @description Stroke color in #RRGGBB hex format, or null to use the basemap default.
-             */
-            stroke_color?: string | null;
-            /**
-             * Stroke Width
-             * @description Stroke width in pixels (0-20), or null to use the basemap default.
-             */
-            stroke_width?: number | null;
         };
         /**
          * SummaryDraftResponse
@@ -12289,15 +12289,15 @@ export interface components {
              */
             dataset_id: string;
             /**
-             * Table Name
-             * @description Source PostgreSQL table that was registered.
-             */
-            table_name: string;
-            /**
              * Title
              * @description Title of the registered dataset.
              */
             title: string;
+            /**
+             * Table Name
+             * @description Source PostgreSQL table that was registered.
+             */
+            table_name: string;
         };
         /** TerrainConfig */
         TerrainConfig: {
@@ -12306,13 +12306,13 @@ export interface components {
              * @default false
              */
             enabled: boolean;
+            /** Source Dataset Id */
+            source_dataset_id?: string | null;
             /**
              * Exaggeration
              * @default 1
              */
             exaggeration: number;
-            /** Source Dataset Id */
-            source_dataset_id?: string | null;
         };
         /**
          * ThumbnailUploadRequest
@@ -12347,26 +12347,26 @@ export interface components {
              */
             cdn_base_url?: string | null;
             /**
-             * Mvt Source Layer Prefix
-             * @description Schema prefix emitted inside vector-tile source-layer names. Null when a multi-tenant request has no resolved tenant context.
-             * @default data
+             * Public App Url
+             * @description Browser-facing app URL used for share links and OAuth redirects.
              */
-            mvt_source_layer_prefix: string | null;
+            public_app_url?: string | null;
             /**
              * Public Api Url
              * @description Externally-reachable API base URL used in OGC self-links.
              */
             public_api_url?: string | null;
             /**
-             * Public App Url
-             * @description Browser-facing app URL used for share links and OAuth redirects.
-             */
-            public_app_url?: string | null;
-            /**
              * Public Base Url
              * @description Deprecated alias for public_api_url. Will be removed in a future release.
              */
             public_base_url?: string | null;
+            /**
+             * Mvt Source Layer Prefix
+             * @description Schema prefix emitted inside vector-tile source-layer names. Null when a multi-tenant request has no resolved tenant context.
+             * @default data
+             */
+            mvt_source_layer_prefix: string | null;
         };
         /**
          * TileTokenBatchRequest
@@ -12405,11 +12405,6 @@ export interface components {
              */
             access_token: string;
             /**
-             * Expires In
-             * @description Seconds until the access token expires
-             */
-            expires_in: number;
-            /**
              * Refresh Token
              * @description Opaque token used to obtain a new access token
              */
@@ -12419,66 +12414,71 @@ export interface components {
              * @default bearer
              */
             token_type: string;
+            /**
+             * Expires In
+             * @description Seconds until the access token expires
+             */
+            expires_in: number;
         };
         /** TranslationListResponse */
         TranslationListResponse: {
-            /** Total */
-            total: number;
             /** Translations */
             translations: components["schemas"]["TranslationResponse"][];
+            /** Total */
+            total: number;
         };
         /** TranslationResponse */
         TranslationResponse: {
-            /** Language */
-            language: string;
             /**
              * Record Id
              * Format: uuid
              */
             record_id: string;
-            /** Summary */
-            summary: string | null;
+            /** Language */
+            language: string;
             /** Title */
             title: string;
+            /** Summary */
+            summary: string | null;
         };
         /** TranslationUpsert */
         TranslationUpsert: {
-            /** Summary */
-            summary?: string | null;
             /** Title */
             title: string;
+            /** Summary */
+            summary?: string | null;
         };
         /** TypeChange */
         TypeChange: {
             /** Name */
             name: string;
-            /** New Type */
-            new_type: string;
             /** Old Type */
             old_type: string;
+            /** New Type */
+            new_type: string;
         };
         /** UploadConfigResponse */
         UploadConfigResponse: {
             /**
-             * Allowed Extensions
-             * @description Comma-separated list of allowed file extensions.
+             * Presigned Uploads
+             * @description Whether presigned S3 uploads are enabled (requires `STORAGE_PROVIDER=s3`).
              */
-            allowed_extensions: string;
-            /**
-             * Max File Size Bytes
-             * @description Maximum allowed upload size in bytes.
-             */
-            max_file_size_bytes: number;
+            presigned_uploads: boolean;
             /**
              * Presigned Threshold Bytes
              * @description File size threshold (bytes) above which multipart presigned URLs are used.
              */
             presigned_threshold_bytes: number;
             /**
-             * Presigned Uploads
-             * @description Whether presigned S3 uploads are enabled (requires `STORAGE_PROVIDER=s3`).
+             * Max File Size Bytes
+             * @description Maximum allowed upload size in bytes.
              */
-            presigned_uploads: boolean;
+            max_file_size_bytes: number;
+            /**
+             * Allowed Extensions
+             * @description Comma-separated list of allowed file extensions.
+             */
+            allowed_extensions: string;
             /**
              * Remaining Dataset Quota
              * @description Datasets the caller may still create before hitting the per-user count cap, or null when no count cap is configured (unlimited). Advisory UX hint only — the cap is enforced server-side at upload.
@@ -12494,25 +12494,25 @@ export interface components {
              */
             job_id: string;
             /**
-             * Message
-             * @description Human-readable message describing the upload result.
-             */
-            message: string;
-            /**
              * Status
              * @description Initial job status. Always 'pending' on creation.
              * @default pending
              */
             status: string;
+            /**
+             * Message
+             * @description Human-readable message describing the upload result.
+             */
+            message: string;
         };
         /** UserCreate */
         UserCreate: {
             /**
-             * Email
-             * @description Optional email address
-             * @example jdoe@example.com
+             * Username
+             * @description Unique login name
+             * @example jdoe
              */
-            email?: string | null;
+            username: string;
             /**
              * Password
              * @description Plaintext password (policy: min 12 chars, 3+ character classes)
@@ -12520,24 +12520,24 @@ export interface components {
              */
             password: string;
             /**
-             * Username
-             * @description Unique login name
-             * @example jdoe
+             * Email
+             * @description Optional email address
+             * @example jdoe@example.com
              */
-            username: string;
+            email?: string | null;
         };
         /** UserListResponse */
         UserListResponse: {
-            /**
-             * Total
-             * @description Total number of users matching the query (across all pages).
-             */
-            total: number;
             /**
              * Users
              * @description Page of users matching the query.
              */
             users: components["schemas"]["UserResponse"][];
+            /**
+             * Total
+             * @description Total number of users matching the query (across all pages).
+             */
+            total: number;
         };
         /** UserNameItem */
         UserNameItem: {
@@ -12560,46 +12560,46 @@ export interface components {
         UserQuotaUsage: {
             /** Bytes Used */
             bytes_used: number;
-            /** Count Cap */
-            count_cap: number;
             /** Dataset Count */
             dataset_count: number;
             /** Storage Cap */
             storage_cap: number;
+            /** Count Cap */
+            count_cap: number;
         };
         /** UserResponse */
         UserResponse: {
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Email */
-            email: string | null;
             /**
              * Id
              * Format: uuid
              */
             id: string;
+            /** Username */
+            username: string;
+            /** Email */
+            email: string | null;
             /** Is Active */
             is_active: boolean;
-            /** Last Login At */
-            last_login_at: string | null;
-            /** @description Per-user storage quota usage. Populated only on admin list responses; None when the caller did not load usage (e.g. /auth/me, single-user GET). */
-            quota_usage?: components["schemas"]["UserQuotaUsage"] | null;
-            /**
-             * Roles
-             * @description Assigned role names, e.g. ['admin', 'editor']
-             */
-            roles: string[];
             /**
              * Status
              * @description Account status: active, pending, suspended, or deactivated.
              * @enum {string}
              */
             status: "active" | "pending" | "suspended" | "deactivated";
-            /** Username */
-            username: string;
+            /** Last Login At */
+            last_login_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Roles
+             * @description Assigned role names, e.g. ['admin', 'editor']
+             */
+            roles: string[];
+            /** @description Per-user storage quota usage. Populated only on admin list responses; None when the caller did not load usage (e.g. /auth/me, single-user GET). */
+            quota_usage?: components["schemas"]["UserQuotaUsage"] | null;
         };
         /** UserUpdate */
         UserUpdate: {
@@ -12614,28 +12614,28 @@ export interface components {
              */
             is_active?: boolean | null;
             /**
-             * Role
-             * @description New role: 'admin', 'editor', or 'viewer'. Omit to leave unchanged.
-             */
-            role?: string | null;
-            /**
              * Status
              * @description Explicit account lifecycle state. Pending registrations must use the approve/reject endpoints.
              */
             status?: ("active" | "suspended" | "deactivated") | null;
+            /**
+             * Role
+             * @description New role: 'admin', 'editor', or 'viewer'. Omit to leave unchanged.
+             */
+            role?: string | null;
         };
         /** ValidationError */
         ValidationError: {
-            /** Context */
-            ctx?: Record<string, never>;
-            /** Input */
-            input?: unknown;
             /** Location */
             loc: (string | number)[];
             /** Message */
             msg: string;
             /** Error Type */
             type: string;
+            /** Input */
+            input?: unknown;
+            /** Context */
+            ctx?: Record<string, never>;
         };
         /** ValidationIssue */
         ValidationIssue: {
@@ -12651,32 +12651,32 @@ export interface components {
         };
         /** ValidationResultResponse */
         ValidationResultResponse: {
-            /** Errors */
-            errors: components["schemas"]["ValidationIssue"][];
             /** Is Valid */
             is_valid: boolean;
+            /** Errors */
+            errors: components["schemas"]["ValidationIssue"][];
+            /** Warnings */
+            warnings: components["schemas"]["ValidationIssue"][];
             /** Quality Score */
             quality_score?: {
                 [key: string]: unknown;
             } | null;
-            /** Warnings */
-            warnings: components["schemas"]["ValidationIssue"][];
         };
         /** VectorTileToken */
         VectorTileToken: {
-            /** Exp */
-            exp: number;
-            /** Expires In */
-            expires_in: number;
             /**
              * Kind
              * @constant
              */
             kind: "vector";
-            /** Scope */
-            scope: string;
             /** Sig */
             sig: string;
+            /** Exp */
+            exp: number;
+            /** Scope */
+            scope: string;
+            /** Expires In */
+            expires_in: number;
         };
         /** VerifyEmailRequest */
         VerifyEmailRequest: {
@@ -12689,20 +12689,18 @@ export interface components {
         /** VisibilityCheckResponse */
         VisibilityCheckResponse: {
             /**
-             * Has Non Public
-             * @description True if any layer references a non-public dataset
-             */
-            has_non_public: boolean;
-            /**
              * Non Public Datasets
              * @description Titles of datasets not publicly visible
              */
             non_public_datasets: string[];
+            /**
+             * Has Non Public
+             * @description True if any layer references a non-public dataset
+             */
+            has_non_public: boolean;
         };
         /** VrtActiveGeneration */
         VrtActiveGeneration: {
-            /** Elapsed Seconds */
-            elapsed_seconds: number;
             /**
              * Generation Id
              * Format: uuid
@@ -12713,6 +12711,8 @@ export interface components {
              * Format: date-time
              */
             started_at: string;
+            /** Elapsed Seconds */
+            elapsed_seconds: number;
         };
         /** VrtAddSourceRequest */
         VrtAddSourceRequest: {
@@ -12726,26 +12726,32 @@ export interface components {
         /** VrtCreateRequest */
         VrtCreateRequest: {
             /**
+             * Source Dataset Ids
+             * @description Source raster dataset IDs to include in the VRT mosaic or band stack (1-500).
+             */
+            source_dataset_ids: string[];
+            /**
+             * Vrt Type
+             * @description Type of VRT to create. 'mosaic' tiles sources spatially; 'band_stack' aligns same-extent sources as multi-band output.
+             * @enum {string}
+             */
+            vrt_type: "mosaic" | "band_stack";
+            /**
              * Resolution Strategy
              * @description How to resolve mismatched source resolutions: 'finest' uses the highest, 'coarsest' uses the lowest, 'average' computes the mean.
              * @enum {string}
              */
             resolution_strategy: "finest" | "coarsest" | "average";
             /**
-             * Source Dataset Ids
-             * @description Source raster dataset IDs to include in the VRT mosaic or band stack (1-500).
+             * Title
+             * @description Human-readable title for the resulting VRT dataset.
              */
-            source_dataset_ids: string[];
+            title: string;
             /**
              * Summary
              * @description Optional description for the VRT dataset.
              */
             summary?: string | null;
-            /**
-             * Title
-             * @description Human-readable title for the resulting VRT dataset.
-             */
-            title: string;
             /**
              * Visibility
              * @description Visibility level for the resulting VRT dataset.
@@ -12753,12 +12759,6 @@ export interface components {
              * @enum {string}
              */
             visibility: "private" | "restricted" | "internal" | "public";
-            /**
-             * Vrt Type
-             * @description Type of VRT to create. 'mosaic' tiles sources spatially; 'band_stack' aligns same-extent sources as multi-band output.
-             * @enum {string}
-             */
-            vrt_type: "mosaic" | "band_stack";
         };
         /** VrtCreateResponse */
         VrtCreateResponse: {
@@ -12769,36 +12769,36 @@ export interface components {
              */
             job_id: string;
             /**
-             * Message
-             * @description Human-readable acceptance message.
-             */
-            message: string;
-            /**
              * Status
              * @description Initial job status. Always 'accepted' on creation.
              * @default accepted
              */
             status: string;
+            /**
+             * Message
+             * @description Human-readable acceptance message.
+             */
+            message: string;
         };
         /** VrtGenerationItem */
         VrtGenerationItem: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Status */
+            status: string;
+            /** Started At */
+            started_at?: string | null;
             /** Completed At */
             completed_at?: string | null;
             /** Duration Seconds */
             duration_seconds?: number | null;
             /** Error Message */
             error_message?: string | null;
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
             /** Source Count */
             source_count?: number | null;
-            /** Started At */
-            started_at?: string | null;
-            /** Status */
-            status: string;
             /** Triggered By */
             triggered_by?: string | null;
         };
@@ -12818,16 +12818,16 @@ export interface components {
              */
             job_id: string;
             /**
-             * Message
-             * @description Human-readable acceptance message.
-             */
-            message: string;
-            /**
              * Status
              * @description Initial job status.
              * @default accepted
              */
             status: string;
+            /**
+             * Message
+             * @description Human-readable acceptance message.
+             */
+            message: string;
         };
         /** VrtSourceHealth */
         VrtSourceHealth: {
@@ -12836,35 +12836,35 @@ export interface components {
              * Format: uuid
              */
             dataset_id: string;
+            /** Title */
+            title: string;
             /**
              * Status
              * @enum {string}
              */
             status: "healthy" | "missing" | "inaccessible";
-            /** Title */
-            title: string;
         };
         /** VrtSourceItem */
         VrtSourceItem: {
-            /** Band Count */
-            band_count?: number | null;
-            /** Crs Epsg */
-            crs_epsg?: number | null;
             /**
              * Dataset Id
              * Format: uuid
              */
             dataset_id: string;
-            /** Extent Bbox */
-            extent_bbox?: number[] | null;
+            /** Title */
+            title: string;
             /** Position */
             position: number;
+            /** Band Count */
+            band_count?: number | null;
             /** Resolution X */
             resolution_x?: number | null;
             /** Resolution Y */
             resolution_y?: number | null;
-            /** Title */
-            title: string;
+            /** Crs Epsg */
+            crs_epsg?: number | null;
+            /** Extent Bbox */
+            extent_bbox?: number[] | null;
         };
         /** VrtSourceListResponse */
         VrtSourceListResponse: {
@@ -12873,18 +12873,18 @@ export interface components {
         };
         /** VrtStatusResponse */
         VrtStatusResponse: {
-            active_generation?: components["schemas"]["VrtActiveGeneration"] | null;
-            /** Last Generation At */
-            last_generation_at?: string | null;
-            /** Source Count */
-            source_count: number;
-            /** Source Health */
-            source_health: components["schemas"]["VrtSourceHealth"][];
             /**
              * Status
              * @enum {string}
              */
             status: "ready" | "regenerating" | "failed";
+            /** Last Generation At */
+            last_generation_at?: string | null;
+            /** Source Count */
+            source_count: number;
+            active_generation?: components["schemas"]["VrtActiveGeneration"] | null;
+            /** Source Health */
+            source_health: components["schemas"]["VrtSourceHealth"][];
         };
     };
     responses: never;
@@ -19891,6 +19891,28 @@ export interface operations {
                 content: {
                     "application/geo+json": {
                         /**
+                         * Type
+                         * @description GeoJSON object type.
+                         * @default FeatureCollection
+                         * @constant
+                         */
+                        type: "FeatureCollection";
+                        /**
+                         * Timestamp
+                         * @description ISO 8601 timestamp the response was generated.
+                         */
+                        timeStamp?: string;
+                        /**
+                         * Numbermatched
+                         * @description Total number of features matching the query (across all pages).
+                         */
+                        numberMatched: number;
+                        /**
+                         * Numberreturned
+                         * @description Number of features in this response page.
+                         */
+                        numberReturned: number;
+                        /**
                          * Features
                          * @description GeoJSON features returned by the query.
                          */
@@ -19913,38 +19935,16 @@ export interface operations {
                              */
                             rel: string;
                             /**
-                             * Title
-                             * @description Optional human-readable label for the link.
-                             */
-                            title?: string | null;
-                            /**
                              * Type
                              * @description Media type of the linked resource (e.g. 'application/json', 'application/geo+json').
                              */
                             type: string;
+                            /**
+                             * Title
+                             * @description Optional human-readable label for the link.
+                             */
+                            title?: string | null;
                         }[];
-                        /**
-                         * Numbermatched
-                         * @description Total number of features matching the query (across all pages).
-                         */
-                        numberMatched: number;
-                        /**
-                         * Numberreturned
-                         * @description Number of features in this response page.
-                         */
-                        numberReturned: number;
-                        /**
-                         * Timestamp
-                         * @description ISO 8601 timestamp the response was generated.
-                         */
-                        timeStamp?: string;
-                        /**
-                         * Type
-                         * @description GeoJSON object type.
-                         * @default FeatureCollection
-                         * @constant
-                         */
-                        type: "FeatureCollection";
                     };
                     "application/json": unknown;
                 };
@@ -20019,21 +20019,35 @@ export interface operations {
                 };
                 content: {
                     "application/geo+json": {
-                        /** @description GeoJSON geometry of the feature, or null for geometry-less features. */
-                        geometry: {
-                            /** Coordinates */
-                            coordinates: unknown[];
-                            /**
-                             * Type
-                             * @enum {string}
-                             */
-                            type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
-                        } | null;
+                        /**
+                         * Type
+                         * @description GeoJSON object type.
+                         * @default Feature
+                         * @constant
+                         */
+                        type: "Feature";
                         /**
                          * Id
                          * @description Feature identifier within the collection.
                          */
                         id: number;
+                        /** @description GeoJSON geometry of the feature, or null for geometry-less features. */
+                        geometry: {
+                            /**
+                             * Type
+                             * @enum {string}
+                             */
+                            type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+                            /** Coordinates */
+                            coordinates: unknown[];
+                        } | null;
+                        /**
+                         * Properties
+                         * @description Feature attributes as a JSON object.
+                         */
+                        properties: {
+                            [key: string]: unknown;
+                        } | null;
                         /**
                          * Links
                          * @description Self-reference and related-resource links.
@@ -20051,30 +20065,16 @@ export interface operations {
                              */
                             rel: string;
                             /**
-                             * Title
-                             * @description Optional human-readable label for the link.
-                             */
-                            title?: string | null;
-                            /**
                              * Type
                              * @description Media type of the linked resource (e.g. 'application/json', 'application/geo+json').
                              */
                             type: string;
+                            /**
+                             * Title
+                             * @description Optional human-readable label for the link.
+                             */
+                            title?: string | null;
                         }[];
-                        /**
-                         * Properties
-                         * @description Feature attributes as a JSON object.
-                         */
-                        properties: {
-                            [key: string]: unknown;
-                        } | null;
-                        /**
-                         * Type
-                         * @description GeoJSON object type.
-                         * @default Feature
-                         * @constant
-                         */
-                        type: "Feature";
                     };
                     "application/json": unknown;
                 };
@@ -23200,66 +23200,66 @@ export interface operations {
                 };
                 content: {
                     "application/geo+json": {
-                        /** Features */
-                        features: {
-                            /** Geometry */
-                            geometry?: {
-                                /** Geometries */
-                                geometries: {
-                                    /** Coordinates */
-                                    coordinates: unknown[];
-                                    /**
-                                     * Type
-                                     * @enum {string}
-                                     */
-                                    type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
-                                }[];
-                                /**
-                                 * Type
-                                 * @constant
-                                 */
-                                type: "GeometryCollection";
-                            } | {
-                                /** Coordinates */
-                                coordinates: unknown[];
-                                /**
-                                 * Type
-                                 * @enum {string}
-                                 */
-                                type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
-                            } | null;
-                            /** Id */
-                            id: number;
-                            /** Properties */
-                            properties: {
-                                [key: string]: unknown;
-                            };
-                            /**
-                             * Type
-                             * @default Feature
-                             * @constant
-                             */
-                            type: "Feature";
-                        }[];
-                        /** Links */
-                        links: {
-                            /** Href */
-                            href: string;
-                            /** Rel */
-                            rel: string;
-                            /** Type */
-                            type: string;
-                        }[];
-                        /** Numbermatched */
-                        numberMatched: number;
-                        /** Numberreturned */
-                        numberReturned: number;
                         /**
                          * Type
                          * @default FeatureCollection
                          * @constant
                          */
                         type: "FeatureCollection";
+                        /** Numbermatched */
+                        numberMatched: number;
+                        /** Numberreturned */
+                        numberReturned: number;
+                        /** Features */
+                        features: {
+                            /**
+                             * Type
+                             * @default Feature
+                             * @constant
+                             */
+                            type: "Feature";
+                            /** Id */
+                            id: number;
+                            /** Geometry */
+                            geometry?: {
+                                /**
+                                 * Type
+                                 * @constant
+                                 */
+                                type: "GeometryCollection";
+                                /** Geometries */
+                                geometries: {
+                                    /**
+                                     * Type
+                                     * @enum {string}
+                                     */
+                                    type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+                                    /** Coordinates */
+                                    coordinates: unknown[];
+                                }[];
+                            } | {
+                                /**
+                                 * Type
+                                 * @enum {string}
+                                 */
+                                type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+                                /** Coordinates */
+                                coordinates: unknown[];
+                            } | null;
+                            /** Properties */
+                            properties: {
+                                [key: string]: unknown;
+                            };
+                        }[];
+                        /** Links */
+                        links: {
+                            /** Rel */
+                            rel: string;
+                            /** Href */
+                            href: string;
+                            /** Type */
+                            type: string;
+                        }[];
                     };
                     "application/json": unknown;
                 };
@@ -23362,44 +23362,44 @@ export interface operations {
                 };
                 content: {
                     "application/geo+json": {
-                        /** Geometry */
-                        geometry?: {
-                            /** Geometries */
-                            geometries: {
-                                /** Coordinates */
-                                coordinates: unknown[];
-                                /**
-                                 * Type
-                                 * @enum {string}
-                                 */
-                                type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
-                            }[];
-                            /**
-                             * Type
-                             * @constant
-                             */
-                            type: "GeometryCollection";
-                        } | {
-                            /** Coordinates */
-                            coordinates: unknown[];
-                            /**
-                             * Type
-                             * @enum {string}
-                             */
-                            type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
-                        } | null;
-                        /** Id */
-                        id: number;
-                        /** Properties */
-                        properties: {
-                            [key: string]: unknown;
-                        };
                         /**
                          * Type
                          * @default Feature
                          * @constant
                          */
                         type: "Feature";
+                        /** Id */
+                        id: number;
+                        /** Geometry */
+                        geometry?: {
+                            /**
+                             * Type
+                             * @constant
+                             */
+                            type: "GeometryCollection";
+                            /** Geometries */
+                            geometries: {
+                                /**
+                                 * Type
+                                 * @enum {string}
+                                 */
+                                type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+                                /** Coordinates */
+                                coordinates: unknown[];
+                            }[];
+                        } | {
+                            /**
+                             * Type
+                             * @enum {string}
+                             */
+                            type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+                            /** Coordinates */
+                            coordinates: unknown[];
+                        } | null;
+                        /** Properties */
+                        properties: {
+                            [key: string]: unknown;
+                        };
                     };
                     "application/json": unknown;
                 };
@@ -23508,44 +23508,44 @@ export interface operations {
                 };
                 content: {
                     "application/geo+json": {
-                        /** Geometry */
-                        geometry?: {
-                            /** Geometries */
-                            geometries: {
-                                /** Coordinates */
-                                coordinates: unknown[];
-                                /**
-                                 * Type
-                                 * @enum {string}
-                                 */
-                                type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
-                            }[];
-                            /**
-                             * Type
-                             * @constant
-                             */
-                            type: "GeometryCollection";
-                        } | {
-                            /** Coordinates */
-                            coordinates: unknown[];
-                            /**
-                             * Type
-                             * @enum {string}
-                             */
-                            type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
-                        } | null;
-                        /** Id */
-                        id: number;
-                        /** Properties */
-                        properties: {
-                            [key: string]: unknown;
-                        };
                         /**
                          * Type
                          * @default Feature
                          * @constant
                          */
                         type: "Feature";
+                        /** Id */
+                        id: number;
+                        /** Geometry */
+                        geometry?: {
+                            /**
+                             * Type
+                             * @constant
+                             */
+                            type: "GeometryCollection";
+                            /** Geometries */
+                            geometries: {
+                                /**
+                                 * Type
+                                 * @enum {string}
+                                 */
+                                type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+                                /** Coordinates */
+                                coordinates: unknown[];
+                            }[];
+                        } | {
+                            /**
+                             * Type
+                             * @enum {string}
+                             */
+                            type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+                            /** Coordinates */
+                            coordinates: unknown[];
+                        } | null;
+                        /** Properties */
+                        properties: {
+                            [key: string]: unknown;
+                        };
                     };
                     "application/json": unknown;
                 };
@@ -23649,44 +23649,44 @@ export interface operations {
                 };
                 content: {
                     "application/geo+json": {
-                        /** Geometry */
-                        geometry?: {
-                            /** Geometries */
-                            geometries: {
-                                /** Coordinates */
-                                coordinates: unknown[];
-                                /**
-                                 * Type
-                                 * @enum {string}
-                                 */
-                                type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
-                            }[];
-                            /**
-                             * Type
-                             * @constant
-                             */
-                            type: "GeometryCollection";
-                        } | {
-                            /** Coordinates */
-                            coordinates: unknown[];
-                            /**
-                             * Type
-                             * @enum {string}
-                             */
-                            type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
-                        } | null;
-                        /** Id */
-                        id: number;
-                        /** Properties */
-                        properties: {
-                            [key: string]: unknown;
-                        };
                         /**
                          * Type
                          * @default Feature
                          * @constant
                          */
                         type: "Feature";
+                        /** Id */
+                        id: number;
+                        /** Geometry */
+                        geometry?: {
+                            /**
+                             * Type
+                             * @constant
+                             */
+                            type: "GeometryCollection";
+                            /** Geometries */
+                            geometries: {
+                                /**
+                                 * Type
+                                 * @enum {string}
+                                 */
+                                type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+                                /** Coordinates */
+                                coordinates: unknown[];
+                            }[];
+                        } | {
+                            /**
+                             * Type
+                             * @enum {string}
+                             */
+                            type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+                            /** Coordinates */
+                            coordinates: unknown[];
+                        } | null;
+                        /** Properties */
+                        properties: {
+                            [key: string]: unknown;
+                        };
                     };
                     "application/json": unknown;
                 };
@@ -23903,44 +23903,44 @@ export interface operations {
                 };
                 content: {
                     "application/geo+json": {
-                        /** Geometry */
-                        geometry?: {
-                            /** Geometries */
-                            geometries: {
-                                /** Coordinates */
-                                coordinates: unknown[];
-                                /**
-                                 * Type
-                                 * @enum {string}
-                                 */
-                                type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
-                            }[];
-                            /**
-                             * Type
-                             * @constant
-                             */
-                            type: "GeometryCollection";
-                        } | {
-                            /** Coordinates */
-                            coordinates: unknown[];
-                            /**
-                             * Type
-                             * @enum {string}
-                             */
-                            type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
-                        } | null;
-                        /** Id */
-                        id: number;
-                        /** Properties */
-                        properties: {
-                            [key: string]: unknown;
-                        };
                         /**
                          * Type
                          * @default Feature
                          * @constant
                          */
                         type: "Feature";
+                        /** Id */
+                        id: number;
+                        /** Geometry */
+                        geometry?: {
+                            /**
+                             * Type
+                             * @constant
+                             */
+                            type: "GeometryCollection";
+                            /** Geometries */
+                            geometries: {
+                                /**
+                                 * Type
+                                 * @enum {string}
+                                 */
+                                type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+                                /** Coordinates */
+                                coordinates: unknown[];
+                            }[];
+                        } | {
+                            /**
+                             * Type
+                             * @enum {string}
+                             */
+                            type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+                            /** Coordinates */
+                            coordinates: unknown[];
+                        } | null;
+                        /** Properties */
+                        properties: {
+                            [key: string]: unknown;
+                        };
                     };
                     "application/json": unknown;
                 };

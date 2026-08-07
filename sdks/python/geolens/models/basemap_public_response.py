@@ -19,32 +19,32 @@ class BasemapPublicResponse:
     """Public basemap response — excludes api_key.
 
     Attributes:
-        enabled (bool): Whether the basemap is currently selectable.
         id (str): Unique basemap identifier.
-        is_preset (bool): Whether this is a built-in preset.
         label (str): Display label.
         url (str): Tile URL or style JSON URL with API key already substituted (or omitted) for client use.
+        enabled (bool): Whether the basemap is currently selectable.
+        is_preset (bool): Whether this is a built-in preset.
         attribution (None | str | Unset): Attribution string for the basemap source.
     """
 
-    enabled: bool
     id: str
-    is_preset: bool
     label: str
     url: str
+    enabled: bool
+    is_preset: bool
     attribution: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        enabled = self.enabled
-
         id = self.id
-
-        is_preset = self.is_preset
 
         label = self.label
 
         url = self.url
+
+        enabled = self.enabled
+
+        is_preset = self.is_preset
 
         attribution: None | str | Unset
         if isinstance(self.attribution, Unset):
@@ -56,11 +56,11 @@ class BasemapPublicResponse:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "enabled": enabled,
                 "id": id,
-                "is_preset": is_preset,
                 "label": label,
                 "url": url,
+                "enabled": enabled,
+                "is_preset": is_preset,
             }
         )
         if attribution is not UNSET:
@@ -71,15 +71,15 @@ class BasemapPublicResponse:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        enabled = d.pop("enabled")
-
         id = d.pop("id")
-
-        is_preset = d.pop("is_preset")
 
         label = d.pop("label")
 
         url = d.pop("url")
+
+        enabled = d.pop("enabled")
+
+        is_preset = d.pop("is_preset")
 
         def _parse_attribution(data: object) -> None | str | Unset:
             if data is None:
@@ -91,11 +91,11 @@ class BasemapPublicResponse:
         attribution = _parse_attribution(d.pop("attribution", UNSET))
 
         basemap_public_response = cls(
-            enabled=enabled,
             id=id,
-            is_preset=is_preset,
             label=label,
             url=url,
+            enabled=enabled,
+            is_preset=is_preset,
             attribution=attribution,
         )
 

@@ -21,21 +21,21 @@ class DistributionCreate:
         distribution_type (str): e.g. download, api, ogc_wms, ogc_wfs
         format_ (str): File or service format, e.g. GeoJSON, SHP, WMS
         url (str): Access URL for this distribution
-        description (None | str | Unset):
-        is_primary (bool | Unset): Mark as the preferred distribution Default: False.
-        media_type (None | str | Unset): IANA media type, e.g. application/geo+json
-        protocol (None | str | Unset): Transfer protocol, e.g. HTTPS, OGC:WFS
         title (None | str | Unset):
+        description (None | str | Unset):
+        protocol (None | str | Unset): Transfer protocol, e.g. HTTPS, OGC:WFS
+        media_type (None | str | Unset): IANA media type, e.g. application/geo+json
+        is_primary (bool | Unset): Mark as the preferred distribution Default: False.
     """
 
     distribution_type: str
     format_: str
     url: str
-    description: None | str | Unset = UNSET
-    is_primary: bool | Unset = False
-    media_type: None | str | Unset = UNSET
-    protocol: None | str | Unset = UNSET
     title: None | str | Unset = UNSET
+    description: None | str | Unset = UNSET
+    protocol: None | str | Unset = UNSET
+    media_type: None | str | Unset = UNSET
+    is_primary: bool | Unset = False
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -45,19 +45,17 @@ class DistributionCreate:
 
         url = self.url
 
+        title: None | str | Unset
+        if isinstance(self.title, Unset):
+            title = UNSET
+        else:
+            title = self.title
+
         description: None | str | Unset
         if isinstance(self.description, Unset):
             description = UNSET
         else:
             description = self.description
-
-        is_primary = self.is_primary
-
-        media_type: None | str | Unset
-        if isinstance(self.media_type, Unset):
-            media_type = UNSET
-        else:
-            media_type = self.media_type
 
         protocol: None | str | Unset
         if isinstance(self.protocol, Unset):
@@ -65,11 +63,13 @@ class DistributionCreate:
         else:
             protocol = self.protocol
 
-        title: None | str | Unset
-        if isinstance(self.title, Unset):
-            title = UNSET
+        media_type: None | str | Unset
+        if isinstance(self.media_type, Unset):
+            media_type = UNSET
         else:
-            title = self.title
+            media_type = self.media_type
+
+        is_primary = self.is_primary
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -80,16 +80,16 @@ class DistributionCreate:
                 "url": url,
             }
         )
-        if description is not UNSET:
-            field_dict["description"] = description
-        if is_primary is not UNSET:
-            field_dict["is_primary"] = is_primary
-        if media_type is not UNSET:
-            field_dict["media_type"] = media_type
-        if protocol is not UNSET:
-            field_dict["protocol"] = protocol
         if title is not UNSET:
             field_dict["title"] = title
+        if description is not UNSET:
+            field_dict["description"] = description
+        if protocol is not UNSET:
+            field_dict["protocol"] = protocol
+        if media_type is not UNSET:
+            field_dict["media_type"] = media_type
+        if is_primary is not UNSET:
+            field_dict["is_primary"] = is_primary
 
         return field_dict
 
@@ -102,6 +102,15 @@ class DistributionCreate:
 
         url = d.pop("url")
 
+        def _parse_title(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        title = _parse_title(d.pop("title", UNSET))
+
         def _parse_description(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -110,17 +119,6 @@ class DistributionCreate:
             return cast(None | str | Unset, data)
 
         description = _parse_description(d.pop("description", UNSET))
-
-        is_primary = d.pop("is_primary", UNSET)
-
-        def _parse_media_type(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        media_type = _parse_media_type(d.pop("media_type", UNSET))
 
         def _parse_protocol(data: object) -> None | str | Unset:
             if data is None:
@@ -131,24 +129,26 @@ class DistributionCreate:
 
         protocol = _parse_protocol(d.pop("protocol", UNSET))
 
-        def _parse_title(data: object) -> None | str | Unset:
+        def _parse_media_type(data: object) -> None | str | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
                 return data
             return cast(None | str | Unset, data)
 
-        title = _parse_title(d.pop("title", UNSET))
+        media_type = _parse_media_type(d.pop("media_type", UNSET))
+
+        is_primary = d.pop("is_primary", UNSET)
 
         distribution_create = cls(
             distribution_type=distribution_type,
             format_=format_,
             url=url,
-            description=description,
-            is_primary=is_primary,
-            media_type=media_type,
-            protocol=protocol,
             title=title,
+            description=description,
+            protocol=protocol,
+            media_type=media_type,
+            is_primary=is_primary,
         )
 
         distribution_create.additional_properties = d

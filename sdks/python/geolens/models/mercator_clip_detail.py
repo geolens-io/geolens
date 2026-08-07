@@ -25,19 +25,19 @@ class MercatorClipDetail:
     reduced form.
 
         Attributes:
-            clipped_features (int):
             dropped_features (int):
+            clipped_features (int):
             clip_skipped (bool | Unset):  Default: False.
     """
 
-    clipped_features: int
     dropped_features: int
+    clipped_features: int
     clip_skipped: bool | Unset = False
 
     def to_dict(self) -> dict[str, Any]:
-        clipped_features = self.clipped_features
-
         dropped_features = self.dropped_features
+
+        clipped_features = self.clipped_features
 
         clip_skipped = self.clip_skipped
 
@@ -45,8 +45,8 @@ class MercatorClipDetail:
 
         field_dict.update(
             {
-                "clipped_features": clipped_features,
                 "dropped_features": dropped_features,
+                "clipped_features": clipped_features,
             }
         )
         if clip_skipped is not UNSET:
@@ -57,15 +57,15 @@ class MercatorClipDetail:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        clipped_features = d.pop("clipped_features")
-
         dropped_features = d.pop("dropped_features")
+
+        clipped_features = d.pop("clipped_features")
 
         clip_skipped = d.pop("clip_skipped", UNSET)
 
         mercator_clip_detail = cls(
-            clipped_features=clipped_features,
             dropped_features=dropped_features,
+            clipped_features=clipped_features,
             clip_skipped=clip_skipped,
         )
 

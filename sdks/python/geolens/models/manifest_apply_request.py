@@ -22,18 +22,20 @@ T = TypeVar("T", bound="ManifestApplyRequest")
 class ManifestApplyRequest:
     """
     Attributes:
+        manifest_version (Literal['1']):
         catalog (ManifestCatalog):
         datasets (list[ManifestDataset]):
-        manifest_version (Literal['1']):
         dry_run (bool | Unset):  Default: False.
     """
 
+    manifest_version: Literal["1"]
     catalog: ManifestCatalog
     datasets: list[ManifestDataset]
-    manifest_version: Literal["1"]
     dry_run: bool | Unset = False
 
     def to_dict(self) -> dict[str, Any]:
+        manifest_version = self.manifest_version
+
         catalog = self.catalog.to_dict()
 
         datasets = []
@@ -41,17 +43,15 @@ class ManifestApplyRequest:
             datasets_item = datasets_item_data.to_dict()
             datasets.append(datasets_item)
 
-        manifest_version = self.manifest_version
-
         dry_run = self.dry_run
 
         field_dict: dict[str, Any] = {}
 
         field_dict.update(
             {
+                "manifest_version": manifest_version,
                 "catalog": catalog,
                 "datasets": datasets,
-                "manifest_version": manifest_version,
             }
         )
         if dry_run is not UNSET:
@@ -65,6 +65,12 @@ class ManifestApplyRequest:
         from ..models.manifest_dataset import ManifestDataset
 
         d = dict(src_dict)
+        manifest_version = cast(Literal["1"], d.pop("manifest_version"))
+        if manifest_version != "1":
+            raise ValueError(
+                f"manifest_version must match const '1', got '{manifest_version}'"
+            )
+
         catalog = ManifestCatalog.from_dict(d.pop("catalog"))
 
         datasets = []
@@ -74,18 +80,12 @@ class ManifestApplyRequest:
 
             datasets.append(datasets_item)
 
-        manifest_version = cast(Literal["1"], d.pop("manifest_version"))
-        if manifest_version != "1":
-            raise ValueError(
-                f"manifest_version must match const '1', got '{manifest_version}'"
-            )
-
         dry_run = d.pop("dry_run", UNSET)
 
         manifest_apply_request = cls(
+            manifest_version=manifest_version,
             catalog=catalog,
             datasets=datasets,
-            manifest_version=manifest_version,
             dry_run=dry_run,
         )
 

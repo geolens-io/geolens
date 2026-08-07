@@ -18,38 +18,38 @@ T = TypeVar("T", bound="StacImportResponse")
 class StacImportResponse:
     """
     Attributes:
-        created (int): Number of datasets created.
-        errors (int): Number of items that failed.
         results (list[StacImportResult]): Per-item import results.
+        created (int): Number of datasets created.
         skipped (int): Number of items skipped (duplicates).
+        errors (int): Number of items that failed.
     """
 
-    created: int
-    errors: int
     results: list[StacImportResult]
+    created: int
     skipped: int
+    errors: int
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        created = self.created
-
-        errors = self.errors
-
         results = []
         for results_item_data in self.results:
             results_item = results_item_data.to_dict()
             results.append(results_item)
 
+        created = self.created
+
         skipped = self.skipped
+
+        errors = self.errors
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "created": created,
-                "errors": errors,
                 "results": results,
+                "created": created,
                 "skipped": skipped,
+                "errors": errors,
             }
         )
 
@@ -60,10 +60,6 @@ class StacImportResponse:
         from ..models.stac_import_result import StacImportResult
 
         d = dict(src_dict)
-        created = d.pop("created")
-
-        errors = d.pop("errors")
-
         results = []
         _results = d.pop("results")
         for results_item_data in _results:
@@ -71,13 +67,17 @@ class StacImportResponse:
 
             results.append(results_item)
 
+        created = d.pop("created")
+
         skipped = d.pop("skipped")
 
+        errors = d.pop("errors")
+
         stac_import_response = cls(
-            created=created,
-            errors=errors,
             results=results,
+            created=created,
             skipped=skipped,
+            errors=errors,
         )
 
         stac_import_response.additional_properties = d

@@ -23,25 +23,25 @@ T = TypeVar("T", bound="ContactResponse")
 class ContactResponse:
     """
     Attributes:
-        email (None | str):
-        extra_json (ContactResponseExtraJsonType0 | None):
         id (UUID):
-        name (None | str):
-        organization (None | str):
-        phone (None | str):
         record_id (UUID):
         role (str):
+        name (None | str):
+        email (None | str):
+        organization (None | str):
+        phone (None | str):
+        extra_json (ContactResponseExtraJsonType0 | None):
         sort_order (int):
     """
 
-    email: None | str
-    extra_json: ContactResponseExtraJsonType0 | None
     id: UUID
-    name: None | str
-    organization: None | str
-    phone: None | str
     record_id: UUID
     role: str
+    name: None | str
+    email: None | str
+    organization: None | str
+    phone: None | str
+    extra_json: ContactResponseExtraJsonType0 | None
     sort_order: int
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -50,19 +50,17 @@ class ContactResponse:
             ContactResponseExtraJsonType0,
         )
 
-        email: None | str
-        email = self.email
-
-        extra_json: dict[str, Any] | None
-        if isinstance(self.extra_json, ContactResponseExtraJsonType0):
-            extra_json = self.extra_json.to_dict()
-        else:
-            extra_json = self.extra_json
-
         id = str(self.id)
+
+        record_id = str(self.record_id)
+
+        role = self.role
 
         name: None | str
         name = self.name
+
+        email: None | str
+        email = self.email
 
         organization: None | str
         organization = self.organization
@@ -70,9 +68,11 @@ class ContactResponse:
         phone: None | str
         phone = self.phone
 
-        record_id = str(self.record_id)
-
-        role = self.role
+        extra_json: dict[str, Any] | None
+        if isinstance(self.extra_json, ContactResponseExtraJsonType0):
+            extra_json = self.extra_json.to_dict()
+        else:
+            extra_json = self.extra_json
 
         sort_order = self.sort_order
 
@@ -80,14 +80,14 @@ class ContactResponse:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "email": email,
-                "extra_json": extra_json,
                 "id": id,
-                "name": name,
-                "organization": organization,
-                "phone": phone,
                 "record_id": record_id,
                 "role": role,
+                "name": name,
+                "email": email,
+                "organization": organization,
+                "phone": phone,
+                "extra_json": extra_json,
                 "sort_order": sort_order,
             }
         )
@@ -101,6 +101,18 @@ class ContactResponse:
         )
 
         d = dict(src_dict)
+        id = UUID(d.pop("id"))
+
+        record_id = UUID(d.pop("record_id"))
+
+        role = d.pop("role")
+
+        def _parse_name(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        name = _parse_name(d.pop("name"))
 
         def _parse_email(data: object) -> None | str:
             if data is None:
@@ -108,6 +120,20 @@ class ContactResponse:
             return cast(None | str, data)
 
         email = _parse_email(d.pop("email"))
+
+        def _parse_organization(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        organization = _parse_organization(d.pop("organization"))
+
+        def _parse_phone(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        phone = _parse_phone(d.pop("phone"))
 
         def _parse_extra_json(data: object) -> ContactResponseExtraJsonType0 | None:
             if data is None:
@@ -124,44 +150,17 @@ class ContactResponse:
 
         extra_json = _parse_extra_json(d.pop("extra_json"))
 
-        id = UUID(d.pop("id"))
-
-        def _parse_name(data: object) -> None | str:
-            if data is None:
-                return data
-            return cast(None | str, data)
-
-        name = _parse_name(d.pop("name"))
-
-        def _parse_organization(data: object) -> None | str:
-            if data is None:
-                return data
-            return cast(None | str, data)
-
-        organization = _parse_organization(d.pop("organization"))
-
-        def _parse_phone(data: object) -> None | str:
-            if data is None:
-                return data
-            return cast(None | str, data)
-
-        phone = _parse_phone(d.pop("phone"))
-
-        record_id = UUID(d.pop("record_id"))
-
-        role = d.pop("role")
-
         sort_order = d.pop("sort_order")
 
         contact_response = cls(
-            email=email,
-            extra_json=extra_json,
             id=id,
-            name=name,
-            organization=organization,
-            phone=phone,
             record_id=record_id,
             role=role,
+            name=name,
+            email=email,
+            organization=organization,
+            phone=phone,
+            extra_json=extra_json,
             sort_order=sort_order,
         )
 

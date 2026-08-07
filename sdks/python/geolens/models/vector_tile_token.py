@@ -17,40 +17,40 @@ T = TypeVar("T", bound="VectorTileToken")
 class VectorTileToken:
     """
     Attributes:
-        exp (int):
-        expires_in (int):
         kind (Literal['vector']):
-        scope (str):
         sig (str):
+        exp (int):
+        scope (str):
+        expires_in (int):
     """
 
-    exp: int
-    expires_in: int
     kind: Literal["vector"]
-    scope: str
     sig: str
+    exp: int
+    scope: str
+    expires_in: int
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        exp = self.exp
-
-        expires_in = self.expires_in
-
         kind = self.kind
+
+        sig = self.sig
+
+        exp = self.exp
 
         scope = self.scope
 
-        sig = self.sig
+        expires_in = self.expires_in
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "exp": exp,
-                "expires_in": expires_in,
                 "kind": kind,
-                "scope": scope,
                 "sig": sig,
+                "exp": exp,
+                "scope": scope,
+                "expires_in": expires_in,
             }
         )
 
@@ -59,24 +59,24 @@ class VectorTileToken:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        exp = d.pop("exp")
-
-        expires_in = d.pop("expires_in")
-
         kind = cast(Literal["vector"], d.pop("kind"))
         if kind != "vector":
             raise ValueError(f"kind must match const 'vector', got '{kind}'")
 
-        scope = d.pop("scope")
-
         sig = d.pop("sig")
 
+        exp = d.pop("exp")
+
+        scope = d.pop("scope")
+
+        expires_in = d.pop("expires_in")
+
         vector_tile_token = cls(
-            exp=exp,
-            expires_in=expires_in,
             kind=kind,
-            scope=scope,
             sig=sig,
+            exp=exp,
+            scope=scope,
+            expires_in=expires_in,
         )
 
         vector_tile_token.additional_properties = d

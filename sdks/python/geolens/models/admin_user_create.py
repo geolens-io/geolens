@@ -18,23 +18,23 @@ T = TypeVar("T", bound="AdminUserCreate")
 class AdminUserCreate:
     """
     Attributes:
+        username (str): Login username (3-150 chars). Must be unique across the system.
         password (str): Initial password (policy: min 12 chars, 3+ character classes). The user can change this after
             first login.
-        username (str): Login username (3-150 chars). Must be unique across the system.
         email (None | str | Unset): Optional email address. Used for OAuth account linking and notifications.
         role (str | Unset): User role: 'admin', 'editor', or 'viewer'. Defaults to 'viewer'. Default: 'viewer'.
     """
 
-    password: str
     username: str
+    password: str
     email: None | str | Unset = UNSET
     role: str | Unset = "viewer"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        password = self.password
-
         username = self.username
+
+        password = self.password
 
         email: None | str | Unset
         if isinstance(self.email, Unset):
@@ -48,8 +48,8 @@ class AdminUserCreate:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "password": password,
                 "username": username,
+                "password": password,
             }
         )
         if email is not UNSET:
@@ -62,9 +62,9 @@ class AdminUserCreate:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        password = d.pop("password")
-
         username = d.pop("username")
+
+        password = d.pop("password")
 
         def _parse_email(data: object) -> None | str | Unset:
             if data is None:
@@ -78,8 +78,8 @@ class AdminUserCreate:
         role = d.pop("role", UNSET)
 
         admin_user_create = cls(
-            password=password,
             username=username,
+            password=password,
             email=email,
             role=role,
         )

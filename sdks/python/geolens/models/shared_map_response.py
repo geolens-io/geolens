@@ -23,63 +23,65 @@ T = TypeVar("T", bound="SharedMapResponse")
 class SharedMapResponse:
     """
     Attributes:
-        basemap_style (str):
-        bearing (float):
-        center_lat (float):
-        center_lng (float):
-        description (None | str):
-        layers (list[SharedLayerResponse]):
         name (str):
-        pitch (float):
+        description (None | str):
+        center_lng (float):
+        center_lat (float):
         zoom (float):
+        bearing (float):
+        pitch (float):
+        basemap_style (str):
+        layers (list[SharedLayerResponse]):
+        show_basemap_labels (bool | Unset):  Default: True.
         basemap_config (BasemapConfig | None | Unset):
+        terrain_config (None | TerrainConfig | Unset):
         has_non_public_layers (bool | Unset):  Default: False.
         legend_title (None | str | Unset):
-        show_basemap_labels (bool | Unset):  Default: True.
-        terrain_config (None | TerrainConfig | Unset):
     """
 
-    basemap_style: str
-    bearing: float
-    center_lat: float
-    center_lng: float
-    description: None | str
-    layers: list[SharedLayerResponse]
     name: str
-    pitch: float
+    description: None | str
+    center_lng: float
+    center_lat: float
     zoom: float
+    bearing: float
+    pitch: float
+    basemap_style: str
+    layers: list[SharedLayerResponse]
+    show_basemap_labels: bool | Unset = True
     basemap_config: BasemapConfig | None | Unset = UNSET
+    terrain_config: None | TerrainConfig | Unset = UNSET
     has_non_public_layers: bool | Unset = False
     legend_title: None | str | Unset = UNSET
-    show_basemap_labels: bool | Unset = True
-    terrain_config: None | TerrainConfig | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.basemap_config import BasemapConfig
         from ..models.terrain_config import TerrainConfig
 
-        basemap_style = self.basemap_style
-
-        bearing = self.bearing
-
-        center_lat = self.center_lat
-
-        center_lng = self.center_lng
+        name = self.name
 
         description: None | str
         description = self.description
+
+        center_lng = self.center_lng
+
+        center_lat = self.center_lat
+
+        zoom = self.zoom
+
+        bearing = self.bearing
+
+        pitch = self.pitch
+
+        basemap_style = self.basemap_style
 
         layers = []
         for layers_item_data in self.layers:
             layers_item = layers_item_data.to_dict()
             layers.append(layers_item)
 
-        name = self.name
-
-        pitch = self.pitch
-
-        zoom = self.zoom
+        show_basemap_labels = self.show_basemap_labels
 
         basemap_config: dict[str, Any] | None | Unset
         if isinstance(self.basemap_config, Unset):
@@ -89,16 +91,6 @@ class SharedMapResponse:
         else:
             basemap_config = self.basemap_config
 
-        has_non_public_layers = self.has_non_public_layers
-
-        legend_title: None | str | Unset
-        if isinstance(self.legend_title, Unset):
-            legend_title = UNSET
-        else:
-            legend_title = self.legend_title
-
-        show_basemap_labels = self.show_basemap_labels
-
         terrain_config: dict[str, Any] | None | Unset
         if isinstance(self.terrain_config, Unset):
             terrain_config = UNSET
@@ -107,31 +99,39 @@ class SharedMapResponse:
         else:
             terrain_config = self.terrain_config
 
+        has_non_public_layers = self.has_non_public_layers
+
+        legend_title: None | str | Unset
+        if isinstance(self.legend_title, Unset):
+            legend_title = UNSET
+        else:
+            legend_title = self.legend_title
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "basemap_style": basemap_style,
-                "bearing": bearing,
-                "center_lat": center_lat,
-                "center_lng": center_lng,
-                "description": description,
-                "layers": layers,
                 "name": name,
-                "pitch": pitch,
+                "description": description,
+                "center_lng": center_lng,
+                "center_lat": center_lat,
                 "zoom": zoom,
+                "bearing": bearing,
+                "pitch": pitch,
+                "basemap_style": basemap_style,
+                "layers": layers,
             }
         )
+        if show_basemap_labels is not UNSET:
+            field_dict["show_basemap_labels"] = show_basemap_labels
         if basemap_config is not UNSET:
             field_dict["basemap_config"] = basemap_config
+        if terrain_config is not UNSET:
+            field_dict["terrain_config"] = terrain_config
         if has_non_public_layers is not UNSET:
             field_dict["has_non_public_layers"] = has_non_public_layers
         if legend_title is not UNSET:
             field_dict["legend_title"] = legend_title
-        if show_basemap_labels is not UNSET:
-            field_dict["show_basemap_labels"] = show_basemap_labels
-        if terrain_config is not UNSET:
-            field_dict["terrain_config"] = terrain_config
 
         return field_dict
 
@@ -142,13 +142,7 @@ class SharedMapResponse:
         from ..models.terrain_config import TerrainConfig
 
         d = dict(src_dict)
-        basemap_style = d.pop("basemap_style")
-
-        bearing = d.pop("bearing")
-
-        center_lat = d.pop("center_lat")
-
-        center_lng = d.pop("center_lng")
+        name = d.pop("name")
 
         def _parse_description(data: object) -> None | str:
             if data is None:
@@ -157,6 +151,18 @@ class SharedMapResponse:
 
         description = _parse_description(d.pop("description"))
 
+        center_lng = d.pop("center_lng")
+
+        center_lat = d.pop("center_lat")
+
+        zoom = d.pop("zoom")
+
+        bearing = d.pop("bearing")
+
+        pitch = d.pop("pitch")
+
+        basemap_style = d.pop("basemap_style")
+
         layers = []
         _layers = d.pop("layers")
         for layers_item_data in _layers:
@@ -164,11 +170,7 @@ class SharedMapResponse:
 
             layers.append(layers_item)
 
-        name = d.pop("name")
-
-        pitch = d.pop("pitch")
-
-        zoom = d.pop("zoom")
+        show_basemap_labels = d.pop("show_basemap_labels", UNSET)
 
         def _parse_basemap_config(data: object) -> BasemapConfig | None | Unset:
             if data is None:
@@ -187,19 +189,6 @@ class SharedMapResponse:
 
         basemap_config = _parse_basemap_config(d.pop("basemap_config", UNSET))
 
-        has_non_public_layers = d.pop("has_non_public_layers", UNSET)
-
-        def _parse_legend_title(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        legend_title = _parse_legend_title(d.pop("legend_title", UNSET))
-
-        show_basemap_labels = d.pop("show_basemap_labels", UNSET)
-
         def _parse_terrain_config(data: object) -> None | TerrainConfig | Unset:
             if data is None:
                 return data
@@ -217,21 +206,32 @@ class SharedMapResponse:
 
         terrain_config = _parse_terrain_config(d.pop("terrain_config", UNSET))
 
+        has_non_public_layers = d.pop("has_non_public_layers", UNSET)
+
+        def _parse_legend_title(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        legend_title = _parse_legend_title(d.pop("legend_title", UNSET))
+
         shared_map_response = cls(
-            basemap_style=basemap_style,
-            bearing=bearing,
-            center_lat=center_lat,
-            center_lng=center_lng,
-            description=description,
-            layers=layers,
             name=name,
-            pitch=pitch,
+            description=description,
+            center_lng=center_lng,
+            center_lat=center_lat,
             zoom=zoom,
+            bearing=bearing,
+            pitch=pitch,
+            basemap_style=basemap_style,
+            layers=layers,
+            show_basemap_labels=show_basemap_labels,
             basemap_config=basemap_config,
+            terrain_config=terrain_config,
             has_non_public_layers=has_non_public_layers,
             legend_title=legend_title,
-            show_basemap_labels=show_basemap_labels,
-            terrain_config=terrain_config,
         )
 
         shared_map_response.additional_properties = d

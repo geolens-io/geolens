@@ -18,49 +18,40 @@ T = TypeVar("T", bound="CollectionUpdate")
 class CollectionUpdate:
     """
     Attributes:
-        description (None | str | Unset): Updated description
         name (None | str | Unset): Updated display name
+        description (None | str | Unset): Updated description
     """
 
-    description: None | str | Unset = UNSET
     name: None | str | Unset = UNSET
+    description: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        description: None | str | Unset
-        if isinstance(self.description, Unset):
-            description = UNSET
-        else:
-            description = self.description
-
         name: None | str | Unset
         if isinstance(self.name, Unset):
             name = UNSET
         else:
             name = self.name
 
+        description: None | str | Unset
+        if isinstance(self.description, Unset):
+            description = UNSET
+        else:
+            description = self.description
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
-        if description is not UNSET:
-            field_dict["description"] = description
         if name is not UNSET:
             field_dict["name"] = name
+        if description is not UNSET:
+            field_dict["description"] = description
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-
-        def _parse_description(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        description = _parse_description(d.pop("description", UNSET))
 
         def _parse_name(data: object) -> None | str | Unset:
             if data is None:
@@ -71,9 +62,18 @@ class CollectionUpdate:
 
         name = _parse_name(d.pop("name", UNSET))
 
+        def _parse_description(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        description = _parse_description(d.pop("description", UNSET))
+
         collection_update = cls(
-            description=description,
             name=name,
+            description=description,
         )
 
         collection_update.additional_properties = d

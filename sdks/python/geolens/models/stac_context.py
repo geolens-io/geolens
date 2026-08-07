@@ -16,29 +16,29 @@ class StacContext:
 
     Attributes:
         limit (int):
-        matched (int):
         returned (int):
+        matched (int):
     """
 
     limit: int
-    matched: int
     returned: int
+    matched: int
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         limit = self.limit
 
-        matched = self.matched
-
         returned = self.returned
+
+        matched = self.matched
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
                 "limit": limit,
-                "matched": matched,
                 "returned": returned,
+                "matched": matched,
             }
         )
 
@@ -49,14 +49,14 @@ class StacContext:
         d = dict(src_dict)
         limit = d.pop("limit")
 
-        matched = d.pop("matched")
-
         returned = d.pop("returned")
+
+        matched = d.pop("matched")
 
         stac_context = cls(
             limit=limit,
-            matched=matched,
             returned=returned,
+            matched=matched,
         )
 
         stac_context.additional_properties = d

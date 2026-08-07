@@ -30,21 +30,21 @@ class OGCCollectionMetadataResponse:
     """Response for /collections/datasets single collection metadata.
 
     Attributes:
-        description (str):
         id (str):
-        links (list[OGCCollectionMetadataResponseLinksItem]):
         title (str):
-        extent (None | OGCCollectionMetadataResponseExtentType0 | Unset):
+        description (str):
+        links (list[OGCCollectionMetadataResponseLinksItem]):
         item_type (str | Unset):  Default: 'record'.
+        extent (None | OGCCollectionMetadataResponseExtentType0 | Unset):
         summaries (None | OGCCollectionMetadataResponseSummariesType0 | Unset):
     """
 
-    description: str
     id: str
-    links: list[OGCCollectionMetadataResponseLinksItem]
     title: str
-    extent: None | OGCCollectionMetadataResponseExtentType0 | Unset = UNSET
+    description: str
+    links: list[OGCCollectionMetadataResponseLinksItem]
     item_type: str | Unset = "record"
+    extent: None | OGCCollectionMetadataResponseExtentType0 | Unset = UNSET
     summaries: None | OGCCollectionMetadataResponseSummariesType0 | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -56,16 +56,18 @@ class OGCCollectionMetadataResponse:
             OGCCollectionMetadataResponseSummariesType0,
         )
 
-        description = self.description
-
         id = self.id
+
+        title = self.title
+
+        description = self.description
 
         links = []
         for links_item_data in self.links:
             links_item = links_item_data.to_dict()
             links.append(links_item)
 
-        title = self.title
+        item_type = self.item_type
 
         extent: dict[str, Any] | None | Unset
         if isinstance(self.extent, Unset):
@@ -74,8 +76,6 @@ class OGCCollectionMetadataResponse:
             extent = self.extent.to_dict()
         else:
             extent = self.extent
-
-        item_type = self.item_type
 
         summaries: dict[str, Any] | None | Unset
         if isinstance(self.summaries, Unset):
@@ -89,16 +89,16 @@ class OGCCollectionMetadataResponse:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "description": description,
                 "id": id,
-                "links": links,
                 "title": title,
+                "description": description,
+                "links": links,
             }
         )
-        if extent is not UNSET:
-            field_dict["extent"] = extent
         if item_type is not UNSET:
             field_dict["itemType"] = item_type
+        if extent is not UNSET:
+            field_dict["extent"] = extent
         if summaries is not UNSET:
             field_dict["summaries"] = summaries
 
@@ -117,9 +117,11 @@ class OGCCollectionMetadataResponse:
         )
 
         d = dict(src_dict)
-        description = d.pop("description")
-
         id = d.pop("id")
+
+        title = d.pop("title")
+
+        description = d.pop("description")
 
         links = []
         _links = d.pop("links")
@@ -130,7 +132,7 @@ class OGCCollectionMetadataResponse:
 
             links.append(links_item)
 
-        title = d.pop("title")
+        item_type = d.pop("itemType", UNSET)
 
         def _parse_extent(
             data: object,
@@ -150,8 +152,6 @@ class OGCCollectionMetadataResponse:
             return cast(None | OGCCollectionMetadataResponseExtentType0 | Unset, data)
 
         extent = _parse_extent(d.pop("extent", UNSET))
-
-        item_type = d.pop("itemType", UNSET)
 
         def _parse_summaries(
             data: object,
@@ -177,12 +177,12 @@ class OGCCollectionMetadataResponse:
         summaries = _parse_summaries(d.pop("summaries", UNSET))
 
         ogc_collection_metadata_response = cls(
-            description=description,
             id=id,
-            links=links,
             title=title,
-            extent=extent,
+            description=description,
+            links=links,
             item_type=item_type,
+            extent=extent,
             summaries=summaries,
         )
 

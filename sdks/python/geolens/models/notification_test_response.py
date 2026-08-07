@@ -23,18 +23,20 @@ class NotificationTestResponse:
     values (T-1229-09 / NOTIF-05).
 
         Attributes:
+            sent (bool): True if at least one channel successfully delivered the test notification.
             channels (list[NotificationTestChannelResult]): Per-channel delivery results. Empty when no channel is
                 configured.
             message (str): Human-readable summary of the test result.
-            sent (bool): True if at least one channel successfully delivered the test notification.
     """
 
+    sent: bool
     channels: list[NotificationTestChannelResult]
     message: str
-    sent: bool
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        sent = self.sent
+
         channels = []
         for channels_item_data in self.channels:
             channels_item = channels_item_data.to_dict()
@@ -42,15 +44,13 @@ class NotificationTestResponse:
 
         message = self.message
 
-        sent = self.sent
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
+                "sent": sent,
                 "channels": channels,
                 "message": message,
-                "sent": sent,
             }
         )
 
@@ -63,6 +63,8 @@ class NotificationTestResponse:
         )
 
         d = dict(src_dict)
+        sent = d.pop("sent")
+
         channels = []
         _channels = d.pop("channels")
         for channels_item_data in _channels:
@@ -72,12 +74,10 @@ class NotificationTestResponse:
 
         message = d.pop("message")
 
-        sent = d.pop("sent")
-
         notification_test_response = cls(
+            sent=sent,
             channels=channels,
             message=message,
-            sent=sent,
         )
 
         notification_test_response.additional_properties = d

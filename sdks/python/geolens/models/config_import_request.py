@@ -27,22 +27,30 @@ class ConfigImportRequest:
     """Payload for importing configuration.
 
     Attributes:
-        oauth_providers (list[ConfigImportRequestOauthProvidersType0Item] | None | Unset): Optional OAuth providers to
-            import. Client secrets must be re-supplied via the admin UI after import.
         settings (ConfigImportRequestSettingsType0 | None | Unset): Optional settings to import. Omit to import only
             OAuth providers.
+        oauth_providers (list[ConfigImportRequestOauthProvidersType0Item] | None | Unset): Optional OAuth providers to
+            import. Client secrets must be re-supplied via the admin UI after import.
     """
 
+    settings: ConfigImportRequestSettingsType0 | None | Unset = UNSET
     oauth_providers: list[ConfigImportRequestOauthProvidersType0Item] | None | Unset = (
         UNSET
     )
-    settings: ConfigImportRequestSettingsType0 | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.config_import_request_settings_type_0 import (
             ConfigImportRequestSettingsType0,
         )
+
+        settings: dict[str, Any] | None | Unset
+        if isinstance(self.settings, Unset):
+            settings = UNSET
+        elif isinstance(self.settings, ConfigImportRequestSettingsType0):
+            settings = self.settings.to_dict()
+        else:
+            settings = self.settings
 
         oauth_providers: list[dict[str, Any]] | None | Unset
         if isinstance(self.oauth_providers, Unset):
@@ -56,21 +64,13 @@ class ConfigImportRequest:
         else:
             oauth_providers = self.oauth_providers
 
-        settings: dict[str, Any] | None | Unset
-        if isinstance(self.settings, Unset):
-            settings = UNSET
-        elif isinstance(self.settings, ConfigImportRequestSettingsType0):
-            settings = self.settings.to_dict()
-        else:
-            settings = self.settings
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
-        if oauth_providers is not UNSET:
-            field_dict["oauth_providers"] = oauth_providers
         if settings is not UNSET:
             field_dict["settings"] = settings
+        if oauth_providers is not UNSET:
+            field_dict["oauth_providers"] = oauth_providers
 
         return field_dict
 
@@ -84,6 +84,25 @@ class ConfigImportRequest:
         )
 
         d = dict(src_dict)
+
+        def _parse_settings(
+            data: object,
+        ) -> ConfigImportRequestSettingsType0 | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                settings_type_0 = ConfigImportRequestSettingsType0.from_dict(data)
+
+                return settings_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(ConfigImportRequestSettingsType0 | None | Unset, data)
+
+        settings = _parse_settings(d.pop("settings", UNSET))
 
         def _parse_oauth_providers(
             data: object,
@@ -115,28 +134,9 @@ class ConfigImportRequest:
 
         oauth_providers = _parse_oauth_providers(d.pop("oauth_providers", UNSET))
 
-        def _parse_settings(
-            data: object,
-        ) -> ConfigImportRequestSettingsType0 | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, dict):
-                    raise TypeError()
-                settings_type_0 = ConfigImportRequestSettingsType0.from_dict(data)
-
-                return settings_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(ConfigImportRequestSettingsType0 | None | Unset, data)
-
-        settings = _parse_settings(d.pop("settings", UNSET))
-
         config_import_request = cls(
-            oauth_providers=oauth_providers,
             settings=settings,
+            oauth_providers=oauth_providers,
         )
 
         config_import_request.additional_properties = d

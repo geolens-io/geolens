@@ -18,34 +18,44 @@ T = TypeVar("T", bound="StacCollectionSummary")
 class StacCollectionSummary:
     """
     Attributes:
-        description (str): Collection description.
         id (str): Collection identifier.
         title (str): Collection title.
-        bbox (list[float] | None | Unset): Spatial extent as [west, south, east, north].
-        item_count (int | None | Unset): Number of items if reported by the API.
-        keywords (list[str] | Unset): Collection keywords.
+        description (str): Collection description.
         license_ (None | str | Unset): SPDX license identifier.
-        temporal_end (None | str | Unset): End of temporal extent (ISO 8601).
+        keywords (list[str] | Unset): Collection keywords.
+        bbox (list[float] | None | Unset): Spatial extent as [west, south, east, north].
         temporal_start (None | str | Unset): Start of temporal extent (ISO 8601).
+        temporal_end (None | str | Unset): End of temporal extent (ISO 8601).
+        item_count (int | None | Unset): Number of items if reported by the API.
     """
 
-    description: str
     id: str
     title: str
-    bbox: list[float] | None | Unset = UNSET
-    item_count: int | None | Unset = UNSET
-    keywords: list[str] | Unset = UNSET
+    description: str
     license_: None | str | Unset = UNSET
-    temporal_end: None | str | Unset = UNSET
+    keywords: list[str] | Unset = UNSET
+    bbox: list[float] | None | Unset = UNSET
     temporal_start: None | str | Unset = UNSET
+    temporal_end: None | str | Unset = UNSET
+    item_count: int | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        description = self.description
-
         id = self.id
 
         title = self.title
+
+        description = self.description
+
+        license_: None | str | Unset
+        if isinstance(self.license_, Unset):
+            license_ = UNSET
+        else:
+            license_ = self.license_
+
+        keywords: list[str] | Unset = UNSET
+        if not isinstance(self.keywords, Unset):
+            keywords = self.keywords
 
         bbox: list[float] | None | Unset
         if isinstance(self.bbox, Unset):
@@ -56,21 +66,11 @@ class StacCollectionSummary:
         else:
             bbox = self.bbox
 
-        item_count: int | None | Unset
-        if isinstance(self.item_count, Unset):
-            item_count = UNSET
+        temporal_start: None | str | Unset
+        if isinstance(self.temporal_start, Unset):
+            temporal_start = UNSET
         else:
-            item_count = self.item_count
-
-        keywords: list[str] | Unset = UNSET
-        if not isinstance(self.keywords, Unset):
-            keywords = self.keywords
-
-        license_: None | str | Unset
-        if isinstance(self.license_, Unset):
-            license_ = UNSET
-        else:
-            license_ = self.license_
+            temporal_start = self.temporal_start
 
         temporal_end: None | str | Unset
         if isinstance(self.temporal_end, Unset):
@@ -78,44 +78,55 @@ class StacCollectionSummary:
         else:
             temporal_end = self.temporal_end
 
-        temporal_start: None | str | Unset
-        if isinstance(self.temporal_start, Unset):
-            temporal_start = UNSET
+        item_count: int | None | Unset
+        if isinstance(self.item_count, Unset):
+            item_count = UNSET
         else:
-            temporal_start = self.temporal_start
+            item_count = self.item_count
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "description": description,
                 "id": id,
                 "title": title,
+                "description": description,
             }
         )
-        if bbox is not UNSET:
-            field_dict["bbox"] = bbox
-        if item_count is not UNSET:
-            field_dict["item_count"] = item_count
-        if keywords is not UNSET:
-            field_dict["keywords"] = keywords
         if license_ is not UNSET:
             field_dict["license"] = license_
-        if temporal_end is not UNSET:
-            field_dict["temporal_end"] = temporal_end
+        if keywords is not UNSET:
+            field_dict["keywords"] = keywords
+        if bbox is not UNSET:
+            field_dict["bbox"] = bbox
         if temporal_start is not UNSET:
             field_dict["temporal_start"] = temporal_start
+        if temporal_end is not UNSET:
+            field_dict["temporal_end"] = temporal_end
+        if item_count is not UNSET:
+            field_dict["item_count"] = item_count
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        description = d.pop("description")
-
         id = d.pop("id")
 
         title = d.pop("title")
+
+        description = d.pop("description")
+
+        def _parse_license_(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        license_ = _parse_license_(d.pop("license", UNSET))
+
+        keywords = cast(list[str], d.pop("keywords", UNSET))
 
         def _parse_bbox(data: object) -> list[float] | None | Unset:
             if data is None:
@@ -134,25 +145,14 @@ class StacCollectionSummary:
 
         bbox = _parse_bbox(d.pop("bbox", UNSET))
 
-        def _parse_item_count(data: object) -> int | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(int | None | Unset, data)
-
-        item_count = _parse_item_count(d.pop("item_count", UNSET))
-
-        keywords = cast(list[str], d.pop("keywords", UNSET))
-
-        def _parse_license_(data: object) -> None | str | Unset:
+        def _parse_temporal_start(data: object) -> None | str | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
                 return data
             return cast(None | str | Unset, data)
 
-        license_ = _parse_license_(d.pop("license", UNSET))
+        temporal_start = _parse_temporal_start(d.pop("temporal_start", UNSET))
 
         def _parse_temporal_end(data: object) -> None | str | Unset:
             if data is None:
@@ -163,25 +163,25 @@ class StacCollectionSummary:
 
         temporal_end = _parse_temporal_end(d.pop("temporal_end", UNSET))
 
-        def _parse_temporal_start(data: object) -> None | str | Unset:
+        def _parse_item_count(data: object) -> int | None | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
                 return data
-            return cast(None | str | Unset, data)
+            return cast(int | None | Unset, data)
 
-        temporal_start = _parse_temporal_start(d.pop("temporal_start", UNSET))
+        item_count = _parse_item_count(d.pop("item_count", UNSET))
 
         stac_collection_summary = cls(
-            description=description,
             id=id,
             title=title,
-            bbox=bbox,
-            item_count=item_count,
-            keywords=keywords,
+            description=description,
             license_=license_,
-            temporal_end=temporal_end,
+            keywords=keywords,
+            bbox=bbox,
             temporal_start=temporal_start,
+            temporal_end=temporal_end,
+            item_count=item_count,
         )
 
         stac_collection_summary.additional_properties = d

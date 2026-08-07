@@ -23,15 +23,15 @@ class UserUpdate:
         email (None | str | Unset): New email address. Set to update; omit to leave unchanged.
         is_active (bool | None | Unset): Legacy account-state toggle. False maps to 'deactivated' and true maps to
             'active'. Prefer the explicit status field.
-        role (None | str | Unset): New role: 'admin', 'editor', or 'viewer'. Omit to leave unchanged.
         status (None | Unset | UserUpdateStatusType0): Explicit account lifecycle state. Pending registrations must use
             the approve/reject endpoints.
+        role (None | str | Unset): New role: 'admin', 'editor', or 'viewer'. Omit to leave unchanged.
     """
 
     email: None | str | Unset = UNSET
     is_active: bool | None | Unset = UNSET
-    role: None | str | Unset = UNSET
     status: None | Unset | UserUpdateStatusType0 = UNSET
+    role: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -47,12 +47,6 @@ class UserUpdate:
         else:
             is_active = self.is_active
 
-        role: None | str | Unset
-        if isinstance(self.role, Unset):
-            role = UNSET
-        else:
-            role = self.role
-
         status: None | str | Unset
         if isinstance(self.status, Unset):
             status = UNSET
@@ -61,6 +55,12 @@ class UserUpdate:
         else:
             status = self.status
 
+        role: None | str | Unset
+        if isinstance(self.role, Unset):
+            role = UNSET
+        else:
+            role = self.role
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
@@ -68,10 +68,10 @@ class UserUpdate:
             field_dict["email"] = email
         if is_active is not UNSET:
             field_dict["is_active"] = is_active
-        if role is not UNSET:
-            field_dict["role"] = role
         if status is not UNSET:
             field_dict["status"] = status
+        if role is not UNSET:
+            field_dict["role"] = role
 
         return field_dict
 
@@ -97,15 +97,6 @@ class UserUpdate:
 
         is_active = _parse_is_active(d.pop("is_active", UNSET))
 
-        def _parse_role(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        role = _parse_role(d.pop("role", UNSET))
-
         def _parse_status(data: object) -> None | Unset | UserUpdateStatusType0:
             if data is None:
                 return data
@@ -123,11 +114,20 @@ class UserUpdate:
 
         status = _parse_status(d.pop("status", UNSET))
 
+        def _parse_role(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        role = _parse_role(d.pop("role", UNSET))
+
         user_update = cls(
             email=email,
             is_active=is_active,
-            role=role,
             status=status,
+            role=role,
         )
 
         user_update.additional_properties = d

@@ -16,35 +16,35 @@ class SettingItem:
 
     Attributes:
         key (str): Setting key (e.g. 'login_rate_limit', 'basemaps').
-        label (str): Human-readable label for display in the admin UI.
+        value (Any): Current value. Type depends on the setting.
         source (str): Where the value came from: 'default' (built-in default), 'overridden' (admin set via UI), or
             'env_only' (configured via environment variable, read-only).
-        value (Any): Current value. Type depends on the setting.
+        label (str): Human-readable label for display in the admin UI.
     """
 
     key: str
-    label: str
-    source: str
     value: Any
+    source: str
+    label: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         key = self.key
 
-        label = self.label
+        value = self.value
 
         source = self.source
 
-        value = self.value
+        label = self.label
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
                 "key": key,
-                "label": label,
-                "source": source,
                 "value": value,
+                "source": source,
+                "label": label,
             }
         )
 
@@ -55,17 +55,17 @@ class SettingItem:
         d = dict(src_dict)
         key = d.pop("key")
 
-        label = d.pop("label")
+        value = d.pop("value")
 
         source = d.pop("source")
 
-        value = d.pop("value")
+        label = d.pop("label")
 
         setting_item = cls(
             key=key,
-            label=label,
-            source=source,
             value=value,
+            source=source,
+            label=label,
         )
 
         setting_item.additional_properties = d

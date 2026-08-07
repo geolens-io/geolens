@@ -34,32 +34,32 @@ class GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeat
     """Single GeoJSON Feature response.
 
     Attributes:
+        id (int): Feature identifier within the collection.
         geometry (GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponseGeoJSONGeometry |
             None): GeoJSON geometry of the feature, or null for geometry-less features.
-        id (int): Feature identifier within the collection.
         properties (GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponsePropertiesType0
             | None): Feature attributes as a JSON object.
+        type_ (Literal['Feature'] | Unset): GeoJSON object type. Default: 'Feature'.
         links (list[GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponseOGCLink] |
             Unset): Self-reference and related-resource links.
-        type_ (Literal['Feature'] | Unset): GeoJSON object type. Default: 'Feature'.
     """
 
+    id: int
     geometry: (
         GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponseGeoJSONGeometry
         | None
     )
-    id: int
     properties: (
         GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponsePropertiesType0
         | None
     )
+    type_: Literal["Feature"] | Unset = "Feature"
     links: (
         list[
             GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponseOGCLink
         ]
         | Unset
     ) = UNSET
-    type_: Literal["Feature"] | Unset = "Feature"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -70,6 +70,8 @@ class GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeat
             GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponsePropertiesType0,
         )
 
+        id = self.id
+
         geometry: dict[str, Any] | None
         if isinstance(
             self.geometry,
@@ -78,8 +80,6 @@ class GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeat
             geometry = self.geometry.to_dict()
         else:
             geometry = self.geometry
-
-        id = self.id
 
         properties: dict[str, Any] | None
         if isinstance(
@@ -90,6 +90,8 @@ class GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeat
         else:
             properties = self.properties
 
+        type_ = self.type_
+
         links: list[dict[str, Any]] | Unset = UNSET
         if not isinstance(self.links, Unset):
             links = []
@@ -97,21 +99,19 @@ class GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeat
                 links_item = links_item_data.to_dict()
                 links.append(links_item)
 
-        type_ = self.type_
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "geometry": geometry,
                 "id": id,
+                "geometry": geometry,
                 "properties": properties,
             }
         )
-        if links is not UNSET:
-            field_dict["links"] = links
         if type_ is not UNSET:
             field_dict["type"] = type_
+        if links is not UNSET:
+            field_dict["links"] = links
 
         return field_dict
 
@@ -128,6 +128,7 @@ class GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeat
         )
 
         d = dict(src_dict)
+        id = d.pop("id")
 
         def _parse_geometry(
             data: object,
@@ -155,8 +156,6 @@ class GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeat
 
         geometry = _parse_geometry(d.pop("geometry"))
 
-        id = d.pop("id")
-
         def _parse_properties(
             data: object,
         ) -> (
@@ -183,6 +182,10 @@ class GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeat
 
         properties = _parse_properties(d.pop("properties"))
 
+        type_ = cast(Literal["Feature"] | Unset, d.pop("type", UNSET))
+        if type_ != "Feature" and not isinstance(type_, Unset):
+            raise ValueError(f"type must match const 'Feature', got '{type_}'")
+
         _links = d.pop("links", UNSET)
         links: (
             list[
@@ -199,16 +202,12 @@ class GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeat
 
                 links.append(links_item)
 
-        type_ = cast(Literal["Feature"] | Unset, d.pop("type", UNSET))
-        if type_ != "Feature" and not isinstance(type_, Unset):
-            raise ValueError(f"type must match const 'Feature', got '{type_}'")
-
         get_collection_item_feature_collections_dataset_id_items_feature_id_get_ogc_single_feature_response = cls(
-            geometry=geometry,
             id=id,
+            geometry=geometry,
             properties=properties,
-            links=links,
             type_=type_,
+            links=links,
         )
 
         get_collection_item_feature_collections_dataset_id_items_feature_id_get_ogc_single_feature_response.additional_properties = d

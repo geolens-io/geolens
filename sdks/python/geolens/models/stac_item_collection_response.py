@@ -25,25 +25,23 @@ class StacItemCollectionResponse:
     """Typed OpenAPI representation of a STAC ItemCollection.
 
     Attributes:
-        context (StacContext): Paging metadata emitted with STAC ItemCollections.
         features (list[StacItemResponse]):
         links (list[StacLink]):
         number_matched (int):
         number_returned (int):
+        context (StacContext): Paging metadata emitted with STAC ItemCollections.
         type_ (Literal['FeatureCollection'] | Unset):  Default: 'FeatureCollection'.
     """
 
-    context: StacContext
     features: list[StacItemResponse]
     links: list[StacLink]
     number_matched: int
     number_returned: int
+    context: StacContext
     type_: Literal["FeatureCollection"] | Unset = "FeatureCollection"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        context = self.context.to_dict()
-
         features = []
         for features_item_data in self.features:
             features_item = features_item_data.to_dict()
@@ -58,17 +56,19 @@ class StacItemCollectionResponse:
 
         number_returned = self.number_returned
 
+        context = self.context.to_dict()
+
         type_ = self.type_
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "context": context,
                 "features": features,
                 "links": links,
                 "numberMatched": number_matched,
                 "numberReturned": number_returned,
+                "context": context,
             }
         )
         if type_ is not UNSET:
@@ -83,8 +83,6 @@ class StacItemCollectionResponse:
         from ..models.stac_link import StacLink
 
         d = dict(src_dict)
-        context = StacContext.from_dict(d.pop("context"))
-
         features = []
         _features = d.pop("features")
         for features_item_data in _features:
@@ -103,6 +101,8 @@ class StacItemCollectionResponse:
 
         number_returned = d.pop("numberReturned")
 
+        context = StacContext.from_dict(d.pop("context"))
+
         type_ = cast(Literal["FeatureCollection"] | Unset, d.pop("type", UNSET))
         if type_ != "FeatureCollection" and not isinstance(type_, Unset):
             raise ValueError(
@@ -110,11 +110,11 @@ class StacItemCollectionResponse:
             )
 
         stac_item_collection_response = cls(
-            context=context,
             features=features,
             links=links,
             number_matched=number_matched,
             number_returned=number_returned,
+            context=context,
             type_=type_,
         )
 

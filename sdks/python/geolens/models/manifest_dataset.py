@@ -23,17 +23,17 @@ class ManifestDataset:
     """
     Attributes:
         key (str): Stable dataset identity key used for idempotent apply operations.
-        publication (ManifestPublication):
-        sources (list[ManifestSource]):
         title (str):
+        sources (list[ManifestSource]):
+        publication (ManifestPublication):
         description (None | str | Unset):
         metadata (ManifestMetadata | None | Unset):
     """
 
     key: str
-    publication: ManifestPublication
-    sources: list[ManifestSource]
     title: str
+    sources: list[ManifestSource]
+    publication: ManifestPublication
     description: None | str | Unset = UNSET
     metadata: ManifestMetadata | None | Unset = UNSET
 
@@ -42,14 +42,14 @@ class ManifestDataset:
 
         key = self.key
 
-        publication = self.publication.to_dict()
+        title = self.title
 
         sources = []
         for sources_item_data in self.sources:
             sources_item = sources_item_data.to_dict()
             sources.append(sources_item)
 
-        title = self.title
+        publication = self.publication.to_dict()
 
         description: None | str | Unset
         if isinstance(self.description, Unset):
@@ -70,9 +70,9 @@ class ManifestDataset:
         field_dict.update(
             {
                 "key": key,
-                "publication": publication,
-                "sources": sources,
                 "title": title,
+                "sources": sources,
+                "publication": publication,
             }
         )
         if description is not UNSET:
@@ -91,7 +91,7 @@ class ManifestDataset:
         d = dict(src_dict)
         key = d.pop("key")
 
-        publication = ManifestPublication.from_dict(d.pop("publication"))
+        title = d.pop("title")
 
         sources = []
         _sources = d.pop("sources")
@@ -100,7 +100,7 @@ class ManifestDataset:
 
             sources.append(sources_item)
 
-        title = d.pop("title")
+        publication = ManifestPublication.from_dict(d.pop("publication"))
 
         def _parse_description(data: object) -> None | str | Unset:
             if data is None:
@@ -130,9 +130,9 @@ class ManifestDataset:
 
         manifest_dataset = cls(
             key=key,
-            publication=publication,
-            sources=sources,
             title=title,
+            sources=sources,
+            publication=publication,
             description=description,
             metadata=metadata,
         )

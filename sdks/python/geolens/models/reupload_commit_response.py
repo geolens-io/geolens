@@ -18,29 +18,29 @@ class ReuploadCommitResponse:
     """
     Attributes:
         job_id (UUID):
-        message (str):
         status (str):
+        message (str):
     """
 
     job_id: UUID
-    message: str
     status: str
+    message: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         job_id = str(self.job_id)
 
-        message = self.message
-
         status = self.status
+
+        message = self.message
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
                 "job_id": job_id,
-                "message": message,
                 "status": status,
+                "message": message,
             }
         )
 
@@ -51,14 +51,14 @@ class ReuploadCommitResponse:
         d = dict(src_dict)
         job_id = UUID(d.pop("job_id"))
 
-        message = d.pop("message")
-
         status = d.pop("status")
+
+        message = d.pop("message")
 
         reupload_commit_response = cls(
             job_id=job_id,
-            message=message,
             status=status,
+            message=message,
         )
 
         reupload_commit_response.additional_properties = d

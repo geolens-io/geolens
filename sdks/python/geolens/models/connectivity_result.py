@@ -22,31 +22,31 @@ class ConnectivityResult:
     """Aggregate connectivity validation result.
 
     Attributes:
+        storage (ServiceProbeResult): Result of a single service connectivity probe.
         cache (ServiceProbeResult): Result of a single service connectivity probe.
         oidc_providers (ConnectivityResultOidcProviders): Per-provider OIDC discovery probe results, keyed by provider
             slug.
-        storage (ServiceProbeResult): Result of a single service connectivity probe.
     """
 
+    storage: ServiceProbeResult
     cache: ServiceProbeResult
     oidc_providers: ConnectivityResultOidcProviders
-    storage: ServiceProbeResult
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        storage = self.storage.to_dict()
+
         cache = self.cache.to_dict()
 
         oidc_providers = self.oidc_providers.to_dict()
-
-        storage = self.storage.to_dict()
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
+                "storage": storage,
                 "cache": cache,
                 "oidc_providers": oidc_providers,
-                "storage": storage,
             }
         )
 
@@ -60,18 +60,18 @@ class ConnectivityResult:
         from ..models.service_probe_result import ServiceProbeResult
 
         d = dict(src_dict)
+        storage = ServiceProbeResult.from_dict(d.pop("storage"))
+
         cache = ServiceProbeResult.from_dict(d.pop("cache"))
 
         oidc_providers = ConnectivityResultOidcProviders.from_dict(
             d.pop("oidc_providers")
         )
 
-        storage = ServiceProbeResult.from_dict(d.pop("storage"))
-
         connectivity_result = cls(
+            storage=storage,
             cache=cache,
             oidc_providers=oidc_providers,
-            storage=storage,
         )
 
         connectivity_result.additional_properties = d

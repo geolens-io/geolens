@@ -21,28 +21,40 @@ class QualityDetail:
     """Automated quality assessment results.
 
     Attributes:
-        attribute_completeness (float):
-        metadata_completeness (float):
         overall (float):
-        computed_at (datetime.datetime | None | Unset):
-        crs_defined (float | None | Unset):
+        metadata_completeness (float):
+        attribute_completeness (float):
         geometry_validity (float | None | Unset):
+        crs_defined (float | None | Unset):
+        computed_at (datetime.datetime | None | Unset):
     """
 
-    attribute_completeness: float
-    metadata_completeness: float
     overall: float
-    computed_at: datetime.datetime | None | Unset = UNSET
-    crs_defined: float | None | Unset = UNSET
+    metadata_completeness: float
+    attribute_completeness: float
     geometry_validity: float | None | Unset = UNSET
+    crs_defined: float | None | Unset = UNSET
+    computed_at: datetime.datetime | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        attribute_completeness = self.attribute_completeness
+        overall = self.overall
 
         metadata_completeness = self.metadata_completeness
 
-        overall = self.overall
+        attribute_completeness = self.attribute_completeness
+
+        geometry_validity: float | None | Unset
+        if isinstance(self.geometry_validity, Unset):
+            geometry_validity = UNSET
+        else:
+            geometry_validity = self.geometry_validity
+
+        crs_defined: float | None | Unset
+        if isinstance(self.crs_defined, Unset):
+            crs_defined = UNSET
+        else:
+            crs_defined = self.crs_defined
 
         computed_at: None | str | Unset
         if isinstance(self.computed_at, Unset):
@@ -52,44 +64,50 @@ class QualityDetail:
         else:
             computed_at = self.computed_at
 
-        crs_defined: float | None | Unset
-        if isinstance(self.crs_defined, Unset):
-            crs_defined = UNSET
-        else:
-            crs_defined = self.crs_defined
-
-        geometry_validity: float | None | Unset
-        if isinstance(self.geometry_validity, Unset):
-            geometry_validity = UNSET
-        else:
-            geometry_validity = self.geometry_validity
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "attribute_completeness": attribute_completeness,
-                "metadata_completeness": metadata_completeness,
                 "overall": overall,
+                "metadata_completeness": metadata_completeness,
+                "attribute_completeness": attribute_completeness,
             }
         )
-        if computed_at is not UNSET:
-            field_dict["computed_at"] = computed_at
-        if crs_defined is not UNSET:
-            field_dict["crs_defined"] = crs_defined
         if geometry_validity is not UNSET:
             field_dict["geometry_validity"] = geometry_validity
+        if crs_defined is not UNSET:
+            field_dict["crs_defined"] = crs_defined
+        if computed_at is not UNSET:
+            field_dict["computed_at"] = computed_at
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        attribute_completeness = d.pop("attribute_completeness")
+        overall = d.pop("overall")
 
         metadata_completeness = d.pop("metadata_completeness")
 
-        overall = d.pop("overall")
+        attribute_completeness = d.pop("attribute_completeness")
+
+        def _parse_geometry_validity(data: object) -> float | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(float | None | Unset, data)
+
+        geometry_validity = _parse_geometry_validity(d.pop("geometry_validity", UNSET))
+
+        def _parse_crs_defined(data: object) -> float | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(float | None | Unset, data)
+
+        crs_defined = _parse_crs_defined(d.pop("crs_defined", UNSET))
 
         def _parse_computed_at(data: object) -> datetime.datetime | None | Unset:
             if data is None:
@@ -108,31 +126,13 @@ class QualityDetail:
 
         computed_at = _parse_computed_at(d.pop("computed_at", UNSET))
 
-        def _parse_crs_defined(data: object) -> float | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(float | None | Unset, data)
-
-        crs_defined = _parse_crs_defined(d.pop("crs_defined", UNSET))
-
-        def _parse_geometry_validity(data: object) -> float | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(float | None | Unset, data)
-
-        geometry_validity = _parse_geometry_validity(d.pop("geometry_validity", UNSET))
-
         quality_detail = cls(
-            attribute_completeness=attribute_completeness,
-            metadata_completeness=metadata_completeness,
             overall=overall,
-            computed_at=computed_at,
-            crs_defined=crs_defined,
+            metadata_completeness=metadata_completeness,
+            attribute_completeness=attribute_completeness,
             geometry_validity=geometry_validity,
+            crs_defined=crs_defined,
+            computed_at=computed_at,
         )
 
         quality_detail.additional_properties = d

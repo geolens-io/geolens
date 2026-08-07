@@ -37,40 +37,35 @@ T = TypeVar("T", bound="JobStatusResponse")
 class JobStatusResponse:
     """
     Attributes:
+        id (UUID):
+        status (JobStatusResponseStatus):
+        dataset_id (None | UUID):
+        source_filename (None | str):
+        error_message (None | str):
         can_retry (bool):
+        retry_reason (None | str):
+        started_at (datetime.datetime | None):
         completed_at (datetime.datetime | None):
         created_at (datetime.datetime):
-        dataset_id (None | UUID):
-        error_message (None | str):
-        id (UUID):
-        retry_reason (None | str):
-        source_filename (None | str):
-        started_at (datetime.datetime | None):
-        status (JobStatusResponseStatus):
-        archive_failed (bool | Unset):  Default: False.
-        current_step (JobStatusResponseCurrentStepType0 | None | Unset):
-        progress (float | None | Unset):
-        rows_processed (int | None | Unset):
-        temporal_parse_errors (JobStatusResponseTemporalParseErrors | Unset):
         warning_message (None | str | Unset):
         warnings (list[DbfTruncationCollisionWarning | MercatorClipWarning | ReservedRenameWarning] | Unset):
+        progress (float | None | Unset):
+        current_step (JobStatusResponseCurrentStepType0 | None | Unset):
+        rows_processed (int | None | Unset):
+        archive_failed (bool | Unset):  Default: False.
+        temporal_parse_errors (JobStatusResponseTemporalParseErrors | Unset):
     """
 
+    id: UUID
+    status: JobStatusResponseStatus
+    dataset_id: None | UUID
+    source_filename: None | str
+    error_message: None | str
     can_retry: bool
+    retry_reason: None | str
+    started_at: datetime.datetime | None
     completed_at: datetime.datetime | None
     created_at: datetime.datetime
-    dataset_id: None | UUID
-    error_message: None | str
-    id: UUID
-    retry_reason: None | str
-    source_filename: None | str
-    started_at: datetime.datetime | None
-    status: JobStatusResponseStatus
-    archive_failed: bool | Unset = False
-    current_step: JobStatusResponseCurrentStepType0 | None | Unset = UNSET
-    progress: float | None | Unset = UNSET
-    rows_processed: int | None | Unset = UNSET
-    temporal_parse_errors: JobStatusResponseTemporalParseErrors | Unset = UNSET
     warning_message: None | str | Unset = UNSET
     warnings: (
         list[
@@ -78,6 +73,11 @@ class JobStatusResponse:
         ]
         | Unset
     ) = UNSET
+    progress: float | None | Unset = UNSET
+    current_step: JobStatusResponseCurrentStepType0 | None | Unset = UNSET
+    rows_processed: int | None | Unset = UNSET
+    archive_failed: bool | Unset = False
+    temporal_parse_errors: JobStatusResponseTemporalParseErrors | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -86,7 +86,32 @@ class JobStatusResponse:
         )
         from ..models.reserved_rename_warning import ReservedRenameWarning
 
+        id = str(self.id)
+
+        status: str = self.status
+
+        dataset_id: None | str
+        if isinstance(self.dataset_id, UUID):
+            dataset_id = str(self.dataset_id)
+        else:
+            dataset_id = self.dataset_id
+
+        source_filename: None | str
+        source_filename = self.source_filename
+
+        error_message: None | str
+        error_message = self.error_message
+
         can_retry = self.can_retry
+
+        retry_reason: None | str
+        retry_reason = self.retry_reason
+
+        started_at: None | str
+        if isinstance(self.started_at, datetime.datetime):
+            started_at = self.started_at.isoformat()
+        else:
+            started_at = self.started_at
 
         completed_at: None | str
         if isinstance(self.completed_at, datetime.datetime):
@@ -95,57 +120,6 @@ class JobStatusResponse:
             completed_at = self.completed_at
 
         created_at = self.created_at.isoformat()
-
-        dataset_id: None | str
-        if isinstance(self.dataset_id, UUID):
-            dataset_id = str(self.dataset_id)
-        else:
-            dataset_id = self.dataset_id
-
-        error_message: None | str
-        error_message = self.error_message
-
-        id = str(self.id)
-
-        retry_reason: None | str
-        retry_reason = self.retry_reason
-
-        source_filename: None | str
-        source_filename = self.source_filename
-
-        started_at: None | str
-        if isinstance(self.started_at, datetime.datetime):
-            started_at = self.started_at.isoformat()
-        else:
-            started_at = self.started_at
-
-        status: str = self.status
-
-        archive_failed = self.archive_failed
-
-        current_step: None | str | Unset
-        if isinstance(self.current_step, Unset):
-            current_step = UNSET
-        elif isinstance(self.current_step, str):
-            current_step = self.current_step
-        else:
-            current_step = self.current_step
-
-        progress: float | None | Unset
-        if isinstance(self.progress, Unset):
-            progress = UNSET
-        else:
-            progress = self.progress
-
-        rows_processed: int | None | Unset
-        if isinstance(self.rows_processed, Unset):
-            rows_processed = UNSET
-        else:
-            rows_processed = self.rows_processed
-
-        temporal_parse_errors: dict[str, Any] | Unset = UNSET
-        if not isinstance(self.temporal_parse_errors, Unset):
-            temporal_parse_errors = self.temporal_parse_errors.to_dict()
 
         warning_message: None | str | Unset
         if isinstance(self.warning_message, Unset):
@@ -167,36 +141,62 @@ class JobStatusResponse:
 
                 warnings.append(warnings_item)
 
+        progress: float | None | Unset
+        if isinstance(self.progress, Unset):
+            progress = UNSET
+        else:
+            progress = self.progress
+
+        current_step: None | str | Unset
+        if isinstance(self.current_step, Unset):
+            current_step = UNSET
+        elif isinstance(self.current_step, str):
+            current_step = self.current_step
+        else:
+            current_step = self.current_step
+
+        rows_processed: int | None | Unset
+        if isinstance(self.rows_processed, Unset):
+            rows_processed = UNSET
+        else:
+            rows_processed = self.rows_processed
+
+        archive_failed = self.archive_failed
+
+        temporal_parse_errors: dict[str, Any] | Unset = UNSET
+        if not isinstance(self.temporal_parse_errors, Unset):
+            temporal_parse_errors = self.temporal_parse_errors.to_dict()
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
+                "id": id,
+                "status": status,
+                "dataset_id": dataset_id,
+                "source_filename": source_filename,
+                "error_message": error_message,
                 "can_retry": can_retry,
+                "retry_reason": retry_reason,
+                "started_at": started_at,
                 "completed_at": completed_at,
                 "created_at": created_at,
-                "dataset_id": dataset_id,
-                "error_message": error_message,
-                "id": id,
-                "retry_reason": retry_reason,
-                "source_filename": source_filename,
-                "started_at": started_at,
-                "status": status,
             }
         )
-        if archive_failed is not UNSET:
-            field_dict["archive_failed"] = archive_failed
-        if current_step is not UNSET:
-            field_dict["current_step"] = current_step
-        if progress is not UNSET:
-            field_dict["progress"] = progress
-        if rows_processed is not UNSET:
-            field_dict["rows_processed"] = rows_processed
-        if temporal_parse_errors is not UNSET:
-            field_dict["temporal_parse_errors"] = temporal_parse_errors
         if warning_message is not UNSET:
             field_dict["warning_message"] = warning_message
         if warnings is not UNSET:
             field_dict["warnings"] = warnings
+        if progress is not UNSET:
+            field_dict["progress"] = progress
+        if current_step is not UNSET:
+            field_dict["current_step"] = current_step
+        if rows_processed is not UNSET:
+            field_dict["rows_processed"] = rows_processed
+        if archive_failed is not UNSET:
+            field_dict["archive_failed"] = archive_failed
+        if temporal_parse_errors is not UNSET:
+            field_dict["temporal_parse_errors"] = temporal_parse_errors
 
         return field_dict
 
@@ -212,7 +212,62 @@ class JobStatusResponse:
         from ..models.reserved_rename_warning import ReservedRenameWarning
 
         d = dict(src_dict)
+        id = UUID(d.pop("id"))
+
+        status = check_job_status_response_status(d.pop("status"))
+
+        def _parse_dataset_id(data: object) -> None | UUID:
+            if data is None:
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                dataset_id_type_0 = UUID(data)
+
+                return dataset_id_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | UUID, data)
+
+        dataset_id = _parse_dataset_id(d.pop("dataset_id"))
+
+        def _parse_source_filename(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        source_filename = _parse_source_filename(d.pop("source_filename"))
+
+        def _parse_error_message(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        error_message = _parse_error_message(d.pop("error_message"))
+
         can_retry = d.pop("can_retry")
+
+        def _parse_retry_reason(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        retry_reason = _parse_retry_reason(d.pop("retry_reason"))
+
+        def _parse_started_at(data: object) -> datetime.datetime | None:
+            if data is None:
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                started_at_type_0 = isoparse(data)
+
+                return started_at_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(datetime.datetime | None, data)
+
+        started_at = _parse_started_at(d.pop("started_at"))
 
         def _parse_completed_at(data: object) -> datetime.datetime | None:
             if data is None:
@@ -230,111 +285,6 @@ class JobStatusResponse:
         completed_at = _parse_completed_at(d.pop("completed_at"))
 
         created_at = isoparse(d.pop("created_at"))
-
-        def _parse_dataset_id(data: object) -> None | UUID:
-            if data is None:
-                return data
-            try:
-                if not isinstance(data, str):
-                    raise TypeError()
-                dataset_id_type_0 = UUID(data)
-
-                return dataset_id_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(None | UUID, data)
-
-        dataset_id = _parse_dataset_id(d.pop("dataset_id"))
-
-        def _parse_error_message(data: object) -> None | str:
-            if data is None:
-                return data
-            return cast(None | str, data)
-
-        error_message = _parse_error_message(d.pop("error_message"))
-
-        id = UUID(d.pop("id"))
-
-        def _parse_retry_reason(data: object) -> None | str:
-            if data is None:
-                return data
-            return cast(None | str, data)
-
-        retry_reason = _parse_retry_reason(d.pop("retry_reason"))
-
-        def _parse_source_filename(data: object) -> None | str:
-            if data is None:
-                return data
-            return cast(None | str, data)
-
-        source_filename = _parse_source_filename(d.pop("source_filename"))
-
-        def _parse_started_at(data: object) -> datetime.datetime | None:
-            if data is None:
-                return data
-            try:
-                if not isinstance(data, str):
-                    raise TypeError()
-                started_at_type_0 = isoparse(data)
-
-                return started_at_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(datetime.datetime | None, data)
-
-        started_at = _parse_started_at(d.pop("started_at"))
-
-        status = check_job_status_response_status(d.pop("status"))
-
-        archive_failed = d.pop("archive_failed", UNSET)
-
-        def _parse_current_step(
-            data: object,
-        ) -> JobStatusResponseCurrentStepType0 | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, str):
-                    raise TypeError()
-                current_step_type_0 = check_job_status_response_current_step_type_0(
-                    data
-                )
-
-                return current_step_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(JobStatusResponseCurrentStepType0 | None | Unset, data)
-
-        current_step = _parse_current_step(d.pop("current_step", UNSET))
-
-        def _parse_progress(data: object) -> float | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(float | None | Unset, data)
-
-        progress = _parse_progress(d.pop("progress", UNSET))
-
-        def _parse_rows_processed(data: object) -> int | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(int | None | Unset, data)
-
-        rows_processed = _parse_rows_processed(d.pop("rows_processed", UNSET))
-
-        _temporal_parse_errors = d.pop("temporal_parse_errors", UNSET)
-        temporal_parse_errors: JobStatusResponseTemporalParseErrors | Unset
-        if isinstance(_temporal_parse_errors, Unset):
-            temporal_parse_errors = UNSET
-        else:
-            temporal_parse_errors = JobStatusResponseTemporalParseErrors.from_dict(
-                _temporal_parse_errors
-            )
 
         def _parse_warning_message(data: object) -> None | str | Unset:
             if data is None:
@@ -393,24 +343,74 @@ class JobStatusResponse:
 
                 warnings.append(warnings_item)
 
+        def _parse_progress(data: object) -> float | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(float | None | Unset, data)
+
+        progress = _parse_progress(d.pop("progress", UNSET))
+
+        def _parse_current_step(
+            data: object,
+        ) -> JobStatusResponseCurrentStepType0 | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                current_step_type_0 = check_job_status_response_current_step_type_0(
+                    data
+                )
+
+                return current_step_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(JobStatusResponseCurrentStepType0 | None | Unset, data)
+
+        current_step = _parse_current_step(d.pop("current_step", UNSET))
+
+        def _parse_rows_processed(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        rows_processed = _parse_rows_processed(d.pop("rows_processed", UNSET))
+
+        archive_failed = d.pop("archive_failed", UNSET)
+
+        _temporal_parse_errors = d.pop("temporal_parse_errors", UNSET)
+        temporal_parse_errors: JobStatusResponseTemporalParseErrors | Unset
+        if isinstance(_temporal_parse_errors, Unset):
+            temporal_parse_errors = UNSET
+        else:
+            temporal_parse_errors = JobStatusResponseTemporalParseErrors.from_dict(
+                _temporal_parse_errors
+            )
+
         job_status_response = cls(
+            id=id,
+            status=status,
+            dataset_id=dataset_id,
+            source_filename=source_filename,
+            error_message=error_message,
             can_retry=can_retry,
+            retry_reason=retry_reason,
+            started_at=started_at,
             completed_at=completed_at,
             created_at=created_at,
-            dataset_id=dataset_id,
-            error_message=error_message,
-            id=id,
-            retry_reason=retry_reason,
-            source_filename=source_filename,
-            started_at=started_at,
-            status=status,
-            archive_failed=archive_failed,
-            current_step=current_step,
-            progress=progress,
-            rows_processed=rows_processed,
-            temporal_parse_errors=temporal_parse_errors,
             warning_message=warning_message,
             warnings=warnings,
+            progress=progress,
+            current_step=current_step,
+            rows_processed=rows_processed,
+            archive_failed=archive_failed,
+            temporal_parse_errors=temporal_parse_errors,
         )
 
         job_status_response.additional_properties = d

@@ -21,28 +21,28 @@ T = TypeVar("T", bound="ProbeResponse")
 class ProbeResponse:
     """
     Attributes:
-        layers (list[LayerInfo]): Layers exposed by the probed service.
         service_type (str): Detected service type, e.g. 'WFS 2.0' or 'ArcGIS FeatureServer'.
         url (str): Normalized service URL after probing.
+        layers (list[LayerInfo]): Layers exposed by the probed service.
         selected_layer_id (int | None | str | Unset): Auto-selected layer ID when the input URL contained a specific
             layer number.
     """
 
-    layers: list[LayerInfo]
     service_type: str
     url: str
+    layers: list[LayerInfo]
     selected_layer_id: int | None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        service_type = self.service_type
+
+        url = self.url
+
         layers = []
         for layers_item_data in self.layers:
             layers_item = layers_item_data.to_dict()
             layers.append(layers_item)
-
-        service_type = self.service_type
-
-        url = self.url
 
         selected_layer_id: int | None | str | Unset
         if isinstance(self.selected_layer_id, Unset):
@@ -54,9 +54,9 @@ class ProbeResponse:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "layers": layers,
                 "service_type": service_type,
                 "url": url,
+                "layers": layers,
             }
         )
         if selected_layer_id is not UNSET:
@@ -69,16 +69,16 @@ class ProbeResponse:
         from ..models.layer_info import LayerInfo
 
         d = dict(src_dict)
+        service_type = d.pop("service_type")
+
+        url = d.pop("url")
+
         layers = []
         _layers = d.pop("layers")
         for layers_item_data in _layers:
             layers_item = LayerInfo.from_dict(layers_item_data)
 
             layers.append(layers_item)
-
-        service_type = d.pop("service_type")
-
-        url = d.pop("url")
 
         def _parse_selected_layer_id(data: object) -> int | None | str | Unset:
             if data is None:
@@ -90,9 +90,9 @@ class ProbeResponse:
         selected_layer_id = _parse_selected_layer_id(d.pop("selected_layer_id", UNSET))
 
         probe_response = cls(
-            layers=layers,
             service_type=service_type,
             url=url,
+            layers=layers,
             selected_layer_id=selected_layer_id,
         )
 

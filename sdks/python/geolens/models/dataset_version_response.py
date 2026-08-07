@@ -20,45 +20,38 @@ T = TypeVar("T", bound="DatasetVersionResponse")
 class DatasetVersionResponse:
     """
     Attributes:
-        dataset_id (UUID):
-        feature_count (int | None):
-        file_hash (None | str):
-        geometry_type (None | str):
         id (UUID):
+        dataset_id (UUID):
+        version_number (int):
         source_filename (None | str):
         source_format (None | str):
+        feature_count (int | None):
         srid (int | None):
-        uploaded_at (datetime.datetime):
+        geometry_type (None | str):
+        file_hash (None | str):
         uploaded_by (None | UUID):
-        version_number (int):
+        uploaded_at (datetime.datetime):
     """
 
-    dataset_id: UUID
-    feature_count: int | None
-    file_hash: None | str
-    geometry_type: None | str
     id: UUID
+    dataset_id: UUID
+    version_number: int
     source_filename: None | str
     source_format: None | str
+    feature_count: int | None
     srid: int | None
-    uploaded_at: datetime.datetime
+    geometry_type: None | str
+    file_hash: None | str
     uploaded_by: None | UUID
-    version_number: int
+    uploaded_at: datetime.datetime
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        id = str(self.id)
+
         dataset_id = str(self.dataset_id)
 
-        feature_count: int | None
-        feature_count = self.feature_count
-
-        file_hash: None | str
-        file_hash = self.file_hash
-
-        geometry_type: None | str
-        geometry_type = self.geometry_type
-
-        id = str(self.id)
+        version_number = self.version_number
 
         source_filename: None | str
         source_filename = self.source_filename
@@ -66,10 +59,17 @@ class DatasetVersionResponse:
         source_format: None | str
         source_format = self.source_format
 
+        feature_count: int | None
+        feature_count = self.feature_count
+
         srid: int | None
         srid = self.srid
 
-        uploaded_at = self.uploaded_at.isoformat()
+        geometry_type: None | str
+        geometry_type = self.geometry_type
+
+        file_hash: None | str
+        file_hash = self.file_hash
 
         uploaded_by: None | str
         if isinstance(self.uploaded_by, UUID):
@@ -77,23 +77,23 @@ class DatasetVersionResponse:
         else:
             uploaded_by = self.uploaded_by
 
-        version_number = self.version_number
+        uploaded_at = self.uploaded_at.isoformat()
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "dataset_id": dataset_id,
-                "feature_count": feature_count,
-                "file_hash": file_hash,
-                "geometry_type": geometry_type,
                 "id": id,
+                "dataset_id": dataset_id,
+                "version_number": version_number,
                 "source_filename": source_filename,
                 "source_format": source_format,
+                "feature_count": feature_count,
                 "srid": srid,
-                "uploaded_at": uploaded_at,
+                "geometry_type": geometry_type,
+                "file_hash": file_hash,
                 "uploaded_by": uploaded_by,
-                "version_number": version_number,
+                "uploaded_at": uploaded_at,
             }
         )
 
@@ -102,30 +102,11 @@ class DatasetVersionResponse:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
+        id = UUID(d.pop("id"))
+
         dataset_id = UUID(d.pop("dataset_id"))
 
-        def _parse_feature_count(data: object) -> int | None:
-            if data is None:
-                return data
-            return cast(int | None, data)
-
-        feature_count = _parse_feature_count(d.pop("feature_count"))
-
-        def _parse_file_hash(data: object) -> None | str:
-            if data is None:
-                return data
-            return cast(None | str, data)
-
-        file_hash = _parse_file_hash(d.pop("file_hash"))
-
-        def _parse_geometry_type(data: object) -> None | str:
-            if data is None:
-                return data
-            return cast(None | str, data)
-
-        geometry_type = _parse_geometry_type(d.pop("geometry_type"))
-
-        id = UUID(d.pop("id"))
+        version_number = d.pop("version_number")
 
         def _parse_source_filename(data: object) -> None | str:
             if data is None:
@@ -141,6 +122,13 @@ class DatasetVersionResponse:
 
         source_format = _parse_source_format(d.pop("source_format"))
 
+        def _parse_feature_count(data: object) -> int | None:
+            if data is None:
+                return data
+            return cast(int | None, data)
+
+        feature_count = _parse_feature_count(d.pop("feature_count"))
+
         def _parse_srid(data: object) -> int | None:
             if data is None:
                 return data
@@ -148,7 +136,19 @@ class DatasetVersionResponse:
 
         srid = _parse_srid(d.pop("srid"))
 
-        uploaded_at = isoparse(d.pop("uploaded_at"))
+        def _parse_geometry_type(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        geometry_type = _parse_geometry_type(d.pop("geometry_type"))
+
+        def _parse_file_hash(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        file_hash = _parse_file_hash(d.pop("file_hash"))
 
         def _parse_uploaded_by(data: object) -> None | UUID:
             if data is None:
@@ -165,20 +165,20 @@ class DatasetVersionResponse:
 
         uploaded_by = _parse_uploaded_by(d.pop("uploaded_by"))
 
-        version_number = d.pop("version_number")
+        uploaded_at = isoparse(d.pop("uploaded_at"))
 
         dataset_version_response = cls(
-            dataset_id=dataset_id,
-            feature_count=feature_count,
-            file_hash=file_hash,
-            geometry_type=geometry_type,
             id=id,
+            dataset_id=dataset_id,
+            version_number=version_number,
             source_filename=source_filename,
             source_format=source_format,
+            feature_count=feature_count,
             srid=srid,
-            uploaded_at=uploaded_at,
+            geometry_type=geometry_type,
+            file_hash=file_hash,
             uploaded_by=uploaded_by,
-            version_number=version_number,
+            uploaded_at=uploaded_at,
         )
 
         dataset_version_response.additional_properties = d

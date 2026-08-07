@@ -21,24 +21,24 @@ class ServiceProbeResult:
     """Result of a single service connectivity probe.
 
     Attributes:
-        latency_ms (float): Round-trip latency in milliseconds.
         name (str): Service name (e.g. 'storage', 'cache', 'oidc:google').
         status (ServiceProbeResultStatus): Probe outcome.
+        latency_ms (float): Round-trip latency in milliseconds.
         error (None | str | Unset): Error message when status is 'error'.
     """
 
-    latency_ms: float
     name: str
     status: ServiceProbeResultStatus
+    latency_ms: float
     error: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        latency_ms = self.latency_ms
-
         name = self.name
 
         status: str = self.status
+
+        latency_ms = self.latency_ms
 
         error: None | str | Unset
         if isinstance(self.error, Unset):
@@ -50,9 +50,9 @@ class ServiceProbeResult:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "latency_ms": latency_ms,
                 "name": name,
                 "status": status,
+                "latency_ms": latency_ms,
             }
         )
         if error is not UNSET:
@@ -63,11 +63,11 @@ class ServiceProbeResult:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        latency_ms = d.pop("latency_ms")
-
         name = d.pop("name")
 
         status = check_service_probe_result_status(d.pop("status"))
+
+        latency_ms = d.pop("latency_ms")
 
         def _parse_error(data: object) -> None | str | Unset:
             if data is None:
@@ -79,9 +79,9 @@ class ServiceProbeResult:
         error = _parse_error(d.pop("error", UNSET))
 
         service_probe_result = cls(
-            latency_ms=latency_ms,
             name=name,
             status=status,
+            latency_ms=latency_ms,
             error=error,
         )
 

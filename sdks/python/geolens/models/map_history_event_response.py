@@ -26,44 +26,44 @@ T = TypeVar("T", bound="MapHistoryEventResponse")
 class MapHistoryEventResponse:
     """
     Attributes:
-        action (str):
-        created_at (datetime.datetime):
         id (UUID):
         map_id (UUID):
-        summary (str):
         target_type (str):
+        action (str):
+        summary (str):
+        created_at (datetime.datetime):
         actor_id (None | Unset | UUID):
         actor_username (None | str | Unset):
-        details (MapHistoryEventResponseDetails | Unset):
         target_id (None | Unset | UUID):
         target_name (None | str | Unset):
+        details (MapHistoryEventResponseDetails | Unset):
     """
 
-    action: str
-    created_at: datetime.datetime
     id: UUID
     map_id: UUID
-    summary: str
     target_type: str
+    action: str
+    summary: str
+    created_at: datetime.datetime
     actor_id: None | Unset | UUID = UNSET
     actor_username: None | str | Unset = UNSET
-    details: MapHistoryEventResponseDetails | Unset = UNSET
     target_id: None | Unset | UUID = UNSET
     target_name: None | str | Unset = UNSET
+    details: MapHistoryEventResponseDetails | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        action = self.action
-
-        created_at = self.created_at.isoformat()
-
         id = str(self.id)
 
         map_id = str(self.map_id)
 
+        target_type = self.target_type
+
+        action = self.action
+
         summary = self.summary
 
-        target_type = self.target_type
+        created_at = self.created_at.isoformat()
 
         actor_id: None | str | Unset
         if isinstance(self.actor_id, Unset):
@@ -79,10 +79,6 @@ class MapHistoryEventResponse:
         else:
             actor_username = self.actor_username
 
-        details: dict[str, Any] | Unset = UNSET
-        if not isinstance(self.details, Unset):
-            details = self.details.to_dict()
-
         target_id: None | str | Unset
         if isinstance(self.target_id, Unset):
             target_id = UNSET
@@ -97,28 +93,32 @@ class MapHistoryEventResponse:
         else:
             target_name = self.target_name
 
+        details: dict[str, Any] | Unset = UNSET
+        if not isinstance(self.details, Unset):
+            details = self.details.to_dict()
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "action": action,
-                "created_at": created_at,
                 "id": id,
                 "map_id": map_id,
-                "summary": summary,
                 "target_type": target_type,
+                "action": action,
+                "summary": summary,
+                "created_at": created_at,
             }
         )
         if actor_id is not UNSET:
             field_dict["actor_id"] = actor_id
         if actor_username is not UNSET:
             field_dict["actor_username"] = actor_username
-        if details is not UNSET:
-            field_dict["details"] = details
         if target_id is not UNSET:
             field_dict["target_id"] = target_id
         if target_name is not UNSET:
             field_dict["target_name"] = target_name
+        if details is not UNSET:
+            field_dict["details"] = details
 
         return field_dict
 
@@ -129,17 +129,17 @@ class MapHistoryEventResponse:
         )
 
         d = dict(src_dict)
-        action = d.pop("action")
-
-        created_at = isoparse(d.pop("created_at"))
-
         id = UUID(d.pop("id"))
 
         map_id = UUID(d.pop("map_id"))
 
+        target_type = d.pop("target_type")
+
+        action = d.pop("action")
+
         summary = d.pop("summary")
 
-        target_type = d.pop("target_type")
+        created_at = isoparse(d.pop("created_at"))
 
         def _parse_actor_id(data: object) -> None | Unset | UUID:
             if data is None:
@@ -167,13 +167,6 @@ class MapHistoryEventResponse:
 
         actor_username = _parse_actor_username(d.pop("actor_username", UNSET))
 
-        _details = d.pop("details", UNSET)
-        details: MapHistoryEventResponseDetails | Unset
-        if isinstance(_details, Unset):
-            details = UNSET
-        else:
-            details = MapHistoryEventResponseDetails.from_dict(_details)
-
         def _parse_target_id(data: object) -> None | Unset | UUID:
             if data is None:
                 return data
@@ -200,18 +193,25 @@ class MapHistoryEventResponse:
 
         target_name = _parse_target_name(d.pop("target_name", UNSET))
 
+        _details = d.pop("details", UNSET)
+        details: MapHistoryEventResponseDetails | Unset
+        if isinstance(_details, Unset):
+            details = UNSET
+        else:
+            details = MapHistoryEventResponseDetails.from_dict(_details)
+
         map_history_event_response = cls(
-            action=action,
-            created_at=created_at,
             id=id,
             map_id=map_id,
-            summary=summary,
             target_type=target_type,
+            action=action,
+            summary=summary,
+            created_at=created_at,
             actor_id=actor_id,
             actor_username=actor_username,
-            details=details,
             target_id=target_id,
             target_name=target_name,
+            details=details,
         )
 
         map_history_event_response.additional_properties = d

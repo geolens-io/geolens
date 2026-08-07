@@ -26,40 +26,42 @@ T = TypeVar("T", bound="UserResponse")
 class UserResponse:
     """
     Attributes:
-        created_at (datetime.datetime):
-        email (None | str):
         id (UUID):
-        is_active (bool):
-        last_login_at (datetime.datetime | None):
-        roles (list[str]): Assigned role names, e.g. ['admin', 'editor']
-        status (UserResponseStatus): Account status: active, pending, suspended, or deactivated.
         username (str):
+        email (None | str):
+        is_active (bool):
+        status (UserResponseStatus): Account status: active, pending, suspended, or deactivated.
+        last_login_at (datetime.datetime | None):
+        created_at (datetime.datetime):
+        roles (list[str]): Assigned role names, e.g. ['admin', 'editor']
         quota_usage (None | Unset | UserQuotaUsage): Per-user storage quota usage. Populated only on admin list
             responses; None when the caller did not load usage (e.g. /auth/me, single-user GET).
     """
 
-    created_at: datetime.datetime
-    email: None | str
     id: UUID
-    is_active: bool
-    last_login_at: datetime.datetime | None
-    roles: list[str]
-    status: UserResponseStatus
     username: str
+    email: None | str
+    is_active: bool
+    status: UserResponseStatus
+    last_login_at: datetime.datetime | None
+    created_at: datetime.datetime
+    roles: list[str]
     quota_usage: None | Unset | UserQuotaUsage = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.user_quota_usage import UserQuotaUsage
 
-        created_at = self.created_at.isoformat()
+        id = str(self.id)
+
+        username = self.username
 
         email: None | str
         email = self.email
 
-        id = str(self.id)
-
         is_active = self.is_active
+
+        status: str = self.status
 
         last_login_at: None | str
         if isinstance(self.last_login_at, datetime.datetime):
@@ -67,11 +69,9 @@ class UserResponse:
         else:
             last_login_at = self.last_login_at
 
+        created_at = self.created_at.isoformat()
+
         roles = self.roles
-
-        status: str = self.status
-
-        username = self.username
 
         quota_usage: dict[str, Any] | None | Unset
         if isinstance(self.quota_usage, Unset):
@@ -85,14 +85,14 @@ class UserResponse:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "created_at": created_at,
-                "email": email,
                 "id": id,
-                "is_active": is_active,
-                "last_login_at": last_login_at,
-                "roles": roles,
-                "status": status,
                 "username": username,
+                "email": email,
+                "is_active": is_active,
+                "status": status,
+                "last_login_at": last_login_at,
+                "created_at": created_at,
+                "roles": roles,
             }
         )
         if quota_usage is not UNSET:
@@ -105,7 +105,9 @@ class UserResponse:
         from ..models.user_quota_usage import UserQuotaUsage
 
         d = dict(src_dict)
-        created_at = isoparse(d.pop("created_at"))
+        id = UUID(d.pop("id"))
+
+        username = d.pop("username")
 
         def _parse_email(data: object) -> None | str:
             if data is None:
@@ -114,9 +116,9 @@ class UserResponse:
 
         email = _parse_email(d.pop("email"))
 
-        id = UUID(d.pop("id"))
-
         is_active = d.pop("is_active")
+
+        status = check_user_response_status(d.pop("status"))
 
         def _parse_last_login_at(data: object) -> datetime.datetime | None:
             if data is None:
@@ -133,11 +135,9 @@ class UserResponse:
 
         last_login_at = _parse_last_login_at(d.pop("last_login_at"))
 
+        created_at = isoparse(d.pop("created_at"))
+
         roles = cast(list[str], d.pop("roles"))
-
-        status = check_user_response_status(d.pop("status"))
-
-        username = d.pop("username")
 
         def _parse_quota_usage(data: object) -> None | Unset | UserQuotaUsage:
             if data is None:
@@ -157,14 +157,14 @@ class UserResponse:
         quota_usage = _parse_quota_usage(d.pop("quota_usage", UNSET))
 
         user_response = cls(
-            created_at=created_at,
-            email=email,
             id=id,
-            is_active=is_active,
-            last_login_at=last_login_at,
-            roles=roles,
-            status=status,
             username=username,
+            email=email,
+            is_active=is_active,
+            status=status,
+            last_login_at=last_login_at,
+            created_at=created_at,
+            roles=roles,
             quota_usage=quota_usage,
         )
 

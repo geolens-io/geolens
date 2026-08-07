@@ -18,28 +18,28 @@ T = TypeVar("T", bound="DatasetVersionListResponse")
 class DatasetVersionListResponse:
     """
     Attributes:
-        total (int):
         versions (list[DatasetVersionResponse]):
+        total (int):
     """
 
-    total: int
     versions: list[DatasetVersionResponse]
+    total: int
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        total = self.total
-
         versions = []
         for versions_item_data in self.versions:
             versions_item = versions_item_data.to_dict()
             versions.append(versions_item)
 
+        total = self.total
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "total": total,
                 "versions": versions,
+                "total": total,
             }
         )
 
@@ -50,8 +50,6 @@ class DatasetVersionListResponse:
         from ..models.dataset_version_response import DatasetVersionResponse
 
         d = dict(src_dict)
-        total = d.pop("total")
-
         versions = []
         _versions = d.pop("versions")
         for versions_item_data in _versions:
@@ -59,9 +57,11 @@ class DatasetVersionListResponse:
 
             versions.append(versions_item)
 
+        total = d.pop("total")
+
         dataset_version_list_response = cls(
-            total=total,
             versions=versions,
+            total=total,
         )
 
         dataset_version_list_response.additional_properties = d

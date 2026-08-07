@@ -34,28 +34,28 @@ class GeoJSONGeometryCollection:
     database 500. The write schemas add a raw-payload guard for a clear 422.
 
         Attributes:
-            geometries (list[GeoJSONGeometry]):
             type_ (Literal['GeometryCollection']):
+            geometries (list[GeoJSONGeometry]):
     """
 
-    geometries: list[GeoJSONGeometry]
     type_: Literal["GeometryCollection"]
+    geometries: list[GeoJSONGeometry]
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        type_ = self.type_
+
         geometries = []
         for geometries_item_data in self.geometries:
             geometries_item = geometries_item_data.to_dict()
             geometries.append(geometries_item)
 
-        type_ = self.type_
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "geometries": geometries,
                 "type": type_,
+                "geometries": geometries,
             }
         )
 
@@ -66,6 +66,12 @@ class GeoJSONGeometryCollection:
         from ..models.geo_json_geometry import GeoJSONGeometry
 
         d = dict(src_dict)
+        type_ = cast(Literal["GeometryCollection"], d.pop("type"))
+        if type_ != "GeometryCollection":
+            raise ValueError(
+                f"type must match const 'GeometryCollection', got '{type_}'"
+            )
+
         geometries = []
         _geometries = d.pop("geometries")
         for geometries_item_data in _geometries:
@@ -73,15 +79,9 @@ class GeoJSONGeometryCollection:
 
             geometries.append(geometries_item)
 
-        type_ = cast(Literal["GeometryCollection"], d.pop("type"))
-        if type_ != "GeometryCollection":
-            raise ValueError(
-                f"type must match const 'GeometryCollection', got '{type_}'"
-            )
-
         geo_json_geometry_collection = cls(
-            geometries=geometries,
             type_=type_,
+            geometries=geometries,
         )
 
         geo_json_geometry_collection.additional_properties = d

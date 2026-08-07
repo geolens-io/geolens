@@ -20,21 +20,33 @@ class StacItemAsset:
 
     Attributes:
         href (str): URL of the asset resource.
+        type_ (None | str | Unset): Asset media type.
+        title (None | str | Unset): Human-readable asset title.
         description (None | str | Unset): Human-readable asset description.
         roles (list[str] | None | Unset): Semantic roles such as data or visual.
-        title (None | str | Unset): Human-readable asset title.
-        type_ (None | str | Unset): Asset media type.
     """
 
     href: str
+    type_: None | str | Unset = UNSET
+    title: None | str | Unset = UNSET
     description: None | str | Unset = UNSET
     roles: list[str] | None | Unset = UNSET
-    title: None | str | Unset = UNSET
-    type_: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         href = self.href
+
+        type_: None | str | Unset
+        if isinstance(self.type_, Unset):
+            type_ = UNSET
+        else:
+            type_ = self.type_
+
+        title: None | str | Unset
+        if isinstance(self.title, Unset):
+            title = UNSET
+        else:
+            title = self.title
 
         description: None | str | Unset
         if isinstance(self.description, Unset):
@@ -51,18 +63,6 @@ class StacItemAsset:
         else:
             roles = self.roles
 
-        title: None | str | Unset
-        if isinstance(self.title, Unset):
-            title = UNSET
-        else:
-            title = self.title
-
-        type_: None | str | Unset
-        if isinstance(self.type_, Unset):
-            type_ = UNSET
-        else:
-            type_ = self.type_
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -70,14 +70,14 @@ class StacItemAsset:
                 "href": href,
             }
         )
+        if type_ is not UNSET:
+            field_dict["type"] = type_
+        if title is not UNSET:
+            field_dict["title"] = title
         if description is not UNSET:
             field_dict["description"] = description
         if roles is not UNSET:
             field_dict["roles"] = roles
-        if title is not UNSET:
-            field_dict["title"] = title
-        if type_ is not UNSET:
-            field_dict["type"] = type_
 
         return field_dict
 
@@ -85,6 +85,24 @@ class StacItemAsset:
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
         href = d.pop("href")
+
+        def _parse_type_(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        type_ = _parse_type_(d.pop("type", UNSET))
+
+        def _parse_title(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        title = _parse_title(d.pop("title", UNSET))
 
         def _parse_description(data: object) -> None | str | Unset:
             if data is None:
@@ -112,30 +130,12 @@ class StacItemAsset:
 
         roles = _parse_roles(d.pop("roles", UNSET))
 
-        def _parse_title(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        title = _parse_title(d.pop("title", UNSET))
-
-        def _parse_type_(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        type_ = _parse_type_(d.pop("type", UNSET))
-
         stac_item_asset = cls(
             href=href,
+            type_=type_,
+            title=title,
             description=description,
             roles=roles,
-            title=title,
-            type_=type_,
         )
 
         stac_item_asset.additional_properties = d

@@ -18,25 +18,25 @@ class SSETokenEvent:
     """Token payload carried by a ``token`` server-sent event.
 
     Attributes:
-        text (str):
         type_ (Literal['token']):
+        text (str):
     """
 
-    text: str
     type_: Literal["token"]
+    text: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        text = self.text
-
         type_ = self.type_
+
+        text = self.text
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "text": text,
                 "type": type_,
+                "text": text,
             }
         )
 
@@ -45,15 +45,15 @@ class SSETokenEvent:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        text = d.pop("text")
-
         type_ = cast(Literal["token"], d.pop("type"))
         if type_ != "token":
             raise ValueError(f"type must match const 'token', got '{type_}'")
 
+        text = d.pop("text")
+
         sse_token_event = cls(
-            text=text,
             type_=type_,
+            text=text,
         )
 
         sse_token_event.additional_properties = d

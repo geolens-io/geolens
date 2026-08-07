@@ -34,148 +34,148 @@ T = TypeVar("T", bound="DatasetResponse")
 class DatasetResponse:
     """
     Attributes:
-        created_at (datetime.datetime):
-        created_by (None | UUID):
-        created_by_display (str):
-        feature_count (int | None):
         id (UUID):
         record_id (UUID): Parent catalog record UUID
-        source_filename (None | str):
-        summary (None | str):
         table_name (str): Internal PostGIS table name
         title (str):
-        updated_at (datetime.datetime):
+        summary (None | str):
+        feature_count (int | None):
+        source_filename (None | str):
         visibility (str): Access level: private, restricted, internal, public
-        access_constraints (None | str | Unset):
-        collections (list[CollectionRef] | None | Unset):
-        column_info (list[ColumnInfo] | None | Unset): Column names, types, and stats
-        current_version (int | Unset): Monotonic version counter Default: 1.
-        data_vintage_end (datetime.date | None | Unset): End of temporal coverage
-        data_vintage_start (datetime.date | None | Unset): Start of temporal coverage
-        derived_from (DerivedFromResponse | None | Unset): Provenance for an analysis output. Null for a dataset that
-            was not derived, and also for a requester who cannot access the source dataset — the two are deliberately
-            indistinguishable.
-        extent_bbox (list[float] | None | Unset): Bounding box [west, south, east, north] per RFC 7946 §5.2. west > east
-            on an antimeridian-crossing extent.
+        created_by (None | UUID):
+        created_by_display (str):
+        created_at (datetime.datetime):
+        updated_at (datetime.datetime):
+        srid (int | None | Unset): Current EPSG SRID of stored geometry
         geometry_type (None | str | Unset): OGC geometry type, e.g. MultiPolygon
         has_generic_geometry (bool | Unset): True when the underlying column is generic GEOMETRY (created sketch
             datasets): the dataset accepts ANY geometry subtype on write regardless of the display geometry_type above.
             Computed on the detail endpoint only (fix #430 codex r18); list endpoints always report false. Default: False.
         is_3d (bool | None | Unset): True if geometry has Z dimension
-        language (None | str | Unset): ISO 639-1 language code, e.g. en, fr
-        last_checked_at (datetime.datetime | None | Unset): Last time GeoLens contacted the origin at all, whether the
-            attempt succeeded or failed
-        last_edited_at (datetime.datetime | None | Unset):
-        last_edited_by_display (None | str | Unset):
-        last_refreshed_at (datetime.datetime | None | Unset): Last committed successful refresh — not the last attempt
-        license_ (None | str | Unset):
-        lineage_summary (None | str | Unset): Free-text provenance / lineage statement
-        metadata_warnings (list[str] | None | Unset): Advisory warnings produced by a metadata update — e.g. a
-            visibility or status change exposing keywords inherited from an analysis source the new audience cannot open
-            (feat #1070). Only ever set on the PATCH response; the change has already applied.
         n_dims (int | None | Unset): Number of coordinate dimensions (2, 3, or 4)
+        z_min (float | None | Unset): Minimum Z value across all features
+        z_max (float | None | Unset): Maximum Z value across all features
+        extent_bbox (list[float] | None | Unset): Bounding box [west, south, east, north] per RFC 7946 §5.2. west > east
+            on an antimeridian-crossing extent.
+        column_info (list[ColumnInfo] | None | Unset): Column names, types, and stats
+        license_ (None | str | Unset):
+        source_organization (None | str | Unset):
+        data_vintage_start (datetime.date | None | Unset): Start of temporal coverage
+        data_vintage_end (datetime.date | None | Unset): End of temporal coverage
+        quality_detail (None | QualityDetail | Unset): Automated quality assessment results
+        source_format (None | str | Unset): Original file format, e.g. GPKG, SHP
+        tile_columns (list[str] | None | Unset): Ordered vector-tile property allowlist; null uses zoom defaults, []
+            emits geometry-only tiles, list emits those properties at any zoom.
+        original_srid (int | None | Unset): EPSG SRID of the uploaded source file
+        current_version (int | Unset): Monotonic version counter Default: 1.
+        source_url (None | str | Unset): URL the data was originally fetched from
         origin (None | str | Unset): How the data entered the catalog: upload, postgis, service, stac, or created.
             Computed from source_format and record_type, not stored; null for collections and VRTs, which have no origin of
             their own.
-        origin_ref (DatasetResponseOriginRefType0 | None | Unset): Typed per-origin payload with a `kind` discriminator,
-            e.g. {"kind": "service", "service_type": "wfs", "url": "...", "layer_id": "0"}. Never contains credentials.
         origin_uri (None | str | Unset): Machine-readable pointer back to the origin, written only by ingest and
             refresh. Distinct from source_url, which is editable descriptive metadata. Null for uploads and created
             datasets.
-        original_srid (int | None | Unset): EPSG SRID of the uploaded source file
-        owner_org (None | str | Unset): Owning organization name
-        published_at (datetime.datetime | None | Unset):
-        quality_detail (None | QualityDetail | Unset): Automated quality assessment results
-        quality_statement (None | str | Unset):
-        raster (None | RasterMetadata | Unset): Raster-specific metadata (null for vectors)
-        record_status (str | Unset): Lifecycle status. Deliberately not pinned to an enum: the values come from the
-            workflow extension's status_order(), so an overlay may define its own. Community default order: draft, ready,
-            internal, published. Default: 'draft'.
-        record_type (str | Unset): Record type: 'vector_dataset' (spatial features), 'raster_dataset' (single COG),
-            'vrt_dataset' (VRT mosaic), 'table' (non-spatial tabular), 'map' (saved map), 'service' (catalogued remote
-            service), 'collection' (flat dataset group). Default: 'vector_dataset'.
-        schema_drift_status (str | Unset): none, drifted, or unknown. Set at refresh commit from the schema diff;
-            'unknown' until a refresh has run. Default: 'unknown'.
-        sensitivity_classification (None | str | Unset): e.g. public, confidential, restricted
-        source_format (None | str | Unset): Original file format, e.g. GPKG, SHP
+        origin_ref (DatasetResponseOriginRefType0 | None | Unset): Typed per-origin payload with a `kind` discriminator,
+            e.g. {"kind": "service", "service_type": "wfs", "url": "...", "layer_id": "0"}. Never contains credentials.
+        last_refreshed_at (datetime.datetime | None | Unset): Last committed successful refresh — not the last attempt
+        last_checked_at (datetime.datetime | None | Unset): Last time GeoLens contacted the origin at all, whether the
+            attempt succeeded or failed
         source_health (str | Unset): healthy, missing, inaccessible, or unknown. 'unknown' means never probed, or an
             origin kind with nothing to probe. Default: 'unknown'.
         source_health_detail (None | str | Unset): Short redacted reason for a non-healthy state
-        source_organization (None | str | Unset):
-        source_url (None | str | Unset): URL the data was originally fetched from
-        srid (int | None | Unset): Current EPSG SRID of stored geometry
+        schema_drift_status (str | Unset): none, drifted, or unknown. Set at refresh commit from the schema diff;
+            'unknown' until a refresh has run. Default: 'unknown'.
+        quality_statement (None | str | Unset):
+        last_edited_by_display (None | str | Unset):
+        last_edited_at (datetime.datetime | None | Unset):
+        collections (list[CollectionRef] | None | Unset):
+        record_status (str | Unset): Lifecycle status. Deliberately not pinned to an enum: the values come from the
+            workflow extension's status_order(), so an overlay may define its own. Community default order: draft, ready,
+            internal, published. Default: 'draft'.
+        lineage_summary (None | str | Unset): Free-text provenance / lineage statement
+        derived_from (DerivedFromResponse | None | Unset): Provenance for an analysis output. Null for a dataset that
+            was not derived, and also for a requester who cannot access the source dataset — the two are deliberately
+            indistinguishable.
+        update_frequency (None | str | Unset): ISO maintenance frequency code
+        usage_constraints (None | str | Unset):
+        access_constraints (None | str | Unset):
+        sensitivity_classification (None | str | Unset): e.g. public, confidential, restricted
+        theme_category (list[str] | None | Unset): ISO topic category codes
+        owner_org (None | str | Unset): Owning organization name
+        published_at (datetime.datetime | None | Unset):
+        updated_by (None | Unset | UUID):
+        record_type (str | Unset): Record type: 'vector_dataset' (spatial features), 'raster_dataset' (single COG),
+            'vrt_dataset' (VRT mosaic), 'table' (non-spatial tabular), 'map' (saved map), 'service' (catalogued remote
+            service), 'collection' (flat dataset group). Default: 'vector_dataset'.
+        raster (None | RasterMetadata | Unset): Raster-specific metadata (null for vectors)
         stac_assets (DatasetResponseStacAssetsType0 | None | Unset): STAC-style asset dictionary
         stac_extensions (list[str] | None | Unset):
-        theme_category (list[str] | None | Unset): ISO topic category codes
-        tile_columns (list[str] | None | Unset): Ordered vector-tile property allowlist; null uses zoom defaults, []
-            emits geometry-only tiles, list emits those properties at any zoom.
-        update_frequency (None | str | Unset): ISO maintenance frequency code
-        updated_by (None | Unset | UUID):
-        usage_constraints (None | str | Unset):
-        z_max (float | None | Unset): Maximum Z value across all features
-        z_min (float | None | Unset): Minimum Z value across all features
+        language (None | str | Unset): ISO 639-1 language code, e.g. en, fr
+        metadata_warnings (list[str] | None | Unset): Advisory warnings produced by a metadata update — e.g. a
+            visibility or status change exposing keywords inherited from an analysis source the new audience cannot open
+            (feat #1070). Only ever set on the PATCH response; the change has already applied.
     """
 
-    created_at: datetime.datetime
-    created_by: None | UUID
-    created_by_display: str
-    feature_count: int | None
     id: UUID
     record_id: UUID
-    source_filename: None | str
-    summary: None | str
     table_name: str
     title: str
-    updated_at: datetime.datetime
+    summary: None | str
+    feature_count: int | None
+    source_filename: None | str
     visibility: str
-    access_constraints: None | str | Unset = UNSET
-    collections: list[CollectionRef] | None | Unset = UNSET
-    column_info: list[ColumnInfo] | None | Unset = UNSET
-    current_version: int | Unset = 1
-    data_vintage_end: datetime.date | None | Unset = UNSET
-    data_vintage_start: datetime.date | None | Unset = UNSET
-    derived_from: DerivedFromResponse | None | Unset = UNSET
-    extent_bbox: list[float] | None | Unset = UNSET
+    created_by: None | UUID
+    created_by_display: str
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+    srid: int | None | Unset = UNSET
     geometry_type: None | str | Unset = UNSET
     has_generic_geometry: bool | Unset = False
     is_3d: bool | None | Unset = UNSET
-    language: None | str | Unset = UNSET
-    last_checked_at: datetime.datetime | None | Unset = UNSET
-    last_edited_at: datetime.datetime | None | Unset = UNSET
-    last_edited_by_display: None | str | Unset = UNSET
-    last_refreshed_at: datetime.datetime | None | Unset = UNSET
-    license_: None | str | Unset = UNSET
-    lineage_summary: None | str | Unset = UNSET
-    metadata_warnings: list[str] | None | Unset = UNSET
     n_dims: int | None | Unset = UNSET
-    origin: None | str | Unset = UNSET
-    origin_ref: DatasetResponseOriginRefType0 | None | Unset = UNSET
-    origin_uri: None | str | Unset = UNSET
-    original_srid: int | None | Unset = UNSET
-    owner_org: None | str | Unset = UNSET
-    published_at: datetime.datetime | None | Unset = UNSET
+    z_min: float | None | Unset = UNSET
+    z_max: float | None | Unset = UNSET
+    extent_bbox: list[float] | None | Unset = UNSET
+    column_info: list[ColumnInfo] | None | Unset = UNSET
+    license_: None | str | Unset = UNSET
+    source_organization: None | str | Unset = UNSET
+    data_vintage_start: datetime.date | None | Unset = UNSET
+    data_vintage_end: datetime.date | None | Unset = UNSET
     quality_detail: None | QualityDetail | Unset = UNSET
-    quality_statement: None | str | Unset = UNSET
-    raster: None | RasterMetadata | Unset = UNSET
-    record_status: str | Unset = "draft"
-    record_type: str | Unset = "vector_dataset"
-    schema_drift_status: str | Unset = "unknown"
-    sensitivity_classification: None | str | Unset = UNSET
     source_format: None | str | Unset = UNSET
+    tile_columns: list[str] | None | Unset = UNSET
+    original_srid: int | None | Unset = UNSET
+    current_version: int | Unset = 1
+    source_url: None | str | Unset = UNSET
+    origin: None | str | Unset = UNSET
+    origin_uri: None | str | Unset = UNSET
+    origin_ref: DatasetResponseOriginRefType0 | None | Unset = UNSET
+    last_refreshed_at: datetime.datetime | None | Unset = UNSET
+    last_checked_at: datetime.datetime | None | Unset = UNSET
     source_health: str | Unset = "unknown"
     source_health_detail: None | str | Unset = UNSET
-    source_organization: None | str | Unset = UNSET
-    source_url: None | str | Unset = UNSET
-    srid: int | None | Unset = UNSET
+    schema_drift_status: str | Unset = "unknown"
+    quality_statement: None | str | Unset = UNSET
+    last_edited_by_display: None | str | Unset = UNSET
+    last_edited_at: datetime.datetime | None | Unset = UNSET
+    collections: list[CollectionRef] | None | Unset = UNSET
+    record_status: str | Unset = "draft"
+    lineage_summary: None | str | Unset = UNSET
+    derived_from: DerivedFromResponse | None | Unset = UNSET
+    update_frequency: None | str | Unset = UNSET
+    usage_constraints: None | str | Unset = UNSET
+    access_constraints: None | str | Unset = UNSET
+    sensitivity_classification: None | str | Unset = UNSET
+    theme_category: list[str] | None | Unset = UNSET
+    owner_org: None | str | Unset = UNSET
+    published_at: datetime.datetime | None | Unset = UNSET
+    updated_by: None | Unset | UUID = UNSET
+    record_type: str | Unset = "vector_dataset"
+    raster: None | RasterMetadata | Unset = UNSET
     stac_assets: DatasetResponseStacAssetsType0 | None | Unset = UNSET
     stac_extensions: list[str] | None | Unset = UNSET
-    theme_category: list[str] | None | Unset = UNSET
-    tile_columns: list[str] | None | Unset = UNSET
-    update_frequency: None | str | Unset = UNSET
-    updated_by: None | Unset | UUID = UNSET
-    usage_constraints: None | str | Unset = UNSET
-    z_max: float | None | Unset = UNSET
-    z_min: float | None | Unset = UNSET
+    language: None | str | Unset = UNSET
+    metadata_warnings: list[str] | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -189,7 +189,24 @@ class DatasetResponse:
         from ..models.quality_detail import QualityDetail
         from ..models.raster_metadata import RasterMetadata
 
-        created_at = self.created_at.isoformat()
+        id = str(self.id)
+
+        record_id = str(self.record_id)
+
+        table_name = self.table_name
+
+        title = self.title
+
+        summary: None | str
+        summary = self.summary
+
+        feature_count: int | None
+        feature_count = self.feature_count
+
+        source_filename: None | str
+        source_filename = self.source_filename
+
+        visibility = self.visibility
 
         created_by: None | str
         if isinstance(self.created_by, UUID):
@@ -199,91 +216,15 @@ class DatasetResponse:
 
         created_by_display = self.created_by_display
 
-        feature_count: int | None
-        feature_count = self.feature_count
-
-        id = str(self.id)
-
-        record_id = str(self.record_id)
-
-        source_filename: None | str
-        source_filename = self.source_filename
-
-        summary: None | str
-        summary = self.summary
-
-        table_name = self.table_name
-
-        title = self.title
+        created_at = self.created_at.isoformat()
 
         updated_at = self.updated_at.isoformat()
 
-        visibility = self.visibility
-
-        access_constraints: None | str | Unset
-        if isinstance(self.access_constraints, Unset):
-            access_constraints = UNSET
+        srid: int | None | Unset
+        if isinstance(self.srid, Unset):
+            srid = UNSET
         else:
-            access_constraints = self.access_constraints
-
-        collections: list[dict[str, Any]] | None | Unset
-        if isinstance(self.collections, Unset):
-            collections = UNSET
-        elif isinstance(self.collections, list):
-            collections = []
-            for collections_type_0_item_data in self.collections:
-                collections_type_0_item = collections_type_0_item_data.to_dict()
-                collections.append(collections_type_0_item)
-
-        else:
-            collections = self.collections
-
-        column_info: list[dict[str, Any]] | None | Unset
-        if isinstance(self.column_info, Unset):
-            column_info = UNSET
-        elif isinstance(self.column_info, list):
-            column_info = []
-            for column_info_type_0_item_data in self.column_info:
-                column_info_type_0_item = column_info_type_0_item_data.to_dict()
-                column_info.append(column_info_type_0_item)
-
-        else:
-            column_info = self.column_info
-
-        current_version = self.current_version
-
-        data_vintage_end: None | str | Unset
-        if isinstance(self.data_vintage_end, Unset):
-            data_vintage_end = UNSET
-        elif isinstance(self.data_vintage_end, datetime.date):
-            data_vintage_end = self.data_vintage_end.isoformat()
-        else:
-            data_vintage_end = self.data_vintage_end
-
-        data_vintage_start: None | str | Unset
-        if isinstance(self.data_vintage_start, Unset):
-            data_vintage_start = UNSET
-        elif isinstance(self.data_vintage_start, datetime.date):
-            data_vintage_start = self.data_vintage_start.isoformat()
-        else:
-            data_vintage_start = self.data_vintage_start
-
-        derived_from: dict[str, Any] | None | Unset
-        if isinstance(self.derived_from, Unset):
-            derived_from = UNSET
-        elif isinstance(self.derived_from, DerivedFromResponse):
-            derived_from = self.derived_from.to_dict()
-        else:
-            derived_from = self.derived_from
-
-        extent_bbox: list[float] | None | Unset
-        if isinstance(self.extent_bbox, Unset):
-            extent_bbox = UNSET
-        elif isinstance(self.extent_bbox, list):
-            extent_bbox = self.extent_bbox
-
-        else:
-            extent_bbox = self.extent_bbox
+            srid = self.srid
 
         geometry_type: None | str | Unset
         if isinstance(self.geometry_type, Unset):
@@ -299,41 +240,44 @@ class DatasetResponse:
         else:
             is_3d = self.is_3d
 
-        language: None | str | Unset
-        if isinstance(self.language, Unset):
-            language = UNSET
+        n_dims: int | None | Unset
+        if isinstance(self.n_dims, Unset):
+            n_dims = UNSET
         else:
-            language = self.language
+            n_dims = self.n_dims
 
-        last_checked_at: None | str | Unset
-        if isinstance(self.last_checked_at, Unset):
-            last_checked_at = UNSET
-        elif isinstance(self.last_checked_at, datetime.datetime):
-            last_checked_at = self.last_checked_at.isoformat()
+        z_min: float | None | Unset
+        if isinstance(self.z_min, Unset):
+            z_min = UNSET
         else:
-            last_checked_at = self.last_checked_at
+            z_min = self.z_min
 
-        last_edited_at: None | str | Unset
-        if isinstance(self.last_edited_at, Unset):
-            last_edited_at = UNSET
-        elif isinstance(self.last_edited_at, datetime.datetime):
-            last_edited_at = self.last_edited_at.isoformat()
+        z_max: float | None | Unset
+        if isinstance(self.z_max, Unset):
+            z_max = UNSET
         else:
-            last_edited_at = self.last_edited_at
+            z_max = self.z_max
 
-        last_edited_by_display: None | str | Unset
-        if isinstance(self.last_edited_by_display, Unset):
-            last_edited_by_display = UNSET
-        else:
-            last_edited_by_display = self.last_edited_by_display
+        extent_bbox: list[float] | None | Unset
+        if isinstance(self.extent_bbox, Unset):
+            extent_bbox = UNSET
+        elif isinstance(self.extent_bbox, list):
+            extent_bbox = self.extent_bbox
 
-        last_refreshed_at: None | str | Unset
-        if isinstance(self.last_refreshed_at, Unset):
-            last_refreshed_at = UNSET
-        elif isinstance(self.last_refreshed_at, datetime.datetime):
-            last_refreshed_at = self.last_refreshed_at.isoformat()
         else:
-            last_refreshed_at = self.last_refreshed_at
+            extent_bbox = self.extent_bbox
+
+        column_info: list[dict[str, Any]] | None | Unset
+        if isinstance(self.column_info, Unset):
+            column_info = UNSET
+        elif isinstance(self.column_info, list):
+            column_info = []
+            for column_info_type_0_item_data in self.column_info:
+                column_info_type_0_item = column_info_type_0_item_data.to_dict()
+                column_info.append(column_info_type_0_item)
+
+        else:
+            column_info = self.column_info
 
         license_: None | str | Unset
         if isinstance(self.license_, Unset):
@@ -341,32 +285,76 @@ class DatasetResponse:
         else:
             license_ = self.license_
 
-        lineage_summary: None | str | Unset
-        if isinstance(self.lineage_summary, Unset):
-            lineage_summary = UNSET
+        source_organization: None | str | Unset
+        if isinstance(self.source_organization, Unset):
+            source_organization = UNSET
         else:
-            lineage_summary = self.lineage_summary
+            source_organization = self.source_organization
 
-        metadata_warnings: list[str] | None | Unset
-        if isinstance(self.metadata_warnings, Unset):
-            metadata_warnings = UNSET
-        elif isinstance(self.metadata_warnings, list):
-            metadata_warnings = self.metadata_warnings
+        data_vintage_start: None | str | Unset
+        if isinstance(self.data_vintage_start, Unset):
+            data_vintage_start = UNSET
+        elif isinstance(self.data_vintage_start, datetime.date):
+            data_vintage_start = self.data_vintage_start.isoformat()
+        else:
+            data_vintage_start = self.data_vintage_start
+
+        data_vintage_end: None | str | Unset
+        if isinstance(self.data_vintage_end, Unset):
+            data_vintage_end = UNSET
+        elif isinstance(self.data_vintage_end, datetime.date):
+            data_vintage_end = self.data_vintage_end.isoformat()
+        else:
+            data_vintage_end = self.data_vintage_end
+
+        quality_detail: dict[str, Any] | None | Unset
+        if isinstance(self.quality_detail, Unset):
+            quality_detail = UNSET
+        elif isinstance(self.quality_detail, QualityDetail):
+            quality_detail = self.quality_detail.to_dict()
+        else:
+            quality_detail = self.quality_detail
+
+        source_format: None | str | Unset
+        if isinstance(self.source_format, Unset):
+            source_format = UNSET
+        else:
+            source_format = self.source_format
+
+        tile_columns: list[str] | None | Unset
+        if isinstance(self.tile_columns, Unset):
+            tile_columns = UNSET
+        elif isinstance(self.tile_columns, list):
+            tile_columns = self.tile_columns
 
         else:
-            metadata_warnings = self.metadata_warnings
+            tile_columns = self.tile_columns
 
-        n_dims: int | None | Unset
-        if isinstance(self.n_dims, Unset):
-            n_dims = UNSET
+        original_srid: int | None | Unset
+        if isinstance(self.original_srid, Unset):
+            original_srid = UNSET
         else:
-            n_dims = self.n_dims
+            original_srid = self.original_srid
+
+        current_version = self.current_version
+
+        source_url: None | str | Unset
+        if isinstance(self.source_url, Unset):
+            source_url = UNSET
+        else:
+            source_url = self.source_url
 
         origin: None | str | Unset
         if isinstance(self.origin, Unset):
             origin = UNSET
         else:
             origin = self.origin
+
+        origin_uri: None | str | Unset
+        if isinstance(self.origin_uri, Unset):
+            origin_uri = UNSET
+        else:
+            origin_uri = self.origin_uri
 
         origin_ref: dict[str, Any] | None | Unset
         if isinstance(self.origin_ref, Unset):
@@ -376,17 +364,112 @@ class DatasetResponse:
         else:
             origin_ref = self.origin_ref
 
-        origin_uri: None | str | Unset
-        if isinstance(self.origin_uri, Unset):
-            origin_uri = UNSET
+        last_refreshed_at: None | str | Unset
+        if isinstance(self.last_refreshed_at, Unset):
+            last_refreshed_at = UNSET
+        elif isinstance(self.last_refreshed_at, datetime.datetime):
+            last_refreshed_at = self.last_refreshed_at.isoformat()
         else:
-            origin_uri = self.origin_uri
+            last_refreshed_at = self.last_refreshed_at
 
-        original_srid: int | None | Unset
-        if isinstance(self.original_srid, Unset):
-            original_srid = UNSET
+        last_checked_at: None | str | Unset
+        if isinstance(self.last_checked_at, Unset):
+            last_checked_at = UNSET
+        elif isinstance(self.last_checked_at, datetime.datetime):
+            last_checked_at = self.last_checked_at.isoformat()
         else:
-            original_srid = self.original_srid
+            last_checked_at = self.last_checked_at
+
+        source_health = self.source_health
+
+        source_health_detail: None | str | Unset
+        if isinstance(self.source_health_detail, Unset):
+            source_health_detail = UNSET
+        else:
+            source_health_detail = self.source_health_detail
+
+        schema_drift_status = self.schema_drift_status
+
+        quality_statement: None | str | Unset
+        if isinstance(self.quality_statement, Unset):
+            quality_statement = UNSET
+        else:
+            quality_statement = self.quality_statement
+
+        last_edited_by_display: None | str | Unset
+        if isinstance(self.last_edited_by_display, Unset):
+            last_edited_by_display = UNSET
+        else:
+            last_edited_by_display = self.last_edited_by_display
+
+        last_edited_at: None | str | Unset
+        if isinstance(self.last_edited_at, Unset):
+            last_edited_at = UNSET
+        elif isinstance(self.last_edited_at, datetime.datetime):
+            last_edited_at = self.last_edited_at.isoformat()
+        else:
+            last_edited_at = self.last_edited_at
+
+        collections: list[dict[str, Any]] | None | Unset
+        if isinstance(self.collections, Unset):
+            collections = UNSET
+        elif isinstance(self.collections, list):
+            collections = []
+            for collections_type_0_item_data in self.collections:
+                collections_type_0_item = collections_type_0_item_data.to_dict()
+                collections.append(collections_type_0_item)
+
+        else:
+            collections = self.collections
+
+        record_status = self.record_status
+
+        lineage_summary: None | str | Unset
+        if isinstance(self.lineage_summary, Unset):
+            lineage_summary = UNSET
+        else:
+            lineage_summary = self.lineage_summary
+
+        derived_from: dict[str, Any] | None | Unset
+        if isinstance(self.derived_from, Unset):
+            derived_from = UNSET
+        elif isinstance(self.derived_from, DerivedFromResponse):
+            derived_from = self.derived_from.to_dict()
+        else:
+            derived_from = self.derived_from
+
+        update_frequency: None | str | Unset
+        if isinstance(self.update_frequency, Unset):
+            update_frequency = UNSET
+        else:
+            update_frequency = self.update_frequency
+
+        usage_constraints: None | str | Unset
+        if isinstance(self.usage_constraints, Unset):
+            usage_constraints = UNSET
+        else:
+            usage_constraints = self.usage_constraints
+
+        access_constraints: None | str | Unset
+        if isinstance(self.access_constraints, Unset):
+            access_constraints = UNSET
+        else:
+            access_constraints = self.access_constraints
+
+        sensitivity_classification: None | str | Unset
+        if isinstance(self.sensitivity_classification, Unset):
+            sensitivity_classification = UNSET
+        else:
+            sensitivity_classification = self.sensitivity_classification
+
+        theme_category: list[str] | None | Unset
+        if isinstance(self.theme_category, Unset):
+            theme_category = UNSET
+        elif isinstance(self.theme_category, list):
+            theme_category = self.theme_category
+
+        else:
+            theme_category = self.theme_category
 
         owner_org: None | str | Unset
         if isinstance(self.owner_org, Unset):
@@ -402,19 +485,15 @@ class DatasetResponse:
         else:
             published_at = self.published_at
 
-        quality_detail: dict[str, Any] | None | Unset
-        if isinstance(self.quality_detail, Unset):
-            quality_detail = UNSET
-        elif isinstance(self.quality_detail, QualityDetail):
-            quality_detail = self.quality_detail.to_dict()
+        updated_by: None | str | Unset
+        if isinstance(self.updated_by, Unset):
+            updated_by = UNSET
+        elif isinstance(self.updated_by, UUID):
+            updated_by = str(self.updated_by)
         else:
-            quality_detail = self.quality_detail
+            updated_by = self.updated_by
 
-        quality_statement: None | str | Unset
-        if isinstance(self.quality_statement, Unset):
-            quality_statement = UNSET
-        else:
-            quality_statement = self.quality_statement
+        record_type = self.record_type
 
         raster: dict[str, Any] | None | Unset
         if isinstance(self.raster, Unset):
@@ -423,50 +502,6 @@ class DatasetResponse:
             raster = self.raster.to_dict()
         else:
             raster = self.raster
-
-        record_status = self.record_status
-
-        record_type = self.record_type
-
-        schema_drift_status = self.schema_drift_status
-
-        sensitivity_classification: None | str | Unset
-        if isinstance(self.sensitivity_classification, Unset):
-            sensitivity_classification = UNSET
-        else:
-            sensitivity_classification = self.sensitivity_classification
-
-        source_format: None | str | Unset
-        if isinstance(self.source_format, Unset):
-            source_format = UNSET
-        else:
-            source_format = self.source_format
-
-        source_health = self.source_health
-
-        source_health_detail: None | str | Unset
-        if isinstance(self.source_health_detail, Unset):
-            source_health_detail = UNSET
-        else:
-            source_health_detail = self.source_health_detail
-
-        source_organization: None | str | Unset
-        if isinstance(self.source_organization, Unset):
-            source_organization = UNSET
-        else:
-            source_organization = self.source_organization
-
-        source_url: None | str | Unset
-        if isinstance(self.source_url, Unset):
-            source_url = UNSET
-        else:
-            source_url = self.source_url
-
-        srid: int | None | Unset
-        if isinstance(self.srid, Unset):
-            srid = UNSET
-        else:
-            srid = self.srid
 
         stac_assets: dict[str, Any] | None | Unset
         if isinstance(self.stac_assets, Unset):
@@ -485,170 +520,135 @@ class DatasetResponse:
         else:
             stac_extensions = self.stac_extensions
 
-        theme_category: list[str] | None | Unset
-        if isinstance(self.theme_category, Unset):
-            theme_category = UNSET
-        elif isinstance(self.theme_category, list):
-            theme_category = self.theme_category
+        language: None | str | Unset
+        if isinstance(self.language, Unset):
+            language = UNSET
+        else:
+            language = self.language
+
+        metadata_warnings: list[str] | None | Unset
+        if isinstance(self.metadata_warnings, Unset):
+            metadata_warnings = UNSET
+        elif isinstance(self.metadata_warnings, list):
+            metadata_warnings = self.metadata_warnings
 
         else:
-            theme_category = self.theme_category
-
-        tile_columns: list[str] | None | Unset
-        if isinstance(self.tile_columns, Unset):
-            tile_columns = UNSET
-        elif isinstance(self.tile_columns, list):
-            tile_columns = self.tile_columns
-
-        else:
-            tile_columns = self.tile_columns
-
-        update_frequency: None | str | Unset
-        if isinstance(self.update_frequency, Unset):
-            update_frequency = UNSET
-        else:
-            update_frequency = self.update_frequency
-
-        updated_by: None | str | Unset
-        if isinstance(self.updated_by, Unset):
-            updated_by = UNSET
-        elif isinstance(self.updated_by, UUID):
-            updated_by = str(self.updated_by)
-        else:
-            updated_by = self.updated_by
-
-        usage_constraints: None | str | Unset
-        if isinstance(self.usage_constraints, Unset):
-            usage_constraints = UNSET
-        else:
-            usage_constraints = self.usage_constraints
-
-        z_max: float | None | Unset
-        if isinstance(self.z_max, Unset):
-            z_max = UNSET
-        else:
-            z_max = self.z_max
-
-        z_min: float | None | Unset
-        if isinstance(self.z_min, Unset):
-            z_min = UNSET
-        else:
-            z_min = self.z_min
+            metadata_warnings = self.metadata_warnings
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "created_at": created_at,
-                "created_by": created_by,
-                "created_by_display": created_by_display,
-                "feature_count": feature_count,
                 "id": id,
                 "record_id": record_id,
-                "source_filename": source_filename,
-                "summary": summary,
                 "table_name": table_name,
                 "title": title,
-                "updated_at": updated_at,
+                "summary": summary,
+                "feature_count": feature_count,
+                "source_filename": source_filename,
                 "visibility": visibility,
+                "created_by": created_by,
+                "created_by_display": created_by_display,
+                "created_at": created_at,
+                "updated_at": updated_at,
             }
         )
-        if access_constraints is not UNSET:
-            field_dict["access_constraints"] = access_constraints
-        if collections is not UNSET:
-            field_dict["collections"] = collections
-        if column_info is not UNSET:
-            field_dict["column_info"] = column_info
-        if current_version is not UNSET:
-            field_dict["current_version"] = current_version
-        if data_vintage_end is not UNSET:
-            field_dict["data_vintage_end"] = data_vintage_end
-        if data_vintage_start is not UNSET:
-            field_dict["data_vintage_start"] = data_vintage_start
-        if derived_from is not UNSET:
-            field_dict["derived_from"] = derived_from
-        if extent_bbox is not UNSET:
-            field_dict["extent_bbox"] = extent_bbox
+        if srid is not UNSET:
+            field_dict["srid"] = srid
         if geometry_type is not UNSET:
             field_dict["geometry_type"] = geometry_type
         if has_generic_geometry is not UNSET:
             field_dict["has_generic_geometry"] = has_generic_geometry
         if is_3d is not UNSET:
             field_dict["is_3d"] = is_3d
-        if language is not UNSET:
-            field_dict["language"] = language
-        if last_checked_at is not UNSET:
-            field_dict["last_checked_at"] = last_checked_at
-        if last_edited_at is not UNSET:
-            field_dict["last_edited_at"] = last_edited_at
-        if last_edited_by_display is not UNSET:
-            field_dict["last_edited_by_display"] = last_edited_by_display
-        if last_refreshed_at is not UNSET:
-            field_dict["last_refreshed_at"] = last_refreshed_at
-        if license_ is not UNSET:
-            field_dict["license"] = license_
-        if lineage_summary is not UNSET:
-            field_dict["lineage_summary"] = lineage_summary
-        if metadata_warnings is not UNSET:
-            field_dict["metadata_warnings"] = metadata_warnings
         if n_dims is not UNSET:
             field_dict["n_dims"] = n_dims
-        if origin is not UNSET:
-            field_dict["origin"] = origin
-        if origin_ref is not UNSET:
-            field_dict["origin_ref"] = origin_ref
-        if origin_uri is not UNSET:
-            field_dict["origin_uri"] = origin_uri
-        if original_srid is not UNSET:
-            field_dict["original_srid"] = original_srid
-        if owner_org is not UNSET:
-            field_dict["owner_org"] = owner_org
-        if published_at is not UNSET:
-            field_dict["published_at"] = published_at
+        if z_min is not UNSET:
+            field_dict["z_min"] = z_min
+        if z_max is not UNSET:
+            field_dict["z_max"] = z_max
+        if extent_bbox is not UNSET:
+            field_dict["extent_bbox"] = extent_bbox
+        if column_info is not UNSET:
+            field_dict["column_info"] = column_info
+        if license_ is not UNSET:
+            field_dict["license"] = license_
+        if source_organization is not UNSET:
+            field_dict["source_organization"] = source_organization
+        if data_vintage_start is not UNSET:
+            field_dict["data_vintage_start"] = data_vintage_start
+        if data_vintage_end is not UNSET:
+            field_dict["data_vintage_end"] = data_vintage_end
         if quality_detail is not UNSET:
             field_dict["quality_detail"] = quality_detail
-        if quality_statement is not UNSET:
-            field_dict["quality_statement"] = quality_statement
-        if raster is not UNSET:
-            field_dict["raster"] = raster
-        if record_status is not UNSET:
-            field_dict["record_status"] = record_status
-        if record_type is not UNSET:
-            field_dict["record_type"] = record_type
-        if schema_drift_status is not UNSET:
-            field_dict["schema_drift_status"] = schema_drift_status
-        if sensitivity_classification is not UNSET:
-            field_dict["sensitivity_classification"] = sensitivity_classification
         if source_format is not UNSET:
             field_dict["source_format"] = source_format
+        if tile_columns is not UNSET:
+            field_dict["tile_columns"] = tile_columns
+        if original_srid is not UNSET:
+            field_dict["original_srid"] = original_srid
+        if current_version is not UNSET:
+            field_dict["current_version"] = current_version
+        if source_url is not UNSET:
+            field_dict["source_url"] = source_url
+        if origin is not UNSET:
+            field_dict["origin"] = origin
+        if origin_uri is not UNSET:
+            field_dict["origin_uri"] = origin_uri
+        if origin_ref is not UNSET:
+            field_dict["origin_ref"] = origin_ref
+        if last_refreshed_at is not UNSET:
+            field_dict["last_refreshed_at"] = last_refreshed_at
+        if last_checked_at is not UNSET:
+            field_dict["last_checked_at"] = last_checked_at
         if source_health is not UNSET:
             field_dict["source_health"] = source_health
         if source_health_detail is not UNSET:
             field_dict["source_health_detail"] = source_health_detail
-        if source_organization is not UNSET:
-            field_dict["source_organization"] = source_organization
-        if source_url is not UNSET:
-            field_dict["source_url"] = source_url
-        if srid is not UNSET:
-            field_dict["srid"] = srid
+        if schema_drift_status is not UNSET:
+            field_dict["schema_drift_status"] = schema_drift_status
+        if quality_statement is not UNSET:
+            field_dict["quality_statement"] = quality_statement
+        if last_edited_by_display is not UNSET:
+            field_dict["last_edited_by_display"] = last_edited_by_display
+        if last_edited_at is not UNSET:
+            field_dict["last_edited_at"] = last_edited_at
+        if collections is not UNSET:
+            field_dict["collections"] = collections
+        if record_status is not UNSET:
+            field_dict["record_status"] = record_status
+        if lineage_summary is not UNSET:
+            field_dict["lineage_summary"] = lineage_summary
+        if derived_from is not UNSET:
+            field_dict["derived_from"] = derived_from
+        if update_frequency is not UNSET:
+            field_dict["update_frequency"] = update_frequency
+        if usage_constraints is not UNSET:
+            field_dict["usage_constraints"] = usage_constraints
+        if access_constraints is not UNSET:
+            field_dict["access_constraints"] = access_constraints
+        if sensitivity_classification is not UNSET:
+            field_dict["sensitivity_classification"] = sensitivity_classification
+        if theme_category is not UNSET:
+            field_dict["theme_category"] = theme_category
+        if owner_org is not UNSET:
+            field_dict["owner_org"] = owner_org
+        if published_at is not UNSET:
+            field_dict["published_at"] = published_at
+        if updated_by is not UNSET:
+            field_dict["updated_by"] = updated_by
+        if record_type is not UNSET:
+            field_dict["record_type"] = record_type
+        if raster is not UNSET:
+            field_dict["raster"] = raster
         if stac_assets is not UNSET:
             field_dict["stac_assets"] = stac_assets
         if stac_extensions is not UNSET:
             field_dict["stac_extensions"] = stac_extensions
-        if theme_category is not UNSET:
-            field_dict["theme_category"] = theme_category
-        if tile_columns is not UNSET:
-            field_dict["tile_columns"] = tile_columns
-        if update_frequency is not UNSET:
-            field_dict["update_frequency"] = update_frequency
-        if updated_by is not UNSET:
-            field_dict["updated_by"] = updated_by
-        if usage_constraints is not UNSET:
-            field_dict["usage_constraints"] = usage_constraints
-        if z_max is not UNSET:
-            field_dict["z_max"] = z_max
-        if z_min is not UNSET:
-            field_dict["z_min"] = z_min
+        if language is not UNSET:
+            field_dict["language"] = language
+        if metadata_warnings is not UNSET:
+            field_dict["metadata_warnings"] = metadata_warnings
 
         return field_dict
 
@@ -667,7 +667,36 @@ class DatasetResponse:
         from ..models.raster_metadata import RasterMetadata
 
         d = dict(src_dict)
-        created_at = isoparse(d.pop("created_at"))
+        id = UUID(d.pop("id"))
+
+        record_id = UUID(d.pop("record_id"))
+
+        table_name = d.pop("table_name")
+
+        title = d.pop("title")
+
+        def _parse_summary(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        summary = _parse_summary(d.pop("summary"))
+
+        def _parse_feature_count(data: object) -> int | None:
+            if data is None:
+                return data
+            return cast(int | None, data)
+
+        feature_count = _parse_feature_count(d.pop("feature_count"))
+
+        def _parse_source_filename(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        source_filename = _parse_source_filename(d.pop("source_filename"))
+
+        visibility = d.pop("visibility")
 
         def _parse_created_by(data: object) -> None | UUID:
             if data is None:
@@ -686,51 +715,67 @@ class DatasetResponse:
 
         created_by_display = d.pop("created_by_display")
 
-        def _parse_feature_count(data: object) -> int | None:
-            if data is None:
-                return data
-            return cast(int | None, data)
-
-        feature_count = _parse_feature_count(d.pop("feature_count"))
-
-        id = UUID(d.pop("id"))
-
-        record_id = UUID(d.pop("record_id"))
-
-        def _parse_source_filename(data: object) -> None | str:
-            if data is None:
-                return data
-            return cast(None | str, data)
-
-        source_filename = _parse_source_filename(d.pop("source_filename"))
-
-        def _parse_summary(data: object) -> None | str:
-            if data is None:
-                return data
-            return cast(None | str, data)
-
-        summary = _parse_summary(d.pop("summary"))
-
-        table_name = d.pop("table_name")
-
-        title = d.pop("title")
+        created_at = isoparse(d.pop("created_at"))
 
         updated_at = isoparse(d.pop("updated_at"))
 
-        visibility = d.pop("visibility")
+        def _parse_srid(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
 
-        def _parse_access_constraints(data: object) -> None | str | Unset:
+        srid = _parse_srid(d.pop("srid", UNSET))
+
+        def _parse_geometry_type(data: object) -> None | str | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
                 return data
             return cast(None | str | Unset, data)
 
-        access_constraints = _parse_access_constraints(
-            d.pop("access_constraints", UNSET)
-        )
+        geometry_type = _parse_geometry_type(d.pop("geometry_type", UNSET))
 
-        def _parse_collections(data: object) -> list[CollectionRef] | None | Unset:
+        has_generic_geometry = d.pop("has_generic_geometry", UNSET)
+
+        def _parse_is_3d(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        is_3d = _parse_is_3d(d.pop("is_3d", UNSET))
+
+        def _parse_n_dims(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        n_dims = _parse_n_dims(d.pop("n_dims", UNSET))
+
+        def _parse_z_min(data: object) -> float | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(float | None | Unset, data)
+
+        z_min = _parse_z_min(d.pop("z_min", UNSET))
+
+        def _parse_z_max(data: object) -> float | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(float | None | Unset, data)
+
+        z_max = _parse_z_max(d.pop("z_max", UNSET))
+
+        def _parse_extent_bbox(data: object) -> list[float] | None | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
@@ -738,21 +783,14 @@ class DatasetResponse:
             try:
                 if not isinstance(data, list):
                     raise TypeError()
-                collections_type_0 = []
-                _collections_type_0 = data
-                for collections_type_0_item_data in _collections_type_0:
-                    collections_type_0_item = CollectionRef.from_dict(
-                        collections_type_0_item_data
-                    )
+                extent_bbox_type_0 = cast(list[float], data)
 
-                    collections_type_0.append(collections_type_0_item)
-
-                return collections_type_0
+                return extent_bbox_type_0
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
-            return cast(list[CollectionRef] | None | Unset, data)
+            return cast(list[float] | None | Unset, data)
 
-        collections = _parse_collections(d.pop("collections", UNSET))
+        extent_bbox = _parse_extent_bbox(d.pop("extent_bbox", UNSET))
 
         def _parse_column_info(data: object) -> list[ColumnInfo] | None | Unset:
             if data is None:
@@ -778,24 +816,25 @@ class DatasetResponse:
 
         column_info = _parse_column_info(d.pop("column_info", UNSET))
 
-        current_version = d.pop("current_version", UNSET)
-
-        def _parse_data_vintage_end(data: object) -> datetime.date | None | Unset:
+        def _parse_license_(data: object) -> None | str | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
                 return data
-            try:
-                if not isinstance(data, str):
-                    raise TypeError()
-                data_vintage_end_type_0 = isoparse(data).date()
+            return cast(None | str | Unset, data)
 
-                return data_vintage_end_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(datetime.date | None | Unset, data)
+        license_ = _parse_license_(d.pop("license", UNSET))
 
-        data_vintage_end = _parse_data_vintage_end(d.pop("data_vintage_end", UNSET))
+        def _parse_source_organization(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        source_organization = _parse_source_organization(
+            d.pop("source_organization", UNSET)
+        )
 
         def _parse_data_vintage_start(data: object) -> datetime.date | None | Unset:
             if data is None:
@@ -816,7 +855,24 @@ class DatasetResponse:
             d.pop("data_vintage_start", UNSET)
         )
 
-        def _parse_derived_from(data: object) -> DerivedFromResponse | None | Unset:
+        def _parse_data_vintage_end(data: object) -> datetime.date | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                data_vintage_end_type_0 = isoparse(data).date()
+
+                return data_vintage_end_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(datetime.date | None | Unset, data)
+
+        data_vintage_end = _parse_data_vintage_end(d.pop("data_vintage_end", UNSET))
+
+        def _parse_quality_detail(data: object) -> None | QualityDetail | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
@@ -824,16 +880,25 @@ class DatasetResponse:
             try:
                 if not isinstance(data, dict):
                     raise TypeError()
-                derived_from_type_0 = DerivedFromResponse.from_dict(data)
+                quality_detail_type_0 = QualityDetail.from_dict(data)
 
-                return derived_from_type_0
+                return quality_detail_type_0
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
-            return cast(DerivedFromResponse | None | Unset, data)
+            return cast(None | QualityDetail | Unset, data)
 
-        derived_from = _parse_derived_from(d.pop("derived_from", UNSET))
+        quality_detail = _parse_quality_detail(d.pop("quality_detail", UNSET))
 
-        def _parse_extent_bbox(data: object) -> list[float] | None | Unset:
+        def _parse_source_format(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        source_format = _parse_source_format(d.pop("source_format", UNSET))
+
+        def _parse_tile_columns(data: object) -> list[str] | None | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
@@ -841,149 +906,34 @@ class DatasetResponse:
             try:
                 if not isinstance(data, list):
                     raise TypeError()
-                extent_bbox_type_0 = cast(list[float], data)
+                tile_columns_type_0 = cast(list[str], data)
 
-                return extent_bbox_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(list[float] | None | Unset, data)
-
-        extent_bbox = _parse_extent_bbox(d.pop("extent_bbox", UNSET))
-
-        def _parse_geometry_type(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        geometry_type = _parse_geometry_type(d.pop("geometry_type", UNSET))
-
-        has_generic_geometry = d.pop("has_generic_geometry", UNSET)
-
-        def _parse_is_3d(data: object) -> bool | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(bool | None | Unset, data)
-
-        is_3d = _parse_is_3d(d.pop("is_3d", UNSET))
-
-        def _parse_language(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        language = _parse_language(d.pop("language", UNSET))
-
-        def _parse_last_checked_at(data: object) -> datetime.datetime | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, str):
-                    raise TypeError()
-                last_checked_at_type_0 = isoparse(data)
-
-                return last_checked_at_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(datetime.datetime | None | Unset, data)
-
-        last_checked_at = _parse_last_checked_at(d.pop("last_checked_at", UNSET))
-
-        def _parse_last_edited_at(data: object) -> datetime.datetime | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, str):
-                    raise TypeError()
-                last_edited_at_type_0 = isoparse(data)
-
-                return last_edited_at_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(datetime.datetime | None | Unset, data)
-
-        last_edited_at = _parse_last_edited_at(d.pop("last_edited_at", UNSET))
-
-        def _parse_last_edited_by_display(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        last_edited_by_display = _parse_last_edited_by_display(
-            d.pop("last_edited_by_display", UNSET)
-        )
-
-        def _parse_last_refreshed_at(data: object) -> datetime.datetime | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, str):
-                    raise TypeError()
-                last_refreshed_at_type_0 = isoparse(data)
-
-                return last_refreshed_at_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(datetime.datetime | None | Unset, data)
-
-        last_refreshed_at = _parse_last_refreshed_at(d.pop("last_refreshed_at", UNSET))
-
-        def _parse_license_(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        license_ = _parse_license_(d.pop("license", UNSET))
-
-        def _parse_lineage_summary(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        lineage_summary = _parse_lineage_summary(d.pop("lineage_summary", UNSET))
-
-        def _parse_metadata_warnings(data: object) -> list[str] | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, list):
-                    raise TypeError()
-                metadata_warnings_type_0 = cast(list[str], data)
-
-                return metadata_warnings_type_0
+                return tile_columns_type_0
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
             return cast(list[str] | None | Unset, data)
 
-        metadata_warnings = _parse_metadata_warnings(d.pop("metadata_warnings", UNSET))
+        tile_columns = _parse_tile_columns(d.pop("tile_columns", UNSET))
 
-        def _parse_n_dims(data: object) -> int | None | Unset:
+        def _parse_original_srid(data: object) -> int | None | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
                 return data
             return cast(int | None | Unset, data)
 
-        n_dims = _parse_n_dims(d.pop("n_dims", UNSET))
+        original_srid = _parse_original_srid(d.pop("original_srid", UNSET))
+
+        current_version = d.pop("current_version", UNSET)
+
+        def _parse_source_url(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        source_url = _parse_source_url(d.pop("source_url", UNSET))
 
         def _parse_origin(data: object) -> None | str | Unset:
             if data is None:
@@ -993,6 +943,15 @@ class DatasetResponse:
             return cast(None | str | Unset, data)
 
         origin = _parse_origin(d.pop("origin", UNSET))
+
+        def _parse_origin_uri(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        origin_uri = _parse_origin_uri(d.pop("origin_uri", UNSET))
 
         def _parse_origin_ref(
             data: object,
@@ -1013,23 +972,200 @@ class DatasetResponse:
 
         origin_ref = _parse_origin_ref(d.pop("origin_ref", UNSET))
 
-        def _parse_origin_uri(data: object) -> None | str | Unset:
+        def _parse_last_refreshed_at(data: object) -> datetime.datetime | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                last_refreshed_at_type_0 = isoparse(data)
+
+                return last_refreshed_at_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(datetime.datetime | None | Unset, data)
+
+        last_refreshed_at = _parse_last_refreshed_at(d.pop("last_refreshed_at", UNSET))
+
+        def _parse_last_checked_at(data: object) -> datetime.datetime | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                last_checked_at_type_0 = isoparse(data)
+
+                return last_checked_at_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(datetime.datetime | None | Unset, data)
+
+        last_checked_at = _parse_last_checked_at(d.pop("last_checked_at", UNSET))
+
+        source_health = d.pop("source_health", UNSET)
+
+        def _parse_source_health_detail(data: object) -> None | str | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
                 return data
             return cast(None | str | Unset, data)
 
-        origin_uri = _parse_origin_uri(d.pop("origin_uri", UNSET))
+        source_health_detail = _parse_source_health_detail(
+            d.pop("source_health_detail", UNSET)
+        )
 
-        def _parse_original_srid(data: object) -> int | None | Unset:
+        schema_drift_status = d.pop("schema_drift_status", UNSET)
+
+        def _parse_quality_statement(data: object) -> None | str | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
                 return data
-            return cast(int | None | Unset, data)
+            return cast(None | str | Unset, data)
 
-        original_srid = _parse_original_srid(d.pop("original_srid", UNSET))
+        quality_statement = _parse_quality_statement(d.pop("quality_statement", UNSET))
+
+        def _parse_last_edited_by_display(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        last_edited_by_display = _parse_last_edited_by_display(
+            d.pop("last_edited_by_display", UNSET)
+        )
+
+        def _parse_last_edited_at(data: object) -> datetime.datetime | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                last_edited_at_type_0 = isoparse(data)
+
+                return last_edited_at_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(datetime.datetime | None | Unset, data)
+
+        last_edited_at = _parse_last_edited_at(d.pop("last_edited_at", UNSET))
+
+        def _parse_collections(data: object) -> list[CollectionRef] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                collections_type_0 = []
+                _collections_type_0 = data
+                for collections_type_0_item_data in _collections_type_0:
+                    collections_type_0_item = CollectionRef.from_dict(
+                        collections_type_0_item_data
+                    )
+
+                    collections_type_0.append(collections_type_0_item)
+
+                return collections_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[CollectionRef] | None | Unset, data)
+
+        collections = _parse_collections(d.pop("collections", UNSET))
+
+        record_status = d.pop("record_status", UNSET)
+
+        def _parse_lineage_summary(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        lineage_summary = _parse_lineage_summary(d.pop("lineage_summary", UNSET))
+
+        def _parse_derived_from(data: object) -> DerivedFromResponse | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                derived_from_type_0 = DerivedFromResponse.from_dict(data)
+
+                return derived_from_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(DerivedFromResponse | None | Unset, data)
+
+        derived_from = _parse_derived_from(d.pop("derived_from", UNSET))
+
+        def _parse_update_frequency(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        update_frequency = _parse_update_frequency(d.pop("update_frequency", UNSET))
+
+        def _parse_usage_constraints(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        usage_constraints = _parse_usage_constraints(d.pop("usage_constraints", UNSET))
+
+        def _parse_access_constraints(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        access_constraints = _parse_access_constraints(
+            d.pop("access_constraints", UNSET)
+        )
+
+        def _parse_sensitivity_classification(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        sensitivity_classification = _parse_sensitivity_classification(
+            d.pop("sensitivity_classification", UNSET)
+        )
+
+        def _parse_theme_category(data: object) -> list[str] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                theme_category_type_0 = cast(list[str], data)
+
+                return theme_category_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[str] | None | Unset, data)
+
+        theme_category = _parse_theme_category(d.pop("theme_category", UNSET))
 
         def _parse_owner_org(data: object) -> None | str | Unset:
             if data is None:
@@ -1057,31 +1193,24 @@ class DatasetResponse:
 
         published_at = _parse_published_at(d.pop("published_at", UNSET))
 
-        def _parse_quality_detail(data: object) -> None | QualityDetail | Unset:
+        def _parse_updated_by(data: object) -> None | Unset | UUID:
             if data is None:
                 return data
             if isinstance(data, Unset):
                 return data
             try:
-                if not isinstance(data, dict):
+                if not isinstance(data, str):
                     raise TypeError()
-                quality_detail_type_0 = QualityDetail.from_dict(data)
+                updated_by_type_0 = UUID(data)
 
-                return quality_detail_type_0
+                return updated_by_type_0
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
-            return cast(None | QualityDetail | Unset, data)
+            return cast(None | Unset | UUID, data)
 
-        quality_detail = _parse_quality_detail(d.pop("quality_detail", UNSET))
+        updated_by = _parse_updated_by(d.pop("updated_by", UNSET))
 
-        def _parse_quality_statement(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        quality_statement = _parse_quality_statement(d.pop("quality_statement", UNSET))
+        record_type = d.pop("record_type", UNSET)
 
         def _parse_raster(data: object) -> None | RasterMetadata | Unset:
             if data is None:
@@ -1099,74 +1228,6 @@ class DatasetResponse:
             return cast(None | RasterMetadata | Unset, data)
 
         raster = _parse_raster(d.pop("raster", UNSET))
-
-        record_status = d.pop("record_status", UNSET)
-
-        record_type = d.pop("record_type", UNSET)
-
-        schema_drift_status = d.pop("schema_drift_status", UNSET)
-
-        def _parse_sensitivity_classification(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        sensitivity_classification = _parse_sensitivity_classification(
-            d.pop("sensitivity_classification", UNSET)
-        )
-
-        def _parse_source_format(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        source_format = _parse_source_format(d.pop("source_format", UNSET))
-
-        source_health = d.pop("source_health", UNSET)
-
-        def _parse_source_health_detail(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        source_health_detail = _parse_source_health_detail(
-            d.pop("source_health_detail", UNSET)
-        )
-
-        def _parse_source_organization(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        source_organization = _parse_source_organization(
-            d.pop("source_organization", UNSET)
-        )
-
-        def _parse_source_url(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        source_url = _parse_source_url(d.pop("source_url", UNSET))
-
-        def _parse_srid(data: object) -> int | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(int | None | Unset, data)
-
-        srid = _parse_srid(d.pop("srid", UNSET))
 
         def _parse_stac_assets(
             data: object,
@@ -1204,7 +1265,16 @@ class DatasetResponse:
 
         stac_extensions = _parse_stac_extensions(d.pop("stac_extensions", UNSET))
 
-        def _parse_theme_category(data: object) -> list[str] | None | Unset:
+        def _parse_language(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        language = _parse_language(d.pop("language", UNSET))
+
+        def _parse_metadata_warnings(data: object) -> list[str] | None | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
@@ -1212,146 +1282,76 @@ class DatasetResponse:
             try:
                 if not isinstance(data, list):
                     raise TypeError()
-                theme_category_type_0 = cast(list[str], data)
+                metadata_warnings_type_0 = cast(list[str], data)
 
-                return theme_category_type_0
+                return metadata_warnings_type_0
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
             return cast(list[str] | None | Unset, data)
 
-        theme_category = _parse_theme_category(d.pop("theme_category", UNSET))
-
-        def _parse_tile_columns(data: object) -> list[str] | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, list):
-                    raise TypeError()
-                tile_columns_type_0 = cast(list[str], data)
-
-                return tile_columns_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(list[str] | None | Unset, data)
-
-        tile_columns = _parse_tile_columns(d.pop("tile_columns", UNSET))
-
-        def _parse_update_frequency(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        update_frequency = _parse_update_frequency(d.pop("update_frequency", UNSET))
-
-        def _parse_updated_by(data: object) -> None | Unset | UUID:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, str):
-                    raise TypeError()
-                updated_by_type_0 = UUID(data)
-
-                return updated_by_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(None | Unset | UUID, data)
-
-        updated_by = _parse_updated_by(d.pop("updated_by", UNSET))
-
-        def _parse_usage_constraints(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        usage_constraints = _parse_usage_constraints(d.pop("usage_constraints", UNSET))
-
-        def _parse_z_max(data: object) -> float | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(float | None | Unset, data)
-
-        z_max = _parse_z_max(d.pop("z_max", UNSET))
-
-        def _parse_z_min(data: object) -> float | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(float | None | Unset, data)
-
-        z_min = _parse_z_min(d.pop("z_min", UNSET))
+        metadata_warnings = _parse_metadata_warnings(d.pop("metadata_warnings", UNSET))
 
         dataset_response = cls(
-            created_at=created_at,
-            created_by=created_by,
-            created_by_display=created_by_display,
-            feature_count=feature_count,
             id=id,
             record_id=record_id,
-            source_filename=source_filename,
-            summary=summary,
             table_name=table_name,
             title=title,
-            updated_at=updated_at,
+            summary=summary,
+            feature_count=feature_count,
+            source_filename=source_filename,
             visibility=visibility,
-            access_constraints=access_constraints,
-            collections=collections,
-            column_info=column_info,
-            current_version=current_version,
-            data_vintage_end=data_vintage_end,
-            data_vintage_start=data_vintage_start,
-            derived_from=derived_from,
-            extent_bbox=extent_bbox,
+            created_by=created_by,
+            created_by_display=created_by_display,
+            created_at=created_at,
+            updated_at=updated_at,
+            srid=srid,
             geometry_type=geometry_type,
             has_generic_geometry=has_generic_geometry,
             is_3d=is_3d,
-            language=language,
-            last_checked_at=last_checked_at,
-            last_edited_at=last_edited_at,
-            last_edited_by_display=last_edited_by_display,
-            last_refreshed_at=last_refreshed_at,
-            license_=license_,
-            lineage_summary=lineage_summary,
-            metadata_warnings=metadata_warnings,
             n_dims=n_dims,
-            origin=origin,
-            origin_ref=origin_ref,
-            origin_uri=origin_uri,
-            original_srid=original_srid,
-            owner_org=owner_org,
-            published_at=published_at,
+            z_min=z_min,
+            z_max=z_max,
+            extent_bbox=extent_bbox,
+            column_info=column_info,
+            license_=license_,
+            source_organization=source_organization,
+            data_vintage_start=data_vintage_start,
+            data_vintage_end=data_vintage_end,
             quality_detail=quality_detail,
-            quality_statement=quality_statement,
-            raster=raster,
-            record_status=record_status,
-            record_type=record_type,
-            schema_drift_status=schema_drift_status,
-            sensitivity_classification=sensitivity_classification,
             source_format=source_format,
+            tile_columns=tile_columns,
+            original_srid=original_srid,
+            current_version=current_version,
+            source_url=source_url,
+            origin=origin,
+            origin_uri=origin_uri,
+            origin_ref=origin_ref,
+            last_refreshed_at=last_refreshed_at,
+            last_checked_at=last_checked_at,
             source_health=source_health,
             source_health_detail=source_health_detail,
-            source_organization=source_organization,
-            source_url=source_url,
-            srid=srid,
+            schema_drift_status=schema_drift_status,
+            quality_statement=quality_statement,
+            last_edited_by_display=last_edited_by_display,
+            last_edited_at=last_edited_at,
+            collections=collections,
+            record_status=record_status,
+            lineage_summary=lineage_summary,
+            derived_from=derived_from,
+            update_frequency=update_frequency,
+            usage_constraints=usage_constraints,
+            access_constraints=access_constraints,
+            sensitivity_classification=sensitivity_classification,
+            theme_category=theme_category,
+            owner_org=owner_org,
+            published_at=published_at,
+            updated_by=updated_by,
+            record_type=record_type,
+            raster=raster,
             stac_assets=stac_assets,
             stac_extensions=stac_extensions,
-            theme_category=theme_category,
-            tile_columns=tile_columns,
-            update_frequency=update_frequency,
-            updated_by=updated_by,
-            usage_constraints=usage_constraints,
-            z_max=z_max,
-            z_min=z_min,
+            language=language,
+            metadata_warnings=metadata_warnings,
         )
 
         dataset_response.additional_properties = d

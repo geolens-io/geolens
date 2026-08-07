@@ -30,36 +30,40 @@ T = TypeVar("T", bound="AttributeMetadataUpdate")
 class AttributeMetadataUpdate:
     """
     Attributes:
+        title (None | str | Unset): Human-friendly column display name
         description (None | str | Unset):
-        domain_type (AttributeMetadataUpdateDomainTypeType0 | None | Unset): Value domain: continuous, categorical,
-            coded, etc.
+        units (None | str | Unset): Measurement units, e.g. meters, kg
         semantic_role (AttributeMetadataUpdateSemanticRoleType0 | None | Unset): Column role: geometry, identifier,
             measure, etc.
-        title (None | str | Unset): Human-friendly column display name
-        units (None | str | Unset): Measurement units, e.g. meters, kg
+        domain_type (AttributeMetadataUpdateDomainTypeType0 | None | Unset): Value domain: continuous, categorical,
+            coded, etc.
     """
 
-    description: None | str | Unset = UNSET
-    domain_type: AttributeMetadataUpdateDomainTypeType0 | None | Unset = UNSET
-    semantic_role: AttributeMetadataUpdateSemanticRoleType0 | None | Unset = UNSET
     title: None | str | Unset = UNSET
+    description: None | str | Unset = UNSET
     units: None | str | Unset = UNSET
+    semantic_role: AttributeMetadataUpdateSemanticRoleType0 | None | Unset = UNSET
+    domain_type: AttributeMetadataUpdateDomainTypeType0 | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        title: None | str | Unset
+        if isinstance(self.title, Unset):
+            title = UNSET
+        else:
+            title = self.title
+
         description: None | str | Unset
         if isinstance(self.description, Unset):
             description = UNSET
         else:
             description = self.description
 
-        domain_type: None | str | Unset
-        if isinstance(self.domain_type, Unset):
-            domain_type = UNSET
-        elif isinstance(self.domain_type, str):
-            domain_type = self.domain_type
+        units: None | str | Unset
+        if isinstance(self.units, Unset):
+            units = UNSET
         else:
-            domain_type = self.domain_type
+            units = self.units
 
         semantic_role: None | str | Unset
         if isinstance(self.semantic_role, Unset):
@@ -69,37 +73,42 @@ class AttributeMetadataUpdate:
         else:
             semantic_role = self.semantic_role
 
-        title: None | str | Unset
-        if isinstance(self.title, Unset):
-            title = UNSET
+        domain_type: None | str | Unset
+        if isinstance(self.domain_type, Unset):
+            domain_type = UNSET
+        elif isinstance(self.domain_type, str):
+            domain_type = self.domain_type
         else:
-            title = self.title
-
-        units: None | str | Unset
-        if isinstance(self.units, Unset):
-            units = UNSET
-        else:
-            units = self.units
+            domain_type = self.domain_type
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
-        if description is not UNSET:
-            field_dict["description"] = description
-        if domain_type is not UNSET:
-            field_dict["domain_type"] = domain_type
-        if semantic_role is not UNSET:
-            field_dict["semantic_role"] = semantic_role
         if title is not UNSET:
             field_dict["title"] = title
+        if description is not UNSET:
+            field_dict["description"] = description
         if units is not UNSET:
             field_dict["units"] = units
+        if semantic_role is not UNSET:
+            field_dict["semantic_role"] = semantic_role
+        if domain_type is not UNSET:
+            field_dict["domain_type"] = domain_type
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
+
+        def _parse_title(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        title = _parse_title(d.pop("title", UNSET))
 
         def _parse_description(data: object) -> None | str | Unset:
             if data is None:
@@ -110,26 +119,14 @@ class AttributeMetadataUpdate:
 
         description = _parse_description(d.pop("description", UNSET))
 
-        def _parse_domain_type(
-            data: object,
-        ) -> AttributeMetadataUpdateDomainTypeType0 | None | Unset:
+        def _parse_units(data: object) -> None | str | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
                 return data
-            try:
-                if not isinstance(data, str):
-                    raise TypeError()
-                domain_type_type_0 = check_attribute_metadata_update_domain_type_type_0(
-                    data
-                )
+            return cast(None | str | Unset, data)
 
-                return domain_type_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(AttributeMetadataUpdateDomainTypeType0 | None | Unset, data)
-
-        domain_type = _parse_domain_type(d.pop("domain_type", UNSET))
+        units = _parse_units(d.pop("units", UNSET))
 
         def _parse_semantic_role(
             data: object,
@@ -152,30 +149,33 @@ class AttributeMetadataUpdate:
 
         semantic_role = _parse_semantic_role(d.pop("semantic_role", UNSET))
 
-        def _parse_title(data: object) -> None | str | Unset:
+        def _parse_domain_type(
+            data: object,
+        ) -> AttributeMetadataUpdateDomainTypeType0 | None | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
                 return data
-            return cast(None | str | Unset, data)
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                domain_type_type_0 = check_attribute_metadata_update_domain_type_type_0(
+                    data
+                )
 
-        title = _parse_title(d.pop("title", UNSET))
+                return domain_type_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(AttributeMetadataUpdateDomainTypeType0 | None | Unset, data)
 
-        def _parse_units(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        units = _parse_units(d.pop("units", UNSET))
+        domain_type = _parse_domain_type(d.pop("domain_type", UNSET))
 
         attribute_metadata_update = cls(
-            description=description,
-            domain_type=domain_type,
-            semantic_role=semantic_role,
             title=title,
+            description=description,
             units=units,
+            semantic_role=semantic_role,
+            domain_type=domain_type,
         )
 
         attribute_metadata_update.additional_properties = d

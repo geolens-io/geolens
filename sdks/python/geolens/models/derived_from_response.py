@@ -38,36 +38,36 @@ class DerivedFromResponse:
     describe a shape the redaction is free to punch holes in.
 
         Attributes:
-            created_at (datetime.datetime):
             dataset_id (UUID): The dataset this one was derived from
             operation (str): Analysis operation that produced it
             params (DerivedFromResponseParams): Operation parameters, minus any dataset reference the requester cannot
                 access
+            created_at (datetime.datetime):
     """
 
-    created_at: datetime.datetime
     dataset_id: UUID
     operation: str
     params: DerivedFromResponseParams
+    created_at: datetime.datetime
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        created_at = self.created_at.isoformat()
-
         dataset_id = str(self.dataset_id)
 
         operation = self.operation
 
         params = self.params.to_dict()
 
+        created_at = self.created_at.isoformat()
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "created_at": created_at,
                 "dataset_id": dataset_id,
                 "operation": operation,
                 "params": params,
+                "created_at": created_at,
             }
         )
 
@@ -78,19 +78,19 @@ class DerivedFromResponse:
         from ..models.derived_from_response_params import DerivedFromResponseParams
 
         d = dict(src_dict)
-        created_at = isoparse(d.pop("created_at"))
-
         dataset_id = UUID(d.pop("dataset_id"))
 
         operation = d.pop("operation")
 
         params = DerivedFromResponseParams.from_dict(d.pop("params"))
 
+        created_at = isoparse(d.pop("created_at"))
+
         derived_from_response = cls(
-            created_at=created_at,
             dataset_id=dataset_id,
             operation=operation,
             params=params,
+            created_at=created_at,
         )
 
         derived_from_response.additional_properties = d

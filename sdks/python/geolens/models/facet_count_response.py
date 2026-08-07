@@ -24,28 +24,21 @@ class FacetCountResponse:
 
     Attributes:
         record_type (FacetCountResponseRecordType): Hit counts keyed by record type
-        collections (list[CollectionFacetItem] | Unset): Collections containing matched records
         keywords (list[FacetValueCount] | Unset): Top keyword tags with counts
         source_organization (list[FacetValueCount] | Unset): Top organizations with counts
         srid (list[FacetValueCount] | Unset): Top SRIDs with counts
+        collections (list[CollectionFacetItem] | Unset): Collections containing matched records
     """
 
     record_type: FacetCountResponseRecordType
-    collections: list[CollectionFacetItem] | Unset = UNSET
     keywords: list[FacetValueCount] | Unset = UNSET
     source_organization: list[FacetValueCount] | Unset = UNSET
     srid: list[FacetValueCount] | Unset = UNSET
+    collections: list[CollectionFacetItem] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         record_type = self.record_type.to_dict()
-
-        collections: list[dict[str, Any]] | Unset = UNSET
-        if not isinstance(self.collections, Unset):
-            collections = []
-            for collections_item_data in self.collections:
-                collections_item = collections_item_data.to_dict()
-                collections.append(collections_item)
 
         keywords: list[dict[str, Any]] | Unset = UNSET
         if not isinstance(self.keywords, Unset):
@@ -68,6 +61,13 @@ class FacetCountResponse:
                 srid_item = srid_item_data.to_dict()
                 srid.append(srid_item)
 
+        collections: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.collections, Unset):
+            collections = []
+            for collections_item_data in self.collections:
+                collections_item = collections_item_data.to_dict()
+                collections.append(collections_item)
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -75,14 +75,14 @@ class FacetCountResponse:
                 "record_type": record_type,
             }
         )
-        if collections is not UNSET:
-            field_dict["collections"] = collections
         if keywords is not UNSET:
             field_dict["keywords"] = keywords
         if source_organization is not UNSET:
             field_dict["source_organization"] = source_organization
         if srid is not UNSET:
             field_dict["srid"] = srid
+        if collections is not UNSET:
+            field_dict["collections"] = collections
 
         return field_dict
 
@@ -96,15 +96,6 @@ class FacetCountResponse:
 
         d = dict(src_dict)
         record_type = FacetCountResponseRecordType.from_dict(d.pop("record_type"))
-
-        _collections = d.pop("collections", UNSET)
-        collections: list[CollectionFacetItem] | Unset = UNSET
-        if _collections is not UNSET:
-            collections = []
-            for collections_item_data in _collections:
-                collections_item = CollectionFacetItem.from_dict(collections_item_data)
-
-                collections.append(collections_item)
 
         _keywords = d.pop("keywords", UNSET)
         keywords: list[FacetValueCount] | Unset = UNSET
@@ -135,12 +126,21 @@ class FacetCountResponse:
 
                 srid.append(srid_item)
 
+        _collections = d.pop("collections", UNSET)
+        collections: list[CollectionFacetItem] | Unset = UNSET
+        if _collections is not UNSET:
+            collections = []
+            for collections_item_data in _collections:
+                collections_item = CollectionFacetItem.from_dict(collections_item_data)
+
+                collections.append(collections_item)
+
         facet_count_response = cls(
             record_type=record_type,
-            collections=collections,
             keywords=keywords,
             source_organization=source_organization,
             srid=srid,
+            collections=collections,
         )
 
         facet_count_response.additional_properties = d

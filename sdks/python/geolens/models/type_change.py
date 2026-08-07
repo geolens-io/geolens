@@ -15,29 +15,29 @@ class TypeChange:
     """
     Attributes:
         name (str):
-        new_type (str):
         old_type (str):
+        new_type (str):
     """
 
     name: str
-    new_type: str
     old_type: str
+    new_type: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         name = self.name
 
-        new_type = self.new_type
-
         old_type = self.old_type
+
+        new_type = self.new_type
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
                 "name": name,
-                "new_type": new_type,
                 "old_type": old_type,
+                "new_type": new_type,
             }
         )
 
@@ -48,14 +48,14 @@ class TypeChange:
         d = dict(src_dict)
         name = d.pop("name")
 
-        new_type = d.pop("new_type")
-
         old_type = d.pop("old_type")
+
+        new_type = d.pop("new_type")
 
         type_change = cls(
             name=name,
-            new_type=new_type,
             old_type=old_type,
+            new_type=new_type,
         )
 
         type_change.additional_properties = d

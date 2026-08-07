@@ -18,17 +18,19 @@ T = TypeVar("T", bound="LandingPage")
 class LandingPage:
     """
     Attributes:
+        title (str): OGC API landing page title.
         description (str): Human-readable API description.
         links (list[OGCLink]): Top-level navigation links to conformance, collections, and API document.
-        title (str): OGC API landing page title.
     """
 
+    title: str
     description: str
     links: list[OGCLink]
-    title: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        title = self.title
+
         description = self.description
 
         links = []
@@ -36,15 +38,13 @@ class LandingPage:
             links_item = links_item_data.to_dict()
             links.append(links_item)
 
-        title = self.title
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
+                "title": title,
                 "description": description,
                 "links": links,
-                "title": title,
             }
         )
 
@@ -55,6 +55,8 @@ class LandingPage:
         from ..models.ogc_link import OGCLink
 
         d = dict(src_dict)
+        title = d.pop("title")
+
         description = d.pop("description")
 
         links = []
@@ -64,12 +66,10 @@ class LandingPage:
 
             links.append(links_item)
 
-        title = d.pop("title")
-
         landing_page = cls(
+            title=title,
             description=description,
             links=links,
-            title=title,
         )
 
         landing_page.additional_properties = d

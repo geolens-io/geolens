@@ -23,18 +23,18 @@ class SchemaDiff:
     Attributes:
         columns_added (list[ColumnChange]): Columns present in new but not old schema
         columns_removed (list[ColumnChange]): Columns present in old but not new schema
-        row_count_delta (int): row_count_new minus row_count_old
-        row_count_new (int | None):
-        row_count_old (int | None):
         type_changes (list[TypeChange]): Columns whose data type changed
+        row_count_old (int | None):
+        row_count_new (int | None):
+        row_count_delta (int): row_count_new minus row_count_old
     """
 
     columns_added: list[ColumnChange]
     columns_removed: list[ColumnChange]
-    row_count_delta: int
-    row_count_new: int | None
-    row_count_old: int | None
     type_changes: list[TypeChange]
+    row_count_old: int | None
+    row_count_new: int | None
+    row_count_delta: int
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -48,18 +48,18 @@ class SchemaDiff:
             columns_removed_item = columns_removed_item_data.to_dict()
             columns_removed.append(columns_removed_item)
 
-        row_count_delta = self.row_count_delta
-
-        row_count_new: int | None
-        row_count_new = self.row_count_new
-
-        row_count_old: int | None
-        row_count_old = self.row_count_old
-
         type_changes = []
         for type_changes_item_data in self.type_changes:
             type_changes_item = type_changes_item_data.to_dict()
             type_changes.append(type_changes_item)
+
+        row_count_old: int | None
+        row_count_old = self.row_count_old
+
+        row_count_new: int | None
+        row_count_new = self.row_count_new
+
+        row_count_delta = self.row_count_delta
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -67,10 +67,10 @@ class SchemaDiff:
             {
                 "columns_added": columns_added,
                 "columns_removed": columns_removed,
-                "row_count_delta": row_count_delta,
-                "row_count_new": row_count_new,
-                "row_count_old": row_count_old,
                 "type_changes": type_changes,
+                "row_count_old": row_count_old,
+                "row_count_new": row_count_new,
+                "row_count_delta": row_count_delta,
             }
         )
 
@@ -96,14 +96,12 @@ class SchemaDiff:
 
             columns_removed.append(columns_removed_item)
 
-        row_count_delta = d.pop("row_count_delta")
+        type_changes = []
+        _type_changes = d.pop("type_changes")
+        for type_changes_item_data in _type_changes:
+            type_changes_item = TypeChange.from_dict(type_changes_item_data)
 
-        def _parse_row_count_new(data: object) -> int | None:
-            if data is None:
-                return data
-            return cast(int | None, data)
-
-        row_count_new = _parse_row_count_new(d.pop("row_count_new"))
+            type_changes.append(type_changes_item)
 
         def _parse_row_count_old(data: object) -> int | None:
             if data is None:
@@ -112,20 +110,22 @@ class SchemaDiff:
 
         row_count_old = _parse_row_count_old(d.pop("row_count_old"))
 
-        type_changes = []
-        _type_changes = d.pop("type_changes")
-        for type_changes_item_data in _type_changes:
-            type_changes_item = TypeChange.from_dict(type_changes_item_data)
+        def _parse_row_count_new(data: object) -> int | None:
+            if data is None:
+                return data
+            return cast(int | None, data)
 
-            type_changes.append(type_changes_item)
+        row_count_new = _parse_row_count_new(d.pop("row_count_new"))
+
+        row_count_delta = d.pop("row_count_delta")
 
         schema_diff = cls(
             columns_added=columns_added,
             columns_removed=columns_removed,
-            row_count_delta=row_count_delta,
-            row_count_new=row_count_new,
-            row_count_old=row_count_old,
             type_changes=type_changes,
+            row_count_old=row_count_old,
+            row_count_new=row_count_new,
+            row_count_delta=row_count_delta,
         )
 
         schema_diff.additional_properties = d

@@ -29,25 +29,25 @@ class OGCRecordResponse:
 
     Attributes:
         id (str):
-        links (list[OGCRecordLink]):
-        properties (OGCRecordProperties): Properties block of an OGC API Records Feature.
         time (OGCRecordResponseTime):
-        assets (None | OGCRecordResponseAssetsType0 | Unset):
-        bbox (list[float] | None | Unset):
+        properties (OGCRecordProperties): Properties block of an OGC API Records Feature.
+        links (list[OGCRecordLink]):
+        type_ (str | Unset):  Default: 'Feature'.
         conforms_to (list[str] | None | Unset):
         geometry (None | OGCRecordResponseGeometryType0 | Unset):
-        type_ (str | Unset):  Default: 'Feature'.
+        assets (None | OGCRecordResponseAssetsType0 | Unset):
+        bbox (list[float] | None | Unset):
     """
 
     id: str
-    links: list[OGCRecordLink]
-    properties: OGCRecordProperties
     time: OGCRecordResponseTime
-    assets: None | OGCRecordResponseAssetsType0 | Unset = UNSET
-    bbox: list[float] | None | Unset = UNSET
+    properties: OGCRecordProperties
+    links: list[OGCRecordLink]
+    type_: str | Unset = "Feature"
     conforms_to: list[str] | None | Unset = UNSET
     geometry: None | OGCRecordResponseGeometryType0 | Unset = UNSET
-    type_: str | Unset = "Feature"
+    assets: None | OGCRecordResponseAssetsType0 | Unset = UNSET
+    bbox: list[float] | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -60,31 +60,16 @@ class OGCRecordResponse:
 
         id = self.id
 
+        time = self.time.to_dict()
+
+        properties = self.properties.to_dict()
+
         links = []
         for links_item_data in self.links:
             links_item = links_item_data.to_dict()
             links.append(links_item)
 
-        properties = self.properties.to_dict()
-
-        time = self.time.to_dict()
-
-        assets: dict[str, Any] | None | Unset
-        if isinstance(self.assets, Unset):
-            assets = UNSET
-        elif isinstance(self.assets, OGCRecordResponseAssetsType0):
-            assets = self.assets.to_dict()
-        else:
-            assets = self.assets
-
-        bbox: list[float] | None | Unset
-        if isinstance(self.bbox, Unset):
-            bbox = UNSET
-        elif isinstance(self.bbox, list):
-            bbox = self.bbox
-
-        else:
-            bbox = self.bbox
+        type_ = self.type_
 
         conforms_to: list[str] | None | Unset
         if isinstance(self.conforms_to, Unset):
@@ -103,28 +88,43 @@ class OGCRecordResponse:
         else:
             geometry = self.geometry
 
-        type_ = self.type_
+        assets: dict[str, Any] | None | Unset
+        if isinstance(self.assets, Unset):
+            assets = UNSET
+        elif isinstance(self.assets, OGCRecordResponseAssetsType0):
+            assets = self.assets.to_dict()
+        else:
+            assets = self.assets
+
+        bbox: list[float] | None | Unset
+        if isinstance(self.bbox, Unset):
+            bbox = UNSET
+        elif isinstance(self.bbox, list):
+            bbox = self.bbox
+
+        else:
+            bbox = self.bbox
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
                 "id": id,
-                "links": links,
-                "properties": properties,
                 "time": time,
+                "properties": properties,
+                "links": links,
             }
         )
-        if assets is not UNSET:
-            field_dict["assets"] = assets
-        if bbox is not UNSET:
-            field_dict["bbox"] = bbox
+        if type_ is not UNSET:
+            field_dict["type"] = type_
         if conforms_to is not UNSET:
             field_dict["conformsTo"] = conforms_to
         if geometry is not UNSET:
             field_dict["geometry"] = geometry
-        if type_ is not UNSET:
-            field_dict["type"] = type_
+        if assets is not UNSET:
+            field_dict["assets"] = assets
+        if bbox is not UNSET:
+            field_dict["bbox"] = bbox
 
         return field_dict
 
@@ -143,6 +143,10 @@ class OGCRecordResponse:
         d = dict(src_dict)
         id = d.pop("id")
 
+        time = OGCRecordResponseTime.from_dict(d.pop("time"))
+
+        properties = OGCRecordProperties.from_dict(d.pop("properties"))
+
         links = []
         _links = d.pop("links")
         for links_item_data in _links:
@@ -150,43 +154,7 @@ class OGCRecordResponse:
 
             links.append(links_item)
 
-        properties = OGCRecordProperties.from_dict(d.pop("properties"))
-
-        time = OGCRecordResponseTime.from_dict(d.pop("time"))
-
-        def _parse_assets(data: object) -> None | OGCRecordResponseAssetsType0 | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, dict):
-                    raise TypeError()
-                assets_type_0 = OGCRecordResponseAssetsType0.from_dict(data)
-
-                return assets_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(None | OGCRecordResponseAssetsType0 | Unset, data)
-
-        assets = _parse_assets(d.pop("assets", UNSET))
-
-        def _parse_bbox(data: object) -> list[float] | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, list):
-                    raise TypeError()
-                bbox_type_0 = cast(list[float], data)
-
-                return bbox_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(list[float] | None | Unset, data)
-
-        bbox = _parse_bbox(d.pop("bbox", UNSET))
+        type_ = d.pop("type", UNSET)
 
         def _parse_conforms_to(data: object) -> list[str] | None | Unset:
             if data is None:
@@ -224,18 +192,50 @@ class OGCRecordResponse:
 
         geometry = _parse_geometry(d.pop("geometry", UNSET))
 
-        type_ = d.pop("type", UNSET)
+        def _parse_assets(data: object) -> None | OGCRecordResponseAssetsType0 | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                assets_type_0 = OGCRecordResponseAssetsType0.from_dict(data)
+
+                return assets_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | OGCRecordResponseAssetsType0 | Unset, data)
+
+        assets = _parse_assets(d.pop("assets", UNSET))
+
+        def _parse_bbox(data: object) -> list[float] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                bbox_type_0 = cast(list[float], data)
+
+                return bbox_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[float] | None | Unset, data)
+
+        bbox = _parse_bbox(d.pop("bbox", UNSET))
 
         ogc_record_response = cls(
             id=id,
-            links=links,
-            properties=properties,
             time=time,
-            assets=assets,
-            bbox=bbox,
+            properties=properties,
+            links=links,
+            type_=type_,
             conforms_to=conforms_to,
             geometry=geometry,
-            type_=type_,
+            assets=assets,
+            bbox=bbox,
         )
 
         ogc_record_response.additional_properties = d

@@ -17,35 +17,35 @@ T = TypeVar("T", bound="MapGenerateResponse")
 class MapGenerateResponse:
     """
     Attributes:
-        datasets_used (list[str]):
-        explanation (str):
         map_id (str):
         map_name (str):
+        explanation (str):
+        datasets_used (list[str]):
     """
 
-    datasets_used: list[str]
-    explanation: str
     map_id: str
     map_name: str
+    explanation: str
+    datasets_used: list[str]
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        datasets_used = self.datasets_used
-
-        explanation = self.explanation
-
         map_id = self.map_id
 
         map_name = self.map_name
+
+        explanation = self.explanation
+
+        datasets_used = self.datasets_used
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "datasets_used": datasets_used,
-                "explanation": explanation,
                 "map_id": map_id,
                 "map_name": map_name,
+                "explanation": explanation,
+                "datasets_used": datasets_used,
             }
         )
 
@@ -54,19 +54,19 @@ class MapGenerateResponse:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        datasets_used = cast(list[str], d.pop("datasets_used"))
-
-        explanation = d.pop("explanation")
-
         map_id = d.pop("map_id")
 
         map_name = d.pop("map_name")
 
+        explanation = d.pop("explanation")
+
+        datasets_used = cast(list[str], d.pop("datasets_used"))
+
         map_generate_response = cls(
-            datasets_used=datasets_used,
-            explanation=explanation,
             map_id=map_id,
             map_name=map_name,
+            explanation=explanation,
+            datasets_used=datasets_used,
         )
 
         map_generate_response.additional_properties = d

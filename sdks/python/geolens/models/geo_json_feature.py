@@ -25,14 +25,14 @@ class GeoJSONFeature:
     """A GeoJSON Feature.
 
     Attributes:
+        type_ (str | Unset):  Default: 'Feature'.
         geometry (GeoJSONFeatureGeometryType0 | None | Unset):
         properties (GeoJSONFeaturePropertiesType0 | None | Unset):
-        type_ (str | Unset):  Default: 'Feature'.
     """
 
+    type_: str | Unset = "Feature"
     geometry: GeoJSONFeatureGeometryType0 | None | Unset = UNSET
     properties: GeoJSONFeaturePropertiesType0 | None | Unset = UNSET
-    type_: str | Unset = "Feature"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -42,6 +42,8 @@ class GeoJSONFeature:
         from ..models.geo_json_feature_properties_type_0 import (
             GeoJSONFeaturePropertiesType0,
         )
+
+        type_ = self.type_
 
         geometry: dict[str, Any] | None | Unset
         if isinstance(self.geometry, Unset):
@@ -59,17 +61,15 @@ class GeoJSONFeature:
         else:
             properties = self.properties
 
-        type_ = self.type_
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
+        if type_ is not UNSET:
+            field_dict["type"] = type_
         if geometry is not UNSET:
             field_dict["geometry"] = geometry
         if properties is not UNSET:
             field_dict["properties"] = properties
-        if type_ is not UNSET:
-            field_dict["type"] = type_
 
         return field_dict
 
@@ -83,6 +83,7 @@ class GeoJSONFeature:
         )
 
         d = dict(src_dict)
+        type_ = d.pop("type", UNSET)
 
         def _parse_geometry(data: object) -> GeoJSONFeatureGeometryType0 | None | Unset:
             if data is None:
@@ -120,12 +121,10 @@ class GeoJSONFeature:
 
         properties = _parse_properties(d.pop("properties", UNSET))
 
-        type_ = d.pop("type", UNSET)
-
         geo_json_feature = cls(
+            type_=type_,
             geometry=geometry,
             properties=properties,
-            type_=type_,
         )
 
         geo_json_feature.additional_properties = d

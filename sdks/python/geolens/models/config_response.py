@@ -21,31 +21,31 @@ class ConfigResponse:
         registration_enabled (bool): Whether self-service registration is open
         allow_signup (bool | Unset): Whether self-serve registration is open. Alias for registration_enabled; login UI
             uses this to show/hide the signup link. Default: False.
+        email_verification_required (bool | Unset): When true, new self-registered users must verify their email before
+            logging in. Default false for back-compat-safe parsing by older clients. Default: False.
         auth_methods (list[str] | Unset): Auth methods contributed by the active AuthExtension. Empty by default;
             compatible deployments may add methods such as ['saml']. Login UI can render conditional sign-in options without
             needing admin OAuthProvider access.
-        banner_color (str | Unset): Theme token for the site banner color: warning | info | success | destructive.
-            Default: 'warning'.
+        landing_first (bool | Unset): When true, unauthenticated visits to '/' are redirected to '/login' as the product
+            landing page. Default false (search catalog is the root). Default: False.
         banner_enabled (bool | Unset): When true and banner_text is non-empty, the site-wide announcement banner is
             shown. Default false. Default: False.
         banner_text (str | Unset): Admin-configured site-wide announcement banner text. Empty string means no banner is
             shown. Default: ''.
-        email_verification_required (bool | Unset): When true, new self-registered users must verify their email before
-            logging in. Default false for back-compat-safe parsing by older clients. Default: False.
-        landing_first (bool | Unset): When true, unauthenticated visits to '/' are redirected to '/login' as the product
-            landing page. Default false (search catalog is the root). Default: False.
+        banner_color (str | Unset): Theme token for the site banner color: warning | info | success | destructive.
+            Default: 'warning'.
         password_login_enabled (bool | Unset): When false, password login is disabled for users without manage_settings.
             Default true for back-compat-safe parsing by older clients. Default: True.
     """
 
     registration_enabled: bool
     allow_signup: bool | Unset = False
+    email_verification_required: bool | Unset = False
     auth_methods: list[str] | Unset = UNSET
-    banner_color: str | Unset = "warning"
+    landing_first: bool | Unset = False
     banner_enabled: bool | Unset = False
     banner_text: str | Unset = ""
-    email_verification_required: bool | Unset = False
-    landing_first: bool | Unset = False
+    banner_color: str | Unset = "warning"
     password_login_enabled: bool | Unset = True
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -54,19 +54,19 @@ class ConfigResponse:
 
         allow_signup = self.allow_signup
 
+        email_verification_required = self.email_verification_required
+
         auth_methods: list[str] | Unset = UNSET
         if not isinstance(self.auth_methods, Unset):
             auth_methods = self.auth_methods
 
-        banner_color = self.banner_color
+        landing_first = self.landing_first
 
         banner_enabled = self.banner_enabled
 
         banner_text = self.banner_text
 
-        email_verification_required = self.email_verification_required
-
-        landing_first = self.landing_first
+        banner_color = self.banner_color
 
         password_login_enabled = self.password_login_enabled
 
@@ -79,18 +79,18 @@ class ConfigResponse:
         )
         if allow_signup is not UNSET:
             field_dict["allow_signup"] = allow_signup
+        if email_verification_required is not UNSET:
+            field_dict["email_verification_required"] = email_verification_required
         if auth_methods is not UNSET:
             field_dict["auth_methods"] = auth_methods
-        if banner_color is not UNSET:
-            field_dict["banner_color"] = banner_color
+        if landing_first is not UNSET:
+            field_dict["landing_first"] = landing_first
         if banner_enabled is not UNSET:
             field_dict["banner_enabled"] = banner_enabled
         if banner_text is not UNSET:
             field_dict["banner_text"] = banner_text
-        if email_verification_required is not UNSET:
-            field_dict["email_verification_required"] = email_verification_required
-        if landing_first is not UNSET:
-            field_dict["landing_first"] = landing_first
+        if banner_color is not UNSET:
+            field_dict["banner_color"] = banner_color
         if password_login_enabled is not UNSET:
             field_dict["password_login_enabled"] = password_login_enabled
 
@@ -103,29 +103,29 @@ class ConfigResponse:
 
         allow_signup = d.pop("allow_signup", UNSET)
 
+        email_verification_required = d.pop("email_verification_required", UNSET)
+
         auth_methods = cast(list[str], d.pop("auth_methods", UNSET))
 
-        banner_color = d.pop("banner_color", UNSET)
+        landing_first = d.pop("landing_first", UNSET)
 
         banner_enabled = d.pop("banner_enabled", UNSET)
 
         banner_text = d.pop("banner_text", UNSET)
 
-        email_verification_required = d.pop("email_verification_required", UNSET)
-
-        landing_first = d.pop("landing_first", UNSET)
+        banner_color = d.pop("banner_color", UNSET)
 
         password_login_enabled = d.pop("password_login_enabled", UNSET)
 
         config_response = cls(
             registration_enabled=registration_enabled,
             allow_signup=allow_signup,
+            email_verification_required=email_verification_required,
             auth_methods=auth_methods,
-            banner_color=banner_color,
+            landing_first=landing_first,
             banner_enabled=banner_enabled,
             banner_text=banner_text,
-            email_verification_required=email_verification_required,
-            landing_first=landing_first,
+            banner_color=banner_color,
             password_login_enabled=password_login_enabled,
         )
 

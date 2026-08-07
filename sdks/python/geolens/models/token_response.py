@@ -17,23 +17,23 @@ class TokenResponse:
     """
     Attributes:
         access_token (str): JWT access token for Authorization header
-        expires_in (int): Seconds until the access token expires
         refresh_token (str): Opaque token used to obtain a new access token
+        expires_in (int): Seconds until the access token expires
         token_type (str | Unset):  Default: 'bearer'.
     """
 
     access_token: str
-    expires_in: int
     refresh_token: str
+    expires_in: int
     token_type: str | Unset = "bearer"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         access_token = self.access_token
 
-        expires_in = self.expires_in
-
         refresh_token = self.refresh_token
+
+        expires_in = self.expires_in
 
         token_type = self.token_type
 
@@ -42,8 +42,8 @@ class TokenResponse:
         field_dict.update(
             {
                 "access_token": access_token,
-                "expires_in": expires_in,
                 "refresh_token": refresh_token,
+                "expires_in": expires_in,
             }
         )
         if token_type is not UNSET:
@@ -56,16 +56,16 @@ class TokenResponse:
         d = dict(src_dict)
         access_token = d.pop("access_token")
 
-        expires_in = d.pop("expires_in")
-
         refresh_token = d.pop("refresh_token")
+
+        expires_in = d.pop("expires_in")
 
         token_type = d.pop("token_type", UNSET)
 
         token_response = cls(
             access_token=access_token,
-            expires_in=expires_in,
             refresh_token=refresh_token,
+            expires_in=expires_in,
             token_type=token_type,
         )
 

@@ -39,31 +39,31 @@ class ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGe
     database 500. The write schemas add a raw-payload guard for a clear 422.
 
         Attributes:
+            type_ (Literal['GeometryCollection']):
             geometries (list[ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGeometryCollectionGeoJS
                 ONGeometry]):
-            type_ (Literal['GeometryCollection']):
     """
 
+    type_: Literal["GeometryCollection"]
     geometries: list[
         ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometry
     ]
-    type_: Literal["GeometryCollection"]
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        type_ = self.type_
+
         geometries = []
         for geometries_item_data in self.geometries:
             geometries_item = geometries_item_data.to_dict()
             geometries.append(geometries_item)
 
-        type_ = self.type_
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "geometries": geometries,
                 "type": type_,
+                "geometries": geometries,
             }
         )
 
@@ -76,6 +76,12 @@ class ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGe
         )
 
         d = dict(src_dict)
+        type_ = cast(Literal["GeometryCollection"], d.pop("type"))
+        if type_ != "GeometryCollection":
+            raise ValueError(
+                f"type must match const 'GeometryCollection', got '{type_}'"
+            )
+
         geometries = []
         _geometries = d.pop("geometries")
         for geometries_item_data in _geometries:
@@ -85,15 +91,9 @@ class ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGe
 
             geometries.append(geometries_item)
 
-        type_ = cast(Literal["GeometryCollection"], d.pop("type"))
-        if type_ != "GeometryCollection":
-            raise ValueError(
-                f"type must match const 'GeometryCollection', got '{type_}'"
-            )
-
         replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_geo_json_geometry_collection = cls(
-            geometries=geometries,
             type_=type_,
+            geometries=geometries,
         )
 
         replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_geo_json_geometry_collection.additional_properties = d

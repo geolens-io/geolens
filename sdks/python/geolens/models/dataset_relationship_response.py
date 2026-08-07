@@ -20,40 +20,40 @@ class DatasetRelationshipResponse:
     """
     Attributes:
         id (UUID):
-        label (None | str):
-        relationship_type (str):
-        source_column (str):
         source_dataset_id (UUID):
-        target_column (str):
         target_dataset_id (UUID):
+        source_column (str):
+        target_column (str):
+        relationship_type (str):
+        label (None | str):
         target_dataset_title (None | str | Unset):
     """
 
     id: UUID
-    label: None | str
-    relationship_type: str
-    source_column: str
     source_dataset_id: UUID
-    target_column: str
     target_dataset_id: UUID
+    source_column: str
+    target_column: str
+    relationship_type: str
+    label: None | str
     target_dataset_title: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         id = str(self.id)
 
-        label: None | str
-        label = self.label
+        source_dataset_id = str(self.source_dataset_id)
 
-        relationship_type = self.relationship_type
+        target_dataset_id = str(self.target_dataset_id)
 
         source_column = self.source_column
 
-        source_dataset_id = str(self.source_dataset_id)
-
         target_column = self.target_column
 
-        target_dataset_id = str(self.target_dataset_id)
+        relationship_type = self.relationship_type
+
+        label: None | str
+        label = self.label
 
         target_dataset_title: None | str | Unset
         if isinstance(self.target_dataset_title, Unset):
@@ -66,12 +66,12 @@ class DatasetRelationshipResponse:
         field_dict.update(
             {
                 "id": id,
-                "label": label,
-                "relationship_type": relationship_type,
-                "source_column": source_column,
                 "source_dataset_id": source_dataset_id,
-                "target_column": target_column,
                 "target_dataset_id": target_dataset_id,
+                "source_column": source_column,
+                "target_column": target_column,
+                "relationship_type": relationship_type,
+                "label": label,
             }
         )
         if target_dataset_title is not UNSET:
@@ -84,22 +84,22 @@ class DatasetRelationshipResponse:
         d = dict(src_dict)
         id = UUID(d.pop("id"))
 
+        source_dataset_id = UUID(d.pop("source_dataset_id"))
+
+        target_dataset_id = UUID(d.pop("target_dataset_id"))
+
+        source_column = d.pop("source_column")
+
+        target_column = d.pop("target_column")
+
+        relationship_type = d.pop("relationship_type")
+
         def _parse_label(data: object) -> None | str:
             if data is None:
                 return data
             return cast(None | str, data)
 
         label = _parse_label(d.pop("label"))
-
-        relationship_type = d.pop("relationship_type")
-
-        source_column = d.pop("source_column")
-
-        source_dataset_id = UUID(d.pop("source_dataset_id"))
-
-        target_column = d.pop("target_column")
-
-        target_dataset_id = UUID(d.pop("target_dataset_id"))
 
         def _parse_target_dataset_title(data: object) -> None | str | Unset:
             if data is None:
@@ -114,12 +114,12 @@ class DatasetRelationshipResponse:
 
         dataset_relationship_response = cls(
             id=id,
-            label=label,
-            relationship_type=relationship_type,
-            source_column=source_column,
             source_dataset_id=source_dataset_id,
-            target_column=target_column,
             target_dataset_id=target_dataset_id,
+            source_column=source_column,
+            target_column=target_column,
+            relationship_type=relationship_type,
+            label=label,
             target_dataset_title=target_dataset_title,
         )
 

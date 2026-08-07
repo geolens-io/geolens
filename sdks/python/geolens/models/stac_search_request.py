@@ -19,30 +19,21 @@ class StacSearchRequest:
     """
     Attributes:
         url (str): STAC API root URL.
-        bbox (list[float] | None | Unset): Bounding box filter as [west, south, east, north].
         collections (list[str] | None | Unset): Filter by collection IDs.
+        bbox (list[float] | None | Unset): Bounding box filter as [west, south, east, north].
         datetime_range (None | str | Unset): Temporal filter in STAC datetime format (e.g. '2023-01-01/2023-12-31').
         limit (int | Unset): Maximum items to return. Default: 20.
     """
 
     url: str
-    bbox: list[float] | None | Unset = UNSET
     collections: list[str] | None | Unset = UNSET
+    bbox: list[float] | None | Unset = UNSET
     datetime_range: None | str | Unset = UNSET
     limit: int | Unset = 20
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         url = self.url
-
-        bbox: list[float] | None | Unset
-        if isinstance(self.bbox, Unset):
-            bbox = UNSET
-        elif isinstance(self.bbox, list):
-            bbox = self.bbox
-
-        else:
-            bbox = self.bbox
 
         collections: list[str] | None | Unset
         if isinstance(self.collections, Unset):
@@ -52,6 +43,15 @@ class StacSearchRequest:
 
         else:
             collections = self.collections
+
+        bbox: list[float] | None | Unset
+        if isinstance(self.bbox, Unset):
+            bbox = UNSET
+        elif isinstance(self.bbox, list):
+            bbox = self.bbox
+
+        else:
+            bbox = self.bbox
 
         datetime_range: None | str | Unset
         if isinstance(self.datetime_range, Unset):
@@ -68,10 +68,10 @@ class StacSearchRequest:
                 "url": url,
             }
         )
-        if bbox is not UNSET:
-            field_dict["bbox"] = bbox
         if collections is not UNSET:
             field_dict["collections"] = collections
+        if bbox is not UNSET:
+            field_dict["bbox"] = bbox
         if datetime_range is not UNSET:
             field_dict["datetime_range"] = datetime_range
         if limit is not UNSET:
@@ -83,23 +83,6 @@ class StacSearchRequest:
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
         url = d.pop("url")
-
-        def _parse_bbox(data: object) -> list[float] | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, list):
-                    raise TypeError()
-                bbox_type_0 = cast(list[float], data)
-
-                return bbox_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(list[float] | None | Unset, data)
-
-        bbox = _parse_bbox(d.pop("bbox", UNSET))
 
         def _parse_collections(data: object) -> list[str] | None | Unset:
             if data is None:
@@ -118,6 +101,23 @@ class StacSearchRequest:
 
         collections = _parse_collections(d.pop("collections", UNSET))
 
+        def _parse_bbox(data: object) -> list[float] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                bbox_type_0 = cast(list[float], data)
+
+                return bbox_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[float] | None | Unset, data)
+
+        bbox = _parse_bbox(d.pop("bbox", UNSET))
+
         def _parse_datetime_range(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -131,8 +131,8 @@ class StacSearchRequest:
 
         stac_search_request = cls(
             url=url,
-            bbox=bbox,
             collections=collections,
+            bbox=bbox,
             datetime_range=datetime_range,
             limit=limit,
         )

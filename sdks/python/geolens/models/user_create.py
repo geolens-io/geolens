@@ -18,20 +18,20 @@ T = TypeVar("T", bound="UserCreate")
 class UserCreate:
     """
     Attributes:
-        password (str): Plaintext password (policy: min 12 chars, 3+ character classes) Example: securePass123!.
         username (str): Unique login name Example: jdoe.
+        password (str): Plaintext password (policy: min 12 chars, 3+ character classes) Example: securePass123!.
         email (None | str | Unset): Optional email address Example: jdoe@example.com.
     """
 
-    password: str
     username: str
+    password: str
     email: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        password = self.password
-
         username = self.username
+
+        password = self.password
 
         email: None | str | Unset
         if isinstance(self.email, Unset):
@@ -43,8 +43,8 @@ class UserCreate:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "password": password,
                 "username": username,
+                "password": password,
             }
         )
         if email is not UNSET:
@@ -55,9 +55,9 @@ class UserCreate:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        password = d.pop("password")
-
         username = d.pop("username")
+
+        password = d.pop("password")
 
         def _parse_email(data: object) -> None | str | Unset:
             if data is None:
@@ -69,8 +69,8 @@ class UserCreate:
         email = _parse_email(d.pop("email", UNSET))
 
         user_create = cls(
-            password=password,
             username=username,
+            password=password,
             email=email,
         )
 

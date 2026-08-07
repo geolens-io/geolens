@@ -15,30 +15,30 @@ class OAuthProviderPublic:
     """Minimal provider info for the login page (no secrets, no config).
 
     Attributes:
+        slug (str): URL-safe identifier used in the callback URL.
         display_name (str): Label shown on the login page button.
         provider_type (str): Provider type, used by the frontend to pick the right icon.
-        slug (str): URL-safe identifier used in the callback URL.
     """
 
+    slug: str
     display_name: str
     provider_type: str
-    slug: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        slug = self.slug
+
         display_name = self.display_name
 
         provider_type = self.provider_type
-
-        slug = self.slug
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
+                "slug": slug,
                 "display_name": display_name,
                 "provider_type": provider_type,
-                "slug": slug,
             }
         )
 
@@ -47,16 +47,16 @@ class OAuthProviderPublic:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
+        slug = d.pop("slug")
+
         display_name = d.pop("display_name")
 
         provider_type = d.pop("provider_type")
 
-        slug = d.pop("slug")
-
         o_auth_provider_public = cls(
+            slug=slug,
             display_name=display_name,
             provider_type=provider_type,
-            slug=slug,
         )
 
         o_auth_provider_public.additional_properties = d

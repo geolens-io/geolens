@@ -16,21 +16,21 @@ T = TypeVar("T", bound="PresignedUploadRequest")
 class PresignedUploadRequest:
     """
     Attributes:
-        file_size (int): Total file size in bytes. Used to decide between single-part and multipart upload.
         filename (str): Original filename being uploaded. Used to determine the file extension and content disposition.
+        file_size (int): Total file size in bytes. Used to decide between single-part and multipart upload.
         content_type (str | Unset): MIME type to associate with the uploaded object. Default: 'application/octet-
             stream'.
     """
 
-    file_size: int
     filename: str
+    file_size: int
     content_type: str | Unset = "application/octet-stream"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        file_size = self.file_size
-
         filename = self.filename
+
+        file_size = self.file_size
 
         content_type = self.content_type
 
@@ -38,8 +38,8 @@ class PresignedUploadRequest:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "file_size": file_size,
                 "filename": filename,
+                "file_size": file_size,
             }
         )
         if content_type is not UNSET:
@@ -50,15 +50,15 @@ class PresignedUploadRequest:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        file_size = d.pop("file_size")
-
         filename = d.pop("filename")
+
+        file_size = d.pop("file_size")
 
         content_type = d.pop("content_type", UNSET)
 
         presigned_upload_request = cls(
-            file_size=file_size,
             filename=filename,
+            file_size=file_size,
             content_type=content_type,
         )
 

@@ -27,47 +27,47 @@ class ChatAction:
     """
     Attributes:
         type_ (ChatActionType):
-        bbox (list[float] | None | Unset):
+        layer_id (None | str | Unset):
+        expression (list[Any] | None | Unset):
+        paint (ChatActionPaintType0 | None | Unset):
         clear_paint (list[str] | None | Unset):
-        columns (list[str] | None | Unset):
+        replace_paint (bool | None | Unset):
+        style_config (ChatActionStyleConfigType0 | None | Unset):
+        label_config (ChatActionLabelConfigType0 | None | Unset):
         dataset_id (None | str | Unset):
         dataset_name (None | str | Unset):
-        distance_meters (float | None | Unset):
-        expression (list[Any] | None | Unset):
-        geojson (GeoJSONFeatureCollection | None | Unset):
-        label_config (ChatActionLabelConfigType0 | None | Unset):
-        layer_id (None | str | Unset):
-        opacity (float | None | Unset):
-        operation (None | str | Unset):
-        paint (ChatActionPaintType0 | None | Unset):
-        replace_paint (bool | None | Unset):
-        row_count (int | None | Unset):
-        rows (list[list[Any]] | None | Unset):
-        style_config (ChatActionStyleConfigType0 | None | Unset):
-        truncated (bool | None | Unset):
         visible (bool | None | Unset):
+        opacity (float | None | Unset):
+        geojson (GeoJSONFeatureCollection | None | Unset):
+        bbox (list[float] | None | Unset):
+        rows (list[list[Any]] | None | Unset):
+        columns (list[str] | None | Unset):
+        row_count (int | None | Unset):
+        truncated (bool | None | Unset):
+        operation (None | str | Unset):
+        distance_meters (float | None | Unset):
     """
 
     type_: ChatActionType
-    bbox: list[float] | None | Unset = UNSET
+    layer_id: None | str | Unset = UNSET
+    expression: list[Any] | None | Unset = UNSET
+    paint: ChatActionPaintType0 | None | Unset = UNSET
     clear_paint: list[str] | None | Unset = UNSET
-    columns: list[str] | None | Unset = UNSET
+    replace_paint: bool | None | Unset = UNSET
+    style_config: ChatActionStyleConfigType0 | None | Unset = UNSET
+    label_config: ChatActionLabelConfigType0 | None | Unset = UNSET
     dataset_id: None | str | Unset = UNSET
     dataset_name: None | str | Unset = UNSET
-    distance_meters: float | None | Unset = UNSET
-    expression: list[Any] | None | Unset = UNSET
-    geojson: GeoJSONFeatureCollection | None | Unset = UNSET
-    label_config: ChatActionLabelConfigType0 | None | Unset = UNSET
-    layer_id: None | str | Unset = UNSET
-    opacity: float | None | Unset = UNSET
-    operation: None | str | Unset = UNSET
-    paint: ChatActionPaintType0 | None | Unset = UNSET
-    replace_paint: bool | None | Unset = UNSET
-    row_count: int | None | Unset = UNSET
-    rows: list[list[Any]] | None | Unset = UNSET
-    style_config: ChatActionStyleConfigType0 | None | Unset = UNSET
-    truncated: bool | None | Unset = UNSET
     visible: bool | None | Unset = UNSET
+    opacity: float | None | Unset = UNSET
+    geojson: GeoJSONFeatureCollection | None | Unset = UNSET
+    bbox: list[float] | None | Unset = UNSET
+    rows: list[list[Any]] | None | Unset = UNSET
+    columns: list[str] | None | Unset = UNSET
+    row_count: int | None | Unset = UNSET
+    truncated: bool | None | Unset = UNSET
+    operation: None | str | Unset = UNSET
+    distance_meters: float | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -78,14 +78,28 @@ class ChatAction:
 
         type_: str = self.type_
 
-        bbox: list[float] | None | Unset
-        if isinstance(self.bbox, Unset):
-            bbox = UNSET
-        elif isinstance(self.bbox, list):
-            bbox = self.bbox
+        layer_id: None | str | Unset
+        if isinstance(self.layer_id, Unset):
+            layer_id = UNSET
+        else:
+            layer_id = self.layer_id
+
+        expression: list[Any] | None | Unset
+        if isinstance(self.expression, Unset):
+            expression = UNSET
+        elif isinstance(self.expression, list):
+            expression = self.expression
 
         else:
-            bbox = self.bbox
+            expression = self.expression
+
+        paint: dict[str, Any] | None | Unset
+        if isinstance(self.paint, Unset):
+            paint = UNSET
+        elif isinstance(self.paint, ChatActionPaintType0):
+            paint = self.paint.to_dict()
+        else:
+            paint = self.paint
 
         clear_paint: list[str] | None | Unset
         if isinstance(self.clear_paint, Unset):
@@ -96,14 +110,27 @@ class ChatAction:
         else:
             clear_paint = self.clear_paint
 
-        columns: list[str] | None | Unset
-        if isinstance(self.columns, Unset):
-            columns = UNSET
-        elif isinstance(self.columns, list):
-            columns = self.columns
-
+        replace_paint: bool | None | Unset
+        if isinstance(self.replace_paint, Unset):
+            replace_paint = UNSET
         else:
-            columns = self.columns
+            replace_paint = self.replace_paint
+
+        style_config: dict[str, Any] | None | Unset
+        if isinstance(self.style_config, Unset):
+            style_config = UNSET
+        elif isinstance(self.style_config, ChatActionStyleConfigType0):
+            style_config = self.style_config.to_dict()
+        else:
+            style_config = self.style_config
+
+        label_config: dict[str, Any] | None | Unset
+        if isinstance(self.label_config, Unset):
+            label_config = UNSET
+        elif isinstance(self.label_config, ChatActionLabelConfigType0):
+            label_config = self.label_config.to_dict()
+        else:
+            label_config = self.label_config
 
         dataset_id: None | str | Unset
         if isinstance(self.dataset_id, Unset):
@@ -117,20 +144,17 @@ class ChatAction:
         else:
             dataset_name = self.dataset_name
 
-        distance_meters: float | None | Unset
-        if isinstance(self.distance_meters, Unset):
-            distance_meters = UNSET
+        visible: bool | None | Unset
+        if isinstance(self.visible, Unset):
+            visible = UNSET
         else:
-            distance_meters = self.distance_meters
+            visible = self.visible
 
-        expression: list[Any] | None | Unset
-        if isinstance(self.expression, Unset):
-            expression = UNSET
-        elif isinstance(self.expression, list):
-            expression = self.expression
-
+        opacity: float | None | Unset
+        if isinstance(self.opacity, Unset):
+            opacity = UNSET
         else:
-            expression = self.expression
+            opacity = self.opacity
 
         geojson: dict[str, Any] | None | Unset
         if isinstance(self.geojson, Unset):
@@ -140,51 +164,14 @@ class ChatAction:
         else:
             geojson = self.geojson
 
-        label_config: dict[str, Any] | None | Unset
-        if isinstance(self.label_config, Unset):
-            label_config = UNSET
-        elif isinstance(self.label_config, ChatActionLabelConfigType0):
-            label_config = self.label_config.to_dict()
-        else:
-            label_config = self.label_config
+        bbox: list[float] | None | Unset
+        if isinstance(self.bbox, Unset):
+            bbox = UNSET
+        elif isinstance(self.bbox, list):
+            bbox = self.bbox
 
-        layer_id: None | str | Unset
-        if isinstance(self.layer_id, Unset):
-            layer_id = UNSET
         else:
-            layer_id = self.layer_id
-
-        opacity: float | None | Unset
-        if isinstance(self.opacity, Unset):
-            opacity = UNSET
-        else:
-            opacity = self.opacity
-
-        operation: None | str | Unset
-        if isinstance(self.operation, Unset):
-            operation = UNSET
-        else:
-            operation = self.operation
-
-        paint: dict[str, Any] | None | Unset
-        if isinstance(self.paint, Unset):
-            paint = UNSET
-        elif isinstance(self.paint, ChatActionPaintType0):
-            paint = self.paint.to_dict()
-        else:
-            paint = self.paint
-
-        replace_paint: bool | None | Unset
-        if isinstance(self.replace_paint, Unset):
-            replace_paint = UNSET
-        else:
-            replace_paint = self.replace_paint
-
-        row_count: int | None | Unset
-        if isinstance(self.row_count, Unset):
-            row_count = UNSET
-        else:
-            row_count = self.row_count
+            bbox = self.bbox
 
         rows: list[list[Any]] | None | Unset
         if isinstance(self.rows, Unset):
@@ -199,13 +186,20 @@ class ChatAction:
         else:
             rows = self.rows
 
-        style_config: dict[str, Any] | None | Unset
-        if isinstance(self.style_config, Unset):
-            style_config = UNSET
-        elif isinstance(self.style_config, ChatActionStyleConfigType0):
-            style_config = self.style_config.to_dict()
+        columns: list[str] | None | Unset
+        if isinstance(self.columns, Unset):
+            columns = UNSET
+        elif isinstance(self.columns, list):
+            columns = self.columns
+
         else:
-            style_config = self.style_config
+            columns = self.columns
+
+        row_count: int | None | Unset
+        if isinstance(self.row_count, Unset):
+            row_count = UNSET
+        else:
+            row_count = self.row_count
 
         truncated: bool | None | Unset
         if isinstance(self.truncated, Unset):
@@ -213,11 +207,17 @@ class ChatAction:
         else:
             truncated = self.truncated
 
-        visible: bool | None | Unset
-        if isinstance(self.visible, Unset):
-            visible = UNSET
+        operation: None | str | Unset
+        if isinstance(self.operation, Unset):
+            operation = UNSET
         else:
-            visible = self.visible
+            operation = self.operation
+
+        distance_meters: float | None | Unset
+        if isinstance(self.distance_meters, Unset):
+            distance_meters = UNSET
+        else:
+            distance_meters = self.distance_meters
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -226,44 +226,44 @@ class ChatAction:
                 "type": type_,
             }
         )
-        if bbox is not UNSET:
-            field_dict["bbox"] = bbox
+        if layer_id is not UNSET:
+            field_dict["layer_id"] = layer_id
+        if expression is not UNSET:
+            field_dict["expression"] = expression
+        if paint is not UNSET:
+            field_dict["paint"] = paint
         if clear_paint is not UNSET:
             field_dict["clear_paint"] = clear_paint
-        if columns is not UNSET:
-            field_dict["columns"] = columns
+        if replace_paint is not UNSET:
+            field_dict["replace_paint"] = replace_paint
+        if style_config is not UNSET:
+            field_dict["style_config"] = style_config
+        if label_config is not UNSET:
+            field_dict["label_config"] = label_config
         if dataset_id is not UNSET:
             field_dict["dataset_id"] = dataset_id
         if dataset_name is not UNSET:
             field_dict["dataset_name"] = dataset_name
-        if distance_meters is not UNSET:
-            field_dict["distance_meters"] = distance_meters
-        if expression is not UNSET:
-            field_dict["expression"] = expression
-        if geojson is not UNSET:
-            field_dict["geojson"] = geojson
-        if label_config is not UNSET:
-            field_dict["label_config"] = label_config
-        if layer_id is not UNSET:
-            field_dict["layer_id"] = layer_id
-        if opacity is not UNSET:
-            field_dict["opacity"] = opacity
-        if operation is not UNSET:
-            field_dict["operation"] = operation
-        if paint is not UNSET:
-            field_dict["paint"] = paint
-        if replace_paint is not UNSET:
-            field_dict["replace_paint"] = replace_paint
-        if row_count is not UNSET:
-            field_dict["row_count"] = row_count
-        if rows is not UNSET:
-            field_dict["rows"] = rows
-        if style_config is not UNSET:
-            field_dict["style_config"] = style_config
-        if truncated is not UNSET:
-            field_dict["truncated"] = truncated
         if visible is not UNSET:
             field_dict["visible"] = visible
+        if opacity is not UNSET:
+            field_dict["opacity"] = opacity
+        if geojson is not UNSET:
+            field_dict["geojson"] = geojson
+        if bbox is not UNSET:
+            field_dict["bbox"] = bbox
+        if rows is not UNSET:
+            field_dict["rows"] = rows
+        if columns is not UNSET:
+            field_dict["columns"] = columns
+        if row_count is not UNSET:
+            field_dict["row_count"] = row_count
+        if truncated is not UNSET:
+            field_dict["truncated"] = truncated
+        if operation is not UNSET:
+            field_dict["operation"] = operation
+        if distance_meters is not UNSET:
+            field_dict["distance_meters"] = distance_meters
 
         return field_dict
 
@@ -277,83 +277,14 @@ class ChatAction:
         d = dict(src_dict)
         type_ = check_chat_action_type(d.pop("type"))
 
-        def _parse_bbox(data: object) -> list[float] | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, list):
-                    raise TypeError()
-                bbox_type_0 = cast(list[float], data)
-
-                return bbox_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(list[float] | None | Unset, data)
-
-        bbox = _parse_bbox(d.pop("bbox", UNSET))
-
-        def _parse_clear_paint(data: object) -> list[str] | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, list):
-                    raise TypeError()
-                clear_paint_type_0 = cast(list[str], data)
-
-                return clear_paint_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(list[str] | None | Unset, data)
-
-        clear_paint = _parse_clear_paint(d.pop("clear_paint", UNSET))
-
-        def _parse_columns(data: object) -> list[str] | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, list):
-                    raise TypeError()
-                columns_type_0 = cast(list[str], data)
-
-                return columns_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(list[str] | None | Unset, data)
-
-        columns = _parse_columns(d.pop("columns", UNSET))
-
-        def _parse_dataset_id(data: object) -> None | str | Unset:
+        def _parse_layer_id(data: object) -> None | str | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
                 return data
             return cast(None | str | Unset, data)
 
-        dataset_id = _parse_dataset_id(d.pop("dataset_id", UNSET))
-
-        def _parse_dataset_name(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        dataset_name = _parse_dataset_name(d.pop("dataset_name", UNSET))
-
-        def _parse_distance_meters(data: object) -> float | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(float | None | Unset, data)
-
-        distance_meters = _parse_distance_meters(d.pop("distance_meters", UNSET))
+        layer_id = _parse_layer_id(d.pop("layer_id", UNSET))
 
         def _parse_expression(data: object) -> list[Any] | None | Unset:
             if data is None:
@@ -372,7 +303,7 @@ class ChatAction:
 
         expression = _parse_expression(d.pop("expression", UNSET))
 
-        def _parse_geojson(data: object) -> GeoJSONFeatureCollection | None | Unset:
+        def _parse_paint(data: object) -> ChatActionPaintType0 | None | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
@@ -380,14 +311,59 @@ class ChatAction:
             try:
                 if not isinstance(data, dict):
                     raise TypeError()
-                geojson_type_0 = GeoJSONFeatureCollection.from_dict(data)
+                paint_type_0 = ChatActionPaintType0.from_dict(data)
 
-                return geojson_type_0
+                return paint_type_0
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
-            return cast(GeoJSONFeatureCollection | None | Unset, data)
+            return cast(ChatActionPaintType0 | None | Unset, data)
 
-        geojson = _parse_geojson(d.pop("geojson", UNSET))
+        paint = _parse_paint(d.pop("paint", UNSET))
+
+        def _parse_clear_paint(data: object) -> list[str] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                clear_paint_type_0 = cast(list[str], data)
+
+                return clear_paint_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[str] | None | Unset, data)
+
+        clear_paint = _parse_clear_paint(d.pop("clear_paint", UNSET))
+
+        def _parse_replace_paint(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        replace_paint = _parse_replace_paint(d.pop("replace_paint", UNSET))
+
+        def _parse_style_config(
+            data: object,
+        ) -> ChatActionStyleConfigType0 | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                style_config_type_0 = ChatActionStyleConfigType0.from_dict(data)
+
+                return style_config_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(ChatActionStyleConfigType0 | None | Unset, data)
+
+        style_config = _parse_style_config(d.pop("style_config", UNSET))
 
         def _parse_label_config(
             data: object,
@@ -408,14 +384,32 @@ class ChatAction:
 
         label_config = _parse_label_config(d.pop("label_config", UNSET))
 
-        def _parse_layer_id(data: object) -> None | str | Unset:
+        def _parse_dataset_id(data: object) -> None | str | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
                 return data
             return cast(None | str | Unset, data)
 
-        layer_id = _parse_layer_id(d.pop("layer_id", UNSET))
+        dataset_id = _parse_dataset_id(d.pop("dataset_id", UNSET))
+
+        def _parse_dataset_name(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        dataset_name = _parse_dataset_name(d.pop("dataset_name", UNSET))
+
+        def _parse_visible(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        visible = _parse_visible(d.pop("visible", UNSET))
 
         def _parse_opacity(data: object) -> float | None | Unset:
             if data is None:
@@ -426,16 +420,7 @@ class ChatAction:
 
         opacity = _parse_opacity(d.pop("opacity", UNSET))
 
-        def _parse_operation(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        operation = _parse_operation(d.pop("operation", UNSET))
-
-        def _parse_paint(data: object) -> ChatActionPaintType0 | None | Unset:
+        def _parse_geojson(data: object) -> GeoJSONFeatureCollection | None | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
@@ -443,32 +428,31 @@ class ChatAction:
             try:
                 if not isinstance(data, dict):
                     raise TypeError()
-                paint_type_0 = ChatActionPaintType0.from_dict(data)
+                geojson_type_0 = GeoJSONFeatureCollection.from_dict(data)
 
-                return paint_type_0
+                return geojson_type_0
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
-            return cast(ChatActionPaintType0 | None | Unset, data)
+            return cast(GeoJSONFeatureCollection | None | Unset, data)
 
-        paint = _parse_paint(d.pop("paint", UNSET))
+        geojson = _parse_geojson(d.pop("geojson", UNSET))
 
-        def _parse_replace_paint(data: object) -> bool | None | Unset:
+        def _parse_bbox(data: object) -> list[float] | None | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
                 return data
-            return cast(bool | None | Unset, data)
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                bbox_type_0 = cast(list[float], data)
 
-        replace_paint = _parse_replace_paint(d.pop("replace_paint", UNSET))
+                return bbox_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[float] | None | Unset, data)
 
-        def _parse_row_count(data: object) -> int | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(int | None | Unset, data)
-
-        row_count = _parse_row_count(d.pop("row_count", UNSET))
+        bbox = _parse_bbox(d.pop("bbox", UNSET))
 
         def _parse_rows(data: object) -> list[list[Any]] | None | Unset:
             if data is None:
@@ -492,24 +476,31 @@ class ChatAction:
 
         rows = _parse_rows(d.pop("rows", UNSET))
 
-        def _parse_style_config(
-            data: object,
-        ) -> ChatActionStyleConfigType0 | None | Unset:
+        def _parse_columns(data: object) -> list[str] | None | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
                 return data
             try:
-                if not isinstance(data, dict):
+                if not isinstance(data, list):
                     raise TypeError()
-                style_config_type_0 = ChatActionStyleConfigType0.from_dict(data)
+                columns_type_0 = cast(list[str], data)
 
-                return style_config_type_0
+                return columns_type_0
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
-            return cast(ChatActionStyleConfigType0 | None | Unset, data)
+            return cast(list[str] | None | Unset, data)
 
-        style_config = _parse_style_config(d.pop("style_config", UNSET))
+        columns = _parse_columns(d.pop("columns", UNSET))
+
+        def _parse_row_count(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        row_count = _parse_row_count(d.pop("row_count", UNSET))
 
         def _parse_truncated(data: object) -> bool | None | Unset:
             if data is None:
@@ -520,36 +511,45 @@ class ChatAction:
 
         truncated = _parse_truncated(d.pop("truncated", UNSET))
 
-        def _parse_visible(data: object) -> bool | None | Unset:
+        def _parse_operation(data: object) -> None | str | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
                 return data
-            return cast(bool | None | Unset, data)
+            return cast(None | str | Unset, data)
 
-        visible = _parse_visible(d.pop("visible", UNSET))
+        operation = _parse_operation(d.pop("operation", UNSET))
+
+        def _parse_distance_meters(data: object) -> float | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(float | None | Unset, data)
+
+        distance_meters = _parse_distance_meters(d.pop("distance_meters", UNSET))
 
         chat_action = cls(
             type_=type_,
-            bbox=bbox,
+            layer_id=layer_id,
+            expression=expression,
+            paint=paint,
             clear_paint=clear_paint,
-            columns=columns,
+            replace_paint=replace_paint,
+            style_config=style_config,
+            label_config=label_config,
             dataset_id=dataset_id,
             dataset_name=dataset_name,
-            distance_meters=distance_meters,
-            expression=expression,
-            geojson=geojson,
-            label_config=label_config,
-            layer_id=layer_id,
-            opacity=opacity,
-            operation=operation,
-            paint=paint,
-            replace_paint=replace_paint,
-            row_count=row_count,
-            rows=rows,
-            style_config=style_config,
-            truncated=truncated,
             visible=visible,
+            opacity=opacity,
+            geojson=geojson,
+            bbox=bbox,
+            rows=rows,
+            columns=columns,
+            row_count=row_count,
+            truncated=truncated,
+            operation=operation,
+            distance_meters=distance_meters,
         )
 
         chat_action.additional_properties = d

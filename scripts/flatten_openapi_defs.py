@@ -51,9 +51,11 @@ script ``sys.exit(1)`` with a clear error message.
 
 Determinism
 -----------
-``json.dumps(spec, sort_keys=True, indent=2) + "\n"`` matches the format
-used by ``backend/scripts/dump_openapi.py`` so the flattened intermediate
-is also reproducible across machines.
+Output serialization matches ``backend/scripts/dump_openapi.py``: every
+dict key sorted EXCEPT each schema's ``properties`` map, whose insertion
+order is Pydantic field declaration order and drives generated SDK
+constructor argument order (fix #1257). The flattened intermediate stays
+reproducible across machines.
 
 Usage
 -----
@@ -75,8 +77,31 @@ from typing import Any
 
 
 def _serialize(node: Any) -> str:
-    """Sorted-keys JSON for byte-identical equality checks."""
+    """Sorted-keys JSON for byte-identical equality checks.
+
+    Deliberately still fully sorted (unlike the output serializer): this
+    feeds content-identity comparison and the sha1 synthetic names, which
+    must not churn when only property order changes.
+    """
     return json.dumps(node, sort_keys=True)
+
+
+def _ordered_for_snapshot(node: Any, *, preserve_keys: bool = False) -> Any:
+    """Recursively sort dict keys, except each schema's ``properties`` map.
+
+    Mirror of ``ordered_for_snapshot`` in backend/scripts/dump_openapi.py
+    (duplicated because this script runs standalone via --no-project);
+    fix(#1257) — property order drives SDK constructor argument order.
+    """
+    if isinstance(node, dict):
+        keys = node if preserve_keys else sorted(node)
+        return {
+            k: _ordered_for_snapshot(node[k], preserve_keys=(k == "properties"))
+            for k in keys
+        }
+    if isinstance(node, list):
+        return [_ordered_for_snapshot(v) for v in node]
+    return node
 
 
 def _synthetic_name(base: str, schema: Any) -> str:
@@ -323,8 +348,10 @@ def main() -> int:
                 continue
             flat_components[name] = schema
 
-    # Same serialization style as dump_openapi.py.
-    output_text = json.dumps(flattened, indent=2, sort_keys=True) + "\n"
+    # Same serialization style as dump_openapi.py: sorted keys except each
+    # schema's `properties` map, whose order drives generated SDK
+    # constructor argument order (fix #1257).
+    output_text = json.dumps(_ordered_for_snapshot(flattened), indent=2) + "\n"
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(output_text)
 

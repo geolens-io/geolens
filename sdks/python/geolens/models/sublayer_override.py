@@ -31,60 +31,30 @@ class SublayerOverride:
         validation time (T-1059A-03).
 
         Attributes:
+            stroke_color (None | str | Unset): Stroke color in #RRGGBB hex format, or null to use the basemap default.
+            stroke_width (float | None | Unset): Stroke width in pixels (0-20), or null to use the basemap default.
             casing_color (None | str | Unset): Casing color in #RRGGBB hex format, or null to use the basemap default.
             casing_width (float | None | Unset): Casing width in pixels (0-20), or null to use the basemap default.
-            max_zoom (float | None | Unset): Maximum zoom level at which the sublayer is visible (0-24), or null for
-                default.
             min_zoom (float | None | Unset): Minimum zoom level at which the sublayer is visible (0-24), or null for
+                default.
+            max_zoom (float | None | Unset): Maximum zoom level at which the sublayer is visible (0-24), or null for
                 default.
             opacity (float | None | Unset): Per-sublayer opacity (0-1), or null to use the basemap default. Composes on top
                 of BasemapConfig.opacity (the whole-basemap master opacity): the rendered opacity is override.opacity *
                 master_opacity (builder-audit #338 CORR-01). The UI opacity slider in BasemapSublayerEditorScene persists
                 through this field: MapBuilderPage.handleSublayerOpacityChange -> setBasemapSublayerOpacity ->
                 updateBasemapSublayerOverride writes config.sublayer_overrides[key].opacity.
-            stroke_color (None | str | Unset): Stroke color in #RRGGBB hex format, or null to use the basemap default.
-            stroke_width (float | None | Unset): Stroke width in pixels (0-20), or null to use the basemap default.
     """
 
-    casing_color: None | str | Unset = UNSET
-    casing_width: float | None | Unset = UNSET
-    max_zoom: float | None | Unset = UNSET
-    min_zoom: float | None | Unset = UNSET
-    opacity: float | None | Unset = UNSET
     stroke_color: None | str | Unset = UNSET
     stroke_width: float | None | Unset = UNSET
+    casing_color: None | str | Unset = UNSET
+    casing_width: float | None | Unset = UNSET
+    min_zoom: float | None | Unset = UNSET
+    max_zoom: float | None | Unset = UNSET
+    opacity: float | None | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
-        casing_color: None | str | Unset
-        if isinstance(self.casing_color, Unset):
-            casing_color = UNSET
-        else:
-            casing_color = self.casing_color
-
-        casing_width: float | None | Unset
-        if isinstance(self.casing_width, Unset):
-            casing_width = UNSET
-        else:
-            casing_width = self.casing_width
-
-        max_zoom: float | None | Unset
-        if isinstance(self.max_zoom, Unset):
-            max_zoom = UNSET
-        else:
-            max_zoom = self.max_zoom
-
-        min_zoom: float | None | Unset
-        if isinstance(self.min_zoom, Unset):
-            min_zoom = UNSET
-        else:
-            min_zoom = self.min_zoom
-
-        opacity: float | None | Unset
-        if isinstance(self.opacity, Unset):
-            opacity = UNSET
-        else:
-            opacity = self.opacity
-
         stroke_color: None | str | Unset
         if isinstance(self.stroke_color, Unset):
             stroke_color = UNSET
@@ -97,74 +67,59 @@ class SublayerOverride:
         else:
             stroke_width = self.stroke_width
 
+        casing_color: None | str | Unset
+        if isinstance(self.casing_color, Unset):
+            casing_color = UNSET
+        else:
+            casing_color = self.casing_color
+
+        casing_width: float | None | Unset
+        if isinstance(self.casing_width, Unset):
+            casing_width = UNSET
+        else:
+            casing_width = self.casing_width
+
+        min_zoom: float | None | Unset
+        if isinstance(self.min_zoom, Unset):
+            min_zoom = UNSET
+        else:
+            min_zoom = self.min_zoom
+
+        max_zoom: float | None | Unset
+        if isinstance(self.max_zoom, Unset):
+            max_zoom = UNSET
+        else:
+            max_zoom = self.max_zoom
+
+        opacity: float | None | Unset
+        if isinstance(self.opacity, Unset):
+            opacity = UNSET
+        else:
+            opacity = self.opacity
+
         field_dict: dict[str, Any] = {}
 
         field_dict.update({})
-        if casing_color is not UNSET:
-            field_dict["casing_color"] = casing_color
-        if casing_width is not UNSET:
-            field_dict["casing_width"] = casing_width
-        if max_zoom is not UNSET:
-            field_dict["max_zoom"] = max_zoom
-        if min_zoom is not UNSET:
-            field_dict["min_zoom"] = min_zoom
-        if opacity is not UNSET:
-            field_dict["opacity"] = opacity
         if stroke_color is not UNSET:
             field_dict["stroke_color"] = stroke_color
         if stroke_width is not UNSET:
             field_dict["stroke_width"] = stroke_width
+        if casing_color is not UNSET:
+            field_dict["casing_color"] = casing_color
+        if casing_width is not UNSET:
+            field_dict["casing_width"] = casing_width
+        if min_zoom is not UNSET:
+            field_dict["min_zoom"] = min_zoom
+        if max_zoom is not UNSET:
+            field_dict["max_zoom"] = max_zoom
+        if opacity is not UNSET:
+            field_dict["opacity"] = opacity
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-
-        def _parse_casing_color(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        casing_color = _parse_casing_color(d.pop("casing_color", UNSET))
-
-        def _parse_casing_width(data: object) -> float | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(float | None | Unset, data)
-
-        casing_width = _parse_casing_width(d.pop("casing_width", UNSET))
-
-        def _parse_max_zoom(data: object) -> float | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(float | None | Unset, data)
-
-        max_zoom = _parse_max_zoom(d.pop("max_zoom", UNSET))
-
-        def _parse_min_zoom(data: object) -> float | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(float | None | Unset, data)
-
-        min_zoom = _parse_min_zoom(d.pop("min_zoom", UNSET))
-
-        def _parse_opacity(data: object) -> float | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(float | None | Unset, data)
-
-        opacity = _parse_opacity(d.pop("opacity", UNSET))
 
         def _parse_stroke_color(data: object) -> None | str | Unset:
             if data is None:
@@ -184,14 +139,59 @@ class SublayerOverride:
 
         stroke_width = _parse_stroke_width(d.pop("stroke_width", UNSET))
 
+        def _parse_casing_color(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        casing_color = _parse_casing_color(d.pop("casing_color", UNSET))
+
+        def _parse_casing_width(data: object) -> float | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(float | None | Unset, data)
+
+        casing_width = _parse_casing_width(d.pop("casing_width", UNSET))
+
+        def _parse_min_zoom(data: object) -> float | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(float | None | Unset, data)
+
+        min_zoom = _parse_min_zoom(d.pop("min_zoom", UNSET))
+
+        def _parse_max_zoom(data: object) -> float | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(float | None | Unset, data)
+
+        max_zoom = _parse_max_zoom(d.pop("max_zoom", UNSET))
+
+        def _parse_opacity(data: object) -> float | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(float | None | Unset, data)
+
+        opacity = _parse_opacity(d.pop("opacity", UNSET))
+
         sublayer_override = cls(
-            casing_color=casing_color,
-            casing_width=casing_width,
-            max_zoom=max_zoom,
-            min_zoom=min_zoom,
-            opacity=opacity,
             stroke_color=stroke_color,
             stroke_width=stroke_width,
+            casing_color=casing_color,
+            casing_width=casing_width,
+            min_zoom=min_zoom,
+            max_zoom=max_zoom,
+            opacity=opacity,
         )
 
         return sublayer_override

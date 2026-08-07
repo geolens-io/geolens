@@ -19,39 +19,37 @@ class MapIconResponse:
     """
     Attributes:
         id (str):
-        media_type (str):
         name (str):
         slug (str):
-        sprite_id (str):
+        media_type (str):
         url (str):
-        builtin (bool | Unset):  Default: False.
+        sprite_id (str):
         size_bytes (int | None | Unset):
+        builtin (bool | Unset):  Default: False.
     """
 
     id: str
-    media_type: str
     name: str
     slug: str
-    sprite_id: str
+    media_type: str
     url: str
-    builtin: bool | Unset = False
+    sprite_id: str
     size_bytes: int | None | Unset = UNSET
+    builtin: bool | Unset = False
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         id = self.id
 
-        media_type = self.media_type
-
         name = self.name
 
         slug = self.slug
 
-        sprite_id = self.sprite_id
+        media_type = self.media_type
 
         url = self.url
 
-        builtin = self.builtin
+        sprite_id = self.sprite_id
 
         size_bytes: int | None | Unset
         if isinstance(self.size_bytes, Unset):
@@ -59,22 +57,24 @@ class MapIconResponse:
         else:
             size_bytes = self.size_bytes
 
+        builtin = self.builtin
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
                 "id": id,
-                "media_type": media_type,
                 "name": name,
                 "slug": slug,
-                "sprite_id": sprite_id,
+                "media_type": media_type,
                 "url": url,
+                "sprite_id": sprite_id,
             }
         )
-        if builtin is not UNSET:
-            field_dict["builtin"] = builtin
         if size_bytes is not UNSET:
             field_dict["size_bytes"] = size_bytes
+        if builtin is not UNSET:
+            field_dict["builtin"] = builtin
 
         return field_dict
 
@@ -83,17 +83,15 @@ class MapIconResponse:
         d = dict(src_dict)
         id = d.pop("id")
 
-        media_type = d.pop("media_type")
-
         name = d.pop("name")
 
         slug = d.pop("slug")
 
-        sprite_id = d.pop("sprite_id")
+        media_type = d.pop("media_type")
 
         url = d.pop("url")
 
-        builtin = d.pop("builtin", UNSET)
+        sprite_id = d.pop("sprite_id")
 
         def _parse_size_bytes(data: object) -> int | None | Unset:
             if data is None:
@@ -104,15 +102,17 @@ class MapIconResponse:
 
         size_bytes = _parse_size_bytes(d.pop("size_bytes", UNSET))
 
+        builtin = d.pop("builtin", UNSET)
+
         map_icon_response = cls(
             id=id,
-            media_type=media_type,
             name=name,
             slug=slug,
-            sprite_id=sprite_id,
+            media_type=media_type,
             url=url,
-            builtin=builtin,
+            sprite_id=sprite_id,
             size_bytes=size_bytes,
+            builtin=builtin,
         )
 
         map_icon_response.additional_properties = d

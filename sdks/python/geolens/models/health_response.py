@@ -21,24 +21,24 @@ T = TypeVar("T", bound="HealthResponse")
 class HealthResponse:
     """
     Attributes:
-        providers (HealthResponseProviders):
         status (str):
         version (str):
+        providers (HealthResponseProviders):
         build (None | str | Unset):
     """
 
-    providers: HealthResponseProviders
     status: str
     version: str
+    providers: HealthResponseProviders
     build: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        providers = self.providers.to_dict()
-
         status = self.status
 
         version = self.version
+
+        providers = self.providers.to_dict()
 
         build: None | str | Unset
         if isinstance(self.build, Unset):
@@ -50,9 +50,9 @@ class HealthResponse:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "providers": providers,
                 "status": status,
                 "version": version,
+                "providers": providers,
             }
         )
         if build is not UNSET:
@@ -65,11 +65,11 @@ class HealthResponse:
         from ..models.health_response_providers import HealthResponseProviders
 
         d = dict(src_dict)
-        providers = HealthResponseProviders.from_dict(d.pop("providers"))
-
         status = d.pop("status")
 
         version = d.pop("version")
+
+        providers = HealthResponseProviders.from_dict(d.pop("providers"))
 
         def _parse_build(data: object) -> None | str | Unset:
             if data is None:
@@ -81,9 +81,9 @@ class HealthResponse:
         build = _parse_build(d.pop("build", UNSET))
 
         health_response = cls(
-            providers=providers,
             status=status,
             version=version,
+            providers=providers,
             build=build,
         )
 

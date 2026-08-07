@@ -21,20 +21,26 @@ class OGCAsset:
     Attributes:
         href (str):
         type_ (str):
-        roles (list[str] | None | Unset):
         title (None | str | Unset):
+        roles (list[str] | None | Unset):
     """
 
     href: str
     type_: str
-    roles: list[str] | None | Unset = UNSET
     title: None | str | Unset = UNSET
+    roles: list[str] | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         href = self.href
 
         type_ = self.type_
+
+        title: None | str | Unset
+        if isinstance(self.title, Unset):
+            title = UNSET
+        else:
+            title = self.title
 
         roles: list[str] | None | Unset
         if isinstance(self.roles, Unset):
@@ -45,12 +51,6 @@ class OGCAsset:
         else:
             roles = self.roles
 
-        title: None | str | Unset
-        if isinstance(self.title, Unset):
-            title = UNSET
-        else:
-            title = self.title
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -59,10 +59,10 @@ class OGCAsset:
                 "type": type_,
             }
         )
-        if roles is not UNSET:
-            field_dict["roles"] = roles
         if title is not UNSET:
             field_dict["title"] = title
+        if roles is not UNSET:
+            field_dict["roles"] = roles
 
         return field_dict
 
@@ -72,6 +72,15 @@ class OGCAsset:
         href = d.pop("href")
 
         type_ = d.pop("type")
+
+        def _parse_title(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        title = _parse_title(d.pop("title", UNSET))
 
         def _parse_roles(data: object) -> list[str] | None | Unset:
             if data is None:
@@ -90,20 +99,11 @@ class OGCAsset:
 
         roles = _parse_roles(d.pop("roles", UNSET))
 
-        def _parse_title(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        title = _parse_title(d.pop("title", UNSET))
-
         ogc_asset = cls(
             href=href,
             type_=type_,
-            roles=roles,
             title=title,
+            roles=roles,
         )
 
         ogc_asset.additional_properties = d

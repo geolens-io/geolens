@@ -27,36 +27,38 @@ class StacItemResponse:
     """A GeoJSON Feature conforming to the STAC Item specification.
 
     Attributes:
-        assets (StacItemResponseAssets):
+        stac_version (str): STAC specification version.
+        id (str): Stable item identifier.
         geometry (GeoJSONGeometry | GeoJSONGeometryCollection | None): Item footprint as GeoJSON, or null when
             unavailable.
-        id (str): Stable item identifier.
-        links (list[StacLink]):
         properties (StacItemProperties): Core STAC Item properties plus extension-defined fields.
-        stac_version (str): STAC specification version.
+        links (list[StacLink]):
+        assets (StacItemResponseAssets):
+        type_ (Literal['Feature'] | Unset):  Default: 'Feature'.
+        stac_extensions (list[str] | Unset): STAC extension schema URIs in use.
         bbox (list[float] | None | Unset): Item bounding box with exactly four 2D or six 3D coordinates.
         collection (None | str | Unset): Identifier of the containing STAC Collection.
-        stac_extensions (list[str] | Unset): STAC extension schema URIs in use.
-        type_ (Literal['Feature'] | Unset):  Default: 'Feature'.
     """
 
-    assets: StacItemResponseAssets
-    geometry: GeoJSONGeometry | GeoJSONGeometryCollection | None
-    id: str
-    links: list[StacLink]
-    properties: StacItemProperties
     stac_version: str
+    id: str
+    geometry: GeoJSONGeometry | GeoJSONGeometryCollection | None
+    properties: StacItemProperties
+    links: list[StacLink]
+    assets: StacItemResponseAssets
+    type_: Literal["Feature"] | Unset = "Feature"
+    stac_extensions: list[str] | Unset = UNSET
     bbox: list[float] | None | Unset = UNSET
     collection: None | str | Unset = UNSET
-    stac_extensions: list[str] | Unset = UNSET
-    type_: Literal["Feature"] | Unset = "Feature"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.geo_json_geometry import GeoJSONGeometry
         from ..models.geo_json_geometry_collection import GeoJSONGeometryCollection
 
-        assets = self.assets.to_dict()
+        stac_version = self.stac_version
+
+        id = self.id
 
         geometry: dict[str, Any] | None
         if isinstance(self.geometry, GeoJSONGeometryCollection):
@@ -66,16 +68,20 @@ class StacItemResponse:
         else:
             geometry = self.geometry
 
-        id = self.id
+        properties = self.properties.to_dict()
 
         links = []
         for links_item_data in self.links:
             links_item = links_item_data.to_dict()
             links.append(links_item)
 
-        properties = self.properties.to_dict()
+        assets = self.assets.to_dict()
 
-        stac_version = self.stac_version
+        type_ = self.type_
+
+        stac_extensions: list[str] | Unset = UNSET
+        if not isinstance(self.stac_extensions, Unset):
+            stac_extensions = self.stac_extensions
 
         bbox: list[float] | None | Unset
         if isinstance(self.bbox, Unset):
@@ -96,32 +102,26 @@ class StacItemResponse:
         else:
             collection = self.collection
 
-        stac_extensions: list[str] | Unset = UNSET
-        if not isinstance(self.stac_extensions, Unset):
-            stac_extensions = self.stac_extensions
-
-        type_ = self.type_
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "assets": assets,
-                "geometry": geometry,
-                "id": id,
-                "links": links,
-                "properties": properties,
                 "stac_version": stac_version,
+                "id": id,
+                "geometry": geometry,
+                "properties": properties,
+                "links": links,
+                "assets": assets,
             }
         )
+        if type_ is not UNSET:
+            field_dict["type"] = type_
+        if stac_extensions is not UNSET:
+            field_dict["stac_extensions"] = stac_extensions
         if bbox is not UNSET:
             field_dict["bbox"] = bbox
         if collection is not UNSET:
             field_dict["collection"] = collection
-        if stac_extensions is not UNSET:
-            field_dict["stac_extensions"] = stac_extensions
-        if type_ is not UNSET:
-            field_dict["type"] = type_
 
         return field_dict
 
@@ -134,7 +134,9 @@ class StacItemResponse:
         from ..models.stac_link import StacLink
 
         d = dict(src_dict)
-        assets = StacItemResponseAssets.from_dict(d.pop("assets"))
+        stac_version = d.pop("stac_version")
+
+        id = d.pop("id")
 
         def _parse_geometry(
             data: object,
@@ -161,7 +163,7 @@ class StacItemResponse:
 
         geometry = _parse_geometry(d.pop("geometry"))
 
-        id = d.pop("id")
+        properties = StacItemProperties.from_dict(d.pop("properties"))
 
         links = []
         _links = d.pop("links")
@@ -170,9 +172,13 @@ class StacItemResponse:
 
             links.append(links_item)
 
-        properties = StacItemProperties.from_dict(d.pop("properties"))
+        assets = StacItemResponseAssets.from_dict(d.pop("assets"))
 
-        stac_version = d.pop("stac_version")
+        type_ = cast(Literal["Feature"] | Unset, d.pop("type", UNSET))
+        if type_ != "Feature" and not isinstance(type_, Unset):
+            raise ValueError(f"type must match const 'Feature', got '{type_}'")
+
+        stac_extensions = cast(list[str], d.pop("stac_extensions", UNSET))
 
         def _parse_bbox(data: object) -> list[float] | None | Unset:
             if data is None:
@@ -209,23 +215,17 @@ class StacItemResponse:
 
         collection = _parse_collection(d.pop("collection", UNSET))
 
-        stac_extensions = cast(list[str], d.pop("stac_extensions", UNSET))
-
-        type_ = cast(Literal["Feature"] | Unset, d.pop("type", UNSET))
-        if type_ != "Feature" and not isinstance(type_, Unset):
-            raise ValueError(f"type must match const 'Feature', got '{type_}'")
-
         stac_item_response = cls(
-            assets=assets,
-            geometry=geometry,
-            id=id,
-            links=links,
-            properties=properties,
             stac_version=stac_version,
+            id=id,
+            geometry=geometry,
+            properties=properties,
+            links=links,
+            assets=assets,
+            type_=type_,
+            stac_extensions=stac_extensions,
             bbox=bbox,
             collection=collection,
-            stac_extensions=stac_extensions,
-            type_=type_,
         )
 
         stac_item_response.additional_properties = d

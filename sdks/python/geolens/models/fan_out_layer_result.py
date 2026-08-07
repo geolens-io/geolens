@@ -24,23 +24,31 @@ class FanOutLayerResult:
     Attributes:
         layer_name (str): Layer name from the request.
         status (FanOutLayerResultStatus): 'queued' if the task was dispatched; 'failed' if an error occurred.
+        new_job_id (None | Unset | UUID): ID of the cloned IngestJob queued for this layer. Null on failure.
         dataset_id (None | Unset | UUID): ID of the new Dataset record created for this layer. Null on failure.
         error (None | str | Unset): User-safe error description when status='failed'. Never contains internal file
             paths.
-        new_job_id (None | Unset | UUID): ID of the cloned IngestJob queued for this layer. Null on failure.
     """
 
     layer_name: str
     status: FanOutLayerResultStatus
+    new_job_id: None | Unset | UUID = UNSET
     dataset_id: None | Unset | UUID = UNSET
     error: None | str | Unset = UNSET
-    new_job_id: None | Unset | UUID = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         layer_name = self.layer_name
 
         status: str = self.status
+
+        new_job_id: None | str | Unset
+        if isinstance(self.new_job_id, Unset):
+            new_job_id = UNSET
+        elif isinstance(self.new_job_id, UUID):
+            new_job_id = str(self.new_job_id)
+        else:
+            new_job_id = self.new_job_id
 
         dataset_id: None | str | Unset
         if isinstance(self.dataset_id, Unset):
@@ -56,14 +64,6 @@ class FanOutLayerResult:
         else:
             error = self.error
 
-        new_job_id: None | str | Unset
-        if isinstance(self.new_job_id, Unset):
-            new_job_id = UNSET
-        elif isinstance(self.new_job_id, UUID):
-            new_job_id = str(self.new_job_id)
-        else:
-            new_job_id = self.new_job_id
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -72,12 +72,12 @@ class FanOutLayerResult:
                 "status": status,
             }
         )
+        if new_job_id is not UNSET:
+            field_dict["new_job_id"] = new_job_id
         if dataset_id is not UNSET:
             field_dict["dataset_id"] = dataset_id
         if error is not UNSET:
             field_dict["error"] = error
-        if new_job_id is not UNSET:
-            field_dict["new_job_id"] = new_job_id
 
         return field_dict
 
@@ -87,6 +87,23 @@ class FanOutLayerResult:
         layer_name = d.pop("layer_name")
 
         status = check_fan_out_layer_result_status(d.pop("status"))
+
+        def _parse_new_job_id(data: object) -> None | Unset | UUID:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                new_job_id_type_0 = UUID(data)
+
+                return new_job_id_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | Unset | UUID, data)
+
+        new_job_id = _parse_new_job_id(d.pop("new_job_id", UNSET))
 
         def _parse_dataset_id(data: object) -> None | Unset | UUID:
             if data is None:
@@ -114,29 +131,12 @@ class FanOutLayerResult:
 
         error = _parse_error(d.pop("error", UNSET))
 
-        def _parse_new_job_id(data: object) -> None | Unset | UUID:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, str):
-                    raise TypeError()
-                new_job_id_type_0 = UUID(data)
-
-                return new_job_id_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(None | Unset | UUID, data)
-
-        new_job_id = _parse_new_job_id(d.pop("new_job_id", UNSET))
-
         fan_out_layer_result = cls(
             layer_name=layer_name,
             status=status,
+            new_job_id=new_job_id,
             dataset_id=dataset_id,
             error=error,
-            new_job_id=new_job_id,
         )
 
         fan_out_layer_result.additional_properties = d

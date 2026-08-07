@@ -31,33 +31,45 @@ class RasterTileToken:
     as fields, mirroring `VectorTileToken`, for clients that rebuild the URL.
 
         Attributes:
-            bounds (list[float] | None):
-            exp (int):
-            expires_in (int):
-            format_ (str):
             kind (Literal['raster']):
-            maxzoom (int):
-            minzoom (int):
-            scope (str):
-            sig (str):
-            tile_size (int):
             tile_url (str):
+            sig (str):
+            exp (int):
+            scope (str):
+            expires_in (int):
+            bounds (list[float] | None):
+            minzoom (int):
+            maxzoom (int):
+            tile_size (int):
+            format_ (str):
     """
 
-    bounds: list[float] | None
-    exp: int
-    expires_in: int
-    format_: str
     kind: Literal["raster"]
-    maxzoom: int
-    minzoom: int
-    scope: str
-    sig: str
-    tile_size: int
     tile_url: str
+    sig: str
+    exp: int
+    scope: str
+    expires_in: int
+    bounds: list[float] | None
+    minzoom: int
+    maxzoom: int
+    tile_size: int
+    format_: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        kind = self.kind
+
+        tile_url = self.tile_url
+
+        sig = self.sig
+
+        exp = self.exp
+
+        scope = self.scope
+
+        expires_in = self.expires_in
+
         bounds: list[float] | None
         if isinstance(self.bounds, list):
             bounds = self.bounds
@@ -65,41 +77,29 @@ class RasterTileToken:
         else:
             bounds = self.bounds
 
-        exp = self.exp
-
-        expires_in = self.expires_in
-
-        format_ = self.format_
-
-        kind = self.kind
+        minzoom = self.minzoom
 
         maxzoom = self.maxzoom
 
-        minzoom = self.minzoom
-
-        scope = self.scope
-
-        sig = self.sig
-
         tile_size = self.tile_size
 
-        tile_url = self.tile_url
+        format_ = self.format_
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "bounds": bounds,
-                "exp": exp,
-                "expires_in": expires_in,
-                "format": format_,
                 "kind": kind,
-                "maxzoom": maxzoom,
-                "minzoom": minzoom,
-                "scope": scope,
-                "sig": sig,
-                "tile_size": tile_size,
                 "tile_url": tile_url,
+                "sig": sig,
+                "exp": exp,
+                "scope": scope,
+                "expires_in": expires_in,
+                "bounds": bounds,
+                "minzoom": minzoom,
+                "maxzoom": maxzoom,
+                "tile_size": tile_size,
+                "format": format_,
             }
         )
 
@@ -108,6 +108,19 @@ class RasterTileToken:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
+        kind = cast(Literal["raster"], d.pop("kind"))
+        if kind != "raster":
+            raise ValueError(f"kind must match const 'raster', got '{kind}'")
+
+        tile_url = d.pop("tile_url")
+
+        sig = d.pop("sig")
+
+        exp = d.pop("exp")
+
+        scope = d.pop("scope")
+
+        expires_in = d.pop("expires_in")
 
         def _parse_bounds(data: object) -> list[float] | None:
             if data is None:
@@ -124,40 +137,26 @@ class RasterTileToken:
 
         bounds = _parse_bounds(d.pop("bounds"))
 
-        exp = d.pop("exp")
-
-        expires_in = d.pop("expires_in")
-
-        format_ = d.pop("format")
-
-        kind = cast(Literal["raster"], d.pop("kind"))
-        if kind != "raster":
-            raise ValueError(f"kind must match const 'raster', got '{kind}'")
+        minzoom = d.pop("minzoom")
 
         maxzoom = d.pop("maxzoom")
 
-        minzoom = d.pop("minzoom")
-
-        scope = d.pop("scope")
-
-        sig = d.pop("sig")
-
         tile_size = d.pop("tile_size")
 
-        tile_url = d.pop("tile_url")
+        format_ = d.pop("format")
 
         raster_tile_token = cls(
-            bounds=bounds,
-            exp=exp,
-            expires_in=expires_in,
-            format_=format_,
             kind=kind,
-            maxzoom=maxzoom,
-            minzoom=minzoom,
-            scope=scope,
-            sig=sig,
-            tile_size=tile_size,
             tile_url=tile_url,
+            sig=sig,
+            exp=exp,
+            scope=scope,
+            expires_in=expires_in,
+            bounds=bounds,
+            minzoom=minzoom,
+            maxzoom=maxzoom,
+            tile_size=tile_size,
+            format_=format_,
         )
 
         raster_tile_token.additional_properties = d

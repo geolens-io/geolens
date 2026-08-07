@@ -23,23 +23,23 @@ class ConnectorResourceResponse:
     """
     Attributes:
         id (str): API-safe opaque resource handle. This is never a provider URL, signed locator, or credential.
-        kind (str):
         name (str):
+        kind (str):
         metadata (ConnectorResourceResponseMetadata | Unset):
     """
 
     id: str
-    kind: str
     name: str
+    kind: str
     metadata: ConnectorResourceResponseMetadata | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         id = self.id
 
-        kind = self.kind
-
         name = self.name
+
+        kind = self.kind
 
         metadata: dict[str, Any] | Unset = UNSET
         if not isinstance(self.metadata, Unset):
@@ -50,8 +50,8 @@ class ConnectorResourceResponse:
         field_dict.update(
             {
                 "id": id,
-                "kind": kind,
                 "name": name,
+                "kind": kind,
             }
         )
         if metadata is not UNSET:
@@ -68,9 +68,9 @@ class ConnectorResourceResponse:
         d = dict(src_dict)
         id = d.pop("id")
 
-        kind = d.pop("kind")
-
         name = d.pop("name")
+
+        kind = d.pop("kind")
 
         _metadata = d.pop("metadata", UNSET)
         metadata: ConnectorResourceResponseMetadata | Unset
@@ -81,8 +81,8 @@ class ConnectorResourceResponse:
 
         connector_resource_response = cls(
             id=id,
-            kind=kind,
             name=name,
+            kind=kind,
             metadata=metadata,
         )
 

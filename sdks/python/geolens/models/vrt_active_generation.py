@@ -19,30 +19,30 @@ T = TypeVar("T", bound="VrtActiveGeneration")
 class VrtActiveGeneration:
     """
     Attributes:
-        elapsed_seconds (float):
         generation_id (UUID):
         started_at (datetime.datetime):
+        elapsed_seconds (float):
     """
 
-    elapsed_seconds: float
     generation_id: UUID
     started_at: datetime.datetime
+    elapsed_seconds: float
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        elapsed_seconds = self.elapsed_seconds
-
         generation_id = str(self.generation_id)
 
         started_at = self.started_at.isoformat()
+
+        elapsed_seconds = self.elapsed_seconds
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "elapsed_seconds": elapsed_seconds,
                 "generation_id": generation_id,
                 "started_at": started_at,
+                "elapsed_seconds": elapsed_seconds,
             }
         )
 
@@ -51,16 +51,16 @@ class VrtActiveGeneration:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        elapsed_seconds = d.pop("elapsed_seconds")
-
         generation_id = UUID(d.pop("generation_id"))
 
         started_at = isoparse(d.pop("started_at"))
 
+        elapsed_seconds = d.pop("elapsed_seconds")
+
         vrt_active_generation = cls(
-            elapsed_seconds=elapsed_seconds,
             generation_id=generation_id,
             started_at=started_at,
+            elapsed_seconds=elapsed_seconds,
         )
 
         vrt_active_generation.additional_properties = d

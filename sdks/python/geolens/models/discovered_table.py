@@ -17,21 +17,20 @@ T = TypeVar("T", bound="DiscoveredTable")
 class DiscoveredTable:
     """
     Attributes:
-        estimated_rows (int | None): PostgreSQL row count estimate from `pg_class.reltuples`.
+        table_name (str): PostgreSQL table name in the `data` schema.
         geometry_type (None | str): Detected geometry type, or null for non-spatial tables.
         srid (int | None): Coordinate reference system EPSG code, if defined.
-        table_name (str): PostgreSQL table name in the `data` schema.
+        estimated_rows (int | None): PostgreSQL row count estimate from `pg_class.reltuples`.
     """
 
-    estimated_rows: int | None
+    table_name: str
     geometry_type: None | str
     srid: int | None
-    table_name: str
+    estimated_rows: int | None
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        estimated_rows: int | None
-        estimated_rows = self.estimated_rows
+        table_name = self.table_name
 
         geometry_type: None | str
         geometry_type = self.geometry_type
@@ -39,16 +38,17 @@ class DiscoveredTable:
         srid: int | None
         srid = self.srid
 
-        table_name = self.table_name
+        estimated_rows: int | None
+        estimated_rows = self.estimated_rows
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "estimated_rows": estimated_rows,
+                "table_name": table_name,
                 "geometry_type": geometry_type,
                 "srid": srid,
-                "table_name": table_name,
+                "estimated_rows": estimated_rows,
             }
         )
 
@@ -57,13 +57,7 @@ class DiscoveredTable:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-
-        def _parse_estimated_rows(data: object) -> int | None:
-            if data is None:
-                return data
-            return cast(int | None, data)
-
-        estimated_rows = _parse_estimated_rows(d.pop("estimated_rows"))
+        table_name = d.pop("table_name")
 
         def _parse_geometry_type(data: object) -> None | str:
             if data is None:
@@ -79,13 +73,18 @@ class DiscoveredTable:
 
         srid = _parse_srid(d.pop("srid"))
 
-        table_name = d.pop("table_name")
+        def _parse_estimated_rows(data: object) -> int | None:
+            if data is None:
+                return data
+            return cast(int | None, data)
+
+        estimated_rows = _parse_estimated_rows(d.pop("estimated_rows"))
 
         discovered_table = cls(
-            estimated_rows=estimated_rows,
+            table_name=table_name,
             geometry_type=geometry_type,
             srid=srid,
-            table_name=table_name,
+            estimated_rows=estimated_rows,
         )
 
         discovered_table.additional_properties = d

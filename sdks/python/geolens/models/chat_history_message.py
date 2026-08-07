@@ -19,25 +19,25 @@ class ChatHistoryMessage:
     """A single message in the conversation history.
 
     Attributes:
-        content (str):
         role (ChatHistoryMessageRole):
+        content (str):
     """
 
-    content: str
     role: ChatHistoryMessageRole
+    content: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        content = self.content
-
         role: str = self.role
+
+        content = self.content
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "content": content,
                 "role": role,
+                "content": content,
             }
         )
 
@@ -46,13 +46,13 @@ class ChatHistoryMessage:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        content = d.pop("content")
-
         role = check_chat_history_message_role(d.pop("role"))
 
+        content = d.pop("content")
+
         chat_history_message = cls(
-            content=content,
             role=role,
+            content=content,
         )
 
         chat_history_message.additional_properties = d

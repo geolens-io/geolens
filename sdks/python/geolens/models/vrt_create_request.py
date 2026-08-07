@@ -29,36 +29,36 @@ T = TypeVar("T", bound="VrtCreateRequest")
 class VrtCreateRequest:
     """
     Attributes:
-        resolution_strategy (VrtCreateRequestResolutionStrategy): How to resolve mismatched source resolutions: 'finest'
-            uses the highest, 'coarsest' uses the lowest, 'average' computes the mean.
         source_dataset_ids (list[UUID]): Source raster dataset IDs to include in the VRT mosaic or band stack (1-500).
-        title (str): Human-readable title for the resulting VRT dataset.
         vrt_type (VrtCreateRequestVrtType): Type of VRT to create. 'mosaic' tiles sources spatially; 'band_stack' aligns
             same-extent sources as multi-band output.
+        resolution_strategy (VrtCreateRequestResolutionStrategy): How to resolve mismatched source resolutions: 'finest'
+            uses the highest, 'coarsest' uses the lowest, 'average' computes the mean.
+        title (str): Human-readable title for the resulting VRT dataset.
         summary (None | str | Unset): Optional description for the VRT dataset.
         visibility (VrtCreateRequestVisibility | Unset): Visibility level for the resulting VRT dataset. Default:
             'private'.
     """
 
-    resolution_strategy: VrtCreateRequestResolutionStrategy
     source_dataset_ids: list[UUID]
-    title: str
     vrt_type: VrtCreateRequestVrtType
+    resolution_strategy: VrtCreateRequestResolutionStrategy
+    title: str
     summary: None | str | Unset = UNSET
     visibility: VrtCreateRequestVisibility | Unset = "private"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        resolution_strategy: str = self.resolution_strategy
-
         source_dataset_ids = []
         for source_dataset_ids_item_data in self.source_dataset_ids:
             source_dataset_ids_item = str(source_dataset_ids_item_data)
             source_dataset_ids.append(source_dataset_ids_item)
 
-        title = self.title
-
         vrt_type: str = self.vrt_type
+
+        resolution_strategy: str = self.resolution_strategy
+
+        title = self.title
 
         summary: None | str | Unset
         if isinstance(self.summary, Unset):
@@ -74,10 +74,10 @@ class VrtCreateRequest:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "resolution_strategy": resolution_strategy,
                 "source_dataset_ids": source_dataset_ids,
-                "title": title,
                 "vrt_type": vrt_type,
+                "resolution_strategy": resolution_strategy,
+                "title": title,
             }
         )
         if summary is not UNSET:
@@ -90,10 +90,6 @@ class VrtCreateRequest:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        resolution_strategy = check_vrt_create_request_resolution_strategy(
-            d.pop("resolution_strategy")
-        )
-
         source_dataset_ids = []
         _source_dataset_ids = d.pop("source_dataset_ids")
         for source_dataset_ids_item_data in _source_dataset_ids:
@@ -101,9 +97,13 @@ class VrtCreateRequest:
 
             source_dataset_ids.append(source_dataset_ids_item)
 
-        title = d.pop("title")
-
         vrt_type = check_vrt_create_request_vrt_type(d.pop("vrt_type"))
+
+        resolution_strategy = check_vrt_create_request_resolution_strategy(
+            d.pop("resolution_strategy")
+        )
+
+        title = d.pop("title")
 
         def _parse_summary(data: object) -> None | str | Unset:
             if data is None:
@@ -122,10 +122,10 @@ class VrtCreateRequest:
             visibility = check_vrt_create_request_visibility(_visibility)
 
         vrt_create_request = cls(
-            resolution_strategy=resolution_strategy,
             source_dataset_ids=source_dataset_ids,
-            title=title,
             vrt_type=vrt_type,
+            resolution_strategy=resolution_strategy,
+            title=title,
             summary=summary,
             visibility=visibility,
         )

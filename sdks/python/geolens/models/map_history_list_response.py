@@ -19,15 +19,15 @@ class MapHistoryListResponse:
     """
     Attributes:
         events (list[MapHistoryEventResponse]):
-        limit (int):
-        skip (int):
         total (int):
+        skip (int):
+        limit (int):
     """
 
     events: list[MapHistoryEventResponse]
-    limit: int
-    skip: int
     total: int
+    skip: int
+    limit: int
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -36,20 +36,20 @@ class MapHistoryListResponse:
             events_item = events_item_data.to_dict()
             events.append(events_item)
 
-        limit = self.limit
+        total = self.total
 
         skip = self.skip
 
-        total = self.total
+        limit = self.limit
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
                 "events": events,
-                "limit": limit,
-                "skip": skip,
                 "total": total,
+                "skip": skip,
+                "limit": limit,
             }
         )
 
@@ -67,17 +67,17 @@ class MapHistoryListResponse:
 
             events.append(events_item)
 
-        limit = d.pop("limit")
+        total = d.pop("total")
 
         skip = d.pop("skip")
 
-        total = d.pop("total")
+        limit = d.pop("limit")
 
         map_history_list_response = cls(
             events=events,
-            limit=limit,
-            skip=skip,
             total=total,
+            skip=skip,
+            limit=limit,
         )
 
         map_history_list_response.additional_properties = d

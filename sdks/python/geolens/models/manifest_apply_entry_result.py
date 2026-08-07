@@ -23,28 +23,36 @@ T = TypeVar("T", bound="ManifestApplyEntryResult")
 class ManifestApplyEntryResult:
     """
     Attributes:
-        action (ManifestApplyEntryResultAction):
         dataset_key (str):
+        action (ManifestApplyEntryResultAction):
         message (str):
+        job_id (None | Unset | UUID):
         dataset_id (None | Unset | UUID):
         errors (list[str] | Unset):
-        job_id (None | Unset | UUID):
     """
 
-    action: ManifestApplyEntryResultAction
     dataset_key: str
+    action: ManifestApplyEntryResultAction
     message: str
+    job_id: None | Unset | UUID = UNSET
     dataset_id: None | Unset | UUID = UNSET
     errors: list[str] | Unset = UNSET
-    job_id: None | Unset | UUID = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        action: str = self.action
-
         dataset_key = self.dataset_key
 
+        action: str = self.action
+
         message = self.message
+
+        job_id: None | str | Unset
+        if isinstance(self.job_id, Unset):
+            job_id = UNSET
+        elif isinstance(self.job_id, UUID):
+            job_id = str(self.job_id)
+        else:
+            job_id = self.job_id
 
         dataset_id: None | str | Unset
         if isinstance(self.dataset_id, Unset):
@@ -58,40 +66,49 @@ class ManifestApplyEntryResult:
         if not isinstance(self.errors, Unset):
             errors = self.errors
 
-        job_id: None | str | Unset
-        if isinstance(self.job_id, Unset):
-            job_id = UNSET
-        elif isinstance(self.job_id, UUID):
-            job_id = str(self.job_id)
-        else:
-            job_id = self.job_id
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "action": action,
                 "dataset_key": dataset_key,
+                "action": action,
                 "message": message,
             }
         )
+        if job_id is not UNSET:
+            field_dict["job_id"] = job_id
         if dataset_id is not UNSET:
             field_dict["dataset_id"] = dataset_id
         if errors is not UNSET:
             field_dict["errors"] = errors
-        if job_id is not UNSET:
-            field_dict["job_id"] = job_id
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        action = check_manifest_apply_entry_result_action(d.pop("action"))
-
         dataset_key = d.pop("dataset_key")
 
+        action = check_manifest_apply_entry_result_action(d.pop("action"))
+
         message = d.pop("message")
+
+        def _parse_job_id(data: object) -> None | Unset | UUID:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                job_id_type_0 = UUID(data)
+
+                return job_id_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | Unset | UUID, data)
+
+        job_id = _parse_job_id(d.pop("job_id", UNSET))
 
         def _parse_dataset_id(data: object) -> None | Unset | UUID:
             if data is None:
@@ -112,30 +129,13 @@ class ManifestApplyEntryResult:
 
         errors = cast(list[str], d.pop("errors", UNSET))
 
-        def _parse_job_id(data: object) -> None | Unset | UUID:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, str):
-                    raise TypeError()
-                job_id_type_0 = UUID(data)
-
-                return job_id_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(None | Unset | UUID, data)
-
-        job_id = _parse_job_id(d.pop("job_id", UNSET))
-
         manifest_apply_entry_result = cls(
-            action=action,
             dataset_key=dataset_key,
+            action=action,
             message=message,
+            job_id=job_id,
             dataset_id=dataset_id,
             errors=errors,
-            job_id=job_id,
         )
 
         manifest_apply_entry_result.additional_properties = d
