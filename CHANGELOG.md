@@ -7,6 +7,53 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-08-07
+
+### Security
+
+- **Password logins and dataset creation now write audit records, and the
+  action registry can no longer drift silently from what's actually logged.**
+  Failed and successful password-based logins, plus `dataset.create`, were
+  gaps in audit coverage; a new registry test walks every `AuditEvent` call
+  site (keyword or positional) and fails if it references an action that
+  isn't declared (#1230).
+
+### Fixed
+
+- **A sweep restart no longer strands a presigned upload mid-transfer.**
+  Lowering the presigned-URL timeout and restarting the sweep in the same
+  window could orphan a job whose upload was still in flight; the sweep and
+  the retry path now agree on the same margin, derived from S3's own
+  single-PUT size ceiling rather than a client-declared file size (#1236).
+- **A capped analysis preview now says so.** Previews that hit the row cap
+  used to render like a failed query; the map now shows the partial result
+  honestly, both in the preview list and as an on-map treatment, scoped to
+  the bbox actually queried (#727).
+
+### Changed
+
+- **`/metrics` no longer resets when a worker recycles.** Multi-worker
+  deployments (`UVICORN_WORKERS > 1`) previously served per-process counters
+  that could step backward on scrape whenever a worker restarted, which twice
+  produced false "site down" alerts in production. `/metrics` is now backed
+  by prometheus_client's multiprocess mode: a `PROMETHEUS_MULTIPROC_DIR`
+  tmpfs directory aggregates counters across workers, and a background sweep
+  reclaims a recycled worker's files without racing an in-flight scrape
+  (#1240, #651).
+- **`quality_score_numeric` removed.** The column was never wired to
+  anything; dropped via migration rather than carried forward unused (#1231).
+
+### Operations
+
+- **New required-for-multiprocess env var: `PROMETHEUS_MULTIPROC_DIR`.**
+  Set to a tmpfs-backed path in both the dev and prod Compose files. If you
+  run a custom deployment with `UVICORN_WORKERS > 1`, set this to a writable,
+  empty-on-boot directory or `/metrics` will serve single-process
+  (non-aggregated) counters again. Recreating the `api` container to pick up
+  this variable without also rebuilding the image will fail to boot: the
+  entrypoint script that prepares the directory ships in the image, not the
+  Compose file, so a deploy must rebuild/pull before it recreates.
+
 ## [1.9.0] - 2026-08-06
 
 ### Security
@@ -1782,7 +1829,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.9.0...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.10.0...HEAD
+[1.10.0]: https://github.com/geolens-io/geolens/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/geolens-io/geolens/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/geolens-io/geolens/compare/v1.7.1...v1.8.0
 [1.7.1]: https://github.com/geolens-io/geolens/compare/v1.7.0...v1.7.1
