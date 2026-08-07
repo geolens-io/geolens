@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import stat
 import subprocess
 import uuid
 from pathlib import Path
@@ -118,7 +119,8 @@ tenant = os.environ.get("RETENTION_SHIM_TENANT", "")
 scope = "TRUE" if not tenant else "tenant_id = '%s'::uuid" % tenant
 sql = """
 SELECT coalesce(json_agg(t), '[]'::json) FROM (
-  SELECT to_char(created_at AT TIME ZONE 'UTC',
+  SELECT id::text AS id,
+         to_char(created_at AT TIME ZONE 'UTC',
                  'YYYY-MM-DD"T"HH24:MI:SS.US"+00:00"') AS timestamp,
          action, resource_type
   FROM catalog.audit_logs
@@ -152,6 +154,9 @@ if mode == "truncate" and rows:
     rows = rows[:-1]
 if mode == "outside_window" and rows:
     rows[0]["timestamp"] = "1999-01-01T00:00:00.000000+00:00"
+if mode == "drop_id":
+    for row in rows:
+        row.pop("id", None)
 
 with open(out, "w") as fh:
     json.dump(rows, fh)
@@ -502,6 +507,102 @@ def test_per_tenant_run_leaves_other_tenants_untouched(
     assert len(_archived_rows(archive_dir)) == 3
     assert _row_count(db, tenant_a) == 1
     assert _row_count(db, tenant_b) == 2
+
+
+def test_right_sized_slice_of_another_tenant_deletes_nothing(
+    clean_audit_table, curl_stub_dir, tmp_path
+):
+    """--tenant-slug alpha paired with tenant beta's API host (#1260 review).
+
+    Both tenants have three rows in the window, so the count check passes, and
+    beta's rows are genuinely inside the same time range, so the timestamp
+    check passes too. Without comparing row ids the script would archive
+    beta's history and permanently delete alpha's, unarchived. The export
+    schema carries no tenant id, so identity is the only signal available.
+    """
+    db = clean_audit_table
+    tenant_a = _seed_tenant(db, "alpha")
+    tenant_b = _seed_tenant(db, "beta")
+    _seed_rows(db, days_ago=[200, 150, 120], tenant_id=tenant_a)
+    _seed_rows(db, days_ago=[199, 149, 119], tenant_id=tenant_b)
+
+    result = _run_script(
+        db,
+        curl_stub_dir,
+        "--days",
+        "90",
+        "--tenant-slug",
+        "alpha",
+        "--archive-dir",
+        str(tmp_path / "archives"),
+        # The stub is the wrong tenant's host, which is the whole scenario.
+        shim_tenant=tenant_b,
+    )
+
+    assert result.returncode != 0
+    assert "does not hold the rows this window would delete" in result.stderr
+    assert _row_count(db, tenant_a) == 3
+    assert _row_count(db, tenant_b) == 3
+
+
+def test_archive_without_row_ids_deletes_nothing(
+    clean_audit_table, curl_stub_dir, tmp_path
+):
+    """An export with no `id` field cannot be verified, so the run stops.
+
+    The script and the API version together in this repo, so a server that
+    does not send ids is an upgrade error, not a compatibility mode to fall
+    back through.
+    """
+    db = clean_audit_table
+    _seed_rows(db, days_ago=[200, 150])
+
+    result = _run_script(
+        db,
+        curl_stub_dir,
+        "--days",
+        "90",
+        "--confirm-single-tenant",
+        CONFIRM_PHRASE,
+        "--archive-dir",
+        str(tmp_path / "archives"),
+        shim_mode="drop_id",
+    )
+
+    assert result.returncode != 0
+    assert 'has a row with no "id"' in result.stderr
+    assert _row_count(db) == 2
+
+
+def test_archives_are_not_world_readable(clean_audit_table, curl_stub_dir, tmp_path):
+    """Archives hold usernames, IPs and activity for the whole window.
+
+    Under the usual umask 022 `curl -o` would create them 0644, readable by
+    every local account on the host.
+    """
+    db = clean_audit_table
+    _seed_rows(db, days_ago=[200, 150])
+
+    archive_dir = tmp_path / "archives"
+    result = _run_script(
+        db,
+        curl_stub_dir,
+        "--days",
+        "90",
+        "--confirm-single-tenant",
+        CONFIRM_PHRASE,
+        "--archive-dir",
+        str(archive_dir),
+        "--dry-run",
+    )
+
+    assert result.returncode == 0, result.stderr
+    archives = _archives(archive_dir)
+    assert archives, "expected at least one archive"
+    for path in archives:
+        mode = stat.S_IMODE(path.stat().st_mode)
+        assert mode == 0o600, f"{path} is {oct(mode)}, expected 0o600"
+    assert stat.S_IMODE(archive_dir.stat().st_mode) == 0o700
 
 
 def test_unresolvable_tenant_slug_deletes_nothing(

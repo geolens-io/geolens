@@ -24,10 +24,13 @@
 #   4. curl runs with --fail, so an auth failure or proxy error cannot land an
 #      error document on disk as if it were the archive. Each archive is then
 #      re-read: it must parse as a JSON array, hold exactly as many rows as the
-#      database counts for the identical window, and contain no row outside
-#      that window.
+#      database counts for the identical window, contain no row outside that
+#      window, and carry exactly the row ids the delete is about to remove.
+#      That last check is the only one that separates a correct archive from a
+#      same-sized, same-era slice of another tenant's history.
 #   5. The delete reuses the same predicate the count used -- one string, two
 #      uses -- and runs only after every window passed every check above.
+#   6. Nothing this script writes is world-readable; see the umask below.
 #
 # Connection: the bundled Postgres via `docker compose exec db` by default, or
 # any external/managed Postgres via --db-url or the standard PG* environment
@@ -49,6 +52,19 @@ TS_FORMAT='YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
 # One definition: the help text, the comparison below, and RUNBOOK.md §8 all
 # have to agree, because an operator copy-pastes it.
 SINGLE_TENANT_PHRASE="yes, this deployment has no per-tenant host routing"
+
+# fix(#1248): an archive is a verbatim dump of usernames, IP addresses and
+# activity for a whole retention window, and the id lists below are audit-log
+# primary keys. Under the usual umask 022 `curl -o` creates its output 0644,
+# readable by every local account on the host. Setting the umask up here rather
+# than chmod-ing after the fact means no file this script writes is ever
+# world-readable, not even for the moment between creation and a chmod.
+umask 077
+
+# Scratch space for the archive/database id lists compared in export_window.
+# Removed on every exit path, including each `die`.
+WORK_DIR="$(mktemp -d)"
+trap 'rm -rf "$WORK_DIR"' EXIT
 
 say() { printf '%s\n' "$*"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
@@ -358,6 +374,8 @@ fi
 # Archive
 # ---------------------------------------------------------------------------
 
+# 0700 when this script creates it; an existing directory keeps whatever the
+# operator gave it. See the umask near the top of the file.
 mkdir -p "$ARCHIVE_DIR"
 
 # Unique per scope AND per run. Two tenants archived on the same day, or the
@@ -380,7 +398,7 @@ export_window() {
     local window_from="$1"
     local window_to="$2"
     local expected="$3"
-    local stamp out got
+    local stamp out got archive_ids db_ids
 
     WINDOW_INDEX=$((WINDOW_INDEX + 1))
     stamp="$(printf '%s' "$window_from" | tr -c 'A-Za-z0-9' '-')"
@@ -423,6 +441,29 @@ export_window() {
         jq -e --arg lo "$window_from" --arg hi "$window_to" \
             'all(.[]; .timestamp[0:19] >= $lo[0:19] and .timestamp[0:19] <= $hi[0:19])' "$out" >/dev/null \
             || die "$out contains a row outside $window_from .. $window_to. Nothing has been deleted."
+
+        # fix(#1248): identity, not size. Pairing --tenant-slug with the wrong
+        # tenant's API host returns that tenant's rows, and when both tenants
+        # have the same number of rows in the window every check above passes:
+        # the count matches, and the other tenant's timestamps legitimately
+        # fall inside the same range. Comparing the archive's row ids against
+        # the ids the delete predicate selects is what separates "archived the
+        # rows I am about to delete" from "archived somebody else's".
+        jq -e 'all(.[]; (.id? // "") != "")' "$out" >/dev/null \
+            || die "$out has a row with no \"id\". This script requires an API that exports the audit-log id, which ships alongside it -- the server is older than the script, so upgrade the deployment rather than working around this. Nothing has been deleted."
+
+        archive_ids="$WORK_DIR/archive-ids"
+        db_ids="$WORK_DIR/db-ids"
+        jq -r '.[].id' "$out" | LC_ALL=C sort > "$archive_ids"
+        psql_value \
+            "SELECT id FROM catalog.audit_logs
+             WHERE $(window_predicate ":'wf'::timestamptz" ":'wt'::timestamptz")" \
+            "${PSQL_VARS[@]}" -v "wf=$window_from" -v "wt=$window_to" \
+            | LC_ALL=C sort > "$db_ids"
+        # cmp, not a count: this is multiset equality, so a duplicated id on
+        # one side and a missing one on the other cannot cancel out.
+        cmp -s "$archive_ids" "$db_ids" \
+            || die "$out does not hold the rows this window would delete: $(LC_ALL=C comm -13 "$archive_ids" "$db_ids" | wc -l | tr -d ' ') row(s) in the database are missing from the archive and $(LC_ALL=C comm -23 "$archive_ids" "$db_ids" | wc -l | tr -d ' ') row(s) in the archive are not in the window. Check that --api-url points at the host for this tenant. Nothing has been deleted."
     fi
 
     ARCHIVED_TOTAL=$((ARCHIVED_TOTAL + got))

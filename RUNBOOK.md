@@ -1369,9 +1369,15 @@ The script exits non-zero and deletes nothing if any of these fails:
   literal newlines that the CSV writer preserves inside a quoted field.
 - **The archive holds exactly as many rows as the database counts** for the
   identical window and scope, and no row whose timestamp falls outside that
-  window. The second check is what catches a right-sized archive holding the
-  wrong rows — the export is scoped by the host it is called against, so a
-  wrong `--api-url` can return somebody else's history.
+  window.
+- **The archive holds exactly the rows the delete would remove**, compared by
+  audit-log id. Size and time range are not enough on their own: the export is
+  scoped by the host it is called against, so pairing `--tenant-slug` with the
+  wrong tenant's `--api-url` returns that tenant's rows, and if both tenants
+  have the same number of rows in the window every other check passes while the
+  archive describes the wrong history. If your server predates this check it
+  will not send the id at all, and the script stops rather than guessing;
+  upgrade the deployment.
 - **After the delete**, no row at or before the cutoff remains in scope.
 
 Two structural properties sit behind those checks:
@@ -1389,6 +1395,12 @@ Archive filenames carry the scope, a UTC timestamp and the pid, and the script
 refuses to write over a file that already exists — two tenants archived on the
 same day, or the same tenant archived twice, cannot truncate each other's only
 copy.
+
+An archive is a verbatim dump of usernames, IP addresses and activity for the
+whole window, so the script runs under `umask 077`: archives are created 0600
+and an archive directory it creates is 0700. Under the usual 022 they would be
+world-readable by every local account on the host. A directory that already
+exists keeps whatever permissions you gave it, so check that one yourself.
 
 Windows holding more than `--max-rows` rows are split automatically. Narrowing
 `date_to` by hand does not work: the endpoint always returns the *newest* rows
