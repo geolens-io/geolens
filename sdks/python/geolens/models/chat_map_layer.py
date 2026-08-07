@@ -31,38 +31,38 @@ class ChatMapLayer:
     """Layer state sent from frontend for chat context.
 
     Attributes:
-        dataset_id (str):
-        dataset_table_name (str):
         id (str):
         name (str):
+        dataset_id (str):
+        dataset_table_name (str):
+        geometry_type (None | str | Unset):
+        layer_type (None | str | Unset):
         column_info (list[ChatMapLayerColumnInfoType0Item] | None | Unset):
         dataset_title (None | str | Unset):
         feature_count (int | None | Unset):
-        filter_ (ChatMapLayerFilterType1 | list[Any] | None | Unset):
-        geometry_type (None | str | Unset):
-        label_config (ChatMapLayerLabelConfigType0 | None | Unset):
-        layer_type (None | str | Unset):
-        paint (ChatMapLayerPaintType0 | None | Unset):
         sample_values (ChatMapLayerSampleValuesType0 | None | Unset):
-        style_config (ChatMapLayerStyleConfigType0 | None | Unset):
         visible (bool | Unset):  Default: True.
+        filter_ (ChatMapLayerFilterType1 | list[Any] | None | Unset):
+        label_config (ChatMapLayerLabelConfigType0 | None | Unset):
+        style_config (ChatMapLayerStyleConfigType0 | None | Unset):
+        paint (ChatMapLayerPaintType0 | None | Unset):
     """
 
-    dataset_id: str
-    dataset_table_name: str
     id: str
     name: str
+    dataset_id: str
+    dataset_table_name: str
+    geometry_type: None | str | Unset = UNSET
+    layer_type: None | str | Unset = UNSET
     column_info: list[ChatMapLayerColumnInfoType0Item] | None | Unset = UNSET
     dataset_title: None | str | Unset = UNSET
     feature_count: int | None | Unset = UNSET
-    filter_: ChatMapLayerFilterType1 | list[Any] | None | Unset = UNSET
-    geometry_type: None | str | Unset = UNSET
-    label_config: ChatMapLayerLabelConfigType0 | None | Unset = UNSET
-    layer_type: None | str | Unset = UNSET
-    paint: ChatMapLayerPaintType0 | None | Unset = UNSET
     sample_values: ChatMapLayerSampleValuesType0 | None | Unset = UNSET
-    style_config: ChatMapLayerStyleConfigType0 | None | Unset = UNSET
     visible: bool | Unset = True
+    filter_: ChatMapLayerFilterType1 | list[Any] | None | Unset = UNSET
+    label_config: ChatMapLayerLabelConfigType0 | None | Unset = UNSET
+    style_config: ChatMapLayerStyleConfigType0 | None | Unset = UNSET
+    paint: ChatMapLayerPaintType0 | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -78,13 +78,25 @@ class ChatMapLayer:
             ChatMapLayerStyleConfigType0,
         )
 
+        id = self.id
+
+        name = self.name
+
         dataset_id = self.dataset_id
 
         dataset_table_name = self.dataset_table_name
 
-        id = self.id
+        geometry_type: None | str | Unset
+        if isinstance(self.geometry_type, Unset):
+            geometry_type = UNSET
+        else:
+            geometry_type = self.geometry_type
 
-        name = self.name
+        layer_type: None | str | Unset
+        if isinstance(self.layer_type, Unset):
+            layer_type = UNSET
+        else:
+            layer_type = self.layer_type
 
         column_info: list[dict[str, Any]] | None | Unset
         if isinstance(self.column_info, Unset):
@@ -110,6 +122,16 @@ class ChatMapLayer:
         else:
             feature_count = self.feature_count
 
+        sample_values: dict[str, Any] | None | Unset
+        if isinstance(self.sample_values, Unset):
+            sample_values = UNSET
+        elif isinstance(self.sample_values, ChatMapLayerSampleValuesType0):
+            sample_values = self.sample_values.to_dict()
+        else:
+            sample_values = self.sample_values
+
+        visible = self.visible
+
         filter_: dict[str, Any] | list[Any] | None | Unset
         if isinstance(self.filter_, Unset):
             filter_ = UNSET
@@ -121,12 +143,6 @@ class ChatMapLayer:
         else:
             filter_ = self.filter_
 
-        geometry_type: None | str | Unset
-        if isinstance(self.geometry_type, Unset):
-            geometry_type = UNSET
-        else:
-            geometry_type = self.geometry_type
-
         label_config: dict[str, Any] | None | Unset
         if isinstance(self.label_config, Unset):
             label_config = UNSET
@@ -134,28 +150,6 @@ class ChatMapLayer:
             label_config = self.label_config.to_dict()
         else:
             label_config = self.label_config
-
-        layer_type: None | str | Unset
-        if isinstance(self.layer_type, Unset):
-            layer_type = UNSET
-        else:
-            layer_type = self.layer_type
-
-        paint: dict[str, Any] | None | Unset
-        if isinstance(self.paint, Unset):
-            paint = UNSET
-        elif isinstance(self.paint, ChatMapLayerPaintType0):
-            paint = self.paint.to_dict()
-        else:
-            paint = self.paint
-
-        sample_values: dict[str, Any] | None | Unset
-        if isinstance(self.sample_values, Unset):
-            sample_values = UNSET
-        elif isinstance(self.sample_values, ChatMapLayerSampleValuesType0):
-            sample_values = self.sample_values.to_dict()
-        else:
-            sample_values = self.sample_values
 
         style_config: dict[str, Any] | None | Unset
         if isinstance(self.style_config, Unset):
@@ -165,40 +159,46 @@ class ChatMapLayer:
         else:
             style_config = self.style_config
 
-        visible = self.visible
+        paint: dict[str, Any] | None | Unset
+        if isinstance(self.paint, Unset):
+            paint = UNSET
+        elif isinstance(self.paint, ChatMapLayerPaintType0):
+            paint = self.paint.to_dict()
+        else:
+            paint = self.paint
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "dataset_id": dataset_id,
-                "dataset_table_name": dataset_table_name,
                 "id": id,
                 "name": name,
+                "dataset_id": dataset_id,
+                "dataset_table_name": dataset_table_name,
             }
         )
+        if geometry_type is not UNSET:
+            field_dict["geometry_type"] = geometry_type
+        if layer_type is not UNSET:
+            field_dict["layer_type"] = layer_type
         if column_info is not UNSET:
             field_dict["column_info"] = column_info
         if dataset_title is not UNSET:
             field_dict["dataset_title"] = dataset_title
         if feature_count is not UNSET:
             field_dict["feature_count"] = feature_count
-        if filter_ is not UNSET:
-            field_dict["filter"] = filter_
-        if geometry_type is not UNSET:
-            field_dict["geometry_type"] = geometry_type
-        if label_config is not UNSET:
-            field_dict["label_config"] = label_config
-        if layer_type is not UNSET:
-            field_dict["layer_type"] = layer_type
-        if paint is not UNSET:
-            field_dict["paint"] = paint
         if sample_values is not UNSET:
             field_dict["sample_values"] = sample_values
-        if style_config is not UNSET:
-            field_dict["style_config"] = style_config
         if visible is not UNSET:
             field_dict["visible"] = visible
+        if filter_ is not UNSET:
+            field_dict["filter"] = filter_
+        if label_config is not UNSET:
+            field_dict["label_config"] = label_config
+        if style_config is not UNSET:
+            field_dict["style_config"] = style_config
+        if paint is not UNSET:
+            field_dict["paint"] = paint
 
         return field_dict
 
@@ -220,13 +220,31 @@ class ChatMapLayer:
         )
 
         d = dict(src_dict)
+        id = d.pop("id")
+
+        name = d.pop("name")
+
         dataset_id = d.pop("dataset_id")
 
         dataset_table_name = d.pop("dataset_table_name")
 
-        id = d.pop("id")
+        def _parse_geometry_type(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
 
-        name = d.pop("name")
+        geometry_type = _parse_geometry_type(d.pop("geometry_type", UNSET))
+
+        def _parse_layer_type(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        layer_type = _parse_layer_type(d.pop("layer_type", UNSET))
 
         def _parse_column_info(
             data: object,
@@ -272,6 +290,27 @@ class ChatMapLayer:
 
         feature_count = _parse_feature_count(d.pop("feature_count", UNSET))
 
+        def _parse_sample_values(
+            data: object,
+        ) -> ChatMapLayerSampleValuesType0 | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                sample_values_type_0 = ChatMapLayerSampleValuesType0.from_dict(data)
+
+                return sample_values_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(ChatMapLayerSampleValuesType0 | None | Unset, data)
+
+        sample_values = _parse_sample_values(d.pop("sample_values", UNSET))
+
+        visible = d.pop("visible", UNSET)
+
         def _parse_filter_(
             data: object,
         ) -> ChatMapLayerFilterType1 | list[Any] | None | Unset:
@@ -299,15 +338,6 @@ class ChatMapLayer:
 
         filter_ = _parse_filter_(d.pop("filter", UNSET))
 
-        def _parse_geometry_type(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        geometry_type = _parse_geometry_type(d.pop("geometry_type", UNSET))
-
         def _parse_label_config(
             data: object,
         ) -> ChatMapLayerLabelConfigType0 | None | Unset:
@@ -326,51 +356,6 @@ class ChatMapLayer:
             return cast(ChatMapLayerLabelConfigType0 | None | Unset, data)
 
         label_config = _parse_label_config(d.pop("label_config", UNSET))
-
-        def _parse_layer_type(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        layer_type = _parse_layer_type(d.pop("layer_type", UNSET))
-
-        def _parse_paint(data: object) -> ChatMapLayerPaintType0 | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, dict):
-                    raise TypeError()
-                paint_type_0 = ChatMapLayerPaintType0.from_dict(data)
-
-                return paint_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(ChatMapLayerPaintType0 | None | Unset, data)
-
-        paint = _parse_paint(d.pop("paint", UNSET))
-
-        def _parse_sample_values(
-            data: object,
-        ) -> ChatMapLayerSampleValuesType0 | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, dict):
-                    raise TypeError()
-                sample_values_type_0 = ChatMapLayerSampleValuesType0.from_dict(data)
-
-                return sample_values_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(ChatMapLayerSampleValuesType0 | None | Unset, data)
-
-        sample_values = _parse_sample_values(d.pop("sample_values", UNSET))
 
         def _parse_style_config(
             data: object,
@@ -391,24 +376,39 @@ class ChatMapLayer:
 
         style_config = _parse_style_config(d.pop("style_config", UNSET))
 
-        visible = d.pop("visible", UNSET)
+        def _parse_paint(data: object) -> ChatMapLayerPaintType0 | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                paint_type_0 = ChatMapLayerPaintType0.from_dict(data)
+
+                return paint_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(ChatMapLayerPaintType0 | None | Unset, data)
+
+        paint = _parse_paint(d.pop("paint", UNSET))
 
         chat_map_layer = cls(
-            dataset_id=dataset_id,
-            dataset_table_name=dataset_table_name,
             id=id,
             name=name,
+            dataset_id=dataset_id,
+            dataset_table_name=dataset_table_name,
+            geometry_type=geometry_type,
+            layer_type=layer_type,
             column_info=column_info,
             dataset_title=dataset_title,
             feature_count=feature_count,
-            filter_=filter_,
-            geometry_type=geometry_type,
-            label_config=label_config,
-            layer_type=layer_type,
-            paint=paint,
             sample_values=sample_values,
-            style_config=style_config,
             visible=visible,
+            filter_=filter_,
+            label_config=label_config,
+            style_config=style_config,
+            paint=paint,
         )
 
         chat_map_layer.additional_properties = d

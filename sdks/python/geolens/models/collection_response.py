@@ -21,32 +21,37 @@ T = TypeVar("T", bound="CollectionResponse")
 class CollectionResponse:
     """
     Attributes:
-        created_at (datetime.datetime):
-        created_by (None | UUID):
-        dataset_count (int):
-        description (None | str):
         id (UUID):
         name (str):
+        description (None | str):
+        created_by (None | UUID):
+        created_at (datetime.datetime):
         updated_at (datetime.datetime):
+        dataset_count (int):
         extent_bbox (list[float] | None | Unset):
-        temporal_end (datetime.date | None | Unset):
         temporal_start (datetime.date | None | Unset):
+        temporal_end (datetime.date | None | Unset):
     """
 
-    created_at: datetime.datetime
-    created_by: None | UUID
-    dataset_count: int
-    description: None | str
     id: UUID
     name: str
+    description: None | str
+    created_by: None | UUID
+    created_at: datetime.datetime
     updated_at: datetime.datetime
+    dataset_count: int
     extent_bbox: list[float] | None | Unset = UNSET
-    temporal_end: datetime.date | None | Unset = UNSET
     temporal_start: datetime.date | None | Unset = UNSET
+    temporal_end: datetime.date | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        created_at = self.created_at.isoformat()
+        id = str(self.id)
+
+        name = self.name
+
+        description: None | str
+        description = self.description
 
         created_by: None | str
         if isinstance(self.created_by, UUID):
@@ -54,16 +59,11 @@ class CollectionResponse:
         else:
             created_by = self.created_by
 
-        dataset_count = self.dataset_count
-
-        description: None | str
-        description = self.description
-
-        id = str(self.id)
-
-        name = self.name
+        created_at = self.created_at.isoformat()
 
         updated_at = self.updated_at.isoformat()
+
+        dataset_count = self.dataset_count
 
         extent_bbox: list[float] | None | Unset
         if isinstance(self.extent_bbox, Unset):
@@ -74,14 +74,6 @@ class CollectionResponse:
         else:
             extent_bbox = self.extent_bbox
 
-        temporal_end: None | str | Unset
-        if isinstance(self.temporal_end, Unset):
-            temporal_end = UNSET
-        elif isinstance(self.temporal_end, datetime.date):
-            temporal_end = self.temporal_end.isoformat()
-        else:
-            temporal_end = self.temporal_end
-
         temporal_start: None | str | Unset
         if isinstance(self.temporal_start, Unset):
             temporal_start = UNSET
@@ -90,32 +82,49 @@ class CollectionResponse:
         else:
             temporal_start = self.temporal_start
 
+        temporal_end: None | str | Unset
+        if isinstance(self.temporal_end, Unset):
+            temporal_end = UNSET
+        elif isinstance(self.temporal_end, datetime.date):
+            temporal_end = self.temporal_end.isoformat()
+        else:
+            temporal_end = self.temporal_end
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "created_at": created_at,
-                "created_by": created_by,
-                "dataset_count": dataset_count,
-                "description": description,
                 "id": id,
                 "name": name,
+                "description": description,
+                "created_by": created_by,
+                "created_at": created_at,
                 "updated_at": updated_at,
+                "dataset_count": dataset_count,
             }
         )
         if extent_bbox is not UNSET:
             field_dict["extent_bbox"] = extent_bbox
-        if temporal_end is not UNSET:
-            field_dict["temporal_end"] = temporal_end
         if temporal_start is not UNSET:
             field_dict["temporal_start"] = temporal_start
+        if temporal_end is not UNSET:
+            field_dict["temporal_end"] = temporal_end
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        created_at = isoparse(d.pop("created_at"))
+        id = UUID(d.pop("id"))
+
+        name = d.pop("name")
+
+        def _parse_description(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        description = _parse_description(d.pop("description"))
 
         def _parse_created_by(data: object) -> None | UUID:
             if data is None:
@@ -132,20 +141,11 @@ class CollectionResponse:
 
         created_by = _parse_created_by(d.pop("created_by"))
 
-        dataset_count = d.pop("dataset_count")
-
-        def _parse_description(data: object) -> None | str:
-            if data is None:
-                return data
-            return cast(None | str, data)
-
-        description = _parse_description(d.pop("description"))
-
-        id = UUID(d.pop("id"))
-
-        name = d.pop("name")
+        created_at = isoparse(d.pop("created_at"))
 
         updated_at = isoparse(d.pop("updated_at"))
+
+        dataset_count = d.pop("dataset_count")
 
         def _parse_extent_bbox(data: object) -> list[float] | None | Unset:
             if data is None:
@@ -164,23 +164,6 @@ class CollectionResponse:
 
         extent_bbox = _parse_extent_bbox(d.pop("extent_bbox", UNSET))
 
-        def _parse_temporal_end(data: object) -> datetime.date | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, str):
-                    raise TypeError()
-                temporal_end_type_0 = isoparse(data).date()
-
-                return temporal_end_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(datetime.date | None | Unset, data)
-
-        temporal_end = _parse_temporal_end(d.pop("temporal_end", UNSET))
-
         def _parse_temporal_start(data: object) -> datetime.date | None | Unset:
             if data is None:
                 return data
@@ -198,17 +181,34 @@ class CollectionResponse:
 
         temporal_start = _parse_temporal_start(d.pop("temporal_start", UNSET))
 
+        def _parse_temporal_end(data: object) -> datetime.date | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                temporal_end_type_0 = isoparse(data).date()
+
+                return temporal_end_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(datetime.date | None | Unset, data)
+
+        temporal_end = _parse_temporal_end(d.pop("temporal_end", UNSET))
+
         collection_response = cls(
-            created_at=created_at,
-            created_by=created_by,
-            dataset_count=dataset_count,
-            description=description,
             id=id,
             name=name,
+            description=description,
+            created_by=created_by,
+            created_at=created_at,
             updated_at=updated_at,
+            dataset_count=dataset_count,
             extent_bbox=extent_bbox,
-            temporal_end=temporal_end,
             temporal_start=temporal_start,
+            temporal_end=temporal_end,
         )
 
         collection_response.additional_properties = d

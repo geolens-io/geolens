@@ -35,22 +35,22 @@ class ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeature:
     Attributes:
         id (int):
         properties (ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureProperties):
+        type_ (Literal['Feature'] | Unset):  Default: 'Feature'.
         geometry (None | ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGeometry |
             ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGeometryCollection | Unset):
-        type_ (Literal['Feature'] | Unset):  Default: 'Feature'.
     """
 
     id: int
     properties: (
         ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureProperties
     )
+    type_: Literal["Feature"] | Unset = "Feature"
     geometry: (
         None
         | ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGeometry
         | ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGeometryCollection
         | Unset
     ) = UNSET
-    type_: Literal["Feature"] | Unset = "Feature"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -64,6 +64,8 @@ class ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeature:
         id = self.id
 
         properties = self.properties.to_dict()
+
+        type_ = self.type_
 
         geometry: dict[str, Any] | None | Unset
         if isinstance(self.geometry, Unset):
@@ -81,8 +83,6 @@ class ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeature:
         else:
             geometry = self.geometry
 
-        type_ = self.type_
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -91,10 +91,10 @@ class ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeature:
                 "properties": properties,
             }
         )
-        if geometry is not UNSET:
-            field_dict["geometry"] = geometry
         if type_ is not UNSET:
             field_dict["type"] = type_
+        if geometry is not UNSET:
+            field_dict["geometry"] = geometry
 
         return field_dict
 
@@ -116,6 +116,10 @@ class ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeature:
         properties = ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureProperties.from_dict(
             d.pop("properties")
         )
+
+        type_ = cast(Literal["Feature"] | Unset, d.pop("type", UNSET))
+        if type_ != "Feature" and not isinstance(type_, Unset):
+            raise ValueError(f"type must match const 'Feature', got '{type_}'")
 
         def _parse_geometry(
             data: object,
@@ -159,16 +163,12 @@ class ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeature:
 
         geometry = _parse_geometry(d.pop("geometry", UNSET))
 
-        type_ = cast(Literal["Feature"] | Unset, d.pop("type", UNSET))
-        if type_ != "Feature" and not isinstance(type_, Unset):
-            raise ValueError(f"type must match const 'Feature', got '{type_}'")
-
         replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature = (
             cls(
                 id=id,
                 properties=properties,
-                geometry=geometry,
                 type_=type_,
+                geometry=geometry,
             )
         )
 

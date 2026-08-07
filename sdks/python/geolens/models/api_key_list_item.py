@@ -21,45 +21,45 @@ T = TypeVar("T", bound="ApiKeyListItem")
 class ApiKeyListItem:
     """
     Attributes:
-        created_at (datetime.datetime):
-        fingerprint (None | str): Non-secret key identifier; null for keys created before fingerprint support
         id (UUID):
-        is_active (bool):
-        last_used_at (datetime.datetime | None):
         name (str):
+        fingerprint (None | str): Non-secret key identifier; null for keys created before fingerprint support
+        is_active (bool):
         scope (str): Privilege scope: 'full' or 'read_only' (#875)
+        created_at (datetime.datetime):
+        last_used_at (datetime.datetime | None):
         expires_at (datetime.datetime | None | Unset): Expiry timestamp; null means the key does not expire
     """
 
-    created_at: datetime.datetime
-    fingerprint: None | str
     id: UUID
-    is_active: bool
-    last_used_at: datetime.datetime | None
     name: str
+    fingerprint: None | str
+    is_active: bool
     scope: str
+    created_at: datetime.datetime
+    last_used_at: datetime.datetime | None
     expires_at: datetime.datetime | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        created_at = self.created_at.isoformat()
+        id = str(self.id)
+
+        name = self.name
 
         fingerprint: None | str
         fingerprint = self.fingerprint
 
-        id = str(self.id)
-
         is_active = self.is_active
+
+        scope = self.scope
+
+        created_at = self.created_at.isoformat()
 
         last_used_at: None | str
         if isinstance(self.last_used_at, datetime.datetime):
             last_used_at = self.last_used_at.isoformat()
         else:
             last_used_at = self.last_used_at
-
-        name = self.name
-
-        scope = self.scope
 
         expires_at: None | str | Unset
         if isinstance(self.expires_at, Unset):
@@ -73,13 +73,13 @@ class ApiKeyListItem:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "created_at": created_at,
-                "fingerprint": fingerprint,
                 "id": id,
-                "is_active": is_active,
-                "last_used_at": last_used_at,
                 "name": name,
+                "fingerprint": fingerprint,
+                "is_active": is_active,
                 "scope": scope,
+                "created_at": created_at,
+                "last_used_at": last_used_at,
             }
         )
         if expires_at is not UNSET:
@@ -90,7 +90,9 @@ class ApiKeyListItem:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        created_at = isoparse(d.pop("created_at"))
+        id = UUID(d.pop("id"))
+
+        name = d.pop("name")
 
         def _parse_fingerprint(data: object) -> None | str:
             if data is None:
@@ -99,9 +101,11 @@ class ApiKeyListItem:
 
         fingerprint = _parse_fingerprint(d.pop("fingerprint"))
 
-        id = UUID(d.pop("id"))
-
         is_active = d.pop("is_active")
+
+        scope = d.pop("scope")
+
+        created_at = isoparse(d.pop("created_at"))
 
         def _parse_last_used_at(data: object) -> datetime.datetime | None:
             if data is None:
@@ -117,10 +121,6 @@ class ApiKeyListItem:
             return cast(datetime.datetime | None, data)
 
         last_used_at = _parse_last_used_at(d.pop("last_used_at"))
-
-        name = d.pop("name")
-
-        scope = d.pop("scope")
 
         def _parse_expires_at(data: object) -> datetime.datetime | None | Unset:
             if data is None:
@@ -140,13 +140,13 @@ class ApiKeyListItem:
         expires_at = _parse_expires_at(d.pop("expires_at", UNSET))
 
         api_key_list_item = cls(
-            created_at=created_at,
-            fingerprint=fingerprint,
             id=id,
-            is_active=is_active,
-            last_used_at=last_used_at,
             name=name,
+            fingerprint=fingerprint,
+            is_active=is_active,
             scope=scope,
+            created_at=created_at,
+            last_used_at=last_used_at,
             expires_at=expires_at,
         )
 

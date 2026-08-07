@@ -22,29 +22,35 @@ T = TypeVar("T", bound="ChatRequest")
 class ChatRequest:
     """
     Attributes:
-        layers (list[ChatMapLayer]):
-        map_id (str):
         message (str):
-        history (list[ChatHistoryMessage] | Unset):
+        map_id (str):
+        layers (list[ChatMapLayer]):
         language (None | str | Unset):
+        history (list[ChatHistoryMessage] | Unset):
     """
 
-    layers: list[ChatMapLayer]
-    map_id: str
     message: str
-    history: list[ChatHistoryMessage] | Unset = UNSET
+    map_id: str
+    layers: list[ChatMapLayer]
     language: None | str | Unset = UNSET
+    history: list[ChatHistoryMessage] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        message = self.message
+
+        map_id = self.map_id
+
         layers = []
         for layers_item_data in self.layers:
             layers_item = layers_item_data.to_dict()
             layers.append(layers_item)
 
-        map_id = self.map_id
-
-        message = self.message
+        language: None | str | Unset
+        if isinstance(self.language, Unset):
+            language = UNSET
+        else:
+            language = self.language
 
         history: list[dict[str, Any]] | Unset = UNSET
         if not isinstance(self.history, Unset):
@@ -53,25 +59,19 @@ class ChatRequest:
                 history_item = history_item_data.to_dict()
                 history.append(history_item)
 
-        language: None | str | Unset
-        if isinstance(self.language, Unset):
-            language = UNSET
-        else:
-            language = self.language
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "layers": layers,
-                "map_id": map_id,
                 "message": message,
+                "map_id": map_id,
+                "layers": layers,
             }
         )
-        if history is not UNSET:
-            field_dict["history"] = history
         if language is not UNSET:
             field_dict["language"] = language
+        if history is not UNSET:
+            field_dict["history"] = history
 
         return field_dict
 
@@ -81,25 +81,16 @@ class ChatRequest:
         from ..models.chat_map_layer import ChatMapLayer
 
         d = dict(src_dict)
+        message = d.pop("message")
+
+        map_id = d.pop("map_id")
+
         layers = []
         _layers = d.pop("layers")
         for layers_item_data in _layers:
             layers_item = ChatMapLayer.from_dict(layers_item_data)
 
             layers.append(layers_item)
-
-        map_id = d.pop("map_id")
-
-        message = d.pop("message")
-
-        _history = d.pop("history", UNSET)
-        history: list[ChatHistoryMessage] | Unset = UNSET
-        if _history is not UNSET:
-            history = []
-            for history_item_data in _history:
-                history_item = ChatHistoryMessage.from_dict(history_item_data)
-
-                history.append(history_item)
 
         def _parse_language(data: object) -> None | str | Unset:
             if data is None:
@@ -110,12 +101,21 @@ class ChatRequest:
 
         language = _parse_language(d.pop("language", UNSET))
 
+        _history = d.pop("history", UNSET)
+        history: list[ChatHistoryMessage] | Unset = UNSET
+        if _history is not UNSET:
+            history = []
+            for history_item_data in _history:
+                history_item = ChatHistoryMessage.from_dict(history_item_data)
+
+                history.append(history_item)
+
         chat_request = cls(
-            layers=layers,
-            map_id=map_id,
             message=message,
-            history=history,
+            map_id=map_id,
+            layers=layers,
             language=language,
+            history=history,
         )
 
         chat_request.additional_properties = d

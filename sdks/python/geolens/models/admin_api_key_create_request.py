@@ -25,8 +25,8 @@ T = TypeVar("T", bound="AdminApiKeyCreateRequest")
 class AdminApiKeyCreateRequest:
     """
     Attributes:
-        name (str): Human-readable label for the API key (e.g. 'CI pipeline', 'QGIS desktop').
         user_id (UUID): ID of the user the new API key will belong to.
+        name (str): Human-readable label for the API key (e.g. 'CI pipeline', 'QGIS desktop').
         expires_at (datetime.datetime | None | Unset): Optional expiry timestamp (RFC 3339, timezone-aware). Omit or
             null for a non-expiring key; expired keys stop authenticating.
         scope (AdminApiKeyCreateRequestScope | Unset): Privilege scope (#875). 'full' impersonates the owner completely,
@@ -35,16 +35,16 @@ class AdminApiKeyCreateRequest:
             'full'.
     """
 
-    name: str
     user_id: UUID
+    name: str
     expires_at: datetime.datetime | None | Unset = UNSET
     scope: AdminApiKeyCreateRequestScope | Unset = "full"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        name = self.name
-
         user_id = str(self.user_id)
+
+        name = self.name
 
         expires_at: None | str | Unset
         if isinstance(self.expires_at, Unset):
@@ -62,8 +62,8 @@ class AdminApiKeyCreateRequest:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "name": name,
                 "user_id": user_id,
+                "name": name,
             }
         )
         if expires_at is not UNSET:
@@ -76,9 +76,9 @@ class AdminApiKeyCreateRequest:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        name = d.pop("name")
-
         user_id = UUID(d.pop("user_id"))
+
+        name = d.pop("name")
 
         def _parse_expires_at(data: object) -> datetime.datetime | None | Unset:
             if data is None:
@@ -105,8 +105,8 @@ class AdminApiKeyCreateRequest:
             scope = check_admin_api_key_create_request_scope(_scope)
 
         admin_api_key_create_request = cls(
-            name=name,
             user_id=user_id,
+            name=name,
             expires_at=expires_at,
             scope=scope,
         )

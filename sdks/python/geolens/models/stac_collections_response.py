@@ -18,28 +18,28 @@ T = TypeVar("T", bound="StacCollectionsResponse")
 class StacCollectionsResponse:
     """
     Attributes:
-        collections (list[StacCollectionSummary]): Available collections.
         url (str): STAC API URL that was queried.
+        collections (list[StacCollectionSummary]): Available collections.
     """
 
-    collections: list[StacCollectionSummary]
     url: str
+    collections: list[StacCollectionSummary]
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        url = self.url
+
         collections = []
         for collections_item_data in self.collections:
             collections_item = collections_item_data.to_dict()
             collections.append(collections_item)
 
-        url = self.url
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "collections": collections,
                 "url": url,
+                "collections": collections,
             }
         )
 
@@ -50,6 +50,8 @@ class StacCollectionsResponse:
         from ..models.stac_collection_summary import StacCollectionSummary
 
         d = dict(src_dict)
+        url = d.pop("url")
+
         collections = []
         _collections = d.pop("collections")
         for collections_item_data in _collections:
@@ -57,11 +59,9 @@ class StacCollectionsResponse:
 
             collections.append(collections_item)
 
-        url = d.pop("url")
-
         stac_collections_response = cls(
-            collections=collections,
             url=url,
+            collections=collections,
         )
 
         stac_collections_response.additional_properties = d

@@ -23,26 +23,26 @@ class ConnectorDefinitionResponse:
     """Public, non-secret connector capabilities advertised by an overlay.
 
     Attributes:
-        config_schema (ConnectorDefinitionResponseConfigSchema):
-        display_name (str):
         name (str):
+        display_name (str):
+        config_schema (ConnectorDefinitionResponseConfigSchema):
         supports_credentials (bool | Unset):  Default: False.
         supports_scheduled_sync (bool | Unset):  Default: False.
     """
 
-    config_schema: ConnectorDefinitionResponseConfigSchema
-    display_name: str
     name: str
+    display_name: str
+    config_schema: ConnectorDefinitionResponseConfigSchema
     supports_credentials: bool | Unset = False
     supports_scheduled_sync: bool | Unset = False
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        config_schema = self.config_schema.to_dict()
+        name = self.name
 
         display_name = self.display_name
 
-        name = self.name
+        config_schema = self.config_schema.to_dict()
 
         supports_credentials = self.supports_credentials
 
@@ -52,9 +52,9 @@ class ConnectorDefinitionResponse:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "config_schema": config_schema,
-                "display_name": display_name,
                 "name": name,
+                "display_name": display_name,
+                "config_schema": config_schema,
             }
         )
         if supports_credentials is not UNSET:
@@ -71,22 +71,22 @@ class ConnectorDefinitionResponse:
         )
 
         d = dict(src_dict)
-        config_schema = ConnectorDefinitionResponseConfigSchema.from_dict(
-            d.pop("config_schema")
-        )
+        name = d.pop("name")
 
         display_name = d.pop("display_name")
 
-        name = d.pop("name")
+        config_schema = ConnectorDefinitionResponseConfigSchema.from_dict(
+            d.pop("config_schema")
+        )
 
         supports_credentials = d.pop("supports_credentials", UNSET)
 
         supports_scheduled_sync = d.pop("supports_scheduled_sync", UNSET)
 
         connector_definition_response = cls(
-            config_schema=config_schema,
-            display_name=display_name,
             name=name,
+            display_name=display_name,
+            config_schema=config_schema,
             supports_credentials=supports_credentials,
             supports_scheduled_sync=supports_scheduled_sync,
         )

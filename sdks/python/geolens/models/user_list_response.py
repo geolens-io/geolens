@@ -18,28 +18,28 @@ T = TypeVar("T", bound="UserListResponse")
 class UserListResponse:
     """
     Attributes:
-        total (int): Total number of users matching the query (across all pages).
         users (list[UserResponse]): Page of users matching the query.
+        total (int): Total number of users matching the query (across all pages).
     """
 
-    total: int
     users: list[UserResponse]
+    total: int
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        total = self.total
-
         users = []
         for users_item_data in self.users:
             users_item = users_item_data.to_dict()
             users.append(users_item)
 
+        total = self.total
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "total": total,
                 "users": users,
+                "total": total,
             }
         )
 
@@ -50,8 +50,6 @@ class UserListResponse:
         from ..models.user_response import UserResponse
 
         d = dict(src_dict)
-        total = d.pop("total")
-
         users = []
         _users = d.pop("users")
         for users_item_data in _users:
@@ -59,9 +57,11 @@ class UserListResponse:
 
             users.append(users_item)
 
+        total = d.pop("total")
+
         user_list_response = cls(
-            total=total,
             users=users,
+            total=total,
         )
 
         user_list_response.additional_properties = d

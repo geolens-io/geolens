@@ -21,21 +21,21 @@ T = TypeVar("T", bound="ContactUpdate")
 class ContactUpdate:
     """
     Attributes:
-        email (None | str | Unset):
-        extra_json (ContactUpdateExtraJsonType0 | None | Unset):
+        role (None | str | Unset):
         name (None | str | Unset):
+        email (None | str | Unset):
         organization (None | str | Unset):
         phone (None | str | Unset):
-        role (None | str | Unset):
+        extra_json (ContactUpdateExtraJsonType0 | None | Unset):
         sort_order (int | None | Unset):
     """
 
-    email: None | str | Unset = UNSET
-    extra_json: ContactUpdateExtraJsonType0 | None | Unset = UNSET
+    role: None | str | Unset = UNSET
     name: None | str | Unset = UNSET
+    email: None | str | Unset = UNSET
     organization: None | str | Unset = UNSET
     phone: None | str | Unset = UNSET
-    role: None | str | Unset = UNSET
+    extra_json: ContactUpdateExtraJsonType0 | None | Unset = UNSET
     sort_order: int | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -44,25 +44,23 @@ class ContactUpdate:
             ContactUpdateExtraJsonType0,
         )
 
-        email: None | str | Unset
-        if isinstance(self.email, Unset):
-            email = UNSET
+        role: None | str | Unset
+        if isinstance(self.role, Unset):
+            role = UNSET
         else:
-            email = self.email
-
-        extra_json: dict[str, Any] | None | Unset
-        if isinstance(self.extra_json, Unset):
-            extra_json = UNSET
-        elif isinstance(self.extra_json, ContactUpdateExtraJsonType0):
-            extra_json = self.extra_json.to_dict()
-        else:
-            extra_json = self.extra_json
+            role = self.role
 
         name: None | str | Unset
         if isinstance(self.name, Unset):
             name = UNSET
         else:
             name = self.name
+
+        email: None | str | Unset
+        if isinstance(self.email, Unset):
+            email = UNSET
+        else:
+            email = self.email
 
         organization: None | str | Unset
         if isinstance(self.organization, Unset):
@@ -76,11 +74,13 @@ class ContactUpdate:
         else:
             phone = self.phone
 
-        role: None | str | Unset
-        if isinstance(self.role, Unset):
-            role = UNSET
+        extra_json: dict[str, Any] | None | Unset
+        if isinstance(self.extra_json, Unset):
+            extra_json = UNSET
+        elif isinstance(self.extra_json, ContactUpdateExtraJsonType0):
+            extra_json = self.extra_json.to_dict()
         else:
-            role = self.role
+            extra_json = self.extra_json
 
         sort_order: int | None | Unset
         if isinstance(self.sort_order, Unset):
@@ -91,18 +91,18 @@ class ContactUpdate:
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
-        if email is not UNSET:
-            field_dict["email"] = email
-        if extra_json is not UNSET:
-            field_dict["extra_json"] = extra_json
+        if role is not UNSET:
+            field_dict["role"] = role
         if name is not UNSET:
             field_dict["name"] = name
+        if email is not UNSET:
+            field_dict["email"] = email
         if organization is not UNSET:
             field_dict["organization"] = organization
         if phone is not UNSET:
             field_dict["phone"] = phone
-        if role is not UNSET:
-            field_dict["role"] = role
+        if extra_json is not UNSET:
+            field_dict["extra_json"] = extra_json
         if sort_order is not UNSET:
             field_dict["sort_order"] = sort_order
 
@@ -116,6 +116,24 @@ class ContactUpdate:
 
         d = dict(src_dict)
 
+        def _parse_role(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        role = _parse_role(d.pop("role", UNSET))
+
+        def _parse_name(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        name = _parse_name(d.pop("name", UNSET))
+
         def _parse_email(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -124,6 +142,24 @@ class ContactUpdate:
             return cast(None | str | Unset, data)
 
         email = _parse_email(d.pop("email", UNSET))
+
+        def _parse_organization(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        organization = _parse_organization(d.pop("organization", UNSET))
+
+        def _parse_phone(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        phone = _parse_phone(d.pop("phone", UNSET))
 
         def _parse_extra_json(
             data: object,
@@ -144,42 +180,6 @@ class ContactUpdate:
 
         extra_json = _parse_extra_json(d.pop("extra_json", UNSET))
 
-        def _parse_name(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        name = _parse_name(d.pop("name", UNSET))
-
-        def _parse_organization(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        organization = _parse_organization(d.pop("organization", UNSET))
-
-        def _parse_phone(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        phone = _parse_phone(d.pop("phone", UNSET))
-
-        def _parse_role(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        role = _parse_role(d.pop("role", UNSET))
-
         def _parse_sort_order(data: object) -> int | None | Unset:
             if data is None:
                 return data
@@ -190,12 +190,12 @@ class ContactUpdate:
         sort_order = _parse_sort_order(d.pop("sort_order", UNSET))
 
         contact_update = cls(
-            email=email,
-            extra_json=extra_json,
+            role=role,
             name=name,
+            email=email,
             organization=organization,
             phone=phone,
-            role=role,
+            extra_json=extra_json,
             sort_order=sort_order,
         )
 

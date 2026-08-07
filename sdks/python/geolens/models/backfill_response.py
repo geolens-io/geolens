@@ -14,35 +14,35 @@ T = TypeVar("T", bound="BackfillResponse")
 class BackfillResponse:
     """
     Attributes:
-        created (int): Number of new embeddings created.
-        errors (int): Number of records that failed during embedding generation.
         processed (int): Number of records processed in this backfill batch.
+        created (int): Number of new embeddings created.
         skipped (int): Number of records skipped because an embedding already existed.
+        errors (int): Number of records that failed during embedding generation.
     """
 
-    created: int
-    errors: int
     processed: int
+    created: int
     skipped: int
+    errors: int
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        created = self.created
-
-        errors = self.errors
-
         processed = self.processed
 
+        created = self.created
+
         skipped = self.skipped
+
+        errors = self.errors
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "created": created,
-                "errors": errors,
                 "processed": processed,
+                "created": created,
                 "skipped": skipped,
+                "errors": errors,
             }
         )
 
@@ -51,19 +51,19 @@ class BackfillResponse:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        created = d.pop("created")
-
-        errors = d.pop("errors")
-
         processed = d.pop("processed")
+
+        created = d.pop("created")
 
         skipped = d.pop("skipped")
 
+        errors = d.pop("errors")
+
         backfill_response = cls(
-            created=created,
-            errors=errors,
             processed=processed,
+            created=created,
             skipped=skipped,
+            errors=errors,
         )
 
         backfill_response.additional_properties = d

@@ -30,23 +30,27 @@ class ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollection:
     """A GeoJSON FeatureCollection with OGC API Features pagination fields.
 
     Attributes:
-        features (list[ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollectionGeoJSONFeature]):
-        links (list[ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollectionLink]):
         number_matched (int):
         number_returned (int):
+        features (list[ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollectionGeoJSONFeature]):
+        links (list[ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollectionLink]):
         type_ (Literal['FeatureCollection'] | Unset):  Default: 'FeatureCollection'.
     """
 
+    number_matched: int
+    number_returned: int
     features: list[
         ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollectionGeoJSONFeature
     ]
     links: list[ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollectionLink]
-    number_matched: int
-    number_returned: int
     type_: Literal["FeatureCollection"] | Unset = "FeatureCollection"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        number_matched = self.number_matched
+
+        number_returned = self.number_returned
+
         features = []
         for features_item_data in self.features:
             features_item = features_item_data.to_dict()
@@ -57,20 +61,16 @@ class ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollection:
             links_item = links_item_data.to_dict()
             links.append(links_item)
 
-        number_matched = self.number_matched
-
-        number_returned = self.number_returned
-
         type_ = self.type_
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "features": features,
-                "links": links,
                 "numberMatched": number_matched,
                 "numberReturned": number_returned,
+                "features": features,
+                "links": links,
             }
         )
         if type_ is not UNSET:
@@ -88,6 +88,10 @@ class ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollection:
         )
 
         d = dict(src_dict)
+        number_matched = d.pop("numberMatched")
+
+        number_returned = d.pop("numberReturned")
+
         features = []
         _features = d.pop("features")
         for features_item_data in _features:
@@ -106,10 +110,6 @@ class ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollection:
 
             links.append(links_item)
 
-        number_matched = d.pop("numberMatched")
-
-        number_returned = d.pop("numberReturned")
-
         type_ = cast(Literal["FeatureCollection"] | Unset, d.pop("type", UNSET))
         if type_ != "FeatureCollection" and not isinstance(type_, Unset):
             raise ValueError(
@@ -118,10 +118,10 @@ class ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollection:
 
         list_features_datasets_dataset_id_features_get_geo_json_feature_collection = (
             cls(
-                features=features,
-                links=links,
                 number_matched=number_matched,
                 number_returned=number_returned,
+                features=features,
+                links=links,
                 type_=type_,
             )
         )

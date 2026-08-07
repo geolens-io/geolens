@@ -21,37 +21,37 @@ class LayerInfo:
     """
     Attributes:
         name (str): Internal layer identifier used by the source service.
-        feature_count (int | None | Unset): Total feature count if reported by the service.
+        title (None | str | Unset): Human-readable layer title from the service capabilities.
         geometry_type (None | str | Unset): Detected geometry type for the layer.
+        feature_count (int | None | Unset): Total feature count if reported by the service.
+        layer_type (str | Unset): Layer kind: 'layer' (spatial) or 'table' (non-spatial attribute table). Default:
+            'layer'.
+        layer_id (int | None | str | Unset): Numeric or string layer ID used by ArcGIS services.
+        object_id_field (None | str | Unset): ArcGIS object ID field name, used for stable pagination.
         kind (LayerInfoKind | Unset): Backend-classified layer kind. 'vector' = point/line/polygon feature data.
             'raster' = imagery/coverage. Per Phase 1057 CLASS-07 D-09. Classification rule: raster IFF geometry_type
             contains 'raster', adapter is STAC, or layer has coverage_format/bands/mediaType:image/*. Everything else
             (including geometry_type=None after D-05 ogrinfo drop) defaults to 'vector'. Default: 'vector'.
-        layer_id (int | None | str | Unset): Numeric or string layer ID used by ArcGIS services.
-        layer_type (str | Unset): Layer kind: 'layer' (spatial) or 'table' (non-spatial attribute table). Default:
-            'layer'.
-        object_id_field (None | str | Unset): ArcGIS object ID field name, used for stable pagination.
-        title (None | str | Unset): Human-readable layer title from the service capabilities.
     """
 
     name: str
-    feature_count: int | None | Unset = UNSET
-    geometry_type: None | str | Unset = UNSET
-    kind: LayerInfoKind | Unset = "vector"
-    layer_id: int | None | str | Unset = UNSET
-    layer_type: str | Unset = "layer"
-    object_id_field: None | str | Unset = UNSET
     title: None | str | Unset = UNSET
+    geometry_type: None | str | Unset = UNSET
+    feature_count: int | None | Unset = UNSET
+    layer_type: str | Unset = "layer"
+    layer_id: int | None | str | Unset = UNSET
+    object_id_field: None | str | Unset = UNSET
+    kind: LayerInfoKind | Unset = "vector"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         name = self.name
 
-        feature_count: int | None | Unset
-        if isinstance(self.feature_count, Unset):
-            feature_count = UNSET
+        title: None | str | Unset
+        if isinstance(self.title, Unset):
+            title = UNSET
         else:
-            feature_count = self.feature_count
+            title = self.title
 
         geometry_type: None | str | Unset
         if isinstance(self.geometry_type, Unset):
@@ -59,9 +59,13 @@ class LayerInfo:
         else:
             geometry_type = self.geometry_type
 
-        kind: str | Unset = UNSET
-        if not isinstance(self.kind, Unset):
-            kind = self.kind
+        feature_count: int | None | Unset
+        if isinstance(self.feature_count, Unset):
+            feature_count = UNSET
+        else:
+            feature_count = self.feature_count
+
+        layer_type = self.layer_type
 
         layer_id: int | None | str | Unset
         if isinstance(self.layer_id, Unset):
@@ -69,19 +73,15 @@ class LayerInfo:
         else:
             layer_id = self.layer_id
 
-        layer_type = self.layer_type
-
         object_id_field: None | str | Unset
         if isinstance(self.object_id_field, Unset):
             object_id_field = UNSET
         else:
             object_id_field = self.object_id_field
 
-        title: None | str | Unset
-        if isinstance(self.title, Unset):
-            title = UNSET
-        else:
-            title = self.title
+        kind: str | Unset = UNSET
+        if not isinstance(self.kind, Unset):
+            kind = self.kind
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -90,20 +90,20 @@ class LayerInfo:
                 "name": name,
             }
         )
-        if feature_count is not UNSET:
-            field_dict["feature_count"] = feature_count
-        if geometry_type is not UNSET:
-            field_dict["geometry_type"] = geometry_type
-        if kind is not UNSET:
-            field_dict["kind"] = kind
-        if layer_id is not UNSET:
-            field_dict["layer_id"] = layer_id
-        if layer_type is not UNSET:
-            field_dict["layer_type"] = layer_type
-        if object_id_field is not UNSET:
-            field_dict["object_id_field"] = object_id_field
         if title is not UNSET:
             field_dict["title"] = title
+        if geometry_type is not UNSET:
+            field_dict["geometry_type"] = geometry_type
+        if feature_count is not UNSET:
+            field_dict["feature_count"] = feature_count
+        if layer_type is not UNSET:
+            field_dict["layer_type"] = layer_type
+        if layer_id is not UNSET:
+            field_dict["layer_id"] = layer_id
+        if object_id_field is not UNSET:
+            field_dict["object_id_field"] = object_id_field
+        if kind is not UNSET:
+            field_dict["kind"] = kind
 
         return field_dict
 
@@ -111,51 +111,6 @@ class LayerInfo:
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
         name = d.pop("name")
-
-        def _parse_feature_count(data: object) -> int | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(int | None | Unset, data)
-
-        feature_count = _parse_feature_count(d.pop("feature_count", UNSET))
-
-        def _parse_geometry_type(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        geometry_type = _parse_geometry_type(d.pop("geometry_type", UNSET))
-
-        _kind = d.pop("kind", UNSET)
-        kind: LayerInfoKind | Unset
-        if isinstance(_kind, Unset):
-            kind = UNSET
-        else:
-            kind = check_layer_info_kind(_kind)
-
-        def _parse_layer_id(data: object) -> int | None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(int | None | str | Unset, data)
-
-        layer_id = _parse_layer_id(d.pop("layer_id", UNSET))
-
-        layer_type = d.pop("layer_type", UNSET)
-
-        def _parse_object_id_field(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        object_id_field = _parse_object_id_field(d.pop("object_id_field", UNSET))
 
         def _parse_title(data: object) -> None | str | Unset:
             if data is None:
@@ -166,15 +121,60 @@ class LayerInfo:
 
         title = _parse_title(d.pop("title", UNSET))
 
+        def _parse_geometry_type(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        geometry_type = _parse_geometry_type(d.pop("geometry_type", UNSET))
+
+        def _parse_feature_count(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        feature_count = _parse_feature_count(d.pop("feature_count", UNSET))
+
+        layer_type = d.pop("layer_type", UNSET)
+
+        def _parse_layer_id(data: object) -> int | None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | str | Unset, data)
+
+        layer_id = _parse_layer_id(d.pop("layer_id", UNSET))
+
+        def _parse_object_id_field(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        object_id_field = _parse_object_id_field(d.pop("object_id_field", UNSET))
+
+        _kind = d.pop("kind", UNSET)
+        kind: LayerInfoKind | Unset
+        if isinstance(_kind, Unset):
+            kind = UNSET
+        else:
+            kind = check_layer_info_kind(_kind)
+
         layer_info = cls(
             name=name,
-            feature_count=feature_count,
-            geometry_type=geometry_type,
-            kind=kind,
-            layer_id=layer_id,
-            layer_type=layer_type,
-            object_id_field=object_id_field,
             title=title,
+            geometry_type=geometry_type,
+            feature_count=feature_count,
+            layer_type=layer_type,
+            layer_id=layer_id,
+            object_id_field=object_id_field,
+            kind=kind,
         )
 
         layer_info.additional_properties = d

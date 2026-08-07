@@ -20,14 +20,14 @@ class MapStyleImportWarning:
     Attributes:
         code (str):
         message (str):
-        layer_id (None | str | Unset):
         source_id (None | str | Unset):
+        layer_id (None | str | Unset):
     """
 
     code: str
     message: str
-    layer_id: None | str | Unset = UNSET
     source_id: None | str | Unset = UNSET
+    layer_id: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -35,17 +35,17 @@ class MapStyleImportWarning:
 
         message = self.message
 
-        layer_id: None | str | Unset
-        if isinstance(self.layer_id, Unset):
-            layer_id = UNSET
-        else:
-            layer_id = self.layer_id
-
         source_id: None | str | Unset
         if isinstance(self.source_id, Unset):
             source_id = UNSET
         else:
             source_id = self.source_id
+
+        layer_id: None | str | Unset
+        if isinstance(self.layer_id, Unset):
+            layer_id = UNSET
+        else:
+            layer_id = self.layer_id
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -55,10 +55,10 @@ class MapStyleImportWarning:
                 "message": message,
             }
         )
-        if layer_id is not UNSET:
-            field_dict["layer_id"] = layer_id
         if source_id is not UNSET:
             field_dict["source_id"] = source_id
+        if layer_id is not UNSET:
+            field_dict["layer_id"] = layer_id
 
         return field_dict
 
@@ -69,15 +69,6 @@ class MapStyleImportWarning:
 
         message = d.pop("message")
 
-        def _parse_layer_id(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        layer_id = _parse_layer_id(d.pop("layer_id", UNSET))
-
         def _parse_source_id(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -87,11 +78,20 @@ class MapStyleImportWarning:
 
         source_id = _parse_source_id(d.pop("source_id", UNSET))
 
+        def _parse_layer_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        layer_id = _parse_layer_id(d.pop("layer_id", UNSET))
+
         map_style_import_warning = cls(
             code=code,
             message=message,
-            layer_id=layer_id,
             source_id=source_id,
+            layer_id=layer_id,
         )
 
         map_style_import_warning.additional_properties = d

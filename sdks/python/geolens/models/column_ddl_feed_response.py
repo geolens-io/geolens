@@ -20,15 +20,15 @@ class ColumnDdlFeedResponse:
 
     Attributes:
         items (list[ColumnDdlEntry]):
+        total (int):
         limit (int):
         offset (int):
-        total (int):
     """
 
     items: list[ColumnDdlEntry]
+    total: int
     limit: int
     offset: int
-    total: int
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -37,20 +37,20 @@ class ColumnDdlFeedResponse:
             items_item = items_item_data.to_dict()
             items.append(items_item)
 
+        total = self.total
+
         limit = self.limit
 
         offset = self.offset
-
-        total = self.total
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
                 "items": items,
+                "total": total,
                 "limit": limit,
                 "offset": offset,
-                "total": total,
             }
         )
 
@@ -68,17 +68,17 @@ class ColumnDdlFeedResponse:
 
             items.append(items_item)
 
+        total = d.pop("total")
+
         limit = d.pop("limit")
 
         offset = d.pop("offset")
 
-        total = d.pop("total")
-
         column_ddl_feed_response = cls(
             items=items,
+            total=total,
             limit=limit,
             offset=offset,
-            total=total,
         )
 
         column_ddl_feed_response.additional_properties = d

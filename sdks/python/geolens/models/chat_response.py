@@ -18,28 +18,28 @@ T = TypeVar("T", bound="ChatResponse")
 class ChatResponse:
     """
     Attributes:
-        actions (list[ChatAction]):
         explanation (str):
+        actions (list[ChatAction]):
     """
 
-    actions: list[ChatAction]
     explanation: str
+    actions: list[ChatAction]
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        explanation = self.explanation
+
         actions = []
         for actions_item_data in self.actions:
             actions_item = actions_item_data.to_dict()
             actions.append(actions_item)
 
-        explanation = self.explanation
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "actions": actions,
                 "explanation": explanation,
+                "actions": actions,
             }
         )
 
@@ -50,6 +50,8 @@ class ChatResponse:
         from ..models.chat_action import ChatAction
 
         d = dict(src_dict)
+        explanation = d.pop("explanation")
+
         actions = []
         _actions = d.pop("actions")
         for actions_item_data in _actions:
@@ -57,11 +59,9 @@ class ChatResponse:
 
             actions.append(actions_item)
 
-        explanation = d.pop("explanation")
-
         chat_response = cls(
-            actions=actions,
             explanation=explanation,
+            actions=actions,
         )
 
         chat_response.additional_properties = d

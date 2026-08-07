@@ -24,28 +24,28 @@ T = TypeVar("T", bound="AuditLogResponse")
 class AuditLogResponse:
     """
     Attributes:
-        action (str):
-        created_at (datetime.datetime):
-        details (AuditLogResponseDetailsType0 | None):
         id (UUID):
-        ip_address (None | str):
-        resource_id (None | UUID):
-        resource_type (str):
         user_id (None | UUID):
-        resource_name (None | str | Unset):
+        action (str):
+        resource_type (str):
+        resource_id (None | UUID):
+        details (AuditLogResponseDetailsType0 | None):
+        ip_address (None | str):
+        created_at (datetime.datetime):
         username (None | str | Unset):
+        resource_name (None | str | Unset):
     """
 
-    action: str
-    created_at: datetime.datetime
-    details: AuditLogResponseDetailsType0 | None
     id: UUID
-    ip_address: None | str
-    resource_id: None | UUID
-    resource_type: str
     user_id: None | UUID
-    resource_name: None | str | Unset = UNSET
+    action: str
+    resource_type: str
+    resource_id: None | UUID
+    details: AuditLogResponseDetailsType0 | None
+    ip_address: None | str
+    created_at: datetime.datetime
     username: None | str | Unset = UNSET
+    resource_name: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -53,28 +53,7 @@ class AuditLogResponse:
             AuditLogResponseDetailsType0,
         )
 
-        action = self.action
-
-        created_at = self.created_at.isoformat()
-
-        details: dict[str, Any] | None
-        if isinstance(self.details, AuditLogResponseDetailsType0):
-            details = self.details.to_dict()
-        else:
-            details = self.details
-
         id = str(self.id)
-
-        ip_address: None | str
-        ip_address = self.ip_address
-
-        resource_id: None | str
-        if isinstance(self.resource_id, UUID):
-            resource_id = str(self.resource_id)
-        else:
-            resource_id = self.resource_id
-
-        resource_type = self.resource_type
 
         user_id: None | str
         if isinstance(self.user_id, UUID):
@@ -82,11 +61,26 @@ class AuditLogResponse:
         else:
             user_id = self.user_id
 
-        resource_name: None | str | Unset
-        if isinstance(self.resource_name, Unset):
-            resource_name = UNSET
+        action = self.action
+
+        resource_type = self.resource_type
+
+        resource_id: None | str
+        if isinstance(self.resource_id, UUID):
+            resource_id = str(self.resource_id)
         else:
-            resource_name = self.resource_name
+            resource_id = self.resource_id
+
+        details: dict[str, Any] | None
+        if isinstance(self.details, AuditLogResponseDetailsType0):
+            details = self.details.to_dict()
+        else:
+            details = self.details
+
+        ip_address: None | str
+        ip_address = self.ip_address
+
+        created_at = self.created_at.isoformat()
 
         username: None | str | Unset
         if isinstance(self.username, Unset):
@@ -94,24 +88,30 @@ class AuditLogResponse:
         else:
             username = self.username
 
+        resource_name: None | str | Unset
+        if isinstance(self.resource_name, Unset):
+            resource_name = UNSET
+        else:
+            resource_name = self.resource_name
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "action": action,
-                "created_at": created_at,
-                "details": details,
                 "id": id,
-                "ip_address": ip_address,
-                "resource_id": resource_id,
-                "resource_type": resource_type,
                 "user_id": user_id,
+                "action": action,
+                "resource_type": resource_type,
+                "resource_id": resource_id,
+                "details": details,
+                "ip_address": ip_address,
+                "created_at": created_at,
             }
         )
-        if resource_name is not UNSET:
-            field_dict["resource_name"] = resource_name
         if username is not UNSET:
             field_dict["username"] = username
+        if resource_name is not UNSET:
+            field_dict["resource_name"] = resource_name
 
         return field_dict
 
@@ -122,50 +122,7 @@ class AuditLogResponse:
         )
 
         d = dict(src_dict)
-        action = d.pop("action")
-
-        created_at = isoparse(d.pop("created_at"))
-
-        def _parse_details(data: object) -> AuditLogResponseDetailsType0 | None:
-            if data is None:
-                return data
-            try:
-                if not isinstance(data, dict):
-                    raise TypeError()
-                details_type_0 = AuditLogResponseDetailsType0.from_dict(data)
-
-                return details_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(AuditLogResponseDetailsType0 | None, data)
-
-        details = _parse_details(d.pop("details"))
-
         id = UUID(d.pop("id"))
-
-        def _parse_ip_address(data: object) -> None | str:
-            if data is None:
-                return data
-            return cast(None | str, data)
-
-        ip_address = _parse_ip_address(d.pop("ip_address"))
-
-        def _parse_resource_id(data: object) -> None | UUID:
-            if data is None:
-                return data
-            try:
-                if not isinstance(data, str):
-                    raise TypeError()
-                resource_id_type_0 = UUID(data)
-
-                return resource_id_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(None | UUID, data)
-
-        resource_id = _parse_resource_id(d.pop("resource_id"))
-
-        resource_type = d.pop("resource_type")
 
         def _parse_user_id(data: object) -> None | UUID:
             if data is None:
@@ -182,14 +139,48 @@ class AuditLogResponse:
 
         user_id = _parse_user_id(d.pop("user_id"))
 
-        def _parse_resource_name(data: object) -> None | str | Unset:
+        action = d.pop("action")
+
+        resource_type = d.pop("resource_type")
+
+        def _parse_resource_id(data: object) -> None | UUID:
             if data is None:
                 return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                resource_id_type_0 = UUID(data)
 
-        resource_name = _parse_resource_name(d.pop("resource_name", UNSET))
+                return resource_id_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | UUID, data)
+
+        resource_id = _parse_resource_id(d.pop("resource_id"))
+
+        def _parse_details(data: object) -> AuditLogResponseDetailsType0 | None:
+            if data is None:
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                details_type_0 = AuditLogResponseDetailsType0.from_dict(data)
+
+                return details_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(AuditLogResponseDetailsType0 | None, data)
+
+        details = _parse_details(d.pop("details"))
+
+        def _parse_ip_address(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        ip_address = _parse_ip_address(d.pop("ip_address"))
+
+        created_at = isoparse(d.pop("created_at"))
 
         def _parse_username(data: object) -> None | str | Unset:
             if data is None:
@@ -200,17 +191,26 @@ class AuditLogResponse:
 
         username = _parse_username(d.pop("username", UNSET))
 
+        def _parse_resource_name(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        resource_name = _parse_resource_name(d.pop("resource_name", UNSET))
+
         audit_log_response = cls(
-            action=action,
-            created_at=created_at,
-            details=details,
             id=id,
-            ip_address=ip_address,
-            resource_id=resource_id,
-            resource_type=resource_type,
             user_id=user_id,
-            resource_name=resource_name,
+            action=action,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            details=details,
+            ip_address=ip_address,
+            created_at=created_at,
             username=username,
+            resource_name=resource_name,
         )
 
         audit_log_response.additional_properties = d

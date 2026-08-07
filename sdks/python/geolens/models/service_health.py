@@ -19,29 +19,29 @@ class ServiceHealth:
     """
     Attributes:
         status (str):
-        error (None | str | Unset):
         latency_ms (float | None | Unset):
+        error (None | str | Unset):
     """
 
     status: str
-    error: None | str | Unset = UNSET
     latency_ms: float | None | Unset = UNSET
+    error: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         status = self.status
-
-        error: None | str | Unset
-        if isinstance(self.error, Unset):
-            error = UNSET
-        else:
-            error = self.error
 
         latency_ms: float | None | Unset
         if isinstance(self.latency_ms, Unset):
             latency_ms = UNSET
         else:
             latency_ms = self.latency_ms
+
+        error: None | str | Unset
+        if isinstance(self.error, Unset):
+            error = UNSET
+        else:
+            error = self.error
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -50,10 +50,10 @@ class ServiceHealth:
                 "status": status,
             }
         )
-        if error is not UNSET:
-            field_dict["error"] = error
         if latency_ms is not UNSET:
             field_dict["latency_ms"] = latency_ms
+        if error is not UNSET:
+            field_dict["error"] = error
 
         return field_dict
 
@@ -61,15 +61,6 @@ class ServiceHealth:
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
         status = d.pop("status")
-
-        def _parse_error(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        error = _parse_error(d.pop("error", UNSET))
 
         def _parse_latency_ms(data: object) -> float | None | Unset:
             if data is None:
@@ -80,10 +71,19 @@ class ServiceHealth:
 
         latency_ms = _parse_latency_ms(d.pop("latency_ms", UNSET))
 
+        def _parse_error(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        error = _parse_error(d.pop("error", UNSET))
+
         service_health = cls(
             status=status,
-            error=error,
             latency_ms=latency_ms,
+            error=error,
         )
 
         service_health.additional_properties = d

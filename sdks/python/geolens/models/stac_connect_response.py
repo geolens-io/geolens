@@ -14,40 +14,40 @@ T = TypeVar("T", bound="StacConnectResponse")
 class StacConnectResponse:
     """
     Attributes:
+        url (str): Normalized STAC API URL.
         catalog_id (str): Catalog identifier from the landing page.
+        title (str): Catalog title.
         description (str): Catalog description.
         stac_version (str): STAC specification version.
-        title (str): Catalog title.
-        url (str): Normalized STAC API URL.
     """
 
+    url: str
     catalog_id: str
+    title: str
     description: str
     stac_version: str
-    title: str
-    url: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        url = self.url
+
         catalog_id = self.catalog_id
+
+        title = self.title
 
         description = self.description
 
         stac_version = self.stac_version
 
-        title = self.title
-
-        url = self.url
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
+                "url": url,
                 "catalog_id": catalog_id,
+                "title": title,
                 "description": description,
                 "stac_version": stac_version,
-                "title": title,
-                "url": url,
             }
         )
 
@@ -56,22 +56,22 @@ class StacConnectResponse:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
+        url = d.pop("url")
+
         catalog_id = d.pop("catalog_id")
+
+        title = d.pop("title")
 
         description = d.pop("description")
 
         stac_version = d.pop("stac_version")
 
-        title = d.pop("title")
-
-        url = d.pop("url")
-
         stac_connect_response = cls(
+            url=url,
             catalog_id=catalog_id,
+            title=title,
             description=description,
             stac_version=stac_version,
-            title=title,
-            url=url,
         )
 
         stac_connect_response.additional_properties = d

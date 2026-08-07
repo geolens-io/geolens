@@ -16,20 +16,20 @@ T = TypeVar(
 class ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollectionLink:
     """
     Attributes:
-        href (str):
         rel (str):
+        href (str):
         type_ (str):
     """
 
-    href: str
     rel: str
+    href: str
     type_: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        href = self.href
-
         rel = self.rel
+
+        href = self.href
 
         type_ = self.type_
 
@@ -37,8 +37,8 @@ class ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollectionLink:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "href": href,
                 "rel": rel,
+                "href": href,
                 "type": type_,
             }
         )
@@ -48,15 +48,15 @@ class ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollectionLink:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        href = d.pop("href")
-
         rel = d.pop("rel")
+
+        href = d.pop("href")
 
         type_ = d.pop("type")
 
         list_features_datasets_dataset_id_features_get_geo_json_feature_collection_link = cls(
-            href=href,
             rel=rel,
+            href=href,
             type_=type_,
         )
 

@@ -22,23 +22,23 @@ T = TypeVar("T", bound="StacImportRequest")
 class StacImportRequest:
     """
     Attributes:
-        items (list[StacImportItem]): Items to import (max 50 per request).
         url (str): STAC API URL for provenance.
+        items (list[StacImportItem]): Items to import (max 50 per request).
         visibility (StacImportRequestVisibility | Unset): Visibility for imported datasets. Default: 'private'.
     """
 
-    items: list[StacImportItem]
     url: str
+    items: list[StacImportItem]
     visibility: StacImportRequestVisibility | Unset = "private"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        url = self.url
+
         items = []
         for items_item_data in self.items:
             items_item = items_item_data.to_dict()
             items.append(items_item)
-
-        url = self.url
 
         visibility: str | Unset = UNSET
         if not isinstance(self.visibility, Unset):
@@ -48,8 +48,8 @@ class StacImportRequest:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "items": items,
                 "url": url,
+                "items": items,
             }
         )
         if visibility is not UNSET:
@@ -62,14 +62,14 @@ class StacImportRequest:
         from ..models.stac_import_item import StacImportItem
 
         d = dict(src_dict)
+        url = d.pop("url")
+
         items = []
         _items = d.pop("items")
         for items_item_data in _items:
             items_item = StacImportItem.from_dict(items_item_data)
 
             items.append(items_item)
-
-        url = d.pop("url")
 
         _visibility = d.pop("visibility", UNSET)
         visibility: StacImportRequestVisibility | Unset
@@ -79,8 +79,8 @@ class StacImportRequest:
             visibility = check_stac_import_request_visibility(_visibility)
 
         stac_import_request = cls(
-            items=items,
             url=url,
+            items=items,
             visibility=visibility,
         )
 

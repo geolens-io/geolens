@@ -36,70 +36,70 @@ T = TypeVar("T", bound="MapLayerResponse")
 class MapLayerResponse:
     """
     Attributes:
-        dataset_extent_bbox (list[float] | None):
-        dataset_geometry_type (None | str):
+        id (UUID):
         dataset_id (UUID):
         dataset_name (str):
+        dataset_geometry_type (None | str):
         dataset_table_name (str):
-        id (UUID):
-        layout (MapLayerResponseLayout):
-        opacity (float):
-        paint (MapLayerResponsePaint):
+        dataset_extent_bbox (list[float] | None):
         sort_order (int):
         visible (bool):
-        band_count (int | None | Unset):
+        opacity (float):
+        paint (MapLayerResponsePaint):
+        layout (MapLayerResponseLayout):
         dataset_column_info (list[MapLayerResponseDatasetColumnInfoType0Item] | None | Unset):
         dataset_feature_count (int | None | Unset):
-        dataset_record_type (None | str | Unset):
         dataset_sample_values (MapLayerResponseDatasetSampleValuesType0 | None | Unset):
-        dataset_status (None | str | Unset):
-        dataset_visibility (None | str | Unset):
-        dem_vertical_units (None | str | Unset):
         display_name (None | str | Unset):
+        layer_type (str | Unset):  Default: 'vector_geolens'.
+        dataset_record_type (None | str | Unset):
         filter_ (list[Any] | None | Unset):
+        label_config (MapLayerResponseLabelConfigType0 | None | Unset):
+        popup_config (None | PopupConfig | Unset):
+        style_config (MapLayerResponseStyleConfigType0 | None | Unset):
+        show_in_legend (bool | Unset):  Default: True.
         is_3d (bool | None | Unset):
         is_dem (bool | None | Unset):
-        label_config (MapLayerResponseLabelConfigType0 | None | Unset):
-        layer_type (str | Unset):  Default: 'vector_geolens'.
-        popup_config (None | PopupConfig | Unset):
-        show_in_legend (bool | Unset):  Default: True.
-        style_config (MapLayerResponseStyleConfigType0 | None | Unset):
+        dem_vertical_units (None | str | Unset):
+        band_count (int | None | Unset):
         tile_version (int | None | Unset):
+        dataset_visibility (None | str | Unset):
+        dataset_status (None | str | Unset):
     """
 
-    dataset_extent_bbox: list[float] | None
-    dataset_geometry_type: None | str
+    id: UUID
     dataset_id: UUID
     dataset_name: str
+    dataset_geometry_type: None | str
     dataset_table_name: str
-    id: UUID
-    layout: MapLayerResponseLayout
-    opacity: float
-    paint: MapLayerResponsePaint
+    dataset_extent_bbox: list[float] | None
     sort_order: int
     visible: bool
-    band_count: int | None | Unset = UNSET
+    opacity: float
+    paint: MapLayerResponsePaint
+    layout: MapLayerResponseLayout
     dataset_column_info: (
         list[MapLayerResponseDatasetColumnInfoType0Item] | None | Unset
     ) = UNSET
     dataset_feature_count: int | None | Unset = UNSET
-    dataset_record_type: None | str | Unset = UNSET
     dataset_sample_values: MapLayerResponseDatasetSampleValuesType0 | None | Unset = (
         UNSET
     )
-    dataset_status: None | str | Unset = UNSET
-    dataset_visibility: None | str | Unset = UNSET
-    dem_vertical_units: None | str | Unset = UNSET
     display_name: None | str | Unset = UNSET
+    layer_type: str | Unset = "vector_geolens"
+    dataset_record_type: None | str | Unset = UNSET
     filter_: list[Any] | None | Unset = UNSET
+    label_config: MapLayerResponseLabelConfigType0 | None | Unset = UNSET
+    popup_config: None | PopupConfig | Unset = UNSET
+    style_config: MapLayerResponseStyleConfigType0 | None | Unset = UNSET
+    show_in_legend: bool | Unset = True
     is_3d: bool | None | Unset = UNSET
     is_dem: bool | None | Unset = UNSET
-    label_config: MapLayerResponseLabelConfigType0 | None | Unset = UNSET
-    layer_type: str | Unset = "vector_geolens"
-    popup_config: None | PopupConfig | Unset = UNSET
-    show_in_legend: bool | Unset = True
-    style_config: MapLayerResponseStyleConfigType0 | None | Unset = UNSET
+    dem_vertical_units: None | str | Unset = UNSET
+    band_count: int | None | Unset = UNSET
     tile_version: int | None | Unset = UNSET
+    dataset_visibility: None | str | Unset = UNSET
+    dataset_status: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -114,6 +114,17 @@ class MapLayerResponse:
         )
         from ..models.popup_config import PopupConfig
 
+        id = str(self.id)
+
+        dataset_id = str(self.dataset_id)
+
+        dataset_name = self.dataset_name
+
+        dataset_geometry_type: None | str
+        dataset_geometry_type = self.dataset_geometry_type
+
+        dataset_table_name = self.dataset_table_name
+
         dataset_extent_bbox: list[float] | None
         if isinstance(self.dataset_extent_bbox, list):
             dataset_extent_bbox = self.dataset_extent_bbox
@@ -121,32 +132,15 @@ class MapLayerResponse:
         else:
             dataset_extent_bbox = self.dataset_extent_bbox
 
-        dataset_geometry_type: None | str
-        dataset_geometry_type = self.dataset_geometry_type
+        sort_order = self.sort_order
 
-        dataset_id = str(self.dataset_id)
-
-        dataset_name = self.dataset_name
-
-        dataset_table_name = self.dataset_table_name
-
-        id = str(self.id)
-
-        layout = self.layout.to_dict()
+        visible = self.visible
 
         opacity = self.opacity
 
         paint = self.paint.to_dict()
 
-        sort_order = self.sort_order
-
-        visible = self.visible
-
-        band_count: int | None | Unset
-        if isinstance(self.band_count, Unset):
-            band_count = UNSET
-        else:
-            band_count = self.band_count
+        layout = self.layout.to_dict()
 
         dataset_column_info: list[dict[str, Any]] | None | Unset
         if isinstance(self.dataset_column_info, Unset):
@@ -168,12 +162,6 @@ class MapLayerResponse:
         else:
             dataset_feature_count = self.dataset_feature_count
 
-        dataset_record_type: None | str | Unset
-        if isinstance(self.dataset_record_type, Unset):
-            dataset_record_type = UNSET
-        else:
-            dataset_record_type = self.dataset_record_type
-
         dataset_sample_values: dict[str, Any] | None | Unset
         if isinstance(self.dataset_sample_values, Unset):
             dataset_sample_values = UNSET
@@ -184,29 +172,19 @@ class MapLayerResponse:
         else:
             dataset_sample_values = self.dataset_sample_values
 
-        dataset_status: None | str | Unset
-        if isinstance(self.dataset_status, Unset):
-            dataset_status = UNSET
-        else:
-            dataset_status = self.dataset_status
-
-        dataset_visibility: None | str | Unset
-        if isinstance(self.dataset_visibility, Unset):
-            dataset_visibility = UNSET
-        else:
-            dataset_visibility = self.dataset_visibility
-
-        dem_vertical_units: None | str | Unset
-        if isinstance(self.dem_vertical_units, Unset):
-            dem_vertical_units = UNSET
-        else:
-            dem_vertical_units = self.dem_vertical_units
-
         display_name: None | str | Unset
         if isinstance(self.display_name, Unset):
             display_name = UNSET
         else:
             display_name = self.display_name
+
+        layer_type = self.layer_type
+
+        dataset_record_type: None | str | Unset
+        if isinstance(self.dataset_record_type, Unset):
+            dataset_record_type = UNSET
+        else:
+            dataset_record_type = self.dataset_record_type
 
         filter_: list[Any] | None | Unset
         if isinstance(self.filter_, Unset):
@@ -216,6 +194,32 @@ class MapLayerResponse:
 
         else:
             filter_ = self.filter_
+
+        label_config: dict[str, Any] | None | Unset
+        if isinstance(self.label_config, Unset):
+            label_config = UNSET
+        elif isinstance(self.label_config, MapLayerResponseLabelConfigType0):
+            label_config = self.label_config.to_dict()
+        else:
+            label_config = self.label_config
+
+        popup_config: dict[str, Any] | None | Unset
+        if isinstance(self.popup_config, Unset):
+            popup_config = UNSET
+        elif isinstance(self.popup_config, PopupConfig):
+            popup_config = self.popup_config.to_dict()
+        else:
+            popup_config = self.popup_config
+
+        style_config: dict[str, Any] | None | Unset
+        if isinstance(self.style_config, Unset):
+            style_config = UNSET
+        elif isinstance(self.style_config, MapLayerResponseStyleConfigType0):
+            style_config = self.style_config.to_dict()
+        else:
+            style_config = self.style_config
+
+        show_in_legend = self.show_in_legend
 
         is_3d: bool | None | Unset
         if isinstance(self.is_3d, Unset):
@@ -229,33 +233,17 @@ class MapLayerResponse:
         else:
             is_dem = self.is_dem
 
-        label_config: dict[str, Any] | None | Unset
-        if isinstance(self.label_config, Unset):
-            label_config = UNSET
-        elif isinstance(self.label_config, MapLayerResponseLabelConfigType0):
-            label_config = self.label_config.to_dict()
+        dem_vertical_units: None | str | Unset
+        if isinstance(self.dem_vertical_units, Unset):
+            dem_vertical_units = UNSET
         else:
-            label_config = self.label_config
+            dem_vertical_units = self.dem_vertical_units
 
-        layer_type = self.layer_type
-
-        popup_config: dict[str, Any] | None | Unset
-        if isinstance(self.popup_config, Unset):
-            popup_config = UNSET
-        elif isinstance(self.popup_config, PopupConfig):
-            popup_config = self.popup_config.to_dict()
+        band_count: int | None | Unset
+        if isinstance(self.band_count, Unset):
+            band_count = UNSET
         else:
-            popup_config = self.popup_config
-
-        show_in_legend = self.show_in_legend
-
-        style_config: dict[str, Any] | None | Unset
-        if isinstance(self.style_config, Unset):
-            style_config = UNSET
-        elif isinstance(self.style_config, MapLayerResponseStyleConfigType0):
-            style_config = self.style_config.to_dict()
-        else:
-            style_config = self.style_config
+            band_count = self.band_count
 
         tile_version: int | None | Unset
         if isinstance(self.tile_version, Unset):
@@ -263,59 +251,71 @@ class MapLayerResponse:
         else:
             tile_version = self.tile_version
 
+        dataset_visibility: None | str | Unset
+        if isinstance(self.dataset_visibility, Unset):
+            dataset_visibility = UNSET
+        else:
+            dataset_visibility = self.dataset_visibility
+
+        dataset_status: None | str | Unset
+        if isinstance(self.dataset_status, Unset):
+            dataset_status = UNSET
+        else:
+            dataset_status = self.dataset_status
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "dataset_extent_bbox": dataset_extent_bbox,
-                "dataset_geometry_type": dataset_geometry_type,
+                "id": id,
                 "dataset_id": dataset_id,
                 "dataset_name": dataset_name,
+                "dataset_geometry_type": dataset_geometry_type,
                 "dataset_table_name": dataset_table_name,
-                "id": id,
-                "layout": layout,
-                "opacity": opacity,
-                "paint": paint,
+                "dataset_extent_bbox": dataset_extent_bbox,
                 "sort_order": sort_order,
                 "visible": visible,
+                "opacity": opacity,
+                "paint": paint,
+                "layout": layout,
             }
         )
-        if band_count is not UNSET:
-            field_dict["band_count"] = band_count
         if dataset_column_info is not UNSET:
             field_dict["dataset_column_info"] = dataset_column_info
         if dataset_feature_count is not UNSET:
             field_dict["dataset_feature_count"] = dataset_feature_count
-        if dataset_record_type is not UNSET:
-            field_dict["dataset_record_type"] = dataset_record_type
         if dataset_sample_values is not UNSET:
             field_dict["dataset_sample_values"] = dataset_sample_values
-        if dataset_status is not UNSET:
-            field_dict["dataset_status"] = dataset_status
-        if dataset_visibility is not UNSET:
-            field_dict["dataset_visibility"] = dataset_visibility
-        if dem_vertical_units is not UNSET:
-            field_dict["dem_vertical_units"] = dem_vertical_units
         if display_name is not UNSET:
             field_dict["display_name"] = display_name
+        if layer_type is not UNSET:
+            field_dict["layer_type"] = layer_type
+        if dataset_record_type is not UNSET:
+            field_dict["dataset_record_type"] = dataset_record_type
         if filter_ is not UNSET:
             field_dict["filter"] = filter_
+        if label_config is not UNSET:
+            field_dict["label_config"] = label_config
+        if popup_config is not UNSET:
+            field_dict["popup_config"] = popup_config
+        if style_config is not UNSET:
+            field_dict["style_config"] = style_config
+        if show_in_legend is not UNSET:
+            field_dict["show_in_legend"] = show_in_legend
         if is_3d is not UNSET:
             field_dict["is_3d"] = is_3d
         if is_dem is not UNSET:
             field_dict["is_dem"] = is_dem
-        if label_config is not UNSET:
-            field_dict["label_config"] = label_config
-        if layer_type is not UNSET:
-            field_dict["layer_type"] = layer_type
-        if popup_config is not UNSET:
-            field_dict["popup_config"] = popup_config
-        if show_in_legend is not UNSET:
-            field_dict["show_in_legend"] = show_in_legend
-        if style_config is not UNSET:
-            field_dict["style_config"] = style_config
+        if dem_vertical_units is not UNSET:
+            field_dict["dem_vertical_units"] = dem_vertical_units
+        if band_count is not UNSET:
+            field_dict["band_count"] = band_count
         if tile_version is not UNSET:
             field_dict["tile_version"] = tile_version
+        if dataset_visibility is not UNSET:
+            field_dict["dataset_visibility"] = dataset_visibility
+        if dataset_status is not UNSET:
+            field_dict["dataset_status"] = dataset_status
 
         return field_dict
 
@@ -338,6 +338,22 @@ class MapLayerResponse:
         from ..models.popup_config import PopupConfig
 
         d = dict(src_dict)
+        id = UUID(d.pop("id"))
+
+        dataset_id = UUID(d.pop("dataset_id"))
+
+        dataset_name = d.pop("dataset_name")
+
+        def _parse_dataset_geometry_type(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        dataset_geometry_type = _parse_dataset_geometry_type(
+            d.pop("dataset_geometry_type")
+        )
+
+        dataset_table_name = d.pop("dataset_table_name")
 
         def _parse_dataset_extent_bbox(data: object) -> list[float] | None:
             if data is None:
@@ -354,41 +370,15 @@ class MapLayerResponse:
 
         dataset_extent_bbox = _parse_dataset_extent_bbox(d.pop("dataset_extent_bbox"))
 
-        def _parse_dataset_geometry_type(data: object) -> None | str:
-            if data is None:
-                return data
-            return cast(None | str, data)
+        sort_order = d.pop("sort_order")
 
-        dataset_geometry_type = _parse_dataset_geometry_type(
-            d.pop("dataset_geometry_type")
-        )
-
-        dataset_id = UUID(d.pop("dataset_id"))
-
-        dataset_name = d.pop("dataset_name")
-
-        dataset_table_name = d.pop("dataset_table_name")
-
-        id = UUID(d.pop("id"))
-
-        layout = MapLayerResponseLayout.from_dict(d.pop("layout"))
+        visible = d.pop("visible")
 
         opacity = d.pop("opacity")
 
         paint = MapLayerResponsePaint.from_dict(d.pop("paint"))
 
-        sort_order = d.pop("sort_order")
-
-        visible = d.pop("visible")
-
-        def _parse_band_count(data: object) -> int | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(int | None | Unset, data)
-
-        band_count = _parse_band_count(d.pop("band_count", UNSET))
+        layout = MapLayerResponseLayout.from_dict(d.pop("layout"))
 
         def _parse_dataset_column_info(
             data: object,
@@ -433,17 +423,6 @@ class MapLayerResponse:
             d.pop("dataset_feature_count", UNSET)
         )
 
-        def _parse_dataset_record_type(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        dataset_record_type = _parse_dataset_record_type(
-            d.pop("dataset_record_type", UNSET)
-        )
-
         def _parse_dataset_sample_values(
             data: object,
         ) -> MapLayerResponseDatasetSampleValuesType0 | None | Unset:
@@ -467,37 +446,6 @@ class MapLayerResponse:
             d.pop("dataset_sample_values", UNSET)
         )
 
-        def _parse_dataset_status(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        dataset_status = _parse_dataset_status(d.pop("dataset_status", UNSET))
-
-        def _parse_dataset_visibility(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        dataset_visibility = _parse_dataset_visibility(
-            d.pop("dataset_visibility", UNSET)
-        )
-
-        def _parse_dem_vertical_units(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        dem_vertical_units = _parse_dem_vertical_units(
-            d.pop("dem_vertical_units", UNSET)
-        )
-
         def _parse_display_name(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -506,6 +454,19 @@ class MapLayerResponse:
             return cast(None | str | Unset, data)
 
         display_name = _parse_display_name(d.pop("display_name", UNSET))
+
+        layer_type = d.pop("layer_type", UNSET)
+
+        def _parse_dataset_record_type(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        dataset_record_type = _parse_dataset_record_type(
+            d.pop("dataset_record_type", UNSET)
+        )
 
         def _parse_filter_(data: object) -> list[Any] | None | Unset:
             if data is None:
@@ -523,24 +484,6 @@ class MapLayerResponse:
             return cast(list[Any] | None | Unset, data)
 
         filter_ = _parse_filter_(d.pop("filter", UNSET))
-
-        def _parse_is_3d(data: object) -> bool | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(bool | None | Unset, data)
-
-        is_3d = _parse_is_3d(d.pop("is_3d", UNSET))
-
-        def _parse_is_dem(data: object) -> bool | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(bool | None | Unset, data)
-
-        is_dem = _parse_is_dem(d.pop("is_dem", UNSET))
 
         def _parse_label_config(
             data: object,
@@ -561,8 +504,6 @@ class MapLayerResponse:
 
         label_config = _parse_label_config(d.pop("label_config", UNSET))
 
-        layer_type = d.pop("layer_type", UNSET)
-
         def _parse_popup_config(data: object) -> None | PopupConfig | Unset:
             if data is None:
                 return data
@@ -579,8 +520,6 @@ class MapLayerResponse:
             return cast(None | PopupConfig | Unset, data)
 
         popup_config = _parse_popup_config(d.pop("popup_config", UNSET))
-
-        show_in_legend = d.pop("show_in_legend", UNSET)
 
         def _parse_style_config(
             data: object,
@@ -601,6 +540,46 @@ class MapLayerResponse:
 
         style_config = _parse_style_config(d.pop("style_config", UNSET))
 
+        show_in_legend = d.pop("show_in_legend", UNSET)
+
+        def _parse_is_3d(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        is_3d = _parse_is_3d(d.pop("is_3d", UNSET))
+
+        def _parse_is_dem(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        is_dem = _parse_is_dem(d.pop("is_dem", UNSET))
+
+        def _parse_dem_vertical_units(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        dem_vertical_units = _parse_dem_vertical_units(
+            d.pop("dem_vertical_units", UNSET)
+        )
+
+        def _parse_band_count(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        band_count = _parse_band_count(d.pop("band_count", UNSET))
+
         def _parse_tile_version(data: object) -> int | None | Unset:
             if data is None:
                 return data
@@ -610,36 +589,56 @@ class MapLayerResponse:
 
         tile_version = _parse_tile_version(d.pop("tile_version", UNSET))
 
+        def _parse_dataset_visibility(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        dataset_visibility = _parse_dataset_visibility(
+            d.pop("dataset_visibility", UNSET)
+        )
+
+        def _parse_dataset_status(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        dataset_status = _parse_dataset_status(d.pop("dataset_status", UNSET))
+
         map_layer_response = cls(
-            dataset_extent_bbox=dataset_extent_bbox,
-            dataset_geometry_type=dataset_geometry_type,
+            id=id,
             dataset_id=dataset_id,
             dataset_name=dataset_name,
+            dataset_geometry_type=dataset_geometry_type,
             dataset_table_name=dataset_table_name,
-            id=id,
-            layout=layout,
-            opacity=opacity,
-            paint=paint,
+            dataset_extent_bbox=dataset_extent_bbox,
             sort_order=sort_order,
             visible=visible,
-            band_count=band_count,
+            opacity=opacity,
+            paint=paint,
+            layout=layout,
             dataset_column_info=dataset_column_info,
             dataset_feature_count=dataset_feature_count,
-            dataset_record_type=dataset_record_type,
             dataset_sample_values=dataset_sample_values,
-            dataset_status=dataset_status,
-            dataset_visibility=dataset_visibility,
-            dem_vertical_units=dem_vertical_units,
             display_name=display_name,
+            layer_type=layer_type,
+            dataset_record_type=dataset_record_type,
             filter_=filter_,
+            label_config=label_config,
+            popup_config=popup_config,
+            style_config=style_config,
+            show_in_legend=show_in_legend,
             is_3d=is_3d,
             is_dem=is_dem,
-            label_config=label_config,
-            layer_type=layer_type,
-            popup_config=popup_config,
-            show_in_legend=show_in_legend,
-            style_config=style_config,
+            dem_vertical_units=dem_vertical_units,
+            band_count=band_count,
             tile_version=tile_version,
+            dataset_visibility=dataset_visibility,
+            dataset_status=dataset_status,
         )
 
         map_layer_response.additional_properties = d

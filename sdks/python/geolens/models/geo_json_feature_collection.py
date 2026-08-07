@@ -21,15 +21,17 @@ class GeoJSONFeatureCollection:
     """A GeoJSON FeatureCollection.
 
     Attributes:
-        features (list[GeoJSONFeature] | Unset):
         type_ (str | Unset):  Default: 'FeatureCollection'.
+        features (list[GeoJSONFeature] | Unset):
     """
 
-    features: list[GeoJSONFeature] | Unset = UNSET
     type_: str | Unset = "FeatureCollection"
+    features: list[GeoJSONFeature] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        type_ = self.type_
+
         features: list[dict[str, Any]] | Unset = UNSET
         if not isinstance(self.features, Unset):
             features = []
@@ -37,15 +39,13 @@ class GeoJSONFeatureCollection:
                 features_item = features_item_data.to_dict()
                 features.append(features_item)
 
-        type_ = self.type_
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
-        if features is not UNSET:
-            field_dict["features"] = features
         if type_ is not UNSET:
             field_dict["type"] = type_
+        if features is not UNSET:
+            field_dict["features"] = features
 
         return field_dict
 
@@ -54,6 +54,8 @@ class GeoJSONFeatureCollection:
         from ..models.geo_json_feature import GeoJSONFeature
 
         d = dict(src_dict)
+        type_ = d.pop("type", UNSET)
+
         _features = d.pop("features", UNSET)
         features: list[GeoJSONFeature] | Unset = UNSET
         if _features is not UNSET:
@@ -63,11 +65,9 @@ class GeoJSONFeatureCollection:
 
                 features.append(features_item)
 
-        type_ = d.pop("type", UNSET)
-
         geo_json_feature_collection = cls(
-            features=features,
             type_=type_,
+            features=features,
         )
 
         geo_json_feature_collection.additional_properties = d

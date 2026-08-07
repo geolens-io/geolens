@@ -20,31 +20,25 @@ class PresignedUploadResponse:
     """
     Attributes:
         job_id (UUID): Identifier of the ingestion job created for this upload.
-        s3_key (str): Object key in the S3 bucket where the file will be stored.
         urls (list[str]): One presigned PUT URL per part. Single-element list for single-part uploads.
-        part_size (int | None | Unset): Byte size of each part in a multipart upload.
+        s3_key (str): Object key in the S3 bucket where the file will be stored.
         upload_id (None | str | Unset): S3 multipart upload ID, set only for multipart uploads.
+        part_size (int | None | Unset): Byte size of each part in a multipart upload.
     """
 
     job_id: UUID
-    s3_key: str
     urls: list[str]
-    part_size: int | None | Unset = UNSET
+    s3_key: str
     upload_id: None | str | Unset = UNSET
+    part_size: int | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         job_id = str(self.job_id)
 
-        s3_key = self.s3_key
-
         urls = self.urls
 
-        part_size: int | None | Unset
-        if isinstance(self.part_size, Unset):
-            part_size = UNSET
-        else:
-            part_size = self.part_size
+        s3_key = self.s3_key
 
         upload_id: None | str | Unset
         if isinstance(self.upload_id, Unset):
@@ -52,19 +46,25 @@ class PresignedUploadResponse:
         else:
             upload_id = self.upload_id
 
+        part_size: int | None | Unset
+        if isinstance(self.part_size, Unset):
+            part_size = UNSET
+        else:
+            part_size = self.part_size
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
                 "job_id": job_id,
-                "s3_key": s3_key,
                 "urls": urls,
+                "s3_key": s3_key,
             }
         )
-        if part_size is not UNSET:
-            field_dict["part_size"] = part_size
         if upload_id is not UNSET:
             field_dict["upload_id"] = upload_id
+        if part_size is not UNSET:
+            field_dict["part_size"] = part_size
 
         return field_dict
 
@@ -73,18 +73,9 @@ class PresignedUploadResponse:
         d = dict(src_dict)
         job_id = UUID(d.pop("job_id"))
 
-        s3_key = d.pop("s3_key")
-
         urls = cast(list[str], d.pop("urls"))
 
-        def _parse_part_size(data: object) -> int | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(int | None | Unset, data)
-
-        part_size = _parse_part_size(d.pop("part_size", UNSET))
+        s3_key = d.pop("s3_key")
 
         def _parse_upload_id(data: object) -> None | str | Unset:
             if data is None:
@@ -95,12 +86,21 @@ class PresignedUploadResponse:
 
         upload_id = _parse_upload_id(d.pop("upload_id", UNSET))
 
+        def _parse_part_size(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        part_size = _parse_part_size(d.pop("part_size", UNSET))
+
         presigned_upload_response = cls(
             job_id=job_id,
-            s3_key=s3_key,
             urls=urls,
-            part_size=part_size,
+            s3_key=s3_key,
             upload_id=upload_id,
+            part_size=part_size,
         )
 
         presigned_upload_response.additional_properties = d

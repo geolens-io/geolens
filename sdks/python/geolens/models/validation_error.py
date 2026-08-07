@@ -24,15 +24,15 @@ class ValidationError:
         loc (list[int | str]):
         msg (str):
         type_ (str):
-        ctx (ValidationErrorContext | Unset):
         input_ (Any | Unset):
+        ctx (ValidationErrorContext | Unset):
     """
 
     loc: list[int | str]
     msg: str
     type_: str
-    ctx: ValidationErrorContext | Unset = UNSET
     input_: Any | Unset = UNSET
+    ctx: ValidationErrorContext | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -46,11 +46,11 @@ class ValidationError:
 
         type_ = self.type_
 
+        input_ = self.input_
+
         ctx: dict[str, Any] | Unset = UNSET
         if not isinstance(self.ctx, Unset):
             ctx = self.ctx.to_dict()
-
-        input_ = self.input_
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -61,10 +61,10 @@ class ValidationError:
                 "type": type_,
             }
         )
-        if ctx is not UNSET:
-            field_dict["ctx"] = ctx
         if input_ is not UNSET:
             field_dict["input"] = input_
+        if ctx is not UNSET:
+            field_dict["ctx"] = ctx
 
         return field_dict
 
@@ -88,6 +88,8 @@ class ValidationError:
 
         type_ = d.pop("type")
 
+        input_ = d.pop("input", UNSET)
+
         _ctx = d.pop("ctx", UNSET)
         ctx: ValidationErrorContext | Unset
         if isinstance(_ctx, Unset):
@@ -95,14 +97,12 @@ class ValidationError:
         else:
             ctx = ValidationErrorContext.from_dict(_ctx)
 
-        input_ = d.pop("input", UNSET)
-
         validation_error = cls(
             loc=loc,
             msg=msg,
             type_=type_,
-            ctx=ctx,
             input_=input_,
+            ctx=ctx,
         )
 
         validation_error.additional_properties = d

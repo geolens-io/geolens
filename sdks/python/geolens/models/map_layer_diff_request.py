@@ -24,17 +24,17 @@ class MapLayerDiffRequest:
     """
     Attributes:
         added (list[MapLayerInput] | Unset): Layers to append (max 200)
-        fallback_full_replace (bool | Unset): Client hint only; PATCH never performs full replacement Default: False.
-        order (list[UUID] | None | Unset): Optional stable layer ID order for existing layers
-        removed (list[UUID] | Unset):
         updated (list[MapLayerPatch] | Unset):
+        removed (list[UUID] | Unset):
+        order (list[UUID] | None | Unset): Optional stable layer ID order for existing layers
+        fallback_full_replace (bool | Unset): Client hint only; PATCH never performs full replacement Default: False.
     """
 
     added: list[MapLayerInput] | Unset = UNSET
-    fallback_full_replace: bool | Unset = False
-    order: list[UUID] | None | Unset = UNSET
-    removed: list[UUID] | Unset = UNSET
     updated: list[MapLayerPatch] | Unset = UNSET
+    removed: list[UUID] | Unset = UNSET
+    order: list[UUID] | None | Unset = UNSET
+    fallback_full_replace: bool | Unset = False
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -45,7 +45,19 @@ class MapLayerDiffRequest:
                 added_item = added_item_data.to_dict()
                 added.append(added_item)
 
-        fallback_full_replace = self.fallback_full_replace
+        updated: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.updated, Unset):
+            updated = []
+            for updated_item_data in self.updated:
+                updated_item = updated_item_data.to_dict()
+                updated.append(updated_item)
+
+        removed: list[str] | Unset = UNSET
+        if not isinstance(self.removed, Unset):
+            removed = []
+            for removed_item_data in self.removed:
+                removed_item = str(removed_item_data)
+                removed.append(removed_item)
 
         order: list[str] | None | Unset
         if isinstance(self.order, Unset):
@@ -59,33 +71,21 @@ class MapLayerDiffRequest:
         else:
             order = self.order
 
-        removed: list[str] | Unset = UNSET
-        if not isinstance(self.removed, Unset):
-            removed = []
-            for removed_item_data in self.removed:
-                removed_item = str(removed_item_data)
-                removed.append(removed_item)
-
-        updated: list[dict[str, Any]] | Unset = UNSET
-        if not isinstance(self.updated, Unset):
-            updated = []
-            for updated_item_data in self.updated:
-                updated_item = updated_item_data.to_dict()
-                updated.append(updated_item)
+        fallback_full_replace = self.fallback_full_replace
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
         if added is not UNSET:
             field_dict["added"] = added
-        if fallback_full_replace is not UNSET:
-            field_dict["fallback_full_replace"] = fallback_full_replace
-        if order is not UNSET:
-            field_dict["order"] = order
-        if removed is not UNSET:
-            field_dict["removed"] = removed
         if updated is not UNSET:
             field_dict["updated"] = updated
+        if removed is not UNSET:
+            field_dict["removed"] = removed
+        if order is not UNSET:
+            field_dict["order"] = order
+        if fallback_full_replace is not UNSET:
+            field_dict["fallback_full_replace"] = fallback_full_replace
 
         return field_dict
 
@@ -104,7 +104,23 @@ class MapLayerDiffRequest:
 
                 added.append(added_item)
 
-        fallback_full_replace = d.pop("fallback_full_replace", UNSET)
+        _updated = d.pop("updated", UNSET)
+        updated: list[MapLayerPatch] | Unset = UNSET
+        if _updated is not UNSET:
+            updated = []
+            for updated_item_data in _updated:
+                updated_item = MapLayerPatch.from_dict(updated_item_data)
+
+                updated.append(updated_item)
+
+        _removed = d.pop("removed", UNSET)
+        removed: list[UUID] | Unset = UNSET
+        if _removed is not UNSET:
+            removed = []
+            for removed_item_data in _removed:
+                removed_item = UUID(removed_item_data)
+
+                removed.append(removed_item)
 
         def _parse_order(data: object) -> list[UUID] | None | Unset:
             if data is None:
@@ -128,30 +144,14 @@ class MapLayerDiffRequest:
 
         order = _parse_order(d.pop("order", UNSET))
 
-        _removed = d.pop("removed", UNSET)
-        removed: list[UUID] | Unset = UNSET
-        if _removed is not UNSET:
-            removed = []
-            for removed_item_data in _removed:
-                removed_item = UUID(removed_item_data)
-
-                removed.append(removed_item)
-
-        _updated = d.pop("updated", UNSET)
-        updated: list[MapLayerPatch] | Unset = UNSET
-        if _updated is not UNSET:
-            updated = []
-            for updated_item_data in _updated:
-                updated_item = MapLayerPatch.from_dict(updated_item_data)
-
-                updated.append(updated_item)
+        fallback_full_replace = d.pop("fallback_full_replace", UNSET)
 
         map_layer_diff_request = cls(
             added=added,
-            fallback_full_replace=fallback_full_replace,
-            order=order,
-            removed=removed,
             updated=updated,
+            removed=removed,
+            order=order,
+            fallback_full_replace=fallback_full_replace,
         )
 
         map_layer_diff_request.additional_properties = d

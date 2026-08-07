@@ -18,28 +18,28 @@ T = TypeVar("T", bound="TranslationListResponse")
 class TranslationListResponse:
     """
     Attributes:
-        total (int):
         translations (list[TranslationResponse]):
+        total (int):
     """
 
-    total: int
     translations: list[TranslationResponse]
+    total: int
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        total = self.total
-
         translations = []
         for translations_item_data in self.translations:
             translations_item = translations_item_data.to_dict()
             translations.append(translations_item)
 
+        total = self.total
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "total": total,
                 "translations": translations,
+                "total": total,
             }
         )
 
@@ -50,8 +50,6 @@ class TranslationListResponse:
         from ..models.translation_response import TranslationResponse
 
         d = dict(src_dict)
-        total = d.pop("total")
-
         translations = []
         _translations = d.pop("translations")
         for translations_item_data in _translations:
@@ -59,9 +57,11 @@ class TranslationListResponse:
 
             translations.append(translations_item)
 
+        total = d.pop("total")
+
         translation_list_response = cls(
-            total=total,
             translations=translations,
+            total=total,
         )
 
         translation_list_response.additional_properties = d

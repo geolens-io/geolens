@@ -21,20 +21,24 @@ T = TypeVar("T", bound="ProblemDetail")
 class ProblemDetail:
     """
     Attributes:
-        detail (list[Any] | ProblemDetailDetailType1 | str):
-        status (int):
         title (str):
+        status (int):
+        detail (list[Any] | ProblemDetailDetailType1 | str):
         type_ (str | Unset):  Default: 'about:blank'.
     """
 
-    detail: list[Any] | ProblemDetailDetailType1 | str
-    status: int
     title: str
+    status: int
+    detail: list[Any] | ProblemDetailDetailType1 | str
     type_: str | Unset = "about:blank"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.problem_detail_detail_type_1 import ProblemDetailDetailType1
+
+        title = self.title
+
+        status = self.status
 
         detail: dict[str, Any] | list[Any] | str
         if isinstance(self.detail, ProblemDetailDetailType1):
@@ -45,19 +49,15 @@ class ProblemDetail:
         else:
             detail = self.detail
 
-        status = self.status
-
-        title = self.title
-
         type_ = self.type_
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "detail": detail,
-                "status": status,
                 "title": title,
+                "status": status,
+                "detail": detail,
             }
         )
         if type_ is not UNSET:
@@ -70,6 +70,9 @@ class ProblemDetail:
         from ..models.problem_detail_detail_type_1 import ProblemDetailDetailType1
 
         d = dict(src_dict)
+        title = d.pop("title")
+
+        status = d.pop("status")
 
         def _parse_detail(data: object) -> list[Any] | ProblemDetailDetailType1 | str:
             try:
@@ -92,16 +95,12 @@ class ProblemDetail:
 
         detail = _parse_detail(d.pop("detail"))
 
-        status = d.pop("status")
-
-        title = d.pop("title")
-
         type_ = d.pop("type", UNSET)
 
         problem_detail = cls(
-            detail=detail,
-            status=status,
             title=title,
+            status=status,
+            detail=detail,
             type_=type_,
         )
 

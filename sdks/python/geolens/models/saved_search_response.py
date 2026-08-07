@@ -23,28 +23,28 @@ class SavedSearchResponse:
     """Response for a single saved search.
 
     Attributes:
-        created_at (datetime.datetime):
         id (UUID):
         name (str):
         params (SavedSearchResponseParams):
+        created_at (datetime.datetime):
         updated_at (datetime.datetime):
     """
 
-    created_at: datetime.datetime
     id: UUID
     name: str
     params: SavedSearchResponseParams
+    created_at: datetime.datetime
     updated_at: datetime.datetime
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        created_at = self.created_at.isoformat()
-
         id = str(self.id)
 
         name = self.name
 
         params = self.params.to_dict()
+
+        created_at = self.created_at.isoformat()
 
         updated_at = self.updated_at.isoformat()
 
@@ -52,10 +52,10 @@ class SavedSearchResponse:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "created_at": created_at,
                 "id": id,
                 "name": name,
                 "params": params,
+                "created_at": created_at,
                 "updated_at": updated_at,
             }
         )
@@ -67,21 +67,21 @@ class SavedSearchResponse:
         from ..models.saved_search_response_params import SavedSearchResponseParams
 
         d = dict(src_dict)
-        created_at = isoparse(d.pop("created_at"))
-
         id = UUID(d.pop("id"))
 
         name = d.pop("name")
 
         params = SavedSearchResponseParams.from_dict(d.pop("params"))
 
+        created_at = isoparse(d.pop("created_at"))
+
         updated_at = isoparse(d.pop("updated_at"))
 
         saved_search_response = cls(
-            created_at=created_at,
             id=id,
             name=name,
             params=params,
+            created_at=created_at,
             updated_at=updated_at,
         )
 

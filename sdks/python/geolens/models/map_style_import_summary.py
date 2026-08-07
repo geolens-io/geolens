@@ -20,28 +20,28 @@ T = TypeVar("T", bound="MapStyleImportSummary")
 class MapStyleImportSummary:
     """
     Attributes:
-        layers_imported (int | Unset):  Default: 0.
-        layers_skipped (int | Unset):  Default: 0.
         sources_matched (int | Unset):  Default: 0.
         sources_unsupported (int | Unset):  Default: 0.
+        layers_imported (int | Unset):  Default: 0.
+        layers_skipped (int | Unset):  Default: 0.
         warnings (list[MapStyleImportWarning] | Unset):
     """
 
-    layers_imported: int | Unset = 0
-    layers_skipped: int | Unset = 0
     sources_matched: int | Unset = 0
     sources_unsupported: int | Unset = 0
+    layers_imported: int | Unset = 0
+    layers_skipped: int | Unset = 0
     warnings: list[MapStyleImportWarning] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        layers_imported = self.layers_imported
-
-        layers_skipped = self.layers_skipped
-
         sources_matched = self.sources_matched
 
         sources_unsupported = self.sources_unsupported
+
+        layers_imported = self.layers_imported
+
+        layers_skipped = self.layers_skipped
 
         warnings: list[dict[str, Any]] | Unset = UNSET
         if not isinstance(self.warnings, Unset):
@@ -53,14 +53,14 @@ class MapStyleImportSummary:
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
-        if layers_imported is not UNSET:
-            field_dict["layers_imported"] = layers_imported
-        if layers_skipped is not UNSET:
-            field_dict["layers_skipped"] = layers_skipped
         if sources_matched is not UNSET:
             field_dict["sources_matched"] = sources_matched
         if sources_unsupported is not UNSET:
             field_dict["sources_unsupported"] = sources_unsupported
+        if layers_imported is not UNSET:
+            field_dict["layers_imported"] = layers_imported
+        if layers_skipped is not UNSET:
+            field_dict["layers_skipped"] = layers_skipped
         if warnings is not UNSET:
             field_dict["warnings"] = warnings
 
@@ -71,13 +71,13 @@ class MapStyleImportSummary:
         from ..models.map_style_import_warning import MapStyleImportWarning
 
         d = dict(src_dict)
-        layers_imported = d.pop("layers_imported", UNSET)
-
-        layers_skipped = d.pop("layers_skipped", UNSET)
-
         sources_matched = d.pop("sources_matched", UNSET)
 
         sources_unsupported = d.pop("sources_unsupported", UNSET)
+
+        layers_imported = d.pop("layers_imported", UNSET)
+
+        layers_skipped = d.pop("layers_skipped", UNSET)
 
         _warnings = d.pop("warnings", UNSET)
         warnings: list[MapStyleImportWarning] | Unset = UNSET
@@ -89,10 +89,10 @@ class MapStyleImportSummary:
                 warnings.append(warnings_item)
 
         map_style_import_summary = cls(
-            layers_imported=layers_imported,
-            layers_skipped=layers_skipped,
             sources_matched=sources_matched,
             sources_unsupported=sources_unsupported,
+            layers_imported=layers_imported,
+            layers_skipped=layers_skipped,
             warnings=warnings,
         )
 

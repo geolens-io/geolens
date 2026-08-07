@@ -30,29 +30,33 @@ class GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse:
     """FeatureCollection response as defined by OGC API - Features.
 
     Attributes:
+        number_matched (int): Total number of features matching the query (across all pages).
+        number_returned (int): Number of features in this response page.
         features (list[GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponseFeaturesItem]): GeoJSON
             features returned by the query.
         links (list[GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponseOGCLink]): Pagination and self-
             reference links.
-        number_matched (int): Total number of features matching the query (across all pages).
-        number_returned (int): Number of features in this response page.
-        time_stamp (str | Unset): ISO 8601 timestamp the response was generated.
         type_ (Literal['FeatureCollection'] | Unset): GeoJSON object type. Default: 'FeatureCollection'.
+        time_stamp (str | Unset): ISO 8601 timestamp the response was generated.
     """
 
+    number_matched: int
+    number_returned: int
     features: list[
         GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponseFeaturesItem
     ]
     links: list[
         GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponseOGCLink
     ]
-    number_matched: int
-    number_returned: int
-    time_stamp: str | Unset = UNSET
     type_: Literal["FeatureCollection"] | Unset = "FeatureCollection"
+    time_stamp: str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        number_matched = self.number_matched
+
+        number_returned = self.number_returned
+
         features = []
         for features_item_data in self.features:
             features_item = features_item_data.to_dict()
@@ -63,28 +67,24 @@ class GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse:
             links_item = links_item_data.to_dict()
             links.append(links_item)
 
-        number_matched = self.number_matched
-
-        number_returned = self.number_returned
+        type_ = self.type_
 
         time_stamp = self.time_stamp
-
-        type_ = self.type_
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "features": features,
-                "links": links,
                 "numberMatched": number_matched,
                 "numberReturned": number_returned,
+                "features": features,
+                "links": links,
             }
         )
-        if time_stamp is not UNSET:
-            field_dict["timeStamp"] = time_stamp
         if type_ is not UNSET:
             field_dict["type"] = type_
+        if time_stamp is not UNSET:
+            field_dict["timeStamp"] = time_stamp
 
         return field_dict
 
@@ -98,6 +98,10 @@ class GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse:
         )
 
         d = dict(src_dict)
+        number_matched = d.pop("numberMatched")
+
+        number_returned = d.pop("numberReturned")
+
         features = []
         _features = d.pop("features")
         for features_item_data in _features:
@@ -116,25 +120,21 @@ class GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse:
 
             links.append(links_item)
 
-        number_matched = d.pop("numberMatched")
-
-        number_returned = d.pop("numberReturned")
-
-        time_stamp = d.pop("timeStamp", UNSET)
-
         type_ = cast(Literal["FeatureCollection"] | Unset, d.pop("type", UNSET))
         if type_ != "FeatureCollection" and not isinstance(type_, Unset):
             raise ValueError(
                 f"type must match const 'FeatureCollection', got '{type_}'"
             )
 
+        time_stamp = d.pop("timeStamp", UNSET)
+
         get_collection_items_collections_dataset_id_items_get_ogc_feature_items_response = cls(
-            features=features,
-            links=links,
             number_matched=number_matched,
             number_returned=number_returned,
-            time_stamp=time_stamp,
+            features=features,
+            links=links,
             type_=type_,
+            time_stamp=time_stamp,
         )
 
         get_collection_items_collections_dataset_id_items_get_ogc_feature_items_response.additional_properties = d

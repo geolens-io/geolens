@@ -18,30 +18,30 @@ class SSEToolResultEvent:
     """Progress payload emitted when an AI tool finishes.
 
     Attributes:
-        success (bool):
-        tool (str):
         type_ (Literal['tool_result']):
+        tool (str):
+        success (bool):
     """
 
-    success: bool
-    tool: str
     type_: Literal["tool_result"]
+    tool: str
+    success: bool
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        success = self.success
+        type_ = self.type_
 
         tool = self.tool
 
-        type_ = self.type_
+        success = self.success
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "success": success,
-                "tool": tool,
                 "type": type_,
+                "tool": tool,
+                "success": success,
             }
         )
 
@@ -50,18 +50,18 @@ class SSEToolResultEvent:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        success = d.pop("success")
-
-        tool = d.pop("tool")
-
         type_ = cast(Literal["tool_result"], d.pop("type"))
         if type_ != "tool_result":
             raise ValueError(f"type must match const 'tool_result', got '{type_}'")
 
+        tool = d.pop("tool")
+
+        success = d.pop("success")
+
         sse_tool_result_event = cls(
-            success=success,
-            tool=tool,
             type_=type_,
+            tool=tool,
+            success=success,
         )
 
         sse_tool_result_event.additional_properties = d

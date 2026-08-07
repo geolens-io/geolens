@@ -19,50 +19,50 @@ T = TypeVar("T", bound="CreateLayerResponse")
 class CreateLayerResponse:
     """
     Attributes:
-        created_at (datetime.datetime): Creation timestamp
-        feature_count (int): Number of features (0 for new layers)
-        geometry_type (str): OGC geometry type
         id (UUID): Dataset ID of the created layer
-        table_name (str): PostGIS table name in the data schema
         title (str): Display name
+        table_name (str): PostGIS table name in the data schema
+        geometry_type (str): OGC geometry type
+        feature_count (int): Number of features (0 for new layers)
         visibility (str): Visibility level: private, internal, or public
+        created_at (datetime.datetime): Creation timestamp
     """
 
-    created_at: datetime.datetime
-    feature_count: int
-    geometry_type: str
     id: UUID
-    table_name: str
     title: str
+    table_name: str
+    geometry_type: str
+    feature_count: int
     visibility: str
+    created_at: datetime.datetime
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        created_at = self.created_at.isoformat()
-
-        feature_count = self.feature_count
-
-        geometry_type = self.geometry_type
-
         id = str(self.id)
-
-        table_name = self.table_name
 
         title = self.title
 
+        table_name = self.table_name
+
+        geometry_type = self.geometry_type
+
+        feature_count = self.feature_count
+
         visibility = self.visibility
+
+        created_at = self.created_at.isoformat()
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "created_at": created_at,
-                "feature_count": feature_count,
-                "geometry_type": geometry_type,
                 "id": id,
-                "table_name": table_name,
                 "title": title,
+                "table_name": table_name,
+                "geometry_type": geometry_type,
+                "feature_count": feature_count,
                 "visibility": visibility,
+                "created_at": created_at,
             }
         )
 
@@ -71,28 +71,28 @@ class CreateLayerResponse:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        created_at = isoparse(d.pop("created_at"))
-
-        feature_count = d.pop("feature_count")
-
-        geometry_type = d.pop("geometry_type")
-
         id = UUID(d.pop("id"))
-
-        table_name = d.pop("table_name")
 
         title = d.pop("title")
 
+        table_name = d.pop("table_name")
+
+        geometry_type = d.pop("geometry_type")
+
+        feature_count = d.pop("feature_count")
+
         visibility = d.pop("visibility")
 
+        created_at = isoparse(d.pop("created_at"))
+
         create_layer_response = cls(
-            created_at=created_at,
-            feature_count=feature_count,
-            geometry_type=geometry_type,
             id=id,
-            table_name=table_name,
             title=title,
+            table_name=table_name,
+            geometry_type=geometry_type,
+            feature_count=feature_count,
             visibility=visibility,
+            created_at=created_at,
         )
 
         create_layer_response.additional_properties = d

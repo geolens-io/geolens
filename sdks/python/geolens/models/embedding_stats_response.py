@@ -14,35 +14,35 @@ T = TypeVar("T", bound="EmbeddingStatsResponse")
 class EmbeddingStatsResponse:
     """
     Attributes:
-        coverage_percent (float): Embedding coverage as a percentage (0-100).
+        total_records (int): Total number of records in the catalog.
         embedded_records (int): Number of records that have an embedding stored.
         missing_records (int): Number of records still missing embeddings.
-        total_records (int): Total number of records in the catalog.
+        coverage_percent (float): Embedding coverage as a percentage (0-100).
     """
 
-    coverage_percent: float
+    total_records: int
     embedded_records: int
     missing_records: int
-    total_records: int
+    coverage_percent: float
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        coverage_percent = self.coverage_percent
+        total_records = self.total_records
 
         embedded_records = self.embedded_records
 
         missing_records = self.missing_records
 
-        total_records = self.total_records
+        coverage_percent = self.coverage_percent
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "coverage_percent": coverage_percent,
+                "total_records": total_records,
                 "embedded_records": embedded_records,
                 "missing_records": missing_records,
-                "total_records": total_records,
+                "coverage_percent": coverage_percent,
             }
         )
 
@@ -51,19 +51,19 @@ class EmbeddingStatsResponse:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        coverage_percent = d.pop("coverage_percent")
+        total_records = d.pop("total_records")
 
         embedded_records = d.pop("embedded_records")
 
         missing_records = d.pop("missing_records")
 
-        total_records = d.pop("total_records")
+        coverage_percent = d.pop("coverage_percent")
 
         embedding_stats_response = cls(
-            coverage_percent=coverage_percent,
+            total_records=total_records,
             embedded_records=embedded_records,
             missing_records=missing_records,
-            total_records=total_records,
+            coverage_percent=coverage_percent,
         )
 
         embedding_stats_response.additional_properties = d

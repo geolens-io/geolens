@@ -20,6 +20,7 @@ T = TypeVar("T", bound="MercatorClipWarning")
 class MercatorClipWarning:
     """
     Attributes:
+        kind (Literal['mercator_clip']):
         details (MercatorClipDetail): fix(#888): how much geometry the Web Mercator clamp destroyed.
 
             The clamp is a box, not a latitude cutoff: longitude -180 to 180 and
@@ -30,23 +31,22 @@ class MercatorClipWarning:
             ``dropped_features`` lost their geometry entirely (a valid point at lat
             -89.95 becomes ``MULTIPOINT EMPTY``); ``clipped_features`` survived in
             reduced form.
-        kind (Literal['mercator_clip']):
     """
 
-    details: MercatorClipDetail
     kind: Literal["mercator_clip"]
+    details: MercatorClipDetail
 
     def to_dict(self) -> dict[str, Any]:
-        details = self.details.to_dict()
-
         kind = self.kind
+
+        details = self.details.to_dict()
 
         field_dict: dict[str, Any] = {}
 
         field_dict.update(
             {
-                "details": details,
                 "kind": kind,
+                "details": details,
             }
         )
 
@@ -57,15 +57,15 @@ class MercatorClipWarning:
         from ..models.mercator_clip_detail import MercatorClipDetail
 
         d = dict(src_dict)
-        details = MercatorClipDetail.from_dict(d.pop("details"))
-
         kind = cast(Literal["mercator_clip"], d.pop("kind"))
         if kind != "mercator_clip":
             raise ValueError(f"kind must match const 'mercator_clip', got '{kind}'")
 
+        details = MercatorClipDetail.from_dict(d.pop("details"))
+
         mercator_clip_warning = cls(
-            details=details,
             kind=kind,
+            details=details,
         )
 
         return mercator_clip_warning

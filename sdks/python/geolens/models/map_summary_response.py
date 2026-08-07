@@ -23,51 +23,51 @@ T = TypeVar("T", bound="MapSummaryResponse")
 class MapSummaryResponse:
     """
     Attributes:
-        created_at (datetime.datetime):
-        description (None | str):
         id (UUID):
-        layer_count (int):
         name (str):
-        updated_at (datetime.datetime):
+        description (None | str):
         visibility (MapVisibility):
-        created_by_username (None | str | Unset):
-        thumbnail_updated_at (datetime.datetime | None | Unset):
+        layer_count (int):
+        created_at (datetime.datetime):
+        updated_at (datetime.datetime):
         thumbnail_url (None | str | Unset):
+        thumbnail_updated_at (datetime.datetime | None | Unset):
+        created_by_username (None | str | Unset):
     """
 
-    created_at: datetime.datetime
-    description: None | str
     id: UUID
-    layer_count: int
     name: str
-    updated_at: datetime.datetime
+    description: None | str
     visibility: MapVisibility
-    created_by_username: None | str | Unset = UNSET
-    thumbnail_updated_at: datetime.datetime | None | Unset = UNSET
+    layer_count: int
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
     thumbnail_url: None | str | Unset = UNSET
+    thumbnail_updated_at: datetime.datetime | None | Unset = UNSET
+    created_by_username: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        created_at = self.created_at.isoformat()
+        id = str(self.id)
+
+        name = self.name
 
         description: None | str
         description = self.description
 
-        id = str(self.id)
+        visibility: str = self.visibility
 
         layer_count = self.layer_count
 
-        name = self.name
+        created_at = self.created_at.isoformat()
 
         updated_at = self.updated_at.isoformat()
 
-        visibility: str = self.visibility
-
-        created_by_username: None | str | Unset
-        if isinstance(self.created_by_username, Unset):
-            created_by_username = UNSET
+        thumbnail_url: None | str | Unset
+        if isinstance(self.thumbnail_url, Unset):
+            thumbnail_url = UNSET
         else:
-            created_by_username = self.created_by_username
+            thumbnail_url = self.thumbnail_url
 
         thumbnail_updated_at: None | str | Unset
         if isinstance(self.thumbnail_updated_at, Unset):
@@ -77,38 +77,40 @@ class MapSummaryResponse:
         else:
             thumbnail_updated_at = self.thumbnail_updated_at
 
-        thumbnail_url: None | str | Unset
-        if isinstance(self.thumbnail_url, Unset):
-            thumbnail_url = UNSET
+        created_by_username: None | str | Unset
+        if isinstance(self.created_by_username, Unset):
+            created_by_username = UNSET
         else:
-            thumbnail_url = self.thumbnail_url
+            created_by_username = self.created_by_username
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "created_at": created_at,
-                "description": description,
                 "id": id,
-                "layer_count": layer_count,
                 "name": name,
-                "updated_at": updated_at,
+                "description": description,
                 "visibility": visibility,
+                "layer_count": layer_count,
+                "created_at": created_at,
+                "updated_at": updated_at,
             }
         )
-        if created_by_username is not UNSET:
-            field_dict["created_by_username"] = created_by_username
-        if thumbnail_updated_at is not UNSET:
-            field_dict["thumbnail_updated_at"] = thumbnail_updated_at
         if thumbnail_url is not UNSET:
             field_dict["thumbnail_url"] = thumbnail_url
+        if thumbnail_updated_at is not UNSET:
+            field_dict["thumbnail_updated_at"] = thumbnail_updated_at
+        if created_by_username is not UNSET:
+            field_dict["created_by_username"] = created_by_username
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        created_at = isoparse(d.pop("created_at"))
+        id = UUID(d.pop("id"))
+
+        name = d.pop("name")
 
         def _parse_description(data: object) -> None | str:
             if data is None:
@@ -117,26 +119,22 @@ class MapSummaryResponse:
 
         description = _parse_description(d.pop("description"))
 
-        id = UUID(d.pop("id"))
+        visibility = check_map_visibility(d.pop("visibility"))
 
         layer_count = d.pop("layer_count")
 
-        name = d.pop("name")
+        created_at = isoparse(d.pop("created_at"))
 
         updated_at = isoparse(d.pop("updated_at"))
 
-        visibility = check_map_visibility(d.pop("visibility"))
-
-        def _parse_created_by_username(data: object) -> None | str | Unset:
+        def _parse_thumbnail_url(data: object) -> None | str | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
                 return data
             return cast(None | str | Unset, data)
 
-        created_by_username = _parse_created_by_username(
-            d.pop("created_by_username", UNSET)
-        )
+        thumbnail_url = _parse_thumbnail_url(d.pop("thumbnail_url", UNSET))
 
         def _parse_thumbnail_updated_at(
             data: object,
@@ -159,26 +157,28 @@ class MapSummaryResponse:
             d.pop("thumbnail_updated_at", UNSET)
         )
 
-        def _parse_thumbnail_url(data: object) -> None | str | Unset:
+        def _parse_created_by_username(data: object) -> None | str | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
                 return data
             return cast(None | str | Unset, data)
 
-        thumbnail_url = _parse_thumbnail_url(d.pop("thumbnail_url", UNSET))
+        created_by_username = _parse_created_by_username(
+            d.pop("created_by_username", UNSET)
+        )
 
         map_summary_response = cls(
-            created_at=created_at,
-            description=description,
             id=id,
-            layer_count=layer_count,
             name=name,
-            updated_at=updated_at,
+            description=description,
             visibility=visibility,
-            created_by_username=created_by_username,
-            thumbnail_updated_at=thumbnail_updated_at,
+            layer_count=layer_count,
+            created_at=created_at,
+            updated_at=updated_at,
             thumbnail_url=thumbnail_url,
+            thumbnail_updated_at=thumbnail_updated_at,
+            created_by_username=created_by_username,
         )
 
         map_summary_response.additional_properties = d

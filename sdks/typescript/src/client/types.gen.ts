@@ -34,12 +34,6 @@ export type AiProbeCheck = {
      */
     configured: boolean;
     /**
-     * Error
-     *
-     * Short sanitized failure reason. Never contains the key or raw provider error bodies.
-     */
-    error?: string | null;
-    /**
      * Ok
      *
      * Whether the live provider call succeeded. None when not configured (no call was made).
@@ -51,6 +45,12 @@ export type AiProbeCheck = {
      * HTTP status returned by the provider on failure, when available.
      */
     status?: number | null;
+    /**
+     * Error
+     *
+     * Short sanitized failure reason. Never contains the key or raw provider error bodies.
+     */
+    error?: string | null;
 };
 
 /**
@@ -68,23 +68,11 @@ export type AiProbeReport = {
  */
 export type AiStatusResponse = {
     /**
-     * Configured
+     * Provider
      *
-     * Whether an API key is configured. AI features require both 'enabled' and 'configured'.
+     * Active AI provider name (e.g. 'anthropic', 'openai').
      */
-    configured: boolean;
-    /**
-     * Enabled
-     *
-     * Whether AI features are enabled for this instance.
-     */
-    enabled: boolean;
-    /**
-     * Has Embeddings
-     *
-     * Whether at least one record has embeddings stored.
-     */
-    has_embeddings?: boolean;
+    provider: string | null;
     /**
      * Model
      *
@@ -92,21 +80,33 @@ export type AiStatusResponse = {
      */
     model: string | null;
     /**
-     * Live provider probe results. Only present when the request opted in via ?probe=true.
-     */
-    probe?: AiProbeReport | null;
-    /**
-     * Provider
+     * Enabled
      *
-     * Active AI provider name (e.g. 'anthropic', 'openai').
+     * Whether AI features are enabled for this instance.
      */
-    provider: string | null;
+    enabled: boolean;
+    /**
+     * Configured
+     *
+     * Whether an API key is configured. AI features require both 'enabled' and 'configured'.
+     */
+    configured: boolean;
     /**
      * Semantic Search Enabled
      *
      * Whether pgvector-backed semantic search is enabled.
      */
     semantic_search_enabled?: boolean;
+    /**
+     * Has Embeddings
+     *
+     * Whether at least one record has embeddings stored.
+     */
+    has_embeddings?: boolean;
+    /**
+     * Live provider probe results. Only present when the request opted in via ?probe=true.
+     */
+    probe?: AiProbeReport | null;
 };
 
 /**
@@ -143,11 +143,11 @@ export type AddDatasetsResponse = {
  */
 export type AdminApiKeyCreateRequest = {
     /**
-     * Expires At
+     * User Id
      *
-     * Optional expiry timestamp (RFC 3339, timezone-aware). Omit or null for a non-expiring key; expired keys stop authenticating.
+     * ID of the user the new API key will belong to.
      */
-    expires_at?: string | null;
+    user_id: string;
     /**
      * Name
      *
@@ -155,17 +155,17 @@ export type AdminApiKeyCreateRequest = {
      */
     name: string;
     /**
+     * Expires At
+     *
+     * Optional expiry timestamp (RFC 3339, timezone-aware). Omit or null for a non-expiring key; expired keys stop authenticating.
+     */
+    expires_at?: string | null;
+    /**
      * Scope
      *
      * Privilege scope (#875). 'full' impersonates the owner completely, the pre-existing behavior. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. A service-account key minted for an application is the usual case for 'read_only'.
      */
     scope?: 'full' | 'read_only';
-    /**
-     * User Id
-     *
-     * ID of the user the new API key will belong to.
-     */
-    user_id: string;
 };
 
 /**
@@ -173,41 +173,17 @@ export type AdminApiKeyCreateRequest = {
  */
 export type AdminApiKeyListItem = {
     /**
-     * Created At
-     *
-     * Timestamp when the key was created.
-     */
-    created_at: string;
-    /**
-     * Expires At
-     *
-     * Expiry timestamp; null means the key does not expire.
-     */
-    expires_at?: string | null;
-    /**
-     * Fingerprint
-     *
-     * Non-secret key identifier; null for legacy keys.
-     */
-    fingerprint: string | null;
-    /**
      * Id
      *
      * Unique API key identifier.
      */
     id: string;
     /**
-     * Is Active
+     * User Id
      *
-     * Whether the key is active. Inactive keys cannot authenticate.
+     * Owning user's ID.
      */
-    is_active: boolean;
-    /**
-     * Last Used At
-     *
-     * Timestamp of the most recent successful authentication using this key.
-     */
-    last_used_at: string | null;
+    user_id: string;
     /**
      * Name
      *
@@ -215,17 +191,41 @@ export type AdminApiKeyListItem = {
      */
     name: string;
     /**
+     * Fingerprint
+     *
+     * Non-secret key identifier; null for legacy keys.
+     */
+    fingerprint: string | null;
+    /**
+     * Is Active
+     *
+     * Whether the key is active. Inactive keys cannot authenticate.
+     */
+    is_active: boolean;
+    /**
+     * Expires At
+     *
+     * Expiry timestamp; null means the key does not expire.
+     */
+    expires_at?: string | null;
+    /**
      * Scope
      *
      * Privilege scope: 'full' or 'read_only' (#875).
      */
     scope: string;
     /**
-     * User Id
+     * Created At
      *
-     * Owning user's ID.
+     * Timestamp when the key was created.
      */
-    user_id: string;
+    created_at: string;
+    /**
+     * Last Used At
+     *
+     * Timestamp of the most recent successful authentication using this key.
+     */
+    last_used_at: string | null;
 };
 
 /**
@@ -265,57 +265,57 @@ export type AdminEmbedTokenListResponse = {
  */
 export type AdminEmbedTokenResponse = {
     /**
-     * Allowed Origins
-     */
-    allowed_origins?: Array<string> | null;
-    /**
-     * Created At
-     */
-    created_at: string;
-    /**
-     * Creator Username
-     */
-    creator_username?: string | null;
-    /**
-     * Expires At
-     */
-    expires_at: string;
-    /**
      * Id
      */
     id: string;
-    /**
-     * Is Active
-     */
-    is_active: boolean;
-    /**
-     * Last Used At
-     */
-    last_used_at?: string | null;
     /**
      * Map Id
      */
     map_id: string;
     /**
-     * Map Name
-     */
-    map_name?: string | null;
-    /**
      * Name
      */
     name?: string | null;
-    /**
-     * Scoped Dataset Ids
-     */
-    scoped_dataset_ids: Array<string>;
     /**
      * Token Hint
      */
     token_hint: string;
     /**
+     * Scoped Dataset Ids
+     */
+    scoped_dataset_ids: Array<string>;
+    /**
+     * Allowed Origins
+     */
+    allowed_origins?: Array<string> | null;
+    /**
+     * Expires At
+     */
+    expires_at: string;
+    /**
+     * Is Active
+     */
+    is_active: boolean;
+    /**
      * Use Count
      */
     use_count?: number;
+    /**
+     * Last Used At
+     */
+    last_used_at?: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Map Name
+     */
+    map_name?: string | null;
+    /**
+     * Creator Username
+     */
+    creator_username?: string | null;
 };
 
 /**
@@ -341,29 +341,23 @@ export type AdminJobListResponse = {
  */
 export type AdminJobResponse = {
     /**
-     * Can Retry
+     * Id
      *
-     * Whether the failed job can be retried with its retained source.
+     * Unique ingestion job identifier.
      */
-    can_retry: boolean;
+    id: string;
     /**
-     * Completed At
+     * Status
      *
-     * Timestamp when the job finished (success or failure).
+     * Current job status: 'pending', 'running', 'complete', 'failed', or 'cancelled'.
      */
-    completed_at: string | null;
+    status: 'pending' | 'running' | 'complete' | 'failed' | 'cancelled' | 'fanned_out';
     /**
-     * Created At
+     * Source Filename
      *
-     * Timestamp when the job was queued.
+     * Original filename of the uploaded file, if applicable.
      */
-    created_at: string;
-    /**
-     * Created By
-     *
-     * ID of the user who initiated the job.
-     */
-    created_by: string | null;
+    source_filename: string | null;
     /**
      * Dataset Id
      *
@@ -377,35 +371,17 @@ export type AdminJobResponse = {
      */
     error_message: string | null;
     /**
-     * Id
+     * Can Retry
      *
-     * Unique ingestion job identifier.
+     * Whether the failed job can be retried with its retained source.
      */
-    id: string;
+    can_retry: boolean;
     /**
      * Retry Reason
      *
      * Why the job cannot be retried, when retry is unavailable.
      */
     retry_reason: string | null;
-    /**
-     * Source Filename
-     *
-     * Original filename of the uploaded file, if applicable.
-     */
-    source_filename: string | null;
-    /**
-     * Started At
-     *
-     * Timestamp when the worker began processing the job.
-     */
-    started_at: string | null;
-    /**
-     * Status
-     *
-     * Current job status: 'pending', 'running', 'complete', 'failed', or 'cancelled'.
-     */
-    status: 'pending' | 'running' | 'complete' | 'failed' | 'cancelled' | 'fanned_out';
     /**
      * User Metadata
      *
@@ -415,11 +391,35 @@ export type AdminJobResponse = {
         [key: string]: unknown;
     } | null;
     /**
+     * Created By
+     *
+     * ID of the user who initiated the job.
+     */
+    created_by: string | null;
+    /**
      * Username
      *
      * Username of the user who initiated the job.
      */
     username: string | null;
+    /**
+     * Started At
+     *
+     * Timestamp when the worker began processing the job.
+     */
+    started_at: string | null;
+    /**
+     * Completed At
+     *
+     * Timestamp when the job finished (success or failure).
+     */
+    completed_at: string | null;
+    /**
+     * Created At
+     *
+     * Timestamp when the job was queued.
+     */
+    created_at: string;
 };
 
 /**
@@ -441,29 +441,9 @@ export type AdminShareTokenListResponse = {
  */
 export type AdminShareTokenResponse = {
     /**
-     * Created At
-     */
-    created_at: string;
-    /**
-     * Created By
-     */
-    created_by: string | null;
-    /**
-     * Embed Token Count
-     */
-    embed_token_count?: number;
-    /**
-     * Expires At
-     */
-    expires_at?: string | null;
-    /**
      * Id
      */
     id?: string | null;
-    /**
-     * Is Active
-     */
-    is_active?: boolean | null;
     /**
      * Map Id
      */
@@ -476,6 +456,26 @@ export type AdminShareTokenResponse = {
      * Token
      */
     token?: string | null;
+    /**
+     * Is Active
+     */
+    is_active?: boolean | null;
+    /**
+     * Expires At
+     */
+    expires_at?: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Created By
+     */
+    created_by: string | null;
+    /**
+     * Embed Token Count
+     */
+    embed_token_count?: number;
 };
 
 /**
@@ -483,11 +483,11 @@ export type AdminShareTokenResponse = {
  */
 export type AdminUserCreate = {
     /**
-     * Email
+     * Username
      *
-     * Optional email address. Used for OAuth account linking and notifications.
+     * Login username (3-150 chars). Must be unique across the system.
      */
-    email?: string | null;
+    username: string;
     /**
      * Password
      *
@@ -495,17 +495,17 @@ export type AdminUserCreate = {
      */
     password: string;
     /**
+     * Email
+     *
+     * Optional email address. Used for OAuth account linking and notifications.
+     */
+    email?: string | null;
+    /**
      * Role
      *
      * User role: 'admin', 'editor', or 'viewer'. Defaults to 'viewer'.
      */
     role?: string;
-    /**
-     * Username
-     *
-     * Login username (3-150 chars). Must be unique across the system.
-     */
-    username: string;
 };
 
 /**
@@ -527,29 +527,19 @@ export type AlterColumnTypeRequest = {
  */
 export type AnalysisMaterializeRequest = {
     /**
-     * By Field
-     *
-     * Optional group-by column for dissolve
+     * Operation
      */
-    by_field?: string | null;
+    operation: 'buffer' | 'centroid' | 'clip' | 'dissolve' | 'spatial_join' | 'measure' | 'select_by_location' | 'intersect';
+    /**
+     * Title
+     */
+    title: string;
     /**
      * Distance Meters
      *
      * Buffer distance in meters (buffer only)
      */
     distance_meters?: number | null;
-    /**
-     * Join Dataset Id
-     *
-     * Dataset to join against; each source feature gains a count of the features from it that intersect (spatial_join only)
-     */
-    join_dataset_id?: string | null;
-    /**
-     * Join Fields
-     *
-     * Columns to copy from the intersecting join feature, prefixed 'join_' in the output. Ties break on the lowest join-layer gid (spatial_join only)
-     */
-    join_fields?: Array<string> | null;
     /**
      * Mask
      *
@@ -565,13 +555,23 @@ export type AnalysisMaterializeRequest = {
      */
     mask_dataset_id?: string | null;
     /**
-     * Operation
+     * By Field
+     *
+     * Optional group-by column for dissolve
      */
-    operation: 'buffer' | 'centroid' | 'clip' | 'dissolve' | 'spatial_join' | 'measure' | 'select_by_location' | 'intersect';
+    by_field?: string | null;
     /**
-     * Title
+     * Join Dataset Id
+     *
+     * Dataset to join against; each source feature gains a count of the features from it that intersect (spatial_join only)
      */
-    title: string;
+    join_dataset_id?: string | null;
+    /**
+     * Join Fields
+     *
+     * Columns to copy from the intersecting join feature, prefixed 'join_' in the output. Ties break on the lowest join-layer gid (spatial_join only)
+     */
+    join_fields?: Array<string> | null;
 };
 
 /**
@@ -600,29 +600,15 @@ export type AnalysisMaterializeResponse = {
  */
 export type AnalysisPreviewRequest = {
     /**
-     * Bbox
-     *
-     * [minx, miny, maxx, maxy] in EPSG:4326, typically the map's current viewport. When present, only source features intersecting the envelope are considered before the preview's row cap applies, so a capped result reflects what is on screen rather than an arbitrary sample in ingest order (fix(#727)). Applies to every operation, not just one, so it is deliberately absent from _ANALYSIS_PARAM_OWNERS — omit it to preview the whole dataset, unchanged from before this field existed.
+     * Operation
      */
-    bbox?: Array<number> | null;
+    operation: 'buffer' | 'centroid' | 'clip' | 'spatial_join' | 'measure' | 'select_by_location' | 'intersect';
     /**
      * Distance Meters
      *
      * Buffer distance in meters (buffer only)
      */
     distance_meters?: number | null;
-    /**
-     * Join Dataset Id
-     *
-     * Dataset to join against; each source feature gains a count of the features from it that intersect (spatial_join only)
-     */
-    join_dataset_id?: string | null;
-    /**
-     * Join Fields
-     *
-     * Columns to copy from the intersecting join feature, prefixed 'join_' in the output. Ties break on the lowest join-layer gid (spatial_join only)
-     */
-    join_fields?: Array<string> | null;
     /**
      * Mask
      *
@@ -638,9 +624,23 @@ export type AnalysisPreviewRequest = {
      */
     mask_dataset_id?: string | null;
     /**
-     * Operation
+     * Join Dataset Id
+     *
+     * Dataset to join against; each source feature gains a count of the features from it that intersect (spatial_join only)
      */
-    operation: 'buffer' | 'centroid' | 'clip' | 'spatial_join' | 'measure' | 'select_by_location' | 'intersect';
+    join_dataset_id?: string | null;
+    /**
+     * Join Fields
+     *
+     * Columns to copy from the intersecting join feature, prefixed 'join_' in the output. Ties break on the lowest join-layer gid (spatial_join only)
+     */
+    join_fields?: Array<string> | null;
+    /**
+     * Bbox
+     *
+     * [minx, miny, maxx, maxy] in EPSG:4326, typically the map's current viewport. When present, only source features intersecting the envelope are considered before the preview's row cap applies, so a capped result reflects what is on screen rather than an arbitrary sample in ingest order (fix(#727)). Applies to every operation, not just one, so it is deliberately absent from _ANALYSIS_PARAM_OWNERS — omit it to preview the whole dataset, unchanged from before this field existed.
+     */
+    bbox?: Array<number> | null;
 };
 
 /**
@@ -650,25 +650,23 @@ export type AnalysisPreviewRequest = {
  */
 export type AnalysisPreviewResponse = {
     /**
-     * Bbox
-     */
-    bbox?: Array<number> | null;
-    /**
-     * Feature Count
-     */
-    feature_count: number;
-    /**
      * Geojson
      */
     geojson: {
         [key: string]: unknown;
     };
     /**
-     * Match Count
-     *
-     * Exact total across the WHOLE source, not just the previewed features — WHOLE meaning the request's bbox when one was sent, the same sense source_feature_count uses that word. What it counts is per-operation, so read it against the operation you sent rather than as one number: select_by_location gives the selected source features and intersect gives the output pieces, and for both of those it IS the output total; spatial_join gives intersecting source/join PAIRS, which is NOT the output total, because the join keeps every source row (use source_feature_count for that operation). intersect and spatial_join both scope this total to a bbox on the request; select_by_location's count is a separate uncapped query the request's bbox does not reach, so it stays unscoped even though its preview rows are viewport-limited too. Null for operations that report no such total, and when the count could not be computed within the query budget
+     * Feature Count
      */
-    match_count?: number | null;
+    feature_count: number;
+    /**
+     * Truncated
+     */
+    truncated: boolean;
+    /**
+     * Bbox
+     */
+    bbox?: Array<number> | null;
     /**
      * Source Feature Count
      *
@@ -676,9 +674,11 @@ export type AnalysisPreviewResponse = {
      */
     source_feature_count?: number | null;
     /**
-     * Truncated
+     * Match Count
+     *
+     * Exact total across the WHOLE source, not just the previewed features — WHOLE meaning the request's bbox when one was sent, the same sense source_feature_count uses that word. What it counts is per-operation, so read it against the operation you sent rather than as one number: select_by_location gives the selected source features and intersect gives the output pieces, and for both of those it IS the output total; spatial_join gives intersecting source/join PAIRS, which is NOT the output total, because the join keeps every source row (use source_feature_count for that operation). intersect and spatial_join both scope this total to a bbox on the request; select_by_location's count is a separate uncapped query the request's bbox does not reach, so it stays unscoped even though its preview rows are viewport-limited too. Null for operations that report no such total, and when the count could not be computed within the query budget
      */
-    truncated: boolean;
+    match_count?: number | null;
 };
 
 /**
@@ -686,17 +686,17 @@ export type AnalysisPreviewResponse = {
  */
 export type ApiKeyCreateRequest = {
     /**
-     * Expires At
-     *
-     * Optional expiry timestamp (RFC 3339, timezone-aware). Omit or null for a non-expiring key; expired keys stop authenticating.
-     */
-    expires_at?: string | null;
-    /**
      * Name
      *
      * Human-readable label for the API key
      */
     name: string;
+    /**
+     * Expires At
+     *
+     * Optional expiry timestamp (RFC 3339, timezone-aware). Omit or null for a non-expiring key; expired keys stop authenticating.
+     */
+    expires_at?: string | null;
     /**
      * Scope
      *
@@ -710,22 +710,6 @@ export type ApiKeyCreateRequest = {
  */
 export type ApiKeyCreateResponse = {
     /**
-     * Created At
-     */
-    created_at: string;
-    /**
-     * Expires At
-     *
-     * Expiry timestamp; null means the key does not expire
-     */
-    expires_at?: string | null;
-    /**
-     * Fingerprint
-     *
-     * Non-secret key identifier (prefix and last four characters)
-     */
-    fingerprint: string;
-    /**
      * Id
      */
     id: string;
@@ -736,25 +720,15 @@ export type ApiKeyCreateResponse = {
      */
     key: string;
     /**
+     * Fingerprint
+     *
+     * Non-secret key identifier (prefix and last four characters)
+     */
+    fingerprint: string;
+    /**
      * Name
      */
     name: string;
-    /**
-     * Scope
-     *
-     * Privilege scope: 'full' or 'read_only' (#875)
-     */
-    scope: string;
-};
-
-/**
- * ApiKeyListItem
- */
-export type ApiKeyListItem = {
-    /**
-     * Created At
-     */
-    created_at: string;
     /**
      * Expires At
      *
@@ -762,33 +736,59 @@ export type ApiKeyListItem = {
      */
     expires_at?: string | null;
     /**
+     * Scope
+     *
+     * Privilege scope: 'full' or 'read_only' (#875)
+     */
+    scope: string;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
+ * ApiKeyListItem
+ */
+export type ApiKeyListItem = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
      * Fingerprint
      *
      * Non-secret key identifier; null for keys created before fingerprint support
      */
     fingerprint: string | null;
     /**
-     * Id
-     */
-    id: string;
-    /**
      * Is Active
      */
     is_active: boolean;
     /**
-     * Last Used At
+     * Expires At
+     *
+     * Expiry timestamp; null means the key does not expire
      */
-    last_used_at: string | null;
-    /**
-     * Name
-     */
-    name: string;
+    expires_at?: string | null;
     /**
      * Scope
      *
      * Privilege scope: 'full' or 'read_only' (#875)
      */
     scope: string;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Last Used At
+     */
+    last_used_at: string | null;
 };
 
 /**
@@ -856,51 +856,37 @@ export type AttributeMetadataListResponse = {
  */
 export type AttributeMetadataResponse = {
     /**
-     * Data Type
+     * Id
      */
-    data_type: string | null;
+    id: string;
     /**
      * Dataset Id
      */
     dataset_id: string;
     /**
-     * Description
-     */
-    description: string | null;
-    /**
-     * Domain Type
-     */
-    domain_type: string | null;
-    /**
-     * Example Values
-     *
-     * Sample values from the column
-     */
-    example_values?: Array<unknown> | null;
-    /**
      * Field Name
      */
     field_name: string;
     /**
-     * Id
+     * Title
      */
-    id: string;
+    title: string | null;
     /**
-     * Is Current
-     *
-     * False if column was removed in a later version
+     * Description
      */
-    is_current: boolean;
+    description: string | null;
     /**
-     * Is Nullable
+     * Data Type
      */
-    is_nullable?: boolean | null;
+    data_type: string | null;
     /**
-     * Ordinal Position
-     *
-     * Column position in the table (1-based)
+     * Units
      */
-    ordinal_position?: number | null;
+    units: string | null;
+    /**
+     * Domain Type
+     */
+    domain_type: string | null;
     /**
      * Semantic Role
      *
@@ -908,13 +894,27 @@ export type AttributeMetadataResponse = {
      */
     semantic_role?: string | null;
     /**
-     * Title
+     * Example Values
+     *
+     * Sample values from the column
      */
-    title: string | null;
+    example_values?: Array<unknown> | null;
     /**
-     * Units
+     * Ordinal Position
+     *
+     * Column position in the table (1-based)
      */
-    units: string | null;
+    ordinal_position?: number | null;
+    /**
+     * Is Nullable
+     */
+    is_nullable?: boolean | null;
+    /**
+     * Is Current
+     *
+     * False if column was removed in a later version
+     */
+    is_current: boolean;
     /**
      * User Modified Fields
      *
@@ -928,15 +928,21 @@ export type AttributeMetadataResponse = {
  */
 export type AttributeMetadataUpdate = {
     /**
+     * Title
+     *
+     * Human-friendly column display name
+     */
+    title?: string | null;
+    /**
      * Description
      */
     description?: string | null;
     /**
-     * Domain Type
+     * Units
      *
-     * Value domain: continuous, categorical, coded, etc.
+     * Measurement units, e.g. meters, kg
      */
-    domain_type?: 'continuous' | 'discrete' | 'categorical' | 'coded' | 'codedValue' | 'boolean' | 'text' | 'date' | 'temporal' | 'geometry' | 'range' | null;
+    units?: string | null;
     /**
      * Semantic Role
      *
@@ -944,17 +950,11 @@ export type AttributeMetadataUpdate = {
      */
     semantic_role?: 'geometry' | 'identifier' | 'measure' | 'temporal' | 'categorical' | 'category' | 'label' | 'foreign_key' | 'other' | null;
     /**
-     * Title
+     * Domain Type
      *
-     * Human-friendly column display name
+     * Value domain: continuous, categorical, coded, etc.
      */
-    title?: string | null;
-    /**
-     * Units
-     *
-     * Measurement units, e.g. meters, kg
-     */
-    units?: string | null;
+    domain_type?: 'continuous' | 'discrete' | 'categorical' | 'coded' | 'codedValue' | 'boolean' | 'text' | 'date' | 'temporal' | 'geometry' | 'range' | null;
 };
 
 /**
@@ -976,27 +976,25 @@ export type AuditLogListResponse = {
  */
 export type AuditLogResponse = {
     /**
-     * Action
-     */
-    action: string;
-    /**
-     * Created At
-     */
-    created_at: string;
-    /**
-     * Details
-     */
-    details: {
-        [key: string]: unknown;
-    } | null;
-    /**
      * Id
      */
     id: string;
     /**
-     * Ip Address
+     * User Id
      */
-    ip_address: string | null;
+    user_id: string | null;
+    /**
+     * Username
+     */
+    username?: string | null;
+    /**
+     * Action
+     */
+    action: string;
+    /**
+     * Resource Type
+     */
+    resource_type: string;
     /**
      * Resource Id
      */
@@ -1006,17 +1004,19 @@ export type AuditLogResponse = {
      */
     resource_name?: string | null;
     /**
-     * Resource Type
+     * Details
      */
-    resource_type: string;
+    details: {
+        [key: string]: unknown;
+    } | null;
     /**
-     * User Id
+     * Ip Address
      */
-    user_id: string | null;
+    ip_address: string | null;
     /**
-     * Username
+     * Created At
      */
-    username?: string | null;
+    created_at: string;
 };
 
 /**
@@ -1024,29 +1024,29 @@ export type AuditLogResponse = {
  */
 export type BackfillResponse = {
     /**
-     * Created
-     *
-     * Number of new embeddings created.
-     */
-    created: number;
-    /**
-     * Errors
-     *
-     * Number of records that failed during embedding generation.
-     */
-    errors: number;
-    /**
      * Processed
      *
      * Number of records processed in this backfill batch.
      */
     processed: number;
     /**
+     * Created
+     *
+     * Number of new embeddings created.
+     */
+    created: number;
+    /**
      * Skipped
      *
      * Number of records skipped because an embedding already existed.
      */
     skipped: number;
+    /**
+     * Errors
+     *
+     * Number of records that failed during embedding generation.
+     */
+    errors: number;
 };
 
 /**
@@ -1054,15 +1054,13 @@ export type BackfillResponse = {
  */
 export type BasemapConfig = {
     /**
-     * Background Color
-     *
-     * Map canvas background color in #RRGGBB hex format, or null to use the basemap default.
+     * Basemap label prominence.
      */
-    background_color?: string | null;
+    label_mode?: BasemapLabelMode;
     /**
-     * Whether the basemap renders above ('top') or below ('bottom', default) the data layers. null/undefined loads as 'bottom' on the client. Phase 1051 UX-03 (jsonb-additive, no migration).
+     * Road and transit sublayer visibility where supported.
      */
-    basemap_position?: BasemapPosition | null;
+    road_visibility?: BasemapSublayerVisibility;
     /**
      * Administrative boundary sublayer visibility where supported.
      */
@@ -1074,13 +1072,13 @@ export type BasemapConfig = {
      */
     building_visibility?: boolean;
     /**
-     * Basemap label prominence.
-     */
-    label_mode?: BasemapLabelMode;
-    /**
      * Land and water color treatment where supported.
      */
     land_water_tone?: BasemapLandWaterTone;
+    /**
+     * Optional contrast hint for relief-oriented basemap styling.
+     */
+    relief_contrast?: BasemapReliefContrast | null;
     /**
      * Opacity
      *
@@ -1088,17 +1086,11 @@ export type BasemapConfig = {
      */
     opacity?: number;
     /**
-     * Map projection: 'mercator' (default) or experimental 'globe'. null/undefined loads as 'mercator' on the client.
+     * Background Color
+     *
+     * Map canvas background color in #RRGGBB hex format, or null to use the basemap default.
      */
-    projection?: BasemapProjection | null;
-    /**
-     * Optional contrast hint for relief-oriented basemap styling.
-     */
-    relief_contrast?: BasemapReliefContrast | null;
-    /**
-     * Road and transit sublayer visibility where supported.
-     */
-    road_visibility?: BasemapSublayerVisibility;
+    background_color?: string | null;
     /**
      * Sublayer Overrides
      *
@@ -1107,6 +1099,14 @@ export type BasemapConfig = {
     sublayer_overrides?: {
         [key: string]: SublayerOverride;
     } | null;
+    /**
+     * Whether the basemap renders above ('top') or below ('bottom', default) the data layers. null/undefined loads as 'bottom' on the client. Phase 1051 UX-03 (jsonb-additive, no migration).
+     */
+    basemap_position?: BasemapPosition | null;
+    /**
+     * Map projection: 'mercator' (default) or experimental 'globe'. null/undefined loads as 'mercator' on the client.
+     */
+    projection?: BasemapProjection | null;
 };
 
 /**
@@ -1140,29 +1140,11 @@ export type BasemapProjection = 'mercator' | 'globe';
  */
 export type BasemapPublicResponse = {
     /**
-     * Attribution
-     *
-     * Attribution string for the basemap source.
-     */
-    attribution?: string | null;
-    /**
-     * Enabled
-     *
-     * Whether the basemap is currently selectable.
-     */
-    enabled: boolean;
-    /**
      * Id
      *
      * Unique basemap identifier.
      */
     id: string;
-    /**
-     * Is Preset
-     *
-     * Whether this is a built-in preset.
-     */
-    is_preset: boolean;
     /**
      * Label
      *
@@ -1175,6 +1157,24 @@ export type BasemapPublicResponse = {
      * Tile URL or style JSON URL with API key already substituted (or omitted) for client use.
      */
     url: string;
+    /**
+     * Enabled
+     *
+     * Whether the basemap is currently selectable.
+     */
+    enabled: boolean;
+    /**
+     * Is Preset
+     *
+     * Whether this is a built-in preset.
+     */
+    is_preset: boolean;
+    /**
+     * Attribution
+     *
+     * Attribution string for the basemap source.
+     */
+    attribution?: string | null;
 };
 
 /**
@@ -1192,17 +1192,13 @@ export type BasemapSublayerVisibility = 'full' | 'subtle' | 'hidden';
  */
 export type BodyLoginAuthLoginPost = {
     /**
-     * Client Id
-     */
-    client_id?: string | null;
-    /**
-     * Client Secret
-     */
-    client_secret?: string | null;
-    /**
      * Grant Type
      */
     grant_type?: string | null;
+    /**
+     * Username
+     */
+    username: string;
     /**
      * Password
      */
@@ -1212,9 +1208,13 @@ export type BodyLoginAuthLoginPost = {
      */
     scope?: string;
     /**
-     * Username
+     * Client Id
      */
-    username: string;
+    client_id?: string | null;
+    /**
+     * Client Secret
+     */
+    client_secret?: string | null;
 };
 
 /**
@@ -1266,13 +1266,13 @@ export type BrandingResponse = {
  */
 export type BulkDeleteItem = {
     /**
-     * Confirm Title
-     */
-    confirm_title: string;
-    /**
      * Dataset Id
      */
     dataset_id: string;
+    /**
+     * Confirm Title
+     */
+    confirm_title: string;
 };
 
 /**
@@ -1360,25 +1360,19 @@ export type BulkDeleteResultItem = {
      */
     dataset_id: string;
     /**
-     * Detail
-     */
-    detail?: string | null;
-    /**
      * Status
      */
     status: string;
+    /**
+     * Detail
+     */
+    detail?: string | null;
 };
 
 /**
  * BulkRegisterItem
  */
 export type BulkRegisterItem = {
-    /**
-     * Summary
-     *
-     * Optional dataset description.
-     */
-    summary?: string | null;
     /**
      * Table Name
      *
@@ -1391,6 +1385,12 @@ export type BulkRegisterItem = {
      * Human-readable dataset title.
      */
     title: string;
+    /**
+     * Summary
+     *
+     * Optional dataset description.
+     */
+    summary?: string | null;
     /**
      * Visibility
      *
@@ -1428,17 +1428,11 @@ export type BulkRegisterResponse = {
  */
 export type BulkRegisterResult = {
     /**
-     * Dataset Id
+     * Table Name
      *
-     * ID of the created dataset on success.
+     * Source table that was processed.
      */
-    dataset_id?: string | null;
-    /**
-     * Error
-     *
-     * Error message on failure.
-     */
-    error?: string | null;
+    table_name: string;
     /**
      * Status
      *
@@ -1446,17 +1440,23 @@ export type BulkRegisterResult = {
      */
     status: string;
     /**
-     * Table Name
+     * Dataset Id
      *
-     * Source table that was processed.
+     * ID of the created dataset on success.
      */
-    table_name: string;
+    dataset_id?: string | null;
     /**
      * Title
      *
      * Title of the created dataset on success.
      */
     title?: string | null;
+    /**
+     * Error
+     *
+     * Error message on failure.
+     */
+    error?: string | null;
 };
 
 /**
@@ -1484,6 +1484,24 @@ export type BulkRevokeResponse = {
  */
 export type CatalogStatsResponse = {
     /**
+     * Total Datasets
+     *
+     * Total number of datasets in the catalog.
+     */
+    total_datasets: number;
+    /**
+     * Recent Additions
+     *
+     * Number of datasets added in the last 30 days.
+     */
+    recent_additions: number;
+    /**
+     * Total Storage Bytes
+     *
+     * Total storage used by all dataset tables, in bytes. Null if calculation is unavailable.
+     */
+    total_storage_bytes: number | null;
+    /**
      * Datasets By Geometry Type
      *
      * Histogram of datasets keyed by geometry type (Point, MultiPolygon, etc.).
@@ -1500,30 +1518,6 @@ export type CatalogStatsResponse = {
         [key: string]: number;
     };
     /**
-     * Recent Additions
-     *
-     * Number of datasets added in the last 30 days.
-     */
-    recent_additions: number;
-    /**
-     * Total Datasets
-     *
-     * Total number of datasets in the catalog.
-     */
-    total_datasets: number;
-    /**
-     * Total Storage Bytes
-     *
-     * Total storage used by all dataset tables, in bytes. Null if calculation is unavailable.
-     */
-    total_storage_bytes: number | null;
-    /**
-     * Total Users
-     *
-     * Total number of users in the system.
-     */
-    total_users?: number;
-    /**
      * Users By Status
      *
      * Histogram of users keyed by status (active, deactivated, pending).
@@ -1531,6 +1525,12 @@ export type CatalogStatsResponse = {
     users_by_status?: {
         [key: string]: number;
     };
+    /**
+     * Total Users
+     *
+     * Total number of users in the system.
+     */
+    total_users?: number;
 };
 
 /**
@@ -1554,17 +1554,43 @@ export type ChangePasswordRequest = {
  */
 export type ChatAction = {
     /**
-     * Bbox
+     * Type
      */
-    bbox?: Array<number> | null;
+    type: 'set_filter' | 'set_style' | 'set_data_driven_style' | 'set_label' | 'toggle_visibility' | 'add_layer' | 'remove_layer' | 'show_query_result' | 'set_opacity';
+    /**
+     * Layer Id
+     */
+    layer_id?: string | null;
+    /**
+     * Expression
+     */
+    expression?: Array<unknown> | null;
+    /**
+     * Paint
+     */
+    paint?: {
+        [key: string]: unknown;
+    } | null;
     /**
      * Clear Paint
      */
     clear_paint?: Array<string> | null;
     /**
-     * Columns
+     * Replace Paint
      */
-    columns?: Array<string> | null;
+    replace_paint?: boolean | null;
+    /**
+     * Style Config
+     */
+    style_config?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Label Config
+     */
+    label_config?: {
+        [key: string]: unknown;
+    } | null;
     /**
      * Dataset Id
      */
@@ -1574,68 +1600,42 @@ export type ChatAction = {
      */
     dataset_name?: string | null;
     /**
-     * Distance Meters
+     * Visible
      */
-    distance_meters?: number | null;
-    /**
-     * Expression
-     */
-    expression?: Array<unknown> | null;
-    geojson?: GeoJsonFeatureCollection | null;
-    /**
-     * Label Config
-     */
-    label_config?: {
-        [key: string]: unknown;
-    } | null;
-    /**
-     * Layer Id
-     */
-    layer_id?: string | null;
+    visible?: boolean | null;
     /**
      * Opacity
      */
     opacity?: number | null;
+    geojson?: GeoJsonFeatureCollection | null;
     /**
-     * Operation
+     * Bbox
      */
-    operation?: string | null;
-    /**
-     * Paint
-     */
-    paint?: {
-        [key: string]: unknown;
-    } | null;
-    /**
-     * Replace Paint
-     */
-    replace_paint?: boolean | null;
-    /**
-     * Row Count
-     */
-    row_count?: number | null;
+    bbox?: Array<number> | null;
     /**
      * Rows
      */
     rows?: Array<Array<unknown>> | null;
     /**
-     * Style Config
+     * Columns
      */
-    style_config?: {
-        [key: string]: unknown;
-    } | null;
+    columns?: Array<string> | null;
+    /**
+     * Row Count
+     */
+    row_count?: number | null;
     /**
      * Truncated
      */
     truncated?: boolean | null;
     /**
-     * Type
+     * Operation
      */
-    type: 'set_filter' | 'set_style' | 'set_data_driven_style' | 'set_label' | 'toggle_visibility' | 'add_layer' | 'remove_layer' | 'show_query_result' | 'set_opacity';
+    operation?: string | null;
     /**
-     * Visible
+     * Distance Meters
      */
-    visible?: boolean | null;
+    distance_meters?: number | null;
 };
 
 /**
@@ -1645,13 +1645,13 @@ export type ChatAction = {
  */
 export type ChatHistoryMessage = {
     /**
-     * Content
-     */
-    content: string;
-    /**
      * Role
      */
     role: 'user' | 'assistant';
+    /**
+     * Content
+     */
+    content: string;
 };
 
 /**
@@ -1661,11 +1661,13 @@ export type ChatHistoryMessage = {
  */
 export type ChatMapLayer = {
     /**
-     * Column Info
+     * Id
      */
-    column_info?: Array<{
-        [key: string]: unknown;
-    }> | null;
+    id: string;
+    /**
+     * Name
+     */
+    name: string;
     /**
      * Dataset Id
      */
@@ -1675,6 +1677,20 @@ export type ChatMapLayer = {
      */
     dataset_table_name: string;
     /**
+     * Geometry Type
+     */
+    geometry_type?: string | null;
+    /**
+     * Layer Type
+     */
+    layer_type?: string | null;
+    /**
+     * Column Info
+     */
+    column_info?: Array<{
+        [key: string]: unknown;
+    }> | null;
+    /**
      * Dataset Title
      */
     dataset_title?: string | null;
@@ -1683,43 +1699,25 @@ export type ChatMapLayer = {
      */
     feature_count?: number | null;
     /**
+     * Sample Values
+     */
+    sample_values?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Visible
+     */
+    visible?: boolean;
+    /**
      * Filter
      */
     filter?: Array<unknown> | {
         [key: string]: unknown;
     } | null;
     /**
-     * Geometry Type
-     */
-    geometry_type?: string | null;
-    /**
-     * Id
-     */
-    id: string;
-    /**
      * Label Config
      */
     label_config?: {
-        [key: string]: unknown;
-    } | null;
-    /**
-     * Layer Type
-     */
-    layer_type?: string | null;
-    /**
-     * Name
-     */
-    name: string;
-    /**
-     * Paint
-     */
-    paint?: {
-        [key: string]: unknown;
-    } | null;
-    /**
-     * Sample Values
-     */
-    sample_values?: {
         [key: string]: unknown;
     } | null;
     /**
@@ -1729,9 +1727,11 @@ export type ChatMapLayer = {
         [key: string]: unknown;
     } | null;
     /**
-     * Visible
+     * Paint
      */
-    visible?: boolean;
+    paint?: {
+        [key: string]: unknown;
+    } | null;
 };
 
 /**
@@ -1739,25 +1739,25 @@ export type ChatMapLayer = {
  */
 export type ChatRequest = {
     /**
-     * History
+     * Message
      */
-    history?: Array<ChatHistoryMessage>;
-    /**
-     * Language
-     */
-    language?: string | null;
-    /**
-     * Layers
-     */
-    layers: Array<ChatMapLayer>;
+    message: string;
     /**
      * Map Id
      */
     map_id: string;
     /**
-     * Message
+     * Layers
      */
-    message: string;
+    layers: Array<ChatMapLayer>;
+    /**
+     * Language
+     */
+    language?: string | null;
+    /**
+     * History
+     */
+    history?: Array<ChatHistoryMessage>;
 };
 
 /**
@@ -1765,13 +1765,13 @@ export type ChatRequest = {
  */
 export type ChatResponse = {
     /**
-     * Actions
-     */
-    actions: Array<ChatAction>;
-    /**
      * Explanation
      */
     explanation: string;
+    /**
+     * Actions
+     */
+    actions: Array<ChatAction>;
 };
 
 /**
@@ -1791,17 +1791,17 @@ export type CollectionAddDatasetsRequest = {
  */
 export type CollectionCreate = {
     /**
-     * Description
-     *
-     * Optional text description
-     */
-    description?: string | null;
-    /**
      * Name
      *
      * Display name for the collection
      */
     name: string;
+    /**
+     * Description
+     *
+     * Optional text description
+     */
+    description?: string | null;
 };
 
 /**
@@ -1811,10 +1811,6 @@ export type CollectionCreate = {
  */
 export type CollectionFacetItem = {
     /**
-     * Dataset Count
-     */
-    dataset_count: number;
-    /**
      * Id
      */
     id: string;
@@ -1822,6 +1818,10 @@ export type CollectionFacetItem = {
      * Name
      */
     name: string;
+    /**
+     * Dataset Count
+     */
+    dataset_count: number;
 };
 
 /**
@@ -1859,26 +1859,6 @@ export type CollectionRef = {
  */
 export type CollectionResponse = {
     /**
-     * Created At
-     */
-    created_at: string;
-    /**
-     * Created By
-     */
-    created_by: string | null;
-    /**
-     * Dataset Count
-     */
-    dataset_count: number;
-    /**
-     * Description
-     */
-    description: string | null;
-    /**
-     * Extent Bbox
-     */
-    extent_bbox?: Array<number> | null;
-    /**
      * Id
      */
     id: string;
@@ -1887,17 +1867,37 @@ export type CollectionResponse = {
      */
     name: string;
     /**
-     * Temporal End
+     * Description
      */
-    temporal_end?: string | null;
+    description: string | null;
+    /**
+     * Created By
+     */
+    created_by: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+    /**
+     * Dataset Count
+     */
+    dataset_count: number;
+    /**
+     * Extent Bbox
+     */
+    extent_bbox?: Array<number> | null;
     /**
      * Temporal Start
      */
     temporal_start?: string | null;
     /**
-     * Updated At
+     * Temporal End
      */
-    updated_at: string;
+    temporal_end?: string | null;
 };
 
 /**
@@ -1905,17 +1905,17 @@ export type CollectionResponse = {
  */
 export type CollectionUpdate = {
     /**
-     * Description
-     *
-     * Updated description
-     */
-    description?: string | null;
-    /**
      * Name
      *
      * Updated display name
      */
     name?: string | null;
+    /**
+     * Description
+     *
+     * Updated description
+     */
+    description?: string | null;
 };
 
 /**
@@ -1976,6 +1976,10 @@ export type ColumnDdlFeedResponse = {
      */
     items: Array<ColumnDdlEntry>;
     /**
+     * Total
+     */
+    total: number;
+    /**
      * Limit
      */
     limit: number;
@@ -1983,10 +1987,6 @@ export type ColumnDdlFeedResponse = {
      * Offset
      */
     offset: number;
-    /**
-     * Total
-     */
-    total: number;
 };
 
 /**
@@ -2024,31 +2024,31 @@ export type ColumnDefinition = {
  */
 export type ColumnInfo = {
     /**
-     * Domain Type
-     */
-    domain_type?: string | null;
-    /**
      * Name
      */
     name: string;
     /**
-     * Sample Values
+     * Type
      */
-    sample_values?: Array<unknown> | null;
+    type: string;
     /**
      * Semantic Role
      */
     semantic_role?: string | null;
+    /**
+     * Domain Type
+     */
+    domain_type?: string | null;
+    /**
+     * Sample Values
+     */
+    sample_values?: Array<unknown> | null;
     /**
      * Stats
      */
     stats?: {
         [key: string]: unknown;
     } | null;
-    /**
-     * Type
-     */
-    type: string;
 };
 
 /**
@@ -2096,9 +2096,29 @@ export type ColumnReferencesResponse = {
  */
 export type ColumnStatsResponse = {
     /**
+     * Min
+     */
+    min?: number | null;
+    /**
+     * Max
+     */
+    max?: number | null;
+    /**
      * Count
      */
     count?: number;
+    /**
+     * Mean
+     */
+    mean?: number | null;
+    /**
+     * Quantiles
+     */
+    quantiles?: Array<number>;
+    /**
+     * Stddev
+     */
+    stddev?: number | null;
     /**
      * Data Type
      *
@@ -2111,26 +2131,6 @@ export type ColumnStatsResponse = {
      * Distinct non-null value count (categorical columns only).
      */
     distinct_count?: number | null;
-    /**
-     * Max
-     */
-    max?: number | null;
-    /**
-     * Mean
-     */
-    mean?: number | null;
-    /**
-     * Min
-     */
-    min?: number | null;
-    /**
-     * Quantiles
-     */
-    quantiles?: Array<number>;
-    /**
-     * Stddev
-     */
-    stddev?: number | null;
 };
 
 /**
@@ -2138,13 +2138,13 @@ export type ColumnStatsResponse = {
  */
 export type ColumnValuesResponse = {
     /**
-     * Count
-     */
-    count: number;
-    /**
      * Values
      */
     values: Array<string | number | number | null>;
+    /**
+     * Count
+     */
+    count: number;
 };
 
 /**
@@ -2169,41 +2169,11 @@ export type ColumnValuesResponse = {
  */
 export type CommitRequest = {
     /**
-     * Compression
+     * Title
      *
-     * Raster only: target compression for COG output (e.g. 'LZW', 'DEFLATE').
+     * Human-readable dataset title.
      */
-    compression?: string | null;
-    /**
-     * Geom Column
-     *
-     * CSV/Excel only: name of the WKT geometry column (alternative to x_column/y_column).
-     */
-    geom_column?: string | null;
-    /**
-     * Layer Name
-     *
-     * Multi-layer source only: name of the specific layer to ingest.
-     */
-    layer_name?: string | null;
-    /**
-     * Nodata Override
-     *
-     * Raster only: nodata value to use when source has none defined.
-     */
-    nodata_override?: number | string | null;
-    /**
-     * Resampling
-     *
-     * Raster only: resampling method for COG conversion (e.g. 'nearest', 'bilinear', 'cubic').
-     */
-    resampling?: string | null;
-    /**
-     * Srid Override
-     *
-     * EPSG code to use when source CRS is missing or incorrect. Forces reprojection during ingestion.
-     */
-    srid_override?: number | null;
+    title: string;
     /**
      * Summary
      *
@@ -2211,23 +2181,17 @@ export type CommitRequest = {
      */
     summary?: string | null;
     /**
-     * Temporal End
+     * Visibility
      *
-     * ISO 8601 end of the dataset's temporal extent.
+     * Dataset visibility level: 'private' (owner-only), 'restricted' (RBAC-controlled), 'internal' (all users), 'public' (anonymous access).
      */
-    temporal_end?: string | null;
+    visibility?: 'private' | 'restricted' | 'internal' | 'public';
     /**
-     * Temporal Start
+     * Srid Override
      *
-     * ISO 8601 start of the dataset's temporal extent.
+     * EPSG code to use when source CRS is missing or incorrect. Forces reprojection during ingestion.
      */
-    temporal_start?: string | null;
-    /**
-     * Title
-     *
-     * Human-readable dataset title.
-     */
-    title: string;
+    srid_override?: number | null;
     /**
      * Token
      *
@@ -2235,11 +2199,41 @@ export type CommitRequest = {
      */
     token?: string | null;
     /**
-     * Visibility
+     * Temporal Start
      *
-     * Dataset visibility level: 'private' (owner-only), 'restricted' (RBAC-controlled), 'internal' (all users), 'public' (anonymous access).
+     * ISO 8601 start of the dataset's temporal extent.
      */
-    visibility?: 'private' | 'restricted' | 'internal' | 'public';
+    temporal_start?: string | null;
+    /**
+     * Temporal End
+     *
+     * ISO 8601 end of the dataset's temporal extent.
+     */
+    temporal_end?: string | null;
+    /**
+     * Compression
+     *
+     * Raster only: target compression for COG output (e.g. 'LZW', 'DEFLATE').
+     */
+    compression?: string | null;
+    /**
+     * Resampling
+     *
+     * Raster only: resampling method for COG conversion (e.g. 'nearest', 'bilinear', 'cubic').
+     */
+    resampling?: string | null;
+    /**
+     * Nodata Override
+     *
+     * Raster only: nodata value to use when source has none defined.
+     */
+    nodata_override?: number | string | null;
+    /**
+     * Layer Name
+     *
+     * Multi-layer source only: name of the specific layer to ingest.
+     */
+    layer_name?: string | null;
     /**
      * X Column
      *
@@ -2252,6 +2246,12 @@ export type CommitRequest = {
      * CSV/Excel only: name of the latitude/Y coordinate column.
      */
     y_column?: string | null;
+    /**
+     * Geom Column
+     *
+     * CSV/Excel only: name of the WKT geometry column (alternative to x_column/y_column).
+     */
+    geom_column?: string | null;
 };
 
 /**
@@ -2265,17 +2265,17 @@ export type CommitResponse = {
      */
     job_id: string;
     /**
-     * Message
-     *
-     * Human-readable commit result.
-     */
-    message: string;
-    /**
      * Status
      *
      * Updated job status after commit.
      */
     status: string;
+    /**
+     * Message
+     *
+     * Human-readable commit result.
+     */
+    message: string;
 };
 
 /**
@@ -2285,14 +2285,6 @@ export type CommitResponse = {
  */
 export type ConfigImportRequest = {
     /**
-     * Oauth Providers
-     *
-     * Optional OAuth providers to import. Client secrets must be re-supplied via the admin UI after import.
-     */
-    oauth_providers?: Array<{
-        [key: string]: unknown;
-    }> | null;
-    /**
      * Settings
      *
      * Optional settings to import. Omit to import only OAuth providers.
@@ -2300,6 +2292,14 @@ export type ConfigImportRequest = {
     settings?: {
         [key: string]: unknown;
     } | null;
+    /**
+     * Oauth Providers
+     *
+     * Optional OAuth providers to import. Client secrets must be re-supplied via the admin UI after import.
+     */
+    oauth_providers?: Array<{
+        [key: string]: unknown;
+    }> | null;
 };
 
 /**
@@ -2321,11 +2321,23 @@ export type ConfigModeResponse = {
  */
 export type ConfigResponse = {
     /**
+     * Registration Enabled
+     *
+     * Whether self-service registration is open
+     */
+    registration_enabled: boolean;
+    /**
      * Allow Signup
      *
      * Whether self-serve registration is open. Alias for registration_enabled; login UI uses this to show/hide the signup link.
      */
     allow_signup?: boolean;
+    /**
+     * Email Verification Required
+     *
+     * When true, new self-registered users must verify their email before logging in. Default false for back-compat-safe parsing by older clients.
+     */
+    email_verification_required?: boolean;
     /**
      * Auth Methods
      *
@@ -2333,11 +2345,11 @@ export type ConfigResponse = {
      */
     auth_methods?: Array<string>;
     /**
-     * Banner Color
+     * Landing First
      *
-     * Theme token for the site banner color: warning | info | success | destructive.
+     * When true, unauthenticated visits to '/' are redirected to '/login' as the product landing page. Default false (search catalog is the root).
      */
-    banner_color?: string;
+    landing_first?: boolean;
     /**
      * Banner Enabled
      *
@@ -2351,29 +2363,17 @@ export type ConfigResponse = {
      */
     banner_text?: string;
     /**
-     * Email Verification Required
+     * Banner Color
      *
-     * When true, new self-registered users must verify their email before logging in. Default false for back-compat-safe parsing by older clients.
+     * Theme token for the site banner color: warning | info | success | destructive.
      */
-    email_verification_required?: boolean;
-    /**
-     * Landing First
-     *
-     * When true, unauthenticated visits to '/' are redirected to '/login' as the product landing page. Default false (search catalog is the root).
-     */
-    landing_first?: boolean;
+    banner_color?: string;
     /**
      * Password Login Enabled
      *
      * When false, password login is disabled for users without manage_settings. Default true for back-compat-safe parsing by older clients.
      */
     password_login_enabled?: boolean;
-    /**
-     * Registration Enabled
-     *
-     * Whether self-service registration is open
-     */
-    registration_enabled: boolean;
 };
 
 /**
@@ -2395,6 +2395,10 @@ export type ConformanceResponse = {
  */
 export type ConnectivityResult = {
     /**
+     * Object storage probe result.
+     */
+    storage: ServiceProbeResult;
+    /**
      * Cache backend probe result.
      */
     cache: ServiceProbeResult;
@@ -2406,10 +2410,6 @@ export type ConnectivityResult = {
     oidc_providers: {
         [key: string]: ServiceProbeResult;
     };
-    /**
-     * Object storage probe result.
-     */
-    storage: ServiceProbeResult;
 };
 
 /**
@@ -2419,19 +2419,19 @@ export type ConnectivityResult = {
  */
 export type ConnectorDefinitionResponse = {
     /**
-     * Config Schema
+     * Name
      */
-    config_schema: {
-        [key: string]: unknown;
-    };
+    name: string;
     /**
      * Display Name
      */
     display_name: string;
     /**
-     * Name
+     * Config Schema
      */
-    name: string;
+    config_schema: {
+        [key: string]: unknown;
+    };
     /**
      * Supports Credentials
      */
@@ -2447,15 +2447,15 @@ export type ConnectorDefinitionResponse = {
  */
 export type ConnectorDiscoverRequest = {
     /**
+     * Credential Id
+     */
+    credential_id?: string | null;
+    /**
      * Config
      */
     config?: {
         [key: string]: unknown;
     };
-    /**
-     * Credential Id
-     */
-    credential_id?: string | null;
 };
 
 /**
@@ -2473,15 +2473,15 @@ export type ConnectorDiscoverResponse = {
  */
 export type ConnectorIngestRequest = {
     /**
+     * Credential Id
+     */
+    credential_id?: string | null;
+    /**
      * Config
      */
     config?: {
         [key: string]: unknown;
     };
-    /**
-     * Credential Id
-     */
-    credential_id?: string | null;
     /**
      * Resource Id
      *
@@ -2527,6 +2527,10 @@ export type ConnectorResourceResponse = {
      */
     id: string;
     /**
+     * Name
+     */
+    name: string;
+    /**
      * Kind
      */
     kind: string;
@@ -2536,10 +2540,6 @@ export type ConnectorResourceResponse = {
     metadata?: {
         [key: string]: unknown;
     };
-    /**
-     * Name
-     */
-    name: string;
 };
 
 /**
@@ -2547,21 +2547,19 @@ export type ConnectorResourceResponse = {
  */
 export type ContactCreate = {
     /**
-     * Email
-     */
-    email?: string | null;
-    /**
-     * Extra Json
+     * Role
      *
-     * Arbitrary extra fields stored as JSON
+     * ISO CI_RoleCode, e.g. pointOfContact, author
      */
-    extra_json?: {
-        [key: string]: unknown;
-    } | null;
+    role: string;
     /**
      * Name
      */
     name?: string | null;
+    /**
+     * Email
+     */
+    email?: string | null;
     /**
      * Organization
      */
@@ -2571,11 +2569,13 @@ export type ContactCreate = {
      */
     phone?: string | null;
     /**
-     * Role
+     * Extra Json
      *
-     * ISO CI_RoleCode, e.g. pointOfContact, author
+     * Arbitrary extra fields stored as JSON
      */
-    role: string;
+    extra_json?: {
+        [key: string]: unknown;
+    } | null;
     /**
      * Sort Order
      *
@@ -2603,23 +2603,25 @@ export type ContactListResponse = {
  */
 export type ContactResponse = {
     /**
-     * Email
-     */
-    email: string | null;
-    /**
-     * Extra Json
-     */
-    extra_json: {
-        [key: string]: unknown;
-    } | null;
-    /**
      * Id
      */
     id: string;
     /**
+     * Record Id
+     */
+    record_id: string;
+    /**
+     * Role
+     */
+    role: string;
+    /**
      * Name
      */
     name: string | null;
+    /**
+     * Email
+     */
+    email: string | null;
     /**
      * Organization
      */
@@ -2629,13 +2631,11 @@ export type ContactResponse = {
      */
     phone: string | null;
     /**
-     * Record Id
+     * Extra Json
      */
-    record_id: string;
-    /**
-     * Role
-     */
-    role: string;
+    extra_json: {
+        [key: string]: unknown;
+    } | null;
     /**
      * Sort Order
      */
@@ -2647,19 +2647,17 @@ export type ContactResponse = {
  */
 export type ContactUpdate = {
     /**
-     * Email
+     * Role
      */
-    email?: string | null;
-    /**
-     * Extra Json
-     */
-    extra_json?: {
-        [key: string]: unknown;
-    } | null;
+    role?: string | null;
     /**
      * Name
      */
     name?: string | null;
+    /**
+     * Email
+     */
+    email?: string | null;
     /**
      * Organization
      */
@@ -2669,9 +2667,11 @@ export type ContactUpdate = {
      */
     phone?: string | null;
     /**
-     * Role
+     * Extra Json
      */
-    role?: string | null;
+    extra_json?: {
+        [key: string]: unknown;
+    } | null;
     /**
      * Sort Order
      */
@@ -2683,13 +2683,13 @@ export type ContactUpdate = {
  */
 export type CreateEmptyDatasetRequest = {
     /**
-     * Columns
-     */
-    columns: Array<ColumnDefinition>;
-    /**
      * Title
      */
     title: string;
+    /**
+     * Columns
+     */
+    columns: Array<ColumnDefinition>;
 };
 
 /**
@@ -2697,11 +2697,11 @@ export type CreateEmptyDatasetRequest = {
  */
 export type CreateLayerRequest = {
     /**
-     * Columns
+     * Title
      *
-     * Optional initial column definitions
+     * Display name for the new layer
      */
-    columns?: Array<ColumnDef> | null;
+    title: string;
     /**
      * Geometry Type
      *
@@ -2715,11 +2715,11 @@ export type CreateLayerRequest = {
      */
     summary?: string | null;
     /**
-     * Title
+     * Columns
      *
-     * Display name for the new layer
+     * Optional initial column definitions
      */
-    title: string;
+    columns?: Array<ColumnDef> | null;
 };
 
 /**
@@ -2727,35 +2727,11 @@ export type CreateLayerRequest = {
  */
 export type CreateLayerResponse = {
     /**
-     * Created At
-     *
-     * Creation timestamp
-     */
-    created_at: string;
-    /**
-     * Feature Count
-     *
-     * Number of features (0 for new layers)
-     */
-    feature_count: number;
-    /**
-     * Geometry Type
-     *
-     * OGC geometry type
-     */
-    geometry_type: string;
-    /**
      * Id
      *
      * Dataset ID of the created layer
      */
     id: string;
-    /**
-     * Table Name
-     *
-     * PostGIS table name in the data schema
-     */
-    table_name: string;
     /**
      * Title
      *
@@ -2763,11 +2739,35 @@ export type CreateLayerResponse = {
      */
     title: string;
     /**
+     * Table Name
+     *
+     * PostGIS table name in the data schema
+     */
+    table_name: string;
+    /**
+     * Geometry Type
+     *
+     * OGC geometry type
+     */
+    geometry_type: string;
+    /**
+     * Feature Count
+     *
+     * Number of features (0 for new layers)
+     */
+    feature_count: number;
+    /**
      * Visibility
      *
      * Visibility level: private, internal, or public
      */
     visibility: string;
+    /**
+     * Created At
+     *
+     * Creation timestamp
+     */
+    created_at: string;
 };
 
 /**
@@ -2780,21 +2780,21 @@ export type CreateLayerResponse = {
  */
 export type DatasetChatRequest = {
     /**
+     * Message
+     */
+    message: string;
+    /**
      * Dataset Id
      */
     dataset_id: string;
-    /**
-     * History
-     */
-    history?: Array<ChatHistoryMessage>;
     /**
      * Language
      */
     language?: string | null;
     /**
-     * Message
+     * History
      */
-    message: string;
+    history?: Array<ChatHistoryMessage>;
 };
 
 /**
@@ -2833,15 +2833,27 @@ export type DatasetListResponse = {
  */
 export type DatasetMeta = {
     /**
-     * Access Constraints
+     * Title
      */
-    access_constraints?: string | null;
+    title?: string | null;
     /**
-     * Data Vintage End
-     *
-     * End of temporal coverage
+     * Summary
      */
-    data_vintage_end?: string | null;
+    summary?: string | null;
+    /**
+     * Visibility
+     *
+     * Access level: private, restricted, internal, or public
+     */
+    visibility?: 'private' | 'restricted' | 'internal' | 'public' | null;
+    /**
+     * License
+     */
+    license?: string | null;
+    /**
+     * Source Organization
+     */
+    source_organization?: string | null;
     /**
      * Data Vintage Start
      *
@@ -2849,79 +2861,17 @@ export type DatasetMeta = {
      */
     data_vintage_start?: string | null;
     /**
-     * Is Dem
+     * Data Vintage End
      *
-     * Flag raster as a Digital Elevation Model for terrain rendering
+     * End of temporal coverage
      */
-    is_dem?: boolean | null;
-    /**
-     * Language
-     *
-     * BCP 47 primary language tag, e.g. en, fr, or pt-BR
-     */
-    language?: string | null;
-    /**
-     * License
-     */
-    license?: string | null;
+    data_vintage_end?: string | null;
     /**
      * Lineage Summary
      *
      * Free-text provenance / lineage statement
      */
     lineage_summary?: string | null;
-    /**
-     * Owner Org
-     *
-     * Owning organization name
-     */
-    owner_org?: string | null;
-    /**
-     * Quality Statement
-     */
-    quality_statement?: string | null;
-    /**
-     * Record Status
-     *
-     * Lifecycle status. Deliberately not pinned to an enum: the values come from the workflow extension's status_order(), so an overlay may define its own. Community default order: draft, ready, internal, published.
-     */
-    record_status?: string | null;
-    /**
-     * Sensitivity Classification
-     *
-     * e.g. public, confidential, restricted
-     */
-    sensitivity_classification?: string | null;
-    /**
-     * Source Organization
-     */
-    source_organization?: string | null;
-    /**
-     * Source Url
-     *
-     * URL the data was originally fetched from
-     */
-    source_url?: string | null;
-    /**
-     * Summary
-     */
-    summary?: string | null;
-    /**
-     * Theme Category
-     *
-     * ISO topic category codes
-     */
-    theme_category?: Array<string> | null;
-    /**
-     * Tile Columns
-     *
-     * Ordered vector-tile property allowlist; null restores zoom defaults, [] emits geometry-only tiles, list emits those properties at any zoom.
-     */
-    tile_columns?: Array<string> | null;
-    /**
-     * Title
-     */
-    title?: string | null;
     /**
      * Update Frequency
      *
@@ -2933,11 +2883,61 @@ export type DatasetMeta = {
      */
     usage_constraints?: string | null;
     /**
-     * Visibility
-     *
-     * Access level: private, restricted, internal, or public
+     * Access Constraints
      */
-    visibility?: 'private' | 'restricted' | 'internal' | 'public' | null;
+    access_constraints?: string | null;
+    /**
+     * Sensitivity Classification
+     *
+     * e.g. public, confidential, restricted
+     */
+    sensitivity_classification?: string | null;
+    /**
+     * Theme Category
+     *
+     * ISO topic category codes
+     */
+    theme_category?: Array<string> | null;
+    /**
+     * Record Status
+     *
+     * Lifecycle status. Deliberately not pinned to an enum: the values come from the workflow extension's status_order(), so an overlay may define its own. Community default order: draft, ready, internal, published.
+     */
+    record_status?: string | null;
+    /**
+     * Owner Org
+     *
+     * Owning organization name
+     */
+    owner_org?: string | null;
+    /**
+     * Quality Statement
+     */
+    quality_statement?: string | null;
+    /**
+     * Source Url
+     *
+     * URL the data was originally fetched from
+     */
+    source_url?: string | null;
+    /**
+     * Language
+     *
+     * BCP 47 primary language tag, e.g. en, fr, or pt-BR
+     */
+    language?: string | null;
+    /**
+     * Is Dem
+     *
+     * Flag raster as a Digital Elevation Model for terrain rendering
+     */
+    is_dem?: boolean | null;
+    /**
+     * Tile Columns
+     *
+     * Ordered vector-tile property allowlist; null restores zoom defaults, [] emits geometry-only tiles, list emits those properties at any zoom.
+     */
+    tile_columns?: Array<string> | null;
 };
 
 /**
@@ -2945,11 +2945,11 @@ export type DatasetMeta = {
  */
 export type DatasetRelationshipCreate = {
     /**
-     * Label
+     * Target Dataset Id
      *
-     * Optional display label for this relationship
+     * UUID of the dataset to link to
      */
-    label?: string | null;
+    target_dataset_id: string;
     /**
      * Source Column
      *
@@ -2963,11 +2963,11 @@ export type DatasetRelationshipCreate = {
      */
     target_column?: string;
     /**
-     * Target Dataset Id
+     * Label
      *
-     * UUID of the dataset to link to
+     * Optional display label for this relationship
      */
-    target_dataset_id: string;
+    label?: string | null;
 };
 
 /**
@@ -3000,29 +3000,29 @@ export type DatasetRelationshipResponse = {
      */
     id: string;
     /**
-     * Label
+     * Source Dataset Id
      */
-    label: string | null;
+    source_dataset_id: string;
     /**
-     * Relationship Type
+     * Target Dataset Id
      */
-    relationship_type: string;
+    target_dataset_id: string;
     /**
      * Source Column
      */
     source_column: string;
     /**
-     * Source Dataset Id
-     */
-    source_dataset_id: string;
-    /**
      * Target Column
      */
     target_column: string;
     /**
-     * Target Dataset Id
+     * Relationship Type
      */
-    target_dataset_id: string;
+    relationship_type: string;
+    /**
+     * Label
+     */
+    label: string | null;
     /**
      * Target Dataset Title
      */
@@ -3034,63 +3034,35 @@ export type DatasetRelationshipResponse = {
  */
 export type DatasetResponse = {
     /**
-     * Access Constraints
+     * Id
      */
-    access_constraints?: string | null;
+    id: string;
     /**
-     * Collections
-     */
-    collections?: Array<CollectionRef> | null;
-    /**
-     * Column Info
+     * Record Id
      *
-     * Column names, types, and stats
+     * Parent catalog record UUID
      */
-    column_info?: Array<ColumnInfo> | null;
+    record_id: string;
     /**
-     * Created At
-     */
-    created_at: string;
-    /**
-     * Created By
-     */
-    created_by: string | null;
-    /**
-     * Created By Display
-     */
-    created_by_display: string;
-    /**
-     * Current Version
+     * Table Name
      *
-     * Monotonic version counter
+     * Internal PostGIS table name
      */
-    current_version?: number;
+    table_name: string;
     /**
-     * Data Vintage End
+     * Title
+     */
+    title: string;
+    /**
+     * Summary
+     */
+    summary: string | null;
+    /**
+     * Srid
      *
-     * End of temporal coverage
+     * Current EPSG SRID of stored geometry
      */
-    data_vintage_end?: string | null;
-    /**
-     * Data Vintage Start
-     *
-     * Start of temporal coverage
-     */
-    data_vintage_start?: string | null;
-    /**
-     * Provenance for an analysis output. Null for a dataset that was not derived, and also for a requester who cannot access the source dataset — the two are deliberately indistinguishable.
-     */
-    derived_from?: DerivedFromResponse | null;
-    /**
-     * Extent Bbox
-     *
-     * Bounding box [west, south, east, north] per RFC 7946 §5.2. west > east on an antimeridian-crossing extent.
-     */
-    extent_bbox?: Array<number> | null;
-    /**
-     * Feature Count
-     */
-    feature_count: number | null;
+    srid?: number | null;
     /**
      * Geometry Type
      *
@@ -3104,57 +3076,11 @@ export type DatasetResponse = {
      */
     has_generic_geometry?: boolean;
     /**
-     * Id
-     */
-    id: string;
-    /**
      * Is 3D
      *
      * True if geometry has Z dimension
      */
     is_3d?: boolean | null;
-    /**
-     * Language
-     *
-     * ISO 639-1 language code, e.g. en, fr
-     */
-    language?: string | null;
-    /**
-     * Last Checked At
-     *
-     * Last time GeoLens contacted the origin at all, whether the attempt succeeded or failed
-     */
-    last_checked_at?: string | null;
-    /**
-     * Last Edited At
-     */
-    last_edited_at?: string | null;
-    /**
-     * Last Edited By Display
-     */
-    last_edited_by_display?: string | null;
-    /**
-     * Last Refreshed At
-     *
-     * Last committed successful refresh — not the last attempt
-     */
-    last_refreshed_at?: string | null;
-    /**
-     * License
-     */
-    license?: string | null;
-    /**
-     * Lineage Summary
-     *
-     * Free-text provenance / lineage statement
-     */
-    lineage_summary?: string | null;
-    /**
-     * Metadata Warnings
-     *
-     * Advisory warnings produced by a metadata update — e.g. a visibility or status change exposing keywords inherited from an analysis source the new audience cannot open (feat #1070). Only ever set on the PATCH response; the change has already applied.
-     */
-    metadata_warnings?: Array<string> | null;
     /**
      * N Dims
      *
@@ -3162,11 +3088,103 @@ export type DatasetResponse = {
      */
     n_dims?: number | null;
     /**
+     * Z Min
+     *
+     * Minimum Z value across all features
+     */
+    z_min?: number | null;
+    /**
+     * Z Max
+     *
+     * Maximum Z value across all features
+     */
+    z_max?: number | null;
+    /**
+     * Feature Count
+     */
+    feature_count: number | null;
+    /**
+     * Extent Bbox
+     *
+     * Bounding box [west, south, east, north] per RFC 7946 §5.2. west > east on an antimeridian-crossing extent.
+     */
+    extent_bbox?: Array<number> | null;
+    /**
+     * Column Info
+     *
+     * Column names, types, and stats
+     */
+    column_info?: Array<ColumnInfo> | null;
+    /**
+     * License
+     */
+    license?: string | null;
+    /**
+     * Source Organization
+     */
+    source_organization?: string | null;
+    /**
+     * Data Vintage Start
+     *
+     * Start of temporal coverage
+     */
+    data_vintage_start?: string | null;
+    /**
+     * Data Vintage End
+     *
+     * End of temporal coverage
+     */
+    data_vintage_end?: string | null;
+    /**
+     * Automated quality assessment results
+     */
+    quality_detail?: QualityDetail | null;
+    /**
+     * Source Format
+     *
+     * Original file format, e.g. GPKG, SHP
+     */
+    source_format?: string | null;
+    /**
+     * Source Filename
+     */
+    source_filename: string | null;
+    /**
+     * Tile Columns
+     *
+     * Ordered vector-tile property allowlist; null uses zoom defaults, [] emits geometry-only tiles, list emits those properties at any zoom.
+     */
+    tile_columns?: Array<string> | null;
+    /**
+     * Original Srid
+     *
+     * EPSG SRID of the uploaded source file
+     */
+    original_srid?: number | null;
+    /**
+     * Current Version
+     *
+     * Monotonic version counter
+     */
+    current_version?: number;
+    /**
+     * Source Url
+     *
+     * URL the data was originally fetched from
+     */
+    source_url?: string | null;
+    /**
      * Origin
      *
      * How the data entered the catalog: upload, postgis, service, stac, or created. Computed from source_format and record_type, not stored; null for collections and VRTs, which have no origin of their own.
      */
     origin?: string | null;
+    /**
+     * Origin Uri
+     *
+     * Machine-readable pointer back to the origin, written only by ingest and refresh. Distinct from source_url, which is editable descriptive metadata. Null for uploads and created datasets.
+     */
+    origin_uri?: string | null;
     /**
      * Origin Ref
      *
@@ -3176,79 +3194,17 @@ export type DatasetResponse = {
         [key: string]: unknown;
     } | null;
     /**
-     * Origin Uri
+     * Last Refreshed At
      *
-     * Machine-readable pointer back to the origin, written only by ingest and refresh. Distinct from source_url, which is editable descriptive metadata. Null for uploads and created datasets.
+     * Last committed successful refresh — not the last attempt
      */
-    origin_uri?: string | null;
+    last_refreshed_at?: string | null;
     /**
-     * Original Srid
+     * Last Checked At
      *
-     * EPSG SRID of the uploaded source file
+     * Last time GeoLens contacted the origin at all, whether the attempt succeeded or failed
      */
-    original_srid?: number | null;
-    /**
-     * Owner Org
-     *
-     * Owning organization name
-     */
-    owner_org?: string | null;
-    /**
-     * Published At
-     */
-    published_at?: string | null;
-    /**
-     * Automated quality assessment results
-     */
-    quality_detail?: QualityDetail | null;
-    /**
-     * Quality Statement
-     */
-    quality_statement?: string | null;
-    /**
-     * Raster-specific metadata (null for vectors)
-     */
-    raster?: RasterMetadata | null;
-    /**
-     * Record Id
-     *
-     * Parent catalog record UUID
-     */
-    record_id: string;
-    /**
-     * Record Status
-     *
-     * Lifecycle status. Deliberately not pinned to an enum: the values come from the workflow extension's status_order(), so an overlay may define its own. Community default order: draft, ready, internal, published.
-     */
-    record_status?: string;
-    /**
-     * Record Type
-     *
-     * Record type: 'vector_dataset' (spatial features), 'raster_dataset' (single COG), 'vrt_dataset' (VRT mosaic), 'table' (non-spatial tabular), 'map' (saved map), 'service' (catalogued remote service), 'collection' (flat dataset group).
-     */
-    record_type?: string;
-    /**
-     * Schema Drift Status
-     *
-     * none, drifted, or unknown. Set at refresh commit from the schema diff; 'unknown' until a refresh has run.
-     */
-    schema_drift_status?: string;
-    /**
-     * Sensitivity Classification
-     *
-     * e.g. public, confidential, restricted
-     */
-    sensitivity_classification?: string | null;
-    /**
-     * Source Filename
-     */
-    source_filename: string | null;
-    /**
-     * Source Format
-     *
-     * Original file format, e.g. GPKG, SHP
-     */
-    source_format?: string | null;
+    last_checked_at?: string | null;
     /**
      * Source Health
      *
@@ -3262,21 +3218,115 @@ export type DatasetResponse = {
      */
     source_health_detail?: string | null;
     /**
-     * Source Organization
-     */
-    source_organization?: string | null;
-    /**
-     * Source Url
+     * Schema Drift Status
      *
-     * URL the data was originally fetched from
+     * none, drifted, or unknown. Set at refresh commit from the schema diff; 'unknown' until a refresh has run.
      */
-    source_url?: string | null;
+    schema_drift_status?: string;
     /**
-     * Srid
-     *
-     * Current EPSG SRID of stored geometry
+     * Quality Statement
      */
-    srid?: number | null;
+    quality_statement?: string | null;
+    /**
+     * Visibility
+     *
+     * Access level: private, restricted, internal, public
+     */
+    visibility: string;
+    /**
+     * Created By
+     */
+    created_by: string | null;
+    /**
+     * Created By Display
+     */
+    created_by_display: string;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+    /**
+     * Last Edited By Display
+     */
+    last_edited_by_display?: string | null;
+    /**
+     * Last Edited At
+     */
+    last_edited_at?: string | null;
+    /**
+     * Collections
+     */
+    collections?: Array<CollectionRef> | null;
+    /**
+     * Record Status
+     *
+     * Lifecycle status. Deliberately not pinned to an enum: the values come from the workflow extension's status_order(), so an overlay may define its own. Community default order: draft, ready, internal, published.
+     */
+    record_status?: string;
+    /**
+     * Lineage Summary
+     *
+     * Free-text provenance / lineage statement
+     */
+    lineage_summary?: string | null;
+    /**
+     * Provenance for an analysis output. Null for a dataset that was not derived, and also for a requester who cannot access the source dataset — the two are deliberately indistinguishable.
+     */
+    derived_from?: DerivedFromResponse | null;
+    /**
+     * Update Frequency
+     *
+     * ISO maintenance frequency code
+     */
+    update_frequency?: string | null;
+    /**
+     * Usage Constraints
+     */
+    usage_constraints?: string | null;
+    /**
+     * Access Constraints
+     */
+    access_constraints?: string | null;
+    /**
+     * Sensitivity Classification
+     *
+     * e.g. public, confidential, restricted
+     */
+    sensitivity_classification?: string | null;
+    /**
+     * Theme Category
+     *
+     * ISO topic category codes
+     */
+    theme_category?: Array<string> | null;
+    /**
+     * Owner Org
+     *
+     * Owning organization name
+     */
+    owner_org?: string | null;
+    /**
+     * Published At
+     */
+    published_at?: string | null;
+    /**
+     * Updated By
+     */
+    updated_by?: string | null;
+    /**
+     * Record Type
+     *
+     * Record type: 'vector_dataset' (spatial features), 'raster_dataset' (single COG), 'vrt_dataset' (VRT mosaic), 'table' (non-spatial tabular), 'map' (saved map), 'service' (catalogued remote service), 'collection' (flat dataset group).
+     */
+    record_type?: string;
+    /**
+     * Raster-specific metadata (null for vectors)
+     */
+    raster?: RasterMetadata | null;
     /**
      * Stac Assets
      *
@@ -3290,67 +3340,17 @@ export type DatasetResponse = {
      */
     stac_extensions?: Array<string> | null;
     /**
-     * Summary
-     */
-    summary: string | null;
-    /**
-     * Table Name
+     * Language
      *
-     * Internal PostGIS table name
+     * ISO 639-1 language code, e.g. en, fr
      */
-    table_name: string;
+    language?: string | null;
     /**
-     * Theme Category
+     * Metadata Warnings
      *
-     * ISO topic category codes
+     * Advisory warnings produced by a metadata update — e.g. a visibility or status change exposing keywords inherited from an analysis source the new audience cannot open (feat #1070). Only ever set on the PATCH response; the change has already applied.
      */
-    theme_category?: Array<string> | null;
-    /**
-     * Tile Columns
-     *
-     * Ordered vector-tile property allowlist; null uses zoom defaults, [] emits geometry-only tiles, list emits those properties at any zoom.
-     */
-    tile_columns?: Array<string> | null;
-    /**
-     * Title
-     */
-    title: string;
-    /**
-     * Update Frequency
-     *
-     * ISO maintenance frequency code
-     */
-    update_frequency?: string | null;
-    /**
-     * Updated At
-     */
-    updated_at: string;
-    /**
-     * Updated By
-     */
-    updated_by?: string | null;
-    /**
-     * Usage Constraints
-     */
-    usage_constraints?: string | null;
-    /**
-     * Visibility
-     *
-     * Access level: private, restricted, internal, public
-     */
-    visibility: string;
-    /**
-     * Z Max
-     *
-     * Maximum Z value across all features
-     */
-    z_max?: number | null;
-    /**
-     * Z Min
-     *
-     * Minimum Z value across all features
-     */
-    z_min?: number | null;
+    metadata_warnings?: Array<string> | null;
 };
 
 /**
@@ -3358,27 +3358,27 @@ export type DatasetResponse = {
  */
 export type DatasetRowsResponse = {
     /**
-     * Approximate Total
-     *
-     * Estimated total row count (may use pg stats)
-     */
-    approximate_total: number;
-    /**
      * Columns
      */
     columns: Array<ColumnChange>;
-    /**
-     * Next Cursor
-     *
-     * Cursor value for the next page, null if last
-     */
-    next_cursor?: number | null;
     /**
      * Rows
      */
     rows: Array<{
         [key: string]: unknown;
     }>;
+    /**
+     * Approximate Total
+     *
+     * Estimated total row count (may use pg stats)
+     */
+    approximate_total: number;
+    /**
+     * Next Cursor
+     *
+     * Cursor value for the next page, null if last
+     */
+    next_cursor?: number | null;
 };
 
 /**
@@ -3386,13 +3386,13 @@ export type DatasetRowsResponse = {
  */
 export type DatasetVersionListResponse = {
     /**
-     * Total
-     */
-    total: number;
-    /**
      * Versions
      */
     versions: Array<DatasetVersionResponse>;
+    /**
+     * Total
+     */
+    total: number;
 };
 
 /**
@@ -3400,25 +3400,17 @@ export type DatasetVersionListResponse = {
  */
 export type DatasetVersionResponse = {
     /**
+     * Id
+     */
+    id: string;
+    /**
      * Dataset Id
      */
     dataset_id: string;
     /**
-     * Feature Count
+     * Version Number
      */
-    feature_count: number | null;
-    /**
-     * File Hash
-     */
-    file_hash: string | null;
-    /**
-     * Geometry Type
-     */
-    geometry_type: string | null;
-    /**
-     * Id
-     */
-    id: string;
+    version_number: number;
     /**
      * Source Filename
      */
@@ -3428,21 +3420,29 @@ export type DatasetVersionResponse = {
      */
     source_format: string | null;
     /**
+     * Feature Count
+     */
+    feature_count: number | null;
+    /**
      * Srid
      */
     srid: number | null;
     /**
-     * Uploaded At
+     * Geometry Type
      */
-    uploaded_at: string;
+    geometry_type: string | null;
+    /**
+     * File Hash
+     */
+    file_hash: string | null;
     /**
      * Uploaded By
      */
     uploaded_by: string | null;
     /**
-     * Version Number
+     * Uploaded At
      */
-    version_number: number;
+    uploaded_at: string;
 };
 
 /**
@@ -3450,13 +3450,13 @@ export type DatasetVersionResponse = {
  */
 export type DbfTruncationCollisionWarning = {
     /**
-     * Details
-     */
-    details: Array<DbfTruncationDetail>;
-    /**
      * Kind
      */
     kind: 'dbf_truncation_collision';
+    /**
+     * Details
+     */
+    details: Array<DbfTruncationDetail>;
 };
 
 /**
@@ -3464,13 +3464,13 @@ export type DbfTruncationCollisionWarning = {
  */
 export type DbfTruncationDetail = {
     /**
-     * Originals
-     */
-    originals: Array<string>;
-    /**
      * Truncated
      */
     truncated: string;
+    /**
+     * Originals
+     */
+    originals: Array<string>;
 };
 
 /**
@@ -3495,10 +3495,6 @@ export type DbfTruncationDetail = {
  */
 export type DerivedFromResponse = {
     /**
-     * Created At
-     */
-    created_at: string;
-    /**
      * Dataset Id
      *
      * The dataset this one was derived from
@@ -3518,6 +3514,10 @@ export type DerivedFromResponse = {
     params: {
         [key: string]: unknown;
     };
+    /**
+     * Created At
+     */
+    created_at: string;
 };
 
 /**
@@ -3551,11 +3551,11 @@ export type DiscoverResponse = {
  */
 export type DiscoveredTable = {
     /**
-     * Estimated Rows
+     * Table Name
      *
-     * PostgreSQL row count estimate from `pg_class.reltuples`.
+     * PostgreSQL table name in the `data` schema.
      */
-    estimated_rows: number | null;
+    table_name: string;
     /**
      * Geometry Type
      *
@@ -3569,21 +3569,17 @@ export type DiscoveredTable = {
      */
     srid: number | null;
     /**
-     * Table Name
+     * Estimated Rows
      *
-     * PostgreSQL table name in the `data` schema.
+     * PostgreSQL row count estimate from `pg_class.reltuples`.
      */
-    table_name: string;
+    estimated_rows: number | null;
 };
 
 /**
  * DistributionCreate
  */
 export type DistributionCreate = {
-    /**
-     * Description
-     */
-    description?: string | null;
     /**
      * Distribution Type
      *
@@ -3597,17 +3593,19 @@ export type DistributionCreate = {
      */
     format: string;
     /**
-     * Is Primary
+     * Url
      *
-     * Mark as the preferred distribution
+     * Access URL for this distribution
      */
-    is_primary?: boolean;
+    url: string;
     /**
-     * Media Type
-     *
-     * IANA media type, e.g. application/geo+json
+     * Title
      */
-    media_type?: string | null;
+    title?: string | null;
+    /**
+     * Description
+     */
+    description?: string | null;
     /**
      * Protocol
      *
@@ -3615,15 +3613,17 @@ export type DistributionCreate = {
      */
     protocol?: string | null;
     /**
-     * Title
-     */
-    title?: string | null;
-    /**
-     * Url
+     * Media Type
      *
-     * Access URL for this distribution
+     * IANA media type, e.g. application/geo+json
      */
-    url: string;
+    media_type?: string | null;
+    /**
+     * Is Primary
+     *
+     * Mark as the preferred distribution
+     */
+    is_primary?: boolean;
 };
 
 /**
@@ -3645,15 +3645,13 @@ export type DistributionListResponse = {
  */
 export type DistributionResponse = {
     /**
-     * Auto Generated
-     *
-     * True if created automatically by the system
+     * Id
      */
-    auto_generated: boolean;
+    id: string;
     /**
-     * Description
+     * Record Id
      */
-    description: string | null;
+    record_id: string;
     /**
      * Distribution Type
      */
@@ -3663,43 +3661,41 @@ export type DistributionResponse = {
      */
     format: string | null;
     /**
-     * Id
+     * Url
      */
-    id: string;
-    /**
-     * Is Primary
-     */
-    is_primary: boolean;
-    /**
-     * Media Type
-     */
-    media_type: string | null;
-    /**
-     * Protocol
-     */
-    protocol: string | null;
-    /**
-     * Record Id
-     */
-    record_id: string;
+    url: string;
     /**
      * Title
      */
     title: string | null;
     /**
-     * Url
+     * Description
      */
-    url: string;
+    description: string | null;
+    /**
+     * Protocol
+     */
+    protocol: string | null;
+    /**
+     * Media Type
+     */
+    media_type: string | null;
+    /**
+     * Is Primary
+     */
+    is_primary: boolean;
+    /**
+     * Auto Generated
+     *
+     * True if created automatically by the system
+     */
+    auto_generated: boolean;
 };
 
 /**
  * DistributionUpdate
  */
 export type DistributionUpdate = {
-    /**
-     * Description
-     */
-    description?: string | null;
     /**
      * Distribution Type
      */
@@ -3709,25 +3705,29 @@ export type DistributionUpdate = {
      */
     format?: string | null;
     /**
-     * Is Primary
+     * Url
      */
-    is_primary?: boolean | null;
-    /**
-     * Media Type
-     */
-    media_type?: string | null;
-    /**
-     * Protocol
-     */
-    protocol?: string | null;
+    url?: string | null;
     /**
      * Title
      */
     title?: string | null;
     /**
-     * Url
+     * Description
      */
-    url?: string | null;
+    description?: string | null;
+    /**
+     * Protocol
+     */
+    protocol?: string | null;
+    /**
+     * Media Type
+     */
+    media_type?: string | null;
+    /**
+     * Is Primary
+     */
+    is_primary?: boolean | null;
 };
 
 /**
@@ -3735,17 +3735,17 @@ export type DistributionUpdate = {
  */
 export type DownloadTokenResponse = {
     /**
-     * Expires In
-     *
-     * Seconds until the download token expires
-     */
-    expires_in?: number;
-    /**
      * Token
      *
      * Short-lived download-scoped JWT (typ='download', TTL ≤ 120s)
      */
     token: string;
+    /**
+     * Expires In
+     *
+     * Seconds until the download token expires
+     */
+    expires_in?: number;
 };
 
 /**
@@ -3754,6 +3754,14 @@ export type DownloadTokenResponse = {
  * Result of a dry-run import showing what would change.
  */
 export type DryRunResponse = {
+    /**
+     * Settings
+     *
+     * Per-setting diff result keyed by setting name.
+     */
+    settings: {
+        [key: string]: unknown;
+    };
     /**
      * Oauth Providers
      *
@@ -3768,59 +3776,67 @@ export type DryRunResponse = {
      * Short-lived signed confirmation token required to apply an overwrite. Bound to the normalized payload, overwrite mode, and current configuration state.
      */
     preview_token?: string | null;
-    /**
-     * Settings
-     *
-     * Per-setting diff result keyed by setting name.
-     */
-    settings: {
-        [key: string]: unknown;
-    };
 };
 
 /**
  * DuplicateMapResponse
  */
 export type DuplicateMapResponse = {
-    basemap_config?: BasemapConfig | null;
     /**
-     * Basemap Style
+     * Id
      */
-    basemap_style: string;
+    id: string;
     /**
-     * Bearing
+     * Name
      */
-    bearing: number;
-    /**
-     * Center Lat
-     */
-    center_lat: number | null;
-    /**
-     * Center Lng
-     */
-    center_lng: number | null;
-    /**
-     * Created At
-     */
-    created_at: string;
-    /**
-     * Created By
-     */
-    created_by: string | null;
-    /**
-     * Created By Username
-     */
-    created_by_username?: string | null;
+    name: string;
     /**
      * Description
      */
     description: string | null;
     /**
-     * Excluded Layer Count
-     *
-     * Layers skipped due to access restrictions
+     * Notes
      */
-    excluded_layer_count?: number;
+    notes?: string | null;
+    /**
+     * Center Lng
+     */
+    center_lng: number | null;
+    /**
+     * Center Lat
+     */
+    center_lat: number | null;
+    /**
+     * Zoom
+     */
+    zoom: number | null;
+    /**
+     * Bearing
+     */
+    bearing: number;
+    /**
+     * Pitch
+     */
+    pitch: number;
+    /**
+     * Basemap Style
+     */
+    basemap_style: string;
+    /**
+     * Show Basemap Labels
+     */
+    show_basemap_labels: boolean;
+    basemap_config?: BasemapConfig | null;
+    terrain_config?: TerrainConfig | null;
+    visibility: MapVisibility;
+    /**
+     * Thumbnail Url
+     */
+    thumbnail_url?: string | null;
+    /**
+     * Og Image Url
+     */
+    og_image_url?: string | null;
     /**
      * Forked From Id
      *
@@ -3832,59 +3848,43 @@ export type DuplicateMapResponse = {
      */
     forked_from_name?: string | null;
     /**
-     * Id
+     * Created By
      */
-    id: string;
+    created_by: string | null;
     /**
-     * Layer Count
+     * Created By Username
      */
-    layer_count: number;
+    created_by_username?: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
     /**
      * Layers
      */
     layers: Array<MapLayerResponse>;
     /**
-     * Legend Title
+     * Layer Count
      */
-    legend_title?: string | null;
-    /**
-     * Name
-     */
-    name: string;
-    /**
-     * Notes
-     */
-    notes?: string | null;
-    /**
-     * Og Image Url
-     */
-    og_image_url?: string | null;
-    /**
-     * Pitch
-     */
-    pitch: number;
+    layer_count: number;
     /**
      * Plugins
      */
     plugins?: Array<string> | null;
     /**
-     * Show Basemap Labels
+     * Legend Title
      */
-    show_basemap_labels: boolean;
-    terrain_config?: TerrainConfig | null;
+    legend_title?: string | null;
     /**
-     * Thumbnail Url
+     * Excluded Layer Count
+     *
+     * Layers skipped due to access restrictions
      */
-    thumbnail_url?: string | null;
-    /**
-     * Updated At
-     */
-    updated_at: string;
-    visibility: MapVisibility;
-    /**
-     * Zoom
-     */
-    zoom: number | null;
+    excluded_layer_count?: number;
 };
 
 /**
@@ -3918,12 +3918,6 @@ export type EditionInfoResponse = {
  */
 export type EmbedTokenCreate = {
     /**
-     * Allowed Origins
-     *
-     * Restrict embedding to these origins. Omit or null allows any origin; non-empty origin restrictions require advanced sharing controls.
-     */
-    allowed_origins?: Array<string> | null;
-    /**
      * Expires In Days
      *
      * Token lifetime in days (1-365). The default 30-day lifetime is always available; custom lifetimes require advanced sharing controls.
@@ -3935,6 +3929,12 @@ export type EmbedTokenCreate = {
      * Human-readable label for the token
      */
     name?: string | null;
+    /**
+     * Allowed Origins
+     *
+     * Restrict embedding to these origins. Omit or null allows any origin; non-empty origin restrictions require advanced sharing controls.
+     */
+    allowed_origins?: Array<string> | null;
 };
 
 /**
@@ -3942,29 +3942,9 @@ export type EmbedTokenCreate = {
  */
 export type EmbedTokenCreatedResponse = {
     /**
-     * Allowed Origins
-     */
-    allowed_origins?: Array<string> | null;
-    /**
-     * Created At
-     */
-    created_at: string;
-    /**
-     * Expires At
-     */
-    expires_at: string;
-    /**
      * Id
      */
     id: string;
-    /**
-     * Is Active
-     */
-    is_active: boolean;
-    /**
-     * Last Used At
-     */
-    last_used_at?: string | null;
     /**
      * Map Id
      */
@@ -3974,21 +3954,41 @@ export type EmbedTokenCreatedResponse = {
      */
     name?: string | null;
     /**
-     * Raw Token
+     * Token Hint
      */
-    raw_token: string;
+    token_hint: string;
     /**
      * Scoped Dataset Ids
      */
     scoped_dataset_ids: Array<string>;
     /**
-     * Token Hint
+     * Allowed Origins
      */
-    token_hint: string;
+    allowed_origins?: Array<string> | null;
+    /**
+     * Expires At
+     */
+    expires_at: string;
+    /**
+     * Is Active
+     */
+    is_active: boolean;
     /**
      * Use Count
      */
     use_count?: number;
+    /**
+     * Last Used At
+     */
+    last_used_at?: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Raw Token
+     */
+    raw_token: string;
 };
 
 /**
@@ -4010,29 +4010,9 @@ export type EmbedTokenListResponse = {
  */
 export type EmbedTokenResponse = {
     /**
-     * Allowed Origins
-     */
-    allowed_origins?: Array<string> | null;
-    /**
-     * Created At
-     */
-    created_at: string;
-    /**
-     * Expires At
-     */
-    expires_at: string;
-    /**
      * Id
      */
     id: string;
-    /**
-     * Is Active
-     */
-    is_active: boolean;
-    /**
-     * Last Used At
-     */
-    last_used_at?: string | null;
     /**
      * Map Id
      */
@@ -4042,17 +4022,37 @@ export type EmbedTokenResponse = {
      */
     name?: string | null;
     /**
-     * Scoped Dataset Ids
-     */
-    scoped_dataset_ids: Array<string>;
-    /**
      * Token Hint
      */
     token_hint: string;
     /**
+     * Scoped Dataset Ids
+     */
+    scoped_dataset_ids: Array<string>;
+    /**
+     * Allowed Origins
+     */
+    allowed_origins?: Array<string> | null;
+    /**
+     * Expires At
+     */
+    expires_at: string;
+    /**
+     * Is Active
+     */
+    is_active: boolean;
+    /**
      * Use Count
      */
     use_count?: number;
+    /**
+     * Last Used At
+     */
+    last_used_at?: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
 };
 
 /**
@@ -4072,11 +4072,11 @@ export type EmbedTokenUpdate = {
  */
 export type EmbeddingStatsResponse = {
     /**
-     * Coverage Percent
+     * Total Records
      *
-     * Embedding coverage as a percentage (0-100).
+     * Total number of records in the catalog.
      */
-    coverage_percent: number;
+    total_records: number;
     /**
      * Embedded Records
      *
@@ -4090,11 +4090,11 @@ export type EmbeddingStatsResponse = {
      */
     missing_records: number;
     /**
-     * Total Records
+     * Coverage Percent
      *
-     * Total number of records in the catalog.
+     * Embedding coverage as a percentage (0-100).
      */
-    total_records: number;
+    coverage_percent: number;
 };
 
 /**
@@ -4123,18 +4123,6 @@ export type ExportFormat = 'gpkg' | 'geojson' | 'shp' | 'csv' | 'parquet';
  */
 export type FacetCountResponse = {
     /**
-     * Collections
-     *
-     * Collections containing matched records
-     */
-    collections?: Array<CollectionFacetItem>;
-    /**
-     * Keywords
-     *
-     * Top keyword tags with counts
-     */
-    keywords?: Array<FacetValueCount>;
-    /**
      * Record Type
      *
      * Hit counts keyed by record type
@@ -4142,6 +4130,12 @@ export type FacetCountResponse = {
     record_type: {
         [key: string]: number;
     };
+    /**
+     * Keywords
+     *
+     * Top keyword tags with counts
+     */
+    keywords?: Array<FacetValueCount>;
     /**
      * Source Organization
      *
@@ -4154,6 +4148,12 @@ export type FacetCountResponse = {
      * Top SRIDs with counts
      */
     srid?: Array<FacetValueCount>;
+    /**
+     * Collections
+     *
+     * Collections containing matched records
+     */
+    collections?: Array<CollectionFacetItem>;
 };
 
 /**
@@ -4163,13 +4163,13 @@ export type FacetCountResponse = {
  */
 export type FacetValueCount = {
     /**
-     * Count
-     */
-    count: number;
-    /**
      * Value
      */
     value: string;
+    /**
+     * Count
+     */
+    count: number;
 };
 
 /**
@@ -4236,18 +4236,6 @@ export type FanOutLayerRequest = {
  */
 export type FanOutLayerResult = {
     /**
-     * Dataset Id
-     *
-     * ID of the new Dataset record created for this layer. Null on failure.
-     */
-    dataset_id?: string | null;
-    /**
-     * Error
-     *
-     * User-safe error description when status='failed'. Never contains internal file paths.
-     */
-    error?: string | null;
-    /**
      * Layer Name
      *
      * Layer name from the request.
@@ -4260,11 +4248,23 @@ export type FanOutLayerResult = {
      */
     new_job_id?: string | null;
     /**
+     * Dataset Id
+     *
+     * ID of the new Dataset record created for this layer. Null on failure.
+     */
+    dataset_id?: string | null;
+    /**
      * Status
      *
      * 'queued' if the task was dispatched; 'failed' if an error occurred.
      */
     status: 'queued' | 'failed';
+    /**
+     * Error
+     *
+     * User-safe error description when status='failed'. Never contains internal file paths.
+     */
+    error?: string | null;
 };
 
 /**
@@ -4344,6 +4344,10 @@ export type FeatureUpdate = {
  */
 export type GeoJsonFeature = {
     /**
+     * Type
+     */
+    type?: string;
+    /**
      * Geometry
      */
     geometry?: {
@@ -4355,10 +4359,6 @@ export type GeoJsonFeature = {
     properties?: {
         [key: string]: unknown;
     } | null;
-    /**
-     * Type
-     */
-    type?: string;
     [key: string]: unknown;
 };
 
@@ -4369,13 +4369,13 @@ export type GeoJsonFeature = {
  */
 export type GeoJsonFeatureCollection = {
     /**
-     * Features
-     */
-    features?: Array<GeoJsonFeature>;
-    /**
      * Type
      */
     type?: string;
+    /**
+     * Features
+     */
+    features?: Array<GeoJsonFeature>;
     [key: string]: unknown;
 };
 
@@ -4386,13 +4386,13 @@ export type GeoJsonFeatureCollection = {
  */
 export type GeoJsonGeometry = {
     /**
-     * Coordinates
-     */
-    coordinates: Array<unknown>;
-    /**
      * Type
      */
     type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+    /**
+     * Coordinates
+     */
+    coordinates: Array<unknown>;
 };
 
 /**
@@ -4414,13 +4414,13 @@ export type GeoJsonGeometry = {
  */
 export type GeoJsonGeometryCollection = {
     /**
-     * Geometries
-     */
-    geometries: Array<GeoJsonGeometry>;
-    /**
      * Type
      */
     type: 'GeometryCollection';
+    /**
+     * Geometries
+     */
+    geometries: Array<GeoJsonGeometry>;
 };
 
 /**
@@ -4438,6 +4438,14 @@ export type HttpValidationError = {
  */
 export type HealthResponse = {
     /**
+     * Status
+     */
+    status: string;
+    /**
+     * Version
+     */
+    version: string;
+    /**
      * Build
      */
     build?: string | null;
@@ -4447,14 +4455,6 @@ export type HealthResponse = {
     providers: {
         [key: string]: ServiceHealth;
     };
-    /**
-     * Status
-     */
-    status: string;
-    /**
-     * Version
-     */
-    version: string;
 };
 
 /**
@@ -4463,30 +4463,6 @@ export type HealthResponse = {
  * Summary of what was applied during an import.
  */
 export type ImportResult = {
-    /**
-     * Oauth Accounts Deleted
-     *
-     * Number of dependent OAuth account links cascade-deleted in overwrite mode.
-     */
-    oauth_accounts_deleted?: number;
-    /**
-     * Oauth Created
-     *
-     * Number of new OAuth providers created.
-     */
-    oauth_created: number;
-    /**
-     * Oauth Deleted
-     *
-     * Number of OAuth providers deleted (overwrite mode only).
-     */
-    oauth_deleted: number;
-    /**
-     * Oauth Updated
-     *
-     * Number of existing OAuth providers updated.
-     */
-    oauth_updated: number;
     /**
      * Settings Applied
      *
@@ -4505,6 +4481,30 @@ export type ImportResult = {
      * Names of restricted setting keys that were skipped by the current runtime.
      */
     settings_skipped_restricted?: Array<string>;
+    /**
+     * Oauth Created
+     *
+     * Number of new OAuth providers created.
+     */
+    oauth_created: number;
+    /**
+     * Oauth Updated
+     *
+     * Number of existing OAuth providers updated.
+     */
+    oauth_updated: number;
+    /**
+     * Oauth Deleted
+     *
+     * Number of OAuth providers deleted (overwrite mode only).
+     */
+    oauth_deleted: number;
+    /**
+     * Oauth Accounts Deleted
+     *
+     * Number of dependent OAuth account links cascade-deleted in overwrite mode.
+     */
+    oauth_accounts_deleted?: number;
 };
 
 /**
@@ -4512,23 +4512,17 @@ export type ImportResult = {
  */
 export type InfrastructureConfig = {
     /**
+     * Storage Provider
+     *
+     * Active storage backend ('local' or 's3').
+     */
+    storage_provider: string;
+    /**
      * Cache Provider
      *
      * Active cache backend ('memory' or 'redis').
      */
     cache_provider: string;
-    /**
-     * Cdn Configured
-     *
-     * Whether a CDN base URL is configured for tile delivery.
-     */
-    cdn_configured: boolean;
-    /**
-     * Database Pooler
-     *
-     * Active connection pooler mode ('sqlalchemy' or 'external').
-     */
-    database_pooler: string;
     /**
      * Database Type
      *
@@ -4536,11 +4530,11 @@ export type InfrastructureConfig = {
      */
     database_type: string;
     /**
-     * Storage Provider
+     * Database Pooler
      *
-     * Active storage backend ('local' or 's3').
+     * Active connection pooler mode ('sqlalchemy' or 'external').
      */
-    storage_provider: string;
+    database_pooler: string;
     /**
      * Tile Cache
      *
@@ -4553,6 +4547,12 @@ export type InfrastructureConfig = {
      * Tile cache TTL in seconds.
      */
     tile_cache_ttl: number;
+    /**
+     * Cdn Configured
+     *
+     * Whether a CDN base URL is configured for tile delivery.
+     */
+    cdn_configured: boolean;
 };
 
 /**
@@ -4586,67 +4586,33 @@ export type InfrastructureResponse = {
  */
 export type JobStatusResponse = {
     /**
-     * Archive Failed
-     */
-    archive_failed?: boolean;
-    /**
-     * Can Retry
-     */
-    can_retry: boolean;
-    /**
-     * Completed At
-     */
-    completed_at: string | null;
-    /**
-     * Created At
-     */
-    created_at: string;
-    /**
-     * Current Step
-     */
-    current_step?: 'queued' | 'validating' | 'ogr2ogr' | 'finalize' | 'complete' | 'cog_convert' | 'quicklook' | 'analyzing' | 'registering' | null;
-    /**
-     * Dataset Id
-     */
-    dataset_id: string | null;
-    /**
-     * Error Message
-     */
-    error_message: string | null;
-    /**
      * Id
      */
     id: string;
-    /**
-     * Progress
-     */
-    progress?: number | null;
-    /**
-     * Retry Reason
-     */
-    retry_reason: string | null;
-    /**
-     * Rows Processed
-     */
-    rows_processed?: number | null;
-    /**
-     * Source Filename
-     */
-    source_filename: string | null;
-    /**
-     * Started At
-     */
-    started_at: string | null;
     /**
      * Status
      */
     status: 'pending' | 'running' | 'complete' | 'failed' | 'cancelled' | 'fanned_out';
     /**
-     * Temporal Parse Errors
+     * Dataset Id
      */
-    temporal_parse_errors?: {
-        [key: string]: string;
-    };
+    dataset_id: string | null;
+    /**
+     * Source Filename
+     */
+    source_filename: string | null;
+    /**
+     * Error Message
+     */
+    error_message: string | null;
+    /**
+     * Can Retry
+     */
+    can_retry: boolean;
+    /**
+     * Retry Reason
+     */
+    retry_reason: string | null;
     /**
      * Warning Message
      */
@@ -4655,6 +4621,40 @@ export type JobStatusResponse = {
      * Warnings
      */
     warnings?: Array<ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning>;
+    /**
+     * Progress
+     */
+    progress?: number | null;
+    /**
+     * Current Step
+     */
+    current_step?: 'queued' | 'validating' | 'ogr2ogr' | 'finalize' | 'complete' | 'cog_convert' | 'quicklook' | 'analyzing' | 'registering' | null;
+    /**
+     * Rows Processed
+     */
+    rows_processed?: number | null;
+    /**
+     * Archive Failed
+     */
+    archive_failed?: boolean;
+    /**
+     * Temporal Parse Errors
+     */
+    temporal_parse_errors?: {
+        [key: string]: string;
+    };
+    /**
+     * Started At
+     */
+    started_at: string | null;
+    /**
+     * Completed At
+     */
+    completed_at: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
 };
 
 /**
@@ -4666,29 +4666,23 @@ export type KeywordCreate = {
      */
     keyword: string;
     /**
-     * Keyword Type
-     *
-     * ISO MD_KeywordTypeCode, e.g. theme, place, discipline
-     */
-    keyword_type?: string;
-    /**
      * Vocabulary Uri
      *
      * URI of the controlled vocabulary
      */
     vocabulary_uri?: string | null;
+    /**
+     * Keyword Type
+     *
+     * ISO MD_KeywordTypeCode, e.g. theme, place, discipline
+     */
+    keyword_type?: string;
 };
 
 /**
  * KeywordListResponse
  */
 export type KeywordListResponse = {
-    /**
-     * Inherited Audience Gap
-     *
-     * True when at least one keyword is inherited AND this record's audience — at its stored state, or at the counterfactual audience_visibility/audience_record_status query parameters, which are honored only for the record's owner and admins — includes someone who cannot open the source dataset (feat #1070).
-     */
-    inherited_audience_gap?: boolean;
     /**
      * Keywords
      */
@@ -4697,6 +4691,12 @@ export type KeywordListResponse = {
      * Total
      */
     total: number;
+    /**
+     * Inherited Audience Gap
+     *
+     * True when at least one keyword is inherited AND this record's audience — at its stored state, or at the counterfactual audience_visibility/audience_record_status query parameters, which are honored only for the record's owner and admins — includes someone who cannot open the source dataset (feat #1070).
+     */
+    inherited_audience_gap?: boolean;
 };
 
 /**
@@ -4708,27 +4708,27 @@ export type KeywordResponse = {
      */
     id: string;
     /**
-     * Inherited
-     *
-     * True when this keyword also exists on the dataset this record was derived from (feat #1070). Derived at read time from derived_from; only ever true for a requester who can access that source dataset, so everyone else sees false — matching the derived_from redaction.
+     * Record Id
      */
-    inherited?: boolean;
+    record_id: string;
     /**
      * Keyword
      */
     keyword: string;
     /**
+     * Vocabulary Uri
+     */
+    vocabulary_uri: string | null;
+    /**
      * Keyword Type
      */
     keyword_type: string;
     /**
-     * Record Id
+     * Inherited
+     *
+     * True when this keyword also exists on the dataset this record was derived from (feat #1070). Derived at read time from derived_from; only ever true for a requester who can access that source dataset, so everyone else sees false — matching the derived_from redaction.
      */
-    record_id: string;
-    /**
-     * Vocabulary Uri
-     */
-    vocabulary_uri: string | null;
+    inherited?: boolean;
 };
 
 /**
@@ -4770,6 +4770,12 @@ export type KeywordSuggestionsResponse = {
  */
 export type LandingPage = {
     /**
+     * Title
+     *
+     * OGC API landing page title.
+     */
+    title: string;
+    /**
      * Description
      *
      * Human-readable API description.
@@ -4781,12 +4787,6 @@ export type LandingPage = {
      * Top-level navigation links to conformance, collections, and API document.
      */
     links: Array<OgcLink>;
-    /**
-     * Title
-     *
-     * OGC API landing page title.
-     */
-    title: string;
 };
 
 /**
@@ -4794,11 +4794,17 @@ export type LandingPage = {
  */
 export type LayerInfo = {
     /**
-     * Feature Count
+     * Name
      *
-     * Total feature count if reported by the service.
+     * Internal layer identifier used by the source service.
      */
-    feature_count?: number | null;
+    name: string;
+    /**
+     * Title
+     *
+     * Human-readable layer title from the service capabilities.
+     */
+    title?: string | null;
     /**
      * Geometry Type
      *
@@ -4806,17 +4812,11 @@ export type LayerInfo = {
      */
     geometry_type?: string | null;
     /**
-     * Kind
+     * Feature Count
      *
-     * Backend-classified layer kind. 'vector' = point/line/polygon feature data. 'raster' = imagery/coverage. Per Phase 1057 CLASS-07 D-09. Classification rule: raster IFF geometry_type contains 'raster', adapter is STAC, or layer has coverage_format/bands/mediaType:image*. Everything else (including geometry_type=None after D-05 ogrinfo drop) defaults to 'vector'.
+     * Total feature count if reported by the service.
      */
-    kind?: 'vector' | 'raster';
-    /**
-     * Layer Id
-     *
-     * Numeric or string layer ID used by ArcGIS services.
-     */
-    layer_id?: number | string | null;
+    feature_count?: number | null;
     /**
      * Layer Type
      *
@@ -4824,11 +4824,11 @@ export type LayerInfo = {
      */
     layer_type?: string;
     /**
-     * Name
+     * Layer Id
      *
-     * Internal layer identifier used by the source service.
+     * Numeric or string layer ID used by ArcGIS services.
      */
-    name: string;
+    layer_id?: number | string | null;
     /**
      * Object Id Field
      *
@@ -4836,17 +4836,21 @@ export type LayerInfo = {
      */
     object_id_field?: string | null;
     /**
-     * Title
+     * Kind
      *
-     * Human-readable layer title from the service capabilities.
+     * Backend-classified layer kind. 'vector' = point/line/polygon feature data. 'raster' = imagery/coverage. Per Phase 1057 CLASS-07 D-09. Classification rule: raster IFF geometry_type contains 'raster', adapter is STAC, or layer has coverage_format/bands/mediaType:image*. Everything else (including geometry_type=None after D-05 ogrinfo drop) defaults to 'vector'.
      */
-    title?: string | null;
+    kind?: 'vector' | 'raster';
 };
 
 /**
  * LayerPreview
  */
 export type LayerPreview = {
+    /**
+     * Name
+     */
+    name: string;
     /**
      * Feature Count
      */
@@ -4855,10 +4859,6 @@ export type LayerPreview = {
      * Field Count
      */
     field_count?: number | null;
-    /**
-     * Name
-     */
-    name: string;
 };
 
 /**
@@ -4880,35 +4880,39 @@ export type LineageDraftResponse = {
  */
 export type ManifestApplyEntryResult = {
     /**
-     * Action
-     */
-    action: 'create' | 'update' | 'skip' | 'error';
-    /**
-     * Dataset Id
-     */
-    dataset_id?: string | null;
-    /**
      * Dataset Key
      */
     dataset_key: string;
     /**
-     * Errors
+     * Action
      */
-    errors?: Array<string>;
+    action: 'create' | 'update' | 'skip' | 'error';
     /**
      * Job Id
      */
     job_id?: string | null;
     /**
+     * Dataset Id
+     */
+    dataset_id?: string | null;
+    /**
      * Message
      */
     message: string;
+    /**
+     * Errors
+     */
+    errors?: Array<string>;
 };
 
 /**
  * ManifestApplyRequest
  */
 export type ManifestApplyRequest = {
+    /**
+     * Manifest Version
+     */
+    manifest_version: '1';
     catalog: ManifestCatalog;
     /**
      * Datasets
@@ -4918,10 +4922,6 @@ export type ManifestApplyRequest = {
      * Dry Run
      */
     dry_run?: boolean;
-    /**
-     * Manifest Version
-     */
-    manifest_version: '1';
 };
 
 /**
@@ -4946,7 +4946,10 @@ export type ManifestApplyResponse = {
  * ManifestCatalog
  */
 export type ManifestCatalog = {
-    contact?: ManifestContact | null;
+    /**
+     * Title
+     */
+    title: string;
     /**
      * Description
      */
@@ -4955,10 +4958,7 @@ export type ManifestCatalog = {
      * Organization
      */
     organization?: string | null;
-    /**
-     * Title
-     */
-    title: string;
+    contact?: ManifestContact | null;
 };
 
 /**
@@ -4966,13 +4966,13 @@ export type ManifestCatalog = {
  */
 export type ManifestContact = {
     /**
-     * Email
-     */
-    email?: string | null;
-    /**
      * Name
      */
     name?: string | null;
+    /**
+     * Email
+     */
+    email?: string | null;
     /**
      * Url
      */
@@ -4984,33 +4984,49 @@ export type ManifestContact = {
  */
 export type ManifestDataset = {
     /**
-     * Description
-     */
-    description?: string | null;
-    /**
      * Key
      *
      * Stable dataset identity key used for idempotent apply operations.
      */
     key: string;
-    metadata?: ManifestMetadata | null;
-    publication: ManifestPublication;
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Description
+     */
+    description?: string | null;
     /**
      * Sources
      */
     sources: [
         ManifestSource
     ];
-    /**
-     * Title
-     */
-    title: string;
+    metadata?: ManifestMetadata | null;
+    publication: ManifestPublication;
 };
 
 /**
  * ManifestMetadata
  */
 export type ManifestMetadata = {
+    /**
+     * Tags
+     */
+    tags?: Array<string> | null;
+    /**
+     * Organization
+     */
+    organization?: string | null;
+    /**
+     * Crs
+     */
+    crs?: string | null;
+    /**
+     * License
+     */
+    license?: string | null;
     /**
      * Attribution
      */
@@ -5024,22 +5040,6 @@ export type ManifestMetadata = {
         number,
         number
     ] | null;
-    /**
-     * Crs
-     */
-    crs?: string | null;
-    /**
-     * License
-     */
-    license?: string | null;
-    /**
-     * Organization
-     */
-    organization?: string | null;
-    /**
-     * Tags
-     */
-    tags?: Array<string> | null;
 };
 
 /**
@@ -5059,22 +5059,6 @@ export type ManifestPublication = {
  */
 export type ManifestSource = {
     /**
-     * Description
-     */
-    description?: string | null;
-    /**
-     * Format
-     */
-    format?: string | null;
-    /**
-     * Layer
-     */
-    layer?: string | null;
-    /**
-     * Title
-     */
-    title?: string | null;
-    /**
      * Type
      *
      * Source modality. Vector sources require zip, gpkg, geojson, json, csv, xlsx, or xls; raster_cog sources require tif or tiff.
@@ -5086,6 +5070,22 @@ export type ManifestSource = {
      * Relative path (no `..` traversal), HTTP(S) URL, or storage URI.
      */
     uri: string;
+    /**
+     * Title
+     */
+    title?: string | null;
+    /**
+     * Description
+     */
+    description?: string | null;
+    /**
+     * Format
+     */
+    format?: string | null;
+    /**
+     * Layer
+     */
+    layer?: string | null;
 };
 
 /**
@@ -5093,17 +5093,17 @@ export type ManifestSource = {
  */
 export type MapAccessResponse = {
     /**
-     * Can Edit
-     *
-     * True when the current request may open the map builder
-     */
-    can_edit: boolean;
-    /**
      * Can View
      *
      * True when the current request may read the map
      */
     can_view: boolean;
+    /**
+     * Can Edit
+     *
+     * True when the current request may open the map builder
+     */
+    can_edit: boolean;
 };
 
 /**
@@ -5111,21 +5111,17 @@ export type MapAccessResponse = {
  */
 export type MapCreate = {
     /**
-     * Curated map-level basemap appearance preferences
+     * Name
+     *
+     * Map display name
      */
-    basemap_config?: BasemapConfig | null;
+    name: string;
     /**
      * Description
      *
      * Short description for sharing
      */
     description?: string | null;
-    /**
-     * Name
-     *
-     * Map display name
-     */
-    name: string;
     /**
      * Notes
      *
@@ -5136,6 +5132,10 @@ export type MapCreate = {
      * Map-level terrain source and exaggeration preferences
      */
     terrain_config?: TerrainConfig | null;
+    /**
+     * Curated map-level basemap appearance preferences
+     */
+    basemap_config?: BasemapConfig | null;
 };
 
 /**
@@ -5167,27 +5167,19 @@ export type MapDefaultsResponse = {
  */
 export type MapGenerateRequest = {
     /**
-     * Language
-     */
-    language?: string | null;
-    /**
      * Prompt
      */
     prompt: string;
+    /**
+     * Language
+     */
+    language?: string | null;
 };
 
 /**
  * MapGenerateResponse
  */
 export type MapGenerateResponse = {
-    /**
-     * Datasets Used
-     */
-    datasets_used: Array<string>;
-    /**
-     * Explanation
-     */
-    explanation: string;
     /**
      * Map Id
      */
@@ -5196,34 +5188,20 @@ export type MapGenerateResponse = {
      * Map Name
      */
     map_name: string;
+    /**
+     * Explanation
+     */
+    explanation: string;
+    /**
+     * Datasets Used
+     */
+    datasets_used: Array<string>;
 };
 
 /**
  * MapHistoryEventResponse
  */
 export type MapHistoryEventResponse = {
-    /**
-     * Action
-     */
-    action: string;
-    /**
-     * Actor Id
-     */
-    actor_id?: string | null;
-    /**
-     * Actor Username
-     */
-    actor_username?: string | null;
-    /**
-     * Created At
-     */
-    created_at: string;
-    /**
-     * Details
-     */
-    details?: {
-        [key: string]: unknown;
-    };
     /**
      * Id
      */
@@ -5233,9 +5211,17 @@ export type MapHistoryEventResponse = {
      */
     map_id: string;
     /**
-     * Summary
+     * Actor Id
      */
-    summary: string;
+    actor_id?: string | null;
+    /**
+     * Actor Username
+     */
+    actor_username?: string | null;
+    /**
+     * Target Type
+     */
+    target_type: string;
     /**
      * Target Id
      */
@@ -5245,9 +5231,23 @@ export type MapHistoryEventResponse = {
      */
     target_name?: string | null;
     /**
-     * Target Type
+     * Action
      */
-    target_type: string;
+    action: string;
+    /**
+     * Summary
+     */
+    summary: string;
+    /**
+     * Details
+     */
+    details?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Created At
+     */
+    created_at: string;
 };
 
 /**
@@ -5259,17 +5259,17 @@ export type MapHistoryListResponse = {
      */
     events: Array<MapHistoryEventResponse>;
     /**
-     * Limit
+     * Total
      */
-    limit: number;
+    total: number;
     /**
      * Skip
      */
     skip: number;
     /**
-     * Total
+     * Limit
      */
-    total: number;
+    limit: number;
 };
 
 /**
@@ -5287,37 +5287,37 @@ export type MapIconListResponse = {
  */
 export type MapIconResponse = {
     /**
-     * Builtin
-     */
-    builtin?: boolean;
-    /**
      * Id
      */
     id: string;
-    /**
-     * Media Type
-     */
-    media_type: string;
     /**
      * Name
      */
     name: string;
     /**
-     * Size Bytes
-     */
-    size_bytes?: number | null;
-    /**
      * Slug
      */
     slug: string;
+    /**
+     * Media Type
+     */
+    media_type: string;
+    /**
+     * Url
+     */
+    url: string;
     /**
      * Sprite Id
      */
     sprite_id: string;
     /**
-     * Url
+     * Size Bytes
      */
-    url: string;
+    size_bytes?: number | null;
+    /**
+     * Builtin
+     */
+    builtin?: boolean;
 };
 
 /**
@@ -5331,11 +5331,13 @@ export type MapLayerDiffRequest = {
      */
     added?: Array<MapLayerInput>;
     /**
-     * Fallback Full Replace
-     *
-     * Client hint only; PATCH never performs full replacement
+     * Updated
      */
-    fallback_full_replace?: boolean;
+    updated?: Array<MapLayerPatch>;
+    /**
+     * Removed
+     */
+    removed?: Array<string>;
     /**
      * Order
      *
@@ -5343,13 +5345,11 @@ export type MapLayerDiffRequest = {
      */
     order?: Array<string> | null;
     /**
-     * Removed
+     * Fallback Full Replace
+     *
+     * Client hint only; PATCH never performs full replacement
      */
-    removed?: Array<string>;
-    /**
-     * Updated
-     */
-    updated?: Array<MapLayerPatch>;
+    fallback_full_replace?: boolean;
 };
 
 /**
@@ -5357,49 +5357,25 @@ export type MapLayerDiffRequest = {
  */
 export type MapLayerInput = {
     /**
-     * Dataset Id
-     */
-    dataset_id: string;
-    /**
-     * Display Name
-     *
-     * Label shown in the layer list
-     */
-    display_name?: string | null;
-    /**
-     * Filter
-     *
-     * MapLibre filter expression
-     */
-    filter?: Array<unknown> | null;
-    /**
      * Id
      *
      * Existing layer id to update in place (full-save reconcile)
      */
     id?: string | null;
     /**
-     * Label Config
-     *
-     * Text label configuration
+     * Dataset Id
      */
-    label_config?: {
-        [key: string]: unknown;
-    } | null;
+    dataset_id: string;
     /**
-     * Layer Type
+     * Sort Order
      *
-     * Auto-detected from record_type if omitted
+     * Draw order (lower draws first)
      */
-    layer_type?: string | null;
+    sort_order?: number;
     /**
-     * Layout
-     *
-     * MapLibre layout properties override
+     * Visible
      */
-    layout?: {
-        [key: string]: unknown;
-    } | null;
+    visible?: boolean;
     /**
      * Opacity
      *
@@ -5415,41 +5391,17 @@ export type MapLayerInput = {
         [key: string]: unknown;
     } | null;
     /**
-     * Popup configuration: {enabled, expression, visible_fields}
-     */
-    popup_config?: PopupConfig | null;
-    /**
-     * Show In Legend
+     * Layout
      *
-     * Whether to include in the map legend
+     * MapLibre layout properties override
      */
-    show_in_legend?: boolean;
-    /**
-     * Sort Order
-     *
-     * Draw order (lower draws first)
-     */
-    sort_order?: number;
-    /**
-     * Style Config
-     *
-     * Data-driven and builder UI style configuration. Builder-only state lives under builder, e.g. fill_disabled, stroke_disabled, outline settings, heatmap metadata, and height_column.
-     */
-    style_config?: {
+    layout?: {
         [key: string]: unknown;
     } | null;
     /**
-     * Visible
-     */
-    visible?: boolean;
-};
-
-/**
- * MapLayerPatch
- */
-export type MapLayerPatch = {
-    /**
      * Display Name
+     *
+     * Label shown in the layer list
      */
     display_name?: string | null;
     /**
@@ -5459,10 +5411,6 @@ export type MapLayerPatch = {
      */
     filter?: Array<unknown> | null;
     /**
-     * Id
-     */
-    id: string;
-    /**
      * Label Config
      *
      * Text label configuration
@@ -5471,17 +5419,47 @@ export type MapLayerPatch = {
         [key: string]: unknown;
     } | null;
     /**
+     * Popup configuration: {enabled, expression, visible_fields}
+     */
+    popup_config?: PopupConfig | null;
+    /**
+     * Style Config
+     *
+     * Data-driven and builder UI style configuration. Builder-only state lives under builder, e.g. fill_disabled, stroke_disabled, outline settings, heatmap metadata, and height_column.
+     */
+    style_config?: {
+        [key: string]: unknown;
+    } | null;
+    /**
      * Layer Type
+     *
+     * Auto-detected from record_type if omitted
      */
     layer_type?: string | null;
     /**
-     * Layout
+     * Show In Legend
      *
-     * MapLibre layout properties override
+     * Whether to include in the map legend
      */
-    layout?: {
-        [key: string]: unknown;
-    } | null;
+    show_in_legend?: boolean;
+};
+
+/**
+ * MapLayerPatch
+ */
+export type MapLayerPatch = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Sort Order
+     */
+    sort_order?: number | null;
+    /**
+     * Visible
+     */
+    visible?: boolean | null;
     /**
      * Opacity
      */
@@ -5494,15 +5472,33 @@ export type MapLayerPatch = {
     paint?: {
         [key: string]: unknown;
     } | null;
+    /**
+     * Layout
+     *
+     * MapLibre layout properties override
+     */
+    layout?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Display Name
+     */
+    display_name?: string | null;
+    /**
+     * Filter
+     *
+     * MapLibre filter expression
+     */
+    filter?: Array<unknown> | null;
+    /**
+     * Label Config
+     *
+     * Text label configuration
+     */
+    label_config?: {
+        [key: string]: unknown;
+    } | null;
     popup_config?: PopupConfig | null;
-    /**
-     * Show In Legend
-     */
-    show_in_legend?: boolean | null;
-    /**
-     * Sort Order
-     */
-    sort_order?: number | null;
     /**
      * Style Config
      */
@@ -5510,9 +5506,13 @@ export type MapLayerPatch = {
         [key: string]: unknown;
     } | null;
     /**
-     * Visible
+     * Layer Type
      */
-    visible?: boolean | null;
+    layer_type?: string | null;
+    /**
+     * Show In Legend
+     */
+    show_in_legend?: boolean | null;
 };
 
 /**
@@ -5520,27 +5520,9 @@ export type MapLayerPatch = {
  */
 export type MapLayerResponse = {
     /**
-     * Band Count
+     * Id
      */
-    band_count?: number | null;
-    /**
-     * Dataset Column Info
-     */
-    dataset_column_info?: Array<{
-        [key: string]: unknown;
-    }> | null;
-    /**
-     * Dataset Extent Bbox
-     */
-    dataset_extent_bbox: Array<number> | null;
-    /**
-     * Dataset Feature Count
-     */
-    dataset_feature_count?: number | null;
-    /**
-     * Dataset Geometry Type
-     */
-    dataset_geometry_type: string | null;
+    id: string;
     /**
      * Dataset Id
      */
@@ -5550,9 +5532,27 @@ export type MapLayerResponse = {
      */
     dataset_name: string;
     /**
-     * Dataset Record Type
+     * Dataset Geometry Type
      */
-    dataset_record_type?: string | null;
+    dataset_geometry_type: string | null;
+    /**
+     * Dataset Table Name
+     */
+    dataset_table_name: string;
+    /**
+     * Dataset Extent Bbox
+     */
+    dataset_extent_bbox: Array<number> | null;
+    /**
+     * Dataset Column Info
+     */
+    dataset_column_info?: Array<{
+        [key: string]: unknown;
+    }> | null;
+    /**
+     * Dataset Feature Count
+     */
+    dataset_feature_count?: number | null;
     /**
      * Dataset Sample Values
      */
@@ -5560,57 +5560,17 @@ export type MapLayerResponse = {
         [key: string]: unknown;
     } | null;
     /**
-     * Dataset Status
-     */
-    dataset_status?: string | null;
-    /**
-     * Dataset Table Name
-     */
-    dataset_table_name: string;
-    /**
-     * Dataset Visibility
-     */
-    dataset_visibility?: string | null;
-    /**
-     * Dem Vertical Units
-     */
-    dem_vertical_units?: string | null;
-    /**
      * Display Name
      */
     display_name?: string | null;
     /**
-     * Filter
+     * Sort Order
      */
-    filter?: Array<unknown> | null;
+    sort_order: number;
     /**
-     * Id
+     * Visible
      */
-    id: string;
-    /**
-     * Is 3D
-     */
-    is_3d?: boolean | null;
-    /**
-     * Is Dem
-     */
-    is_dem?: boolean | null;
-    /**
-     * Label Config
-     */
-    label_config?: {
-        [key: string]: unknown;
-    } | null;
-    /**
-     * Layer Type
-     */
-    layer_type?: string;
-    /**
-     * Layout
-     */
-    layout: {
-        [key: string]: unknown;
-    };
+    visible: boolean;
     /**
      * Opacity
      */
@@ -5621,15 +5581,31 @@ export type MapLayerResponse = {
     paint: {
         [key: string]: unknown;
     };
+    /**
+     * Layout
+     */
+    layout: {
+        [key: string]: unknown;
+    };
+    /**
+     * Layer Type
+     */
+    layer_type?: string;
+    /**
+     * Dataset Record Type
+     */
+    dataset_record_type?: string | null;
+    /**
+     * Filter
+     */
+    filter?: Array<unknown> | null;
+    /**
+     * Label Config
+     */
+    label_config?: {
+        [key: string]: unknown;
+    } | null;
     popup_config?: PopupConfig | null;
-    /**
-     * Show In Legend
-     */
-    show_in_legend?: boolean;
-    /**
-     * Sort Order
-     */
-    sort_order: number;
     /**
      * Style Config
      */
@@ -5637,13 +5613,37 @@ export type MapLayerResponse = {
         [key: string]: unknown;
     } | null;
     /**
+     * Show In Legend
+     */
+    show_in_legend?: boolean;
+    /**
+     * Is 3D
+     */
+    is_3d?: boolean | null;
+    /**
+     * Is Dem
+     */
+    is_dem?: boolean | null;
+    /**
+     * Dem Vertical Units
+     */
+    dem_vertical_units?: string | null;
+    /**
+     * Band Count
+     */
+    band_count?: number | null;
+    /**
      * Tile Version
      */
     tile_version?: number | null;
     /**
-     * Visible
+     * Dataset Visibility
      */
-    visible: boolean;
+    dataset_visibility?: string | null;
+    /**
+     * Dataset Status
+     */
+    dataset_status?: string | null;
 };
 
 /**
@@ -5664,39 +5664,61 @@ export type MapListResponse = {
  * MapResponse
  */
 export type MapResponse = {
-    basemap_config?: BasemapConfig | null;
     /**
-     * Basemap Style
+     * Id
      */
-    basemap_style: string;
+    id: string;
     /**
-     * Bearing
+     * Name
      */
-    bearing: number;
+    name: string;
     /**
-     * Center Lat
+     * Description
      */
-    center_lat: number | null;
+    description: string | null;
+    /**
+     * Notes
+     */
+    notes?: string | null;
     /**
      * Center Lng
      */
     center_lng: number | null;
     /**
-     * Created At
+     * Center Lat
      */
-    created_at: string;
+    center_lat: number | null;
     /**
-     * Created By
+     * Zoom
      */
-    created_by: string | null;
+    zoom: number | null;
     /**
-     * Created By Username
+     * Bearing
      */
-    created_by_username?: string | null;
+    bearing: number;
     /**
-     * Description
+     * Pitch
      */
-    description: string | null;
+    pitch: number;
+    /**
+     * Basemap Style
+     */
+    basemap_style: string;
+    /**
+     * Show Basemap Labels
+     */
+    show_basemap_labels: boolean;
+    basemap_config?: BasemapConfig | null;
+    terrain_config?: TerrainConfig | null;
+    visibility: MapVisibility;
+    /**
+     * Thumbnail Url
+     */
+    thumbnail_url?: string | null;
+    /**
+     * Og Image Url
+     */
+    og_image_url?: string | null;
     /**
      * Forked From Id
      *
@@ -5708,59 +5730,37 @@ export type MapResponse = {
      */
     forked_from_name?: string | null;
     /**
-     * Id
+     * Created By
      */
-    id: string;
+    created_by: string | null;
     /**
-     * Layer Count
+     * Created By Username
      */
-    layer_count: number;
+    created_by_username?: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
     /**
      * Layers
      */
     layers: Array<MapLayerResponse>;
     /**
-     * Legend Title
+     * Layer Count
      */
-    legend_title?: string | null;
-    /**
-     * Name
-     */
-    name: string;
-    /**
-     * Notes
-     */
-    notes?: string | null;
-    /**
-     * Og Image Url
-     */
-    og_image_url?: string | null;
-    /**
-     * Pitch
-     */
-    pitch: number;
+    layer_count: number;
     /**
      * Plugins
      */
     plugins?: Array<string> | null;
     /**
-     * Show Basemap Labels
+     * Legend Title
      */
-    show_basemap_labels: boolean;
-    terrain_config?: TerrainConfig | null;
-    /**
-     * Thumbnail Url
-     */
-    thumbnail_url?: string | null;
-    /**
-     * Updated At
-     */
-    updated_at: string;
-    visibility: MapVisibility;
-    /**
-     * Zoom
-     */
-    zoom: number | null;
+    legend_title?: string | null;
 };
 
 /**
@@ -5780,27 +5780,17 @@ export type MapResponse = {
  */
 export type MapStyleImportRequest = {
     /**
-     * Bearing
-     */
-    bearing?: number | null;
-    /**
-     * Center
+     * Version
      *
-     * [longitude, latitude] map center
+     * MapLibre style version (always 8 in current spec)
      */
-    center?: Array<number> | null;
+    version?: number | null;
     /**
-     * Glyphs
-     */
-    glyphs?: string | null;
-    /**
-     * Layers
+     * Name
      *
-     * MapLibre layer specifications
+     * Display name for the imported map
      */
-    layers?: Array<{
-        [key: string]: unknown;
-    }> | null;
+    name?: string | null;
     /**
      * Metadata
      *
@@ -5810,11 +5800,19 @@ export type MapStyleImportRequest = {
         [key: string]: unknown;
     } | null;
     /**
-     * Name
+     * Center
      *
-     * Display name for the imported map
+     * [longitude, latitude] map center
      */
-    name?: string | null;
+    center?: Array<number> | null;
+    /**
+     * Zoom
+     */
+    zoom?: number | null;
+    /**
+     * Bearing
+     */
+    bearing?: number | null;
     /**
      * Pitch
      */
@@ -5832,6 +5830,10 @@ export type MapStyleImportRequest = {
      */
     sprite?: string | null;
     /**
+     * Glyphs
+     */
+    glyphs?: string | null;
+    /**
      * Terrain
      *
      * MapLibre terrain config (source + exaggeration)
@@ -5840,15 +5842,13 @@ export type MapStyleImportRequest = {
         [key: string]: unknown;
     } | null;
     /**
-     * Version
+     * Layers
      *
-     * MapLibre style version (always 8 in current spec)
+     * MapLibre layer specifications
      */
-    version?: number | null;
-    /**
-     * Zoom
-     */
-    zoom?: number | null;
+    layers?: Array<{
+        [key: string]: unknown;
+    }> | null;
     [key: string]: unknown;
 };
 
@@ -5865,14 +5865,6 @@ export type MapStyleImportResponse = {
  */
 export type MapStyleImportSummary = {
     /**
-     * Layers Imported
-     */
-    layers_imported?: number;
-    /**
-     * Layers Skipped
-     */
-    layers_skipped?: number;
-    /**
      * Sources Matched
      */
     sources_matched?: number;
@@ -5880,6 +5872,14 @@ export type MapStyleImportSummary = {
      * Sources Unsupported
      */
     sources_unsupported?: number;
+    /**
+     * Layers Imported
+     */
+    layers_imported?: number;
+    /**
+     * Layers Skipped
+     */
+    layers_skipped?: number;
     /**
      * Warnings
      */
@@ -5895,10 +5895,6 @@ export type MapStyleImportWarning = {
      */
     code: string;
     /**
-     * Layer Id
-     */
-    layer_id?: string | null;
-    /**
      * Message
      */
     message: string;
@@ -5906,6 +5902,10 @@ export type MapStyleImportWarning = {
      * Source Id
      */
     source_id?: string | null;
+    /**
+     * Layer Id
+     */
+    layer_id?: string | null;
 };
 
 /**
@@ -5913,42 +5913,42 @@ export type MapStyleImportWarning = {
  */
 export type MapSummaryResponse = {
     /**
-     * Created At
-     */
-    created_at: string;
-    /**
-     * Created By Username
-     */
-    created_by_username?: string | null;
-    /**
-     * Description
-     */
-    description: string | null;
-    /**
      * Id
      */
     id: string;
-    /**
-     * Layer Count
-     */
-    layer_count: number;
     /**
      * Name
      */
     name: string;
     /**
-     * Thumbnail Updated At
+     * Description
      */
-    thumbnail_updated_at?: string | null;
+    description: string | null;
+    visibility: MapVisibility;
     /**
      * Thumbnail Url
      */
     thumbnail_url?: string | null;
     /**
+     * Thumbnail Updated At
+     */
+    thumbnail_updated_at?: string | null;
+    /**
+     * Layer Count
+     */
+    layer_count: number;
+    /**
+     * Created By Username
+     */
+    created_by_username?: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
      * Updated At
      */
     updated_at: string;
-    visibility: MapVisibility;
 };
 
 /**
@@ -5956,27 +5956,17 @@ export type MapSummaryResponse = {
  */
 export type MapUpdate = {
     /**
-     * Curated map-level basemap appearance preferences
+     * Name
      */
-    basemap_config?: BasemapConfig | null;
+    name?: string | null;
     /**
-     * Basemap Style
-     *
-     * Basemap style ID or URL
+     * Description
      */
-    basemap_style?: string | null;
+    description?: string | null;
     /**
-     * Bearing
-     *
-     * Map rotation in degrees
+     * Notes
      */
-    bearing?: number | null;
-    /**
-     * Center Lat
-     *
-     * Map center latitude
-     */
-    center_lat?: number | null;
+    notes?: string | null;
     /**
      * Center Lng
      *
@@ -5984,29 +5974,23 @@ export type MapUpdate = {
      */
     center_lng?: number | null;
     /**
-     * Description
-     */
-    description?: string | null;
-    /**
-     * Layers
+     * Center Lat
      *
-     * Full replacement layer list (max 200 layers)
+     * Map center latitude
      */
-    layers?: Array<MapLayerInput> | null;
+    center_lat?: number | null;
     /**
-     * Legend Title
+     * Zoom
      *
-     * Custom map-level legend title. Null/empty leaves the legend without a heading override (ENH-06).
+     * Map zoom level
      */
-    legend_title?: string | null;
+    zoom?: number | null;
     /**
-     * Name
+     * Bearing
+     *
+     * Map rotation in degrees
      */
-    name?: string | null;
-    /**
-     * Notes
-     */
-    notes?: string | null;
+    bearing?: number | null;
     /**
      * Pitch
      *
@@ -6014,15 +5998,19 @@ export type MapUpdate = {
      */
     pitch?: number | null;
     /**
-     * Plugins
+     * Basemap Style
      *
-     * Enabled plugin IDs, e.g. ['measurement']
+     * Basemap style ID or URL
      */
-    plugins?: Array<string> | null;
+    basemap_style?: string | null;
     /**
      * Show Basemap Labels
      */
     show_basemap_labels?: boolean | null;
+    /**
+     * Curated map-level basemap appearance preferences
+     */
+    basemap_config?: BasemapConfig | null;
     /**
      * Map-level terrain source and exaggeration preferences
      */
@@ -6032,11 +6020,23 @@ export type MapUpdate = {
      */
     visibility?: MapVisibility | null;
     /**
-     * Zoom
+     * Layers
      *
-     * Map zoom level
+     * Full replacement layer list (max 200 layers)
      */
-    zoom?: number | null;
+    layers?: Array<MapLayerInput> | null;
+    /**
+     * Plugins
+     *
+     * Enabled plugin IDs, e.g. ['measurement']
+     */
+    plugins?: Array<string> | null;
+    /**
+     * Legend Title
+     *
+     * Custom map-level legend title. Null/empty leaves the legend without a heading override (ENH-06).
+     */
+    legend_title?: string | null;
 };
 
 /**
@@ -6060,28 +6060,28 @@ export type MapVisibility = 'private' | 'internal' | 'public';
  */
 export type MercatorClipDetail = {
     /**
-     * Clip Skipped
+     * Dropped Features
      */
-    clip_skipped?: boolean;
+    dropped_features: number;
     /**
      * Clipped Features
      */
     clipped_features: number;
     /**
-     * Dropped Features
+     * Clip Skipped
      */
-    dropped_features: number;
+    clip_skipped?: boolean;
 };
 
 /**
  * MercatorClipWarning
  */
 export type MercatorClipWarning = {
-    details: MercatorClipDetail;
     /**
      * Kind
      */
     kind: 'mercator_clip';
+    details: MercatorClipDetail;
 };
 
 /**
@@ -6144,17 +6144,17 @@ export type NotificationTestChannelResult = {
      */
     channel: string;
     /**
-     * Error
-     *
-     * Safe error string (exception type name + short message) if ok=False, else null. Never contains secrets.
-     */
-    error?: string | null;
-    /**
      * Ok
      *
      * True if the channel delivered the test notification without error.
      */
     ok: boolean;
+    /**
+     * Error
+     *
+     * Safe error string (exception type name + short message) if ok=False, else null. Never contains secrets.
+     */
+    error?: string | null;
 };
 
 /**
@@ -6168,6 +6168,12 @@ export type NotificationTestChannelResult = {
  */
 export type NotificationTestResponse = {
     /**
+     * Sent
+     *
+     * True if at least one channel successfully delivered the test notification.
+     */
+    sent: boolean;
+    /**
      * Channels
      *
      * Per-channel delivery results. Empty when no channel is configured.
@@ -6179,12 +6185,6 @@ export type NotificationTestResponse = {
      * Human-readable summary of the test result.
      */
     message: string;
-    /**
-     * Sent
-     *
-     * True if at least one channel successfully delivered the test notification.
-     */
-    sent: boolean;
 };
 
 /**
@@ -6194,11 +6194,23 @@ export type NotificationTestResponse = {
  */
 export type OAuthProviderCreate = {
     /**
-     * Authorize Url
+     * Slug
      *
-     * Authorization endpoint. Only needed when discovery_url is not set.
+     * URL-safe identifier used in callback URLs (e.g. 'google', 'azure-ad'). Lowercase, digits, and hyphens only.
      */
-    authorize_url?: string | null;
+    slug: string;
+    /**
+     * Display Name
+     *
+     * Human-readable label shown on the login page button.
+     */
+    display_name: string;
+    /**
+     * Provider Type
+     *
+     * OAuth or SAML provider type. 'google' and 'microsoft' auto-populate the discovery URL; 'oidc' is generic OAuth/OIDC; 'github' uses GitHub's fixed OAuth2 endpoints (no discovery URL); 'saml' is available only on SAML-enabled deployments.
+     */
+    provider_type: 'google' | 'microsoft' | 'oidc' | 'saml' | 'github';
     /**
      * Client Id
      *
@@ -6212,29 +6224,65 @@ export type OAuthProviderCreate = {
      */
     client_secret?: string | null;
     /**
-     * Default Role
-     *
-     * Role assigned to new users created via this provider: 'viewer', 'editor', or 'admin'.
-     */
-    default_role?: string;
-    /**
      * Discovery Url
      *
      * OIDC discovery URL ending in `.well-known/openid-configuration`. Auto-populated for Google and Microsoft.
      */
     discovery_url?: string | null;
     /**
-     * Display Name
+     * Authorize Url
      *
-     * Human-readable label shown on the login page button.
+     * Authorization endpoint. Only needed when discovery_url is not set.
      */
-    display_name: string;
+    authorize_url?: string | null;
     /**
-     * Enabled
+     * Token Url
      *
-     * Whether the provider button appears on the login page.
+     * Token endpoint. Only needed when discovery_url is not set.
      */
-    enabled?: boolean;
+    token_url?: string | null;
+    /**
+     * Userinfo Url
+     *
+     * Userinfo endpoint. Only needed when discovery_url is not set.
+     */
+    userinfo_url?: string | null;
+    /**
+     * Idp Entity Id
+     *
+     * SAML IdP entityID. Required for SAML providers.
+     */
+    idp_entity_id?: string | null;
+    /**
+     * Idp Sso Url
+     *
+     * SAML IdP SSO URL (HTTP-Redirect or HTTP-POST binding). Required for SAML providers.
+     */
+    idp_sso_url?: string | null;
+    /**
+     * Idp Certificate
+     *
+     * SAML IdP signing certificate (PEM). Required for SAML providers. Stored Fernet-encrypted at rest; never returned in responses.
+     */
+    idp_certificate?: string | null;
+    /**
+     * Sp Entity Id
+     *
+     * SP entityID for this provider. Required for SAML providers. Default suggestion: {public_api_url}/auth/saml/{slug}.
+     */
+    sp_entity_id?: string | null;
+    /**
+     * Scopes
+     *
+     * Space-separated OAuth scopes.
+     */
+    scopes?: string;
+    /**
+     * Default Role
+     *
+     * Role assigned to new users created via this provider: 'viewer', 'editor', or 'admin'.
+     */
+    default_role?: string;
     /**
      * Group Claim
      *
@@ -6250,59 +6298,11 @@ export type OAuthProviderCreate = {
         [key: string]: unknown;
     } | null;
     /**
-     * Idp Certificate
+     * Enabled
      *
-     * SAML IdP signing certificate (PEM). Required for SAML providers. Stored Fernet-encrypted at rest; never returned in responses.
+     * Whether the provider button appears on the login page.
      */
-    idp_certificate?: string | null;
-    /**
-     * Idp Entity Id
-     *
-     * SAML IdP entityID. Required for SAML providers.
-     */
-    idp_entity_id?: string | null;
-    /**
-     * Idp Sso Url
-     *
-     * SAML IdP SSO URL (HTTP-Redirect or HTTP-POST binding). Required for SAML providers.
-     */
-    idp_sso_url?: string | null;
-    /**
-     * Provider Type
-     *
-     * OAuth or SAML provider type. 'google' and 'microsoft' auto-populate the discovery URL; 'oidc' is generic OAuth/OIDC; 'github' uses GitHub's fixed OAuth2 endpoints (no discovery URL); 'saml' is available only on SAML-enabled deployments.
-     */
-    provider_type: 'google' | 'microsoft' | 'oidc' | 'saml' | 'github';
-    /**
-     * Scopes
-     *
-     * Space-separated OAuth scopes.
-     */
-    scopes?: string;
-    /**
-     * Slug
-     *
-     * URL-safe identifier used in callback URLs (e.g. 'google', 'azure-ad'). Lowercase, digits, and hyphens only.
-     */
-    slug: string;
-    /**
-     * Sp Entity Id
-     *
-     * SP entityID for this provider. Required for SAML providers. Default suggestion: {public_api_url}/auth/saml/{slug}.
-     */
-    sp_entity_id?: string | null;
-    /**
-     * Token Url
-     *
-     * Token endpoint. Only needed when discovery_url is not set.
-     */
-    token_url?: string | null;
-    /**
-     * Userinfo Url
-     *
-     * Userinfo endpoint. Only needed when discovery_url is not set.
-     */
-    userinfo_url?: string | null;
+    enabled?: boolean;
 };
 
 /**
@@ -6311,6 +6311,12 @@ export type OAuthProviderCreate = {
  * Minimal provider info for the login page (no secrets, no config).
  */
 export type OAuthProviderPublic = {
+    /**
+     * Slug
+     *
+     * URL-safe identifier used in the callback URL.
+     */
+    slug: string;
     /**
      * Display Name
      *
@@ -6323,12 +6329,6 @@ export type OAuthProviderPublic = {
      * Provider type, used by the frontend to pick the right icon.
      */
     provider_type: string;
-    /**
-     * Slug
-     *
-     * URL-safe identifier used in the callback URL.
-     */
-    slug: string;
 };
 
 /**
@@ -6354,35 +6354,17 @@ export type OAuthProviderPublic = {
  */
 export type OAuthProviderResponse = {
     /**
-     * Authorize Url
+     * Id
      *
-     * Authorization endpoint.
+     * Unique provider identifier.
      */
-    authorize_url?: string | null;
+    id: string;
     /**
-     * Client Id
+     * Slug
      *
-     * OAuth client ID. Visible to admins; never exposes client_secret. Null for SAML providers.
+     * URL-safe identifier used in the callback URL.
      */
-    client_id?: string | null;
-    /**
-     * Created At
-     *
-     * Timestamp the provider was created.
-     */
-    created_at: string;
-    /**
-     * Default Role
-     *
-     * Default role assigned to new users.
-     */
-    default_role: string;
-    /**
-     * Discovery Url
-     *
-     * OIDC discovery URL.
-     */
-    discovery_url?: string | null;
+    slug: string;
     /**
      * Display Name
      *
@@ -6390,11 +6372,71 @@ export type OAuthProviderResponse = {
      */
     display_name: string;
     /**
-     * Enabled
+     * Provider Type
      *
-     * Whether the provider button appears on the login page.
+     * Provider type: 'google', 'microsoft', 'oidc', or 'saml'.
      */
-    enabled: boolean;
+    provider_type: string;
+    /**
+     * Client Id
+     *
+     * OAuth client ID. Visible to admins; never exposes client_secret. Null for SAML providers.
+     */
+    client_id?: string | null;
+    /**
+     * Discovery Url
+     *
+     * OIDC discovery URL.
+     */
+    discovery_url?: string | null;
+    /**
+     * Authorize Url
+     *
+     * Authorization endpoint.
+     */
+    authorize_url?: string | null;
+    /**
+     * Token Url
+     *
+     * Token endpoint.
+     */
+    token_url?: string | null;
+    /**
+     * Userinfo Url
+     *
+     * Userinfo endpoint.
+     */
+    userinfo_url?: string | null;
+    /**
+     * Idp Entity Id
+     *
+     * SAML IdP entityID (SAML providers only).
+     */
+    idp_entity_id?: string | null;
+    /**
+     * Idp Sso Url
+     *
+     * SAML IdP SSO URL (SAML providers only).
+     */
+    idp_sso_url?: string | null;
+    /**
+     * Sp Entity Id
+     *
+     * SP entityID for this SAML provider (SAML providers only).
+     */
+    sp_entity_id?: string | null;
+    /**
+     * Scopes
+     *
+     * Space-separated OAuth scopes.
+     */
+    scopes: string;
+    /**
+     * Default Role
+     *
+     * Default role assigned to new users.
+     */
+    default_role: string;
     /**
      * Group Claim
      *
@@ -6410,65 +6452,23 @@ export type OAuthProviderResponse = {
         [key: string]: unknown;
     } | null;
     /**
-     * Id
+     * Enabled
      *
-     * Unique provider identifier.
+     * Whether the provider button appears on the login page.
      */
-    id: string;
+    enabled: boolean;
     /**
-     * Idp Entity Id
+     * Created At
      *
-     * SAML IdP entityID (SAML providers only).
+     * Timestamp the provider was created.
      */
-    idp_entity_id?: string | null;
-    /**
-     * Idp Sso Url
-     *
-     * SAML IdP SSO URL (SAML providers only).
-     */
-    idp_sso_url?: string | null;
-    /**
-     * Provider Type
-     *
-     * Provider type: 'google', 'microsoft', 'oidc', or 'saml'.
-     */
-    provider_type: string;
-    /**
-     * Scopes
-     *
-     * Space-separated OAuth scopes.
-     */
-    scopes: string;
-    /**
-     * Slug
-     *
-     * URL-safe identifier used in the callback URL.
-     */
-    slug: string;
-    /**
-     * Sp Entity Id
-     *
-     * SP entityID for this SAML provider (SAML providers only).
-     */
-    sp_entity_id?: string | null;
-    /**
-     * Token Url
-     *
-     * Token endpoint.
-     */
-    token_url?: string | null;
+    created_at: string;
     /**
      * Updated At
      *
      * Timestamp the provider was last updated.
      */
     updated_at: string;
-    /**
-     * Userinfo Url
-     *
-     * Userinfo endpoint.
-     */
-    userinfo_url?: string | null;
 };
 
 /**
@@ -6478,11 +6478,23 @@ export type OAuthProviderResponse = {
  */
 export type OAuthProviderUpdate = {
     /**
-     * Authorize Url
+     * Slug
      *
-     * Updated authorization endpoint.
+     * New slug. Changes the callback URL — coordinate with the IdP before updating.
      */
-    authorize_url?: string | null;
+    slug?: string | null;
+    /**
+     * Display Name
+     *
+     * New display label.
+     */
+    display_name?: string | null;
+    /**
+     * Provider Type
+     *
+     * New provider type. Rarely changed after creation.
+     */
+    provider_type?: 'google' | 'microsoft' | 'oidc' | 'saml' | 'github' | null;
     /**
      * Client Id
      *
@@ -6496,29 +6508,65 @@ export type OAuthProviderUpdate = {
      */
     client_secret?: string | null;
     /**
-     * Default Role
-     *
-     * Updated default role for new users.
-     */
-    default_role?: string | null;
-    /**
      * Discovery Url
      *
      * Updated OIDC discovery URL.
      */
     discovery_url?: string | null;
     /**
-     * Display Name
+     * Authorize Url
      *
-     * New display label.
+     * Updated authorization endpoint.
      */
-    display_name?: string | null;
+    authorize_url?: string | null;
     /**
-     * Enabled
+     * Token Url
      *
-     * Set to false to hide the provider button without deleting the configuration.
+     * Updated token endpoint.
      */
-    enabled?: boolean | null;
+    token_url?: string | null;
+    /**
+     * Userinfo Url
+     *
+     * Updated userinfo endpoint.
+     */
+    userinfo_url?: string | null;
+    /**
+     * Idp Entity Id
+     *
+     * Updated SAML IdP entityID.
+     */
+    idp_entity_id?: string | null;
+    /**
+     * Idp Sso Url
+     *
+     * Updated SAML IdP SSO URL.
+     */
+    idp_sso_url?: string | null;
+    /**
+     * Idp Certificate
+     *
+     * Updated SAML IdP signing certificate (PEM). Setting this rotates the stored cert; omit to leave unchanged.
+     */
+    idp_certificate?: string | null;
+    /**
+     * Sp Entity Id
+     *
+     * Updated SP entityID.
+     */
+    sp_entity_id?: string | null;
+    /**
+     * Scopes
+     *
+     * Updated space-separated scopes.
+     */
+    scopes?: string | null;
+    /**
+     * Default Role
+     *
+     * Updated default role for new users.
+     */
+    default_role?: string | null;
     /**
      * Group Claim
      *
@@ -6534,59 +6582,11 @@ export type OAuthProviderUpdate = {
         [key: string]: unknown;
     } | null;
     /**
-     * Idp Certificate
+     * Enabled
      *
-     * Updated SAML IdP signing certificate (PEM). Setting this rotates the stored cert; omit to leave unchanged.
+     * Set to false to hide the provider button without deleting the configuration.
      */
-    idp_certificate?: string | null;
-    /**
-     * Idp Entity Id
-     *
-     * Updated SAML IdP entityID.
-     */
-    idp_entity_id?: string | null;
-    /**
-     * Idp Sso Url
-     *
-     * Updated SAML IdP SSO URL.
-     */
-    idp_sso_url?: string | null;
-    /**
-     * Provider Type
-     *
-     * New provider type. Rarely changed after creation.
-     */
-    provider_type?: 'google' | 'microsoft' | 'oidc' | 'saml' | 'github' | null;
-    /**
-     * Scopes
-     *
-     * Updated space-separated scopes.
-     */
-    scopes?: string | null;
-    /**
-     * Slug
-     *
-     * New slug. Changes the callback URL — coordinate with the IdP before updating.
-     */
-    slug?: string | null;
-    /**
-     * Sp Entity Id
-     *
-     * Updated SP entityID.
-     */
-    sp_entity_id?: string | null;
-    /**
-     * Token Url
-     *
-     * Updated token endpoint.
-     */
-    token_url?: string | null;
-    /**
-     * Userinfo Url
-     *
-     * Updated userinfo endpoint.
-     */
-    userinfo_url?: string | null;
+    enabled?: boolean | null;
 };
 
 /**
@@ -6600,17 +6600,17 @@ export type OgcAsset = {
      */
     href: string;
     /**
-     * Roles
+     * Type
      */
-    roles?: Array<string> | null;
+    type: string;
     /**
      * Title
      */
     title?: string | null;
     /**
-     * Type
+     * Roles
      */
-    type: string;
+    roles?: Array<string> | null;
 };
 
 /**
@@ -6620,11 +6620,17 @@ export type OgcAsset = {
  */
 export type OgcCollectionMetadata = {
     /**
-     * Crs
+     * Id
      *
-     * Coordinate reference systems supported for items in this collection.
+     * Stable collection identifier (typically the dataset ID).
      */
-    crs?: Array<string>;
+    id: string;
+    /**
+     * Title
+     *
+     * Human-readable collection title.
+     */
+    title: string;
     /**
      * Description
      *
@@ -6640,29 +6646,23 @@ export type OgcCollectionMetadata = {
         [key: string]: unknown;
     } | null;
     /**
-     * Id
-     *
-     * Stable collection identifier (typically the dataset ID).
-     */
-    id: string;
-    /**
      * Itemtype
      *
      * Type of items in the collection: 'feature' for vector feature collections, 'coverage' for raster/VRT collections (which expose tiles instead of feature items).
      */
     itemType?: string;
     /**
+     * Crs
+     *
+     * Coordinate reference systems supported for items in this collection.
+     */
+    crs?: Array<string>;
+    /**
      * Links
      *
      * Collection navigation links (self, items, queryables, etc.).
      */
     links: Array<OgcLink>;
-    /**
-     * Title
-     *
-     * Human-readable collection title.
-     */
-    title: string;
 };
 
 /**
@@ -6672,19 +6672,17 @@ export type OgcCollectionMetadata = {
  */
 export type OgcCollectionMetadataResponse = {
     /**
-     * Description
-     */
-    description: string;
-    /**
-     * Extent
-     */
-    extent?: {
-        [key: string]: unknown;
-    } | null;
-    /**
      * Id
      */
     id: string;
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Description
+     */
+    description: string;
     /**
      * Itemtype
      */
@@ -6696,15 +6694,17 @@ export type OgcCollectionMetadataResponse = {
         [key: string]: unknown;
     }>;
     /**
+     * Extent
+     */
+    extent?: {
+        [key: string]: unknown;
+    } | null;
+    /**
      * Summaries
      */
     summaries?: {
         [key: string]: unknown;
     } | null;
-    /**
-     * Title
-     */
-    title: string;
 };
 
 /**
@@ -6732,15 +6732,13 @@ export type OgcCollectionsResponse = {
  */
 export type OgcFeatureCollectionResponse = {
     /**
-     * Features
+     * Type
      */
-    features: Array<OgcRecordResponse>;
+    type?: string;
     /**
-     * Links
-     *
-     * Pagination and self links
+     * Timestamp
      */
-    links?: Array<OgcRecordLink> | null;
+    timeStamp?: string | null;
     /**
      * Numbermatched
      *
@@ -6754,13 +6752,15 @@ export type OgcFeatureCollectionResponse = {
      */
     numberReturned: number;
     /**
-     * Timestamp
+     * Features
      */
-    timeStamp?: string | null;
+    features: Array<OgcRecordResponse>;
     /**
-     * Type
+     * Links
+     *
+     * Pagination and self links
      */
-    type?: string;
+    links?: Array<OgcRecordLink> | null;
 };
 
 /**
@@ -6780,17 +6780,17 @@ export type OgcLink = {
      */
     rel: string;
     /**
-     * Title
-     *
-     * Optional human-readable label for the link.
-     */
-    title?: string | null;
-    /**
      * Type
      *
      * Media type of the linked resource (e.g. 'application/json', 'application/geo+json').
      */
     type: string;
+    /**
+     * Title
+     *
+     * Optional human-readable label for the link.
+     */
+    title?: string | null;
 };
 
 /**
@@ -6800,13 +6800,13 @@ export type OgcLink = {
  */
 export type OgcRecordLink = {
     /**
-     * Href
-     */
-    href: string;
-    /**
      * Rel
      */
     rel: string;
+    /**
+     * Href
+     */
+    href: string;
     /**
      * Type
      */
@@ -6820,9 +6820,63 @@ export type OgcRecordLink = {
  */
 export type OgcRecordProperties = {
     /**
+     * Type
+     */
+    type?: string;
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Description
+     */
+    description: string;
+    /**
+     * Keywords
+     */
+    keywords: Array<string>;
+    /**
+     * Created
+     */
+    created?: string | null;
+    /**
+     * Updated
+     */
+    updated?: string | null;
+    /**
+     * Updated By Display
+     */
+    updated_by_display?: string | null;
+    /**
+     * Never Edited
+     */
+    never_edited?: boolean;
+    /**
+     * Crs
+     */
+    crs?: string | null;
+    /**
+     * Record Type
+     */
+    record_type?: string;
+    /**
      * Band Count
      */
     band_count?: number | null;
+    /**
+     * Geometry Type
+     */
+    geometry_type?: string | null;
+    /**
+     * Feature Count
+     */
+    feature_count?: number | null;
+    /**
+     * Row Count
+     *
+     * Row count for tabular records (alias for feature_count when record_type='table').
+     */
+    row_count?: number | null;
     /**
      * Column Count
      *
@@ -6830,91 +6884,19 @@ export type OgcRecordProperties = {
      */
     column_count?: number | null;
     /**
-     * Constraints
-     */
-    constraints?: {
-        [key: string]: unknown;
-    } | null;
-    /**
-     * Contacts
-     */
-    contacts: Array<{
-        [key: string]: unknown;
-    }>;
-    /**
-     * Created
-     */
-    created?: string | null;
-    /**
-     * Crs
-     */
-    crs?: string | null;
-    /**
-     * Crs Is Geographic
-     *
-     * True when the raster CRS is geographic (gsd/res are degrees, not meters); None when the CRS class is unknown.
-     */
-    crs_is_geographic?: boolean | null;
-    /**
-     * Dataset Count
-     */
-    dataset_count?: number | null;
-    /**
-     * Description
-     */
-    description: string;
-    /**
-     * Distributions
-     */
-    distributions?: Array<{
-        [key: string]: unknown;
-    }> | null;
-    /**
-     * Externalids
-     *
-     * Identifiers assigned by the described resource's source system.
-     */
-    externalIds?: Array<string>;
-    /**
-     * Feature Count
-     */
-    feature_count?: number | null;
-    /**
-     * Formats
-     */
-    formats?: Array<string> | null;
-    /**
-     * Geometry Type
-     */
-    geometry_type?: string | null;
-    /**
-     * Gsd
-     */
-    gsd?: number | null;
-    /**
-     * Has Quicklook
-     */
-    has_quicklook?: boolean;
-    /**
-     * Keywords
-     */
-    keywords: Array<string>;
-    /**
-     * Language
-     */
-    language?: string | null;
-    /**
      * License
      */
     license: string;
     /**
-     * Lineage
+     * Source Organization
      */
-    lineage?: string | null;
+    source_organization?: string | null;
     /**
-     * Never Edited
+     * Source Format
+     *
+     * Ingest source format ('geojson', 'shapefile', 'geotiff', 'wfs', 'stac', 'created', ...). Null for datasets registered from existing PostGIS tables and for composed VRT datasets.
      */
-    never_edited?: boolean;
+    source_format?: string | null;
     /**
      * Quality Detail
      */
@@ -6926,41 +6908,33 @@ export type OgcRecordProperties = {
      */
     quality_statement?: string | null;
     /**
-     * Record Status
+     * Formats
      */
-    record_status?: string | null;
+    formats?: Array<string> | null;
     /**
-     * Record Type
+     * Language
      */
-    record_type?: string;
+    language?: string | null;
+    /**
+     * Externalids
+     *
+     * Identifiers assigned by the described resource's source system.
+     */
+    externalIds?: Array<string>;
+    /**
+     * Themes
+     */
+    themes: Array<{
+        [key: string]: unknown;
+    }>;
     /**
      * Rights
      */
     rights?: string | null;
     /**
-     * Row Count
-     *
-     * Row count for tabular records (alias for feature_count when record_type='table').
+     * Contacts
      */
-    row_count?: number | null;
-    /**
-     * Source Count
-     */
-    source_count?: number | null;
-    /**
-     * Source Format
-     *
-     * Ingest source format ('geojson', 'shapefile', 'geotiff', 'wfs', 'stac', 'created', ...). Null for datasets registered from existing PostGIS tables and for composed VRT datasets.
-     */
-    source_format?: string | null;
-    /**
-     * Source Organization
-     */
-    source_organization?: string | null;
-    /**
-     * Themes
-     */
-    themes: Array<{
+    contacts: Array<{
         [key: string]: unknown;
     }>;
     /**
@@ -6970,29 +6944,55 @@ export type OgcRecordProperties = {
         [key: string]: unknown;
     };
     /**
-     * Title
+     * Lineage
      */
-    title: string;
-    /**
-     * Type
-     */
-    type?: string;
+    lineage?: string | null;
     /**
      * Update Frequency
      */
     update_frequency?: string | null;
     /**
-     * Updated
+     * Constraints
      */
-    updated?: string | null;
+    constraints?: {
+        [key: string]: unknown;
+    } | null;
     /**
-     * Updated By Display
+     * Distributions
      */
-    updated_by_display?: string | null;
+    distributions?: Array<{
+        [key: string]: unknown;
+    }> | null;
+    /**
+     * Record Status
+     */
+    record_status?: string | null;
+    /**
+     * Has Quicklook
+     */
+    has_quicklook?: boolean;
+    /**
+     * Gsd
+     */
+    gsd?: number | null;
+    /**
+     * Crs Is Geographic
+     *
+     * True when the raster CRS is geographic (gsd/res are degrees, not meters); None when the CRS class is unknown.
+     */
+    crs_is_geographic?: boolean | null;
     /**
      * Vrt Type
      */
     vrt_type?: string | null;
+    /**
+     * Source Count
+     */
+    source_count?: number | null;
+    /**
+     * Dataset Count
+     */
+    dataset_count?: number | null;
 };
 
 /**
@@ -7001,6 +7001,35 @@ export type OgcRecordProperties = {
  * Single OGC API Records Feature.
  */
 export type OgcRecordResponse = {
+    /**
+     * Type
+     */
+    type?: string;
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Conformsto
+     */
+    conformsTo?: Array<string> | null;
+    /**
+     * Time
+     */
+    time: {
+        [key: string]: unknown;
+    };
+    /**
+     * Geometry
+     */
+    geometry?: {
+        [key: string]: unknown;
+    } | null;
+    properties: OgcRecordProperties;
+    /**
+     * Links
+     */
+    links: Array<OgcRecordLink>;
     /**
      * Assets
      */
@@ -7011,35 +7040,6 @@ export type OgcRecordResponse = {
      * Bbox
      */
     bbox?: Array<number> | null;
-    /**
-     * Conformsto
-     */
-    conformsTo?: Array<string> | null;
-    /**
-     * Geometry
-     */
-    geometry?: {
-        [key: string]: unknown;
-    } | null;
-    /**
-     * Id
-     */
-    id: string;
-    /**
-     * Links
-     */
-    links: Array<OgcRecordLink>;
-    properties: OgcRecordProperties;
-    /**
-     * Time
-     */
-    time: {
-        [key: string]: unknown;
-    };
-    /**
-     * Type
-     */
-    type?: string;
 };
 
 /**
@@ -7138,11 +7138,11 @@ export type PresignedPartInfo = {
  */
 export type PresignedUploadRequest = {
     /**
-     * Content Type
+     * Filename
      *
-     * MIME type to associate with the uploaded object.
+     * Original filename being uploaded. Used to determine the file extension and content disposition.
      */
-    content_type?: string;
+    filename: string;
     /**
      * File Size
      *
@@ -7150,11 +7150,11 @@ export type PresignedUploadRequest = {
      */
     file_size: number;
     /**
-     * Filename
+     * Content Type
      *
-     * Original filename being uploaded. Used to determine the file extension and content disposition.
+     * MIME type to associate with the uploaded object.
      */
-    filename: string;
+    content_type?: string;
 };
 
 /**
@@ -7168,11 +7168,11 @@ export type PresignedUploadResponse = {
      */
     job_id: string;
     /**
-     * Part Size
+     * Urls
      *
-     * Byte size of each part in a multipart upload.
+     * One presigned PUT URL per part. Single-element list for single-part uploads.
      */
-    part_size?: number | null;
+    urls: Array<string>;
     /**
      * S3 Key
      *
@@ -7186,17 +7186,29 @@ export type PresignedUploadResponse = {
      */
     upload_id?: string | null;
     /**
-     * Urls
+     * Part Size
      *
-     * One presigned PUT URL per part. Single-element list for single-part uploads.
+     * Byte size of each part in a multipart upload.
      */
-    urls: Array<string>;
+    part_size?: number | null;
 };
 
 /**
  * PreviewResponse
  */
 export type PreviewResponse = {
+    /**
+     * Job Id
+     *
+     * Identifier of the ingestion job being previewed.
+     */
+    job_id: string;
+    /**
+     * Source Filename
+     *
+     * Original filename of the uploaded file, if known.
+     */
+    source_filename: string | null;
     /**
      * Columns
      *
@@ -7210,13 +7222,11 @@ export type PreviewResponse = {
      */
     crs: number | null;
     /**
-     * Detected Geometry Columns
+     * Geometry Type
      *
-     * Auto-detected lat/lon or geometry columns for CSV/Excel sources. Null for native geospatial formats.
+     * Detected geometry type (Point, LineString, Polygon, MultiPolygon, etc.), or null for non-spatial data.
      */
-    detected_geometry_columns?: {
-        [key: string]: unknown;
-    } | null;
+    geometry_type: string | null;
     /**
      * Feature Count
      *
@@ -7224,17 +7234,13 @@ export type PreviewResponse = {
      */
     feature_count: number | null;
     /**
-     * Geometry Type
+     * Sample Rows
      *
-     * Detected geometry type (Point, LineString, Polygon, MultiPolygon, etc.), or null for non-spatial data.
+     * Up to 5 sample rows from the source file for preview purposes.
      */
-    geometry_type: string | null;
-    /**
-     * Job Id
-     *
-     * Identifier of the ingestion job being previewed.
-     */
-    job_id: string;
+    sample_rows: Array<{
+        [key: string]: unknown;
+    }>;
     /**
      * Layer Name
      *
@@ -7248,19 +7254,13 @@ export type PreviewResponse = {
      */
     layers?: Array<LayerPreview> | null;
     /**
-     * Sample Rows
+     * Detected Geometry Columns
      *
-     * Up to 5 sample rows from the source file for preview purposes.
+     * Auto-detected lat/lon or geometry columns for CSV/Excel sources. Null for native geospatial formats.
      */
-    sample_rows: Array<{
+    detected_geometry_columns?: {
         [key: string]: unknown;
-    }>;
-    /**
-     * Source Filename
-     *
-     * Original filename of the uploaded file, if known.
-     */
-    source_filename: string | null;
+    } | null;
 };
 
 /**
@@ -7268,35 +7268,23 @@ export type PreviewResponse = {
  */
 export type ProbeRequest = {
     /**
-     * Token
-     *
-     * Optional auth token for protected services (passed as query parameter or bearer token depending on service type).
-     */
-    token?: string | null;
-    /**
      * Url
      *
      * Service URL to probe. May be a WFS GetCapabilities URL or an ArcGIS service endpoint.
      */
     url: string;
+    /**
+     * Token
+     *
+     * Optional auth token for protected services (passed as query parameter or bearer token depending on service type).
+     */
+    token?: string | null;
 };
 
 /**
  * ProbeResponse
  */
 export type ProbeResponse = {
-    /**
-     * Layers
-     *
-     * Layers exposed by the probed service.
-     */
-    layers: Array<LayerInfo>;
-    /**
-     * Selected Layer Id
-     *
-     * Auto-selected layer ID when the input URL contained a specific layer number.
-     */
-    selected_layer_id?: number | string | null;
     /**
      * Service Type
      *
@@ -7309,6 +7297,18 @@ export type ProbeResponse = {
      * Normalized service URL after probing.
      */
     url: string;
+    /**
+     * Layers
+     *
+     * Layers exposed by the probed service.
+     */
+    layers: Array<LayerInfo>;
+    /**
+     * Selected Layer Id
+     *
+     * Auto-selected layer ID when the input URL contained a specific layer number.
+     */
+    selected_layer_id?: number | string | null;
 };
 
 /**
@@ -7316,23 +7316,23 @@ export type ProbeResponse = {
  */
 export type ProblemDetail = {
     /**
-     * Detail
+     * Type
      */
-    detail: string | {
-        [key: string]: unknown;
-    } | Array<unknown>;
-    /**
-     * Status
-     */
-    status: number;
+    type?: string;
     /**
      * Title
      */
     title: string;
     /**
-     * Type
+     * Status
      */
-    type?: string;
+    status: number;
+    /**
+     * Detail
+     */
+    detail: string | {
+        [key: string]: unknown;
+    } | Array<unknown>;
 };
 
 /**
@@ -7340,11 +7340,11 @@ export type ProblemDetail = {
  */
 export type ProviderHealth = {
     /**
-     * Error
+     * Status
      *
-     * Error message when status is 'error'.
+     * Provider health status: 'ok' or 'error'.
      */
-    error?: string | null;
+    status: string;
     /**
      * Latency Ms
      *
@@ -7352,11 +7352,11 @@ export type ProviderHealth = {
      */
     latency_ms: number;
     /**
-     * Status
+     * Error
      *
-     * Provider health status: 'ok' or 'error'.
+     * Error message when status is 'error'.
      */
-    status: string;
+    error?: string | null;
 };
 
 /**
@@ -7366,29 +7366,29 @@ export type ProviderHealth = {
  */
 export type QualityDetail = {
     /**
-     * Attribute Completeness
+     * Overall
      */
-    attribute_completeness: number;
-    /**
-     * Computed At
-     */
-    computed_at?: string | null;
-    /**
-     * Crs Defined
-     */
-    crs_defined?: number | null;
-    /**
-     * Geometry Validity
-     */
-    geometry_validity?: number | null;
+    overall: number;
     /**
      * Metadata Completeness
      */
     metadata_completeness: number;
     /**
-     * Overall
+     * Geometry Validity
      */
-    overall: number;
+    geometry_validity?: number | null;
+    /**
+     * Attribute Completeness
+     */
+    attribute_completeness: number;
+    /**
+     * Crs Defined
+     */
+    crs_defined?: number | null;
+    /**
+     * Computed At
+     */
+    computed_at?: string | null;
 };
 
 /**
@@ -7410,11 +7410,11 @@ export type QualityStatementDraftResponse = {
  */
 export type RasterBandInfo = {
     /**
-     * Color Interp
+     * Index
      *
-     * Color interpretation, e.g. Red, Green, Gray
+     * 1-based band index
      */
-    color_interp?: string | null;
+    index: number;
     /**
      * Dtype
      *
@@ -7422,17 +7422,17 @@ export type RasterBandInfo = {
      */
     dtype: string;
     /**
-     * Index
-     *
-     * 1-based band index
-     */
-    index: number;
-    /**
      * Nodata
      *
      * Nodata sentinel value for this band
      */
     nodata?: string | null;
+    /**
+     * Color Interp
+     *
+     * Color interpretation, e.g. Red, Green, Gray
+     */
+    color_interp?: string | null;
 };
 
 /**
@@ -7446,17 +7446,17 @@ export type RasterConnect = {
      */
     download_url?: string | null;
     /**
-     * S3 Uri
-     *
-     * S3 object URI, e.g. s3://bucket/key.tif
-     */
-    s3_uri?: string | null;
-    /**
      * Tile Url
      *
      * Titiler tile endpoint for this raster
      */
     tile_url: string;
+    /**
+     * S3 Uri
+     *
+     * S3 object URI, e.g. s3://bucket/key.tif
+     */
+    s3_uri?: string | null;
 };
 
 /**
@@ -7464,50 +7464,17 @@ export type RasterConnect = {
  */
 export type RasterMetadata = {
     /**
-     * Band Count
-     */
-    band_count?: number | null;
-    /**
-     * Bands
-     */
-    bands?: Array<RasterBandInfo>;
-    /**
-     * Compression
-     *
-     * Internal compression, e.g. DEFLATE, LZW
-     */
-    compression?: string | null;
-    connect?: RasterConnect | null;
-    /**
-     * Crs Is Geographic
-     *
-     * True when the raster CRS is geographic (res_x/res_y are degrees, not meters); None when the CRS class is unknown.
-     */
-    crs_is_geographic?: boolean | null;
-    /**
      * Epsg
      *
      * EPSG code of the raster CRS
      */
     epsg?: number | null;
     /**
-     * Height
+     * Crs Is Geographic
      *
-     * Raster height in pixels
+     * True when the raster CRS is geographic (res_x/res_y are degrees, not meters); None when the CRS class is unknown.
      */
-    height?: number | null;
-    /**
-     * Is Dem
-     *
-     * True if this raster is a DEM (single-band float) usable for 3D terrain/hillshade
-     */
-    is_dem?: boolean | null;
-    /**
-     * Nodata
-     *
-     * Global nodata sentinel value
-     */
-    nodata?: string | null;
+    crs_is_geographic?: boolean | null;
     /**
      * Res X
      *
@@ -7521,11 +7488,39 @@ export type RasterMetadata = {
      */
     res_y?: number | null;
     /**
-     * Resolution Strategy
-     *
-     * VRT resolution strategy, e.g. highest, average
+     * Band Count
      */
-    resolution_strategy?: string | null;
+    band_count?: number | null;
+    /**
+     * Is Dem
+     *
+     * True if this raster is a DEM (single-band float) usable for 3D terrain/hillshade
+     */
+    is_dem?: boolean | null;
+    /**
+     * Nodata
+     *
+     * Global nodata sentinel value
+     */
+    nodata?: string | null;
+    /**
+     * Compression
+     *
+     * Internal compression, e.g. DEFLATE, LZW
+     */
+    compression?: string | null;
+    /**
+     * Width
+     *
+     * Raster width in pixels
+     */
+    width?: number | null;
+    /**
+     * Height
+     *
+     * Raster height in pixels
+     */
+    height?: number | null;
     /**
      * Size Bytes
      *
@@ -7533,11 +7528,16 @@ export type RasterMetadata = {
      */
     size_bytes?: number | null;
     /**
-     * Source Count
+     * Tile Url
      *
-     * Number of source rasters in a VRT mosaic
+     * Titiler XYZ tile endpoint
      */
-    source_count?: number | null;
+    tile_url?: string | null;
+    /**
+     * Bands
+     */
+    bands?: Array<RasterBandInfo>;
+    connect?: RasterConnect | null;
     /**
      * Status
      *
@@ -7545,23 +7545,23 @@ export type RasterMetadata = {
      */
     status?: string | null;
     /**
-     * Tile Url
-     *
-     * Titiler XYZ tile endpoint
-     */
-    tile_url?: string | null;
-    /**
      * Vrt Type
      *
      * VRT variant: mosaic or timeseries
      */
     vrt_type?: string | null;
     /**
-     * Width
+     * Source Count
      *
-     * Raster width in pixels
+     * Number of source rasters in a VRT mosaic
      */
-    width?: number | null;
+    source_count?: number | null;
+    /**
+     * Resolution Strategy
+     *
+     * VRT resolution strategy, e.g. highest, average
+     */
+    resolution_strategy?: string | null;
 };
 
 /**
@@ -7569,23 +7569,17 @@ export type RasterMetadata = {
  */
 export type RasterPreviewResponse = {
     /**
-     * Band Count
+     * Job Id
      *
-     * Number of raster bands.
+     * Identifier of the raster ingestion job being previewed.
      */
-    band_count: number;
+    job_id: string;
     /**
-     * Compliance Reason
+     * Source Filename
      *
-     * Explanation of COG compliance status. Lists missing requirements when not compliant.
+     * Original filename of the uploaded raster file.
      */
-    compliance_reason: string;
-    /**
-     * Compression
-     *
-     * Existing compression method (e.g. 'LZW', 'DEFLATE'), or null for uncompressed.
-     */
-    compression: string | null;
+    source_filename: string | null;
     /**
      * Crs Epsg
      *
@@ -7599,17 +7593,17 @@ export type RasterPreviewResponse = {
      */
     crs_wkt: string | null;
     /**
-     * Dtype
+     * Band Count
      *
-     * Pixel data type (e.g. 'uint8', 'float32').
+     * Number of raster bands.
      */
-    dtype: string;
+    band_count: number;
     /**
-     * File Size Bytes
+     * Width
      *
-     * Source file size in bytes.
+     * Raster width in pixels.
      */
-    file_size_bytes: number | null;
+    width: number;
     /**
      * Height
      *
@@ -7617,17 +7611,11 @@ export type RasterPreviewResponse = {
      */
     height: number;
     /**
-     * Is Cog Compliant
+     * Dtype
      *
-     * Whether the source file is already a Cloud-Optimized GeoTIFF.
+     * Pixel data type (e.g. 'uint8', 'float32').
      */
-    is_cog_compliant: boolean;
-    /**
-     * Job Id
-     *
-     * Identifier of the raster ingestion job being previewed.
-     */
-    job_id: string;
+    dtype: string;
     /**
      * Nodata
      *
@@ -7647,23 +7635,35 @@ export type RasterPreviewResponse = {
      */
     res_y: number;
     /**
-     * Source Filename
+     * Compression
      *
-     * Original filename of the uploaded raster file.
+     * Existing compression method (e.g. 'LZW', 'DEFLATE'), or null for uncompressed.
      */
-    source_filename: string | null;
+    compression: string | null;
+    /**
+     * File Size Bytes
+     *
+     * Source file size in bytes.
+     */
+    file_size_bytes: number | null;
+    /**
+     * Is Cog Compliant
+     *
+     * Whether the source file is already a Cloud-Optimized GeoTIFF.
+     */
+    is_cog_compliant: boolean;
+    /**
+     * Compliance Reason
+     *
+     * Explanation of COG compliance status. Lists missing requirements when not compliant.
+     */
+    compliance_reason: string;
     /**
      * Temporal Start
      *
      * ISO 8601 acquisition timestamp parsed from raster metadata, if present.
      */
     temporal_start?: string | null;
-    /**
-     * Width
-     *
-     * Raster width in pixels.
-     */
-    width: number;
 };
 
 /**
@@ -7685,49 +7685,49 @@ export type RasterPreviewResponse = {
  */
 export type RasterTileToken = {
     /**
-     * Bounds
-     */
-    bounds: Array<number> | null;
-    /**
-     * Exp
-     */
-    exp: number;
-    /**
-     * Expires In
-     */
-    expires_in: number;
-    /**
-     * Format
-     */
-    format: string;
-    /**
      * Kind
      */
     kind: 'raster';
     /**
-     * Maxzoom
+     * Tile Url
      */
-    maxzoom: number;
-    /**
-     * Minzoom
-     */
-    minzoom: number;
-    /**
-     * Scope
-     */
-    scope: string;
+    tile_url: string;
     /**
      * Sig
      */
     sig: string;
     /**
+     * Exp
+     */
+    exp: number;
+    /**
+     * Scope
+     */
+    scope: string;
+    /**
+     * Expires In
+     */
+    expires_in: number;
+    /**
+     * Bounds
+     */
+    bounds: Array<number> | null;
+    /**
+     * Minzoom
+     */
+    minzoom: number;
+    /**
+     * Maxzoom
+     */
+    maxzoom: number;
+    /**
      * Tile Size
      */
     tile_size: number;
     /**
-     * Tile Url
+     * Format
      */
-    tile_url: string;
+    format: string;
 };
 
 /**
@@ -7745,12 +7745,6 @@ export type RefreshRequest = {
  */
 export type RegisterRequest = {
     /**
-     * Summary
-     *
-     * Optional dataset description.
-     */
-    summary?: string | null;
-    /**
      * Table Name
      *
      * PostgreSQL table name in the `data` schema (max 63 chars per PostgreSQL identifier limit).
@@ -7762,6 +7756,12 @@ export type RegisterRequest = {
      * Human-readable dataset title shown in the catalog.
      */
     title: string;
+    /**
+     * Summary
+     *
+     * Optional dataset description.
+     */
+    summary?: string | null;
     /**
      * Visibility
      *
@@ -7791,18 +7791,6 @@ export type RegisterResponse = {
  */
 export type RelatedDatasetItem = {
     /**
-     * Band Count
-     */
-    band_count?: number | null;
-    /**
-     * Feature Count
-     */
-    feature_count?: number | null;
-    /**
-     * Geometry Type
-     */
-    geometry_type: string | null;
-    /**
      * Id
      */
     id: string;
@@ -7811,15 +7799,27 @@ export type RelatedDatasetItem = {
      */
     name: string;
     /**
-     * Record Type
+     * Geometry Type
      */
-    record_type?: string | null;
+    geometry_type: string | null;
     /**
      * Similarity
      *
      * Cosine similarity score (0-1)
      */
     similarity: number;
+    /**
+     * Record Type
+     */
+    record_type?: string | null;
+    /**
+     * Feature Count
+     */
+    feature_count?: number | null;
+    /**
+     * Band Count
+     */
+    band_count?: number | null;
 };
 
 /**
@@ -7879,23 +7879,19 @@ export type ReservedRenameDetail = {
  */
 export type ReservedRenameWarning = {
     /**
-     * Details
-     */
-    details: Array<ReservedRenameDetail>;
-    /**
      * Kind
      */
     kind: 'reserved_rename';
+    /**
+     * Details
+     */
+    details: Array<ReservedRenameDetail>;
 };
 
 /**
  * ReuploadCommitRequest
  */
 export type ReuploadCommitRequest = {
-    /**
-     * Layer Name
-     */
-    layer_name?: string | null;
     /**
      * Srid Override
      */
@@ -7904,6 +7900,10 @@ export type ReuploadCommitRequest = {
      * Token
      */
     token?: string | null;
+    /**
+     * Layer Name
+     */
+    layer_name?: string | null;
 };
 
 /**
@@ -7915,13 +7915,13 @@ export type ReuploadCommitResponse = {
      */
     job_id: string;
     /**
-     * Message
-     */
-    message: string;
-    /**
      * Status
      */
     status: string;
+    /**
+     * Message
+     */
+    message: string;
 };
 
 /**
@@ -7939,11 +7939,13 @@ export type ReuploadPreviewRequest = {
  */
 export type ReuploadPreviewResponse = {
     /**
-     * All Layers
+     * Job Id
      */
-    all_layers?: Array<{
-        [key: string]: unknown;
-    }> | null;
+    job_id: string;
+    /**
+     * Source Filename
+     */
+    source_filename: string | null;
     /**
      * Columns
      */
@@ -7953,36 +7955,34 @@ export type ReuploadPreviewResponse = {
      */
     crs: number | null;
     /**
-     * Feature Count
-     */
-    feature_count: number | null;
-    /**
      * Geometry Type
      */
     geometry_type: string | null;
     /**
-     * Job Id
+     * Feature Count
      */
-    job_id: string;
-    /**
-     * Layer Name
-     */
-    layer_name: string;
-    /**
-     * Previous Source Layer
-     */
-    previous_source_layer?: string | null;
+    feature_count: number | null;
     /**
      * Sample Rows
      */
     sample_rows: Array<{
         [key: string]: unknown;
     }>;
+    /**
+     * Layer Name
+     */
+    layer_name: string;
     schema_diff: SchemaDiff;
     /**
-     * Source Filename
+     * All Layers
      */
-    source_filename: string | null;
+    all_layers?: Array<{
+        [key: string]: unknown;
+    }> | null;
+    /**
+     * Previous Source Layer
+     */
+    previous_source_layer?: string | null;
 };
 
 /**
@@ -7994,13 +7994,13 @@ export type ReuploadResponse = {
      */
     job_id: string;
     /**
-     * Message
-     */
-    message: string;
-    /**
      * Status
      */
     status?: string;
+    /**
+     * Message
+     */
+    message: string;
 };
 
 /**
@@ -8008,9 +8008,13 @@ export type ReuploadResponse = {
  */
 export type ReuploadServicePreviewRequest = {
     /**
-     * Layer Id
+     * Url
      */
-    layer_id?: number | string | null;
+    url: string;
+    /**
+     * Service Type
+     */
+    service_type: string;
     /**
      * Layer Name
      */
@@ -8020,21 +8024,17 @@ export type ReuploadServicePreviewRequest = {
      */
     layer_title?: string | null;
     /**
-     * Object Id Field
+     * Layer Id
      */
-    object_id_field?: string | null;
-    /**
-     * Service Type
-     */
-    service_type: string;
+    layer_id?: number | string | null;
     /**
      * Token
      */
     token?: string | null;
     /**
-     * Url
+     * Object Id Field
      */
-    url: string;
+    object_id_field?: string | null;
 };
 
 /**
@@ -8044,13 +8044,13 @@ export type ReuploadServicePreviewRequest = {
  */
 export type SseActionsEvent = {
     /**
-     * Actions
-     */
-    actions: Array<ChatAction>;
-    /**
      * Type
      */
     type: 'actions';
+    /**
+     * Actions
+     */
+    actions: Array<ChatAction>;
 };
 
 /**
@@ -8060,13 +8060,13 @@ export type SseActionsEvent = {
  */
 export type SseChatDoneEvent = {
     /**
-     * Explanation
-     */
-    explanation: string;
-    /**
      * Type
      */
     type: 'done';
+    /**
+     * Explanation
+     */
+    explanation: string;
 };
 
 /**
@@ -8075,6 +8075,10 @@ export type SseChatDoneEvent = {
  * Error payload carried inside an already-open SSE response.
  */
 export type SseErrorEvent = {
+    /**
+     * Type
+     */
+    type: 'error';
     /**
      * Message
      */
@@ -8087,10 +8091,6 @@ export type SseErrorEvent = {
      * HTTP-equivalent status for router-level failures; provider and model errors raised inside the stream may omit it.
      */
     status?: number | null;
-    /**
-     * Type
-     */
-    type: 'error';
 };
 
 /**
@@ -8100,13 +8100,9 @@ export type SseErrorEvent = {
  */
 export type SseMapDoneEvent = {
     /**
-     * Datasets Used
+     * Type
      */
-    datasets_used: Array<string>;
-    /**
-     * Explanation
-     */
-    explanation: string;
+    type: 'done';
     /**
      * Map Id
      */
@@ -8116,9 +8112,13 @@ export type SseMapDoneEvent = {
      */
     map_name: string;
     /**
-     * Type
+     * Explanation
      */
-    type: 'done';
+    explanation: string;
+    /**
+     * Datasets Used
+     */
+    datasets_used: Array<string>;
 };
 
 /**
@@ -8128,13 +8128,13 @@ export type SseMapDoneEvent = {
  */
 export type SseTokenEvent = {
     /**
-     * Text
-     */
-    text: string;
-    /**
      * Type
      */
     type: 'token';
+    /**
+     * Text
+     */
+    text: string;
 };
 
 /**
@@ -8144,17 +8144,17 @@ export type SseTokenEvent = {
  */
 export type SseToolResultEvent = {
     /**
-     * Success
+     * Type
      */
-    success: boolean;
+    type: 'tool_result';
     /**
      * Tool
      */
     tool: string;
     /**
-     * Type
+     * Success
      */
-    type: 'tool_result';
+    success: boolean;
 };
 
 /**
@@ -8164,17 +8164,17 @@ export type SseToolResultEvent = {
  */
 export type SseToolStartEvent = {
     /**
-     * Label
+     * Type
      */
-    label: string;
+    type: 'tool_start';
     /**
      * Tool
      */
     tool: string;
     /**
-     * Type
+     * Label
      */
-    type: 'tool_start';
+    label: string;
 };
 
 /**
@@ -8220,10 +8220,6 @@ export type SavedSearchListResponse = {
  */
 export type SavedSearchResponse = {
     /**
-     * Created At
-     */
-    created_at: string;
-    /**
      * Id
      */
     id: string;
@@ -8237,6 +8233,10 @@ export type SavedSearchResponse = {
     params: {
         [key: string]: unknown;
     };
+    /**
+     * Created At
+     */
+    created_at: string;
     /**
      * Updated At
      */
@@ -8260,25 +8260,25 @@ export type SchemaDiff = {
      */
     columns_removed: Array<ColumnChange>;
     /**
-     * Row Count Delta
-     *
-     * row_count_new minus row_count_old
-     */
-    row_count_delta: number;
-    /**
-     * Row Count New
-     */
-    row_count_new: number | null;
-    /**
-     * Row Count Old
-     */
-    row_count_old: number | null;
-    /**
      * Type Changes
      *
      * Columns whose data type changed
      */
     type_changes: Array<TypeChange>;
+    /**
+     * Row Count Old
+     */
+    row_count_old: number | null;
+    /**
+     * Row Count New
+     */
+    row_count_new: number | null;
+    /**
+     * Row Count Delta
+     *
+     * row_count_new minus row_count_old
+     */
+    row_count_delta: number;
 };
 
 /**
@@ -8286,17 +8286,17 @@ export type SchemaDiff = {
  */
 export type ServiceHealth = {
     /**
-     * Error
+     * Status
      */
-    error?: string | null;
+    status: string;
     /**
      * Latency Ms
      */
     latency_ms?: number | null;
     /**
-     * Status
+     * Error
      */
-    status: string;
+    error?: string | null;
 };
 
 /**
@@ -8304,11 +8304,17 @@ export type ServiceHealth = {
  */
 export type ServicePreviewRequest = {
     /**
-     * Layer Id
+     * Url
      *
-     * ArcGIS layer ID, when applicable.
+     * Normalized service URL from a previous probe response.
      */
-    layer_id?: number | string | null;
+    url: string;
+    /**
+     * Service Type
+     *
+     * Service type from the probe response, e.g. 'WFS 2.0.0' or 'ArcGIS FeatureServer'.
+     */
+    service_type: string;
     /**
      * Layer Name
      *
@@ -8322,17 +8328,11 @@ export type ServicePreviewRequest = {
      */
     layer_title?: string | null;
     /**
-     * Object Id Field
+     * Layer Id
      *
-     * ArcGIS OID field name used for orderByFields during preview pagination.
+     * ArcGIS layer ID, when applicable.
      */
-    object_id_field?: string | null;
-    /**
-     * Service Type
-     *
-     * Service type from the probe response, e.g. 'WFS 2.0.0' or 'ArcGIS FeatureServer'.
-     */
-    service_type: string;
+    layer_id?: number | string | null;
     /**
      * Token
      *
@@ -8340,17 +8340,29 @@ export type ServicePreviewRequest = {
      */
     token?: string | null;
     /**
-     * Url
+     * Object Id Field
      *
-     * Normalized service URL from a previous probe response.
+     * ArcGIS OID field name used for orderByFields during preview pagination.
      */
-    url: string;
+    object_id_field?: string | null;
 };
 
 /**
  * ServicePreviewResponse
  */
 export type ServicePreviewResponse = {
+    /**
+     * Job Id
+     *
+     * IngestJob ID for the preview. Use this to commit the import.
+     */
+    job_id: string;
+    /**
+     * Source Filename
+     *
+     * Layer name acting as a source filename for downstream ingestion logic.
+     */
+    source_filename: string | null;
     /**
      * Columns
      *
@@ -8366,29 +8378,17 @@ export type ServicePreviewResponse = {
      */
     crs: number | null;
     /**
-     * Feature Count
-     *
-     * Total feature count if reported by the source service.
-     */
-    feature_count: number | null;
-    /**
      * Geometry Type
      *
      * Detected geometry type.
      */
     geometry_type: string | null;
     /**
-     * Job Id
+     * Feature Count
      *
-     * IngestJob ID for the preview. Use this to commit the import.
+     * Total feature count if reported by the source service.
      */
-    job_id: string;
-    /**
-     * Layer Name
-     *
-     * Layer name as it appears in the remote service.
-     */
-    layer_name: string;
+    feature_count: number | null;
     /**
      * Sample Rows
      *
@@ -8398,11 +8398,11 @@ export type ServicePreviewResponse = {
         [key: string]: unknown;
     }>;
     /**
-     * Source Filename
+     * Layer Name
      *
-     * Layer name acting as a source filename for downstream ingestion logic.
+     * Layer name as it appears in the remote service.
      */
-    source_filename: string | null;
+    layer_name: string;
 };
 
 /**
@@ -8411,18 +8411,6 @@ export type ServicePreviewResponse = {
  * Result of a single service connectivity probe.
  */
 export type ServiceProbeResult = {
-    /**
-     * Error
-     *
-     * Error message when status is 'error'.
-     */
-    error?: string | null;
-    /**
-     * Latency Ms
-     *
-     * Round-trip latency in milliseconds.
-     */
-    latency_ms: number;
     /**
      * Name
      *
@@ -8435,6 +8423,18 @@ export type ServiceProbeResult = {
      * Probe outcome.
      */
     status: 'ok' | 'error';
+    /**
+     * Latency Ms
+     *
+     * Round-trip latency in milliseconds.
+     */
+    latency_ms: number;
+    /**
+     * Error
+     *
+     * Error message when status is 'error'.
+     */
+    error?: string | null;
 };
 
 /**
@@ -8450,11 +8450,11 @@ export type SettingItem = {
      */
     key: string;
     /**
-     * Label
+     * Value
      *
-     * Human-readable label for display in the admin UI.
+     * Current value. Type depends on the setting.
      */
-    label: string;
+    value: unknown;
     /**
      * Source
      *
@@ -8462,11 +8462,11 @@ export type SettingItem = {
      */
     source: string;
     /**
-     * Value
+     * Label
      *
-     * Current value. Type depends on the setting.
+     * Human-readable label for display in the admin UI.
      */
-    value: unknown;
+    label: string;
 };
 
 /**
@@ -8544,13 +8544,11 @@ export type ShareTokenRequest = {
  */
 export type ShareTokenResponse = {
     /**
-     * Expires At
+     * Token
+     *
+     * Raw token on create, hint on retrieve
      */
-    expires_at?: string | null;
-    /**
-     * Is Active
-     */
-    is_active?: boolean;
+    token: string;
     /**
      * Share Url
      *
@@ -8558,11 +8556,13 @@ export type ShareTokenResponse = {
      */
     share_url?: string | null;
     /**
-     * Token
-     *
-     * Raw token on create, hint on retrieve
+     * Expires At
      */
-    token: string;
+    expires_at?: string | null;
+    /**
+     * Is Active
+     */
+    is_active?: boolean;
 };
 
 /**
@@ -8570,11 +8570,9 @@ export type ShareTokenResponse = {
  */
 export type SharedLayerResponse = {
     /**
-     * Column Info
+     * Id
      */
-    column_info?: Array<{
-        [key: string]: unknown;
-    }> | null;
+    id: string;
     /**
      * Dataset Id
      */
@@ -8584,57 +8582,31 @@ export type SharedLayerResponse = {
      */
     dataset_name: string;
     /**
-     * Dataset Record Type
-     */
-    dataset_record_type?: string | null;
-    /**
-     * Dem Vertical Units
-     */
-    dem_vertical_units?: string | null;
-    /**
      * Display Name
      */
     display_name?: string | null;
     /**
-     * Feature Count
+     * Table Name
      */
-    feature_count?: number | null;
-    /**
-     * Filter
-     */
-    filter?: Array<unknown> | null;
+    table_name: string;
     /**
      * Geometry Type
      */
     geometry_type: string | null;
     /**
-     * Id
+     * Column Info
      */
-    id: string;
-    /**
-     * Is 3D
-     */
-    is_3d?: boolean | null;
-    /**
-     * Is Dem
-     */
-    is_dem?: boolean | null;
-    /**
-     * Label Config
-     */
-    label_config?: {
+    column_info?: Array<{
         [key: string]: unknown;
-    } | null;
+    }> | null;
     /**
-     * Layer Type
+     * Sort Order
      */
-    layer_type?: string;
+    sort_order: number;
     /**
-     * Layout
+     * Visible
      */
-    layout: {
-        [key: string]: unknown;
-    };
+    visible: boolean;
     /**
      * Opacity
      */
@@ -8645,15 +8617,31 @@ export type SharedLayerResponse = {
     paint: {
         [key: string]: unknown;
     };
+    /**
+     * Layout
+     */
+    layout: {
+        [key: string]: unknown;
+    };
+    /**
+     * Layer Type
+     */
+    layer_type?: string;
+    /**
+     * Dataset Record Type
+     */
+    dataset_record_type?: string | null;
+    /**
+     * Filter
+     */
+    filter?: Array<unknown> | null;
+    /**
+     * Label Config
+     */
+    label_config?: {
+        [key: string]: unknown;
+    } | null;
     popup_config?: PopupConfig | null;
-    /**
-     * Show In Legend
-     */
-    show_in_legend?: boolean;
-    /**
-     * Sort Order
-     */
-    sort_order: number;
     /**
      * Style Config
      */
@@ -8661,77 +8649,89 @@ export type SharedLayerResponse = {
         [key: string]: unknown;
     } | null;
     /**
-     * Table Name
+     * Show In Legend
      */
-    table_name: string;
+    show_in_legend?: boolean;
     /**
      * Tile Url
      */
     tile_url: string;
     /**
+     * Is Dem
+     */
+    is_dem?: boolean | null;
+    /**
+     * Dem Vertical Units
+     */
+    dem_vertical_units?: string | null;
+    /**
+     * Is 3D
+     */
+    is_3d?: boolean | null;
+    /**
+     * Feature Count
+     */
+    feature_count?: number | null;
+    /**
      * Tile Version
      */
     tile_version?: number | null;
-    /**
-     * Visible
-     */
-    visible: boolean;
 };
 
 /**
  * SharedMapResponse
  */
 export type SharedMapResponse = {
-    basemap_config?: BasemapConfig | null;
-    /**
-     * Basemap Style
-     */
-    basemap_style: string;
-    /**
-     * Bearing
-     */
-    bearing: number;
-    /**
-     * Center Lat
-     */
-    center_lat: number;
-    /**
-     * Center Lng
-     */
-    center_lng: number;
-    /**
-     * Description
-     */
-    description: string | null;
-    /**
-     * Has Non Public Layers
-     */
-    has_non_public_layers?: boolean;
-    /**
-     * Layers
-     */
-    layers: Array<SharedLayerResponse>;
-    /**
-     * Legend Title
-     */
-    legend_title?: string | null;
     /**
      * Name
      */
     name: string;
     /**
-     * Pitch
+     * Description
      */
-    pitch: number;
+    description: string | null;
     /**
-     * Show Basemap Labels
+     * Center Lng
      */
-    show_basemap_labels?: boolean;
-    terrain_config?: TerrainConfig | null;
+    center_lng: number;
+    /**
+     * Center Lat
+     */
+    center_lat: number;
     /**
      * Zoom
      */
     zoom: number;
+    /**
+     * Bearing
+     */
+    bearing: number;
+    /**
+     * Pitch
+     */
+    pitch: number;
+    /**
+     * Basemap Style
+     */
+    basemap_style: string;
+    /**
+     * Show Basemap Labels
+     */
+    show_basemap_labels?: boolean;
+    basemap_config?: BasemapConfig | null;
+    terrain_config?: TerrainConfig | null;
+    /**
+     * Has Non Public Layers
+     */
+    has_non_public_layers?: boolean;
+    /**
+     * Legend Title
+     */
+    legend_title?: string | null;
+    /**
+     * Layers
+     */
+    layers: Array<SharedLayerResponse>;
 };
 
 /**
@@ -8739,13 +8739,21 @@ export type SharedMapResponse = {
  */
 export type StacAsset = {
     /**
-     * Description
-     */
-    description?: string | null;
-    /**
      * Href
      */
     href: string;
+    /**
+     * Type
+     */
+    type?: string | null;
+    /**
+     * Title
+     */
+    title?: string | null;
+    /**
+     * Description
+     */
+    description?: string | null;
     /**
      * Roles
      */
@@ -8754,14 +8762,6 @@ export type StacAsset = {
      * Size Bytes
      */
     size_bytes?: number | null;
-    /**
-     * Title
-     */
-    title?: string | null;
-    /**
-     * Type
-     */
-    type?: string | null;
 };
 
 /**
@@ -8771,29 +8771,17 @@ export type StacAsset = {
  */
 export type StacCatalog = {
     /**
-     * Conformsto
+     * Type
      *
-     * List of conformance URIs declaring which STAC and OGC API standards the catalog implements.
+     * STAC object type. Always 'Catalog' for the landing page.
      */
-    conformsTo: Array<string>;
-    /**
-     * Description
-     *
-     * Human-readable catalog description.
-     */
-    description: string;
+    type?: string;
     /**
      * Id
      *
      * Stable identifier for the catalog.
      */
     id: string;
-    /**
-     * Links
-     *
-     * Catalog navigation links (self, root, search, collections, etc.).
-     */
-    links: Array<StacLink>;
     /**
      * Stac Version
      *
@@ -8807,11 +8795,23 @@ export type StacCatalog = {
      */
     title: string;
     /**
-     * Type
+     * Description
      *
-     * STAC object type. Always 'Catalog' for the landing page.
+     * Human-readable catalog description.
      */
-    type?: string;
+    description: string;
+    /**
+     * Conformsto
+     *
+     * List of conformance URIs declaring which STAC and OGC API standards the catalog implements.
+     */
+    conformsTo: Array<string>;
+    /**
+     * Links
+     *
+     * Catalog navigation links (self, root, search, collections, etc.).
+     */
+    links: Array<StacLink>;
 };
 
 /**
@@ -8821,11 +8821,41 @@ export type StacCatalog = {
  */
 export type StacCollection = {
     /**
+     * Type
+     *
+     * STAC object type.
+     */
+    type?: string;
+    /**
+     * Stac Version
+     *
+     * STAC specification version.
+     */
+    stac_version?: string;
+    /**
+     * Id
+     *
+     * Stable collection identifier.
+     */
+    id: string;
+    /**
+     * Title
+     *
+     * Human-readable collection title.
+     */
+    title?: string | null;
+    /**
      * Description
      *
      * Collection description.
      */
     description?: string;
+    /**
+     * License
+     *
+     * SPDX license identifier or 'proprietary'.
+     */
+    license?: string;
     /**
      * Extent
      *
@@ -8835,41 +8865,11 @@ export type StacCollection = {
         [key: string]: unknown;
     };
     /**
-     * Id
-     *
-     * Stable collection identifier.
-     */
-    id: string;
-    /**
-     * License
-     *
-     * SPDX license identifier or 'proprietary'.
-     */
-    license?: string;
-    /**
      * Links
      *
      * Collection navigation links.
      */
     links: Array<StacLink>;
-    /**
-     * Stac Version
-     *
-     * STAC specification version.
-     */
-    stac_version?: string;
-    /**
-     * Title
-     *
-     * Human-readable collection title.
-     */
-    title?: string | null;
-    /**
-     * Type
-     *
-     * STAC object type.
-     */
-    type?: string;
     [key: string]: unknown;
 };
 
@@ -8898,11 +8898,17 @@ export type StacCollectionListResponse = {
  */
 export type StacCollectionSummary = {
     /**
-     * Bbox
+     * Id
      *
-     * Spatial extent as [west, south, east, north].
+     * Collection identifier.
      */
-    bbox?: Array<number> | null;
+    id: string;
+    /**
+     * Title
+     *
+     * Collection title.
+     */
+    title: string;
     /**
      * Description
      *
@@ -8910,17 +8916,11 @@ export type StacCollectionSummary = {
      */
     description: string;
     /**
-     * Id
+     * License
      *
-     * Collection identifier.
+     * SPDX license identifier.
      */
-    id: string;
-    /**
-     * Item Count
-     *
-     * Number of items if reported by the API.
-     */
-    item_count?: number | null;
+    license?: string | null;
     /**
      * Keywords
      *
@@ -8928,17 +8928,11 @@ export type StacCollectionSummary = {
      */
     keywords?: Array<string>;
     /**
-     * License
+     * Bbox
      *
-     * SPDX license identifier.
+     * Spatial extent as [west, south, east, north].
      */
-    license?: string | null;
-    /**
-     * Temporal End
-     *
-     * End of temporal extent (ISO 8601).
-     */
-    temporal_end?: string | null;
+    bbox?: Array<number> | null;
     /**
      * Temporal Start
      *
@@ -8946,11 +8940,17 @@ export type StacCollectionSummary = {
      */
     temporal_start?: string | null;
     /**
-     * Title
+     * Temporal End
      *
-     * Collection title.
+     * End of temporal extent (ISO 8601).
      */
-    title: string;
+    temporal_end?: string | null;
+    /**
+     * Item Count
+     *
+     * Number of items if reported by the API.
+     */
+    item_count?: number | null;
 };
 
 /**
@@ -8958,17 +8958,17 @@ export type StacCollectionSummary = {
  */
 export type StacCollectionsResponse = {
     /**
-     * Collections
-     *
-     * Available collections.
-     */
-    collections: Array<StacCollectionSummary>;
-    /**
      * Url
      *
      * STAC API URL that was queried.
      */
     url: string;
+    /**
+     * Collections
+     *
+     * Available collections.
+     */
+    collections: Array<StacCollectionSummary>;
 };
 
 /**
@@ -9002,11 +9002,23 @@ export type StacConnectRequest = {
  */
 export type StacConnectResponse = {
     /**
+     * Url
+     *
+     * Normalized STAC API URL.
+     */
+    url: string;
+    /**
      * Catalog Id
      *
      * Catalog identifier from the landing page.
      */
     catalog_id: string;
+    /**
+     * Title
+     *
+     * Catalog title.
+     */
+    title: string;
     /**
      * Description
      *
@@ -9019,18 +9031,6 @@ export type StacConnectResponse = {
      * STAC specification version.
      */
     stac_version: string;
-    /**
-     * Title
-     *
-     * Catalog title.
-     */
-    title: string;
-    /**
-     * Url
-     *
-     * Normalized STAC API URL.
-     */
-    url: string;
 };
 
 /**
@@ -9044,13 +9044,13 @@ export type StacContext = {
      */
     limit: number;
     /**
-     * Matched
-     */
-    matched: number;
-    /**
      * Returned
      */
     returned: number;
+    /**
+     * Matched
+     */
+    matched: number;
     [key: string]: unknown;
 };
 
@@ -9059,11 +9059,11 @@ export type StacContext = {
  */
 export type StacImportItem = {
     /**
-     * Bbox
+     * Id
      *
-     * Item bounding box.
+     * STAC item ID.
      */
-    bbox?: Array<number> | null;
+    id: string;
     /**
      * Collection
      *
@@ -9071,23 +9071,23 @@ export type StacImportItem = {
      */
     collection?: string | null;
     /**
+     * Title
+     *
+     * Title to use for the GeoLens dataset.
+     */
+    title: string;
+    /**
      * Data Asset Href
      *
      * URL of the COG asset to reference.
      */
     data_asset_href: string;
     /**
-     * Datetime End
+     * Bbox
      *
-     * Temporal end.
+     * Item bounding box.
      */
-    datetime_end?: string | null;
-    /**
-     * Datetime Start
-     *
-     * Temporal start.
-     */
-    datetime_start?: string | null;
+    bbox?: Array<number> | null;
     /**
      * Epsg
      *
@@ -9095,23 +9095,23 @@ export type StacImportItem = {
      */
     epsg?: number | null;
     /**
-     * Id
+     * Datetime Start
      *
-     * STAC item ID.
+     * Temporal start.
      */
-    id: string;
+    datetime_start?: string | null;
+    /**
+     * Datetime End
+     *
+     * Temporal end.
+     */
+    datetime_end?: string | null;
     /**
      * Keywords
      *
      * Keywords from STAC collection.
      */
     keywords?: Array<string>;
-    /**
-     * Title
-     *
-     * Title to use for the GeoLens dataset.
-     */
-    title: string;
 };
 
 /**
@@ -9119,17 +9119,17 @@ export type StacImportItem = {
  */
 export type StacImportRequest = {
     /**
-     * Items
-     *
-     * Items to import (max 50 per request).
-     */
-    items: Array<StacImportItem>;
-    /**
      * Url
      *
      * STAC API URL for provenance.
      */
     url: string;
+    /**
+     * Items
+     *
+     * Items to import (max 50 per request).
+     */
+    items: Array<StacImportItem>;
     /**
      * Visibility
      *
@@ -9143,29 +9143,29 @@ export type StacImportRequest = {
  */
 export type StacImportResponse = {
     /**
-     * Created
-     *
-     * Number of datasets created.
-     */
-    created: number;
-    /**
-     * Errors
-     *
-     * Number of items that failed.
-     */
-    errors: number;
-    /**
      * Results
      *
      * Per-item import results.
      */
     results: Array<StacImportResult>;
     /**
+     * Created
+     *
+     * Number of datasets created.
+     */
+    created: number;
+    /**
      * Skipped
      *
      * Number of items skipped (duplicates).
      */
     skipped: number;
+    /**
+     * Errors
+     *
+     * Number of items that failed.
+     */
+    errors: number;
 };
 
 /**
@@ -9173,29 +9173,29 @@ export type StacImportResponse = {
  */
 export type StacImportResult = {
     /**
-     * Dataset Id
-     *
-     * Created GeoLens dataset ID.
-     */
-    dataset_id?: string | null;
-    /**
-     * Error
-     *
-     * Error message if failed.
-     */
-    error?: string | null;
-    /**
      * Item Id
      *
      * STAC item ID that was processed.
      */
     item_id: string;
     /**
+     * Dataset Id
+     *
+     * Created GeoLens dataset ID.
+     */
+    dataset_id?: string | null;
+    /**
      * Status
      *
      * Import result status.
      */
     status: 'created' | 'skipped' | 'error';
+    /**
+     * Error
+     *
+     * Error message if failed.
+     */
+    error?: string | null;
 };
 
 /**
@@ -9205,23 +9205,17 @@ export type StacImportResult = {
  */
 export type StacItemAsset = {
     /**
-     * Description
-     *
-     * Human-readable asset description.
-     */
-    description?: string | null;
-    /**
      * Href
      *
      * URL of the asset resource.
      */
     href: string;
     /**
-     * Roles
+     * Type
      *
-     * Semantic roles such as data or visual.
+     * Asset media type.
      */
-    roles?: Array<string> | null;
+    type?: string | null;
     /**
      * Title
      *
@@ -9229,11 +9223,17 @@ export type StacItemAsset = {
      */
     title?: string | null;
     /**
-     * Type
+     * Description
      *
-     * Asset media type.
+     * Human-readable asset description.
      */
-    type?: string | null;
+    description?: string | null;
+    /**
+     * Roles
+     *
+     * Semantic roles such as data or visual.
+     */
+    roles?: Array<string> | null;
     [key: string]: unknown;
 };
 
@@ -9243,7 +9243,10 @@ export type StacItemAsset = {
  * Typed OpenAPI representation of a STAC ItemCollection.
  */
 export type StacItemCollectionResponse = {
-    context: StacContext;
+    /**
+     * Type
+     */
+    type?: 'FeatureCollection';
     /**
      * Features
      */
@@ -9260,10 +9263,7 @@ export type StacItemCollectionResponse = {
      * Numberreturned
      */
     numberReturned: number;
-    /**
-     * Type
-     */
-    type?: 'FeatureCollection';
+    context: StacContext;
     [key: string]: unknown;
 };
 
@@ -9280,11 +9280,11 @@ export type StacItemProperties = {
      */
     datetime: string | null;
     /**
-     * Description
+     * Start Datetime
      *
-     * Human-readable item description.
+     * Start of the item's temporal interval.
      */
-    description?: string | null;
+    start_datetime?: string | null;
     /**
      * End Datetime
      *
@@ -9292,17 +9292,17 @@ export type StacItemProperties = {
      */
     end_datetime?: string | null;
     /**
-     * Start Datetime
-     *
-     * Start of the item's temporal interval.
-     */
-    start_datetime?: string | null;
-    /**
      * Title
      *
      * Human-readable item title.
      */
     title?: string | null;
+    /**
+     * Description
+     *
+     * Human-readable item description.
+     */
+    description?: string | null;
     [key: string]: unknown;
 };
 
@@ -9313,11 +9313,33 @@ export type StacItemProperties = {
  */
 export type StacItemResponse = {
     /**
-     * Assets
+     * Type
      */
-    assets: {
-        [key: string]: StacItemAsset;
-    };
+    type?: 'Feature';
+    /**
+     * Stac Version
+     *
+     * STAC specification version.
+     */
+    stac_version: string;
+    /**
+     * Stac Extensions
+     *
+     * STAC extension schema URIs in use.
+     */
+    stac_extensions?: Array<string>;
+    /**
+     * Id
+     *
+     * Stable item identifier.
+     */
+    id: string;
+    /**
+     * Geometry
+     *
+     * Item footprint as GeoJSON, or null when unavailable.
+     */
+    geometry: GeoJsonGeometryCollection | GeoJsonGeometry | null;
     /**
      * Bbox
      *
@@ -9336,45 +9358,23 @@ export type StacItemResponse = {
         number,
         number
     ] | null;
+    properties: StacItemProperties;
+    /**
+     * Links
+     */
+    links: Array<StacLink>;
+    /**
+     * Assets
+     */
+    assets: {
+        [key: string]: StacItemAsset;
+    };
     /**
      * Collection
      *
      * Identifier of the containing STAC Collection.
      */
     collection?: string | null;
-    /**
-     * Geometry
-     *
-     * Item footprint as GeoJSON, or null when unavailable.
-     */
-    geometry: GeoJsonGeometryCollection | GeoJsonGeometry | null;
-    /**
-     * Id
-     *
-     * Stable item identifier.
-     */
-    id: string;
-    /**
-     * Links
-     */
-    links: Array<StacLink>;
-    properties: StacItemProperties;
-    /**
-     * Stac Extensions
-     *
-     * STAC extension schema URIs in use.
-     */
-    stac_extensions?: Array<string>;
-    /**
-     * Stac Version
-     *
-     * STAC specification version.
-     */
-    stac_version: string;
-    /**
-     * Type
-     */
-    type?: 'Feature';
     [key: string]: unknown;
 };
 
@@ -9383,23 +9383,11 @@ export type StacItemResponse = {
  */
 export type StacItemSummary = {
     /**
-     * Asset Count
+     * Id
      *
-     * Number of assets on this item.
+     * Item identifier.
      */
-    asset_count: number;
-    /**
-     * Bbox
-     *
-     * Item bounding box.
-     */
-    bbox?: Array<number> | null;
-    /**
-     * Cloud Cover
-     *
-     * Cloud cover percentage (eo extension).
-     */
-    cloud_cover?: number | null;
+    id: string;
     /**
      * Collection
      *
@@ -9407,23 +9395,17 @@ export type StacItemSummary = {
      */
     collection?: string | null;
     /**
-     * Data Asset Href
+     * Title
      *
-     * URL of the primary data asset (COG).
+     * Item title (falls back to ID).
      */
-    data_asset_href?: string | null;
+    title: string;
     /**
-     * Data Asset Size Bytes
+     * Bbox
      *
-     * Size of the primary data asset in bytes (from STAC file:size). None when not in manifest.
+     * Item bounding box.
      */
-    data_asset_size_bytes?: number | null;
-    /**
-     * Data Asset Type
-     *
-     * Media type of the data asset.
-     */
-    data_asset_type?: string | null;
+    bbox?: Array<number> | null;
     /**
      * Datetime
      *
@@ -9431,17 +9413,17 @@ export type StacItemSummary = {
      */
     datetime?: string | null;
     /**
-     * Datetime End
-     *
-     * End datetime for ranges.
-     */
-    datetime_end?: string | null;
-    /**
      * Datetime Start
      *
      * Start datetime for ranges.
      */
     datetime_start?: string | null;
+    /**
+     * Datetime End
+     *
+     * End datetime for ranges.
+     */
+    datetime_end?: string | null;
     /**
      * Epsg
      *
@@ -9455,11 +9437,29 @@ export type StacItemSummary = {
      */
     gsd?: number | null;
     /**
-     * Id
+     * Cloud Cover
      *
-     * Item identifier.
+     * Cloud cover percentage (eo extension).
      */
-    id: string;
+    cloud_cover?: number | null;
+    /**
+     * Data Asset Href
+     *
+     * URL of the primary data asset (COG).
+     */
+    data_asset_href?: string | null;
+    /**
+     * Data Asset Type
+     *
+     * Media type of the data asset.
+     */
+    data_asset_type?: string | null;
+    /**
+     * Data Asset Size Bytes
+     *
+     * Size of the primary data asset in bytes (from STAC file:size). None when not in manifest.
+     */
+    data_asset_size_bytes?: number | null;
     /**
      * Thumbnail Href
      *
@@ -9467,11 +9467,11 @@ export type StacItemSummary = {
      */
     thumbnail_href?: string | null;
     /**
-     * Title
+     * Asset Count
      *
-     * Item title (falls back to ID).
+     * Number of assets on this item.
      */
-    title: string;
+    asset_count: number;
 };
 
 /**
@@ -9487,12 +9487,6 @@ export type StacLink = {
      */
     href: string;
     /**
-     * Method
-     *
-     * HTTP method to use (defaults to GET).
-     */
-    method?: string | null;
-    /**
      * Rel
      *
      * Link relation type (e.g. 'self', 'root', 'parent', 'item', 'data').
@@ -9504,6 +9498,12 @@ export type StacLink = {
      * Media type of the linked resource (e.g. 'application/json').
      */
     type?: string | null;
+    /**
+     * Method
+     *
+     * HTTP method to use (defaults to GET).
+     */
+    method?: string | null;
 };
 
 /**
@@ -9517,13 +9517,13 @@ export type StacSearchBody = {
      */
     bbox?: Array<number> | null;
     /**
-     * Collections
-     */
-    collections?: Array<string> | null;
-    /**
      * Datetime
      */
     datetime?: string | null;
+    /**
+     * Collections
+     */
+    collections?: Array<string> | null;
     /**
      * Ids
      */
@@ -9553,6 +9553,18 @@ export type StacSearchBody = {
  */
 export type StacSearchRequest = {
     /**
+     * Url
+     *
+     * STAC API root URL.
+     */
+    url: string;
+    /**
+     * Collections
+     *
+     * Filter by collection IDs.
+     */
+    collections?: Array<string> | null;
+    /**
      * Bbox
      *
      * Bounding box filter as [west, south, east, north].
@@ -9563,12 +9575,6 @@ export type StacSearchRequest = {
         number,
         number
     ] | null;
-    /**
-     * Collections
-     *
-     * Filter by collection IDs.
-     */
-    collections?: Array<string> | null;
     /**
      * Datetime Range
      *
@@ -9581,12 +9587,6 @@ export type StacSearchRequest = {
      * Maximum items to return.
      */
     limit?: number;
-    /**
-     * Url
-     *
-     * STAC API root URL.
-     */
-    url: string;
 };
 
 /**
@@ -9618,10 +9618,6 @@ export type StacSearchResponse = {
  */
 export type StaleCleanupResponse = {
     /**
-     * Local Files Reaped
-     */
-    local_files_reaped: number;
-    /**
      * Pending Failed
      */
     pending_failed: number;
@@ -9629,30 +9625,6 @@ export type StaleCleanupResponse = {
      * Running Failed
      */
     running_failed: number;
-    /**
-     * Staged Cleanup Failures
-     */
-    staged_cleanup_failures: number;
-    /**
-     * Staged Paths Considered
-     */
-    staged_paths_considered: number;
-    /**
-     * Staged Paths Skipped
-     */
-    staged_paths_skipped: number;
-    /**
-     * Storage Objects Reaped
-     */
-    storage_objects_reaped: number;
-    /**
-     * Terminal Jobs Purged
-     */
-    terminal_jobs_purged: number;
-    /**
-     * Total Affected
-     */
-    total_affected: number;
     /**
      * Total Cleaned
      */
@@ -9665,6 +9637,34 @@ export type StaleCleanupResponse = {
      * Vrt Generations Failed
      */
     vrt_generations_failed: number;
+    /**
+     * Terminal Jobs Purged
+     */
+    terminal_jobs_purged: number;
+    /**
+     * Staged Paths Considered
+     */
+    staged_paths_considered: number;
+    /**
+     * Local Files Reaped
+     */
+    local_files_reaped: number;
+    /**
+     * Storage Objects Reaped
+     */
+    storage_objects_reaped: number;
+    /**
+     * Staged Paths Skipped
+     */
+    staged_paths_skipped: number;
+    /**
+     * Staged Cleanup Failures
+     */
+    staged_cleanup_failures: number;
+    /**
+     * Total Affected
+     */
+    total_affected: number;
 };
 
 /**
@@ -9686,15 +9686,15 @@ export type StatusUpdateResponse = {
      */
     id: string;
     /**
+     * Record Status
+     */
+    record_status: string;
+    /**
      * Metadata Warnings
      *
      * Advisory warnings from the status change — the same inherited-keyword disclosure check the metadata PATCH runs (feat #1070, fix #1178 review). The transition has already applied.
      */
     metadata_warnings?: Array<string> | null;
-    /**
-     * Record Status
-     */
-    record_status: string;
 };
 
 /**
@@ -9717,6 +9717,18 @@ export type StatusUpdateResponse = {
  */
 export type SublayerOverride = {
     /**
+     * Stroke Color
+     *
+     * Stroke color in #RRGGBB hex format, or null to use the basemap default.
+     */
+    stroke_color?: string | null;
+    /**
+     * Stroke Width
+     *
+     * Stroke width in pixels (0-20), or null to use the basemap default.
+     */
+    stroke_width?: number | null;
+    /**
      * Casing Color
      *
      * Casing color in #RRGGBB hex format, or null to use the basemap default.
@@ -9729,35 +9741,23 @@ export type SublayerOverride = {
      */
     casing_width?: number | null;
     /**
-     * Max Zoom
-     *
-     * Maximum zoom level at which the sublayer is visible (0-24), or null for default.
-     */
-    max_zoom?: number | null;
-    /**
      * Min Zoom
      *
      * Minimum zoom level at which the sublayer is visible (0-24), or null for default.
      */
     min_zoom?: number | null;
     /**
+     * Max Zoom
+     *
+     * Maximum zoom level at which the sublayer is visible (0-24), or null for default.
+     */
+    max_zoom?: number | null;
+    /**
      * Opacity
      *
      * Per-sublayer opacity (0-1), or null to use the basemap default. Composes on top of BasemapConfig.opacity (the whole-basemap master opacity): the rendered opacity is override.opacity * master_opacity (builder-audit #338 CORR-01). The UI opacity slider in BasemapSublayerEditorScene persists through this field: MapBuilderPage.handleSublayerOpacityChange -> setBasemapSublayerOpacity -> updateBasemapSublayerOverride writes config.sublayer_overrides[key].opacity.
      */
     opacity?: number | null;
-    /**
-     * Stroke Color
-     *
-     * Stroke color in #RRGGBB hex format, or null to use the basemap default.
-     */
-    stroke_color?: string | null;
-    /**
-     * Stroke Width
-     *
-     * Stroke width in pixels (0-20), or null to use the basemap default.
-     */
-    stroke_width?: number | null;
 };
 
 /**
@@ -9785,17 +9785,17 @@ export type TableRegisterResponse = {
      */
     dataset_id: string;
     /**
-     * Table Name
-     *
-     * Source PostgreSQL table that was registered.
-     */
-    table_name: string;
-    /**
      * Title
      *
      * Title of the registered dataset.
      */
     title: string;
+    /**
+     * Table Name
+     *
+     * Source PostgreSQL table that was registered.
+     */
+    table_name: string;
 };
 
 /**
@@ -9807,13 +9807,13 @@ export type TerrainConfig = {
      */
     enabled?: boolean;
     /**
-     * Exaggeration
-     */
-    exaggeration?: number;
-    /**
      * Source Dataset Id
      */
     source_dataset_id?: string | null;
+    /**
+     * Exaggeration
+     */
+    exaggeration?: number;
 };
 
 /**
@@ -9856,11 +9856,11 @@ export type TileConfigResponse = {
      */
     cdn_base_url?: string | null;
     /**
-     * Mvt Source Layer Prefix
+     * Public App Url
      *
-     * Schema prefix emitted inside vector-tile source-layer names. Null when a multi-tenant request has no resolved tenant context.
+     * Browser-facing app URL used for share links and OAuth redirects.
      */
-    mvt_source_layer_prefix?: string | null;
+    public_app_url?: string | null;
     /**
      * Public Api Url
      *
@@ -9868,17 +9868,17 @@ export type TileConfigResponse = {
      */
     public_api_url?: string | null;
     /**
-     * Public App Url
-     *
-     * Browser-facing app URL used for share links and OAuth redirects.
-     */
-    public_app_url?: string | null;
-    /**
      * Public Base Url
      *
      * Deprecated alias for public_api_url. Will be removed in a future release.
      */
     public_base_url?: string | null;
+    /**
+     * Mvt Source Layer Prefix
+     *
+     * Schema prefix emitted inside vector-tile source-layer names. Null when a multi-tenant request has no resolved tenant context.
+     */
+    mvt_source_layer_prefix?: string | null;
 };
 
 /**
@@ -9928,12 +9928,6 @@ export type TokenResponse = {
      */
     access_token: string;
     /**
-     * Expires In
-     *
-     * Seconds until the access token expires
-     */
-    expires_in: number;
-    /**
      * Refresh Token
      *
      * Opaque token used to obtain a new access token
@@ -9943,6 +9937,12 @@ export type TokenResponse = {
      * Token Type
      */
     token_type?: string;
+    /**
+     * Expires In
+     *
+     * Seconds until the access token expires
+     */
+    expires_in: number;
 };
 
 /**
@@ -9950,13 +9950,13 @@ export type TokenResponse = {
  */
 export type TranslationListResponse = {
     /**
-     * Total
-     */
-    total: number;
-    /**
      * Translations
      */
     translations: Array<TranslationResponse>;
+    /**
+     * Total
+     */
+    total: number;
 };
 
 /**
@@ -9964,21 +9964,21 @@ export type TranslationListResponse = {
  */
 export type TranslationResponse = {
     /**
-     * Language
-     */
-    language: string;
-    /**
      * Record Id
      */
     record_id: string;
     /**
-     * Summary
+     * Language
      */
-    summary: string | null;
+    language: string;
     /**
      * Title
      */
     title: string;
+    /**
+     * Summary
+     */
+    summary: string | null;
 };
 
 /**
@@ -9986,13 +9986,13 @@ export type TranslationResponse = {
  */
 export type TranslationUpsert = {
     /**
-     * Summary
-     */
-    summary?: string | null;
-    /**
      * Title
      */
     title: string;
+    /**
+     * Summary
+     */
+    summary?: string | null;
 };
 
 /**
@@ -10004,13 +10004,13 @@ export type TypeChange = {
      */
     name: string;
     /**
-     * New Type
-     */
-    new_type: string;
-    /**
      * Old Type
      */
     old_type: string;
+    /**
+     * New Type
+     */
+    new_type: string;
 };
 
 /**
@@ -10018,17 +10018,11 @@ export type TypeChange = {
  */
 export type UploadConfigResponse = {
     /**
-     * Allowed Extensions
+     * Presigned Uploads
      *
-     * Comma-separated list of allowed file extensions.
+     * Whether presigned S3 uploads are enabled (requires `STORAGE_PROVIDER=s3`).
      */
-    allowed_extensions: string;
-    /**
-     * Max File Size Bytes
-     *
-     * Maximum allowed upload size in bytes.
-     */
-    max_file_size_bytes: number;
+    presigned_uploads: boolean;
     /**
      * Presigned Threshold Bytes
      *
@@ -10036,11 +10030,17 @@ export type UploadConfigResponse = {
      */
     presigned_threshold_bytes: number;
     /**
-     * Presigned Uploads
+     * Max File Size Bytes
      *
-     * Whether presigned S3 uploads are enabled (requires `STORAGE_PROVIDER=s3`).
+     * Maximum allowed upload size in bytes.
      */
-    presigned_uploads: boolean;
+    max_file_size_bytes: number;
+    /**
+     * Allowed Extensions
+     *
+     * Comma-separated list of allowed file extensions.
+     */
+    allowed_extensions: string;
     /**
      * Remaining Dataset Quota
      *
@@ -10060,17 +10060,17 @@ export type UploadResponse = {
      */
     job_id: string;
     /**
-     * Message
-     *
-     * Human-readable message describing the upload result.
-     */
-    message: string;
-    /**
      * Status
      *
      * Initial job status. Always 'pending' on creation.
      */
     status?: string;
+    /**
+     * Message
+     *
+     * Human-readable message describing the upload result.
+     */
+    message: string;
 };
 
 /**
@@ -10078,11 +10078,11 @@ export type UploadResponse = {
  */
 export type UserCreate = {
     /**
-     * Email
+     * Username
      *
-     * Optional email address
+     * Unique login name
      */
-    email?: string | null;
+    username: string;
     /**
      * Password
      *
@@ -10090,11 +10090,11 @@ export type UserCreate = {
      */
     password: string;
     /**
-     * Username
+     * Email
      *
-     * Unique login name
+     * Optional email address
      */
-    username: string;
+    email?: string | null;
 };
 
 /**
@@ -10102,17 +10102,17 @@ export type UserCreate = {
  */
 export type UserListResponse = {
     /**
-     * Total
-     *
-     * Total number of users matching the query (across all pages).
-     */
-    total: number;
-    /**
      * Users
      *
      * Page of users matching the query.
      */
     users: Array<UserResponse>;
+    /**
+     * Total
+     *
+     * Total number of users matching the query (across all pages).
+     */
+    total: number;
 };
 
 /**
@@ -10144,10 +10144,6 @@ export type UserQuotaUsage = {
      */
     bytes_used: number;
     /**
-     * Count Cap
-     */
-    count_cap: number;
-    /**
      * Dataset Count
      */
     dataset_count: number;
@@ -10155,6 +10151,10 @@ export type UserQuotaUsage = {
      * Storage Cap
      */
     storage_cap: number;
+    /**
+     * Count Cap
+     */
+    count_cap: number;
 };
 
 /**
@@ -10162,35 +10162,21 @@ export type UserQuotaUsage = {
  */
 export type UserResponse = {
     /**
-     * Created At
+     * Id
      */
-    created_at: string;
+    id: string;
+    /**
+     * Username
+     */
+    username: string;
     /**
      * Email
      */
     email: string | null;
     /**
-     * Id
-     */
-    id: string;
-    /**
      * Is Active
      */
     is_active: boolean;
-    /**
-     * Last Login At
-     */
-    last_login_at: string | null;
-    /**
-     * Per-user storage quota usage. Populated only on admin list responses; None when the caller did not load usage (e.g. /auth/me, single-user GET).
-     */
-    quota_usage?: UserQuotaUsage | null;
-    /**
-     * Roles
-     *
-     * Assigned role names, e.g. ['admin', 'editor']
-     */
-    roles: Array<string>;
     /**
      * Status
      *
@@ -10198,9 +10184,23 @@ export type UserResponse = {
      */
     status: 'active' | 'pending' | 'suspended' | 'deactivated';
     /**
-     * Username
+     * Last Login At
      */
-    username: string;
+    last_login_at: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Roles
+     *
+     * Assigned role names, e.g. ['admin', 'editor']
+     */
+    roles: Array<string>;
+    /**
+     * Per-user storage quota usage. Populated only on admin list responses; None when the caller did not load usage (e.g. /auth/me, single-user GET).
+     */
+    quota_usage?: UserQuotaUsage | null;
 };
 
 /**
@@ -10220,33 +10220,23 @@ export type UserUpdate = {
      */
     is_active?: boolean | null;
     /**
-     * Role
-     *
-     * New role: 'admin', 'editor', or 'viewer'. Omit to leave unchanged.
-     */
-    role?: string | null;
-    /**
      * Status
      *
      * Explicit account lifecycle state. Pending registrations must use the approve/reject endpoints.
      */
     status?: 'active' | 'suspended' | 'deactivated' | null;
+    /**
+     * Role
+     *
+     * New role: 'admin', 'editor', or 'viewer'. Omit to leave unchanged.
+     */
+    role?: string | null;
 };
 
 /**
  * ValidationError
  */
 export type ValidationError = {
-    /**
-     * Context
-     */
-    ctx?: {
-        [key: string]: unknown;
-    };
-    /**
-     * Input
-     */
-    input?: unknown;
     /**
      * Location
      */
@@ -10259,6 +10249,16 @@ export type ValidationError = {
      * Error Type
      */
     type: string;
+    /**
+     * Input
+     */
+    input?: unknown;
+    /**
+     * Context
+     */
+    ctx?: {
+        [key: string]: unknown;
+    };
 };
 
 /**
@@ -10284,23 +10284,23 @@ export type ValidationIssue = {
  */
 export type ValidationResultResponse = {
     /**
+     * Is Valid
+     */
+    is_valid: boolean;
+    /**
      * Errors
      */
     errors: Array<ValidationIssue>;
     /**
-     * Is Valid
+     * Warnings
      */
-    is_valid: boolean;
+    warnings: Array<ValidationIssue>;
     /**
      * Quality Score
      */
     quality_score?: {
         [key: string]: unknown;
     } | null;
-    /**
-     * Warnings
-     */
-    warnings: Array<ValidationIssue>;
 };
 
 /**
@@ -10308,25 +10308,25 @@ export type ValidationResultResponse = {
  */
 export type VectorTileToken = {
     /**
-     * Exp
-     */
-    exp: number;
-    /**
-     * Expires In
-     */
-    expires_in: number;
-    /**
      * Kind
      */
     kind: 'vector';
+    /**
+     * Sig
+     */
+    sig: string;
+    /**
+     * Exp
+     */
+    exp: number;
     /**
      * Scope
      */
     scope: string;
     /**
-     * Sig
+     * Expires In
      */
-    sig: string;
+    expires_in: number;
 };
 
 /**
@@ -10346,27 +10346,23 @@ export type VerifyEmailRequest = {
  */
 export type VisibilityCheckResponse = {
     /**
-     * Has Non Public
-     *
-     * True if any layer references a non-public dataset
-     */
-    has_non_public: boolean;
-    /**
      * Non Public Datasets
      *
      * Titles of datasets not publicly visible
      */
     non_public_datasets: Array<string>;
+    /**
+     * Has Non Public
+     *
+     * True if any layer references a non-public dataset
+     */
+    has_non_public: boolean;
 };
 
 /**
  * VrtActiveGeneration
  */
 export type VrtActiveGeneration = {
-    /**
-     * Elapsed Seconds
-     */
-    elapsed_seconds: number;
     /**
      * Generation Id
      */
@@ -10375,6 +10371,10 @@ export type VrtActiveGeneration = {
      * Started At
      */
     started_at: string;
+    /**
+     * Elapsed Seconds
+     */
+    elapsed_seconds: number;
 };
 
 /**
@@ -10394,23 +10394,23 @@ export type VrtAddSourceRequest = {
  */
 export type VrtCreateRequest = {
     /**
-     * Resolution Strategy
-     *
-     * How to resolve mismatched source resolutions: 'finest' uses the highest, 'coarsest' uses the lowest, 'average' computes the mean.
-     */
-    resolution_strategy: 'finest' | 'coarsest' | 'average';
-    /**
      * Source Dataset Ids
      *
      * Source raster dataset IDs to include in the VRT mosaic or band stack (1-500).
      */
     source_dataset_ids: Array<string>;
     /**
-     * Summary
+     * Vrt Type
      *
-     * Optional description for the VRT dataset.
+     * Type of VRT to create. 'mosaic' tiles sources spatially; 'band_stack' aligns same-extent sources as multi-band output.
      */
-    summary?: string | null;
+    vrt_type: 'mosaic' | 'band_stack';
+    /**
+     * Resolution Strategy
+     *
+     * How to resolve mismatched source resolutions: 'finest' uses the highest, 'coarsest' uses the lowest, 'average' computes the mean.
+     */
+    resolution_strategy: 'finest' | 'coarsest' | 'average';
     /**
      * Title
      *
@@ -10418,17 +10418,17 @@ export type VrtCreateRequest = {
      */
     title: string;
     /**
+     * Summary
+     *
+     * Optional description for the VRT dataset.
+     */
+    summary?: string | null;
+    /**
      * Visibility
      *
      * Visibility level for the resulting VRT dataset.
      */
     visibility?: 'private' | 'restricted' | 'internal' | 'public';
-    /**
-     * Vrt Type
-     *
-     * Type of VRT to create. 'mosaic' tiles sources spatially; 'band_stack' aligns same-extent sources as multi-band output.
-     */
-    vrt_type: 'mosaic' | 'band_stack';
 };
 
 /**
@@ -10442,23 +10442,35 @@ export type VrtCreateResponse = {
      */
     job_id: string;
     /**
-     * Message
-     *
-     * Human-readable acceptance message.
-     */
-    message: string;
-    /**
      * Status
      *
      * Initial job status. Always 'accepted' on creation.
      */
     status?: string;
+    /**
+     * Message
+     *
+     * Human-readable acceptance message.
+     */
+    message: string;
 };
 
 /**
  * VrtGenerationItem
  */
 export type VrtGenerationItem = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Started At
+     */
+    started_at?: string | null;
     /**
      * Completed At
      */
@@ -10472,21 +10484,9 @@ export type VrtGenerationItem = {
      */
     error_message?: string | null;
     /**
-     * Id
-     */
-    id: string;
-    /**
      * Source Count
      */
     source_count?: number | null;
-    /**
-     * Started At
-     */
-    started_at?: string | null;
-    /**
-     * Status
-     */
-    status: string;
     /**
      * Triggered By
      */
@@ -10518,17 +10518,17 @@ export type VrtMutationResponse = {
      */
     job_id: string;
     /**
-     * Message
-     *
-     * Human-readable acceptance message.
-     */
-    message: string;
-    /**
      * Status
      *
      * Initial job status.
      */
     status?: string;
+    /**
+     * Message
+     *
+     * Human-readable acceptance message.
+     */
+    message: string;
 };
 
 /**
@@ -10540,13 +10540,13 @@ export type VrtSourceHealth = {
      */
     dataset_id: string;
     /**
-     * Status
-     */
-    status: 'healthy' | 'missing' | 'inaccessible';
-    /**
      * Title
      */
     title: string;
+    /**
+     * Status
+     */
+    status: 'healthy' | 'missing' | 'inaccessible';
 };
 
 /**
@@ -10554,25 +10554,21 @@ export type VrtSourceHealth = {
  */
 export type VrtSourceItem = {
     /**
-     * Band Count
-     */
-    band_count?: number | null;
-    /**
-     * Crs Epsg
-     */
-    crs_epsg?: number | null;
-    /**
      * Dataset Id
      */
     dataset_id: string;
     /**
-     * Extent Bbox
+     * Title
      */
-    extent_bbox?: Array<number> | null;
+    title: string;
     /**
      * Position
      */
     position: number;
+    /**
+     * Band Count
+     */
+    band_count?: number | null;
     /**
      * Resolution X
      */
@@ -10582,9 +10578,13 @@ export type VrtSourceItem = {
      */
     resolution_y?: number | null;
     /**
-     * Title
+     * Crs Epsg
      */
-    title: string;
+    crs_epsg?: number | null;
+    /**
+     * Extent Bbox
+     */
+    extent_bbox?: Array<number> | null;
 };
 
 /**
@@ -10601,7 +10601,10 @@ export type VrtSourceListResponse = {
  * VrtStatusResponse
  */
 export type VrtStatusResponse = {
-    active_generation?: VrtActiveGeneration | null;
+    /**
+     * Status
+     */
+    status: 'ready' | 'regenerating' | 'failed';
     /**
      * Last Generation At
      */
@@ -10610,14 +10613,11 @@ export type VrtStatusResponse = {
      * Source Count
      */
     source_count: number;
+    active_generation?: VrtActiveGeneration | null;
     /**
      * Source Health
      */
     source_health: Array<VrtSourceHealth>;
-    /**
-     * Status
-     */
-    status: 'ready' | 'regenerating' | 'failed';
 };
 
 export type LandingPageGetData = {
@@ -15002,6 +15002,30 @@ export type GetCollectionItemsCollectionsDatasetIdItemsGetResponses = {
      */
     200: {
         /**
+         * Type
+         *
+         * GeoJSON object type.
+         */
+        type?: 'FeatureCollection';
+        /**
+         * Timestamp
+         *
+         * ISO 8601 timestamp the response was generated.
+         */
+        timeStamp?: string;
+        /**
+         * Numbermatched
+         *
+         * Total number of features matching the query (across all pages).
+         */
+        numberMatched: number;
+        /**
+         * Numberreturned
+         *
+         * Number of features in this response page.
+         */
+        numberReturned: number;
+        /**
          * Features
          *
          * GeoJSON features returned by the query.
@@ -15028,42 +15052,18 @@ export type GetCollectionItemsCollectionsDatasetIdItemsGetResponses = {
              */
             rel: string;
             /**
-             * Title
-             *
-             * Optional human-readable label for the link.
-             */
-            title?: string | null;
-            /**
              * Type
              *
              * Media type of the linked resource (e.g. 'application/json', 'application/geo+json').
              */
             type: string;
+            /**
+             * Title
+             *
+             * Optional human-readable label for the link.
+             */
+            title?: string | null;
         }>;
-        /**
-         * Numbermatched
-         *
-         * Total number of features matching the query (across all pages).
-         */
-        numberMatched: number;
-        /**
-         * Numberreturned
-         *
-         * Number of features in this response page.
-         */
-        numberReturned: number;
-        /**
-         * Timestamp
-         *
-         * ISO 8601 timestamp the response was generated.
-         */
-        timeStamp?: string;
-        /**
-         * Type
-         *
-         * GeoJSON object type.
-         */
-        type?: 'FeatureCollection';
     };
 };
 
@@ -15123,24 +15123,38 @@ export type GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetRespons
      */
     200: {
         /**
-         * GeoJSON geometry of the feature, or null for geometry-less features.
+         * Type
+         *
+         * GeoJSON object type.
          */
-        geometry: {
-            /**
-             * Coordinates
-             */
-            coordinates: Array<unknown>;
-            /**
-             * Type
-             */
-            type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
-        } | null;
+        type?: 'Feature';
         /**
          * Id
          *
          * Feature identifier within the collection.
          */
         id: number;
+        /**
+         * GeoJSON geometry of the feature, or null for geometry-less features.
+         */
+        geometry: {
+            /**
+             * Type
+             */
+            type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+            /**
+             * Coordinates
+             */
+            coordinates: Array<unknown>;
+        } | null;
+        /**
+         * Properties
+         *
+         * Feature attributes as a JSON object.
+         */
+        properties: {
+            [key: string]: unknown;
+        } | null;
         /**
          * Links
          *
@@ -15160,32 +15174,18 @@ export type GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetRespons
              */
             rel: string;
             /**
-             * Title
-             *
-             * Optional human-readable label for the link.
-             */
-            title?: string | null;
-            /**
              * Type
              *
              * Media type of the linked resource (e.g. 'application/json', 'application/geo+json').
              */
             type: string;
+            /**
+             * Title
+             *
+             * Optional human-readable label for the link.
+             */
+            title?: string | null;
         }>;
-        /**
-         * Properties
-         *
-         * Feature attributes as a JSON object.
-         */
-        properties: {
-            [key: string]: unknown;
-        } | null;
-        /**
-         * Type
-         *
-         * GeoJSON object type.
-         */
-        type?: 'Feature';
     };
 };
 
@@ -17143,72 +17143,9 @@ export type ListFeaturesDatasetsDatasetIdFeaturesGetResponses = {
      */
     200: {
         /**
-         * Features
+         * Type
          */
-        features: Array<{
-            /**
-             * Geometry
-             */
-            geometry?: {
-                /**
-                 * Geometries
-                 */
-                geometries: Array<{
-                    /**
-                     * Coordinates
-                     */
-                    coordinates: Array<unknown>;
-                    /**
-                     * Type
-                     */
-                    type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
-                }>;
-                /**
-                 * Type
-                 */
-                type: 'GeometryCollection';
-            } | {
-                /**
-                 * Coordinates
-                 */
-                coordinates: Array<unknown>;
-                /**
-                 * Type
-                 */
-                type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
-            } | null;
-            /**
-             * Id
-             */
-            id: number;
-            /**
-             * Properties
-             */
-            properties: {
-                [key: string]: unknown;
-            };
-            /**
-             * Type
-             */
-            type?: 'Feature';
-        }>;
-        /**
-         * Links
-         */
-        links: Array<{
-            /**
-             * Href
-             */
-            href: string;
-            /**
-             * Rel
-             */
-            rel: string;
-            /**
-             * Type
-             */
-            type: string;
-        }>;
+        type?: 'FeatureCollection';
         /**
          * Numbermatched
          */
@@ -17218,9 +17155,72 @@ export type ListFeaturesDatasetsDatasetIdFeaturesGetResponses = {
          */
         numberReturned: number;
         /**
-         * Type
+         * Features
          */
-        type?: 'FeatureCollection';
+        features: Array<{
+            /**
+             * Type
+             */
+            type?: 'Feature';
+            /**
+             * Id
+             */
+            id: number;
+            /**
+             * Geometry
+             */
+            geometry?: {
+                /**
+                 * Type
+                 */
+                type: 'GeometryCollection';
+                /**
+                 * Geometries
+                 */
+                geometries: Array<{
+                    /**
+                     * Type
+                     */
+                    type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+                    /**
+                     * Coordinates
+                     */
+                    coordinates: Array<unknown>;
+                }>;
+            } | {
+                /**
+                 * Type
+                 */
+                type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+                /**
+                 * Coordinates
+                 */
+                coordinates: Array<unknown>;
+            } | null;
+            /**
+             * Properties
+             */
+            properties: {
+                [key: string]: unknown;
+            };
+        }>;
+        /**
+         * Links
+         */
+        links: Array<{
+            /**
+             * Rel
+             */
+            rel: string;
+            /**
+             * Href
+             */
+            href: string;
+            /**
+             * Type
+             */
+            type: string;
+        }>;
     };
 };
 
@@ -17287,50 +17287,50 @@ export type CreateFeatureDatasetsDatasetIdFeaturesPostResponses = {
      */
     201: {
         /**
+         * Type
+         */
+        type?: 'Feature';
+        /**
+         * Id
+         */
+        id: number;
+        /**
          * Geometry
          */
         geometry?: {
+            /**
+             * Type
+             */
+            type: 'GeometryCollection';
             /**
              * Geometries
              */
             geometries: Array<{
                 /**
-                 * Coordinates
-                 */
-                coordinates: Array<unknown>;
-                /**
                  * Type
                  */
                 type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+                /**
+                 * Coordinates
+                 */
+                coordinates: Array<unknown>;
             }>;
-            /**
-             * Type
-             */
-            type: 'GeometryCollection';
         } | {
-            /**
-             * Coordinates
-             */
-            coordinates: Array<unknown>;
             /**
              * Type
              */
             type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+            /**
+             * Coordinates
+             */
+            coordinates: Array<unknown>;
         } | null;
-        /**
-         * Id
-         */
-        id: number;
         /**
          * Properties
          */
         properties: {
             [key: string]: unknown;
         };
-        /**
-         * Type
-         */
-        type?: 'Feature';
     };
 };
 
@@ -17463,50 +17463,50 @@ export type GetSingleFeatureDatasetsDatasetIdFeaturesGidGetResponses = {
      */
     200: {
         /**
+         * Type
+         */
+        type?: 'Feature';
+        /**
+         * Id
+         */
+        id: number;
+        /**
          * Geometry
          */
         geometry?: {
+            /**
+             * Type
+             */
+            type: 'GeometryCollection';
             /**
              * Geometries
              */
             geometries: Array<{
                 /**
-                 * Coordinates
-                 */
-                coordinates: Array<unknown>;
-                /**
                  * Type
                  */
                 type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+                /**
+                 * Coordinates
+                 */
+                coordinates: Array<unknown>;
             }>;
-            /**
-             * Type
-             */
-            type: 'GeometryCollection';
         } | {
-            /**
-             * Coordinates
-             */
-            coordinates: Array<unknown>;
             /**
              * Type
              */
             type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+            /**
+             * Coordinates
+             */
+            coordinates: Array<unknown>;
         } | null;
-        /**
-         * Id
-         */
-        id: number;
         /**
          * Properties
          */
         properties: {
             [key: string]: unknown;
         };
-        /**
-         * Type
-         */
-        type?: 'Feature';
     };
 };
 
@@ -17577,50 +17577,50 @@ export type PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchResponses = {
      */
     200: {
         /**
+         * Type
+         */
+        type?: 'Feature';
+        /**
+         * Id
+         */
+        id: number;
+        /**
          * Geometry
          */
         geometry?: {
+            /**
+             * Type
+             */
+            type: 'GeometryCollection';
             /**
              * Geometries
              */
             geometries: Array<{
                 /**
-                 * Coordinates
-                 */
-                coordinates: Array<unknown>;
-                /**
                  * Type
                  */
                 type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+                /**
+                 * Coordinates
+                 */
+                coordinates: Array<unknown>;
             }>;
-            /**
-             * Type
-             */
-            type: 'GeometryCollection';
         } | {
-            /**
-             * Coordinates
-             */
-            coordinates: Array<unknown>;
             /**
              * Type
              */
             type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+            /**
+             * Coordinates
+             */
+            coordinates: Array<unknown>;
         } | null;
-        /**
-         * Id
-         */
-        id: number;
         /**
          * Properties
          */
         properties: {
             [key: string]: unknown;
         };
-        /**
-         * Type
-         */
-        type?: 'Feature';
     };
 };
 
@@ -17691,50 +17691,50 @@ export type ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutResponses = {
      */
     200: {
         /**
+         * Type
+         */
+        type?: 'Feature';
+        /**
+         * Id
+         */
+        id: number;
+        /**
          * Geometry
          */
         geometry?: {
+            /**
+             * Type
+             */
+            type: 'GeometryCollection';
             /**
              * Geometries
              */
             geometries: Array<{
                 /**
-                 * Coordinates
-                 */
-                coordinates: Array<unknown>;
-                /**
                  * Type
                  */
                 type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+                /**
+                 * Coordinates
+                 */
+                coordinates: Array<unknown>;
             }>;
-            /**
-             * Type
-             */
-            type: 'GeometryCollection';
         } | {
-            /**
-             * Coordinates
-             */
-            coordinates: Array<unknown>;
             /**
              * Type
              */
             type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+            /**
+             * Coordinates
+             */
+            coordinates: Array<unknown>;
         } | null;
-        /**
-         * Id
-         */
-        id: number;
         /**
          * Properties
          */
         properties: {
             [key: string]: unknown;
         };
-        /**
-         * Type
-         */
-        type?: 'Feature';
     };
 };
 

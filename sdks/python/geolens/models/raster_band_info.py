@@ -18,28 +18,22 @@ T = TypeVar("T", bound="RasterBandInfo")
 class RasterBandInfo:
     """
     Attributes:
-        dtype (str): Pixel data type, e.g. uint8, float32
         index (int): 1-based band index
-        color_interp (None | str | Unset): Color interpretation, e.g. Red, Green, Gray
+        dtype (str): Pixel data type, e.g. uint8, float32
         nodata (None | str | Unset): Nodata sentinel value for this band
+        color_interp (None | str | Unset): Color interpretation, e.g. Red, Green, Gray
     """
 
-    dtype: str
     index: int
-    color_interp: None | str | Unset = UNSET
+    dtype: str
     nodata: None | str | Unset = UNSET
+    color_interp: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        dtype = self.dtype
-
         index = self.index
 
-        color_interp: None | str | Unset
-        if isinstance(self.color_interp, Unset):
-            color_interp = UNSET
-        else:
-            color_interp = self.color_interp
+        dtype = self.dtype
 
         nodata: None | str | Unset
         if isinstance(self.nodata, Unset):
@@ -47,36 +41,33 @@ class RasterBandInfo:
         else:
             nodata = self.nodata
 
+        color_interp: None | str | Unset
+        if isinstance(self.color_interp, Unset):
+            color_interp = UNSET
+        else:
+            color_interp = self.color_interp
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "dtype": dtype,
                 "index": index,
+                "dtype": dtype,
             }
         )
-        if color_interp is not UNSET:
-            field_dict["color_interp"] = color_interp
         if nodata is not UNSET:
             field_dict["nodata"] = nodata
+        if color_interp is not UNSET:
+            field_dict["color_interp"] = color_interp
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        dtype = d.pop("dtype")
-
         index = d.pop("index")
 
-        def _parse_color_interp(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        color_interp = _parse_color_interp(d.pop("color_interp", UNSET))
+        dtype = d.pop("dtype")
 
         def _parse_nodata(data: object) -> None | str | Unset:
             if data is None:
@@ -87,11 +78,20 @@ class RasterBandInfo:
 
         nodata = _parse_nodata(d.pop("nodata", UNSET))
 
+        def _parse_color_interp(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        color_interp = _parse_color_interp(d.pop("color_interp", UNSET))
+
         raster_band_info = cls(
-            dtype=dtype,
             index=index,
-            color_interp=color_interp,
+            dtype=dtype,
             nodata=nodata,
+            color_interp=color_interp,
         )
 
         raster_band_info.additional_properties = d

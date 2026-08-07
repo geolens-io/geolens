@@ -18,30 +18,30 @@ class SSEToolStartEvent:
     """Progress payload emitted when an AI tool starts.
 
     Attributes:
-        label (str):
-        tool (str):
         type_ (Literal['tool_start']):
+        tool (str):
+        label (str):
     """
 
-    label: str
-    tool: str
     type_: Literal["tool_start"]
+    tool: str
+    label: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        label = self.label
+        type_ = self.type_
 
         tool = self.tool
 
-        type_ = self.type_
+        label = self.label
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "label": label,
-                "tool": tool,
                 "type": type_,
+                "tool": tool,
+                "label": label,
             }
         )
 
@@ -50,18 +50,18 @@ class SSEToolStartEvent:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        label = d.pop("label")
-
-        tool = d.pop("tool")
-
         type_ = cast(Literal["tool_start"], d.pop("type"))
         if type_ != "tool_start":
             raise ValueError(f"type must match const 'tool_start', got '{type_}'")
 
+        tool = d.pop("tool")
+
+        label = d.pop("label")
+
         sse_tool_start_event = cls(
-            label=label,
-            tool=tool,
             type_=type_,
+            tool=tool,
+            label=label,
         )
 
         sse_tool_start_event.additional_properties = d

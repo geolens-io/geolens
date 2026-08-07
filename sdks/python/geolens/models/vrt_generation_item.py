@@ -23,21 +23,21 @@ class VrtGenerationItem:
     Attributes:
         id (UUID):
         status (str):
+        started_at (datetime.datetime | None | Unset):
         completed_at (datetime.datetime | None | Unset):
         duration_seconds (float | None | Unset):
         error_message (None | str | Unset):
         source_count (int | None | Unset):
-        started_at (datetime.datetime | None | Unset):
         triggered_by (None | str | Unset):
     """
 
     id: UUID
     status: str
+    started_at: datetime.datetime | None | Unset = UNSET
     completed_at: datetime.datetime | None | Unset = UNSET
     duration_seconds: float | None | Unset = UNSET
     error_message: None | str | Unset = UNSET
     source_count: int | None | Unset = UNSET
-    started_at: datetime.datetime | None | Unset = UNSET
     triggered_by: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -45,6 +45,14 @@ class VrtGenerationItem:
         id = str(self.id)
 
         status = self.status
+
+        started_at: None | str | Unset
+        if isinstance(self.started_at, Unset):
+            started_at = UNSET
+        elif isinstance(self.started_at, datetime.datetime):
+            started_at = self.started_at.isoformat()
+        else:
+            started_at = self.started_at
 
         completed_at: None | str | Unset
         if isinstance(self.completed_at, Unset):
@@ -72,14 +80,6 @@ class VrtGenerationItem:
         else:
             source_count = self.source_count
 
-        started_at: None | str | Unset
-        if isinstance(self.started_at, Unset):
-            started_at = UNSET
-        elif isinstance(self.started_at, datetime.datetime):
-            started_at = self.started_at.isoformat()
-        else:
-            started_at = self.started_at
-
         triggered_by: None | str | Unset
         if isinstance(self.triggered_by, Unset):
             triggered_by = UNSET
@@ -94,6 +94,8 @@ class VrtGenerationItem:
                 "status": status,
             }
         )
+        if started_at is not UNSET:
+            field_dict["started_at"] = started_at
         if completed_at is not UNSET:
             field_dict["completed_at"] = completed_at
         if duration_seconds is not UNSET:
@@ -102,8 +104,6 @@ class VrtGenerationItem:
             field_dict["error_message"] = error_message
         if source_count is not UNSET:
             field_dict["source_count"] = source_count
-        if started_at is not UNSET:
-            field_dict["started_at"] = started_at
         if triggered_by is not UNSET:
             field_dict["triggered_by"] = triggered_by
 
@@ -115,6 +115,23 @@ class VrtGenerationItem:
         id = UUID(d.pop("id"))
 
         status = d.pop("status")
+
+        def _parse_started_at(data: object) -> datetime.datetime | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                started_at_type_0 = isoparse(data)
+
+                return started_at_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(datetime.datetime | None | Unset, data)
+
+        started_at = _parse_started_at(d.pop("started_at", UNSET))
 
         def _parse_completed_at(data: object) -> datetime.datetime | None | Unset:
             if data is None:
@@ -160,23 +177,6 @@ class VrtGenerationItem:
 
         source_count = _parse_source_count(d.pop("source_count", UNSET))
 
-        def _parse_started_at(data: object) -> datetime.datetime | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, str):
-                    raise TypeError()
-                started_at_type_0 = isoparse(data)
-
-                return started_at_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(datetime.datetime | None | Unset, data)
-
-        started_at = _parse_started_at(d.pop("started_at", UNSET))
-
         def _parse_triggered_by(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -189,11 +189,11 @@ class VrtGenerationItem:
         vrt_generation_item = cls(
             id=id,
             status=status,
+            started_at=started_at,
             completed_at=completed_at,
             duration_seconds=duration_seconds,
             error_message=error_message,
             source_count=source_count,
-            started_at=started_at,
             triggered_by=triggered_by,
         )
 

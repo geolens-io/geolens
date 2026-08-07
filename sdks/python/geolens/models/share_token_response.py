@@ -21,19 +21,25 @@ class ShareTokenResponse:
     """
     Attributes:
         token (str): Raw token on create, hint on retrieve
+        share_url (None | str | Unset): Full shareable URL — only returned on create
         expires_at (datetime.datetime | None | Unset):
         is_active (bool | Unset):  Default: True.
-        share_url (None | str | Unset): Full shareable URL — only returned on create
     """
 
     token: str
+    share_url: None | str | Unset = UNSET
     expires_at: datetime.datetime | None | Unset = UNSET
     is_active: bool | Unset = True
-    share_url: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         token = self.token
+
+        share_url: None | str | Unset
+        if isinstance(self.share_url, Unset):
+            share_url = UNSET
+        else:
+            share_url = self.share_url
 
         expires_at: None | str | Unset
         if isinstance(self.expires_at, Unset):
@@ -45,12 +51,6 @@ class ShareTokenResponse:
 
         is_active = self.is_active
 
-        share_url: None | str | Unset
-        if isinstance(self.share_url, Unset):
-            share_url = UNSET
-        else:
-            share_url = self.share_url
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -58,12 +58,12 @@ class ShareTokenResponse:
                 "token": token,
             }
         )
+        if share_url is not UNSET:
+            field_dict["share_url"] = share_url
         if expires_at is not UNSET:
             field_dict["expires_at"] = expires_at
         if is_active is not UNSET:
             field_dict["is_active"] = is_active
-        if share_url is not UNSET:
-            field_dict["share_url"] = share_url
 
         return field_dict
 
@@ -71,6 +71,15 @@ class ShareTokenResponse:
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
         token = d.pop("token")
+
+        def _parse_share_url(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        share_url = _parse_share_url(d.pop("share_url", UNSET))
 
         def _parse_expires_at(data: object) -> datetime.datetime | None | Unset:
             if data is None:
@@ -91,20 +100,11 @@ class ShareTokenResponse:
 
         is_active = d.pop("is_active", UNSET)
 
-        def _parse_share_url(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        share_url = _parse_share_url(d.pop("share_url", UNSET))
-
         share_token_response = cls(
             token=token,
+            share_url=share_url,
             expires_at=expires_at,
             is_active=is_active,
-            share_url=share_url,
         )
 
         share_token_response.additional_properties = d

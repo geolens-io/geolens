@@ -32,57 +32,57 @@ T = TypeVar("T", bound="SharedLayerResponse")
 class SharedLayerResponse:
     """
     Attributes:
+        id (str):
         dataset_id (str):
         dataset_name (str):
+        table_name (str):
         geometry_type (None | str):
-        id (str):
-        layout (SharedLayerResponseLayout):
+        sort_order (int):
+        visible (bool):
         opacity (float):
         paint (SharedLayerResponsePaint):
-        sort_order (int):
-        table_name (str):
+        layout (SharedLayerResponseLayout):
         tile_url (str):
-        visible (bool):
-        column_info (list[SharedLayerResponseColumnInfoType0Item] | None | Unset):
-        dataset_record_type (None | str | Unset):
-        dem_vertical_units (None | str | Unset):
         display_name (None | str | Unset):
-        feature_count (int | None | Unset):
-        filter_ (list[Any] | None | Unset):
-        is_3d (bool | None | Unset):
-        is_dem (bool | None | Unset):
-        label_config (None | SharedLayerResponseLabelConfigType0 | Unset):
+        column_info (list[SharedLayerResponseColumnInfoType0Item] | None | Unset):
         layer_type (str | Unset):  Default: 'vector_geolens'.
+        dataset_record_type (None | str | Unset):
+        filter_ (list[Any] | None | Unset):
+        label_config (None | SharedLayerResponseLabelConfigType0 | Unset):
         popup_config (None | PopupConfig | Unset):
-        show_in_legend (bool | Unset):  Default: True.
         style_config (None | SharedLayerResponseStyleConfigType0 | Unset):
+        show_in_legend (bool | Unset):  Default: True.
+        is_dem (bool | None | Unset):
+        dem_vertical_units (None | str | Unset):
+        is_3d (bool | None | Unset):
+        feature_count (int | None | Unset):
         tile_version (int | None | Unset):
     """
 
+    id: str
     dataset_id: str
     dataset_name: str
+    table_name: str
     geometry_type: None | str
-    id: str
-    layout: SharedLayerResponseLayout
+    sort_order: int
+    visible: bool
     opacity: float
     paint: SharedLayerResponsePaint
-    sort_order: int
-    table_name: str
+    layout: SharedLayerResponseLayout
     tile_url: str
-    visible: bool
-    column_info: list[SharedLayerResponseColumnInfoType0Item] | None | Unset = UNSET
-    dataset_record_type: None | str | Unset = UNSET
-    dem_vertical_units: None | str | Unset = UNSET
     display_name: None | str | Unset = UNSET
-    feature_count: int | None | Unset = UNSET
-    filter_: list[Any] | None | Unset = UNSET
-    is_3d: bool | None | Unset = UNSET
-    is_dem: bool | None | Unset = UNSET
-    label_config: None | SharedLayerResponseLabelConfigType0 | Unset = UNSET
+    column_info: list[SharedLayerResponseColumnInfoType0Item] | None | Unset = UNSET
     layer_type: str | Unset = "vector_geolens"
+    dataset_record_type: None | str | Unset = UNSET
+    filter_: list[Any] | None | Unset = UNSET
+    label_config: None | SharedLayerResponseLabelConfigType0 | Unset = UNSET
     popup_config: None | PopupConfig | Unset = UNSET
-    show_in_legend: bool | Unset = True
     style_config: None | SharedLayerResponseStyleConfigType0 | Unset = UNSET
+    show_in_legend: bool | Unset = True
+    is_dem: bool | None | Unset = UNSET
+    dem_vertical_units: None | str | Unset = UNSET
+    is_3d: bool | None | Unset = UNSET
+    feature_count: int | None | Unset = UNSET
     tile_version: int | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -95,28 +95,34 @@ class SharedLayerResponse:
             SharedLayerResponseStyleConfigType0,
         )
 
+        id = self.id
+
         dataset_id = self.dataset_id
 
         dataset_name = self.dataset_name
 
+        table_name = self.table_name
+
         geometry_type: None | str
         geometry_type = self.geometry_type
 
-        id = self.id
+        sort_order = self.sort_order
 
-        layout = self.layout.to_dict()
+        visible = self.visible
 
         opacity = self.opacity
 
         paint = self.paint.to_dict()
 
-        sort_order = self.sort_order
-
-        table_name = self.table_name
+        layout = self.layout.to_dict()
 
         tile_url = self.tile_url
 
-        visible = self.visible
+        display_name: None | str | Unset
+        if isinstance(self.display_name, Unset):
+            display_name = UNSET
+        else:
+            display_name = self.display_name
 
         column_info: list[dict[str, Any]] | None | Unset
         if isinstance(self.column_info, Unset):
@@ -130,29 +136,13 @@ class SharedLayerResponse:
         else:
             column_info = self.column_info
 
+        layer_type = self.layer_type
+
         dataset_record_type: None | str | Unset
         if isinstance(self.dataset_record_type, Unset):
             dataset_record_type = UNSET
         else:
             dataset_record_type = self.dataset_record_type
-
-        dem_vertical_units: None | str | Unset
-        if isinstance(self.dem_vertical_units, Unset):
-            dem_vertical_units = UNSET
-        else:
-            dem_vertical_units = self.dem_vertical_units
-
-        display_name: None | str | Unset
-        if isinstance(self.display_name, Unset):
-            display_name = UNSET
-        else:
-            display_name = self.display_name
-
-        feature_count: int | None | Unset
-        if isinstance(self.feature_count, Unset):
-            feature_count = UNSET
-        else:
-            feature_count = self.feature_count
 
         filter_: list[Any] | None | Unset
         if isinstance(self.filter_, Unset):
@@ -163,18 +153,6 @@ class SharedLayerResponse:
         else:
             filter_ = self.filter_
 
-        is_3d: bool | None | Unset
-        if isinstance(self.is_3d, Unset):
-            is_3d = UNSET
-        else:
-            is_3d = self.is_3d
-
-        is_dem: bool | None | Unset
-        if isinstance(self.is_dem, Unset):
-            is_dem = UNSET
-        else:
-            is_dem = self.is_dem
-
         label_config: dict[str, Any] | None | Unset
         if isinstance(self.label_config, Unset):
             label_config = UNSET
@@ -182,8 +160,6 @@ class SharedLayerResponse:
             label_config = self.label_config.to_dict()
         else:
             label_config = self.label_config
-
-        layer_type = self.layer_type
 
         popup_config: dict[str, Any] | None | Unset
         if isinstance(self.popup_config, Unset):
@@ -193,8 +169,6 @@ class SharedLayerResponse:
         else:
             popup_config = self.popup_config
 
-        show_in_legend = self.show_in_legend
-
         style_config: dict[str, Any] | None | Unset
         if isinstance(self.style_config, Unset):
             style_config = UNSET
@@ -202,6 +176,32 @@ class SharedLayerResponse:
             style_config = self.style_config.to_dict()
         else:
             style_config = self.style_config
+
+        show_in_legend = self.show_in_legend
+
+        is_dem: bool | None | Unset
+        if isinstance(self.is_dem, Unset):
+            is_dem = UNSET
+        else:
+            is_dem = self.is_dem
+
+        dem_vertical_units: None | str | Unset
+        if isinstance(self.dem_vertical_units, Unset):
+            dem_vertical_units = UNSET
+        else:
+            dem_vertical_units = self.dem_vertical_units
+
+        is_3d: bool | None | Unset
+        if isinstance(self.is_3d, Unset):
+            is_3d = UNSET
+        else:
+            is_3d = self.is_3d
+
+        feature_count: int | None | Unset
+        if isinstance(self.feature_count, Unset):
+            feature_count = UNSET
+        else:
+            feature_count = self.feature_count
 
         tile_version: int | None | Unset
         if isinstance(self.tile_version, Unset):
@@ -213,45 +213,45 @@ class SharedLayerResponse:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
+                "id": id,
                 "dataset_id": dataset_id,
                 "dataset_name": dataset_name,
+                "table_name": table_name,
                 "geometry_type": geometry_type,
-                "id": id,
-                "layout": layout,
+                "sort_order": sort_order,
+                "visible": visible,
                 "opacity": opacity,
                 "paint": paint,
-                "sort_order": sort_order,
-                "table_name": table_name,
+                "layout": layout,
                 "tile_url": tile_url,
-                "visible": visible,
             }
         )
-        if column_info is not UNSET:
-            field_dict["column_info"] = column_info
-        if dataset_record_type is not UNSET:
-            field_dict["dataset_record_type"] = dataset_record_type
-        if dem_vertical_units is not UNSET:
-            field_dict["dem_vertical_units"] = dem_vertical_units
         if display_name is not UNSET:
             field_dict["display_name"] = display_name
-        if feature_count is not UNSET:
-            field_dict["feature_count"] = feature_count
-        if filter_ is not UNSET:
-            field_dict["filter"] = filter_
-        if is_3d is not UNSET:
-            field_dict["is_3d"] = is_3d
-        if is_dem is not UNSET:
-            field_dict["is_dem"] = is_dem
-        if label_config is not UNSET:
-            field_dict["label_config"] = label_config
+        if column_info is not UNSET:
+            field_dict["column_info"] = column_info
         if layer_type is not UNSET:
             field_dict["layer_type"] = layer_type
+        if dataset_record_type is not UNSET:
+            field_dict["dataset_record_type"] = dataset_record_type
+        if filter_ is not UNSET:
+            field_dict["filter"] = filter_
+        if label_config is not UNSET:
+            field_dict["label_config"] = label_config
         if popup_config is not UNSET:
             field_dict["popup_config"] = popup_config
-        if show_in_legend is not UNSET:
-            field_dict["show_in_legend"] = show_in_legend
         if style_config is not UNSET:
             field_dict["style_config"] = style_config
+        if show_in_legend is not UNSET:
+            field_dict["show_in_legend"] = show_in_legend
+        if is_dem is not UNSET:
+            field_dict["is_dem"] = is_dem
+        if dem_vertical_units is not UNSET:
+            field_dict["dem_vertical_units"] = dem_vertical_units
+        if is_3d is not UNSET:
+            field_dict["is_3d"] = is_3d
+        if feature_count is not UNSET:
+            field_dict["feature_count"] = feature_count
         if tile_version is not UNSET:
             field_dict["tile_version"] = tile_version
 
@@ -273,9 +273,13 @@ class SharedLayerResponse:
         )
 
         d = dict(src_dict)
+        id = d.pop("id")
+
         dataset_id = d.pop("dataset_id")
 
         dataset_name = d.pop("dataset_name")
+
+        table_name = d.pop("table_name")
 
         def _parse_geometry_type(data: object) -> None | str:
             if data is None:
@@ -284,21 +288,26 @@ class SharedLayerResponse:
 
         geometry_type = _parse_geometry_type(d.pop("geometry_type"))
 
-        id = d.pop("id")
+        sort_order = d.pop("sort_order")
 
-        layout = SharedLayerResponseLayout.from_dict(d.pop("layout"))
+        visible = d.pop("visible")
 
         opacity = d.pop("opacity")
 
         paint = SharedLayerResponsePaint.from_dict(d.pop("paint"))
 
-        sort_order = d.pop("sort_order")
-
-        table_name = d.pop("table_name")
+        layout = SharedLayerResponseLayout.from_dict(d.pop("layout"))
 
         tile_url = d.pop("tile_url")
 
-        visible = d.pop("visible")
+        def _parse_display_name(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        display_name = _parse_display_name(d.pop("display_name", UNSET))
 
         def _parse_column_info(
             data: object,
@@ -330,6 +339,8 @@ class SharedLayerResponse:
 
         column_info = _parse_column_info(d.pop("column_info", UNSET))
 
+        layer_type = d.pop("layer_type", UNSET)
+
         def _parse_dataset_record_type(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -340,35 +351,6 @@ class SharedLayerResponse:
         dataset_record_type = _parse_dataset_record_type(
             d.pop("dataset_record_type", UNSET)
         )
-
-        def _parse_dem_vertical_units(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        dem_vertical_units = _parse_dem_vertical_units(
-            d.pop("dem_vertical_units", UNSET)
-        )
-
-        def _parse_display_name(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        display_name = _parse_display_name(d.pop("display_name", UNSET))
-
-        def _parse_feature_count(data: object) -> int | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(int | None | Unset, data)
-
-        feature_count = _parse_feature_count(d.pop("feature_count", UNSET))
 
         def _parse_filter_(data: object) -> list[Any] | None | Unset:
             if data is None:
@@ -386,24 +368,6 @@ class SharedLayerResponse:
             return cast(list[Any] | None | Unset, data)
 
         filter_ = _parse_filter_(d.pop("filter", UNSET))
-
-        def _parse_is_3d(data: object) -> bool | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(bool | None | Unset, data)
-
-        is_3d = _parse_is_3d(d.pop("is_3d", UNSET))
-
-        def _parse_is_dem(data: object) -> bool | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(bool | None | Unset, data)
-
-        is_dem = _parse_is_dem(d.pop("is_dem", UNSET))
 
         def _parse_label_config(
             data: object,
@@ -426,8 +390,6 @@ class SharedLayerResponse:
 
         label_config = _parse_label_config(d.pop("label_config", UNSET))
 
-        layer_type = d.pop("layer_type", UNSET)
-
         def _parse_popup_config(data: object) -> None | PopupConfig | Unset:
             if data is None:
                 return data
@@ -444,8 +406,6 @@ class SharedLayerResponse:
             return cast(None | PopupConfig | Unset, data)
 
         popup_config = _parse_popup_config(d.pop("popup_config", UNSET))
-
-        show_in_legend = d.pop("show_in_legend", UNSET)
 
         def _parse_style_config(
             data: object,
@@ -468,6 +428,46 @@ class SharedLayerResponse:
 
         style_config = _parse_style_config(d.pop("style_config", UNSET))
 
+        show_in_legend = d.pop("show_in_legend", UNSET)
+
+        def _parse_is_dem(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        is_dem = _parse_is_dem(d.pop("is_dem", UNSET))
+
+        def _parse_dem_vertical_units(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        dem_vertical_units = _parse_dem_vertical_units(
+            d.pop("dem_vertical_units", UNSET)
+        )
+
+        def _parse_is_3d(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        is_3d = _parse_is_3d(d.pop("is_3d", UNSET))
+
+        def _parse_feature_count(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        feature_count = _parse_feature_count(d.pop("feature_count", UNSET))
+
         def _parse_tile_version(data: object) -> int | None | Unset:
             if data is None:
                 return data
@@ -478,30 +478,30 @@ class SharedLayerResponse:
         tile_version = _parse_tile_version(d.pop("tile_version", UNSET))
 
         shared_layer_response = cls(
+            id=id,
             dataset_id=dataset_id,
             dataset_name=dataset_name,
+            table_name=table_name,
             geometry_type=geometry_type,
-            id=id,
-            layout=layout,
+            sort_order=sort_order,
+            visible=visible,
             opacity=opacity,
             paint=paint,
-            sort_order=sort_order,
-            table_name=table_name,
+            layout=layout,
             tile_url=tile_url,
-            visible=visible,
-            column_info=column_info,
-            dataset_record_type=dataset_record_type,
-            dem_vertical_units=dem_vertical_units,
             display_name=display_name,
-            feature_count=feature_count,
-            filter_=filter_,
-            is_3d=is_3d,
-            is_dem=is_dem,
-            label_config=label_config,
+            column_info=column_info,
             layer_type=layer_type,
+            dataset_record_type=dataset_record_type,
+            filter_=filter_,
+            label_config=label_config,
             popup_config=popup_config,
-            show_in_legend=show_in_legend,
             style_config=style_config,
+            show_in_legend=show_in_legend,
+            is_dem=is_dem,
+            dem_vertical_units=dem_vertical_units,
+            is_3d=is_3d,
+            feature_count=feature_count,
             tile_version=tile_version,
         )
 

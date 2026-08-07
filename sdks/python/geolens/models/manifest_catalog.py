@@ -21,28 +21,20 @@ class ManifestCatalog:
     """
     Attributes:
         title (str):
-        contact (ManifestContact | None | Unset):
         description (None | str | Unset):
         organization (None | str | Unset):
+        contact (ManifestContact | None | Unset):
     """
 
     title: str
-    contact: ManifestContact | None | Unset = UNSET
     description: None | str | Unset = UNSET
     organization: None | str | Unset = UNSET
+    contact: ManifestContact | None | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.manifest_contact import ManifestContact
 
         title = self.title
-
-        contact: dict[str, Any] | None | Unset
-        if isinstance(self.contact, Unset):
-            contact = UNSET
-        elif isinstance(self.contact, ManifestContact):
-            contact = self.contact.to_dict()
-        else:
-            contact = self.contact
 
         description: None | str | Unset
         if isinstance(self.description, Unset):
@@ -56,6 +48,14 @@ class ManifestCatalog:
         else:
             organization = self.organization
 
+        contact: dict[str, Any] | None | Unset
+        if isinstance(self.contact, Unset):
+            contact = UNSET
+        elif isinstance(self.contact, ManifestContact):
+            contact = self.contact.to_dict()
+        else:
+            contact = self.contact
+
         field_dict: dict[str, Any] = {}
 
         field_dict.update(
@@ -63,12 +63,12 @@ class ManifestCatalog:
                 "title": title,
             }
         )
-        if contact is not UNSET:
-            field_dict["contact"] = contact
         if description is not UNSET:
             field_dict["description"] = description
         if organization is not UNSET:
             field_dict["organization"] = organization
+        if contact is not UNSET:
+            field_dict["contact"] = contact
 
         return field_dict
 
@@ -78,23 +78,6 @@ class ManifestCatalog:
 
         d = dict(src_dict)
         title = d.pop("title")
-
-        def _parse_contact(data: object) -> ManifestContact | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, dict):
-                    raise TypeError()
-                contact_type_0 = ManifestContact.from_dict(data)
-
-                return contact_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(ManifestContact | None | Unset, data)
-
-        contact = _parse_contact(d.pop("contact", UNSET))
 
         def _parse_description(data: object) -> None | str | Unset:
             if data is None:
@@ -114,11 +97,28 @@ class ManifestCatalog:
 
         organization = _parse_organization(d.pop("organization", UNSET))
 
+        def _parse_contact(data: object) -> ManifestContact | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                contact_type_0 = ManifestContact.from_dict(data)
+
+                return contact_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(ManifestContact | None | Unset, data)
+
+        contact = _parse_contact(d.pop("contact", UNSET))
+
         manifest_catalog = cls(
             title=title,
-            contact=contact,
             description=description,
             organization=organization,
+            contact=contact,
         )
 
         return manifest_catalog

@@ -22,58 +22,58 @@ class StacCatalog:
     """STAC Catalog / landing page response.
 
     Attributes:
+        id (str): Stable identifier for the catalog.
+        title (str): Catalog title.
+        description (str): Human-readable catalog description.
         conforms_to (list[str]): List of conformance URIs declaring which STAC and OGC API standards the catalog
             implements.
-        description (str): Human-readable catalog description.
-        id (str): Stable identifier for the catalog.
         links (list[StacLink]): Catalog navigation links (self, root, search, collections, etc.).
-        title (str): Catalog title.
-        stac_version (str | Unset): STAC specification version implemented. Default: '1.0.0'.
         type_ (str | Unset): STAC object type. Always 'Catalog' for the landing page. Default: 'Catalog'.
+        stac_version (str | Unset): STAC specification version implemented. Default: '1.0.0'.
     """
 
-    conforms_to: list[str]
-    description: str
     id: str
-    links: list[StacLink]
     title: str
-    stac_version: str | Unset = "1.0.0"
+    description: str
+    conforms_to: list[str]
+    links: list[StacLink]
     type_: str | Unset = "Catalog"
+    stac_version: str | Unset = "1.0.0"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        conforms_to = self.conforms_to
+        id = self.id
+
+        title = self.title
 
         description = self.description
 
-        id = self.id
+        conforms_to = self.conforms_to
 
         links = []
         for links_item_data in self.links:
             links_item = links_item_data.to_dict()
             links.append(links_item)
 
-        title = self.title
+        type_ = self.type_
 
         stac_version = self.stac_version
-
-        type_ = self.type_
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "conformsTo": conforms_to,
-                "description": description,
                 "id": id,
-                "links": links,
                 "title": title,
+                "description": description,
+                "conformsTo": conforms_to,
+                "links": links,
             }
         )
-        if stac_version is not UNSET:
-            field_dict["stac_version"] = stac_version
         if type_ is not UNSET:
             field_dict["type"] = type_
+        if stac_version is not UNSET:
+            field_dict["stac_version"] = stac_version
 
         return field_dict
 
@@ -82,11 +82,13 @@ class StacCatalog:
         from ..models.stac_link import StacLink
 
         d = dict(src_dict)
-        conforms_to = cast(list[str], d.pop("conformsTo"))
+        id = d.pop("id")
+
+        title = d.pop("title")
 
         description = d.pop("description")
 
-        id = d.pop("id")
+        conforms_to = cast(list[str], d.pop("conformsTo"))
 
         links = []
         _links = d.pop("links")
@@ -95,20 +97,18 @@ class StacCatalog:
 
             links.append(links_item)
 
-        title = d.pop("title")
+        type_ = d.pop("type", UNSET)
 
         stac_version = d.pop("stac_version", UNSET)
 
-        type_ = d.pop("type", UNSET)
-
         stac_catalog = cls(
-            conforms_to=conforms_to,
-            description=description,
             id=id,
-            links=links,
             title=title,
-            stac_version=stac_version,
+            description=description,
+            conforms_to=conforms_to,
+            links=links,
             type_=type_,
+            stac_version=stac_version,
         )
 
         stac_catalog.additional_properties = d

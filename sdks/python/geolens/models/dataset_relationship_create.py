@@ -19,22 +19,24 @@ T = TypeVar("T", bound="DatasetRelationshipCreate")
 class DatasetRelationshipCreate:
     """
     Attributes:
-        source_column (str): Join column in the source dataset
         target_dataset_id (UUID): UUID of the dataset to link to
-        label (None | str | Unset): Optional display label for this relationship
+        source_column (str): Join column in the source dataset
         target_column (str | Unset): Join column in the target dataset Default: 'gid'.
+        label (None | str | Unset): Optional display label for this relationship
     """
 
-    source_column: str
     target_dataset_id: UUID
-    label: None | str | Unset = UNSET
+    source_column: str
     target_column: str | Unset = "gid"
+    label: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        target_dataset_id = str(self.target_dataset_id)
+
         source_column = self.source_column
 
-        target_dataset_id = str(self.target_dataset_id)
+        target_column = self.target_column
 
         label: None | str | Unset
         if isinstance(self.label, Unset):
@@ -42,29 +44,29 @@ class DatasetRelationshipCreate:
         else:
             label = self.label
 
-        target_column = self.target_column
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "source_column": source_column,
                 "target_dataset_id": target_dataset_id,
+                "source_column": source_column,
             }
         )
-        if label is not UNSET:
-            field_dict["label"] = label
         if target_column is not UNSET:
             field_dict["target_column"] = target_column
+        if label is not UNSET:
+            field_dict["label"] = label
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
+        target_dataset_id = UUID(d.pop("target_dataset_id"))
+
         source_column = d.pop("source_column")
 
-        target_dataset_id = UUID(d.pop("target_dataset_id"))
+        target_column = d.pop("target_column", UNSET)
 
         def _parse_label(data: object) -> None | str | Unset:
             if data is None:
@@ -75,13 +77,11 @@ class DatasetRelationshipCreate:
 
         label = _parse_label(d.pop("label", UNSET))
 
-        target_column = d.pop("target_column", UNSET)
-
         dataset_relationship_create = cls(
-            source_column=source_column,
             target_dataset_id=target_dataset_id,
-            label=label,
+            source_column=source_column,
             target_column=target_column,
+            label=label,
         )
 
         dataset_relationship_create.additional_properties = d

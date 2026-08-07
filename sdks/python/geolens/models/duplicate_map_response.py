@@ -28,79 +28,93 @@ T = TypeVar("T", bound="DuplicateMapResponse")
 class DuplicateMapResponse:
     """
     Attributes:
-        basemap_style (str):
-        bearing (float):
-        center_lat (float | None):
-        center_lng (float | None):
-        created_at (datetime.datetime):
-        created_by (None | UUID):
-        description (None | str):
         id (UUID):
-        layer_count (int):
-        layers (list[MapLayerResponse]):
         name (str):
-        pitch (float):
-        show_basemap_labels (bool):
-        updated_at (datetime.datetime):
-        visibility (MapVisibility):
+        description (None | str):
+        center_lng (float | None):
+        center_lat (float | None):
         zoom (float | None):
-        basemap_config (BasemapConfig | None | Unset):
-        created_by_username (None | str | Unset):
-        excluded_layer_count (int | Unset): Layers skipped due to access restrictions Default: 0.
-        forked_from_id (None | Unset | UUID): Source map UUID if this is a fork
-        forked_from_name (None | str | Unset):
-        legend_title (None | str | Unset):
+        bearing (float):
+        pitch (float):
+        basemap_style (str):
+        show_basemap_labels (bool):
+        visibility (MapVisibility):
+        created_by (None | UUID):
+        created_at (datetime.datetime):
+        updated_at (datetime.datetime):
+        layers (list[MapLayerResponse]):
+        layer_count (int):
         notes (None | str | Unset):
-        og_image_url (None | str | Unset):
-        plugins (list[str] | None | Unset):
+        basemap_config (BasemapConfig | None | Unset):
         terrain_config (None | TerrainConfig | Unset):
         thumbnail_url (None | str | Unset):
+        og_image_url (None | str | Unset):
+        forked_from_id (None | Unset | UUID): Source map UUID if this is a fork
+        forked_from_name (None | str | Unset):
+        created_by_username (None | str | Unset):
+        plugins (list[str] | None | Unset):
+        legend_title (None | str | Unset):
+        excluded_layer_count (int | Unset): Layers skipped due to access restrictions Default: 0.
     """
 
-    basemap_style: str
-    bearing: float
-    center_lat: float | None
-    center_lng: float | None
-    created_at: datetime.datetime
-    created_by: None | UUID
-    description: None | str
     id: UUID
-    layer_count: int
-    layers: list[MapLayerResponse]
     name: str
-    pitch: float
-    show_basemap_labels: bool
-    updated_at: datetime.datetime
-    visibility: MapVisibility
+    description: None | str
+    center_lng: float | None
+    center_lat: float | None
     zoom: float | None
-    basemap_config: BasemapConfig | None | Unset = UNSET
-    created_by_username: None | str | Unset = UNSET
-    excluded_layer_count: int | Unset = 0
-    forked_from_id: None | Unset | UUID = UNSET
-    forked_from_name: None | str | Unset = UNSET
-    legend_title: None | str | Unset = UNSET
+    bearing: float
+    pitch: float
+    basemap_style: str
+    show_basemap_labels: bool
+    visibility: MapVisibility
+    created_by: None | UUID
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+    layers: list[MapLayerResponse]
+    layer_count: int
     notes: None | str | Unset = UNSET
-    og_image_url: None | str | Unset = UNSET
-    plugins: list[str] | None | Unset = UNSET
+    basemap_config: BasemapConfig | None | Unset = UNSET
     terrain_config: None | TerrainConfig | Unset = UNSET
     thumbnail_url: None | str | Unset = UNSET
+    og_image_url: None | str | Unset = UNSET
+    forked_from_id: None | Unset | UUID = UNSET
+    forked_from_name: None | str | Unset = UNSET
+    created_by_username: None | str | Unset = UNSET
+    plugins: list[str] | None | Unset = UNSET
+    legend_title: None | str | Unset = UNSET
+    excluded_layer_count: int | Unset = 0
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.basemap_config import BasemapConfig
         from ..models.terrain_config import TerrainConfig
 
-        basemap_style = self.basemap_style
+        id = str(self.id)
 
-        bearing = self.bearing
+        name = self.name
 
-        center_lat: float | None
-        center_lat = self.center_lat
+        description: None | str
+        description = self.description
 
         center_lng: float | None
         center_lng = self.center_lng
 
-        created_at = self.created_at.isoformat()
+        center_lat: float | None
+        center_lat = self.center_lat
+
+        zoom: float | None
+        zoom = self.zoom
+
+        bearing = self.bearing
+
+        pitch = self.pitch
+
+        basemap_style = self.basemap_style
+
+        show_basemap_labels = self.show_basemap_labels
+
+        visibility: str = self.visibility
 
         created_by: None | str
         if isinstance(self.created_by, UUID):
@@ -108,30 +122,22 @@ class DuplicateMapResponse:
         else:
             created_by = self.created_by
 
-        description: None | str
-        description = self.description
+        created_at = self.created_at.isoformat()
 
-        id = str(self.id)
-
-        layer_count = self.layer_count
+        updated_at = self.updated_at.isoformat()
 
         layers = []
         for layers_item_data in self.layers:
             layers_item = layers_item_data.to_dict()
             layers.append(layers_item)
 
-        name = self.name
+        layer_count = self.layer_count
 
-        pitch = self.pitch
-
-        show_basemap_labels = self.show_basemap_labels
-
-        updated_at = self.updated_at.isoformat()
-
-        visibility: str = self.visibility
-
-        zoom: float | None
-        zoom = self.zoom
+        notes: None | str | Unset
+        if isinstance(self.notes, Unset):
+            notes = UNSET
+        else:
+            notes = self.notes
 
         basemap_config: dict[str, Any] | None | Unset
         if isinstance(self.basemap_config, Unset):
@@ -140,55 +146,6 @@ class DuplicateMapResponse:
             basemap_config = self.basemap_config.to_dict()
         else:
             basemap_config = self.basemap_config
-
-        created_by_username: None | str | Unset
-        if isinstance(self.created_by_username, Unset):
-            created_by_username = UNSET
-        else:
-            created_by_username = self.created_by_username
-
-        excluded_layer_count = self.excluded_layer_count
-
-        forked_from_id: None | str | Unset
-        if isinstance(self.forked_from_id, Unset):
-            forked_from_id = UNSET
-        elif isinstance(self.forked_from_id, UUID):
-            forked_from_id = str(self.forked_from_id)
-        else:
-            forked_from_id = self.forked_from_id
-
-        forked_from_name: None | str | Unset
-        if isinstance(self.forked_from_name, Unset):
-            forked_from_name = UNSET
-        else:
-            forked_from_name = self.forked_from_name
-
-        legend_title: None | str | Unset
-        if isinstance(self.legend_title, Unset):
-            legend_title = UNSET
-        else:
-            legend_title = self.legend_title
-
-        notes: None | str | Unset
-        if isinstance(self.notes, Unset):
-            notes = UNSET
-        else:
-            notes = self.notes
-
-        og_image_url: None | str | Unset
-        if isinstance(self.og_image_url, Unset):
-            og_image_url = UNSET
-        else:
-            og_image_url = self.og_image_url
-
-        plugins: list[str] | None | Unset
-        if isinstance(self.plugins, Unset):
-            plugins = UNSET
-        elif isinstance(self.plugins, list):
-            plugins = self.plugins
-
-        else:
-            plugins = self.plugins
 
         terrain_config: dict[str, Any] | None | Unset
         if isinstance(self.terrain_config, Unset):
@@ -204,50 +161,93 @@ class DuplicateMapResponse:
         else:
             thumbnail_url = self.thumbnail_url
 
+        og_image_url: None | str | Unset
+        if isinstance(self.og_image_url, Unset):
+            og_image_url = UNSET
+        else:
+            og_image_url = self.og_image_url
+
+        forked_from_id: None | str | Unset
+        if isinstance(self.forked_from_id, Unset):
+            forked_from_id = UNSET
+        elif isinstance(self.forked_from_id, UUID):
+            forked_from_id = str(self.forked_from_id)
+        else:
+            forked_from_id = self.forked_from_id
+
+        forked_from_name: None | str | Unset
+        if isinstance(self.forked_from_name, Unset):
+            forked_from_name = UNSET
+        else:
+            forked_from_name = self.forked_from_name
+
+        created_by_username: None | str | Unset
+        if isinstance(self.created_by_username, Unset):
+            created_by_username = UNSET
+        else:
+            created_by_username = self.created_by_username
+
+        plugins: list[str] | None | Unset
+        if isinstance(self.plugins, Unset):
+            plugins = UNSET
+        elif isinstance(self.plugins, list):
+            plugins = self.plugins
+
+        else:
+            plugins = self.plugins
+
+        legend_title: None | str | Unset
+        if isinstance(self.legend_title, Unset):
+            legend_title = UNSET
+        else:
+            legend_title = self.legend_title
+
+        excluded_layer_count = self.excluded_layer_count
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "basemap_style": basemap_style,
-                "bearing": bearing,
-                "center_lat": center_lat,
-                "center_lng": center_lng,
-                "created_at": created_at,
-                "created_by": created_by,
-                "description": description,
                 "id": id,
-                "layer_count": layer_count,
-                "layers": layers,
                 "name": name,
-                "pitch": pitch,
-                "show_basemap_labels": show_basemap_labels,
-                "updated_at": updated_at,
-                "visibility": visibility,
+                "description": description,
+                "center_lng": center_lng,
+                "center_lat": center_lat,
                 "zoom": zoom,
+                "bearing": bearing,
+                "pitch": pitch,
+                "basemap_style": basemap_style,
+                "show_basemap_labels": show_basemap_labels,
+                "visibility": visibility,
+                "created_by": created_by,
+                "created_at": created_at,
+                "updated_at": updated_at,
+                "layers": layers,
+                "layer_count": layer_count,
             }
         )
-        if basemap_config is not UNSET:
-            field_dict["basemap_config"] = basemap_config
-        if created_by_username is not UNSET:
-            field_dict["created_by_username"] = created_by_username
-        if excluded_layer_count is not UNSET:
-            field_dict["excluded_layer_count"] = excluded_layer_count
-        if forked_from_id is not UNSET:
-            field_dict["forked_from_id"] = forked_from_id
-        if forked_from_name is not UNSET:
-            field_dict["forked_from_name"] = forked_from_name
-        if legend_title is not UNSET:
-            field_dict["legend_title"] = legend_title
         if notes is not UNSET:
             field_dict["notes"] = notes
-        if og_image_url is not UNSET:
-            field_dict["og_image_url"] = og_image_url
-        if plugins is not UNSET:
-            field_dict["plugins"] = plugins
+        if basemap_config is not UNSET:
+            field_dict["basemap_config"] = basemap_config
         if terrain_config is not UNSET:
             field_dict["terrain_config"] = terrain_config
         if thumbnail_url is not UNSET:
             field_dict["thumbnail_url"] = thumbnail_url
+        if og_image_url is not UNSET:
+            field_dict["og_image_url"] = og_image_url
+        if forked_from_id is not UNSET:
+            field_dict["forked_from_id"] = forked_from_id
+        if forked_from_name is not UNSET:
+            field_dict["forked_from_name"] = forked_from_name
+        if created_by_username is not UNSET:
+            field_dict["created_by_username"] = created_by_username
+        if plugins is not UNSET:
+            field_dict["plugins"] = plugins
+        if legend_title is not UNSET:
+            field_dict["legend_title"] = legend_title
+        if excluded_layer_count is not UNSET:
+            field_dict["excluded_layer_count"] = excluded_layer_count
 
         return field_dict
 
@@ -258,16 +258,16 @@ class DuplicateMapResponse:
         from ..models.terrain_config import TerrainConfig
 
         d = dict(src_dict)
-        basemap_style = d.pop("basemap_style")
+        id = UUID(d.pop("id"))
 
-        bearing = d.pop("bearing")
+        name = d.pop("name")
 
-        def _parse_center_lat(data: object) -> float | None:
+        def _parse_description(data: object) -> None | str:
             if data is None:
                 return data
-            return cast(float | None, data)
+            return cast(None | str, data)
 
-        center_lat = _parse_center_lat(d.pop("center_lat"))
+        description = _parse_description(d.pop("description"))
 
         def _parse_center_lng(data: object) -> float | None:
             if data is None:
@@ -276,7 +276,29 @@ class DuplicateMapResponse:
 
         center_lng = _parse_center_lng(d.pop("center_lng"))
 
-        created_at = isoparse(d.pop("created_at"))
+        def _parse_center_lat(data: object) -> float | None:
+            if data is None:
+                return data
+            return cast(float | None, data)
+
+        center_lat = _parse_center_lat(d.pop("center_lat"))
+
+        def _parse_zoom(data: object) -> float | None:
+            if data is None:
+                return data
+            return cast(float | None, data)
+
+        zoom = _parse_zoom(d.pop("zoom"))
+
+        bearing = d.pop("bearing")
+
+        pitch = d.pop("pitch")
+
+        basemap_style = d.pop("basemap_style")
+
+        show_basemap_labels = d.pop("show_basemap_labels")
+
+        visibility = check_map_visibility(d.pop("visibility"))
 
         def _parse_created_by(data: object) -> None | UUID:
             if data is None:
@@ -293,16 +315,9 @@ class DuplicateMapResponse:
 
         created_by = _parse_created_by(d.pop("created_by"))
 
-        def _parse_description(data: object) -> None | str:
-            if data is None:
-                return data
-            return cast(None | str, data)
+        created_at = isoparse(d.pop("created_at"))
 
-        description = _parse_description(d.pop("description"))
-
-        id = UUID(d.pop("id"))
-
-        layer_count = d.pop("layer_count")
+        updated_at = isoparse(d.pop("updated_at"))
 
         layers = []
         _layers = d.pop("layers")
@@ -311,22 +326,16 @@ class DuplicateMapResponse:
 
             layers.append(layers_item)
 
-        name = d.pop("name")
+        layer_count = d.pop("layer_count")
 
-        pitch = d.pop("pitch")
-
-        show_basemap_labels = d.pop("show_basemap_labels")
-
-        updated_at = isoparse(d.pop("updated_at"))
-
-        visibility = check_map_visibility(d.pop("visibility"))
-
-        def _parse_zoom(data: object) -> float | None:
+        def _parse_notes(data: object) -> None | str | Unset:
             if data is None:
                 return data
-            return cast(float | None, data)
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
 
-        zoom = _parse_zoom(d.pop("zoom"))
+        notes = _parse_notes(d.pop("notes", UNSET))
 
         def _parse_basemap_config(data: object) -> BasemapConfig | None | Unset:
             if data is None:
@@ -344,89 +353,6 @@ class DuplicateMapResponse:
             return cast(BasemapConfig | None | Unset, data)
 
         basemap_config = _parse_basemap_config(d.pop("basemap_config", UNSET))
-
-        def _parse_created_by_username(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        created_by_username = _parse_created_by_username(
-            d.pop("created_by_username", UNSET)
-        )
-
-        excluded_layer_count = d.pop("excluded_layer_count", UNSET)
-
-        def _parse_forked_from_id(data: object) -> None | Unset | UUID:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, str):
-                    raise TypeError()
-                forked_from_id_type_0 = UUID(data)
-
-                return forked_from_id_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(None | Unset | UUID, data)
-
-        forked_from_id = _parse_forked_from_id(d.pop("forked_from_id", UNSET))
-
-        def _parse_forked_from_name(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        forked_from_name = _parse_forked_from_name(d.pop("forked_from_name", UNSET))
-
-        def _parse_legend_title(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        legend_title = _parse_legend_title(d.pop("legend_title", UNSET))
-
-        def _parse_notes(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        notes = _parse_notes(d.pop("notes", UNSET))
-
-        def _parse_og_image_url(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        og_image_url = _parse_og_image_url(d.pop("og_image_url", UNSET))
-
-        def _parse_plugins(data: object) -> list[str] | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, list):
-                    raise TypeError()
-                plugins_type_0 = cast(list[str], data)
-
-                return plugins_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(list[str] | None | Unset, data)
-
-        plugins = _parse_plugins(d.pop("plugins", UNSET))
 
         def _parse_terrain_config(data: object) -> None | TerrainConfig | Unset:
             if data is None:
@@ -454,34 +380,108 @@ class DuplicateMapResponse:
 
         thumbnail_url = _parse_thumbnail_url(d.pop("thumbnail_url", UNSET))
 
+        def _parse_og_image_url(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        og_image_url = _parse_og_image_url(d.pop("og_image_url", UNSET))
+
+        def _parse_forked_from_id(data: object) -> None | Unset | UUID:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                forked_from_id_type_0 = UUID(data)
+
+                return forked_from_id_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | Unset | UUID, data)
+
+        forked_from_id = _parse_forked_from_id(d.pop("forked_from_id", UNSET))
+
+        def _parse_forked_from_name(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        forked_from_name = _parse_forked_from_name(d.pop("forked_from_name", UNSET))
+
+        def _parse_created_by_username(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        created_by_username = _parse_created_by_username(
+            d.pop("created_by_username", UNSET)
+        )
+
+        def _parse_plugins(data: object) -> list[str] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                plugins_type_0 = cast(list[str], data)
+
+                return plugins_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[str] | None | Unset, data)
+
+        plugins = _parse_plugins(d.pop("plugins", UNSET))
+
+        def _parse_legend_title(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        legend_title = _parse_legend_title(d.pop("legend_title", UNSET))
+
+        excluded_layer_count = d.pop("excluded_layer_count", UNSET)
+
         duplicate_map_response = cls(
-            basemap_style=basemap_style,
-            bearing=bearing,
-            center_lat=center_lat,
-            center_lng=center_lng,
-            created_at=created_at,
-            created_by=created_by,
-            description=description,
             id=id,
-            layer_count=layer_count,
-            layers=layers,
             name=name,
-            pitch=pitch,
-            show_basemap_labels=show_basemap_labels,
-            updated_at=updated_at,
-            visibility=visibility,
+            description=description,
+            center_lng=center_lng,
+            center_lat=center_lat,
             zoom=zoom,
-            basemap_config=basemap_config,
-            created_by_username=created_by_username,
-            excluded_layer_count=excluded_layer_count,
-            forked_from_id=forked_from_id,
-            forked_from_name=forked_from_name,
-            legend_title=legend_title,
+            bearing=bearing,
+            pitch=pitch,
+            basemap_style=basemap_style,
+            show_basemap_labels=show_basemap_labels,
+            visibility=visibility,
+            created_by=created_by,
+            created_at=created_at,
+            updated_at=updated_at,
+            layers=layers,
+            layer_count=layer_count,
             notes=notes,
-            og_image_url=og_image_url,
-            plugins=plugins,
+            basemap_config=basemap_config,
             terrain_config=terrain_config,
             thumbnail_url=thumbnail_url,
+            og_image_url=og_image_url,
+            forked_from_id=forked_from_id,
+            forked_from_name=forked_from_name,
+            created_by_username=created_by_username,
+            plugins=plugins,
+            legend_title=legend_title,
+            excluded_layer_count=excluded_layer_count,
         )
 
         duplicate_map_response.additional_properties = d

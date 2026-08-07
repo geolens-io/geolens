@@ -18,20 +18,20 @@ T = TypeVar("T", bound="ProviderHealth")
 class ProviderHealth:
     """
     Attributes:
-        latency_ms (float): Latency of the most recent health probe in milliseconds.
         status (str): Provider health status: 'ok' or 'error'.
+        latency_ms (float): Latency of the most recent health probe in milliseconds.
         error (None | str | Unset): Error message when status is 'error'.
     """
 
-    latency_ms: float
     status: str
+    latency_ms: float
     error: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        latency_ms = self.latency_ms
-
         status = self.status
+
+        latency_ms = self.latency_ms
 
         error: None | str | Unset
         if isinstance(self.error, Unset):
@@ -43,8 +43,8 @@ class ProviderHealth:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "latency_ms": latency_ms,
                 "status": status,
+                "latency_ms": latency_ms,
             }
         )
         if error is not UNSET:
@@ -55,9 +55,9 @@ class ProviderHealth:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        latency_ms = d.pop("latency_ms")
-
         status = d.pop("status")
+
+        latency_ms = d.pop("latency_ms")
 
         def _parse_error(data: object) -> None | str | Unset:
             if data is None:
@@ -69,8 +69,8 @@ class ProviderHealth:
         error = _parse_error(d.pop("error", UNSET))
 
         provider_health = cls(
-            latency_ms=latency_ms,
             status=status,
+            latency_ms=latency_ms,
             error=error,
         )
 

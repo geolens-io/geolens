@@ -20,34 +20,34 @@ class KeywordResponse:
     """
     Attributes:
         id (UUID):
-        keyword (str):
-        keyword_type (str):
         record_id (UUID):
+        keyword (str):
         vocabulary_uri (None | str):
+        keyword_type (str):
         inherited (bool | Unset): True when this keyword also exists on the dataset this record was derived from (feat
             #1070). Derived at read time from derived_from; only ever true for a requester who can access that source
             dataset, so everyone else sees false — matching the derived_from redaction. Default: False.
     """
 
     id: UUID
-    keyword: str
-    keyword_type: str
     record_id: UUID
+    keyword: str
     vocabulary_uri: None | str
+    keyword_type: str
     inherited: bool | Unset = False
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         id = str(self.id)
 
-        keyword = self.keyword
-
-        keyword_type = self.keyword_type
-
         record_id = str(self.record_id)
+
+        keyword = self.keyword
 
         vocabulary_uri: None | str
         vocabulary_uri = self.vocabulary_uri
+
+        keyword_type = self.keyword_type
 
         inherited = self.inherited
 
@@ -56,10 +56,10 @@ class KeywordResponse:
         field_dict.update(
             {
                 "id": id,
-                "keyword": keyword,
-                "keyword_type": keyword_type,
                 "record_id": record_id,
+                "keyword": keyword,
                 "vocabulary_uri": vocabulary_uri,
+                "keyword_type": keyword_type,
             }
         )
         if inherited is not UNSET:
@@ -72,11 +72,9 @@ class KeywordResponse:
         d = dict(src_dict)
         id = UUID(d.pop("id"))
 
-        keyword = d.pop("keyword")
-
-        keyword_type = d.pop("keyword_type")
-
         record_id = UUID(d.pop("record_id"))
+
+        keyword = d.pop("keyword")
 
         def _parse_vocabulary_uri(data: object) -> None | str:
             if data is None:
@@ -85,14 +83,16 @@ class KeywordResponse:
 
         vocabulary_uri = _parse_vocabulary_uri(d.pop("vocabulary_uri"))
 
+        keyword_type = d.pop("keyword_type")
+
         inherited = d.pop("inherited", UNSET)
 
         keyword_response = cls(
             id=id,
-            keyword=keyword,
-            keyword_type=keyword_type,
             record_id=record_id,
+            keyword=keyword,
             vocabulary_uri=vocabulary_uri,
+            keyword_type=keyword_type,
             inherited=inherited,
         )
 

@@ -21,50 +21,56 @@ T = TypeVar("T", bound="AdminEmbedTokenResponse")
 class AdminEmbedTokenResponse:
     """
     Attributes:
-        created_at (datetime.datetime):
-        expires_at (datetime.datetime):
         id (UUID):
-        is_active (bool):
         map_id (UUID):
-        scoped_dataset_ids (list[str]):
         token_hint (str):
+        scoped_dataset_ids (list[str]):
+        expires_at (datetime.datetime):
+        is_active (bool):
+        created_at (datetime.datetime):
+        name (None | str | Unset):
         allowed_origins (list[str] | None | Unset):
-        creator_username (None | str | Unset):
+        use_count (int | Unset):  Default: 0.
         last_used_at (datetime.datetime | None | Unset):
         map_name (None | str | Unset):
-        name (None | str | Unset):
-        use_count (int | Unset):  Default: 0.
+        creator_username (None | str | Unset):
     """
 
-    created_at: datetime.datetime
-    expires_at: datetime.datetime
     id: UUID
-    is_active: bool
     map_id: UUID
-    scoped_dataset_ids: list[str]
     token_hint: str
+    scoped_dataset_ids: list[str]
+    expires_at: datetime.datetime
+    is_active: bool
+    created_at: datetime.datetime
+    name: None | str | Unset = UNSET
     allowed_origins: list[str] | None | Unset = UNSET
-    creator_username: None | str | Unset = UNSET
+    use_count: int | Unset = 0
     last_used_at: datetime.datetime | None | Unset = UNSET
     map_name: None | str | Unset = UNSET
-    name: None | str | Unset = UNSET
-    use_count: int | Unset = 0
+    creator_username: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        created_at = self.created_at.isoformat()
-
-        expires_at = self.expires_at.isoformat()
-
         id = str(self.id)
-
-        is_active = self.is_active
 
         map_id = str(self.map_id)
 
+        token_hint = self.token_hint
+
         scoped_dataset_ids = self.scoped_dataset_ids
 
-        token_hint = self.token_hint
+        expires_at = self.expires_at.isoformat()
+
+        is_active = self.is_active
+
+        created_at = self.created_at.isoformat()
+
+        name: None | str | Unset
+        if isinstance(self.name, Unset):
+            name = UNSET
+        else:
+            name = self.name
 
         allowed_origins: list[str] | None | Unset
         if isinstance(self.allowed_origins, Unset):
@@ -75,11 +81,7 @@ class AdminEmbedTokenResponse:
         else:
             allowed_origins = self.allowed_origins
 
-        creator_username: None | str | Unset
-        if isinstance(self.creator_username, Unset):
-            creator_username = UNSET
-        else:
-            creator_username = self.creator_username
+        use_count = self.use_count
 
         last_used_at: None | str | Unset
         if isinstance(self.last_used_at, Unset):
@@ -95,58 +97,65 @@ class AdminEmbedTokenResponse:
         else:
             map_name = self.map_name
 
-        name: None | str | Unset
-        if isinstance(self.name, Unset):
-            name = UNSET
+        creator_username: None | str | Unset
+        if isinstance(self.creator_username, Unset):
+            creator_username = UNSET
         else:
-            name = self.name
-
-        use_count = self.use_count
+            creator_username = self.creator_username
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "created_at": created_at,
-                "expires_at": expires_at,
                 "id": id,
-                "is_active": is_active,
                 "map_id": map_id,
-                "scoped_dataset_ids": scoped_dataset_ids,
                 "token_hint": token_hint,
+                "scoped_dataset_ids": scoped_dataset_ids,
+                "expires_at": expires_at,
+                "is_active": is_active,
+                "created_at": created_at,
             }
         )
+        if name is not UNSET:
+            field_dict["name"] = name
         if allowed_origins is not UNSET:
             field_dict["allowed_origins"] = allowed_origins
-        if creator_username is not UNSET:
-            field_dict["creator_username"] = creator_username
+        if use_count is not UNSET:
+            field_dict["use_count"] = use_count
         if last_used_at is not UNSET:
             field_dict["last_used_at"] = last_used_at
         if map_name is not UNSET:
             field_dict["map_name"] = map_name
-        if name is not UNSET:
-            field_dict["name"] = name
-        if use_count is not UNSET:
-            field_dict["use_count"] = use_count
+        if creator_username is not UNSET:
+            field_dict["creator_username"] = creator_username
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        created_at = isoparse(d.pop("created_at"))
-
-        expires_at = isoparse(d.pop("expires_at"))
-
         id = UUID(d.pop("id"))
-
-        is_active = d.pop("is_active")
 
         map_id = UUID(d.pop("map_id"))
 
+        token_hint = d.pop("token_hint")
+
         scoped_dataset_ids = cast(list[str], d.pop("scoped_dataset_ids"))
 
-        token_hint = d.pop("token_hint")
+        expires_at = isoparse(d.pop("expires_at"))
+
+        is_active = d.pop("is_active")
+
+        created_at = isoparse(d.pop("created_at"))
+
+        def _parse_name(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        name = _parse_name(d.pop("name", UNSET))
 
         def _parse_allowed_origins(data: object) -> list[str] | None | Unset:
             if data is None:
@@ -165,14 +174,7 @@ class AdminEmbedTokenResponse:
 
         allowed_origins = _parse_allowed_origins(d.pop("allowed_origins", UNSET))
 
-        def _parse_creator_username(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        creator_username = _parse_creator_username(d.pop("creator_username", UNSET))
+        use_count = d.pop("use_count", UNSET)
 
         def _parse_last_used_at(data: object) -> datetime.datetime | None | Unset:
             if data is None:
@@ -200,31 +202,29 @@ class AdminEmbedTokenResponse:
 
         map_name = _parse_map_name(d.pop("map_name", UNSET))
 
-        def _parse_name(data: object) -> None | str | Unset:
+        def _parse_creator_username(data: object) -> None | str | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
                 return data
             return cast(None | str | Unset, data)
 
-        name = _parse_name(d.pop("name", UNSET))
-
-        use_count = d.pop("use_count", UNSET)
+        creator_username = _parse_creator_username(d.pop("creator_username", UNSET))
 
         admin_embed_token_response = cls(
-            created_at=created_at,
-            expires_at=expires_at,
             id=id,
-            is_active=is_active,
             map_id=map_id,
-            scoped_dataset_ids=scoped_dataset_ids,
             token_hint=token_hint,
+            scoped_dataset_ids=scoped_dataset_ids,
+            expires_at=expires_at,
+            is_active=is_active,
+            created_at=created_at,
+            name=name,
             allowed_origins=allowed_origins,
-            creator_username=creator_username,
+            use_count=use_count,
             last_used_at=last_used_at,
             map_name=map_name,
-            name=name,
-            use_count=use_count,
+            creator_username=creator_username,
         )
 
         admin_embed_token_response.additional_properties = d

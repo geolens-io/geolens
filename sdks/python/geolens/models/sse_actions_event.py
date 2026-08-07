@@ -22,28 +22,28 @@ class SSEActionsEvent:
     """Validated map-edit actions produced by streaming chat.
 
     Attributes:
-        actions (list[ChatAction]):
         type_ (Literal['actions']):
+        actions (list[ChatAction]):
     """
 
-    actions: list[ChatAction]
     type_: Literal["actions"]
+    actions: list[ChatAction]
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        type_ = self.type_
+
         actions = []
         for actions_item_data in self.actions:
             actions_item = actions_item_data.to_dict()
             actions.append(actions_item)
 
-        type_ = self.type_
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "actions": actions,
                 "type": type_,
+                "actions": actions,
             }
         )
 
@@ -54,6 +54,10 @@ class SSEActionsEvent:
         from ..models.chat_action import ChatAction
 
         d = dict(src_dict)
+        type_ = cast(Literal["actions"], d.pop("type"))
+        if type_ != "actions":
+            raise ValueError(f"type must match const 'actions', got '{type_}'")
+
         actions = []
         _actions = d.pop("actions")
         for actions_item_data in _actions:
@@ -61,13 +65,9 @@ class SSEActionsEvent:
 
             actions.append(actions_item)
 
-        type_ = cast(Literal["actions"], d.pop("type"))
-        if type_ != "actions":
-            raise ValueError(f"type must match const 'actions', got '{type_}'")
-
         sse_actions_event = cls(
-            actions=actions,
             type_=type_,
+            actions=actions,
         )
 
         sse_actions_event.additional_properties = d

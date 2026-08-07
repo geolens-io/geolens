@@ -16,34 +16,34 @@ class UserQuotaUsage:
 
     Attributes:
         bytes_used (int):
-        count_cap (int):
         dataset_count (int):
         storage_cap (int):
+        count_cap (int):
     """
 
     bytes_used: int
-    count_cap: int
     dataset_count: int
     storage_cap: int
+    count_cap: int
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         bytes_used = self.bytes_used
 
-        count_cap = self.count_cap
-
         dataset_count = self.dataset_count
 
         storage_cap = self.storage_cap
+
+        count_cap = self.count_cap
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
                 "bytes_used": bytes_used,
-                "count_cap": count_cap,
                 "dataset_count": dataset_count,
                 "storage_cap": storage_cap,
+                "count_cap": count_cap,
             }
         )
 
@@ -54,17 +54,17 @@ class UserQuotaUsage:
         d = dict(src_dict)
         bytes_used = d.pop("bytes_used")
 
-        count_cap = d.pop("count_cap")
-
         dataset_count = d.pop("dataset_count")
 
         storage_cap = d.pop("storage_cap")
 
+        count_cap = d.pop("count_cap")
+
         user_quota_usage = cls(
             bytes_used=bytes_used,
-            count_cap=count_cap,
             dataset_count=dataset_count,
             storage_cap=storage_cap,
+            count_cap=count_cap,
         )
 
         user_quota_usage.additional_properties = d

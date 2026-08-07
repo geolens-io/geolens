@@ -19,40 +19,40 @@ class SSEMapDoneEvent:
     """Terminal payload for a successful streaming map-generation request.
 
     Attributes:
-        datasets_used (list[str]):
-        explanation (str):
+        type_ (Literal['done']):
         map_id (str):
         map_name (str):
-        type_ (Literal['done']):
+        explanation (str):
+        datasets_used (list[str]):
     """
 
-    datasets_used: list[str]
-    explanation: str
+    type_: Literal["done"]
     map_id: str
     map_name: str
-    type_: Literal["done"]
+    explanation: str
+    datasets_used: list[str]
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        datasets_used = self.datasets_used
-
-        explanation = self.explanation
+        type_ = self.type_
 
         map_id = self.map_id
 
         map_name = self.map_name
 
-        type_ = self.type_
+        explanation = self.explanation
+
+        datasets_used = self.datasets_used
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "datasets_used": datasets_used,
-                "explanation": explanation,
+                "type": type_,
                 "map_id": map_id,
                 "map_name": map_name,
-                "type": type_,
+                "explanation": explanation,
+                "datasets_used": datasets_used,
             }
         )
 
@@ -61,24 +61,24 @@ class SSEMapDoneEvent:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        datasets_used = cast(list[str], d.pop("datasets_used"))
-
-        explanation = d.pop("explanation")
+        type_ = cast(Literal["done"], d.pop("type"))
+        if type_ != "done":
+            raise ValueError(f"type must match const 'done', got '{type_}'")
 
         map_id = d.pop("map_id")
 
         map_name = d.pop("map_name")
 
-        type_ = cast(Literal["done"], d.pop("type"))
-        if type_ != "done":
-            raise ValueError(f"type must match const 'done', got '{type_}'")
+        explanation = d.pop("explanation")
+
+        datasets_used = cast(list[str], d.pop("datasets_used"))
 
         sse_map_done_event = cls(
-            datasets_used=datasets_used,
-            explanation=explanation,
+            type_=type_,
             map_id=map_id,
             map_name=map_name,
-            type_=type_,
+            explanation=explanation,
+            datasets_used=datasets_used,
         )
 
         sse_map_done_event.additional_properties = d

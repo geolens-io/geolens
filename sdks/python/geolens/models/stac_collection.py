@@ -23,39 +23,37 @@ class StacCollection:
     """A single STAC Collection response (permissive — allows extra STAC fields).
 
     Attributes:
-        extent (StacCollectionExtent): Spatial and temporal extent of items in the collection.
         id (str): Stable collection identifier.
+        extent (StacCollectionExtent): Spatial and temporal extent of items in the collection.
         links (list[StacLink]): Collection navigation links.
-        description (str | Unset): Collection description. Default: ''.
-        license_ (str | Unset): SPDX license identifier or 'proprietary'. Default: 'proprietary'.
+        type_ (str | Unset): STAC object type. Default: 'Collection'.
         stac_version (str | Unset): STAC specification version. Default: '1.0.0'.
         title (None | str | Unset): Human-readable collection title.
-        type_ (str | Unset): STAC object type. Default: 'Collection'.
+        description (str | Unset): Collection description. Default: ''.
+        license_ (str | Unset): SPDX license identifier or 'proprietary'. Default: 'proprietary'.
     """
 
-    extent: StacCollectionExtent
     id: str
+    extent: StacCollectionExtent
     links: list[StacLink]
-    description: str | Unset = ""
-    license_: str | Unset = "proprietary"
+    type_: str | Unset = "Collection"
     stac_version: str | Unset = "1.0.0"
     title: None | str | Unset = UNSET
-    type_: str | Unset = "Collection"
+    description: str | Unset = ""
+    license_: str | Unset = "proprietary"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        extent = self.extent.to_dict()
-
         id = self.id
+
+        extent = self.extent.to_dict()
 
         links = []
         for links_item_data in self.links:
             links_item = links_item_data.to_dict()
             links.append(links_item)
 
-        description = self.description
-
-        license_ = self.license_
+        type_ = self.type_
 
         stac_version = self.stac_version
 
@@ -65,27 +63,29 @@ class StacCollection:
         else:
             title = self.title
 
-        type_ = self.type_
+        description = self.description
+
+        license_ = self.license_
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "extent": extent,
                 "id": id,
+                "extent": extent,
                 "links": links,
             }
         )
-        if description is not UNSET:
-            field_dict["description"] = description
-        if license_ is not UNSET:
-            field_dict["license"] = license_
+        if type_ is not UNSET:
+            field_dict["type"] = type_
         if stac_version is not UNSET:
             field_dict["stac_version"] = stac_version
         if title is not UNSET:
             field_dict["title"] = title
-        if type_ is not UNSET:
-            field_dict["type"] = type_
+        if description is not UNSET:
+            field_dict["description"] = description
+        if license_ is not UNSET:
+            field_dict["license"] = license_
 
         return field_dict
 
@@ -95,9 +95,9 @@ class StacCollection:
         from ..models.stac_link import StacLink
 
         d = dict(src_dict)
-        extent = StacCollectionExtent.from_dict(d.pop("extent"))
-
         id = d.pop("id")
+
+        extent = StacCollectionExtent.from_dict(d.pop("extent"))
 
         links = []
         _links = d.pop("links")
@@ -106,9 +106,7 @@ class StacCollection:
 
             links.append(links_item)
 
-        description = d.pop("description", UNSET)
-
-        license_ = d.pop("license", UNSET)
+        type_ = d.pop("type", UNSET)
 
         stac_version = d.pop("stac_version", UNSET)
 
@@ -121,17 +119,19 @@ class StacCollection:
 
         title = _parse_title(d.pop("title", UNSET))
 
-        type_ = d.pop("type", UNSET)
+        description = d.pop("description", UNSET)
+
+        license_ = d.pop("license", UNSET)
 
         stac_collection = cls(
-            extent=extent,
             id=id,
+            extent=extent,
             links=links,
-            description=description,
-            license_=license_,
+            type_=type_,
             stac_version=stac_version,
             title=title,
-            type_=type_,
+            description=description,
+            license_=license_,
         )
 
         stac_collection.additional_properties = d

@@ -18,29 +18,29 @@ class TableRegisterResponse:
     """
     Attributes:
         dataset_id (UUID): Identifier of the newly registered dataset.
-        table_name (str): Source PostgreSQL table that was registered.
         title (str): Title of the registered dataset.
+        table_name (str): Source PostgreSQL table that was registered.
     """
 
     dataset_id: UUID
-    table_name: str
     title: str
+    table_name: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         dataset_id = str(self.dataset_id)
 
-        table_name = self.table_name
-
         title = self.title
+
+        table_name = self.table_name
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
                 "dataset_id": dataset_id,
-                "table_name": table_name,
                 "title": title,
+                "table_name": table_name,
             }
         )
 
@@ -51,14 +51,14 @@ class TableRegisterResponse:
         d = dict(src_dict)
         dataset_id = UUID(d.pop("dataset_id"))
 
-        table_name = d.pop("table_name")
-
         title = d.pop("title")
+
+        table_name = d.pop("table_name")
 
         table_register_response = cls(
             dataset_id=dataset_id,
-            table_name=table_name,
             title=title,
+            table_name=table_name,
         )
 
         table_register_response.additional_properties = d

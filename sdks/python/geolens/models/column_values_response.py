@@ -17,29 +17,29 @@ T = TypeVar("T", bound="ColumnValuesResponse")
 class ColumnValuesResponse:
     """
     Attributes:
-        count (int):
         values (list[float | int | None | str]):
+        count (int):
     """
 
-    count: int
     values: list[float | int | None | str]
+    count: int
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        count = self.count
-
         values = []
         for values_item_data in self.values:
             values_item: float | int | None | str
             values_item = values_item_data
             values.append(values_item)
 
+        count = self.count
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "count": count,
                 "values": values,
+                "count": count,
             }
         )
 
@@ -48,8 +48,6 @@ class ColumnValuesResponse:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        count = d.pop("count")
-
         values = []
         _values = d.pop("values")
         for values_item_data in _values:
@@ -63,9 +61,11 @@ class ColumnValuesResponse:
 
             values.append(values_item)
 
+        count = d.pop("count")
+
         column_values_response = cls(
-            count=count,
             values=values,
+            count=count,
         )
 
         column_values_response.additional_properties = d

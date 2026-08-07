@@ -15,25 +15,25 @@ class FacetValueCount:
     """A single facet value with count.
 
     Attributes:
-        count (int):
         value (str):
+        count (int):
     """
 
-    count: int
     value: str
+    count: int
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        count = self.count
-
         value = self.value
+
+        count = self.count
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "count": count,
                 "value": value,
+                "count": count,
             }
         )
 
@@ -42,13 +42,13 @@ class FacetValueCount:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        count = d.pop("count")
-
         value = d.pop("value")
 
+        count = d.pop("count")
+
         facet_value_count = cls(
-            count=count,
             value=value,
+            count=count,
         )
 
         facet_value_count.additional_properties = d

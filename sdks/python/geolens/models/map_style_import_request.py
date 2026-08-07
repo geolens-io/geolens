@@ -43,33 +43,33 @@ class MapStyleImportRequest:
     openapi-python-client generate a navigable named model class.
 
         Attributes:
-            bearing (float | None | Unset):
-            center (list[float] | None | Unset): [longitude, latitude] map center
-            glyphs (None | str | Unset):
-            layers (list[MapStyleImportRequestLayersType0Item] | None | Unset): MapLibre layer specifications
+            version (int | None | Unset): MapLibre style version (always 8 in current spec)
+            name (None | str | Unset): Display name for the imported map
             metadata (MapStyleImportRequestMetadataType0 | None | Unset): Free-form metadata bag (used by GeoLens for
                 center/zoom/basemap hints)
-            name (None | str | Unset): Display name for the imported map
+            center (list[float] | None | Unset): [longitude, latitude] map center
+            zoom (float | None | Unset):
+            bearing (float | None | Unset):
             pitch (float | None | Unset):
             sources (MapStyleImportRequestSourcesType0 | None | Unset): MapLibre sources object keyed by source id
             sprite (None | str | Unset):
+            glyphs (None | str | Unset):
             terrain (MapStyleImportRequestTerrainType0 | None | Unset): MapLibre terrain config (source + exaggeration)
-            version (int | None | Unset): MapLibre style version (always 8 in current spec)
-            zoom (float | None | Unset):
+            layers (list[MapStyleImportRequestLayersType0Item] | None | Unset): MapLibre layer specifications
     """
 
-    bearing: float | None | Unset = UNSET
-    center: list[float] | None | Unset = UNSET
-    glyphs: None | str | Unset = UNSET
-    layers: list[MapStyleImportRequestLayersType0Item] | None | Unset = UNSET
-    metadata: MapStyleImportRequestMetadataType0 | None | Unset = UNSET
+    version: int | None | Unset = UNSET
     name: None | str | Unset = UNSET
+    metadata: MapStyleImportRequestMetadataType0 | None | Unset = UNSET
+    center: list[float] | None | Unset = UNSET
+    zoom: float | None | Unset = UNSET
+    bearing: float | None | Unset = UNSET
     pitch: float | None | Unset = UNSET
     sources: MapStyleImportRequestSourcesType0 | None | Unset = UNSET
     sprite: None | str | Unset = UNSET
+    glyphs: None | str | Unset = UNSET
     terrain: MapStyleImportRequestTerrainType0 | None | Unset = UNSET
-    version: int | None | Unset = UNSET
-    zoom: float | None | Unset = UNSET
+    layers: list[MapStyleImportRequestLayersType0Item] | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -83,11 +83,25 @@ class MapStyleImportRequest:
             MapStyleImportRequestTerrainType0,
         )
 
-        bearing: float | None | Unset
-        if isinstance(self.bearing, Unset):
-            bearing = UNSET
+        version: int | None | Unset
+        if isinstance(self.version, Unset):
+            version = UNSET
         else:
-            bearing = self.bearing
+            version = self.version
+
+        name: None | str | Unset
+        if isinstance(self.name, Unset):
+            name = UNSET
+        else:
+            name = self.name
+
+        metadata: dict[str, Any] | None | Unset
+        if isinstance(self.metadata, Unset):
+            metadata = UNSET
+        elif isinstance(self.metadata, MapStyleImportRequestMetadataType0):
+            metadata = self.metadata.to_dict()
+        else:
+            metadata = self.metadata
 
         center: list[float] | None | Unset
         if isinstance(self.center, Unset):
@@ -98,37 +112,17 @@ class MapStyleImportRequest:
         else:
             center = self.center
 
-        glyphs: None | str | Unset
-        if isinstance(self.glyphs, Unset):
-            glyphs = UNSET
+        zoom: float | None | Unset
+        if isinstance(self.zoom, Unset):
+            zoom = UNSET
         else:
-            glyphs = self.glyphs
+            zoom = self.zoom
 
-        layers: list[dict[str, Any]] | None | Unset
-        if isinstance(self.layers, Unset):
-            layers = UNSET
-        elif isinstance(self.layers, list):
-            layers = []
-            for layers_type_0_item_data in self.layers:
-                layers_type_0_item = layers_type_0_item_data.to_dict()
-                layers.append(layers_type_0_item)
-
+        bearing: float | None | Unset
+        if isinstance(self.bearing, Unset):
+            bearing = UNSET
         else:
-            layers = self.layers
-
-        metadata: dict[str, Any] | None | Unset
-        if isinstance(self.metadata, Unset):
-            metadata = UNSET
-        elif isinstance(self.metadata, MapStyleImportRequestMetadataType0):
-            metadata = self.metadata.to_dict()
-        else:
-            metadata = self.metadata
-
-        name: None | str | Unset
-        if isinstance(self.name, Unset):
-            name = UNSET
-        else:
-            name = self.name
+            bearing = self.bearing
 
         pitch: float | None | Unset
         if isinstance(self.pitch, Unset):
@@ -150,6 +144,12 @@ class MapStyleImportRequest:
         else:
             sprite = self.sprite
 
+        glyphs: None | str | Unset
+        if isinstance(self.glyphs, Unset):
+            glyphs = UNSET
+        else:
+            glyphs = self.glyphs
+
         terrain: dict[str, Any] | None | Unset
         if isinstance(self.terrain, Unset):
             terrain = UNSET
@@ -158,45 +158,45 @@ class MapStyleImportRequest:
         else:
             terrain = self.terrain
 
-        version: int | None | Unset
-        if isinstance(self.version, Unset):
-            version = UNSET
-        else:
-            version = self.version
+        layers: list[dict[str, Any]] | None | Unset
+        if isinstance(self.layers, Unset):
+            layers = UNSET
+        elif isinstance(self.layers, list):
+            layers = []
+            for layers_type_0_item_data in self.layers:
+                layers_type_0_item = layers_type_0_item_data.to_dict()
+                layers.append(layers_type_0_item)
 
-        zoom: float | None | Unset
-        if isinstance(self.zoom, Unset):
-            zoom = UNSET
         else:
-            zoom = self.zoom
+            layers = self.layers
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
-        if bearing is not UNSET:
-            field_dict["bearing"] = bearing
-        if center is not UNSET:
-            field_dict["center"] = center
-        if glyphs is not UNSET:
-            field_dict["glyphs"] = glyphs
-        if layers is not UNSET:
-            field_dict["layers"] = layers
-        if metadata is not UNSET:
-            field_dict["metadata"] = metadata
+        if version is not UNSET:
+            field_dict["version"] = version
         if name is not UNSET:
             field_dict["name"] = name
+        if metadata is not UNSET:
+            field_dict["metadata"] = metadata
+        if center is not UNSET:
+            field_dict["center"] = center
+        if zoom is not UNSET:
+            field_dict["zoom"] = zoom
+        if bearing is not UNSET:
+            field_dict["bearing"] = bearing
         if pitch is not UNSET:
             field_dict["pitch"] = pitch
         if sources is not UNSET:
             field_dict["sources"] = sources
         if sprite is not UNSET:
             field_dict["sprite"] = sprite
+        if glyphs is not UNSET:
+            field_dict["glyphs"] = glyphs
         if terrain is not UNSET:
             field_dict["terrain"] = terrain
-        if version is not UNSET:
-            field_dict["version"] = version
-        if zoom is not UNSET:
-            field_dict["zoom"] = zoom
+        if layers is not UNSET:
+            field_dict["layers"] = layers
 
         return field_dict
 
@@ -217,66 +217,23 @@ class MapStyleImportRequest:
 
         d = dict(src_dict)
 
-        def _parse_bearing(data: object) -> float | None | Unset:
+        def _parse_version(data: object) -> int | None | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
                 return data
-            return cast(float | None | Unset, data)
+            return cast(int | None | Unset, data)
 
-        bearing = _parse_bearing(d.pop("bearing", UNSET))
+        version = _parse_version(d.pop("version", UNSET))
 
-        def _parse_center(data: object) -> list[float] | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, list):
-                    raise TypeError()
-                center_type_0 = cast(list[float], data)
-
-                return center_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(list[float] | None | Unset, data)
-
-        center = _parse_center(d.pop("center", UNSET))
-
-        def _parse_glyphs(data: object) -> None | str | Unset:
+        def _parse_name(data: object) -> None | str | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
                 return data
             return cast(None | str | Unset, data)
 
-        glyphs = _parse_glyphs(d.pop("glyphs", UNSET))
-
-        def _parse_layers(
-            data: object,
-        ) -> list[MapStyleImportRequestLayersType0Item] | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, list):
-                    raise TypeError()
-                layers_type_0 = []
-                _layers_type_0 = data
-                for layers_type_0_item_data in _layers_type_0:
-                    layers_type_0_item = MapStyleImportRequestLayersType0Item.from_dict(
-                        layers_type_0_item_data
-                    )
-
-                    layers_type_0.append(layers_type_0_item)
-
-                return layers_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(list[MapStyleImportRequestLayersType0Item] | None | Unset, data)
-
-        layers = _parse_layers(d.pop("layers", UNSET))
+        name = _parse_name(d.pop("name", UNSET))
 
         def _parse_metadata(
             data: object,
@@ -297,14 +254,40 @@ class MapStyleImportRequest:
 
         metadata = _parse_metadata(d.pop("metadata", UNSET))
 
-        def _parse_name(data: object) -> None | str | Unset:
+        def _parse_center(data: object) -> list[float] | None | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
                 return data
-            return cast(None | str | Unset, data)
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                center_type_0 = cast(list[float], data)
 
-        name = _parse_name(d.pop("name", UNSET))
+                return center_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[float] | None | Unset, data)
+
+        center = _parse_center(d.pop("center", UNSET))
+
+        def _parse_zoom(data: object) -> float | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(float | None | Unset, data)
+
+        zoom = _parse_zoom(d.pop("zoom", UNSET))
+
+        def _parse_bearing(data: object) -> float | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(float | None | Unset, data)
+
+        bearing = _parse_bearing(d.pop("bearing", UNSET))
 
         def _parse_pitch(data: object) -> float | None | Unset:
             if data is None:
@@ -343,6 +326,15 @@ class MapStyleImportRequest:
 
         sprite = _parse_sprite(d.pop("sprite", UNSET))
 
+        def _parse_glyphs(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        glyphs = _parse_glyphs(d.pop("glyphs", UNSET))
+
         def _parse_terrain(
             data: object,
         ) -> MapStyleImportRequestTerrainType0 | None | Unset:
@@ -362,37 +354,45 @@ class MapStyleImportRequest:
 
         terrain = _parse_terrain(d.pop("terrain", UNSET))
 
-        def _parse_version(data: object) -> int | None | Unset:
+        def _parse_layers(
+            data: object,
+        ) -> list[MapStyleImportRequestLayersType0Item] | None | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
                 return data
-            return cast(int | None | Unset, data)
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                layers_type_0 = []
+                _layers_type_0 = data
+                for layers_type_0_item_data in _layers_type_0:
+                    layers_type_0_item = MapStyleImportRequestLayersType0Item.from_dict(
+                        layers_type_0_item_data
+                    )
 
-        version = _parse_version(d.pop("version", UNSET))
+                    layers_type_0.append(layers_type_0_item)
 
-        def _parse_zoom(data: object) -> float | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(float | None | Unset, data)
+                return layers_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[MapStyleImportRequestLayersType0Item] | None | Unset, data)
 
-        zoom = _parse_zoom(d.pop("zoom", UNSET))
+        layers = _parse_layers(d.pop("layers", UNSET))
 
         map_style_import_request = cls(
-            bearing=bearing,
-            center=center,
-            glyphs=glyphs,
-            layers=layers,
-            metadata=metadata,
+            version=version,
             name=name,
+            metadata=metadata,
+            center=center,
+            zoom=zoom,
+            bearing=bearing,
             pitch=pitch,
             sources=sources,
             sprite=sprite,
+            glyphs=glyphs,
             terrain=terrain,
-            version=version,
-            zoom=zoom,
+            layers=layers,
         )
 
         map_style_import_request.additional_properties = d

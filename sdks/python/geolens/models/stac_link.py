@@ -21,14 +21,14 @@ class StacLink:
     Attributes:
         href (str): Target URL of the link.
         rel (str): Link relation type (e.g. 'self', 'root', 'parent', 'item', 'data').
-        method (None | str | Unset): HTTP method to use (defaults to GET).
         type_ (None | str | Unset): Media type of the linked resource (e.g. 'application/json').
+        method (None | str | Unset): HTTP method to use (defaults to GET).
     """
 
     href: str
     rel: str
-    method: None | str | Unset = UNSET
     type_: None | str | Unset = UNSET
+    method: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -36,17 +36,17 @@ class StacLink:
 
         rel = self.rel
 
-        method: None | str | Unset
-        if isinstance(self.method, Unset):
-            method = UNSET
-        else:
-            method = self.method
-
         type_: None | str | Unset
         if isinstance(self.type_, Unset):
             type_ = UNSET
         else:
             type_ = self.type_
+
+        method: None | str | Unset
+        if isinstance(self.method, Unset):
+            method = UNSET
+        else:
+            method = self.method
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -56,10 +56,10 @@ class StacLink:
                 "rel": rel,
             }
         )
-        if method is not UNSET:
-            field_dict["method"] = method
         if type_ is not UNSET:
             field_dict["type"] = type_
+        if method is not UNSET:
+            field_dict["method"] = method
 
         return field_dict
 
@@ -70,15 +70,6 @@ class StacLink:
 
         rel = d.pop("rel")
 
-        def _parse_method(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        method = _parse_method(d.pop("method", UNSET))
-
         def _parse_type_(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -88,11 +79,20 @@ class StacLink:
 
         type_ = _parse_type_(d.pop("type", UNSET))
 
+        def _parse_method(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        method = _parse_method(d.pop("method", UNSET))
+
         stac_link = cls(
             href=href,
             rel=rel,
-            method=method,
             type_=type_,
+            method=method,
         )
 
         stac_link.additional_properties = d

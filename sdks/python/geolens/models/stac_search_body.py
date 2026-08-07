@@ -25,8 +25,8 @@ class StacSearchBody:
 
     Attributes:
         bbox (list[float] | None | Unset):
-        collections (list[str] | None | Unset):
         datetime_ (None | str | Unset):
+        collections (list[str] | None | Unset):
         ids (list[str] | None | Unset):
         intersects (None | StacSearchBodyIntersectsType0 | Unset):
         limit (int | Unset): Maximum number of items returned. Values above 200 are clamped to 200. Default: 10.
@@ -34,8 +34,8 @@ class StacSearchBody:
     """
 
     bbox: list[float] | None | Unset = UNSET
-    collections: list[str] | None | Unset = UNSET
     datetime_: None | str | Unset = UNSET
+    collections: list[str] | None | Unset = UNSET
     ids: list[str] | None | Unset = UNSET
     intersects: None | StacSearchBodyIntersectsType0 | Unset = UNSET
     limit: int | Unset = 10
@@ -56,6 +56,12 @@ class StacSearchBody:
         else:
             bbox = self.bbox
 
+        datetime_: None | str | Unset
+        if isinstance(self.datetime_, Unset):
+            datetime_ = UNSET
+        else:
+            datetime_ = self.datetime_
+
         collections: list[str] | None | Unset
         if isinstance(self.collections, Unset):
             collections = UNSET
@@ -64,12 +70,6 @@ class StacSearchBody:
 
         else:
             collections = self.collections
-
-        datetime_: None | str | Unset
-        if isinstance(self.datetime_, Unset):
-            datetime_ = UNSET
-        else:
-            datetime_ = self.datetime_
 
         ids: list[str] | None | Unset
         if isinstance(self.ids, Unset):
@@ -97,10 +97,10 @@ class StacSearchBody:
         field_dict.update({})
         if bbox is not UNSET:
             field_dict["bbox"] = bbox
-        if collections is not UNSET:
-            field_dict["collections"] = collections
         if datetime_ is not UNSET:
             field_dict["datetime"] = datetime_
+        if collections is not UNSET:
+            field_dict["collections"] = collections
         if ids is not UNSET:
             field_dict["ids"] = ids
         if intersects is not UNSET:
@@ -137,6 +137,15 @@ class StacSearchBody:
 
         bbox = _parse_bbox(d.pop("bbox", UNSET))
 
+        def _parse_datetime_(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        datetime_ = _parse_datetime_(d.pop("datetime", UNSET))
+
         def _parse_collections(data: object) -> list[str] | None | Unset:
             if data is None:
                 return data
@@ -153,15 +162,6 @@ class StacSearchBody:
             return cast(list[str] | None | Unset, data)
 
         collections = _parse_collections(d.pop("collections", UNSET))
-
-        def _parse_datetime_(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        datetime_ = _parse_datetime_(d.pop("datetime", UNSET))
 
         def _parse_ids(data: object) -> list[str] | None | Unset:
             if data is None:
@@ -205,8 +205,8 @@ class StacSearchBody:
 
         stac_search_body = cls(
             bbox=bbox,
-            collections=collections,
             datetime_=datetime_,
+            collections=collections,
             ids=ids,
             intersects=intersects,
             limit=limit,

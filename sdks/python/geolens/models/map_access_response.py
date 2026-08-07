@@ -14,25 +14,25 @@ T = TypeVar("T", bound="MapAccessResponse")
 class MapAccessResponse:
     """
     Attributes:
-        can_edit (bool): True when the current request may open the map builder
         can_view (bool): True when the current request may read the map
+        can_edit (bool): True when the current request may open the map builder
     """
 
-    can_edit: bool
     can_view: bool
+    can_edit: bool
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        can_edit = self.can_edit
-
         can_view = self.can_view
+
+        can_edit = self.can_edit
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "can_edit": can_edit,
                 "can_view": can_view,
+                "can_edit": can_edit,
             }
         )
 
@@ -41,13 +41,13 @@ class MapAccessResponse:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        can_edit = d.pop("can_edit")
-
         can_view = d.pop("can_view")
 
+        can_edit = d.pop("can_edit")
+
         map_access_response = cls(
-            can_edit=can_edit,
             can_view=can_view,
+            can_edit=can_edit,
         )
 
         map_access_response.additional_properties = d

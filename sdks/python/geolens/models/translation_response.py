@@ -18,36 +18,36 @@ T = TypeVar("T", bound="TranslationResponse")
 class TranslationResponse:
     """
     Attributes:
-        language (str):
         record_id (UUID):
-        summary (None | str):
+        language (str):
         title (str):
+        summary (None | str):
     """
 
-    language: str
     record_id: UUID
-    summary: None | str
+    language: str
     title: str
+    summary: None | str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        record_id = str(self.record_id)
+
         language = self.language
 
-        record_id = str(self.record_id)
+        title = self.title
 
         summary: None | str
         summary = self.summary
-
-        title = self.title
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "language": language,
                 "record_id": record_id,
-                "summary": summary,
+                "language": language,
                 "title": title,
+                "summary": summary,
             }
         )
 
@@ -56,9 +56,11 @@ class TranslationResponse:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
+        record_id = UUID(d.pop("record_id"))
+
         language = d.pop("language")
 
-        record_id = UUID(d.pop("record_id"))
+        title = d.pop("title")
 
         def _parse_summary(data: object) -> None | str:
             if data is None:
@@ -67,13 +69,11 @@ class TranslationResponse:
 
         summary = _parse_summary(d.pop("summary"))
 
-        title = d.pop("title")
-
         translation_response = cls(
-            language=language,
             record_id=record_id,
-            summary=summary,
+            language=language,
             title=title,
+            summary=summary,
         )
 
         translation_response.additional_properties = d

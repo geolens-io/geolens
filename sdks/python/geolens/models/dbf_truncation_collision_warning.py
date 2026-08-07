@@ -20,27 +20,27 @@ T = TypeVar("T", bound="DbfTruncationCollisionWarning")
 class DbfTruncationCollisionWarning:
     """
     Attributes:
-        details (list[DbfTruncationDetail]):
         kind (Literal['dbf_truncation_collision']):
+        details (list[DbfTruncationDetail]):
     """
 
-    details: list[DbfTruncationDetail]
     kind: Literal["dbf_truncation_collision"]
+    details: list[DbfTruncationDetail]
 
     def to_dict(self) -> dict[str, Any]:
+        kind = self.kind
+
         details = []
         for details_item_data in self.details:
             details_item = details_item_data.to_dict()
             details.append(details_item)
 
-        kind = self.kind
-
         field_dict: dict[str, Any] = {}
 
         field_dict.update(
             {
-                "details": details,
                 "kind": kind,
+                "details": details,
             }
         )
 
@@ -51,6 +51,12 @@ class DbfTruncationCollisionWarning:
         from ..models.dbf_truncation_detail import DbfTruncationDetail
 
         d = dict(src_dict)
+        kind = cast(Literal["dbf_truncation_collision"], d.pop("kind"))
+        if kind != "dbf_truncation_collision":
+            raise ValueError(
+                f"kind must match const 'dbf_truncation_collision', got '{kind}'"
+            )
+
         details = []
         _details = d.pop("details")
         for details_item_data in _details:
@@ -58,15 +64,9 @@ class DbfTruncationCollisionWarning:
 
             details.append(details_item)
 
-        kind = cast(Literal["dbf_truncation_collision"], d.pop("kind"))
-        if kind != "dbf_truncation_collision":
-            raise ValueError(
-                f"kind must match const 'dbf_truncation_collision', got '{kind}'"
-            )
-
         dbf_truncation_collision_warning = cls(
-            details=details,
             kind=kind,
+            details=details,
         )
 
         return dbf_truncation_collision_warning

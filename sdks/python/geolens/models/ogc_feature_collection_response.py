@@ -23,31 +23,39 @@ class OGCFeatureCollectionResponse:
     """OGC API Records FeatureCollection with match counts.
 
     Attributes:
-        features (list[OGCRecordResponse]):
         number_matched (int): Total records matching the query
         number_returned (int): Number of records in this response page
-        links (list[OGCRecordLink] | None | Unset): Pagination and self links
-        time_stamp (None | str | Unset):
+        features (list[OGCRecordResponse]):
         type_ (str | Unset):  Default: 'FeatureCollection'.
+        time_stamp (None | str | Unset):
+        links (list[OGCRecordLink] | None | Unset): Pagination and self links
     """
 
-    features: list[OGCRecordResponse]
     number_matched: int
     number_returned: int
-    links: list[OGCRecordLink] | None | Unset = UNSET
-    time_stamp: None | str | Unset = UNSET
+    features: list[OGCRecordResponse]
     type_: str | Unset = "FeatureCollection"
+    time_stamp: None | str | Unset = UNSET
+    links: list[OGCRecordLink] | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        number_matched = self.number_matched
+
+        number_returned = self.number_returned
+
         features = []
         for features_item_data in self.features:
             features_item = features_item_data.to_dict()
             features.append(features_item)
 
-        number_matched = self.number_matched
+        type_ = self.type_
 
-        number_returned = self.number_returned
+        time_stamp: None | str | Unset
+        if isinstance(self.time_stamp, Unset):
+            time_stamp = UNSET
+        else:
+            time_stamp = self.time_stamp
 
         links: list[dict[str, Any]] | None | Unset
         if isinstance(self.links, Unset):
@@ -61,29 +69,21 @@ class OGCFeatureCollectionResponse:
         else:
             links = self.links
 
-        time_stamp: None | str | Unset
-        if isinstance(self.time_stamp, Unset):
-            time_stamp = UNSET
-        else:
-            time_stamp = self.time_stamp
-
-        type_ = self.type_
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "features": features,
                 "numberMatched": number_matched,
                 "numberReturned": number_returned,
+                "features": features,
             }
         )
-        if links is not UNSET:
-            field_dict["links"] = links
-        if time_stamp is not UNSET:
-            field_dict["timeStamp"] = time_stamp
         if type_ is not UNSET:
             field_dict["type"] = type_
+        if time_stamp is not UNSET:
+            field_dict["timeStamp"] = time_stamp
+        if links is not UNSET:
+            field_dict["links"] = links
 
         return field_dict
 
@@ -93,6 +93,10 @@ class OGCFeatureCollectionResponse:
         from ..models.ogc_record_response import OGCRecordResponse
 
         d = dict(src_dict)
+        number_matched = d.pop("numberMatched")
+
+        number_returned = d.pop("numberReturned")
+
         features = []
         _features = d.pop("features")
         for features_item_data in _features:
@@ -100,9 +104,16 @@ class OGCFeatureCollectionResponse:
 
             features.append(features_item)
 
-        number_matched = d.pop("numberMatched")
+        type_ = d.pop("type", UNSET)
 
-        number_returned = d.pop("numberReturned")
+        def _parse_time_stamp(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        time_stamp = _parse_time_stamp(d.pop("timeStamp", UNSET))
 
         def _parse_links(data: object) -> list[OGCRecordLink] | None | Unset:
             if data is None:
@@ -126,24 +137,13 @@ class OGCFeatureCollectionResponse:
 
         links = _parse_links(d.pop("links", UNSET))
 
-        def _parse_time_stamp(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        time_stamp = _parse_time_stamp(d.pop("timeStamp", UNSET))
-
-        type_ = d.pop("type", UNSET)
-
         ogc_feature_collection_response = cls(
-            features=features,
             number_matched=number_matched,
             number_returned=number_returned,
-            links=links,
-            time_stamp=time_stamp,
+            features=features,
             type_=type_,
+            time_stamp=time_stamp,
+            links=links,
         )
 
         ogc_feature_collection_response.additional_properties = d

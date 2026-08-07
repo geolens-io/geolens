@@ -27,25 +27,25 @@ class CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometryCol
     """A GeoJSON geometry object (RFC 7946).
 
     Attributes:
-        coordinates (list[Any]):
         type_ (CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometryType):
+        coordinates (list[Any]):
     """
 
-    coordinates: list[Any]
     type_: CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometryType
+    coordinates: list[Any]
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        coordinates = self.coordinates
-
         type_: str = self.type_
+
+        coordinates = self.coordinates
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "coordinates": coordinates,
                 "type": type_,
+                "coordinates": coordinates,
             }
         )
 
@@ -54,15 +54,15 @@ class CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometryCol
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        coordinates = cast(list[Any], d.pop("coordinates"))
-
         type_ = check_create_feature_datasets_dataset_id_features_post_geo_json_feature_geo_json_geometry_collection_geo_json_geometry_type(
             d.pop("type")
         )
 
+        coordinates = cast(list[Any], d.pop("coordinates"))
+
         create_feature_datasets_dataset_id_features_post_geo_json_feature_geo_json_geometry_collection_geo_json_geometry = cls(
-            coordinates=coordinates,
             type_=type_,
+            coordinates=coordinates,
         )
 
         create_feature_datasets_dataset_id_features_post_geo_json_feature_geo_json_geometry_collection_geo_json_geometry.additional_properties = d

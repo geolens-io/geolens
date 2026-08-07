@@ -24,14 +24,14 @@ T = TypeVar("T", bound="ValidationResultResponse")
 class ValidationResultResponse:
     """
     Attributes:
-        errors (list[ValidationIssue]):
         is_valid (bool):
+        errors (list[ValidationIssue]):
         warnings (list[ValidationIssue]):
         quality_score (None | Unset | ValidationResultResponseQualityScoreType0):
     """
 
-    errors: list[ValidationIssue]
     is_valid: bool
+    errors: list[ValidationIssue]
     warnings: list[ValidationIssue]
     quality_score: None | Unset | ValidationResultResponseQualityScoreType0 = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -41,12 +41,12 @@ class ValidationResultResponse:
             ValidationResultResponseQualityScoreType0,
         )
 
+        is_valid = self.is_valid
+
         errors = []
         for errors_item_data in self.errors:
             errors_item = errors_item_data.to_dict()
             errors.append(errors_item)
-
-        is_valid = self.is_valid
 
         warnings = []
         for warnings_item_data in self.warnings:
@@ -65,8 +65,8 @@ class ValidationResultResponse:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "errors": errors,
                 "is_valid": is_valid,
+                "errors": errors,
                 "warnings": warnings,
             }
         )
@@ -83,14 +83,14 @@ class ValidationResultResponse:
         )
 
         d = dict(src_dict)
+        is_valid = d.pop("is_valid")
+
         errors = []
         _errors = d.pop("errors")
         for errors_item_data in _errors:
             errors_item = ValidationIssue.from_dict(errors_item_data)
 
             errors.append(errors_item)
-
-        is_valid = d.pop("is_valid")
 
         warnings = []
         _warnings = d.pop("warnings")
@@ -121,8 +121,8 @@ class ValidationResultResponse:
         quality_score = _parse_quality_score(d.pop("quality_score", UNSET))
 
         validation_result_response = cls(
-            errors=errors,
             is_valid=is_valid,
+            errors=errors,
             warnings=warnings,
             quality_score=quality_score,
         )

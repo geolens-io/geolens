@@ -22,23 +22,29 @@ class ManifestSource:
         type_ (ManifestSourceType): Source modality. Vector sources require zip, gpkg, geojson, json, csv, xlsx, or xls;
             raster_cog sources require tif or tiff.
         uri (str): Relative path (no `..` traversal), HTTP(S) URL, or storage URI.
+        title (None | str | Unset):
         description (None | str | Unset):
         format_ (None | str | Unset):
         layer (None | str | Unset):
-        title (None | str | Unset):
     """
 
     type_: ManifestSourceType
     uri: str
+    title: None | str | Unset = UNSET
     description: None | str | Unset = UNSET
     format_: None | str | Unset = UNSET
     layer: None | str | Unset = UNSET
-    title: None | str | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
         type_: str = self.type_
 
         uri = self.uri
+
+        title: None | str | Unset
+        if isinstance(self.title, Unset):
+            title = UNSET
+        else:
+            title = self.title
 
         description: None | str | Unset
         if isinstance(self.description, Unset):
@@ -58,12 +64,6 @@ class ManifestSource:
         else:
             layer = self.layer
 
-        title: None | str | Unset
-        if isinstance(self.title, Unset):
-            title = UNSET
-        else:
-            title = self.title
-
         field_dict: dict[str, Any] = {}
 
         field_dict.update(
@@ -72,14 +72,14 @@ class ManifestSource:
                 "uri": uri,
             }
         )
+        if title is not UNSET:
+            field_dict["title"] = title
         if description is not UNSET:
             field_dict["description"] = description
         if format_ is not UNSET:
             field_dict["format"] = format_
         if layer is not UNSET:
             field_dict["layer"] = layer
-        if title is not UNSET:
-            field_dict["title"] = title
 
         return field_dict
 
@@ -89,6 +89,15 @@ class ManifestSource:
         type_ = check_manifest_source_type(d.pop("type"))
 
         uri = d.pop("uri")
+
+        def _parse_title(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        title = _parse_title(d.pop("title", UNSET))
 
         def _parse_description(data: object) -> None | str | Unset:
             if data is None:
@@ -117,22 +126,13 @@ class ManifestSource:
 
         layer = _parse_layer(d.pop("layer", UNSET))
 
-        def _parse_title(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        title = _parse_title(d.pop("title", UNSET))
-
         manifest_source = cls(
             type_=type_,
             uri=uri,
+            title=title,
             description=description,
             format_=format_,
             layer=layer,
-            title=title,
         )
 
         return manifest_source

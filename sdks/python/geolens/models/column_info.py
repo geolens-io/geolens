@@ -24,17 +24,17 @@ class ColumnInfo:
     Attributes:
         name (str):
         type_ (str):
+        semantic_role (None | str | Unset):
         domain_type (None | str | Unset):
         sample_values (list[Any] | None | Unset):
-        semantic_role (None | str | Unset):
         stats (ColumnInfoStatsType0 | None | Unset):
     """
 
     name: str
     type_: str
+    semantic_role: None | str | Unset = UNSET
     domain_type: None | str | Unset = UNSET
     sample_values: list[Any] | None | Unset = UNSET
-    semantic_role: None | str | Unset = UNSET
     stats: ColumnInfoStatsType0 | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -44,6 +44,12 @@ class ColumnInfo:
         name = self.name
 
         type_ = self.type_
+
+        semantic_role: None | str | Unset
+        if isinstance(self.semantic_role, Unset):
+            semantic_role = UNSET
+        else:
+            semantic_role = self.semantic_role
 
         domain_type: None | str | Unset
         if isinstance(self.domain_type, Unset):
@@ -59,12 +65,6 @@ class ColumnInfo:
 
         else:
             sample_values = self.sample_values
-
-        semantic_role: None | str | Unset
-        if isinstance(self.semantic_role, Unset):
-            semantic_role = UNSET
-        else:
-            semantic_role = self.semantic_role
 
         stats: dict[str, Any] | None | Unset
         if isinstance(self.stats, Unset):
@@ -82,12 +82,12 @@ class ColumnInfo:
                 "type": type_,
             }
         )
+        if semantic_role is not UNSET:
+            field_dict["semantic_role"] = semantic_role
         if domain_type is not UNSET:
             field_dict["domain_type"] = domain_type
         if sample_values is not UNSET:
             field_dict["sample_values"] = sample_values
-        if semantic_role is not UNSET:
-            field_dict["semantic_role"] = semantic_role
         if stats is not UNSET:
             field_dict["stats"] = stats
 
@@ -101,6 +101,15 @@ class ColumnInfo:
         name = d.pop("name")
 
         type_ = d.pop("type")
+
+        def _parse_semantic_role(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        semantic_role = _parse_semantic_role(d.pop("semantic_role", UNSET))
 
         def _parse_domain_type(data: object) -> None | str | Unset:
             if data is None:
@@ -128,15 +137,6 @@ class ColumnInfo:
 
         sample_values = _parse_sample_values(d.pop("sample_values", UNSET))
 
-        def _parse_semantic_role(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        semantic_role = _parse_semantic_role(d.pop("semantic_role", UNSET))
-
         def _parse_stats(data: object) -> ColumnInfoStatsType0 | None | Unset:
             if data is None:
                 return data
@@ -157,9 +157,9 @@ class ColumnInfo:
         column_info = cls(
             name=name,
             type_=type_,
+            semantic_role=semantic_role,
             domain_type=domain_type,
             sample_values=sample_values,
-            semantic_role=semantic_role,
             stats=stats,
         )
 

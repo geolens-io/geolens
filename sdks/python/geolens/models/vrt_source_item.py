@@ -20,37 +20,49 @@ class VrtSourceItem:
     """
     Attributes:
         dataset_id (UUID):
-        position (int):
         title (str):
+        position (int):
         band_count (int | None | Unset):
-        crs_epsg (int | None | Unset):
-        extent_bbox (list[float] | None | Unset):
         resolution_x (float | None | Unset):
         resolution_y (float | None | Unset):
+        crs_epsg (int | None | Unset):
+        extent_bbox (list[float] | None | Unset):
     """
 
     dataset_id: UUID
-    position: int
     title: str
+    position: int
     band_count: int | None | Unset = UNSET
-    crs_epsg: int | None | Unset = UNSET
-    extent_bbox: list[float] | None | Unset = UNSET
     resolution_x: float | None | Unset = UNSET
     resolution_y: float | None | Unset = UNSET
+    crs_epsg: int | None | Unset = UNSET
+    extent_bbox: list[float] | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         dataset_id = str(self.dataset_id)
 
-        position = self.position
-
         title = self.title
+
+        position = self.position
 
         band_count: int | None | Unset
         if isinstance(self.band_count, Unset):
             band_count = UNSET
         else:
             band_count = self.band_count
+
+        resolution_x: float | None | Unset
+        if isinstance(self.resolution_x, Unset):
+            resolution_x = UNSET
+        else:
+            resolution_x = self.resolution_x
+
+        resolution_y: float | None | Unset
+        if isinstance(self.resolution_y, Unset):
+            resolution_y = UNSET
+        else:
+            resolution_y = self.resolution_y
 
         crs_epsg: int | None | Unset
         if isinstance(self.crs_epsg, Unset):
@@ -67,37 +79,25 @@ class VrtSourceItem:
         else:
             extent_bbox = self.extent_bbox
 
-        resolution_x: float | None | Unset
-        if isinstance(self.resolution_x, Unset):
-            resolution_x = UNSET
-        else:
-            resolution_x = self.resolution_x
-
-        resolution_y: float | None | Unset
-        if isinstance(self.resolution_y, Unset):
-            resolution_y = UNSET
-        else:
-            resolution_y = self.resolution_y
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
                 "dataset_id": dataset_id,
-                "position": position,
                 "title": title,
+                "position": position,
             }
         )
         if band_count is not UNSET:
             field_dict["band_count"] = band_count
-        if crs_epsg is not UNSET:
-            field_dict["crs_epsg"] = crs_epsg
-        if extent_bbox is not UNSET:
-            field_dict["extent_bbox"] = extent_bbox
         if resolution_x is not UNSET:
             field_dict["resolution_x"] = resolution_x
         if resolution_y is not UNSET:
             field_dict["resolution_y"] = resolution_y
+        if crs_epsg is not UNSET:
+            field_dict["crs_epsg"] = crs_epsg
+        if extent_bbox is not UNSET:
+            field_dict["extent_bbox"] = extent_bbox
 
         return field_dict
 
@@ -106,9 +106,9 @@ class VrtSourceItem:
         d = dict(src_dict)
         dataset_id = UUID(d.pop("dataset_id"))
 
-        position = d.pop("position")
-
         title = d.pop("title")
+
+        position = d.pop("position")
 
         def _parse_band_count(data: object) -> int | None | Unset:
             if data is None:
@@ -118,6 +118,24 @@ class VrtSourceItem:
             return cast(int | None | Unset, data)
 
         band_count = _parse_band_count(d.pop("band_count", UNSET))
+
+        def _parse_resolution_x(data: object) -> float | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(float | None | Unset, data)
+
+        resolution_x = _parse_resolution_x(d.pop("resolution_x", UNSET))
+
+        def _parse_resolution_y(data: object) -> float | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(float | None | Unset, data)
+
+        resolution_y = _parse_resolution_y(d.pop("resolution_y", UNSET))
 
         def _parse_crs_epsg(data: object) -> int | None | Unset:
             if data is None:
@@ -145,33 +163,15 @@ class VrtSourceItem:
 
         extent_bbox = _parse_extent_bbox(d.pop("extent_bbox", UNSET))
 
-        def _parse_resolution_x(data: object) -> float | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(float | None | Unset, data)
-
-        resolution_x = _parse_resolution_x(d.pop("resolution_x", UNSET))
-
-        def _parse_resolution_y(data: object) -> float | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(float | None | Unset, data)
-
-        resolution_y = _parse_resolution_y(d.pop("resolution_y", UNSET))
-
         vrt_source_item = cls(
             dataset_id=dataset_id,
-            position=position,
             title=title,
+            position=position,
             band_count=band_count,
-            crs_epsg=crs_epsg,
-            extent_bbox=extent_bbox,
             resolution_x=resolution_x,
             resolution_y=resolution_y,
+            crs_epsg=crs_epsg,
+            extent_bbox=extent_bbox,
         )
 
         vrt_source_item.additional_properties = d

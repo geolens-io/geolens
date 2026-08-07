@@ -18,75 +18,75 @@ T = TypeVar("T", bound="DistributionResponse")
 class DistributionResponse:
     """
     Attributes:
-        auto_generated (bool): True if created automatically by the system
-        description (None | str):
+        id (UUID):
+        record_id (UUID):
         distribution_type (str):
         format_ (None | str):
-        id (UUID):
-        is_primary (bool):
-        media_type (None | str):
-        protocol (None | str):
-        record_id (UUID):
-        title (None | str):
         url (str):
+        title (None | str):
+        description (None | str):
+        protocol (None | str):
+        media_type (None | str):
+        is_primary (bool):
+        auto_generated (bool): True if created automatically by the system
     """
 
-    auto_generated: bool
-    description: None | str
+    id: UUID
+    record_id: UUID
     distribution_type: str
     format_: None | str
-    id: UUID
-    is_primary: bool
-    media_type: None | str
-    protocol: None | str
-    record_id: UUID
-    title: None | str
     url: str
+    title: None | str
+    description: None | str
+    protocol: None | str
+    media_type: None | str
+    is_primary: bool
+    auto_generated: bool
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        auto_generated = self.auto_generated
+        id = str(self.id)
 
-        description: None | str
-        description = self.description
+        record_id = str(self.record_id)
 
         distribution_type = self.distribution_type
 
         format_: None | str
         format_ = self.format_
 
-        id = str(self.id)
-
-        is_primary = self.is_primary
-
-        media_type: None | str
-        media_type = self.media_type
-
-        protocol: None | str
-        protocol = self.protocol
-
-        record_id = str(self.record_id)
+        url = self.url
 
         title: None | str
         title = self.title
 
-        url = self.url
+        description: None | str
+        description = self.description
+
+        protocol: None | str
+        protocol = self.protocol
+
+        media_type: None | str
+        media_type = self.media_type
+
+        is_primary = self.is_primary
+
+        auto_generated = self.auto_generated
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "auto_generated": auto_generated,
-                "description": description,
+                "id": id,
+                "record_id": record_id,
                 "distribution_type": distribution_type,
                 "format": format_,
-                "id": id,
-                "is_primary": is_primary,
-                "media_type": media_type,
-                "protocol": protocol,
-                "record_id": record_id,
-                "title": title,
                 "url": url,
+                "title": title,
+                "description": description,
+                "protocol": protocol,
+                "media_type": media_type,
+                "is_primary": is_primary,
+                "auto_generated": auto_generated,
             }
         )
 
@@ -95,14 +95,9 @@ class DistributionResponse:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        auto_generated = d.pop("auto_generated")
+        id = UUID(d.pop("id"))
 
-        def _parse_description(data: object) -> None | str:
-            if data is None:
-                return data
-            return cast(None | str, data)
-
-        description = _parse_description(d.pop("description"))
+        record_id = UUID(d.pop("record_id"))
 
         distribution_type = d.pop("distribution_type")
 
@@ -113,25 +108,7 @@ class DistributionResponse:
 
         format_ = _parse_format_(d.pop("format"))
 
-        id = UUID(d.pop("id"))
-
-        is_primary = d.pop("is_primary")
-
-        def _parse_media_type(data: object) -> None | str:
-            if data is None:
-                return data
-            return cast(None | str, data)
-
-        media_type = _parse_media_type(d.pop("media_type"))
-
-        def _parse_protocol(data: object) -> None | str:
-            if data is None:
-                return data
-            return cast(None | str, data)
-
-        protocol = _parse_protocol(d.pop("protocol"))
-
-        record_id = UUID(d.pop("record_id"))
+        url = d.pop("url")
 
         def _parse_title(data: object) -> None | str:
             if data is None:
@@ -140,20 +117,43 @@ class DistributionResponse:
 
         title = _parse_title(d.pop("title"))
 
-        url = d.pop("url")
+        def _parse_description(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        description = _parse_description(d.pop("description"))
+
+        def _parse_protocol(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        protocol = _parse_protocol(d.pop("protocol"))
+
+        def _parse_media_type(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        media_type = _parse_media_type(d.pop("media_type"))
+
+        is_primary = d.pop("is_primary")
+
+        auto_generated = d.pop("auto_generated")
 
         distribution_response = cls(
-            auto_generated=auto_generated,
-            description=description,
+            id=id,
+            record_id=record_id,
             distribution_type=distribution_type,
             format_=format_,
-            id=id,
-            is_primary=is_primary,
-            media_type=media_type,
-            protocol=protocol,
-            record_id=record_id,
-            title=title,
             url=url,
+            title=title,
+            description=description,
+            protocol=protocol,
+            media_type=media_type,
+            is_primary=is_primary,
+            auto_generated=auto_generated,
         )
 
         distribution_response.additional_properties = d

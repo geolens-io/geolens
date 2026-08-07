@@ -22,21 +22,19 @@ T = TypeVar("T", bound="DatasetRowsResponse")
 class DatasetRowsResponse:
     """
     Attributes:
-        approximate_total (int): Estimated total row count (may use pg stats)
         columns (list[ColumnChange]):
         rows (list[DatasetRowsResponseRowsItem]):
+        approximate_total (int): Estimated total row count (may use pg stats)
         next_cursor (int | None | Unset): Cursor value for the next page, null if last
     """
 
-    approximate_total: int
     columns: list[ColumnChange]
     rows: list[DatasetRowsResponseRowsItem]
+    approximate_total: int
     next_cursor: int | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        approximate_total = self.approximate_total
-
         columns = []
         for columns_item_data in self.columns:
             columns_item = columns_item_data.to_dict()
@@ -46,6 +44,8 @@ class DatasetRowsResponse:
         for rows_item_data in self.rows:
             rows_item = rows_item_data.to_dict()
             rows.append(rows_item)
+
+        approximate_total = self.approximate_total
 
         next_cursor: int | None | Unset
         if isinstance(self.next_cursor, Unset):
@@ -57,9 +57,9 @@ class DatasetRowsResponse:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "approximate_total": approximate_total,
                 "columns": columns,
                 "rows": rows,
+                "approximate_total": approximate_total,
             }
         )
         if next_cursor is not UNSET:
@@ -73,8 +73,6 @@ class DatasetRowsResponse:
         from ..models.dataset_rows_response_rows_item import DatasetRowsResponseRowsItem
 
         d = dict(src_dict)
-        approximate_total = d.pop("approximate_total")
-
         columns = []
         _columns = d.pop("columns")
         for columns_item_data in _columns:
@@ -89,6 +87,8 @@ class DatasetRowsResponse:
 
             rows.append(rows_item)
 
+        approximate_total = d.pop("approximate_total")
+
         def _parse_next_cursor(data: object) -> int | None | Unset:
             if data is None:
                 return data
@@ -99,9 +99,9 @@ class DatasetRowsResponse:
         next_cursor = _parse_next_cursor(d.pop("next_cursor", UNSET))
 
         dataset_rows_response = cls(
-            approximate_total=approximate_total,
             columns=columns,
             rows=rows,
+            approximate_total=approximate_total,
             next_cursor=next_cursor,
         )
 

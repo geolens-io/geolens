@@ -18,28 +18,28 @@ T = TypeVar("T", bound="CreateEmptyDatasetRequest")
 class CreateEmptyDatasetRequest:
     """
     Attributes:
-        columns (list[ColumnDefinition]):
         title (str):
+        columns (list[ColumnDefinition]):
     """
 
-    columns: list[ColumnDefinition]
     title: str
+    columns: list[ColumnDefinition]
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        title = self.title
+
         columns = []
         for columns_item_data in self.columns:
             columns_item = columns_item_data.to_dict()
             columns.append(columns_item)
 
-        title = self.title
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "columns": columns,
                 "title": title,
+                "columns": columns,
             }
         )
 
@@ -50,6 +50,8 @@ class CreateEmptyDatasetRequest:
         from ..models.column_definition import ColumnDefinition
 
         d = dict(src_dict)
+        title = d.pop("title")
+
         columns = []
         _columns = d.pop("columns")
         for columns_item_data in _columns:
@@ -57,11 +59,9 @@ class CreateEmptyDatasetRequest:
 
             columns.append(columns_item)
 
-        title = d.pop("title")
-
         create_empty_dataset_request = cls(
-            columns=columns,
             title=title,
+            columns=columns,
         )
 
         create_empty_dataset_request.additional_properties = d

@@ -18,25 +18,25 @@ class SSEChatDoneEvent:
     """Terminal payload for a successful streaming chat request.
 
     Attributes:
-        explanation (str):
         type_ (Literal['done']):
+        explanation (str):
     """
 
-    explanation: str
     type_: Literal["done"]
+    explanation: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        explanation = self.explanation
-
         type_ = self.type_
+
+        explanation = self.explanation
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "explanation": explanation,
                 "type": type_,
+                "explanation": explanation,
             }
         )
 
@@ -45,15 +45,15 @@ class SSEChatDoneEvent:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        explanation = d.pop("explanation")
-
         type_ = cast(Literal["done"], d.pop("type"))
         if type_ != "done":
             raise ValueError(f"type must match const 'done', got '{type_}'")
 
+        explanation = d.pop("explanation")
+
         sse_chat_done_event = cls(
-            explanation=explanation,
             type_=type_,
+            explanation=explanation,
         )
 
         sse_chat_done_event.additional_properties = d

@@ -21,23 +21,29 @@ T = TypeVar("T", bound="CreateLayerRequest")
 class CreateLayerRequest:
     """
     Attributes:
+        title (str): Display name for the new layer Example: Survey Points.
         geometry_type (str): OGC geometry type: Point, MultiPoint, LineString, MultiLineString, Polygon, or MultiPolygon
             Example: Point.
-        title (str): Display name for the new layer Example: Survey Points.
-        columns (list[ColumnDef] | None | Unset): Optional initial column definitions
         summary (None | str | Unset): Optional text description of the layer
+        columns (list[ColumnDef] | None | Unset): Optional initial column definitions
     """
 
-    geometry_type: str
     title: str
-    columns: list[ColumnDef] | None | Unset = UNSET
+    geometry_type: str
     summary: None | str | Unset = UNSET
+    columns: list[ColumnDef] | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        title = self.title
+
         geometry_type = self.geometry_type
 
-        title = self.title
+        summary: None | str | Unset
+        if isinstance(self.summary, Unset):
+            summary = UNSET
+        else:
+            summary = self.summary
 
         columns: list[dict[str, Any]] | None | Unset
         if isinstance(self.columns, Unset):
@@ -51,24 +57,18 @@ class CreateLayerRequest:
         else:
             columns = self.columns
 
-        summary: None | str | Unset
-        if isinstance(self.summary, Unset):
-            summary = UNSET
-        else:
-            summary = self.summary
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "geometry_type": geometry_type,
                 "title": title,
+                "geometry_type": geometry_type,
             }
         )
-        if columns is not UNSET:
-            field_dict["columns"] = columns
         if summary is not UNSET:
             field_dict["summary"] = summary
+        if columns is not UNSET:
+            field_dict["columns"] = columns
 
         return field_dict
 
@@ -77,9 +77,18 @@ class CreateLayerRequest:
         from ..models.column_def import ColumnDef
 
         d = dict(src_dict)
+        title = d.pop("title")
+
         geometry_type = d.pop("geometry_type")
 
-        title = d.pop("title")
+        def _parse_summary(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        summary = _parse_summary(d.pop("summary", UNSET))
 
         def _parse_columns(data: object) -> list[ColumnDef] | None | Unset:
             if data is None:
@@ -103,20 +112,11 @@ class CreateLayerRequest:
 
         columns = _parse_columns(d.pop("columns", UNSET))
 
-        def _parse_summary(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        summary = _parse_summary(d.pop("summary", UNSET))
-
         create_layer_request = cls(
-            geometry_type=geometry_type,
             title=title,
-            columns=columns,
+            geometry_type=geometry_type,
             summary=summary,
+            columns=columns,
         )
 
         create_layer_request.additional_properties = d

@@ -24,10 +24,14 @@ class AnalysisPreviewResponse:
     """GeoJSON FeatureCollection preview of an analysis operation.
 
     Attributes:
-        feature_count (int):
         geojson (AnalysisPreviewResponseGeojson):
+        feature_count (int):
         truncated (bool):
         bbox (list[float] | None | Unset):
+        source_feature_count (int | None | Unset): Total feature count of the source dataset (1:1 operations only; null
+            when the operation filters rows, e.g. clip). When the request carried a bbox this is a LIVE count of rows
+            intersecting it rather than the dataset's cached whole-table total (fix(#727)) — also null, same as match_count,
+            when that live count could not be computed within the query budget
         match_count (int | None | Unset): Exact total across the WHOLE source, not just the previewed features — WHOLE
             meaning the request's bbox when one was sent, the same sense source_feature_count uses that word. What it counts
             is per-operation, so read it against the operation you sent rather than as one number: select_by_location gives
@@ -37,24 +41,20 @@ class AnalysisPreviewResponse:
             to a bbox on the request; select_by_location's count is a separate uncapped query the request's bbox does not
             reach, so it stays unscoped even though its preview rows are viewport-limited too. Null for operations that
             report no such total, and when the count could not be computed within the query budget
-        source_feature_count (int | None | Unset): Total feature count of the source dataset (1:1 operations only; null
-            when the operation filters rows, e.g. clip). When the request carried a bbox this is a LIVE count of rows
-            intersecting it rather than the dataset's cached whole-table total (fix(#727)) — also null, same as match_count,
-            when that live count could not be computed within the query budget
     """
 
-    feature_count: int
     geojson: AnalysisPreviewResponseGeojson
+    feature_count: int
     truncated: bool
     bbox: list[float] | None | Unset = UNSET
-    match_count: int | None | Unset = UNSET
     source_feature_count: int | None | Unset = UNSET
+    match_count: int | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        feature_count = self.feature_count
-
         geojson = self.geojson.to_dict()
+
+        feature_count = self.feature_count
 
         truncated = self.truncated
 
@@ -67,33 +67,33 @@ class AnalysisPreviewResponse:
         else:
             bbox = self.bbox
 
-        match_count: int | None | Unset
-        if isinstance(self.match_count, Unset):
-            match_count = UNSET
-        else:
-            match_count = self.match_count
-
         source_feature_count: int | None | Unset
         if isinstance(self.source_feature_count, Unset):
             source_feature_count = UNSET
         else:
             source_feature_count = self.source_feature_count
 
+        match_count: int | None | Unset
+        if isinstance(self.match_count, Unset):
+            match_count = UNSET
+        else:
+            match_count = self.match_count
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "feature_count": feature_count,
                 "geojson": geojson,
+                "feature_count": feature_count,
                 "truncated": truncated,
             }
         )
         if bbox is not UNSET:
             field_dict["bbox"] = bbox
-        if match_count is not UNSET:
-            field_dict["match_count"] = match_count
         if source_feature_count is not UNSET:
             field_dict["source_feature_count"] = source_feature_count
+        if match_count is not UNSET:
+            field_dict["match_count"] = match_count
 
         return field_dict
 
@@ -104,9 +104,9 @@ class AnalysisPreviewResponse:
         )
 
         d = dict(src_dict)
-        feature_count = d.pop("feature_count")
-
         geojson = AnalysisPreviewResponseGeojson.from_dict(d.pop("geojson"))
+
+        feature_count = d.pop("feature_count")
 
         truncated = d.pop("truncated")
 
@@ -127,15 +127,6 @@ class AnalysisPreviewResponse:
 
         bbox = _parse_bbox(d.pop("bbox", UNSET))
 
-        def _parse_match_count(data: object) -> int | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(int | None | Unset, data)
-
-        match_count = _parse_match_count(d.pop("match_count", UNSET))
-
         def _parse_source_feature_count(data: object) -> int | None | Unset:
             if data is None:
                 return data
@@ -147,13 +138,22 @@ class AnalysisPreviewResponse:
             d.pop("source_feature_count", UNSET)
         )
 
+        def _parse_match_count(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        match_count = _parse_match_count(d.pop("match_count", UNSET))
+
         analysis_preview_response = cls(
-            feature_count=feature_count,
             geojson=geojson,
+            feature_count=feature_count,
             truncated=truncated,
             bbox=bbox,
-            match_count=match_count,
             source_feature_count=source_feature_count,
+            match_count=match_count,
         )
 
         analysis_preview_response.additional_properties = d

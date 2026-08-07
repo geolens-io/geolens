@@ -17,25 +17,25 @@ T = TypeVar("T", bound="VisibilityCheckResponse")
 class VisibilityCheckResponse:
     """
     Attributes:
-        has_non_public (bool): True if any layer references a non-public dataset
         non_public_datasets (list[str]): Titles of datasets not publicly visible
+        has_non_public (bool): True if any layer references a non-public dataset
     """
 
-    has_non_public: bool
     non_public_datasets: list[str]
+    has_non_public: bool
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        has_non_public = self.has_non_public
-
         non_public_datasets = self.non_public_datasets
+
+        has_non_public = self.has_non_public
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "has_non_public": has_non_public,
                 "non_public_datasets": non_public_datasets,
+                "has_non_public": has_non_public,
             }
         )
 
@@ -44,13 +44,13 @@ class VisibilityCheckResponse:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        has_non_public = d.pop("has_non_public")
-
         non_public_datasets = cast(list[str], d.pop("non_public_datasets"))
 
+        has_non_public = d.pop("has_non_public")
+
         visibility_check_response = cls(
-            has_non_public=has_non_public,
             non_public_datasets=non_public_datasets,
+            has_non_public=has_non_public,
         )
 
         visibility_check_response.additional_properties = d

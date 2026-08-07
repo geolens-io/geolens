@@ -23,19 +23,21 @@ class SSEErrorEvent:
     """Error payload carried inside an already-open SSE response.
 
     Attributes:
-        message (list[Any] | SSEErrorEventMessageType1 | str):
         type_ (Literal['error']):
+        message (list[Any] | SSEErrorEventMessageType1 | str):
         status (int | None | Unset): HTTP-equivalent status for router-level failures; provider and model errors raised
             inside the stream may omit it.
     """
 
-    message: list[Any] | SSEErrorEventMessageType1 | str
     type_: Literal["error"]
+    message: list[Any] | SSEErrorEventMessageType1 | str
     status: int | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.sse_error_event_message_type_1 import SSEErrorEventMessageType1
+
+        type_ = self.type_
 
         message: dict[str, Any] | list[Any] | str
         if isinstance(self.message, SSEErrorEventMessageType1):
@@ -45,8 +47,6 @@ class SSEErrorEvent:
 
         else:
             message = self.message
-
-        type_ = self.type_
 
         status: int | None | Unset
         if isinstance(self.status, Unset):
@@ -58,8 +58,8 @@ class SSEErrorEvent:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "message": message,
                 "type": type_,
+                "message": message,
             }
         )
         if status is not UNSET:
@@ -72,6 +72,9 @@ class SSEErrorEvent:
         from ..models.sse_error_event_message_type_1 import SSEErrorEventMessageType1
 
         d = dict(src_dict)
+        type_ = cast(Literal["error"], d.pop("type"))
+        if type_ != "error":
+            raise ValueError(f"type must match const 'error', got '{type_}'")
 
         def _parse_message(data: object) -> list[Any] | SSEErrorEventMessageType1 | str:
             try:
@@ -94,10 +97,6 @@ class SSEErrorEvent:
 
         message = _parse_message(d.pop("message"))
 
-        type_ = cast(Literal["error"], d.pop("type"))
-        if type_ != "error":
-            raise ValueError(f"type must match const 'error', got '{type_}'")
-
         def _parse_status(data: object) -> int | None | Unset:
             if data is None:
                 return data
@@ -108,8 +107,8 @@ class SSEErrorEvent:
         status = _parse_status(d.pop("status", UNSET))
 
         sse_error_event = cls(
-            message=message,
             type_=type_,
+            message=message,
             status=status,
         )
 

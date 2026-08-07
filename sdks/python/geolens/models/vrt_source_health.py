@@ -20,29 +20,29 @@ class VrtSourceHealth:
     """
     Attributes:
         dataset_id (UUID):
-        status (VrtSourceHealthStatus):
         title (str):
+        status (VrtSourceHealthStatus):
     """
 
     dataset_id: UUID
-    status: VrtSourceHealthStatus
     title: str
+    status: VrtSourceHealthStatus
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         dataset_id = str(self.dataset_id)
 
-        status: str = self.status
-
         title = self.title
+
+        status: str = self.status
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
                 "dataset_id": dataset_id,
-                "status": status,
                 "title": title,
+                "status": status,
             }
         )
 
@@ -53,14 +53,14 @@ class VrtSourceHealth:
         d = dict(src_dict)
         dataset_id = UUID(d.pop("dataset_id"))
 
-        status = check_vrt_source_health_status(d.pop("status"))
-
         title = d.pop("title")
+
+        status = check_vrt_source_health_status(d.pop("status"))
 
         vrt_source_health = cls(
             dataset_id=dataset_id,
-            status=status,
             title=title,
+            status=status,
         )
 
         vrt_source_health.additional_properties = d

@@ -17,27 +17,27 @@ T = TypeVar("T", bound="ManifestContact")
 class ManifestContact:
     """
     Attributes:
-        email (None | str | Unset):
         name (None | str | Unset):
+        email (None | str | Unset):
         url (None | str | Unset):
     """
 
-    email: None | str | Unset = UNSET
     name: None | str | Unset = UNSET
+    email: None | str | Unset = UNSET
     url: None | str | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
-        email: None | str | Unset
-        if isinstance(self.email, Unset):
-            email = UNSET
-        else:
-            email = self.email
-
         name: None | str | Unset
         if isinstance(self.name, Unset):
             name = UNSET
         else:
             name = self.name
+
+        email: None | str | Unset
+        if isinstance(self.email, Unset):
+            email = UNSET
+        else:
+            email = self.email
 
         url: None | str | Unset
         if isinstance(self.url, Unset):
@@ -48,10 +48,10 @@ class ManifestContact:
         field_dict: dict[str, Any] = {}
 
         field_dict.update({})
-        if email is not UNSET:
-            field_dict["email"] = email
         if name is not UNSET:
             field_dict["name"] = name
+        if email is not UNSET:
+            field_dict["email"] = email
         if url is not UNSET:
             field_dict["url"] = url
 
@@ -61,15 +61,6 @@ class ManifestContact:
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
 
-        def _parse_email(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        email = _parse_email(d.pop("email", UNSET))
-
         def _parse_name(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -78,6 +69,15 @@ class ManifestContact:
             return cast(None | str | Unset, data)
 
         name = _parse_name(d.pop("name", UNSET))
+
+        def _parse_email(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        email = _parse_email(d.pop("email", UNSET))
 
         def _parse_url(data: object) -> None | str | Unset:
             if data is None:
@@ -89,8 +89,8 @@ class ManifestContact:
         url = _parse_url(d.pop("url", UNSET))
 
         manifest_contact = cls(
-            email=email,
             name=name,
+            email=email,
             url=url,
         )
 

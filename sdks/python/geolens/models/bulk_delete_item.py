@@ -17,25 +17,25 @@ T = TypeVar("T", bound="BulkDeleteItem")
 class BulkDeleteItem:
     """
     Attributes:
-        confirm_title (str):
         dataset_id (UUID):
+        confirm_title (str):
     """
 
-    confirm_title: str
     dataset_id: UUID
+    confirm_title: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        confirm_title = self.confirm_title
-
         dataset_id = str(self.dataset_id)
+
+        confirm_title = self.confirm_title
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "confirm_title": confirm_title,
                 "dataset_id": dataset_id,
+                "confirm_title": confirm_title,
             }
         )
 
@@ -44,13 +44,13 @@ class BulkDeleteItem:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        confirm_title = d.pop("confirm_title")
-
         dataset_id = UUID(d.pop("dataset_id"))
 
+        confirm_title = d.pop("confirm_title")
+
         bulk_delete_item = cls(
-            confirm_title=confirm_title,
             dataset_id=dataset_id,
+            confirm_title=confirm_title,
         )
 
         bulk_delete_item.additional_properties = d
