@@ -450,9 +450,10 @@ def test_external_db_url_strips_the_sqlalchemy_driver_suffix(
     db = clean_audit_table
     _seed_rows(db, days_ago=[200, 150])
 
-    password = quote(settings.postgres_password.get_secret_value(), safe="")
+    # No password in the URL: --db-url refuses one outright. The ambient
+    # PGPASSWORD from _pg_env authenticates, which is the documented pairing.
     db_url = (
-        f"postgresql+asyncpg://{settings.postgres_user}:{password}"
+        f"postgresql+asyncpg://{settings.postgres_user}"
         f"@{settings.postgres_host}:{settings.postgres_port}/{db}"
     )
     archive_dir = tmp_path / "archives"
@@ -1019,10 +1020,9 @@ def test_no_secret_reaches_a_child_command_line(
         CONFIRM_PHRASE,
         "--archive-dir",
         str(archive_dir),
-        "--db-url",
-        db_url,
         extra_path_dirs=[recorder_dir],
         env_overrides={
+            "GEOLENS_RETENTION_DB_URL": db_url,
             "RETENTION_ARGV_LOG": str(log),
             "RETENTION_REAL_PSQL": shutil.which("psql"),
         },
@@ -1086,8 +1086,7 @@ def test_a_wrong_password_in_the_url_fails_to_connect(
         CONFIRM_PHRASE,
         "--archive-dir",
         str(tmp_path / "archives"),
-        "--db-url",
-        db_url,
+        env_overrides={"GEOLENS_RETENTION_DB_URL": db_url},
     )
 
     assert result.returncode != 0
@@ -1119,8 +1118,7 @@ def test_a_malformed_percent_encoded_password_is_refused(
         CONFIRM_PHRASE,
         "--archive-dir",
         str(tmp_path / "archives"),
-        "--db-url",
-        db_url,
+        env_overrides={"GEOLENS_RETENTION_DB_URL": db_url},
     )
 
     assert result.returncode != 0
@@ -1161,14 +1159,19 @@ def test_db_url_from_the_environment_avoids_the_scripts_own_argv(
 
     assert result.returncode == 0, result.stderr
     assert "Connecting via GEOLENS_RETENTION_DB_URL" in result.stdout
-    # No warning, because nothing secret was typed on a command line.
-    assert "visible in this script's own command line" not in result.stderr
     assert _row_count(db) == 0
 
 
-def test_a_password_on_the_command_line_warns_about_it(
+def test_a_password_on_the_command_line_is_refused(
     password_db, curl_stub_dir, tmp_path
 ):
+    """--db-url must not carry a password at all.
+
+    Moving it out of psql's command line achieves nothing while it sits in the
+    script's own, which is world-readable and outlives every psql child. There
+    is no way to retract that from inside, so the only fix is to decline the
+    input and name the two carriers that do work.
+    """
     db, role = password_db
     _seed_rows(db, days_ago=[200])
 
@@ -1189,9 +1192,12 @@ def test_a_password_on_the_command_line_warns_about_it(
         db_url,
     )
 
-    assert result.returncode == 0, result.stderr
-    assert "visible in this script's own command line" in result.stderr
+    assert result.returncode != 0
+    assert "refusing a password in --db-url" in result.stderr
+    # Both documented ways out are named, so the message is actionable alone.
     assert "GEOLENS_RETENTION_DB_URL" in result.stderr
+    assert "PGPASSWORD" in result.stderr
+    assert _row_count(db) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -1269,8 +1275,7 @@ def test_credential_that_cannot_bypass_rls_fails_loudly(
         CONFIRM_PHRASE,
         "--archive-dir",
         str(tmp_path / "archives"),
-        "--db-url",
-        runtime_url,
+        env_overrides={"GEOLENS_RETENTION_DB_URL": runtime_url},
     )
 
     assert result.returncode != 0

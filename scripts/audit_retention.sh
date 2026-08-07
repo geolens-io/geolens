@@ -67,7 +67,6 @@ WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
 
 say() { printf '%s\n' "$*"; }
-warn() { printf 'WARNING: %s\n' "$*" >&2; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
 need_command() {
@@ -109,9 +108,10 @@ Options:
   --db-url URL      Connect to an external/managed Postgres with this libpq URL
                     instead of the bundled db container. A SQLAlchemy driver
                     suffix (postgresql+asyncpg://) is stripped automatically.
-                    A password in the URL is moved out of psql's command line,
-                    but it is still visible in THIS script's own command line;
-                    prefer GEOLENS_RETENTION_DB_URL or PGPASSWORD.
+                    Must NOT contain a password: command lines are readable by
+                    every local account. Use GEOLENS_RETENTION_DB_URL for a URL
+                    with a password, or PGPASSWORD alongside a password-free
+                    --db-url. A password here is refused, not warned about.
   --batch-size N    Rows per delete statement (default: 5000).
   --max-rows N      Rows per export call (default: 100000, the endpoint's cap).
                     Windows larger than this are split automatically.
@@ -123,7 +123,8 @@ Environment:
   ADMIN_TOKEN       Required. Bearer token for the export endpoint.
   GEOLENS_RETENTION_DB_URL
                     Same as --db-url, but never appears in any command line.
-                    Prefer it when the URL carries a password.
+                    REQUIRED when the URL carries a password; --db-url refuses
+                    one.
   PGHOST PGPORT PGUSER PGDATABASE PGPASSWORD PGSERVICE
                     Used when no URL is given; setting PGHOST or PGSERVICE is
                     what selects the direct-connection mode.
@@ -274,6 +275,25 @@ if [ -n "$DB_URL" ] || [ -n "${GEOLENS_RETENTION_DB_URL:-}" ]; then
         *)   _uri_user="$_userinfo"; _pw_enc="" ;;
     esac
 
+    if [ -n "$_pw_enc" ] && [ "$CONN_DESC" = "--db-url" ]; then
+        # fix(#1248): refused, not warned. Moving the password out of psql's
+        # command line accomplishes nothing while it sits in THIS script's own
+        # command line, which is world-readable through `ps` and outlives every
+        # psql child it spawns -- making it the longest exposure of the three,
+        # not a lesser one. There is nothing to retract it with, so the only
+        # fix is not to accept it here.
+        die "refusing a password in --db-url: it is visible in this script's own command line, for the whole run, to every local account on this host.
+Use one of these instead, both of which keep it off every command line:
+
+  export GEOLENS_RETENTION_DB_URL='postgresql://user:password@host:5432/dbname'
+  $SCRIPT_NAME --api-url ... (no --db-url)
+
+or:
+
+  export PGPASSWORD='the-password'
+  $SCRIPT_NAME --db-url 'postgresql://user@host:5432/dbname' --api-url ..."
+    fi
+
     if [ -n "$_pw_enc" ]; then
         # The URI form percent-encodes; PGPASSWORD wants the raw bytes. Decode
         # by turning every %XX into \xXX and letting bash's printf %b do it.
@@ -303,14 +323,6 @@ Pass the URL without a password and put the password in PGPASSWORD instead."
             PG_URI="${_scheme}${_hostpart}${_uri_rest}"
         fi
 
-        if [ "$CONN_DESC" = "--db-url" ]; then
-            # Honest about the half this script cannot fix: its OWN argv still
-            # holds whatever was typed, for the whole run, which is longer than
-            # any psql child lives.
-            warn "the password given to --db-url is visible in this script's own command line for the duration of the run.
-It has been kept out of every psql command line, but to keep it out of \`ps\` entirely, pass the URL
-without a password and set PGPASSWORD, or put the whole URL in GEOLENS_RETENTION_DB_URL."
-        fi
     fi
 
     PSQL=(psql "$PG_URI")
