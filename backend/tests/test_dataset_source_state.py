@@ -1,0 +1,770 @@
+"""Source-origin and refresh-state fields on Dataset (#1218, ADR-002).
+
+Four properties this suite exists to hold:
+
+1. The origin-pointer columns are CLOSED to the metadata PATCH. Two URL-ish
+   fields now live on `datasets` — user-editable `source_url` and
+   system-managed `origin_uri` — and the whole design rests on the second
+   being unreachable from a request body.
+2. `origin_ref` can only ever hold the keys its kind declares, which is what
+   keeps a credential out of the binding (ADR-002 invariant 4) and external
+   PostGIS federation out of v1 (gate 2).
+3. NULL is the only stored spelling of "never determined"; "unknown" exists
+   only on the wire.
+4. The migration's backfill produces the documented shapes. The DB test runs
+   the migration's OWN statements rather than a copy of them.
+
+Each refusal is paired with an admission: a guard that starts rejecting valid
+input fails silently otherwise, because nothing in a refusal assertion notices
+it.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import uuid
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import pytest
+import sqlalchemy as sa
+from httpx import AsyncClient
+
+import app.modules.catalog.datasets.domain.models  # noqa: F401
+from app.core.db import Base
+from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.platform.dataset_origin import (
+    ORIGIN_KINDS,
+    ORIGIN_REF_KEYS,
+    SCHEMA_DRIFT_STATUS_VALUES,
+    SERVICE_SOURCE_FORMATS,
+    SOURCE_HEALTH_VALUES,
+    UNKNOWN,
+    build_origin_ref,
+    classify_origin,
+    project_unknown,
+    set_dataset_origin,
+    set_postgis_origin,
+)
+from tests.factories import create_dataset as _create_dataset, get_user_id
+
+# Formats that are neither service, nor stac, nor created — every one of them
+# means "GeoLens holds a copy of bytes somebody uploaded".
+_UPLOAD_FORMATS = (
+    "geojson",
+    "shapefile",
+    "shp",
+    "gpkg",
+    "csv",
+    "kml",
+    "gml",
+    "fgdb",
+    "geotiff",
+    "parquet",
+    "json",
+    "xlsx",
+    "xls",
+)
+
+# Key names an attacker or a careless caller would most plausibly try to smuggle
+# through. None appears in any kind's allowlist, so all of them must raise.
+_SECRET_SHAPED_KEYS = (
+    "token",
+    "password",
+    "authorization",
+    "api_key",
+    "secret",
+    "access_key",
+    "credentials",
+)
+
+# The seven columns this issue adds. Named once so the PATCH test cannot
+# quietly cover fewer fields than it claims.
+_SOURCE_STATE_COLUMNS = (
+    "origin_uri",
+    "origin_ref",
+    "last_refreshed_at",
+    "last_checked_at",
+    "source_health",
+    "source_health_detail",
+    "schema_drift_status",
+)
+
+
+def _load_migration():
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "alembic"
+        / "versions"
+        / "0036_dataset_source_state.py"
+    )
+    spec = importlib.util.spec_from_file_location("migration_0036", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+# ---------------------------------------------------------------------------
+# Origin classification — derived, never stored
+# ---------------------------------------------------------------------------
+
+
+class TestClassifyOrigin:
+    @pytest.mark.parametrize("source_format", sorted(SERVICE_SOURCE_FORMATS))
+    def test_service_formats_classify_as_service(self, source_format: str) -> None:
+        assert classify_origin(source_format, "vector_dataset") == "service"
+
+    @pytest.mark.parametrize("source_format", _UPLOAD_FORMATS)
+    def test_upload_formats_classify_as_upload(self, source_format: str) -> None:
+        assert classify_origin(source_format, "vector_dataset") == "upload"
+
+    def test_stac_and_created_keep_their_own_names(self) -> None:
+        assert classify_origin("stac", "raster_dataset") == "stac"
+        assert classify_origin("created", "vector_dataset") == "created"
+
+    def test_absent_source_format_means_referenced_in_place(self) -> None:
+        """Registration stores no source_format — null is postgis, not unknown."""
+        assert classify_origin(None, "vector_dataset") == "postgis"
+        assert classify_origin("", "vector_dataset") == "postgis"
+
+    def test_record_type_defaults_to_vector_dataset(self) -> None:
+        assert classify_origin("gpkg") == "upload"
+
+    @pytest.mark.parametrize("record_type", ["collection", "vrt_dataset"])
+    def test_composed_and_container_types_have_no_origin(
+        self, record_type: str
+    ) -> None:
+        """A VRT is built from other datasets; a collection has no dataset row."""
+        assert classify_origin(None, record_type) is None
+        assert classify_origin("geotiff", record_type) is None
+
+    def test_raster_record_type_does_not_suppress_its_origin(self) -> None:
+        """The other direction: only collection/vrt are origin-less."""
+        assert classify_origin("geotiff", "raster_dataset") == "upload"
+        assert classify_origin("gpkg", "table") == "upload"
+
+    def test_every_classification_is_a_declared_kind(self) -> None:
+        formats = [None, "created", "stac", *SERVICE_SOURCE_FORMATS, *_UPLOAD_FORMATS]
+        for source_format in formats:
+            assert classify_origin(source_format, "vector_dataset") in ORIGIN_KINDS
+
+
+# ---------------------------------------------------------------------------
+# origin_ref allowlist — invariant 4 and gate 2
+# ---------------------------------------------------------------------------
+
+
+class TestOriginRefAllowlist:
+    @pytest.mark.parametrize("kind", sorted(ORIGIN_REF_KEYS))
+    @pytest.mark.parametrize("key", _SECRET_SHAPED_KEYS)
+    def test_secret_shaped_keys_are_rejected_for_every_kind(
+        self, kind: str, key: str
+    ) -> None:
+        with pytest.raises(ValueError, match="rejects key"):
+            build_origin_ref(kind, **{key: "hunter2"})
+
+    @pytest.mark.parametrize("kind", sorted(ORIGIN_REF_KEYS))
+    def test_declared_keys_are_still_accepted(self, kind: str) -> None:
+        """The admission half: a rejection rule that over-fires is silent."""
+        fields = {key: f"value-{key}" for key in ORIGIN_REF_KEYS[kind]}
+        ref = build_origin_ref(kind, **fields)
+        if not fields:
+            # `created` declares no keys and therefore has no payload at all.
+            assert ref is None
+            return
+        assert ref is not None
+        assert ref["kind"] == kind
+        assert set(ref) == {"kind", *fields}
+
+    @pytest.mark.parametrize(
+        "key", ["host", "port", "dsn", "username", "connection_string", "database"]
+    )
+    def test_postgis_ref_admits_no_connection_detail(self, key: str) -> None:
+        """Gate 2: federation needs a new origin kind, not a wider blob."""
+        with pytest.raises(ValueError, match="rejects key"):
+            build_origin_ref("postgis", **{key: "db.internal"})
+
+    def test_postgis_ref_holds_only_the_table_name(self) -> None:
+        assert ORIGIN_REF_KEYS["postgis"] == frozenset({"table_name"})
+        assert build_origin_ref("postgis", table_name="data.parcels") == {
+            "kind": "postgis",
+            "table_name": "data.parcels",
+        }
+
+    def test_absent_values_are_omitted_not_stored_as_null(self) -> None:
+        """A file ingested before hashing existed simply has no file_hash key."""
+        assert build_origin_ref("upload", filename="parcels.gpkg", file_hash=None) == {
+            "kind": "upload",
+            "filename": "parcels.gpkg",
+        }
+
+    def test_created_carries_no_payload(self) -> None:
+        assert build_origin_ref("created") is None
+
+    def test_unknown_kind_raises(self) -> None:
+        with pytest.raises(ValueError, match="unknown origin kind"):
+            build_origin_ref("federated_postgis", table_name="x")
+
+    def test_service_ref_keeps_url_and_layer_id_separate(self) -> None:
+        ref = build_origin_ref(
+            "service",
+            service_type="arcgis_featureserver",
+            url="https://example.test/arcgis/rest/services/Parcels/FeatureServer",
+            layer_id="0",
+        )
+        assert ref == {
+            "kind": "service",
+            "layer_id": "0",
+            "service_type": "arcgis_featureserver",
+            "url": "https://example.test/arcgis/rest/services/Parcels/FeatureServer",
+        }
+
+
+class TestSetDatasetOrigin:
+    def test_writes_both_columns(self) -> None:
+        dataset = Dataset(record_id=uuid.uuid4(), table_name="ds_x")
+        set_dataset_origin(
+            dataset, "stac", uri="https://example.test/a.tif", asset_href="https://e/a"
+        )
+        assert dataset.origin_uri == "https://example.test/a.tif"
+        assert dataset.origin_ref == {"kind": "stac", "asset_href": "https://e/a"}
+
+    def test_upload_has_no_uri(self) -> None:
+        dataset = Dataset(record_id=uuid.uuid4(), table_name="ds_x")
+        set_dataset_origin(dataset, "upload", filename="parcels.gpkg")
+        assert dataset.origin_uri is None
+        assert dataset.origin_ref == {"kind": "upload", "filename": "parcels.gpkg"}
+
+    def test_unknown_kind_raises_before_touching_the_row(self) -> None:
+        dataset = Dataset(record_id=uuid.uuid4(), table_name="ds_x")
+        with pytest.raises(ValueError, match="unknown origin kind"):
+            set_dataset_origin(dataset, "sftp", uri="sftp://host/x")
+        assert dataset.origin_uri is None
+        assert dataset.origin_ref is None
+
+    def test_postgis_pointer_and_ref_name_the_same_table(self) -> None:
+        """Two spellings of one fact; set_postgis_origin owns keeping them equal."""
+        dataset = Dataset(record_id=uuid.uuid4(), table_name="parcels")
+        set_postgis_origin(dataset, "parcels", None)
+        assert dataset.origin_uri == "postgis://data.parcels"
+        assert dataset.origin_ref == {"kind": "postgis", "table_name": "data.parcels"}
+        assert dataset.origin_uri == f"postgis://{dataset.origin_ref['table_name']}"
+
+    def test_postgis_origin_follows_the_ingest_schema_resolver(
+        self, monkeypatch
+    ) -> None:
+        """A tenant's table lives in its own schema and the pointer must say so.
+
+        Single-tenant is the default here, and `tenant_data_schema` returns
+        the shared `data` schema in that mode whatever tenant_id holds, so
+        asserting only the default would never exercise the tenant branch.
+        """
+        monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
+        tenant = uuid.UUID("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+        dataset = Dataset(record_id=uuid.uuid4(), table_name="parcels")
+        set_postgis_origin(dataset, "parcels", tenant)
+        assert dataset.origin_uri == (
+            "postgis://data_t_aaaaaaaa_bbbb_cccc_dddd_eeeeeeeeeeee.parcels"
+        )
+        assert dataset.origin_ref["table_name"] == (
+            "data_t_aaaaaaaa_bbbb_cccc_dddd_eeeeeeeeeeee.parcels"
+        )
+
+
+# ---------------------------------------------------------------------------
+# NULL is the only stored spelling of "never determined"
+# ---------------------------------------------------------------------------
+
+
+class TestUnknownProjection:
+    def test_unknown_is_not_storable(self) -> None:
+        assert UNKNOWN not in SOURCE_HEALTH_VALUES
+        assert UNKNOWN not in SCHEMA_DRIFT_STATUS_VALUES
+
+    def test_check_constraints_exclude_unknown(self) -> None:
+        table = Base.metadata.tables["catalog.datasets"]
+        constraints = {
+            c.name: str(c.sqltext)
+            for c in table.constraints
+            if isinstance(c, sa.CheckConstraint) and c.name
+        }
+        for name in ("chk_datasets_source_health", "chk_datasets_schema_drift_status"):
+            assert f"'{UNKNOWN}'" not in constraints[name]
+
+    def test_null_projects_to_unknown_and_values_pass_through(self) -> None:
+        assert project_unknown(None) == UNKNOWN
+        for value in (*SOURCE_HEALTH_VALUES, *SCHEMA_DRIFT_STATUS_VALUES):
+            assert project_unknown(value) == value
+
+
+# ---------------------------------------------------------------------------
+# ORM shape and migration structure — no database required
+# ---------------------------------------------------------------------------
+
+
+class TestOrmAndMigrationShape:
+    def test_orm_declares_every_source_state_column_as_nullable(self) -> None:
+        table = Base.metadata.tables["catalog.datasets"]
+        for name in _SOURCE_STATE_COLUMNS:
+            assert name in table.columns, f"missing column {name}"
+            assert table.columns[name].nullable is True
+
+    def test_health_and_drift_check_constraints_match_the_adr(self) -> None:
+        table = Base.metadata.tables["catalog.datasets"]
+        constraints = {
+            c.name: " ".join(str(c.sqltext).split())
+            for c in table.constraints
+            if isinstance(c, sa.CheckConstraint) and c.name
+        }
+        assert constraints["chk_datasets_source_health"] == (
+            "source_health IS NULL OR source_health IN "
+            "('healthy', 'missing', 'inaccessible')"
+        )
+        assert constraints["chk_datasets_schema_drift_status"] == (
+            "schema_drift_status IS NULL OR schema_drift_status IN ('none', 'drifted')"
+        )
+
+    def test_origin_uri_partial_index_exists(self) -> None:
+        table = Base.metadata.tables["catalog.datasets"]
+        matches = [i for i in table.indexes if i.name == "ix_datasets_origin_uri"]
+        assert len(matches) == 1
+        index = matches[0]
+        assert [c.name for c in index.columns] == ["origin_uri"]
+        predicate = index.dialect_options["postgresql"]["where"]
+        assert str(predicate) == "origin_uri IS NOT NULL"
+
+    def test_migration_chains_onto_the_quality_score_drop(self) -> None:
+        module = _load_migration()
+        assert module.revision == "0036_dataset_source_state"
+        assert module.down_revision == "0035_drop_quality_score_numeric"
+
+    def test_downgrade_drops_every_column_the_upgrade_adds(self) -> None:
+        module = _load_migration()
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "alembic"
+            / "versions"
+            / "0036_dataset_source_state.py"
+        ).read_text(encoding="utf-8")
+        for name in _SOURCE_STATE_COLUMNS:
+            assert f'sa.Column("{name}"' in source, f"upgrade never adds {name}"
+            assert f'"{name}",' in source, f"downgrade never drops {name}"
+        assert len(module.backfill_statements()) == 5
+
+
+# ---------------------------------------------------------------------------
+# The PATCH write path stays closed
+# ---------------------------------------------------------------------------
+
+
+_SENTINEL_STATE = {
+    "origin_uri": "https://origin.test/services/Parcels/FeatureServer/0",
+    "origin_ref": {"kind": "service", "service_type": "wfs", "url": "https://o.test"},
+    "last_refreshed_at": datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc),
+    "last_checked_at": datetime(2026, 1, 2, 3, 4, 6, tzinfo=timezone.utc),
+    "source_health": "healthy",
+    "source_health_detail": "probe ok",
+    "schema_drift_status": "none",
+}
+
+_ATTACKER_BODY = {
+    "origin_uri": "https://attacker.test/evil",
+    "origin_ref": {"kind": "service", "token": "leaked"},
+    "last_refreshed_at": "2030-01-01T00:00:00Z",
+    "last_checked_at": "2030-01-01T00:00:00Z",
+    "source_health": "missing",
+    "source_health_detail": "attacker supplied",
+    "schema_drift_status": "drifted",
+    "origin": "postgis",
+}
+
+
+class TestPatchCannotReachSourceState:
+    async def test_patch_ignores_every_source_state_field(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ) -> None:
+        """Refusal AND admission in one request: the editable field must land."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Origin PATCH Guard",
+            source_format="wfs",
+        )
+        for attr, value in _SENTINEL_STATE.items():
+            setattr(ds, attr, value)
+        ds.source_url = "https://origin.test/describe"
+        await test_db_session.commit()
+
+        resp = await client.patch(
+            f"/datasets/{ds.id}",
+            json={
+                **_ATTACKER_BODY,
+                # The control: a field that IS in _DATASET_FIELD_MAP. Without
+                # it, a PATCH rejected wholesale would pass this test.
+                "source_url": "https://edited.test/describe",
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["source_url"] == "https://edited.test/describe"
+
+        await test_db_session.refresh(ds)
+        for attr, value in _SENTINEL_STATE.items():
+            assert getattr(ds, attr) == value, f"PATCH mutated {attr}"
+
+    async def test_dataset_meta_schema_declares_no_source_state_field(self) -> None:
+        """Structural half: the fields are absent from the request model too.
+
+        The runtime test above proves today's handler ignores them. This one
+        keeps a future field from being added to DatasetMeta and silently
+        wired through _apply_simple_field_assignments.
+        """
+        from app.modules.catalog.datasets.domain.schemas import DatasetMeta
+
+        for name in (*_SOURCE_STATE_COLUMNS, "origin"):
+            assert name not in DatasetMeta.model_fields
+
+
+class TestResponseExposure:
+    async def test_never_probed_dataset_reports_unknown(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ) -> None:
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Never Probed",
+            source_format="gpkg",
+        )
+        await test_db_session.commit()
+
+        resp = await client.get(f"/datasets/{ds.id}", headers=admin_auth_header)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["source_health"] == UNKNOWN
+        assert body["schema_drift_status"] == UNKNOWN
+        assert body["last_refreshed_at"] is None
+        assert body["origin_uri"] is None
+        # Computed, not stored — the column does not exist.
+        assert body["origin"] == "upload"
+
+    async def test_stored_state_reaches_the_response(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ) -> None:
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Probed Service",
+            source_format="arcgis_featureserver",
+        )
+        for attr, value in _SENTINEL_STATE.items():
+            setattr(ds, attr, value)
+        await test_db_session.commit()
+
+        resp = await client.get(f"/datasets/{ds.id}", headers=admin_auth_header)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["origin"] == "service"
+        assert body["origin_uri"] == _SENTINEL_STATE["origin_uri"]
+        assert body["origin_ref"] == _SENTINEL_STATE["origin_ref"]
+        assert body["source_health"] == "healthy"
+        assert body["schema_drift_status"] == "none"
+        assert body["source_health_detail"] == "probe ok"
+        assert body["last_refreshed_at"].startswith("2026-01-02T03:04:05")
+
+
+# ---------------------------------------------------------------------------
+# Backfill, against pre-migration-shaped rows
+# ---------------------------------------------------------------------------
+
+
+async def _pre_migration_dataset(session, *, created_by, **kwargs) -> Dataset:
+    """A dataset row as it looked before 0036 ran: source columns, no origin."""
+    ds = await _create_dataset(session, created_by=created_by, **kwargs)
+    for name in _SOURCE_STATE_COLUMNS:
+        setattr(ds, name, None)
+    await session.flush()
+    return ds
+
+
+class TestBackfill:
+    async def test_backfill_derives_each_origin_shape(self, test_db_session) -> None:
+        """Runs migration 0036's OWN statements, then rolls them back.
+
+        The statements are unscoped UPDATEs over catalog.datasets — that is
+        what a migration is — so they run inside a savepoint that is discarded.
+        Leaving them committed would rewrite every other test's rows on this
+        shared per-worker database.
+        """
+        module = _load_migration()
+        admin_id = await get_user_id(test_db_session, "admin")
+
+        arcgis = await _pre_migration_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Backfill ArcGIS",
+            source_format="arcgis_featureserver",
+        )
+        arcgis.source_url = (
+            "https://gis.test/arcgis/rest/services/Parcels/FeatureServer/7"
+        )
+
+        wfs = await _pre_migration_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Backfill WFS",
+            source_format="wfs",
+        )
+        wfs.source_url = "https://gis.test/geoserver/wfs"
+
+        # A user PATCHed source_url to prose before the migration ran. A
+        # pointer that does not parse must stay NULL rather than be
+        # backfilled into a refresh that can never work.
+        prose = await _pre_migration_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Backfill Prose",
+            source_format="wfs",
+        )
+        prose.source_url = "Downloaded from the county GIS portal in March"
+
+        stac = await _pre_migration_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Backfill STAC",
+            source_format="stac",
+        )
+        stac.source_url = "https://stac.test/items/abc/asset.tif"
+
+        registered = await _pre_migration_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Backfill Registered",
+            source_format=None,
+            table_name="backfill_registered_tbl",
+        )
+
+        upload = await _pre_migration_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Backfill Upload",
+            source_format="gpkg",
+            source_filename="parcels.gpkg",
+        )
+
+        created = await _pre_migration_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Backfill Created",
+            source_format="created",
+        )
+
+        # Registered-shaped catalog row whose physical table is gone. A
+        # pointer at a table that does not exist is worse than none, because
+        # NULL at least reads as "unknown".
+        orphan = await _pre_migration_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Backfill Orphan",
+            source_format=None,
+            table_name="backfill_orphan_tbl_absent",
+        )
+        await test_db_session.flush()
+
+        savepoint = await test_db_session.begin_nested()
+        try:
+            # The postgis backfill reads the physical table's schema out of
+            # pg_class rather than computing one from tenant_id, so the table
+            # has to exist. DDL is transactional, so the savepoint rollback
+            # takes it away again.
+            await test_db_session.execute(
+                sa.text("CREATE TABLE data.backfill_registered_tbl (id integer)")
+            )
+            for statement in module.backfill_statements():
+                await test_db_session.execute(statement)
+
+            rows = {
+                row.id: row
+                for row in (
+                    await test_db_session.execute(
+                        sa.text(
+                            "SELECT id, origin_uri, origin_ref, last_refreshed_at "
+                            "FROM catalog.datasets WHERE id = ANY(:ids)"
+                        ).bindparams(
+                            sa.bindparam(
+                                "ids",
+                                value=[
+                                    arcgis.id,
+                                    wfs.id,
+                                    prose.id,
+                                    stac.id,
+                                    registered.id,
+                                    upload.id,
+                                    created.id,
+                                    orphan.id,
+                                ],
+                            )
+                        )
+                    )
+                ).all()
+            }
+
+            arcgis_row = rows[arcgis.id]
+            assert arcgis_row.origin_uri == arcgis.source_url
+            assert arcgis_row.origin_ref == {
+                "kind": "service",
+                "service_type": "arcgis_featureserver",
+                "url": "https://gis.test/arcgis/rest/services/Parcels/FeatureServer",
+                "layer_id": "7",
+            }
+
+            wfs_row = rows[wfs.id]
+            assert wfs_row.origin_uri == wfs.source_url
+            assert wfs_row.origin_ref == {
+                "kind": "service",
+                "service_type": "wfs",
+                "url": "https://gis.test/geoserver/wfs",
+            }
+            assert "layer_id" not in wfs_row.origin_ref
+
+            prose_row = rows[prose.id]
+            assert prose_row.origin_uri is None
+            assert prose_row.origin_ref is None
+
+            stac_row = rows[stac.id]
+            assert stac_row.origin_uri == stac.source_url
+            assert stac_row.origin_ref == {
+                "kind": "stac",
+                "asset_href": "https://stac.test/items/abc/asset.tif",
+            }
+
+            registered_row = rows[registered.id]
+            assert registered_row.origin_uri == (
+                "postgis://data.backfill_registered_tbl"
+            )
+            assert registered_row.origin_ref == {
+                "kind": "postgis",
+                "table_name": "data.backfill_registered_tbl",
+            }
+
+            upload_row = rows[upload.id]
+            assert upload_row.origin_uri is None, "an upload has no remote origin"
+            assert upload_row.origin_ref == {
+                "kind": "upload",
+                "filename": "parcels.gpkg",
+            }
+
+            created_row = rows[created.id]
+            assert created_row.origin_uri is None
+            assert created_row.origin_ref is None
+
+            orphan_row = rows[orphan.id]
+            assert orphan_row.origin_uri is None
+            assert orphan_row.origin_ref is None
+
+            # Every row gets a last_refreshed_at floor from its record.
+            for row in rows.values():
+                assert row.last_refreshed_at is not None
+        finally:
+            await savepoint.rollback()
+
+    async def test_backfill_prefers_the_newest_version_upload(
+        self, test_db_session
+    ) -> None:
+        """Version history beats records.created_at — a re-upload IS a refresh."""
+        from app.modules.catalog.collections.models import DatasetVersion
+
+        module = _load_migration()
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _pre_migration_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Backfill Versioned",
+            source_format="gpkg",
+            source_filename="v.gpkg",
+        )
+        newest = datetime.now(timezone.utc) + timedelta(days=1)
+        test_db_session.add_all(
+            [
+                DatasetVersion(
+                    dataset_id=ds.id,
+                    version_number=1,
+                    uploaded_at=newest - timedelta(days=2),
+                    file_hash="older-hash",
+                ),
+                DatasetVersion(
+                    dataset_id=ds.id,
+                    version_number=2,
+                    uploaded_at=newest,
+                    file_hash="newest-hash",
+                ),
+            ]
+        )
+        await test_db_session.flush()
+
+        savepoint = await test_db_session.begin_nested()
+        try:
+            for statement in module.backfill_statements():
+                await test_db_session.execute(statement)
+            row = (
+                await test_db_session.execute(
+                    sa.text(
+                        "SELECT origin_ref, last_refreshed_at "
+                        "FROM catalog.datasets WHERE id = :id"
+                    ).bindparams(sa.bindparam("id", value=ds.id))
+                )
+            ).one()
+            assert row.origin_ref["file_hash"] == "newest-hash"
+            assert row.last_refreshed_at == newest
+        finally:
+            await savepoint.rollback()
+
+    async def test_backfill_leaves_vrt_datasets_alone(self, test_db_session) -> None:
+        """A VRT stores a null source_format too; record_type is what excludes it."""
+        module = _load_migration()
+        admin_id = await get_user_id(test_db_session, "admin")
+        record = Record(
+            title="Backfill VRT",
+            record_type="vrt_dataset",
+            visibility="private",
+            record_status="published",
+            created_by=admin_id,
+        )
+        test_db_session.add(record)
+        await test_db_session.flush()
+        vrt = Dataset(
+            record_id=record.id,
+            table_name=f"vrt_{uuid.uuid4().hex[:12]}",
+            source_format=None,
+        )
+        test_db_session.add(vrt)
+        await test_db_session.flush()
+
+        savepoint = await test_db_session.begin_nested()
+        try:
+            for statement in module.backfill_statements():
+                await test_db_session.execute(statement)
+            row = (
+                await test_db_session.execute(
+                    sa.text(
+                        "SELECT origin_uri, origin_ref FROM catalog.datasets "
+                        "WHERE id = :id"
+                    ).bindparams(sa.bindparam("id", value=vrt.id))
+                )
+            ).one()
+            assert row.origin_uri is None
+            assert row.origin_ref is None
+        finally:
+            await savepoint.rollback()

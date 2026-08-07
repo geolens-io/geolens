@@ -28,6 +28,7 @@ from app.modules.catalog.datasets.domain.models import (
     RecordKeyword,
 )
 from app.core.dependencies import get_db
+from app.platform.dataset_origin import set_dataset_origin
 from app.platform.extensions import get_catalog_port
 from app.modules.catalog.sources.adapters.stac import (
     connect_stac_api,
@@ -577,6 +578,17 @@ async def stac_import(
                     source_url=item.data_asset_href,
                     source_filename=item.id,
                     srid=item.epsg,
+                )
+                # feat(#1218): system-managed origin pointer. The asset href is
+                # also what the duplicate-source guard keys on, so pointing
+                # origin_uri at it keeps that guard identical when ADR-002
+                # Decision 6 re-keys it off the PATCHable source_url.
+                set_dataset_origin(
+                    dataset,
+                    "stac",
+                    uri=item.data_asset_href,
+                    asset_href=item.data_asset_href,
+                    collection_id=item.collection,
                 )
                 db.add(dataset)
                 await db.flush()

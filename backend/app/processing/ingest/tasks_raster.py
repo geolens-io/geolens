@@ -9,6 +9,7 @@ import structlog
 from app.core.db.tenant_session import current_tenant_var, tenant_task
 from app.core.tenancy import is_multi_tenant
 from app.platform.cache.tiles import invalidate_catalog_cache
+from app.platform.dataset_origin import set_dataset_origin
 from app.platform.jobs.heartbeat import (
     claim_job_attempt_and_start_heartbeat,
     require_ingest_job_update,
@@ -163,6 +164,10 @@ async def create_raster_dataset(
         source_filename=source_filename,
         srid=meta.get("epsg"),
     )
+    # feat(#1218): a raster dataset IS the COG; the pre-conversion upload is a
+    # transient input, so the origin is the uploaded file and there is no
+    # remote URI to point at (ADR-002 Decision 7).
+    set_dataset_origin(dataset, "upload", filename=source_filename)
     session.add(dataset)
     await session.flush()
 

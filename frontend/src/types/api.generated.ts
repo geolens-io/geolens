@@ -7287,10 +7287,20 @@ export interface components {
              * @description ISO 639-1 language code, e.g. en, fr
              */
             language?: string | null;
+            /**
+             * Last Checked At
+             * @description Last time GeoLens contacted the origin at all, whether the attempt succeeded or failed
+             */
+            last_checked_at?: string | null;
             /** Last Edited At */
             last_edited_at?: string | null;
             /** Last Edited By Display */
             last_edited_by_display?: string | null;
+            /**
+             * Last Refreshed At
+             * @description Last committed successful refresh — not the last attempt
+             */
+            last_refreshed_at?: string | null;
             /** License */
             license?: string | null;
             /**
@@ -7308,6 +7318,23 @@ export interface components {
              * @description Number of coordinate dimensions (2, 3, or 4)
              */
             n_dims?: number | null;
+            /**
+             * Origin
+             * @description How the data entered the catalog: upload, postgis, service, stac, or created. Computed from source_format and record_type, not stored; null for collections and VRTs, which have no origin of their own.
+             */
+            origin?: string | null;
+            /**
+             * Origin Ref
+             * @description Typed per-origin payload with a `kind` discriminator, e.g. {"kind": "service", "service_type": "wfs", "url": "...", "layer_id": "0"}. Never contains credentials.
+             */
+            origin_ref?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Origin Uri
+             * @description Machine-readable pointer back to the origin, written only by ingest and refresh. Distinct from source_url, which is editable descriptive metadata. Null for uploads and created datasets.
+             */
+            origin_uri?: string | null;
             /**
              * Original Srid
              * @description EPSG SRID of the uploaded source file
@@ -7345,6 +7372,12 @@ export interface components {
              */
             record_type: string;
             /**
+             * Schema Drift Status
+             * @description none, drifted, or unknown. Set at refresh commit from the schema diff; 'unknown' until a refresh has run.
+             * @default unknown
+             */
+            schema_drift_status: string;
+            /**
              * Sensitivity Classification
              * @description e.g. public, confidential, restricted
              */
@@ -7356,6 +7389,17 @@ export interface components {
              * @description Original file format, e.g. GPKG, SHP
              */
             source_format?: string | null;
+            /**
+             * Source Health
+             * @description healthy, missing, inaccessible, or unknown. 'unknown' means never probed, or an origin kind with nothing to probe.
+             * @default unknown
+             */
+            source_health: string;
+            /**
+             * Source Health Detail
+             * @description Short redacted reason for a non-healthy state
+             */
+            source_health_detail?: string | null;
             /** Source Organization */
             source_organization?: string | null;
             /**

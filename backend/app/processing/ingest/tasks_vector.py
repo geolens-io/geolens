@@ -584,6 +584,9 @@ async def ingest_file(
                     original_srid=srid,
                     user_metadata=um,
                     attempt_id=attempt_uuid,
+                    # feat(#1218): no file_hash — it is computed on the
+                    # re-upload path only, and the allowlist omits absent keys.
+                    origin_ref={"filename": source_filename},
                 )
             )
 
@@ -1014,6 +1017,14 @@ async def ingest_service(
                     user_metadata=um,
                     source_url=dataset_source_url,
                     attempt_id=attempt_uuid,
+                    # feat(#1218): the base URL and layer id stay separate here
+                    # so a refresh can re-address the layer without re-parsing
+                    # the enriched URI. No token: it is per-call and transient.
+                    origin_ref={
+                        "service_type": source_format,
+                        "url": source_url,
+                        "layer_id": None if layer_id is None else str(layer_id),
+                    },
                 )
             )
 

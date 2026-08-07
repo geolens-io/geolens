@@ -2109,7 +2109,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # reupload caller reaps on failure) plus draining both terminal reapers so
     # a cancellation cannot skip the sweep that follows. Most of it is the
     # docstring correcting r4's claim, which cited the wrong authority.
-    "backend/app/processing/ingest/tasks_common.py": 1796,
+    # feat(#1218): +20 — IngestContext gains origin_ref (the typed per-origin
+    # payload the finalize pipeline writes) and _finalize_ingest stamps the
+    # system-managed origin pointer in the same transaction that creates the
+    # dataset. Most of it is the field's comment recording why the caller
+    # supplies the payload rather than this module inferring one.
+    # Cap 1796 -> 1816, exact.
+    "backend/app/processing/ingest/tasks_common.py": 1816,
     # --- entered by the inclusion rule, fix(#958) -------------------------
     # These five were the ungated modules at or above _RATCHET_INCLUSION_LOC
     # when the rule was written. They arrive at their measured size with no
@@ -2190,7 +2196,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1213 review r4): -1 — the now-dead file_path argument dropped from
     # the call. Ratchet DOWN in the same commit.
     # fix(#1213 review r6): +4 — the caller states its retry semantics.
-    "backend/app/processing/ingest/tasks_vector.py": 1063,
+    # feat(#1218): +11 — both finalize call sites now pass their origin_ref.
+    # The service one keeps the base URL and layer id as separate keys so a
+    # refresh can re-address the layer without re-parsing the enriched URI.
+    # Cap 1063 -> 1074, exact.
+    "backend/app/processing/ingest/tasks_vector.py": 1074,
     "backend/app/modules/auth/oauth/service.py": 1031,
     # fix(#1113 review): +15 — register_existing_table linearizes a
     # pre-existing geom_4326 (savepoint + error contract mirroring the
@@ -2199,7 +2209,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1114): +12 — register_existing_table docstring records the
     # registered-table linear-geometry contract (linearize once at
     # registration, no post-registration policing). Cap 1032 -> 1044.
-    "backend/app/processing/ingest/service.py": 1044,
+    # feat(#1218): +7 — register_existing_table stamps the postgis origin
+    # pointer (schema-qualified table, no connection detail: gate 2 keeps
+    # external federation out of v1). The URI and the ref's table_name are two
+    # spellings of one fact, so set_postgis_origin composes both and this call
+    # site stays one line. Cap 1044 -> 1051, exact.
+    "backend/app/processing/ingest/service.py": 1051,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.
@@ -2257,7 +2272,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # geometry preview runs, unlike select_by_location's separate uncapped
     # count query) now that the intersect branch actually receives bbox.
     # 1209 -> 1215.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1215,
+    # feat(#1218): +56 — the eight read-only source-state fields on
+    # DatasetResponse. Seven mirror the new columns; `origin` is computed at
+    # the boundary rather than stored, so its description has to say so or a
+    # reader will go looking for the column. source_health and
+    # schema_drift_status carry the NULL -> "unknown" projection, which is
+    # only discoverable from the description. Cap 1215 -> 1271, exact.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1271,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch

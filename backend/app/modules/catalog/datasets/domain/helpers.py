@@ -21,6 +21,7 @@ from app.modules.catalog.sources.provenance import (
     resolve_actor,
 )
 from app.core.geo import extent_to_bbox, wkt_is_geographic
+from app.platform.dataset_origin import classify_origin, project_unknown
 
 
 async def _load_actor_identities(
@@ -203,6 +204,21 @@ def dataset_to_response(
         original_srid=dataset.original_srid,
         current_version=dataset.current_version,
         source_url=dataset.source_url,
+        # feat(#1218): origin is COMPUTED here, not stored — it is fully
+        # determined by source_format and record_type, and a third persisted
+        # value could only ever disagree with the two it derives from. Serving
+        # it retires the frontend's duplicate rule in OriginBadge.tsx and gives
+        # the CLI, MCP server, and SDKs the same answer.
+        origin=classify_origin(dataset.source_format, record_type),
+        origin_uri=dataset.origin_uri,
+        origin_ref=dataset.origin_ref,
+        last_refreshed_at=dataset.last_refreshed_at,
+        last_checked_at=dataset.last_checked_at,
+        # NULL is the stored spelling of "never determined"; "unknown" is the
+        # wire spelling. Only one of the two is ever storable.
+        source_health=project_unknown(dataset.source_health),
+        source_health_detail=dataset.source_health_detail,
+        schema_drift_status=project_unknown(dataset.schema_drift_status),
         quality_statement=dataset.quality_statement,
         visibility=record.visibility,
         created_by=record.created_by,

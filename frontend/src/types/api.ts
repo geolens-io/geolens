@@ -180,6 +180,18 @@ export type DatasetVisibility = 'public' | 'internal' | 'restricted' | 'private'
 export type RecordStatus = string;
 export type DistributionType = 'download' | 'ogc_features' | 'vector_tiles';
 
+/** feat(#1218): how the data entered the catalog. Distinct from `record_type`
+ *  (what the data is): a vector dataset can be an uploaded file, a registered
+ *  PostGIS table, or a copy pulled from a remote service. The backend computes
+ *  this from source_format + record_type and serves it as `origin`; OriginBadge
+ *  re-exports the type so the rule has one name across the app. */
+export type DatasetOrigin = 'upload' | 'postgis' | 'service' | 'stac' | 'created';
+/** Reuses the VRT member-probe vocabulary so one legend covers both. NULL in the
+ *  database is projected to 'unknown' on the wire — the column stores no such
+ *  literal, so there is exactly one way to spell "never determined". */
+export type SourceHealth = 'healthy' | 'missing' | 'inaccessible' | 'unknown';
+export type SchemaDriftStatus = 'none' | 'drifted' | 'unknown';
+
 /** Response returned by dataset publication-status mutation endpoints. */
 export type StatusUpdateResponse = components['schemas']['StatusUpdateResponse'];
 
@@ -243,6 +255,30 @@ export interface DatasetResponse {
   updated_by: string | null;
   current_version: number;
   source_url: string | null;
+  /** feat(#1218): read-only source-origin & refresh state. All system-managed —
+   * none of these is accepted by PATCH /datasets/{id}/metadata, unlike the
+   * editable `source_url` above.
+   *
+   * `origin` is computed server-side from source_format and record_type. It is
+   * the same rule `datasetOrigin()` in OriginBadge.tsx implements locally; that
+   * local copy is the fallback for endpoints that do not serve this field yet.
+   * Null for collections and VRTs, which have no origin of their own. */
+  origin?: DatasetOrigin | null;
+  /** Machine-readable pointer back to the origin. Null for uploads and created
+   * datasets, which have no remote origin. Distinct from `source_url`. */
+  origin_uri?: string | null;
+  /** Typed per-origin payload, discriminated by `kind`. Never holds credentials. */
+  origin_ref?: Record<string, unknown> | null;
+  /** Last committed successful refresh — not the last attempt. */
+  last_refreshed_at?: string | null;
+  /** Last contact with the origin at all, whether it succeeded or failed. */
+  last_checked_at?: string | null;
+  /** 'unknown' means never probed, or an origin kind with nothing to probe. */
+  source_health?: SourceHealth;
+  /** Short redacted reason for a non-healthy state. */
+  source_health_detail?: string | null;
+  /** 'unknown' until a refresh has run. */
+  schema_drift_status?: SchemaDriftStatus;
   quality_statement: string | null;
   collections: Array<{ id: string; name: string }> | null;
   quality_detail?: {

@@ -2,13 +2,12 @@ import { Database, Globe, Satellite, SquarePen, Upload, type LucideIcon } from '
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import type { DatasetOrigin } from '@/types/api';
 
-/**
- * Dataset origin — how the data entered the catalog. Distinct from
- * `record_type` (what the data is): a vector dataset can be an uploaded
- * file, a registered PostGIS table, or a mirrored remote service.
- */
-export type DatasetOrigin = 'upload' | 'postgis' | 'service' | 'stac' | 'created';
+// feat(#1218): the union moved to types/api.ts, where the backend now serves it
+// as the computed `origin` field. Re-exported here so existing importers keep
+// working and the vocabulary keeps one definition.
+export type { DatasetOrigin };
 
 const SERVICE_FORMATS = new Set(['wfs', 'arcgis_featureserver', 'ogcapi_features']);
 

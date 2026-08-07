@@ -22,6 +22,7 @@ from app.core.async_io import run_in_thread_draining
 from app.core.identity import Identity
 from app.core.config import settings
 from app.core.db.tenant_session import defer_async_with_tenant
+from app.platform.dataset_origin import set_postgis_origin
 from app.platform.extensions import get_processing_port
 from app.processing.ingest.metadata import (
     add_4326_column,
@@ -660,6 +661,12 @@ async def register_existing_table(
         visibility=request.visibility,
         ingestion=ingestion,
     )
+
+    # feat(#1218): registration copies no data and serves from the live table,
+    # so the origin IS that table. Gate 2 (no external PostGIS federation in
+    # v1) is why the ref carries a schema-qualified name and no connection
+    # detail — the allowlist accepts no host, port, DSN, or credential key.
+    set_postgis_origin(dataset, table_name, dataset.tenant_id)
 
     return dataset
 

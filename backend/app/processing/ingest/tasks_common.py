@@ -22,6 +22,7 @@ from app.core.async_io import await_draining
 from procrastinate import App, PsycopgConnector
 
 from app.platform.cache.tiles import invalidate_catalog_cache
+from app.platform.dataset_origin import classify_origin, set_dataset_origin
 from app.core.config import settings
 from app.processing.embeddings.helpers import defer_embedding
 from app.platform.storage import get_storage
@@ -208,6 +209,14 @@ class IngestContext:
     user_metadata: dict[str, Any]
     source_url: str | None = None
     attempt_id: uuid.UUID | None = None
+    # feat(#1218): typed origin_ref payload for the dataset the finalize
+    # pipeline creates, minus the `kind` discriminator (derived from
+    # source_format). Keys are validated against the per-kind allowlist in
+    # app/platform/dataset_origin.py, so nothing unexpected — a credential
+    # most of all — can reach the column. Callers pass their own payload
+    # rather than one being inferred here: an incomplete ref is visible in
+    # the stored JSON, whereas a plausible default would not be.
+    origin_ref: dict[str, Any] | None = None
 
 
 @dataclass
@@ -1368,6 +1377,17 @@ async def _finalize_ingest(ctx: IngestContext):
     dataset.record.record_status = final_status
     if final_status != "published":
         dataset.record.published_at = None
+
+    # feat(#1218): system-managed origin pointer, in the same transaction that
+    # creates the dataset. Service ingest supplies the enriched URL through
+    # ctx.source_url; an uploaded file has no remote origin to point at, so
+    # its origin_uri stays NULL and only the ref carries the filename.
+    set_dataset_origin(
+        dataset,
+        classify_origin(ctx.source_format),
+        uri=ctx.source_url,
+        **(ctx.origin_ref or {}),
+    )
 
     # Compute quality score (requires Dataset to exist for metadata checks)
     quality_score = await compute_quality_score(
