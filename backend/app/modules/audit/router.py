@@ -250,6 +250,13 @@ class _AuditExportStream:
                     if row_count >= self.max_rows:
                         break
                     row = {
+                        # fix(#1248): the row's own primary key, so an archive
+                        # can be checked against the rows a retention run is
+                        # about to delete. Without it two same-sized, same-era
+                        # slices from different tenants are indistinguishable,
+                        # and scripts/audit_retention.sh cannot tell that it
+                        # archived one tenant and is deleting another's.
+                        "id": str(log.id),
                         "timestamp": (
                             log.created_at.isoformat() if log.created_at else None
                         ),

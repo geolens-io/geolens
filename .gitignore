@@ -47,6 +47,13 @@ backups/
 restore/
 *.dump
 
+# Audit-log retention archives. RUNBOOK section 8 tells operators to point
+# `scripts/audit_retention.sh --archive-dir` outside the checkout, and this is
+# the second line of defence for anyone who takes the script's default of
+# ./audit-archives while sitting in the repo root. An archive is a verbatim
+# export of usernames, IP addresses and activity.
+audit-archives/
+
 # Playwright
 playwright/.auth/
 playwright-report/

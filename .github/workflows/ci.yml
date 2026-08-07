@@ -135,6 +135,13 @@ jobs:
               - '.env.example'
               - '.dockerignore'
               - 'db/**'
+              # test_audit_retention_script.py runs this script for real against
+              # a throwaway database. Editing the script without re-running its
+              # only gate is exactly the regression it exists to catch. The same
+              # test asserts audit-archives/ stays gitignored, so a
+              # .gitignore-only PR must run Backend Tests too.
+              - 'scripts/audit_retention.sh'
+              - '.gitignore'
               # Frontend files that backend parity/drift tests read by literal
               # path (fe-sdk type drift, basemap/capability/paint-key drift,
               # nginx/CSP/Dockerfile regressions). Specific files only — NOT

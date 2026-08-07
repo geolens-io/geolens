@@ -543,6 +543,9 @@ async def test_export_completion_counts_rows_visible_when_stream_starts(monkeypa
     tenant_id = str(uuid.uuid4())
     streamed_rows = [
         SimpleNamespace(
+            # fix(#1248): the JSON export emits the row's own id, so a fake row
+            # must carry one -- AuditLog.id is the primary key and never absent.
+            id=uuid.uuid4(),
             created_at=datetime.now(timezone.utc),
             user=SimpleNamespace(username="admin"),
             action="first.action",
@@ -622,6 +625,9 @@ async def test_export_completion_counts_rows_visible_when_stream_starts(monkeypa
     # the fresh streaming SELECT establishes its MVCC statement snapshot.
     streamed_rows.append(
         SimpleNamespace(
+            # fix(#1248): the JSON export emits the row's own id, so a fake row
+            # must carry one -- AuditLog.id is the primary key and never absent.
+            id=uuid.uuid4(),
             created_at=datetime.now(timezone.utc),
             user=SimpleNamespace(username="admin"),
             action="concurrent.action",

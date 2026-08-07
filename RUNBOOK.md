@@ -1296,11 +1296,12 @@ docstring, which already flags that the table can reach millions of rows on a
 busy instance). Community ships bounded CSV/JSON export
 (`GET /admin/audit-logs/export/{format}`, capped at 100,000 rows per request)
 but no automatic pruning — an operator who wants a retention window applies it
-manually. This section is that manual procedure, not an in-app feature: an
-in-app pruning endpoint means a new destructive-write surface (Rule 1 of the
-Security pre-commit checklist, plus RBAC and rate-limit review for a
-delete-many endpoint), and a manual SQL window is the smaller, auditable
-surface for a table whose entire purpose is being an audit trail.
+out of band, with `scripts/audit_retention.sh`. That is deliberately an
+operator-run script rather than an in-app feature: an in-app pruning endpoint
+means a new destructive-write surface (Rule 1 of the Security pre-commit
+checklist, plus RBAC and rate-limit review for a delete-many endpoint), and a
+script an operator invokes deliberately is the smaller, auditable surface for a
+table whose entire purpose is being an audit trail.
 
 ### Deciding on a window
 
@@ -1312,327 +1313,242 @@ mind:
   events. A shorter window for those and a longer one for account/security
   events (`user.login.*`, `user.logout`, `user.change_password`,
   `oauth_provider.*`) is a reasonable split if your regulatory requirement
-  distinguishes between them.
+  distinguishes between them. The script below has no per-action filter — it
+  applies one window to every action — so a split like that still has to be
+  done by hand.
 - The export endpoint is the archive step. Deleting rows you have not
   exported is not "retention", it's data loss — always export the window you
   are about to delete first.
 
 ### Archive-then-delete by age
 
-Fix the retention boundary to **one** timestamp and reuse it for every step
-below — the export and the delete must agree on the exact same cutoff, not
-two separately-evaluated `now() - interval '90 days'` calls (which drift
-against each other across the minutes the procedure takes to run, and again
-on every batched commit inside the delete loop):
+`scripts/audit_retention.sh` performs the whole procedure: it exports the
+window through the API, verifies the archive, and only then deletes exactly
+the rows it archived. Run it from the repository root.
 
 ```bash
-CUTOFF=$(date -u -d '-90 days' +%Y-%m-%dT%H:%M:%SZ)
+export ADMIN_TOKEN=<an admin bearer token>
+
+# Single-tenant deployment (see the confirmation note below):
+./scripts/audit_retention.sh \
+  --api-url https://<your-host>/api \
+  --days 90 \
+  --archive-dir /var/backups/geolens/audit-archives \
+  --confirm-single-tenant "yes, this deployment has no per-tenant host routing"
+
+# Per-tenant host routing: one run per tenant, against that tenant's host.
+./scripts/audit_retention.sh \
+  --api-url https://<tenant-host>/api \
+  --days 90 \
+  --archive-dir /var/backups/geolens/audit-archives \
+  --tenant-slug <your-tenant-slug>
 ```
 
-Every SQL step below runs through one `$PSQL` command array — set it once
-and every command that follows uses `"${PSQL[@]}"` instead of repeating a
-connection prefix that differs by deployment mode:
+**Give `--archive-dir` a path outside the checkout**, alongside wherever §1
+puts your database backups. The archives belong with your backups rather than
+your source tree, and keeping them out of the working copy means no later
+`git add .` can stage an export of usernames, IP addresses and activity. The
+default is `./audit-archives`, which lands in the repository root when you run
+the script from there; `.gitignore` covers that directory as a second line of
+defence, but the directory you actually want is the one next to your backups.
+
+`--help` lists every flag. The ones worth knowing before the first run:
+
+| Flag | Effect |
+| --- | --- |
+| `--days N` / `--cutoff TS` | The retention boundary. Exactly one is required; there is no default window. |
+| `--tenant-slug SLUG` / `--confirm-single-tenant PHRASE` | The scope. Exactly one is required. |
+| `--dry-run` | Export and verify, then stop without deleting. Use it for the first run on any deployment. |
+| `--archive-dir DIR` | Where archives land (default `./audit-archives`). Point it outside the checkout. |
+| `--db-url URL` | External/managed Postgres (below). |
+| `--batch-size N` | Rows per delete statement, default 5000. |
+| `--max-rows N` | Rows per export call, default 100000. |
+| `--vacuum` | `VACUUM (ANALYZE) catalog.audit_logs` after the delete. |
+
+#### What it verifies before deleting anything
+
+The script exits non-zero and deletes nothing if any of these fails:
+
+- **The export request itself.** curl runs with `--fail`, so an expired token,
+  a wrong host, or any 4xx/5xx aborts the run instead of saving the error body
+  (e.g. `{"detail":"Not authenticated"}`) as if it were the archive.
+- **The archive is a complete JSON array.** A 200 carrying a proxy error page,
+  or a truncated stream, fails here rather than reporting a plausible row
+  count. JSON is used rather than CSV because a CSV line count is not a row
+  count: `resource_name` comes from user-supplied titles, which may contain
+  literal newlines that the CSV writer preserves inside a quoted field.
+- **The archive holds exactly as many rows as the database counts** for the
+  identical window and scope, and no row whose timestamp falls outside that
+  window.
+- **The archive holds exactly the rows the delete would remove**, compared by
+  audit-log id. Size and time range are not enough on their own: the export is
+  scoped by the host it is called against, so pairing `--tenant-slug` with the
+  wrong tenant's `--api-url` returns that tenant's rows, and if both tenants
+  have the same number of rows in the window every other check passes while the
+  archive describes the wrong history. If your server predates this check it
+  will not send the id at all, and the script stops rather than guessing;
+  upgrade the deployment.
+- **After the delete**, no row at or before the cutoff remains in scope.
+
+Two structural properties sit behind those checks:
+
+- The cutoff is evaluated **once**, in the database, and every later step reuses
+  that exact string. Nothing re-evaluates `now() - interval '90 days'`, so the
+  count, the export and the delete cannot drift apart over the minutes a large
+  run takes.
+- Both window bounds are inclusive everywhere (`created_at >= date_from AND
+  created_at <= date_to`), matching the export endpoint's own filters. There is
+  no way to ask that endpoint for an exclusive bound, and a delete using `<`
+  against an export using `<=` can discard a row that was never archived.
+
+Archive filenames carry the scope, a UTC timestamp and the pid, and the script
+refuses to write over a file that already exists — two tenants archived on the
+same day, or the same tenant archived twice, cannot truncate each other's only
+copy.
+
+An archive is a verbatim dump of usernames, IP addresses and activity for the
+whole window, so the script runs under `umask 077`: archives are created 0600
+and an archive directory it creates is 0700. Under the usual 022 they would be
+world-readable by every local account on the host. A directory that already
+exists keeps whatever permissions you gave it, so check that one yourself.
+
+Windows holding more than `--max-rows` rows are split automatically. Narrowing
+`date_to` by hand does not work: the endpoint always returns the *newest* rows
+in a range, so repeating the same call returns the same slice forever.
+Consecutive sub-windows share their boundary instant, so a row on a boundary is
+archived twice — harmless, and much safer than offsetting a bound by an epsilon,
+which would drop that row from every export instead.
+
+Timestamps are not unique, so a split can land in the middle of a group of rows
+sharing one instant. When that happens the script backs off to the last distinct
+timestamp before the group and exports what precedes it, rather than treating
+the window as unsplittable. The only case it genuinely cannot split is a *single
+instant* holding more rows than `--max-rows`, because no choice of bounds makes
+that window exportable; the run stops and names the timestamp. Raise
+`--max-rows` (up to 100000) or archive that instant by hand.
+
+If you want a CSV copy for human review, export it separately *after* a run has
+completed; never use CSV as the verification input.
+
+#### Choosing a scope
+
+**The script does not detect your deployment's tenancy mode, and neither
+should you infer it.** An empty tenant slug is not evidence of a single-tenant
+deployment; a mistyped slug or a failed lookup is exactly what turns into an
+unscoped, cross-tenant delete. So the two scopes are separate flags with no
+fallback between them, and `--tenant-slug` aborts if the slug resolves to
+nothing.
+
+`--confirm-single-tenant` takes the phrase verbatim:
+
+```
+yes, this deployment has no per-tenant host routing
+```
+
+An earlier revision of this procedure read `GEOLENS_TENANCY_MODE` from `.env`
+instead. That value can be absent, injected by an orchestrator rather than
+persisted to a file, or simply not read from wherever the running deployment
+gets its configuration — any config-derived signal here can be missing, stale,
+or wrong in a way a shell script cannot detect. The phrase has to be typed by
+an operator who has personally confirmed it.
+
+Running the unscoped mode on a deployment that *does* have per-tenant host
+routing is the worst outcome available here, and the reason is the export, not
+the delete: the export is always scoped to whichever tenant's host you call it
+against, so an unscoped delete removes every other tenant's audit history that
+the export never captured — permanent loss with no archive.
+
+#### Connecting to the database
+
+By default the script talks to the bundled `db` container through
+`docker compose exec`, reading `POSTGRES_USER` / `POSTGRES_DB` from `.env` like
+the other scripts here. On a managed or external Postgres (§3) there is no `db`
+container, so use either:
 
 ```bash
-# Bundled Postgres (default):
-PSQL=(docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB")
+# The whole URL in the environment, password included:
+export GEOLENS_RETENTION_DB_URL="postgresql://user:pw@host:5432/geolens"
+./scripts/audit_retention.sh ...
 
-# Managed/external Postgres (§3): there is no `db` container to exec into.
-# Connect directly instead — uncomment ONE of these and comment out the
-# bundled line above:
-# PSQL=(psql -h <host> -p <port> -U "$POSTGRES_USER" -d "$POSTGRES_DB")
-#
-# On a deployment with per-tenant host routing, whichever credential you
-# use here must be able to see and modify rows across every tenant -- NOT
-# the app's own least-privilege runtime login. Boot refuses to start
-# GEOLENS_TENANCY_MODE=multi_tenant with a runtime role that can bypass
-# row-level security (backend/app/core/db/rls.py), by design, and
-# catalog.audit_logs carries exactly that RLS policy (migration 0022): a
-# session without BYPASSRLS and without `app.current_tenant` set only ever
-# sees zero rows through it, so the count/delete commands below would
-# silently do nothing rather than the documented thing. Use the SAME
-# privileged/migrator-class credential §2 calls out for schema changes
-# ("the least-privilege runtime login in .env is deliberately not allowed
-# to do any of this"), not the steady-state DATABASE_URL_OVERRIDE your
-# running deployment authenticates with day to day.
-#
-# If that privileged credential happens to be a postgresql+asyncpg:// or
-# postgresql+psycopg:// SQLAlchemy URL, strip the driver suffix first --
-# libpq's URI parser accepts only the postgresql:// and postgres://
-# schemes:
-# PG_URI=$(echo "<your-privileged-connection-url>" | sed -E 's#^postgresql\+[a-zA-Z0-9_]+://#postgresql://#')
-# PSQL=(psql "$PG_URI")
+# ...or a password-free URL on the command line, with the password in the
+# environment beside it:
+export PGPASSWORD=...
+./scripts/audit_retention.sh --db-url "postgresql://user@host:5432/geolens" ...
+
+# ...or the standard libpq environment variables (setting PGHOST or PGSERVICE
+# is what selects this mode):
+export PGHOST=... PGPORT=5432 PGUSER=... PGDATABASE=geolens PGPASSWORD=...
+./scripts/audit_retention.sh ...
 ```
 
-The HTTP export commands further down are unaffected by this choice either
-way — they go through the API, not a direct DB connection.
+**`--db-url` will not accept a password, and refuses rather than warning.**
+Command lines are world-readable on most systems (`ps`,
+`/proc/<pid>/cmdline`), so anything typed there is visible to every local
+account for as long as the process runs — and this script runs for the whole
+retention pass, longer than any command it spawns. Nothing can retract it
+afterwards, so the password has to arrive by another route. The two above both
+work; the error message names them if you forget.
 
-**Choose a tenant-scoping mode below and follow only that branch through the
-count and delete steps.** Do not mix them, and do not treat an empty
-`$TENANT_ID` as "must mean single-tenant" — that assumption is exactly what
-lets a mistyped slug or a failed lookup silently escalate into an unscoped,
-cross-tenant delete. Each branch is a fully separate, explicit set of
-commands with no shared fallback between them.
+That covers both places a libpq URL can carry one: `user:password@` and a
+`?password=` query parameter. Supplying it in both is refused as well, because
+libpq silently resolves that in favour of the query parameter and ignores the
+other — so changing the wrong half would connect with the credential you
+thought you had replaced.
 
-#### Per-tenant host routing (more than one row in `catalog.tenants`)
+Secrets in the command lines the script *does* control are handled for you: a
+password from `GEOLENS_RETENTION_DB_URL` is moved into the environment before
+`psql` is invoked, and the admin bearer token reaches `curl` through a `0600`
+header file instead of `-H`.
 
-The HTTP export below is already scoped to whichever tenant's host you call
-it against, but the SQL delete that follows connects directly as
-`$POSTGRES_USER` (bypassing RLS) and has no such scope by default — without
-this branch you would export one tenant's window and delete every tenant's
-history that predates it. Resolve the tenant's id from its slug and **stop
-if the lookup returns nothing**:
+A password inside either URL must be percent-encoded, as libpq requires
+(`p@ss/word` becomes `p%40ss%2Fword`). The script decodes it before handing it
+over; if the encoding is malformed it stops and tells you to use `PGPASSWORD`
+instead, rather than guessing and connecting with a mangled password.
 
-```bash
-TENANT_SLUG=<your-tenant-slug>
-TENANT_ID=$("${PSQL[@]}" -tAc "SELECT id FROM catalog.tenants WHERE slug = '$TENANT_SLUG'")
-if [ -z "$TENANT_ID" ]; then
-  echo "No tenant found for slug '$TENANT_SLUG' -- aborting rather than" \
-       "falling through to an unscoped, all-tenants run" >&2
-  exit 1
-fi
-ARCHIVE_TAG="${TENANT_SLUG}-$(date -u +%Y%m%dT%H%M%SZ)"
-```
+A SQLAlchemy driver suffix is stripped for you: `postgresql+asyncpg://` and
+`postgresql+psycopg://` both become `postgresql://`, which is what libpq's URI
+parser accepts.
 
-#### Single-tenant deployments
+Whichever credential you use must be able to see and modify rows across every
+tenant — **not** the app's least-privilege runtime login. `catalog.audit_logs`
+carries the `tenant_isolation` row-level security policy (migration 0022), and a
+session without `BYPASSRLS` reads zero rows through it, so that credential would
+count nothing, delete nothing, and report success. Use the same
+privileged/migrator-class credential §2 calls out for schema changes, not the
+steady-state `DATABASE_URL_OVERRIDE` your deployment authenticates with day to
+day. Boot already refuses to start `GEOLENS_TENANCY_MODE=multi_tenant` with a
+runtime role that *can* bypass RLS (`backend/app/core/db/rls.py`), by design, so
+the two credentials really are different accounts.
 
-This branch is not a generic "run unscoped" option, and must not be used on
-a deployment with per-tenant host routing even if you intend to touch every
-tenant's rows. The reason is the export step, not the delete: the HTTP
-export is always scoped to whichever tenant's host you call it against
-(there is no cross-tenant export call), so running this branch's unscoped
-count/delete on a deployment with per-tenant routing enabled would remove
-every other tenant's audit history that the export never captured —
-permanent loss with no archive, not merely a scoping mistake.
+The script enforces this per query rather than trusting you to get it right:
+every statement it runs is preceded by `SET row_security = off`, which is a
+no-op for a session that can bypass RLS and an error — "query would be affected
+by row-level security policy" — for one that cannot. The run stops there. A
+connectivity check could not have caught it, because `SELECT ... LIMIT 0`
+succeeds for a login RLS reduces to nothing, which is exactly why the wrong
+credential used to look like an empty retention window.
 
-This procedure does **not** attempt to detect your deployment's tenancy mode
-for you. An earlier revision checked `GEOLENS_TENANCY_MODE` from `.env`, but
-that value can be absent, injected by an orchestrator instead of a persisted
-`.env` file, or simply not read from wherever the running deployment actually
-gets its configuration — any config-derived signal here can be missing,
-stale, or wrong in a way this shell script cannot detect. Instead, this
-branch requires you, the operator, to type an explicit confirmation with no
-default and no config lookup behind it. Edit the placeholder below to the
-exact phrase shown — copying this block unedited leaves the placeholder in
-place and the check refuses to run:
+The export goes through the API, not a direct database connection, so this
+choice does not affect it.
 
-```bash
-# This command is unscoped by explicit operator confirmation. Replace the
-# placeholder with the exact phrase on the right ONLY once you personally --
-# not a config file, not this script -- have confirmed this deployment has
-# no per-tenant host routing.
-CONFIRM_SINGLE_TENANT="<type-the-confirmation-phrase-here>"
-if [ "$CONFIRM_SINGLE_TENANT" != "yes, this deployment has no per-tenant host routing" ]; then
-  echo "Refusing: the commands below delete every row before \$CUTOFF with" \
-       "no tenant scoping. Set CONFIRM_SINGLE_TENANT to the exact phrase" \
-       "above, typed by you, before running them." >&2
-  exit 1
-fi
-```
+#### Scheduling and running cost
 
-`catalog.audit_logs.tenant_id` is NULL on every row once that confirmation is
-given (single-tenant never stamps it), so there is nothing left to filter
-by. This branch never resolves or reads a `$TENANT_ID` — it is a separate
-set of commands below, not a fallback the per-tenant branch reaches by
-leaving a variable unset:
+Run it from a low-traffic maintenance window. The table's only DELETE-supporting
+index is `ix_catalog_audit_logs_created_action_resource`
+(`created_at DESC, action, resource_type`), so an unbounded delete on a
+multi-million-row table can hold locks and bloat the table; the script batches
+at `--batch-size` rows per statement for that reason. Pass `--vacuum` if the run
+removed a large fraction of the table — routine autovacuum handles smaller,
+regular prunes on its own.
 
-```bash
-ARCHIVE_TAG="default-$(date -u +%Y%m%dT%H%M%SZ)"
-```
-
-Every archive filename in this procedure must be unique per tenant and per
-run — two tenants exported on the same day, or the same tenant exported
-twice, would otherwise both write the same filename, and the second
-`curl -o` silently truncates the first tenant's only copy (possibly after
-that tenant's rows are already deleted). `$ARCHIVE_TAG` above exists to
-prevent that; every export filename below reuses it.
-
-**Count before you export.** The export endpoint caps at 100,000 rows per
-call — silently. A window with more matching rows than that returns only the
-100,000 newest ones in it, and deleting the full window afterward would
-discard rows that were never in the archive. Check first, using the count
-command for the branch you chose above:
-
-```bash
-# Per-tenant host routing (uses the validated, non-empty $TENANT_ID above):
-"${PSQL[@]}" -tAc \
-  "SELECT count(*) FROM catalog.audit_logs
-   WHERE created_at <= '$CUTOFF' AND tenant_id = '$TENANT_ID'::uuid"
-```
-
-```bash
-# Single-tenant (no tenant predicate -- confirmed above, not the default):
-"${PSQL[@]}" -tAc \
-  "SELECT count(*) FROM catalog.audit_logs WHERE created_at <= '$CUTOFF'"
-```
-
-Use `<=`, not `<`, and use it consistently in every count/export/delete step below.
-The export endpoint's `date_to` filter is inclusive (`created_at <= date_to`,
-not exclusive) and there is no way to ask it for an exclusive bound. If the
-delete used `<` while the count/export used `<=`, and a row happened to land
-exactly on `$CUTOFF`, the two predicates would cover different sets: at the
-100,000-row cap that boundary row can displace an older in-range row out of
-the export while that older row still gets deleted — never archived, but
-gone. Matching the delete's boundary to the export's removes the mismatch
-outright rather than trying to work around it.
-
-Export as **JSON**, not CSV, for this procedure: the row count is then a
-plain array length, checkable with `jq length`. A CSV line count minus the
-header is not reliable here — `resource_name` values come from user-supplied
-dataset/map/collection titles, which permit literal newlines, and the CSV
-writer preserves those inside a quoted field. A raw `wc -l` can therefore
-undercount a complete archive (embedded newlines inflate the apparent row
-count) or, worse, appear to match a truncated download. If you want a CSV
-copy for human review, export it separately *after* the JSON archive has
-verified clean — never use it as the verification input.
-
-If that count is **at or under 100,000**, one export call covers the whole
-window:
-
-```bash
-curl -sS -f -H "Authorization: Bearer $ADMIN_TOKEN" \
-  "https://<your-host>/api/admin/audit-logs/export/json?date_to=$CUTOFF" \
-  -o "audit-archive-${ARCHIVE_TAG}.json" \
-  || { echo "export request failed -- aborting, do NOT delete" >&2; exit 1; }
-```
-
-`-f`/`--fail` is not optional here: without it, an expired token, a wrong
-host, or any other 4xx/5xx still exits 0 and writes the error body (e.g.
-`{"detail":"Not authenticated"}`) to the output file as if it were the
-archive. `--fail` makes curl exit non-zero and discard that body instead of
-saving it.
-
-Before trusting the row count, confirm the file is actually a JSON array —
-an auth failure or a proxy error page that slips past `--fail` (a 200 with
-an unexpected body) would otherwise report a `jq length` of 0 or 1, which
-can look like a real, if small, count rather than "the archive is garbage":
-
-```bash
-jq -e 'type == "array"' "audit-archive-${ARCHIVE_TAG}.json" >/dev/null \
-  || { echo "not a JSON array -- aborting, do NOT delete" >&2; exit 1; }
-```
-
-Only then verify the exported row count equals the count from the query
-above before proceeding to the delete. A mismatch means stop — do not
-delete:
-
-```bash
-jq length "audit-archive-${ARCHIVE_TAG}.json"
-```
-
-If the count is **over 100,000**, one call cannot capture the whole window,
-and narrowing `date_to` alone doesn't help — the export is always the
-*newest* rows in the range, so repeating the same call returns the same slice
-forever. Partition the range into disjoint `date_from`/`date_to` sub-windows
-instead (a week or a month at a time, whatever keeps each sub-window under
-100,000 rows given your write volume), export each one, and verify each
-sub-window's exported row count (`jq length`, same as above) against a COUNT
-query scoped to that same sub-window — for example:
-
-```bash
-# Repeat with adjacent date_from/date_to pairs that together cover the full
-# range up to $CUTOFF. Each pair's exported row count must match:
-# SELECT count(*) FROM catalog.audit_logs WHERE created_at >= date_from
-# AND created_at <= date_to AND (tenant scope as above) -- both bounds
-# inclusive, matching the export endpoint's own semantics (see the <=
-# note above the single-call case). Both bounds being inclusive means a
-# row landing exactly on a shared boundary appears in both adjacent
-# windows' exports; that duplicates an archive entry, which is harmless
-# (the delete below still removes it exactly once), but do not offset
-# date_from by an epsilon to "fix" it -- that would silently exclude the
-# boundary row from every export instead. <window-start> must also be
-# part of the filename -- distinct sub-windows of the SAME tenant/run
-# still need distinct files.
-curl -sS -f -H "Authorization: Bearer $ADMIN_TOKEN" \
-  "https://<your-host>/api/admin/audit-logs/export/json?date_from=<window-start>&date_to=<window-end>" \
-  -o "audit-archive-${ARCHIVE_TAG}-<window-start>.json" \
-  || { echo "export request failed -- aborting, do NOT delete" >&2; exit 1; }
-jq -e 'type == "array"' "audit-archive-${ARCHIVE_TAG}-<window-start>.json" >/dev/null \
-  || { echo "not a JSON array -- aborting, do NOT delete" >&2; exit 1; }
-```
-
-Only once every sub-window is exported, confirmed to be a real JSON array,
-and verified by count does the full window have a complete archive —
-proceed to the delete below.
-
-Then delete the archived window, using the identical `$CUTOFF` and the SAME
-branch (per-tenant or single-tenant) you used for the count above — run this
-from a low-traffic maintenance window: the table's only
-DELETE-supporting index is `ix_catalog_audit_logs_created_action_resource`
-(`created_at DESC, action, resource_type`), so an unbounded
-`DELETE ... WHERE created_at <= ...` on a multi-million-row table can hold
-locks and bloat the table for a while. Batch it.
-
-`psql`'s `-v`/`:name` substitution does not reach inside a `DO $$...$$` body —
-per the [psql docs](https://www.postgresql.org/docs/current/app-psql.html#APP-PSQL-VARIABLES),
-variable interpolation is skipped inside quoted SQL literals, and a
-dollar-quoted block is one. Pass `$CUTOFF` through a session GUC instead,
-which the PL/pgSQL body reads with `current_setting()` — that call happens at
-execution time, outside the literal, so it works. The two branches below are
-genuinely separate commands, not one command with a variable that happens to
-be empty — the per-tenant delete's `WHERE` clause hard-codes
-`tenant_id = tenant_uuid` with no `OR` fallback, so there is no path from a
-missing or malformed `$TENANT_ID` into an unscoped delete; that failure was
-already caught by the `exit 1` above, before this command is ever reached:
-
-```bash
-# Per-tenant host routing:
-"${PSQL[@]}" -v cutoff="'$CUTOFF'" -v tenant_id="'$TENANT_ID'" <<'SQL'
-SET geolens.retention_cutoff = :cutoff;
-SET geolens.retention_tenant = :tenant_id;
-DO $$
-DECLARE
-  deleted_count integer;
-  cutoff_ts timestamptz := current_setting('geolens.retention_cutoff')::timestamptz;
-  tenant_uuid uuid := current_setting('geolens.retention_tenant')::uuid;
-BEGIN
-  LOOP
-    DELETE FROM catalog.audit_logs
-    WHERE id IN (
-      SELECT id FROM catalog.audit_logs
-      WHERE created_at <= cutoff_ts
-        AND tenant_id = tenant_uuid
-      LIMIT 5000
-    );
-    GET DIAGNOSTICS deleted_count = ROW_COUNT;
-    EXIT WHEN deleted_count = 0;
-    COMMIT;
-  END LOOP;
-END $$;
-SQL
-```
-
-```bash
-# Single-tenant (no tenant predicate -- confirmed above, not the default):
-"${PSQL[@]}" -v cutoff="'$CUTOFF'" <<'SQL'
-SET geolens.retention_cutoff = :cutoff;
-DO $$
-DECLARE
-  deleted_count integer;
-  cutoff_ts timestamptz := current_setting('geolens.retention_cutoff')::timestamptz;
-BEGIN
-  LOOP
-    DELETE FROM catalog.audit_logs
-    WHERE id IN (
-      SELECT id FROM catalog.audit_logs
-      WHERE created_at <= cutoff_ts
-      LIMIT 5000
-    );
-    GET DIAGNOSTICS deleted_count = ROW_COUNT;
-    EXIT WHEN deleted_count = 0;
-    COMMIT;
-  END LOOP;
-END $$;
-SQL
-```
-
-Run `VACUUM (ANALYZE) catalog.audit_logs;` afterward if the delete removed a
-large fraction of the table — routine autovacuum handles smaller, regular
-prunes on its own.
+Requires `curl` and `jq` on the machine you run it from. Beyond that it depends
+on how you connect: the bundled path needs `docker` and nothing else, because it
+runs `psql` *inside* the db container, while the `--db-url`,
+`GEOLENS_RETENTION_DB_URL` and `PG*` paths need a `psql` client on the host. A
+Docker-only self-host does not need one installed.
 
 **What is actually lost:** the deleted rows, permanently, including the
 ability to answer "who did X on day Y" for anything older than the window.
-That is the intended tradeoff of retention; keep the exported CSV/JSON
-archive (offsite, per §1's guidance on the primary backup) if you need to
-answer that question later without re-enabling unbounded storage in the live
-table.
+That is the intended tradeoff of retention; keep the exported archive (offsite,
+per §1's guidance on the primary backup) if you need to answer that question
+later without re-enabling unbounded storage in the live table.
