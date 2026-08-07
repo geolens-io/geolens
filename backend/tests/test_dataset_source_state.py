@@ -1324,6 +1324,80 @@ class TestBackfill:
         finally:
             await savepoint.rollback()
 
+    async def test_an_upload_claiming_the_name_blocks_resolution(
+        self, test_db_session
+    ) -> None:
+        """A claimant of ANY origin counts, not just registered ones.
+
+        fix(#1218 review r8): the claimant guard used to look only at rows
+        this backfill targets (null source_format, vector_dataset/table).
+        Uploads, service imports and created datasets own physical tables with
+        tenant-local names too, so tenant A's dropped registered `roads`
+        beside tenant B's surviving UPLOADED `roads` is one physical relation
+        with a claimant the narrow filter could not see, and B's schema would
+        have been stamped onto A's orphan.
+        """
+        module = _load_migration()
+        admin_id = await get_user_id(test_db_session, "admin")
+        shared_name = f"anyclaim_{uuid.uuid4().hex[:10]}"
+
+        # The registered row whose own physical table is gone.
+        orphan = await _pre_migration_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Registered Orphan",
+            source_format=None,
+            table_name=shared_name,
+        )
+        # A different tenant's UPLOAD owning the same table name. Outside the
+        # backfill population, so the narrow filter did not see it at all.
+        upload_claimant_record = Record(
+            title="Uploaded Same Name",
+            record_type="vector_dataset",
+            visibility="private",
+            record_status="published",
+            created_by=admin_id,
+        )
+        test_db_session.add(upload_claimant_record)
+        await test_db_session.flush()
+        upload_claimant = Dataset(
+            record_id=upload_claimant_record.id,
+            table_name=shared_name,
+            source_format="gpkg",
+            source_filename="roads.gpkg",
+            tenant_id=uuid.uuid4(),
+        )
+        test_db_session.add(upload_claimant)
+        await test_db_session.flush()
+
+        savepoint = await test_db_session.begin_nested()
+        try:
+            # Exactly ONE physical relation, owned by the upload.
+            await test_db_session.execute(
+                sa.text(f"CREATE TABLE data.{shared_name} (id integer)")
+            )
+            for statement in module.backfill_statements():
+                await test_db_session.execute(statement)
+            await test_db_session.run_sync(
+                lambda sync_session: module.purge_credential_bearing_pointers(
+                    sync_session.connection()
+                )
+            )
+            row = (
+                await test_db_session.execute(
+                    sa.text(
+                        "SELECT origin_uri, origin_ref FROM catalog.datasets "
+                        "WHERE id = :id"
+                    ).bindparams(sa.bindparam("id", value=orphan.id))
+                )
+            ).one()
+            assert row.origin_uri is None, (
+                "a same-named dataset of any origin must block resolution"
+            )
+            assert row.origin_ref is None
+        finally:
+            await savepoint.rollback()
+
 
 # ---------------------------------------------------------------------------
 # The binding follows the current bytes

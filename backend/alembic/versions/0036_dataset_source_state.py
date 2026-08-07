@@ -351,8 +351,9 @@ _STAC_BACKFILL = f"""
 # composed from other datasets and has no origin of its own.
 #
 # RESOLUTION REQUIRES BOTH: exactly one physical relation carrying the name
-# (the HAVING count(*) = 1 above) AND exactly one catalog row claiming it (the
-# NOT EXISTS below). Ambiguity on either side leaves the row NULL.
+# (the HAVING count(*) = 1 above) AND no other catalog row of ANY origin
+# claiming that name (the NOT EXISTS below). Ambiguity on either side leaves
+# the row NULL.
 #
 # The two guards are NOT redundant and neither can be simplified away
 # (fix #1218 review rounds 1 and 2):
@@ -364,6 +365,14 @@ _STAC_BACKFILL = f"""
 #     the physical count is a clean 1 and BOTH catalog rows would otherwise
 #     bind to the surviving tenant's schema. One of them is an orphan holding
 #     a pointer into another tenant's data.
+#
+# fix(#1218 review r8): the claimant half counts datasets of ANY origin, not
+# only the ones this backfill targets. Uploads, service imports and created
+# datasets own physical tables with tenant-local names too, so tenant A's
+# dropped registered `roads` beside tenant B's surviving UPLOADED `roads` is
+# one physical relation with a claimant the narrow filter could not see —
+# and B's schema would be stamped onto A's orphan. The outer population is
+# unchanged; only the NOT EXISTS widened.
 #
 # The `IS NOT NULL` predicate also skips a catalog row whose physical table is
 # gone entirely, rather than building a pointer from a NULL schema.
@@ -383,11 +392,8 @@ _POSTGIS_BACKFILL = f"""
       AND NOT EXISTS (
           SELECT 1
           FROM catalog.datasets AS d2
-          JOIN catalog.records AS r2 ON r2.id = d2.record_id
           WHERE d2.table_name = d.table_name
             AND d2.id <> d.id
-            AND d2.source_format IS NULL
-            AND r2.record_type IN ('vector_dataset', 'table')
       )
 """
 
@@ -478,6 +484,23 @@ def downgrade() -> None:
 _URL_REF_KEYS = ("url", "asset_href", "item_href")
 
 
+def _is_unsafe(detector, url: str) -> bool:
+    """Run the credential detector, treating a raise as unsafe.
+
+    fix(#1218 review r8): ``has_url_credentials`` already converts the
+    ``ValueError`` it expects (a malformed authority) into ``True`` internally,
+    but this is a migration operating on arbitrary legacy strings, and an
+    unanticipated raise here would abort the whole upgrade rather than skip one
+    pointer. Failing closed keeps the asymmetry the detector itself documents:
+    refusing a URL nobody can parse costs one unrecovered pointer, admitting it
+    silently freezes a credential into a read-only column.
+    """
+    try:
+        return bool(detector(url))
+    except Exception:  # broad: a detector raise must never admit a URL
+        return True
+
+
 def purge_credential_bearing_pointers(bind) -> int:
     """Re-check every backfilled pointer with the REAL credential rule.
 
@@ -526,7 +549,7 @@ def purge_credential_bearing_pointers(bind) -> int:
                 for key in _URL_REF_KEYS
                 if isinstance(value := row.origin_ref.get(key), str)
             )
-        if any(has_url_credentials(candidate) for candidate in candidates):
+        if any(_is_unsafe(has_url_credentials, candidate) for candidate in candidates):
             offenders.append(row.id)
 
     if offenders:
