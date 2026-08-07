@@ -175,6 +175,22 @@ def _quoted(values: Sequence[str]) -> str:
 # and the remainder becomes ``url``. WFS and OGC API Features address their
 # layer by typename/collection inside the request rather than by a path
 # suffix, so their whole URL is the base.
+#
+# fix(#1218 review r3): a WFS/OGC row's layer identity is its typename or
+# collection id, which lives on the ingest job rather than on the dataset.
+# It is recovered from ``catalog.ingest_jobs.source_layer`` because the
+# retention sweep in platform/jobs/router.py deliberately EXEMPTS each
+# dataset's most recent complete job ("the reupload source_layer hint"), so
+# that row survives regardless of age. Older jobs are purged, hence the
+# newest-first pick.
+#
+# datasets.source_filename is deliberately NOT used as a fallback. Service
+# imports set it to ``layer_title or layer_name`` (sources/router.py), so it
+# is often a human title, and nothing on the row says which of the two it
+# holds — writing it into layer_id would hand a refresh a display string to
+# use as a typename. A dataset whose job row is gone therefore keeps a ref
+# with no layer_id and needs its layer identified once before a first
+# refresh; an honest gap beats invented data.
 _SERVICE_BACKFILL = f"""
     UPDATE catalog.datasets AS d
     SET origin_uri = d.source_url,
@@ -192,6 +208,16 @@ _SERVICE_BACKFILL = f"""
                     WHEN d.source_format = 'arcgis_featureserver'
                          AND d.source_url ~ '/[0-9]+$'
                     THEN substring(d.source_url from '/([0-9]+)$')
+                    WHEN d.source_format IN ('wfs', 'ogcapi_features')
+                    THEN (
+                        SELECT j.source_layer
+                        FROM catalog.ingest_jobs AS j
+                        WHERE j.dataset_id = d.id
+                          AND j.status = 'complete'
+                          AND j.source_layer IS NOT NULL
+                        ORDER BY j.created_at DESC
+                        LIMIT 1
+                    )
                     ELSE NULL
                 END
             )

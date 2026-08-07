@@ -10,6 +10,7 @@ import structlog
 from sqlalchemy import text
 
 from app.core.db.tenant_session import tenant_task
+from app.platform.dataset_origin import service_layer_identity
 from app.platform.jobs.heartbeat import (
     attempt_scoped_staging_table,
     claim_job_attempt_and_start_heartbeat,
@@ -1017,13 +1018,28 @@ async def ingest_service(
                     user_metadata=um,
                     source_url=dataset_source_url,
                     attempt_id=attempt_uuid,
-                    # feat(#1218): the base URL and layer id stay separate here
-                    # so a refresh can re-address the layer without re-parsing
-                    # the enriched URI. No token: it is per-call and transient.
+                    # feat(#1218): the base URL and layer identifier stay
+                    # separate here so a refresh can re-address the layer
+                    # without re-parsing the enriched URI. No token: it is
+                    # per-call and transient.
+                    #
+                    # fix(#1218 review r3): layer_id carries the SERVICE-NATIVE
+                    # identifier, which is a different field per service type.
+                    # build_gdal_source is the authority: its ArcGIS branch
+                    # requires layer_id and ignores the layer name, while its
+                    # WFS and OGC API branches pass the layer NAME through and
+                    # ignore layer_id. So exactly one of the two identifies the
+                    # layer for any given service, and they cannot disagree.
+                    # Storing only the numeric id left WFS/OGC refs with no way
+                    # to name the layer at all once the ingest job aged out.
                     origin_ref={
                         "service_type": source_format,
                         "url": source_url,
-                        "layer_id": None if layer_id is None else str(layer_id),
+                        "layer_id": service_layer_identity(
+                            source_format,
+                            layer_id=layer_id,
+                            layer_name=source_layer,
+                        ),
                     },
                 )
             )

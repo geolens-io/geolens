@@ -33,6 +33,7 @@ from httpx import AsyncClient
 import app.modules.catalog.datasets.domain.models  # noqa: F401
 from app.core.db import Base
 from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.platform.jobs.models import IngestJob
 from app.platform.dataset_origin import (
     ORIGIN_KINDS,
     ORIGIN_REF_KEYS,
@@ -43,6 +44,7 @@ from app.platform.dataset_origin import (
     build_origin_ref,
     classify_origin,
     project_unknown,
+    service_layer_identity,
     set_dataset_origin,
     set_postgis_origin,
 )
@@ -565,6 +567,30 @@ class TestBackfill:
             source_format="wfs",
         )
         wfs.source_url = "https://gis.test/geoserver/wfs"
+        # fix(#1218 review r3): a WFS layer is identified by its typename,
+        # which lives on the ingest job. The retention sweep exempts each
+        # dataset's newest complete job precisely so this hint survives.
+        test_db_session.add(
+            IngestJob(
+                dataset_id=wfs.id,
+                status="complete",
+                source_filename="Parcels (2024)",
+                source_layer="topp:parcels",
+                created_by=admin_id,
+            )
+        )
+
+        # Same shape, no surviving job row: the layer identity is simply gone.
+        # source_filename holds `layer_title or layer_name` and nothing says
+        # which, so it must NOT be used as a fallback.
+        wfs_orphan = await _pre_migration_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Backfill WFS No Job",
+            source_format="wfs",
+            source_filename="Human Readable Title",
+        )
+        wfs_orphan.source_url = "https://gis.test/geoserver/wfs2"
 
         # A user PATCHed source_url to prose before the migration ran. A
         # pointer that does not parse must stay NULL rather than be
@@ -662,6 +688,7 @@ class TestBackfill:
                                 value=[
                                     arcgis.id,
                                     wfs.id,
+                                    wfs_orphan.id,
                                     prose.id,
                                     stac.id,
                                     registered.id,
@@ -691,8 +718,16 @@ class TestBackfill:
                 "kind": "service",
                 "service_type": "wfs",
                 "url": "https://gis.test/geoserver/wfs",
+                "layer_id": "topp:parcels",
             }
-            assert "layer_id" not in wfs_row.origin_ref
+
+            orphan_wfs_row = rows[wfs_orphan.id]
+            assert orphan_wfs_row.origin_ref == {
+                "kind": "service",
+                "service_type": "wfs",
+                "url": "https://gis.test/geoserver/wfs2",
+            }, "a human title must never be backfilled as the layer identifier"
+            assert "layer_id" not in orphan_wfs_row.origin_ref
 
             prose_row = rows[prose.id]
             assert prose_row.origin_uri is None
@@ -1252,3 +1287,105 @@ class TestFirstIngestStampsLastRefreshed:
         assert body["last_refreshed_at"] is not None
         assert body["origin"] == "created"
         assert body["source_health"] == UNKNOWN
+
+
+# ---------------------------------------------------------------------------
+# The service binding names the layer, per service type
+# ---------------------------------------------------------------------------
+
+
+class TestServiceLayerIdentity:
+    """`layer_id` holds whichever field the service actually addresses by.
+
+    `build_gdal_source` (catalog/sources/preview.py) is the authority and it
+    makes the two mutually exclusive: its ArcGIS branch requires the numeric
+    layer id and returns an EMPTY layer name, while its WFS and OGC API
+    branches pass the layer name through and never look at layer_id. So one
+    key can carry the identity for all three without ambiguity, which is why
+    the allowlist is not widened with a second name field (#1218 review r3).
+    """
+
+    @pytest.mark.parametrize(
+        ("service_type", "gdal_prefix"),
+        [("wfs", "WFS"), ("ogcapi_features", "OGC API")],
+    )
+    def test_name_addressed_services_carry_the_layer_name(
+        self, service_type: str, gdal_prefix: str
+    ) -> None:
+        """Pin the premise itself: these drivers address by NAME, not id."""
+        from app.modules.catalog.sources.preview import build_gdal_source
+
+        _source, layer = build_gdal_source(
+            gdal_prefix, "https://gis.test/svc", "topp:parcels", layer_id=None
+        )
+        assert layer == "topp:parcels", "driver addresses the layer by name"
+
+        ref = build_origin_ref(
+            "service",
+            service_type=service_type,
+            url="https://gis.test/svc",
+            layer_id="topp:parcels",
+        )
+        assert ref == {
+            "kind": "service",
+            "service_type": service_type,
+            "url": "https://gis.test/svc",
+            "layer_id": "topp:parcels",
+        }
+
+    def test_arcgis_addresses_by_numeric_id_and_ignores_the_name(self) -> None:
+        """The other half of the premise, which is why one key suffices."""
+        from app.modules.catalog.sources.preview import build_gdal_source
+
+        source, layer = build_gdal_source(
+            "ArcGIS FeatureServer",
+            "https://gis.test/rest/services/Parcels/FeatureServer",
+            "a human layer name",
+            layer_id=7,
+        )
+        assert layer == "", "the layer name is discarded for ArcGIS"
+        assert "/7/query?" in source, "the numeric id addresses the layer"
+
+        with pytest.raises(ValueError, match="requires a layer ID"):
+            build_gdal_source("ArcGIS FeatureServer", "https://x", "name", None)
+
+    @pytest.mark.parametrize("service_type", ["wfs", "ogcapi_features"])
+    def test_write_sites_record_the_layer_name_for_name_addressed_services(
+        self, service_type: str
+    ) -> None:
+        """The rule both ingest write sites actually call.
+
+        Covers the write-site half: previously they stored only layer_id,
+        which is None for these services, so the ref named no layer at all and
+        a refresh had nothing to fetch once the ingest job aged out.
+        """
+        assert (
+            service_layer_identity(
+                service_type, layer_id=None, layer_name="topp:parcels"
+            )
+            == "topp:parcels"
+        )
+
+    def test_write_sites_record_the_numeric_id_for_arcgis(self) -> None:
+        """ArcGIS keeps the id and discards the name, matching the driver."""
+        assert (
+            service_layer_identity(
+                "arcgis_featureserver", layer_id=7, layer_name="a display name"
+            )
+            == "7"
+        )
+        assert (
+            service_layer_identity(
+                "arcgis_featureserver", layer_id=None, layer_name="a display name"
+            )
+            is None
+        ), "no id means no identity; a display name is not a substitute"
+
+    def test_a_second_name_key_is_still_refused(self) -> None:
+        """Unification means one key; the allowlist must not have grown."""
+        assert ORIGIN_REF_KEYS["service"] == frozenset(
+            {"service_type", "url", "layer_id"}
+        )
+        for key in ("layer_name", "source_layer", "typename", "collection_id"):
+            with pytest.raises(ValueError, match="rejects key"):
+                build_origin_ref("service", **{key: "topp:parcels"})

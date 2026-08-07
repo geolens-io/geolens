@@ -2212,7 +2212,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # The service one keeps the base URL and layer id as separate keys so a
     # refresh can re-address the layer without re-parsing the enriched URI.
     # Cap 1063 -> 1074, exact.
-    "backend/app/processing/ingest/tasks_vector.py": 1074,
+    # fix(#1218 review r3): +16 — the service ref records the SERVICE-NATIVE
+    # layer identifier via service_layer_identity, so WFS/OGC rows name their
+    # typename instead of storing nothing. Most of it is the comment recording
+    # that build_gdal_source makes id and name mutually exclusive per service,
+    # which is why one key suffices. Cap 1074 -> 1090, exact.
+    "backend/app/processing/ingest/tasks_vector.py": 1090,
     "backend/app/modules/auth/oauth/service.py": 1031,
     # fix(#1113 review): +15 — register_existing_table linearizes a
     # pre-existing geom_4326 (savepoint + error contract mirroring the

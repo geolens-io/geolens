@@ -63,6 +63,20 @@ SCHEMA_DRIFT_STATUS_VALUES: tuple[str, ...] = ("none", "drifted")
 # discriminator itself. Adding a key here widens what can be persisted about
 # an origin, so treat it as a schema change.
 ORIGIN_REF_KEYS: dict[str, frozenset[str]] = {
+    # `layer_id` is the SERVICE-NATIVE layer identifier, and which field that
+    # is depends on service_type (fix #1218 review r3). `build_gdal_source` in
+    # catalog/sources/preview.py is the authority:
+    #
+    #   arcgis_featureserver -> the numeric layer id. Required; the layer NAME
+    #                           is ignored, the id becomes a URL path segment.
+    #   wfs                  -> the typename, passed to GDAL as the layer name.
+    #                           layer_id is ignored.
+    #   ogcapi_features      -> the collection id, same handling as wfs.
+    #
+    # Exactly one of the two identifies the layer for a given service, so they
+    # cannot disagree, and one key is enough for a refresh to re-address the
+    # layer. Do NOT add a second key for the name: that would create two fields
+    # with overlapping meaning and leave a refresh to guess which one applies.
     "service": frozenset({"service_type", "url", "layer_id"}),
     # `asset_href` is additive to ADR-002's declared stac shape. The STAC
     # import request carries the item id, the collection id, and the chosen
@@ -125,6 +139,26 @@ def set_postgis_origin(dataset: Any, table_name: str, *, schema: str) -> None:
     set_dataset_origin(
         dataset, "postgis", uri=f"postgis://{qualified}", table_name=qualified
     )
+
+
+def service_layer_identity(
+    service_type: str, *, layer_id: Any, layer_name: str | None
+) -> str | None:
+    """The service-native layer identifier for a service ``origin_ref``.
+
+    Which field addresses a layer depends on the service, and
+    ``build_gdal_source`` in ``catalog/sources/preview.py`` is the authority:
+    its ArcGIS branch requires the numeric ``layer_id`` and discards the layer
+    name, while its WFS and OGC API branches pass the layer NAME to GDAL and
+    never read ``layer_id``. Exactly one applies per service, so they cannot
+    disagree and one stored key is enough.
+
+    Lives here rather than at the two ingest call sites so both spell the rule
+    the same way and a change has one place to happen (fix #1218 review r3).
+    """
+    if service_type == "arcgis_featureserver":
+        return None if layer_id is None else str(layer_id)
+    return layer_name
 
 
 def build_origin_ref(kind: str, **fields: Any) -> dict[str, Any] | None:

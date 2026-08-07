@@ -10,6 +10,7 @@ from sqlalchemy import select
 
 from app.core.db.tenant_session import tenant_task
 from app.platform.cache.tiles import invalidate_catalog_cache
+from app.platform.dataset_origin import service_layer_identity
 from app.platform.jobs.heartbeat import (
     attempt_scoped_staging_table,
     claim_job_attempt_and_start_heartbeat,
@@ -765,13 +766,22 @@ async def reupload_service(
                 source_format=source_format,
                 original_srid=metadata.get("srid"),
                 source_url=reupload_source_url,
-                # fix(#1218 review): base URL and layer id stay separate, as
-                # on the first-ingest path, so a refresh can re-address the
-                # layer without re-parsing the enriched pointer.
+                # fix(#1218 review): base URL and layer identifier stay
+                # separate, as on the first-ingest path, so a refresh can
+                # re-address the layer without re-parsing the enriched pointer.
+                # fix(#1218 review r3): layer_id is the SERVICE-NATIVE
+                # identifier — the numeric id for ArcGIS, the typename or
+                # collection id otherwise. See the matching comment in
+                # tasks_vector.ingest_service for why build_gdal_source makes
+                # these mutually exclusive per service type.
                 origin_ref={
                     "service_type": source_format,
                     "url": source_url_value,
-                    "layer_id": None if layer_id is None else str(layer_id),
+                    "layer_id": service_layer_identity(
+                        source_format,
+                        layer_id=layer_id,
+                        layer_name=source_layer_value,
+                    ),
                 },
             )
             # Captured pre-commit: the ORM attribute may be expired after commit.
