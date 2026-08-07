@@ -191,6 +191,41 @@ def _quoted(values: Sequence[str]) -> str:
 # use as a typename. A dataset whose job row is gone therefore keeps a ref
 # with no layer_id and needs its layer identified once before a first
 # refresh; an honest gap beats invented data.
+#
+# THE INVARIANT (fix #1218 review r4): `origin_ref.url` is the service BASE for
+# every service_type, `layer_id` is the service-native layer identifier, and
+# the url NEVER embeds the layer.
+#
+# `datasets.source_url` cannot supply that base directly. The probe puts the
+# layer NAME in layer_id for WFS and OGC API (sources/probe.py:73), and ingest
+# persists `<base>/<layer_id>` onto the dataset (tasks_vector.py:997-999), so
+# the stored column is enriched and reading it would have produced
+# url=<base>/topp:roads beside layer_id=topp:roads. The runtime write site is
+# already correct — it stores the un-enriched ingest argument
+# (tasks_vector.py:1037) — so this was a backfill-only divergence and the two
+# now agree.
+#
+# The base is therefore RECOVERED from the ingest job's own source_url, which
+# is the normalized value the operator submitted (sources/router.py:548), not
+# reconstructed by string surgery. ArcGIS keeps a derivation as fallback
+# because its suffix is provably numeric. For WFS/OGC API with no surviving
+# job the base is NOT derivable: stripping needs the layer name, which is the
+# thing that went missing. Those rows get NEITHER url nor layer_id rather than
+# a wrong base, which would violate the invariant above. `origin_uri` still
+# holds the full enriched URL, so an operator can re-identify the layer from
+# it by hand.
+
+# The latest complete ingest job for this dataset. Both columns below are read
+# from THIS row, with an id tiebreaker so two separate scalar subqueries can
+# never resolve to different jobs on identical created_at values.
+_LATEST_JOB = """
+    FROM catalog.ingest_jobs AS j
+    WHERE j.dataset_id = d.id
+      AND j.status = 'complete'
+    ORDER BY j.created_at DESC, j.id DESC
+    LIMIT 1
+"""
+
 _SERVICE_BACKFILL = f"""
     UPDATE catalog.datasets AS d
     SET origin_uri = d.source_url,
@@ -198,26 +233,23 @@ _SERVICE_BACKFILL = f"""
             jsonb_build_object(
                 'kind', 'service',
                 'service_type', d.source_format,
-                'url', CASE
-                    WHEN d.source_format = 'arcgis_featureserver'
-                         AND d.source_url ~ '/[0-9]+$'
-                    THEN regexp_replace(d.source_url, '/[0-9]+$', '')
-                    ELSE d.source_url
-                END,
+                'url', COALESCE(
+                    (SELECT j.source_url {_LATEST_JOB}),
+                    CASE
+                        WHEN d.source_format = 'arcgis_featureserver'
+                             AND d.source_url ~ '/[0-9]+$'
+                        THEN regexp_replace(d.source_url, '/[0-9]+$', '')
+                        WHEN d.source_format = 'arcgis_featureserver'
+                        THEN d.source_url
+                        ELSE NULL
+                    END
+                ),
                 'layer_id', CASE
                     WHEN d.source_format = 'arcgis_featureserver'
                          AND d.source_url ~ '/[0-9]+$'
                     THEN substring(d.source_url from '/([0-9]+)$')
                     WHEN d.source_format IN ('wfs', 'ogcapi_features')
-                    THEN (
-                        SELECT j.source_layer
-                        FROM catalog.ingest_jobs AS j
-                        WHERE j.dataset_id = d.id
-                          AND j.status = 'complete'
-                          AND j.source_layer IS NOT NULL
-                        ORDER BY j.created_at DESC
-                        LIMIT 1
-                    )
+                    THEN (SELECT j.source_layer {_LATEST_JOB})
                     ELSE NULL
                 END
             )

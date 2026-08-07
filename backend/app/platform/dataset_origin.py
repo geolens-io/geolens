@@ -77,6 +77,13 @@ ORIGIN_REF_KEYS: dict[str, frozenset[str]] = {
     # cannot disagree, and one key is enough for a refresh to re-address the
     # layer. Do NOT add a second key for the name: that would create two fields
     # with overlapping meaning and leave a refresh to guess which one applies.
+    #
+    # THE INVARIANT (fix #1218 review r4): `url` is the service BASE for every
+    # service_type, `layer_id` is the service-native layer identifier, and the
+    # url NEVER embeds the layer. A refresh composes the two per service; it
+    # must never have to strip a layer back out of the url. Note this is why
+    # `url` is not the same value as `datasets.origin_uri`, which deliberately
+    # keeps the enriched form ingest composed, as provenance.
     "service": frozenset({"service_type", "url", "layer_id"}),
     # `asset_href` is additive to ADR-002's declared stac shape. The STAC
     # import request carries the item id, the collection id, and the chosen

@@ -566,14 +566,19 @@ class TestBackfill:
             name="Backfill WFS",
             source_format="wfs",
         )
-        wfs.source_url = "https://gis.test/geoserver/wfs"
+        # fix(#1218 review r4): the ENRICHED form ingest actually persists.
+        # The probe puts the layer name in layer_id for WFS, so
+        # tasks_vector composes <base>/<typename> into datasets.source_url.
+        wfs.source_url = "https://gis.test/geoserver/wfs/topp:parcels"
         # fix(#1218 review r3): a WFS layer is identified by its typename,
         # which lives on the ingest job. The retention sweep exempts each
-        # dataset's newest complete job precisely so this hint survives.
+        # dataset's newest complete job precisely so this hint survives, and
+        # r4 takes the un-enriched base from the same row.
         test_db_session.add(
             IngestJob(
                 dataset_id=wfs.id,
                 status="complete",
+                source_url="https://gis.test/geoserver/wfs",
                 source_filename="Parcels (2024)",
                 source_layer="topp:parcels",
                 created_by=admin_id,
@@ -590,7 +595,7 @@ class TestBackfill:
             source_format="wfs",
             source_filename="Human Readable Title",
         )
-        wfs_orphan.source_url = "https://gis.test/geoserver/wfs2"
+        wfs_orphan.source_url = "https://gis.test/geoserver/wfs2/Human Readable Title"
 
         # A user PATCHed source_url to prose before the migration ran. A
         # pointer that does not parse must stay NULL rather than be
@@ -713,21 +718,33 @@ class TestBackfill:
             }
 
             wfs_row = rows[wfs.id]
-            assert wfs_row.origin_uri == wfs.source_url
+            # origin_uri keeps the enriched form as provenance...
+            assert wfs_row.origin_uri == "https://gis.test/geoserver/wfs/topp:parcels"
+            # ...while the ref carries the BASE plus the layer separately.
             assert wfs_row.origin_ref == {
                 "kind": "service",
                 "service_type": "wfs",
                 "url": "https://gis.test/geoserver/wfs",
                 "layer_id": "topp:parcels",
             }
+            assert not wfs_row.origin_ref["url"].endswith("topp:parcels"), (
+                "the invariant: origin_ref.url is the base and never embeds "
+                "the layer, or a refresh addresses the wrong endpoint"
+            )
 
             orphan_wfs_row = rows[wfs_orphan.id]
+            # No surviving job, so neither the base nor the layer is
+            # derivable. A wrong base would break the invariant, so the ref
+            # carries neither and origin_uri keeps the full URL for a human.
             assert orphan_wfs_row.origin_ref == {
                 "kind": "service",
                 "service_type": "wfs",
-                "url": "https://gis.test/geoserver/wfs2",
             }, "a human title must never be backfilled as the layer identifier"
             assert "layer_id" not in orphan_wfs_row.origin_ref
+            assert "url" not in orphan_wfs_row.origin_ref
+            assert orphan_wfs_row.origin_uri == (
+                "https://gis.test/geoserver/wfs2/Human Readable Title"
+            )
 
             prose_row = rows[prose.id]
             assert prose_row.origin_uri is None
