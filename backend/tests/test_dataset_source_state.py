@@ -1125,6 +1125,35 @@ class TestBackfill:
         )
         encoded_name_stac.source_url = "https://bucket.test/s.tif?%73ig=deadbeef"
 
+        # fix(#1218 review r7): parse_qsl decodes + to a space and
+        # _is_sensitive_query_param strips whitespace, so this reads as
+        # ?token= in Python. Same class as the encoded name above, third
+        # spelling; the guard is derived from the transforms, not the
+        # spellings, so literal whitespace is covered by the same arm.
+        plus_name = await _pre_migration_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Cred Plus Name",
+            source_format="wfs",
+        )
+        plus_name.source_url = "https://gis.test/geoserver/wfs?+token+=hunter2"
+
+        plus_name_stac = await _pre_migration_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Cred Plus Name STAC",
+            source_format="stac",
+        )
+        plus_name_stac.source_url = "https://bucket.test/s.tif?+sig+=deadbeef"
+
+        space_name = await _pre_migration_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Cred Space Name",
+            source_format="wfs",
+        )
+        space_name.source_url = "https://gis.test/geoserver/wfs? token =hunter2"
+
         # The admission half for r6: a percent-encoded VALUE is ordinary in a
         # WFS typename and must still backfill. The name segment ends at the
         # first '=' of its pair, which is what keeps these apart.
@@ -1134,16 +1163,16 @@ class TestBackfill:
             name="Cred Encoded Value",
             source_format="wfs",
         )
+        # r7 admission: a + in a VALUE is ordinary too and must not trip the
+        # name arm, so this URL carries both an encoded value and a plus one.
         encoded_value.source_url = (
-            "https://gis.test/geoserver/wfs?service=WFS&typename=ns%3Aroads"
+            "https://gis.test/geoserver/wfs?typename=ns%3Aroads&q=a+b"
         )
         test_db_session.add(
             IngestJob(
                 dataset_id=encoded_value.id,
                 status="complete",
-                source_url=(
-                    "https://gis.test/geoserver/wfs?service=WFS&typename=ns%3Aroads"
-                ),
+                source_url=("https://gis.test/geoserver/wfs?typename=ns%3Aroads&q=a+b"),
                 source_layer="ns:roads",
                 created_by=admin_id,
             )
@@ -1181,6 +1210,9 @@ class TestBackfill:
                                     encoded_name.id,
                                     encoded_name_stac.id,
                                     encoded_value.id,
+                                    plus_name.id,
+                                    plus_name_stac.id,
+                                    space_name.id,
                                 ],
                             )
                         )
@@ -1194,6 +1226,9 @@ class TestBackfill:
                 stac_cred,
                 encoded_name,
                 encoded_name_stac,
+                plus_name,
+                plus_name_stac,
+                space_name,
             ):
                 row = rows[unsafe.id]
                 assert row.origin_uri is None, f"{row.source_url} was frozen in"
@@ -1203,7 +1238,8 @@ class TestBackfill:
 
             encoded_value_row = rows[encoded_value.id]
             assert encoded_value_row.origin_uri == encoded_value.source_url, (
-                "an encoded VALUE is ordinary; only encoded NAMES are refused"
+                "an encoded or plus-bearing VALUE is ordinary; only NAMES "
+                "carrying %, + or whitespace are refused"
             )
             assert encoded_value_row.origin_ref["layer_id"] == "ns:roads"
 

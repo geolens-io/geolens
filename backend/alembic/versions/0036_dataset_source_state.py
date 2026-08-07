@@ -186,25 +186,54 @@ def _url_is_safe(expr: str) -> str:
     code here follows ``alembic/env.py``, which already imports
     ``app.core.config`` and ``app.core.db``.
 
-    fix(#1218 review r6): the encoded-name gap is CLOSED, by refusing the
-    ambiguous class rather than adjudicating it. ``parse_qsl`` percent-decodes
-    a parameter NAME before judging it, so ``?%74oken=`` reads as ``token`` in
-    Python; the name alternation below sees the literal ``%74oken`` and would
-    have admitted it. Rather than reimplement percent-decoding in SQL — a
-    second copy of ``parse_qsl`` that can drift from the first, which is the
-    thing binding SENSITIVE_QUERY_PARAMS above exists to prevent — the last
-    arm refuses ANY url whose query encodes a parameter NAME at all,
-    regardless of what it decodes to. Parameter names are never legitimately
-    percent-encoded in a service or STAC URL, so this costs approximately no
-    real pointers.
+    fix(#1218 reviews r6 and r7): the name-normalization gap is closed as a
+    CLASS, not a spelling. Rounds 6 and 7 each reported one encoding of the
+    same idea (``?%74oken=``, then ``?+token+=``), so the arm below is derived
+    from the transforms themselves.
+
+    Every normalization the runtime pair applies to a query NAME before
+    judging it, read off ``parse_qsl`` and ``_is_sensitive_query_param``
+    (``app/core/url_redaction.py``) and MEASURED against this Python, not
+    recalled:
+
+    ==========================  ============  ==============================
+    transform                   example       how this predicate handles it
+    ==========================  ============  ==============================
+    pair split on ``&``         ``&token=``   anchored on ``[?&]``
+    pair split on ``;``         ``;token=``   NOT a separator in Python 3.14
+                                              (``parse_qsl('a=1;token=s')``
+                                              yields one pair), so nothing
+                                              to handle
+    percent-decode              ``%74oken``   refused by the name arm
+    plus-to-space               ``+token+``   refused by the name arm
+    ``.strip()`` whitespace     ``' token '`` refused by the name arm
+    ``.lower()`` case fold      ``TOKEN``     already matched, the
+                                              alternation runs case
+                                              insensitively (``!~*``)
+    empty name                  ``?=secret``  decodes to ``''``, never in
+                                              SENSITIVE_QUERY_PARAMS
+    ==========================  ============  ==============================
+
+    Case folding is the one transform NOT handled by refusal, deliberately:
+    refusing uppercase names would reject ``?SERVICE=WFS`` and every other
+    ordinary OGC parameter. Matching case-insensitively handles it exactly,
+    so there is nothing ambiguous left to refuse.
+
+    Everything else collapses to one rule: a NAME containing ``%``, ``+``, or
+    whitespace is refused outright, whatever it decodes to. Decoding in SQL
+    would be a second copy of ``parse_qsl`` that can drift from the first,
+    which is the thing binding SENSITIVE_QUERY_PARAMS above exists to prevent.
+    Names never legitimately carry those characters in a service or STAC URL,
+    so the refusal costs approximately no real pointers.
 
     VALUES keep their encoding rights: the name segment is bounded by the
-    FIRST ``=`` of its pair, so ``?typename=ns%3Aroads`` still backfills. That
-    distinction is the whole reason for the ``[^=&#]*`` classes rather than a
-    bare ``%``.
+    FIRST ``=`` of its pair, so ``?typename=ns%3Aroads`` and ``?q=a+b`` both
+    still backfill. That distinction is the whole reason for the ``[^=&#]*``
+    classes rather than a bare character test.
 
-    The predicate is now at least as strict as the Python rule on every shape
-    it is given.
+    To check this list is still complete, re-read those two functions: the
+    predicate is at least as strict as the Python rule on every shape it is
+    given.
     """
     from app.core.url_redaction import SENSITIVE_QUERY_PARAMS
 
@@ -214,7 +243,7 @@ def _url_is_safe(expr: str) -> str:
         {expr} ~* '^https?://'
         AND {expr} !~ '^[a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]*@'
         AND {expr} !~* '[?&]({alternation})='
-        AND {expr} !~ '[?&][^=&#]*%[0-9A-Fa-f][0-9A-Fa-f][^=&#]*='
+        AND {expr} !~ '[?&][^=&#]*[%+[:space:]][^=&#]*='
     )"""
 
 
