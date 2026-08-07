@@ -379,6 +379,21 @@ class DatasetResponse(BaseModel):
             "schema diff; 'unknown' until a refresh has run."
         ),
     )
+    # feat(#1224): computed at read time from last_refreshed_at, the record's
+    # update_frequency, and origin. Not stored — see domain/source_freshness.py.
+    source_freshness: str = Field(
+        default="unknown",
+        description=(
+            "fresh, due, overdue, or unknown, computed from last_refreshed_at "
+            "against the declared update_frequency: due past one declared "
+            "period, overdue past two. 'unknown' when the origin cannot be "
+            "refreshed at all (created), when no cadence is declared "
+            "(asNeeded, irregular, notPlanned, unknown), or when nothing has "
+            "been refreshed yet. Advisory only; never blocks an operation. "
+            "Distinct from the quality score's own freshness, which measures "
+            "quality_detail.computed_at rather than the source."
+        ),
+    )
     quality_statement: str | None = None
     visibility: str = Field(
         description="Access level: private, restricted, internal, public"

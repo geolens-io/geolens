@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -14,6 +15,9 @@ import structlog
 from app.core.config import settings
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.modules.catalog.datasets.domain.models import Dataset
+from app.modules.catalog.datasets.domain.source_freshness import (
+    compute_source_freshness,
+)
 from app.modules.catalog.records.localization import select_localized_record_text
 from app.modules.catalog.datasets.domain.utils import extract_bbox
 from app.modules.catalog.search.record_metadata import (
@@ -23,6 +27,7 @@ from app.modules.catalog.search.record_metadata import (
     build_time,
 )
 from app.modules.catalog.sources.provenance import derive_last_edited
+from app.platform.dataset_origin import classify_origin
 from app.standards.ogc.utils import build_url
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -359,6 +364,19 @@ def dataset_to_ogc_record(
             # ISO governance fields (API-01)
             "lineage": lineage_summary,
             "update_frequency": record.update_frequency,
+            # feat(#1224): the same read-time computation dataset_to_response
+            # serves, so a catalog card and a dataset detail page cannot
+            # disagree about how late a dataset is. Search responses cache for
+            # SEARCH_CACHE_TTL (30s), which is far below the shortest declared
+            # period (one day), so a cached value can only lag a transition by
+            # that window. Named source_freshness, not freshness: the frontend's
+            # quality-freshness.ts answers a different question under that word.
+            "source_freshness": compute_source_freshness(
+                dataset.last_refreshed_at,
+                record.update_frequency,
+                datetime.now(timezone.utc),
+                origin=classify_origin(dataset.source_format, record_type),
+            ),
             "constraints": (
                 {"usage": record.usage_constraints, "access": record.access_constraints}
                 if record.usage_constraints or record.access_constraints

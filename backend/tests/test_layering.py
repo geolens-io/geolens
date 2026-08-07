@@ -2300,7 +2300,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # reader will go looking for the column. source_health and
     # schema_drift_status carry the NULL -> "unknown" projection, which is
     # only discoverable from the description. Cap 1215 -> 1271, exact.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1271,
+    # feat(#1224): +15 — the computed `source_freshness` field. The description
+    # spends its lines on the three things a reader cannot see from the type:
+    # that the value is derived from last_refreshed_at, update_frequency, and
+    # origin rather than stored (so nobody goes looking for a column); that a
+    # non-refreshable origin reads "unknown"; and that it is a different thing
+    # from the quality score's own freshness, which the frontend already
+    # computes under that word. Cap 1271 -> 1286, exact.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1286,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch

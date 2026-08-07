@@ -191,6 +191,20 @@ export type DatasetOrigin = 'upload' | 'postgis' | 'service' | 'stac' | 'created
  *  literal, so there is exactly one way to spell "never determined". */
 export type SourceHealth = 'healthy' | 'missing' | 'inaccessible' | 'unknown';
 export type SchemaDriftStatus = 'none' | 'drifted' | 'unknown';
+/** feat(#1224): how a dataset's last refresh of its SOURCE compares to the
+ *  cadence it declares in `update_frequency` — due past one declared period,
+ *  overdue past two. Computed server-side on every read, never stored, so there
+ *  is no client-side copy of the rule to drift. 'unknown' when the origin
+ *  cannot be refreshed at all (`created`), when no cadence is declared
+ *  (asNeeded, irregular, notPlanned, unknown), or when nothing has been
+ *  refreshed yet. Advisory: it never gates an action.
+ *
+ *  NOT the same thing as `QualityFreshnessState` in lib/quality-freshness.ts,
+ *  which measures the quality score's `computed_at` against the same
+ *  `update_frequency` with its own thresholds and its own states
+ *  ('fresh' | 'stale' | 'missing'). Both words say freshness; only one is about
+ *  the source. Keep the `source` qualifier on every name and label. */
+export type SourceFreshness = 'fresh' | 'due' | 'overdue' | 'unknown';
 
 /** Response returned by dataset publication-status mutation endpoints. */
 export type StatusUpdateResponse = components['schemas']['StatusUpdateResponse'];
@@ -279,6 +293,10 @@ export interface DatasetResponse {
   source_health_detail?: string | null;
   /** 'unknown' until a refresh has run. */
   schema_drift_status?: SchemaDriftStatus;
+  /** feat(#1224): computed from `last_refreshed_at` against the
+   * `update_frequency` below, gated on `origin`. Read-only, like the block
+   * above. */
+  source_freshness?: SourceFreshness;
   quality_statement: string | null;
   collections: Array<{ id: string; name: string }> | null;
   quality_detail?: {
@@ -522,6 +540,11 @@ export interface OGCRecordProperties {
   } | null;
   record_status?: string | null;
   record_type?: RecordType;
+  /** feat(#1224): the same computed value `DatasetResponse.source_freshness`
+   * carries, so a catalog card and a dataset page cannot disagree about how
+   * late a dataset is. Served alongside `update_frequency` below. */
+  source_freshness?: SourceFreshness;
+  update_frequency?: string | null;
   has_quicklook?: boolean;
   band_count?: number | null;
   epsg?: number | null;

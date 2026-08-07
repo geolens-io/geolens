@@ -85,6 +85,11 @@ class DatasetResponse:
         source_health_detail (None | str | Unset): Short redacted reason for a non-healthy state
         schema_drift_status (str | Unset): none, drifted, or unknown. Set at refresh commit from the schema diff;
             'unknown' until a refresh has run. Default: 'unknown'.
+        source_freshness (str | Unset): fresh, due, overdue, or unknown, computed from last_refreshed_at against the
+            declared update_frequency: due past one declared period, overdue past two. 'unknown' when the origin cannot be
+            refreshed at all (created), when no cadence is declared (asNeeded, irregular, notPlanned, unknown), or when
+            nothing has been refreshed yet. Advisory only; never blocks an operation. Distinct from the quality score's own
+            freshness, which measures quality_detail.computed_at rather than the source. Default: 'unknown'.
         quality_statement (None | str | Unset):
         last_edited_by_display (None | str | Unset):
         last_edited_at (datetime.datetime | None | Unset):
@@ -155,6 +160,7 @@ class DatasetResponse:
     source_health: str | Unset = "unknown"
     source_health_detail: None | str | Unset = UNSET
     schema_drift_status: str | Unset = "unknown"
+    source_freshness: str | Unset = "unknown"
     quality_statement: None | str | Unset = UNSET
     last_edited_by_display: None | str | Unset = UNSET
     last_edited_at: datetime.datetime | None | Unset = UNSET
@@ -390,6 +396,8 @@ class DatasetResponse:
 
         schema_drift_status = self.schema_drift_status
 
+        source_freshness = self.source_freshness
+
         quality_statement: None | str | Unset
         if isinstance(self.quality_statement, Unset):
             quality_statement = UNSET
@@ -607,6 +615,8 @@ class DatasetResponse:
             field_dict["source_health_detail"] = source_health_detail
         if schema_drift_status is not UNSET:
             field_dict["schema_drift_status"] = schema_drift_status
+        if source_freshness is not UNSET:
+            field_dict["source_freshness"] = source_freshness
         if quality_statement is not UNSET:
             field_dict["quality_statement"] = quality_statement
         if last_edited_by_display is not UNSET:
@@ -1021,6 +1031,8 @@ class DatasetResponse:
 
         schema_drift_status = d.pop("schema_drift_status", UNSET)
 
+        source_freshness = d.pop("source_freshness", UNSET)
+
         def _parse_quality_statement(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -1331,6 +1343,7 @@ class DatasetResponse:
             source_health=source_health,
             source_health_detail=source_health_detail,
             schema_drift_status=schema_drift_status,
+            source_freshness=source_freshness,
             quality_statement=quality_statement,
             last_edited_by_display=last_edited_by_display,
             last_edited_at=last_edited_at,

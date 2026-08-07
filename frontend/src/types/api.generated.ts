@@ -7374,6 +7374,12 @@ export interface components {
              * @default unknown
              */
             schema_drift_status: string;
+            /**
+             * Source Freshness
+             * @description fresh, due, overdue, or unknown, computed from last_refreshed_at against the declared update_frequency: due past one declared period, overdue past two. 'unknown' when the origin cannot be refreshed at all (created), when no cadence is declared (asNeeded, irregular, notPlanned, unknown), or when nothing has been refreshed yet. Advisory only; never blocks an operation. Distinct from the quality score's own freshness, which measures quality_detail.computed_at rather than the source.
+             * @default unknown
+             */
+            source_freshness: string;
             /** Quality Statement */
             quality_statement?: string | null;
             /**
@@ -10124,6 +10130,12 @@ export interface components {
             lineage?: string | null;
             /** Update Frequency */
             update_frequency?: string | null;
+            /**
+             * Source Freshness
+             * @description fresh, due, overdue, or unknown — how the dataset's last refresh compares to its declared update_frequency. 'unknown' for origins nothing can refresh. Advisory only, and distinct from the quality score's own freshness.
+             * @default unknown
+             */
+            source_freshness: string;
             /** Constraints */
             constraints?: {
                 [key: string]: unknown;
