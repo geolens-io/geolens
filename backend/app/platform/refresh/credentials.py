@@ -18,7 +18,9 @@ three properties that matter, and where each comes from:
   would leave a window; that window is the whole point of using ``GETDEL``.
 - **Bounded lifetime.** ``SET ... EX`` expires the key whether or not anyone
   claims it, so a dispatch that never reaches a worker leaves no credential
-  behind for anyone to find later.
+  behind for anyone to find later. The TTL is derived from the queue wait it
+  has to survive rather than picked — see :data:`CREDENTIAL_TTL_SECONDS`,
+  which also documents the one case it deliberately does not cover.
 - **Nothing durable.** The reference is a random string that means nothing
   once claimed or expired. It is the only thing that reaches a task argument
   or a log line.
@@ -53,13 +55,50 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 
-# How long a stashed credential survives unclaimed. Long enough for a queue
-# backed up behind a large ingest, short enough that a dispatch nobody ever
-# ran does not leave a usable secret sitting around for the afternoon. A run
-# claimed after this window fails with `credential_expired`, which is a
-# distinct, actionable outcome rather than an authentication error blamed on
-# the origin.
-CREDENTIAL_TTL_SECONDS = 900
+# fix(#1277 review): the TTL is DERIVED from the wait it has to survive, not
+# picked. The first version used a flat 900s on the reasoning that a queue is
+# usually short — but `worker_concurrency` defaults to 1 and refreshes share
+# the `ingest` queue with every other ingest, so a refresh queued behind one
+# large import waits for that import, and Procrastinate offers no pickup
+# guarantee to bound it. Fifteen minutes is well inside the range a single
+# large ingest occupies, which made `credential_expired` reachable on a
+# perfectly healthy instance.
+#
+# The supported bound on the job at the head of a concurrency-1 queue is
+# JOB_TIMEOUT_SECONDS: past that the stale sweep fails it and the queue moves.
+# So one blocking job plus a margin is the wait this has to outlive.
+#
+# Mirrored rather than imported, because `platform/jobs/router.py` is an API
+# edge and importing it executes route registration as a side effect — the
+# same reason `ABANDONED_RUN_CUTOFF_SECONDS` mirrors it one module over.
+# `test_service_refresh_1220` pins the two values together so drift fails a
+# test rather than silently shortening the window again.
+_QUEUE_HEAD_JOB_TIMEOUT_SECONDS = 3600
+
+# Slack over the bound above, covering the sweep's own cycle time plus the gap
+# between a queue freeing up and this task being claimed.
+_CREDENTIAL_TTL_MARGIN_SECONDS = 600
+
+# Never shorter than the original 15 minutes, whatever the timeout is tuned
+# to. An operator who lowers JOB_TIMEOUT_SECONDS is tightening a liveness
+# policy, not asking for credentials that expire during a normal dispatch.
+_CREDENTIAL_TTL_FLOOR_SECONDS = 900
+
+# How long a stashed credential survives unclaimed. Short enough that a
+# dispatch nobody ever ran does not leave a usable secret sitting around, long
+# enough that an ordinary queue never eats it.
+#
+# ACCEPTED RESIDUAL: a queue several large ingests deep can still outlast
+# this, and no TTL fixes that — the whole point of A7 is that the credential
+# is single-use and short-lived, and stretching it toward "long enough for any
+# queue" is stretching it toward "durable", which is the property this
+# mechanism exists to avoid. When it does happen the outcome is clean and
+# actionable rather than mysterious: the run fails `credential_expired` and
+# its message already says to start again with a fresh token.
+CREDENTIAL_TTL_SECONDS = max(
+    _CREDENTIAL_TTL_FLOOR_SECONDS,
+    _QUEUE_HEAD_JOB_TIMEOUT_SECONDS + _CREDENTIAL_TTL_MARGIN_SECONDS,
+)
 
 _KEY_PREFIX = "geolens:refresh-cred:"
 
@@ -114,6 +153,20 @@ class RedisCredentialBackend:
     No circuit breaker and no in-memory fallback, unlike
     ``RedisCacheProvider``: a fallback here would accept a credential the
     worker can never read. Failing the write is the honest outcome.
+
+    fix(#1277 review): both operations translate transport failures into
+    ``CredentialStoreUnavailable`` at this boundary, rather than letting
+    redis-py's own exceptions escape. Untranslated they broke both callers in
+    different ways — a connection error during stash left the endpoint
+    returning 500 instead of its 503, and one during claim was swallowed by
+    the caller's broad handler and reported as ``credential_expired``, which
+    blames a spent token for what is actually an outage. Reaching the store is
+    an availability question and answering it is the store's job; only the
+    store SAYING the key is absent is evidence about the credential.
+
+    The exception is never rendered into the message either: redis-py bakes
+    the command it was running into its error text, and that command carries
+    the key.
     """
 
     def __init__(self, url: str) -> None:
@@ -122,14 +175,32 @@ class RedisCredentialBackend:
         self._client = redis_async.from_url(url, decode_responses=True)
 
     async def put(self, key: str, value: str, ttl_seconds: int) -> None:
-        stored = await self._client.set(key, value, ex=ttl_seconds, nx=True)
+        try:
+            stored = await self._client.set(key, value, ex=ttl_seconds, nx=True)
+        except Exception as exc:  # broad: any transport failure means "no store"
+            logger.warning(
+                "refresh_credential_store_write_failed", error_type=type(exc).__name__
+            )
+            raise CredentialStoreUnavailable(
+                "The credential store could not be reached, so this refresh "
+                "cannot be started with a token."
+            ) from exc
         if not stored:
             raise CredentialStoreUnavailable(
                 "Could not stash the service credential for this refresh."
             )
 
     async def take(self, key: str) -> str | None:
-        return await self._client.getdel(key)
+        try:
+            return await self._client.getdel(key)
+        except Exception as exc:  # broad: any transport failure means "cannot tell"
+            logger.warning(
+                "refresh_credential_store_read_failed", error_type=type(exc).__name__
+            )
+            raise CredentialStoreUnavailable(
+                "The credential store could not be reached, so this refresh "
+                "could not retrieve its token."
+            ) from exc
 
 
 _backend: CredentialBackend | None = None
@@ -209,6 +280,14 @@ async def claim_service_credential(ref: str) -> str:
     ADR-002 Decision 3 says a credential is request-scoped, so a run that
     outlives its credential must ask a human for a new one rather than
     silently retrying unauthenticated and reporting the origin's 401.
+
+    fix(#1277 review): "gone" and "could not tell" are two answers, and only
+    one of them is about the credential. A store that ANSWERS and reports no
+    such key is evidence the secret was claimed or expired; a store that
+    cannot be reached is evidence of nothing except an outage. This fallback
+    used to report the second as the first, so a Valkey blip surfaced as
+    `credential_expired` and sent the reader to re-issue a token that was
+    never the problem.
     """
     if not _REF_PATTERN.match(ref or ""):
         raise CredentialExpiredError(
@@ -218,13 +297,14 @@ async def claim_service_credential(ref: str) -> str:
         secret = await get_credential_backend().take(_KEY_PREFIX + ref)
     except CredentialStoreUnavailable:
         raise
-    except Exception as exc:  # broad: any store failure means "cannot claim"
+    except Exception as exc:  # broad: an unreachable store is not an expiry
         # The exception itself never crosses this boundary: a redis-py error
         # can carry the command it was running, and that command carries the
         # key. Log the class, surface the fixed sentence.
         logger.warning("refresh_credential_claim_failed", error_type=type(exc).__name__)
-        raise CredentialExpiredError(
-            "The service credential for this refresh could not be retrieved."
+        raise CredentialStoreUnavailable(
+            "The credential store could not be reached, so this refresh could "
+            "not retrieve its token."
         ) from exc
     if secret is None:
         raise CredentialExpiredError(

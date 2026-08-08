@@ -634,6 +634,74 @@ class TestCredentialHandoff:
         assert task.defer_async.await_count == 1
         assert await _run_for(test_db_session, dataset.id) is not None
 
+    async def test_a_store_that_is_down_during_stash_returns_503_not_500(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """fix(#1277 review): configured-but-unreachable is not configured.
+
+        `credential_store_available()` only reads the setting, so a live
+        outage gets past the door check and surfaces at the stash. That has to
+        land as the same 503 the door returns, not an unhandled 500 — and the
+        request must roll back whole, leaving no reserved run to block the
+        retry that follows once the store is back.
+        """
+
+        class _DownBackend:
+            async def put(self, key, value, ttl_seconds):
+                raise creds.CredentialStoreUnavailable("valkey is away")
+
+            async def take(self, key):
+                raise creds.CredentialStoreUnavailable("valkey is away")
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(test_db_session, created_by=admin_id)
+        creds.set_credential_backend(_DownBackend())
+        try:
+            async with _dispatch_harness() as task:
+                resp = await client.post(
+                    f"/datasets/{dataset.id}/refresh",
+                    json={"token": "never-stashed"},
+                    headers=admin_auth_header,
+                )
+        finally:
+            creds.set_credential_backend(None)
+
+        assert resp.status_code == 503
+        assert resp.json()["detail"]["code"] == "credential_store_unavailable"
+        task.defer_async.assert_not_awaited()
+        assert await _run_for(test_db_session, dataset.id) is None
+
+    async def test_a_store_that_is_down_during_claim_fails_as_an_outage(
+        self,
+    ) -> None:
+        """The whole worker sequence, not just the mapper.
+
+        A Valkey blip used to reach the run row as `credential_expired`,
+        telling the reader to re-issue a token that was never the problem.
+        """
+        from app.processing.ingest.tasks_reupload import (
+            _resolve_service_token,
+            _service_refresh_error_code,
+        )
+
+        class _DownBackend:
+            async def put(self, key, value, ttl_seconds):
+                raise creds.CredentialStoreUnavailable("valkey is away")
+
+            async def take(self, key):
+                raise ConnectionError("valkey is away")
+
+        creds.set_credential_backend(_DownBackend())
+        try:
+            with pytest.raises(creds.CredentialStoreUnavailable) as caught:
+                await _resolve_service_token(None, "a" * 24)
+        finally:
+            creds.set_credential_backend(None)
+
+        assert (
+            _service_refresh_error_code(caught.value) == "credential_store_unavailable"
+        )
+
     async def test_a_credential_is_claimable_exactly_once(
         self, credential_backend
     ) -> None:
@@ -654,6 +722,35 @@ class TestCredentialHandoff:
         await creds.stash_service_credential("ttl-check")
         (_key, _value, ttl) = credential_backend.puts[0]
         assert ttl == creds.CREDENTIAL_TTL_SECONDS
+
+    def test_the_ttl_outlives_a_full_length_job_at_the_queue_head(self) -> None:
+        """fix(#1277 review): the TTL is derived, and this is the derivation.
+
+        `worker_concurrency` defaults to 1 and refreshes share the `ingest`
+        queue, so a refresh can wait behind one large import with no pickup
+        guarantee from Procrastinate. The supported bound on that blocking job
+        is JOB_TIMEOUT_SECONDS — past it the stale sweep fails the job and the
+        queue moves — so the credential has to outlive one of those plus
+        slack, or `credential_expired` becomes reachable on a healthy
+        instance.
+        """
+        from app.platform.jobs.router import JOB_TIMEOUT_SECONDS
+
+        assert creds.CREDENTIAL_TTL_SECONDS > JOB_TIMEOUT_SECONDS
+        assert creds.CREDENTIAL_TTL_SECONDS >= 900
+
+    def test_the_mirrored_job_timeout_has_not_drifted(self) -> None:
+        """The constant is mirrored, so pin it to the authority.
+
+        `platform/jobs/router.py` is an API edge and importing it executes
+        route registration, so `credentials.py` copies the number rather than
+        importing it — the same trade `ABANDONED_RUN_CUTOFF_SECONDS` makes one
+        module over. A test is what keeps a copy honest: tune the timeout
+        without this, and the credential window silently stops covering it.
+        """
+        from app.platform.jobs.router import JOB_TIMEOUT_SECONDS
+
+        assert creds._QUEUE_HEAD_JOB_TIMEOUT_SECONDS == JOB_TIMEOUT_SECONDS
 
     async def test_a_malformed_reference_never_reaches_the_store(
         self, credential_backend
@@ -721,6 +818,41 @@ class TestRedisBackendContract:
         stub.set = AsyncMock(return_value=None)
         with pytest.raises(creds.CredentialStoreUnavailable):
             await backend.put("k", "v", 900)
+
+    async def test_a_transport_failure_on_write_is_translated(self) -> None:
+        """fix(#1277 review): redis-py exceptions must not escape this class.
+
+        Untranslated, a connection error during stash propagated out of the
+        endpoint as an unhandled 500 instead of the 503 the door is written to
+        return.
+        """
+        backend, stub = self._backend()
+        stub.set = AsyncMock(side_effect=ConnectionError("valkey is away"))
+        with pytest.raises(creds.CredentialStoreUnavailable):
+            await backend.put("k", "v", 900)
+
+    async def test_a_transport_failure_on_claim_is_not_reported_as_expiry(
+        self,
+    ) -> None:
+        """The misreport codex caught: an outage blamed on a spent token.
+
+        Only the store ANSWERING "no such key" is evidence about the
+        credential. A store that cannot be reached is evidence of nothing.
+        """
+        backend, stub = self._backend()
+        stub.getdel = AsyncMock(side_effect=TimeoutError("valkey timed out"))
+        with pytest.raises(creds.CredentialStoreUnavailable):
+            await backend.take("k")
+
+    async def test_the_message_never_carries_the_key(self) -> None:
+        """redis-py bakes the command — and so the key — into its error text."""
+        backend, stub = self._backend()
+        stub.getdel = AsyncMock(
+            side_effect=ConnectionError("GETDEL geolens:refresh-cred:abc123 failed")
+        )
+        with pytest.raises(creds.CredentialStoreUnavailable) as caught:
+            await backend.take("geolens:refresh-cred:abc123")
+        assert "abc123" not in str(caught.value)
 
 
 class TestWorkerCredentialClaim:
