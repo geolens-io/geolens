@@ -261,6 +261,10 @@ jobs:
             alembic:
               - 'backend/alembic/**'
               - 'backend/scripts/test_alembic_upgrade_clean_db.sh'
+              # The clean-DB harness bind-mounts both init scripts. Changes to
+              # either must exercise the exact fresh-cluster boot path.
+              - 'scripts/init-db.sh'
+              - 'scripts/lib/configure-runtime-db-role.sh'
               # OCG-02: backend/app/models/** was deleted in b63803c1; replaced
               # with the real model layout so model-only PRs still trigger alembic
               # check (blocks model migration drift regressions).

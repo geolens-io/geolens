@@ -32,6 +32,22 @@ def test_bootstrap_restore_and_upgrade_share_one_role_reconciler() -> None:
     assert f"docker compose exec -T db {command}" in runbook
 
 
+def test_clean_db_migration_smoke_mounts_role_reconciler_read_only() -> None:
+    source = (ROOT / "backend/scripts/test_alembic_upgrade_clean_db.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert (
+        'ROLE_RECONCILER="${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh"'
+        in source
+    )
+    assert '[ ! -f "${ROLE_RECONCILER}" ]' in source
+    assert '[ ! -r "${ROLE_RECONCILER}" ]' in source
+    assert (
+        '-v "${ROLE_RECONCILER}:/usr/local/bin/configure-runtime-db-role:ro"' in source
+    )
+
+
 def test_compose_mounts_reconciler_read_only_and_scopes_the_password_to_db() -> None:
     for filename in ("docker-compose.yml", "docker-compose.prod.yml"):
         services = _compose(filename)["services"]

@@ -173,6 +173,20 @@ class TestAlembicFilterGlobs:
             f"Current globs: {globs}"
         )
 
+    def test_clean_db_boot_inputs_are_covered(self):
+        """Every script bind-mounted by the clean-DB smoke must trigger it."""
+        globs = _parse_alembic_filter_globs()
+
+        for required in (
+            "backend/scripts/test_alembic_upgrade_clean_db.sh",
+            "scripts/init-db.sh",
+            "scripts/lib/configure-runtime-db-role.sh",
+        ):
+            assert required in globs, (
+                f"{required} is missing from the alembic filter, so a change "
+                f"to a clean-DB boot input can skip the smoke. Current globs: {globs}"
+            )
+
 
 class TestPullRequestDiffBase:
     """fix(#1094): the PR diff base must not be the stale pull_request.base.sha."""
