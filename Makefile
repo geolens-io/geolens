@@ -82,7 +82,7 @@ test-sequential:
 	docker compose exec api env UV_CACHE_DIR=/app/staging/uv-cache UV_PROJECT_ENVIRONMENT=/app/staging/geolens-api-test-venv uv run pytest -o cache_dir=/app/staging/.pytest_cache -v --tb=short
 
 test-cov:
-	docker compose exec api env UV_CACHE_DIR=/app/staging/uv-cache UV_PROJECT_ENVIRONMENT=/app/staging/geolens-api-test-venv uv run pytest -o cache_dir=/app/staging/.pytest_cache -v --tb=short --cov=app --cov-report=term-missing
+	docker compose exec api env UV_CACHE_DIR=/app/staging/uv-cache UV_PROJECT_ENVIRONMENT=/app/staging/geolens-api-test-venv COVERAGE_FILE=/app/staging/.coverage uv run pytest -o cache_dir=/app/staging/.pytest_cache -v --tb=short --cov=app --cov-report=term-missing
 
 # Live-provider AI evals (assertion-based NL->SQL regression suite). Skipped
 # in normal test runs; costs real provider tokens. Needs the dev DB up and
