@@ -1,6 +1,7 @@
 """Structural contracts for the opt-in single-tenant PostgreSQL runtime role."""
 
 from pathlib import Path
+import json
 import os
 import subprocess
 from types import SimpleNamespace
@@ -18,6 +19,46 @@ ROLE_SCRIPT = ROOT / "scripts" / "lib" / "configure-runtime-db-role.sh"
 
 def _compose(filename: str) -> dict:
     return yaml.safe_load((ROOT / filename).read_text(encoding="utf-8"))
+
+
+def _render_compose(filename: str, overrides: dict[str, str]) -> dict:
+    environment = os.environ.copy()
+    for key in (
+        "DATABASE_URL_OVERRIDE",
+        "GEOLENS_MIGRATION_DB_ROLE",
+        "GEOLENS_RUNTIME_DB_ROLE",
+        "GEOLENS_RUNTIME_DB_PASSWORD",
+        "MIGRATION_DATABASE_URL_OVERRIDE",
+    ):
+        environment.pop(key, None)
+    environment.update(
+        {
+            "POSTGRES_DB": "local_geolens",
+            "POSTGRES_USER": "local_bootstrap",
+            "POSTGRES_PASSWORD": "local-bootstrap-password",
+            **overrides,
+        }
+    )
+    completed = subprocess.run(
+        [
+            "docker",
+            "compose",
+            "--env-file",
+            str(ROOT / ".env.example"),
+            "-f",
+            str(ROOT / filename),
+            "config",
+            "--format",
+            "json",
+        ],
+        cwd=ROOT,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    return json.loads(completed.stdout)
 
 
 def test_bootstrap_restore_and_upgrade_share_one_role_reconciler() -> None:
@@ -52,9 +93,6 @@ def test_clean_db_migration_smoke_mounts_role_reconciler_read_only() -> None:
 
 
 def test_compose_mounts_reconciler_read_only_and_scopes_the_password_to_db() -> None:
-    conditional_migration_role = (
-        "${GEOLENS_MIGRATION_DB_ROLE:-${GEOLENS_RUNTIME_DB_ROLE:+${POSTGRES_USER}}}"
-    )
     for filename in ("docker-compose.yml", "docker-compose.prod.yml"):
         services = _compose(filename)["services"]
         db = services["db"]
@@ -66,14 +104,54 @@ def test_compose_mounts_reconciler_read_only_and_scopes_the_password_to_db() -> 
         assert db["environment"]["GEOLENS_RUNTIME_DB_PASSWORD"] == (
             "${GEOLENS_RUNTIME_DB_PASSWORD:-}"
         )
-        assert db["environment"]["GEOLENS_MIGRATION_DB_ROLE"] == (
-            conditional_migration_role
-        )
+        assert "GEOLENS_MIGRATION_DB_ROLE" not in db["environment"]
         for service_name in ("api", "worker", "migrate"):
             assert (
                 "GEOLENS_RUNTIME_DB_PASSWORD"
                 not in services[service_name]["environment"]
             )
+
+
+def test_compose_scopes_managed_migrator_role_away_from_local_db() -> None:
+    for filename in ("docker-compose.yml", "docker-compose.prod.yml"):
+        services = _render_compose(
+            filename,
+            {
+                "DATABASE_URL_OVERRIDE": (
+                    "postgresql://geolens_app:runtime-password@managed/geolens"
+                ),
+                "GEOLENS_MIGRATION_DB_ROLE": "external_migrator",
+                "GEOLENS_RUNTIME_DB_ROLE": "geolens_app",
+                "GEOLENS_RUNTIME_DB_PASSWORD": "runtime-password-at-least-32-characters",
+                "MIGRATION_DATABASE_URL_OVERRIDE": (
+                    "postgresql://external_migrator:migration-password@managed/geolens"
+                ),
+            },
+        )["services"]
+
+        assert "GEOLENS_MIGRATION_DB_ROLE" not in services["db"]["environment"]
+        assert services["db"]["environment"]["POSTGRES_USER"] == "local_bootstrap"
+        assert (
+            services["migrate"]["environment"]["GEOLENS_MIGRATION_DB_ROLE"]
+            == "external_migrator"
+        )
+
+
+def test_compose_infers_bundled_migrator_role_only_for_migrate() -> None:
+    for filename in ("docker-compose.yml", "docker-compose.prod.yml"):
+        services = _render_compose(
+            filename,
+            {
+                "GEOLENS_RUNTIME_DB_ROLE": "geolens_app",
+                "GEOLENS_RUNTIME_DB_PASSWORD": "runtime-password-at-least-32-characters",
+            },
+        )["services"]
+
+        assert "GEOLENS_MIGRATION_DB_ROLE" not in services["db"]["environment"]
+        assert (
+            services["migrate"]["environment"]["GEOLENS_MIGRATION_DB_ROLE"]
+            == "local_bootstrap"
+        )
 
 
 def test_role_script_keeps_password_out_of_argv_and_catalog_ownership() -> None:
@@ -99,6 +177,7 @@ def test_role_script_keeps_password_out_of_argv_and_catalog_ownership() -> None:
 def test_role_script_requires_managed_marker_and_targets_migration_owner() -> None:
     source = ROLE_SCRIPT.read_text(encoding="utf-8")
 
+    assert 'migration_role="${GEOLENS_MIGRATION_DB_ROLE:-$db_user}"' in source
     assert "geolens-managed-runtime-role:v2:database=" in source
     assert "current_database()" in source
     assert "shobj_description" in source
