@@ -171,15 +171,20 @@ def upgrade() -> None:
     # so without a backfill the index would see their dataset as idle and
     # admit a concurrent post-deploy refresh while the old durable task can
     # still reach the swap. Give every genuinely in-flight legacy reupload
-    # job — claimed, or dispatched with an attempt token — a `running` row
-    # here. The rows are finalized by the same machinery as native ones (the
-    # worker keys on ingest_job_id; the stale sweep cancels any whose job
-    # died with the old deploy). DISTINCT ON keeps the newest per dataset so
-    # a pathological double cannot violate the one-active index and abort
-    # the upgrade. Jobs dispatched by still-draining pre-migration API pods
-    # AFTER this statement stay unrefereed for the minutes those pods live;
-    # that window was equally unprotected before this table existed, so the
-    # backfill removes the regression without claiming to rewrite history.
+    # job a `running` row here: claimed, or pending WITH a live Procrastinate
+    # task referencing it — the same args->>'job_id' correlation the
+    # abandoned-run sweep trusts. NOT attempt_id: that column is populated at
+    # job creation (platform/jobs/models.py), so a staged preview nobody
+    # committed carries one, and inventing a run for it would 409 the real
+    # commit until the stale sweep. The rows are finalized by the same
+    # machinery as native ones (the worker keys on ingest_job_id; the stale
+    # sweep cancels any whose job died with the old deploy). DISTINCT ON
+    # keeps the newest per dataset so a pathological double cannot violate
+    # the one-active index and abort the upgrade. Jobs dispatched by
+    # still-draining pre-migration API pods AFTER this statement stay
+    # unrefereed for the minutes those pods live; that window was equally
+    # unprotected before this table existed, so the backfill removes the
+    # regression without claiming to rewrite history.
     op.execute(
         sa.text(
             """
@@ -204,7 +209,14 @@ def upgrade() -> None:
                 WHERE (j.user_metadata->>'reupload') = 'true'
                   AND (
                         j.status = 'running'
-                        OR (j.status = 'pending' AND j.attempt_id IS NOT NULL)
+                        OR (
+                            j.status = 'pending'
+                            AND EXISTS (
+                                SELECT 1 FROM catalog.procrastinate_jobs pj
+                                WHERE pj.args->>'job_id' = j.id::text
+                                  AND pj.status IN ('todo', 'doing')
+                            )
+                        )
                   )
                   -- Idempotent, and safe beside any row the new code already
                   -- wrote: a dataset with an active run needs no referee.

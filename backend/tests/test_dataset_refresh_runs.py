@@ -1770,16 +1770,57 @@ class TestMigrationBackfill:
                 feature_count_before=None,
             )
 
-    async def test_staged_but_undispatched_job_is_not_backfilled(
+    async def test_pending_job_with_live_task_is_backfilled(
         self, test_db_session
     ) -> None:
-        """A pending job with no attempt token was never handed to a worker —
-        an uncommitted staged upload, not an in-flight refresh."""
+        """Dispatched-but-unclaimed legacy work is identified by its live
+        Procrastinate row — the same correlation the abandoned-run sweep
+        trusts — never by attempt_id, which every job carries from birth."""
         from sqlalchemy import text as sa_text
 
         _dataset, job = await _seed(test_db_session)
         job.status = "pending"
-        job.attempt_id = None
+        await test_db_session.commit()
+        # SET LOCAL search_path: procrastinate's insert trigger writes to
+        # procrastinate_events by its unqualified name.
+        await test_db_session.execute(
+            sa_text("SET LOCAL search_path TO catalog, public")
+        )
+        await test_db_session.execute(
+            sa_text(
+                "INSERT INTO catalog.procrastinate_jobs "
+                "(queue_name, task_name, args, status) "
+                "VALUES ('ingest', 'reupload_service', "
+                "jsonb_build_object('job_id', CAST(:j AS text)), 'todo')"
+            ),
+            {"j": str(job.id)},
+        )
+        await test_db_session.commit()
+
+        await test_db_session.execute(sa_text(self._backfill_sql()))
+        await test_db_session.commit()
+
+        count = (
+            await test_db_session.execute(
+                select(func.count())
+                .select_from(DatasetRefreshRun)
+                .where(DatasetRefreshRun.ingest_job_id == job.id)
+            )
+        ).scalar_one()
+        assert count == 1
+
+    async def test_staged_but_undispatched_job_is_not_backfilled(
+        self, test_db_session
+    ) -> None:
+        """A pending job with no live Procrastinate task was never handed to
+        a worker — an uncommitted staged preview, not an in-flight refresh.
+        attempt_id deliberately proves nothing: every job carries one from
+        birth (fix #1274 review), so a run invented from it would 409 the
+        real commit until the stale sweep."""
+        from sqlalchemy import text as sa_text
+
+        _dataset, job = await _seed(test_db_session)
+        job.status = "pending"
         await test_db_session.commit()
 
         await test_db_session.execute(sa_text(self._backfill_sql()))
