@@ -10789,7 +10789,7 @@ export type VrtSourceHealth = {
     /**
      * Status
      */
-    status: 'healthy' | 'missing' | 'inaccessible';
+    status: 'healthy' | 'missing' | 'inaccessible' | 'stale';
 };
 
 /**

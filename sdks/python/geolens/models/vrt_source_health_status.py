@@ -1,11 +1,12 @@
 from typing import Literal, cast
 
-VrtSourceHealthStatus = Literal["healthy", "inaccessible", "missing"]
+VrtSourceHealthStatus = Literal["healthy", "inaccessible", "missing", "stale"]
 
 VRT_SOURCE_HEALTH_STATUS_VALUES: set[VrtSourceHealthStatus] = {
     "healthy",
     "inaccessible",
     "missing",
+    "stale",
 }
 
 
