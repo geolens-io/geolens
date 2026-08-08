@@ -947,6 +947,62 @@ class TestNotApplicableOrigins:
         assert dataset.last_checked_at is None
         assert dataset.source_health is None
 
+    async def test_policy_blocked_probe_keeps_the_prior_contact_time(
+        self, client, admin_auth_header, test_db_session, probe_transport
+    ) -> None:
+        """fix(#1271 review): an SSRF refusal happens before any packet goes
+        out, so it must not advance the contact clock — stamping it would
+        overwrite a real earlier contact time with a policy-check time. The
+        verdict itself still persists: "policy now blocks this origin" is
+        true state."""
+        install, _ = probe_transport
+        install(_raising(lambda req: SSRFError("resolves to private range")))
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(test_db_session, created_by=admin_id)
+        earlier = datetime(2026, 8, 1, tzinfo=timezone.utc)
+        dataset.last_checked_at = earlier
+        await test_db_session.commit()
+
+        resp = await client.post(
+            f"/datasets/{dataset.id}/source-health/", headers=admin_auth_header
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["source_health"] == INACCESSIBLE
+        assert resp.json()["source_health_detail"] == BLOCKED_BY_POLICY
+        assert resp.json()["last_checked_at"] == earlier.isoformat().replace(
+            "+00:00", "Z"
+        )
+
+        await test_db_session.refresh(dataset)
+        assert dataset.last_checked_at == earlier
+        assert dataset.source_health == INACCESSIBLE
+        assert dataset.source_health_detail == BLOCKED_BY_POLICY
+
+    async def test_successful_probe_invalidates_the_dataset_list_cache(
+        self, client, admin_auth_header, test_db_session, probe_transport, monkeypatch
+    ) -> None:
+        """fix(#1271 review): GET /datasets/ caches these fields for 60s;
+        every other dataset mutation invalidates, and a probe that skipped it
+        left the list serving the pre-probe state after the probe response
+        already showed the update."""
+        from unittest.mock import AsyncMock
+
+        from app.modules.catalog.datasets.api import router_health
+
+        install, _ = probe_transport
+        install(_status_map({}, default=200))
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(test_db_session, created_by=admin_id)
+
+        spy = AsyncMock()
+        monkeypatch.setattr(router_health, "invalidate_catalog_cache", spy)
+
+        resp = await client.post(
+            f"/datasets/{dataset.id}/source-health/", headers=admin_auth_header
+        )
+        assert resp.status_code == 200, resp.text
+        spy.assert_awaited_once()
+
     async def test_probeable_origin_without_a_pointer_is_409(
         self, client, admin_auth_header, test_db_session, probe_transport
     ) -> None:

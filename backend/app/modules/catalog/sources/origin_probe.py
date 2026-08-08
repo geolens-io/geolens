@@ -99,6 +99,15 @@ class OriginProbeResult:
 
     health: str
     detail: str | None = None
+    # fix(#1271 review): whether an outbound attempt actually left GeoLens.
+    # ``last_checked_at`` means "last time GeoLens contacted the origin at
+    # all", and an SSRF refusal happens before any packet goes out — stamping
+    # it would overwrite a real earlier contact time with a policy-check
+    # time. False ONLY for policy blocks: a timeout or TLS failure was still
+    # an attempt on the wire. Conservative on redirect chains — a mid-chain
+    # SSRF refusal did contact the first hop, but under-stamping a contact
+    # is recoverable while fabricating one is not.
+    contacted: bool = True
 
     @property
     def ok(self) -> bool:
@@ -156,7 +165,11 @@ async def probe_remote_uri(
     ) as exc:  # broad: every transport failure means "could not determine"
         # Only the classification crosses this boundary. The exception itself
         # is never rendered: httpx puts the full request URL in its messages.
-        return OriginProbeResult(INACCESSIBLE, _failure_code(exc))
+        return OriginProbeResult(
+            INACCESSIBLE,
+            _failure_code(exc),
+            contacted=not isinstance(exc, SSRFError),
+        )
 
     return _status_result(status_code)
 

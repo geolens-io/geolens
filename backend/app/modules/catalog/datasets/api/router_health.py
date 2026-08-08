@@ -62,6 +62,7 @@ from app.modules.catalog.sources.origin_probe import (
     OriginProbeResult,
     probe_remote_uri,
 )
+from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.dataset_origin import classify_origin
 from app.platform.extensions import get_catalog_port
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
@@ -245,6 +246,7 @@ async def check_source_health(
     bound_uri = dataset.origin_uri
     bound_ref = dataset.origin_ref
     bound_format = dataset.source_format
+    prior_checked_at = dataset.last_checked_at
 
     if origin == "stac":
         result = await _probe_stac_origin(db, dataset)
@@ -253,9 +255,19 @@ async def check_source_health(
 
     # last_checked_at is written on BOTH outcomes — that is the whole meaning
     # of the column, and a failed probe is the case an operator most needs
-    # dated. The probe helpers never raise for a network condition, so no path
-    # from here reaches the response without this write.
+    # dated. The one exception is a probe that never left GeoLens: an SSRF
+    # policy refusal happens before any packet goes out (result.contacted is
+    # False), and stamping it would overwrite a real earlier contact time
+    # with a policy-check time. The verdict is still persisted — "policy now
+    # blocks this origin" is true state — but the contact clock keeps its
+    # prior value.
     now = datetime.now(timezone.utc)
+    values: dict[str, object] = {
+        "source_health": result.health,
+        "source_health_detail": result.detail,
+    }
+    if result.contacted:
+        values["last_checked_at"] = now
     outcome = await db.execute(
         update(Dataset)
         .where(
@@ -264,11 +276,7 @@ async def check_source_health(
             Dataset.origin_ref.is_not_distinct_from(bound_ref),
             Dataset.source_format.is_not_distinct_from(bound_format),
         )
-        .values(
-            last_checked_at=now,
-            source_health=result.health,
-            source_health_detail=result.detail,
-        )
+        .values(**values)
     )
     await db.commit()
     if outcome.rowcount == 0:
@@ -285,6 +293,13 @@ async def check_source_health(
             },
         )
 
+    # fix(#1271 review): GET /datasets/ serves these three fields from a
+    # 60-second cache, so without this the list keeps reporting the
+    # pre-probe state after the probe response already showed the update —
+    # the same reason every other dataset mutation invalidates here. After
+    # the rowcount check: a discarded verdict changed nothing.
+    await invalidate_catalog_cache()
+
     # Built from locals rather than re-read from the instance: commit expires
     # the attributes, and touching them here would either issue a second round
     # trip or raise MissingGreenlet depending on the session's state.
@@ -293,5 +308,5 @@ async def check_source_health(
         origin=origin,
         source_health=result.health,
         source_health_detail=result.detail,
-        last_checked_at=now,
+        last_checked_at=now if result.contacted else prior_checked_at,
     )
