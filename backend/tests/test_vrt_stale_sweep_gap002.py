@@ -138,8 +138,12 @@ def _make_mock_db_for_fail_stale(
         stale_jobs_running or [],
         [generation.id for generation in (stale_vrt_generations or [])],
         [asset.dataset_id for asset in (stale_vrt_assets or [])],
-        # feat(#1219): the abandoned-refresh-run sweep, between the VRT sweep
-        # and the retention purge.
+        # feat(#1219): the refresh-run sweep, between the VRT sweep and the
+        # retention purge — TWO statements since fix(#1274 review): the
+        # legacy-completion success recorder, then the abandonment cancel.
+        # Both empty in these fixtures; the sweep has its own suite in
+        # test_dataset_refresh_runs.py.
+        [],
         [],
     ]:
         mock_result = MagicMock()
@@ -375,11 +379,12 @@ async def test_fail_stale_jobs_purges_terminal_jobs_past_retention():
     await fail_stale_jobs(mock_db)
 
     # 5 sweeps (the pending clause is two statements since fix(#1234)) + the
-    # abandoned-refresh-run sweep (feat(#1219)) + the purge DELETE + the
-    # post-expiry staging SELECT.
-    assert mock_db.execute.await_count == 8
-    # Index 5 is the refresh-run sweep now; the purge shifted to 6.
-    purge_stmt = mock_db.execute.await_args_list[6].args[0]
+    # refresh-run sweep's TWO statements (feat(#1219), fix(#1274 review):
+    # legacy-completion recorder then abandonment cancel) + the purge DELETE
+    # + the post-expiry staging SELECT.
+    assert mock_db.execute.await_count == 9
+    # Indexes 5-6 are the refresh-run sweep now; the purge shifted to 7.
+    purge_stmt = mock_db.execute.await_args_list[7].args[0]
     assert isinstance(purge_stmt, Delete)
     where_sql = str(purge_stmt.compile(compile_kwargs={"literal_binds": True}))
     assert "'pending'" in where_sql and "'running'" in where_sql, (
@@ -540,10 +545,11 @@ async def test_fail_stale_jobs_retention_zero_disables_purge(monkeypatch):
     mock_db = _make_mock_db_for_fail_stale()
     await fail_stale_jobs(mock_db)
 
-    # 5 sweeps (two pending clauses since fix(#1234)) plus the
-    # abandoned-refresh-run sweep (feat(#1219)) and no purge DELETE, plus the
-    # post-expiry staging SELECT, which is independent of retention.
-    assert mock_db.execute.await_count == 7
+    # 5 sweeps (two pending clauses since fix(#1234)) plus the refresh-run
+    # sweep's two statements (feat(#1219), fix(#1274 review)) and no purge
+    # DELETE, plus the post-expiry staging SELECT, which is independent of
+    # retention.
+    assert mock_db.execute.await_count == 8
 
 
 # ---------------------------------------------------------------------------
