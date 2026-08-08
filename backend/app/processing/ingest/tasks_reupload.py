@@ -542,7 +542,7 @@ async def _record_failed_origin_contact(
     if not contacted or bound is None:
         return
     bound_uri, bound_ref, bound_format = bound
-    await err_session.execute(
+    outcome = await err_session.execute(
         update(dataset_cls)
         .where(
             dataset_cls.id == dataset_uuid,
@@ -553,6 +553,11 @@ async def _record_failed_origin_contact(
         .values(last_checked_at=datetime.now(timezone.utc))
     )
     await err_session.commit()
+    # fix(#1271 review): GET /datasets/ serves last_checked_at from a 60s
+    # cache, and every other writer of the field invalidates it. Only when
+    # the guarded write actually landed — a lost rebind race changed nothing.
+    if outcome.rowcount:
+        await invalidate_catalog_cache()
 
 
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.reupload_service"])
