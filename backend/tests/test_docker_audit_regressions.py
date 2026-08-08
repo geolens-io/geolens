@@ -27,18 +27,17 @@ def _load_compose(path):
 
 
 def test_test_cov_uses_writable_staging_data_file_and_cleanup(tmp_path):
-    dry_run = subprocess.run(
-        ["make", "--dry-run", "test-cov"],
-        cwd=REPO_ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
-    env_prefix, separator, _pytest_args = dry_run.partition(" uv run pytest ")
+    target_match = re.search(
+        r"(?m)^test-cov:\n(?P<recipe>(?:\t[^\n]*(?:\n|$))+)",
+        MAKEFILE.read_text(encoding="utf-8"),
+    )
+    assert target_match is not None
+    recipe = target_match.group("recipe")
+    env_prefix, separator, _pytest_args = recipe.partition(" uv run pytest ")
 
-    assert separator, dry_run
+    assert separator, recipe
     coverage_match = re.search(r"\bCOVERAGE_FILE=(\S+)", env_prefix)
-    assert coverage_match is not None, dry_run
+    assert coverage_match is not None, recipe
     container_data_file = Path(coverage_match.group(1))
     assert container_data_file == Path("/app/staging/.coverage")
 
