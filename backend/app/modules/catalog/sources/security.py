@@ -17,6 +17,19 @@ class SSRFError(ValueError):
     """URL targets a private/internal network or uses a disallowed scheme."""
 
 
+class SSRFResolutionError(SSRFError):
+    """The hostname did not resolve at all.
+
+    fix(#1271 review): a subclass rather than a sibling because every
+    existing SSRFError handler must keep refusing the fetch — but the two
+    are different facts. NXDOMAIN is a property of the ORIGIN (expired
+    domain, dead DNS) and belongs to the ``network_error`` class of probe
+    outcomes; a policy refusal is a property of GEOLENS and reports
+    ``blocked_by_policy``. Collapsing them sends an operator to audit
+    egress policy for a domain that simply no longer exists.
+    """
+
+
 # SEC-013: additional ranges that Python's ipaddress module does NOT flag via
 # the standard is_private / is_reserved predicates but must be blocked for SSRF.
 #
@@ -68,9 +81,9 @@ async def _resolve_and_validate(host: str, port: int | None) -> str:
             socket.getaddrinfo, host, port, proto=socket.IPPROTO_TCP
         )
     except socket.gaierror:
-        raise SSRFError(f"Could not resolve hostname: {host}")
+        raise SSRFResolutionError(f"Could not resolve hostname: {host}")
     if not results:
-        raise SSRFError(f"Could not resolve hostname: {host}")
+        raise SSRFResolutionError(f"Could not resolve hostname: {host}")
     for _family, _type, _proto, _canon, sockaddr in results:
         ip = ipaddress.ip_address(sockaddr[0])
         if _is_blocked_ip(ip):
@@ -104,10 +117,10 @@ async def validate_url_for_ssrf(url: str) -> None:
             socket.getaddrinfo, hostname, parsed.port, proto=socket.IPPROTO_TCP
         )
     except socket.gaierror:
-        raise SSRFError(f"Could not resolve hostname: {hostname}")
+        raise SSRFResolutionError(f"Could not resolve hostname: {hostname}")
 
     if not results:
-        raise SSRFError(f"Could not resolve hostname: {hostname}")
+        raise SSRFResolutionError(f"Could not resolve hostname: {hostname}")
 
     for family, _, _, _, sockaddr in results:
         ip = ipaddress.ip_address(sockaddr[0])

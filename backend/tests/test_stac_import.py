@@ -416,9 +416,62 @@ class TestStacImport:
         assert data["results"][0]["status"] == "created"
         assert data["results"][0]["dataset_id"] is not None
 
-        # fix(#1271 review): the import contacted the remote asset via
-        # _fetch_cog_info, so a fresh STAC dataset must not claim its origin
-        # was never contacted. The verdict stays with the probe's classifier.
+        # fix(#1271 review): no Titiler answered in this environment, so
+        # _fetch_cog_info returned None and nobody can show the origin was
+        # contacted — the field stays NULL until a probe settles it. The
+        # contacted case is pinned separately below.
+        detail = await client.get(
+            f"/datasets/{data['results'][0]['dataset_id']}",
+            headers=admin_auth_header,
+        )
+        assert detail.status_code == 200
+        assert detail.json()["last_checked_at"] is None
+        assert detail.json()["source_health"] == "unknown"
+
+    async def test_import_with_cog_info_stamps_the_contact(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        mock_stac_ssrf,
+    ):
+        """fix(#1271 review): cog info in hand means Titiler reached the COG
+        on GeoLens's behalf — that IS a contact, same contract as
+        _finalize_ingest and the reupload swap."""
+        with patch(
+            "app.modules.catalog.sources.stac_router._fetch_cog_info",
+            new=AsyncMock(
+                return_value={
+                    "band_count": 1,
+                    "dtype": "float32",
+                    "width": 512,
+                    "height": 512,
+                    "nodata": None,
+                    "band_info": None,
+                }
+            ),
+        ):
+            resp = await client.post(
+                "/services/stac/import",
+                json={
+                    "url": "https://stac.example.com/v1",
+                    "items": [
+                        {
+                            "id": f"test-item-{uuid.uuid4().hex[:8]}",
+                            "collection": "dem-collection",
+                            "title": "Contacted STAC Import",
+                            "data_asset_href": "https://example.com/data/c.tif",
+                            "bbox": [-1, -1, 1, 1],
+                            "epsg": 4326,
+                        }
+                    ],
+                    "visibility": "private",
+                },
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["created"] == 1
+
         detail = await client.get(
             f"/datasets/{data['results'][0]['dataset_id']}",
             headers=admin_auth_header,

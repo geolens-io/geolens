@@ -57,7 +57,7 @@ from app.modules.catalog.sources.origin_probe import (
     probe_remote_uri,
     remote_asset_exists,
 )
-from app.modules.catalog.sources.security import SSRFError
+from app.modules.catalog.sources.security import SSRFError, SSRFResolutionError
 from app.platform.dataset_origin import build_origin_ref
 from tests.factories import create_dataset as _create_dataset, get_user_id
 
@@ -197,6 +197,10 @@ class TestProbeStatusMapping:
             (lambda req: httpx.ConnectError("boom", request=req), NETWORK_ERROR),
             (lambda req: httpx.RemoteProtocolError("boom", request=req), NETWORK_ERROR),
             (lambda req: SSRFError("private range"), BLOCKED_BY_POLICY),
+            # fix(#1271 review): NXDOMAIN is a property of the ORIGIN, not a
+            # policy refusal — an expired domain must read network_error or
+            # an operator goes auditing egress policy for a dead hostname.
+            (lambda req: SSRFResolutionError("no such host"), NETWORK_ERROR),
         ],
     )
     async def test_transport_failures_classify_into_the_vocabulary(
@@ -214,6 +218,38 @@ class TestProbeStatusMapping:
         result = await probe_remote_uri(_ASSET)
         assert result.health == INACCESSIBLE
         assert result.detail == expected_detail
+
+    def test_failure_classification_tracks_contact_honestly(self) -> None:
+        """fix(#1271 review): the SSRF shapes report contact from whether a
+        response hop arrived before the failure — a public origin redirecting
+        to a blocked target WAS contacted; a first-hop refusal was not. Wire
+        attempts (timeout, connect failure) always count."""
+        from app.modules.catalog.sources.origin_probe import _classify_failure
+
+        assert _classify_failure(SSRFError("x"), responded=False) == (
+            BLOCKED_BY_POLICY,
+            False,
+        )
+        assert _classify_failure(SSRFError("x"), responded=True) == (
+            BLOCKED_BY_POLICY,
+            True,
+        )
+        assert _classify_failure(SSRFResolutionError("x"), responded=False) == (
+            NETWORK_ERROR,
+            False,
+        )
+        assert _classify_failure(SSRFResolutionError("x"), responded=True) == (
+            NETWORK_ERROR,
+            True,
+        )
+        assert _classify_failure(httpx.ConnectTimeout("x"), responded=False) == (
+            TIMEOUT,
+            True,
+        )
+        assert _classify_failure(httpx.ConnectError("x"), responded=False) == (
+            NETWORK_ERROR,
+            True,
+        )
 
     @pytest.mark.parametrize(
         "handler",

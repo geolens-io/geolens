@@ -630,17 +630,22 @@ async def stac_import(
                     item_href=item.item_href,
                     collection_id=item.collection,
                 )
-                # fix(#1271 review): _fetch_cog_info just contacted the
-                # remote asset, so the import IS a contact — the same
-                # contract _finalize_ingest and the reupload swap follow.
-                # set_dataset_origin cleared the field one line up; without
-                # this, a fresh STAC dataset claims it was never contacted
-                # until a manual probe runs.
-                dataset.last_checked_at = datetime.now(timezone.utc)
+                # fix(#1271 review): the import IS a contact — the same
+                # contract _finalize_ingest and the reupload swap follow —
+                # but only when it actually happened. cog info in hand means
+                # Titiler reached the COG on GeoLens's behalf; a None entry
+                # means _fetch_cog_info failed somewhere between here and
+                # the origin (Titiler down, timeout), and the import
+                # deliberately continues without it — stamping then would
+                # date a contact nobody can show occurred, so the field
+                # stays NULL until a probe settles it.
+                ci = cog_info_map.get(item.data_asset_href)
+                if ci is not None:
+                    dataset.last_checked_at = datetime.now(timezone.utc)
                 db.add(dataset)
                 await db.flush()
 
-                ci = cog_info_map.get(item.data_asset_href) or {}
+                ci = ci or {}
                 nodata_raw = ci.get("nodata")
 
                 raster_asset = get_catalog_port().raster_asset_orm_class()(

@@ -50,7 +50,11 @@ from dataclasses import dataclass
 
 import httpx
 
-from app.modules.catalog.sources.security import SSRFError, make_safe_client
+from app.modules.catalog.sources.security import (
+    SSRFError,
+    SSRFResolutionError,
+    make_safe_client,
+)
 
 # ADR-002's stored source_health values. Mirrors SOURCE_HEALTH_VALUES in
 # app/platform/dataset_origin.py, which is the schema-facing spelling; these
@@ -115,18 +119,28 @@ class OriginProbeResult:
         return self.health == HEALTHY
 
 
-def _failure_code(exc: BaseException) -> str:
-    """Classify a transport failure into the closed vocabulary.
+def _classify_failure(exc: BaseException, *, responded: bool) -> tuple[str, bool]:
+    """Classify a transport failure into (detail code, contacted).
 
-    Order matters: ``SSRFError`` is a ``ValueError``, and it can surface
-    either from the guard transport at connect time or from the redirect
-    revalidation hook mid-chain, so it is checked before anything broader.
+    Order matters twice over. ``SSRFResolutionError`` is an ``SSRFError`` and
+    ``SSRFError`` is a ``ValueError``, so the most specific class goes first.
+    And the two SSRF shapes report different facts: NXDOMAIN is a property of
+    the origin (``network_error``), a policy refusal is a property of GeoLens
+    (``blocked_by_policy``).
+
+    ``contacted`` for the SSRF shapes is whether any response hop arrived
+    before the failure — a public origin that redirects to a blocked target
+    WAS contacted (it answered), while a first-hop refusal never put a packet
+    on the wire. Timeouts and connect failures were attempts on the wire and
+    keep their stamp.
     """
+    if isinstance(exc, SSRFResolutionError):
+        return NETWORK_ERROR, responded
     if isinstance(exc, SSRFError):
-        return BLOCKED_BY_POLICY
+        return BLOCKED_BY_POLICY, responded
     if isinstance(exc, httpx.TimeoutException):
-        return TIMEOUT
-    return NETWORK_ERROR
+        return TIMEOUT, True
+    return NETWORK_ERROR, True
 
 
 def _status_result(status_code: int) -> OriginProbeResult:
@@ -154,8 +168,21 @@ async def probe_remote_uri(
     vocabulary exists to remove. Streaming plus the context-manager close
     bounds the response body even for a server that ignores the range header.
     """
+    # fix(#1271 review): records whether ANY response hop arrived, so a
+    # mid-chain policy refusal (public origin redirecting to a blocked
+    # target) still counts as a contact. First in the hook list so it runs
+    # before the revalidation hook can raise.
+    responded = False
+
+    async def _mark_responded(_response: httpx.Response) -> None:
+        nonlocal responded
+        responded = True
+
     try:
         async with make_safe_client(timeout=timeout) as client:
+            hooks = client.event_hooks
+            hooks["response"] = [_mark_responded, *hooks.get("response", [])]
+            client.event_hooks = hooks
             async with client.stream(
                 "GET", uri, headers={"Range": "bytes=0-0"}
             ) as response:
@@ -165,11 +192,8 @@ async def probe_remote_uri(
     ) as exc:  # broad: every transport failure means "could not determine"
         # Only the classification crosses this boundary. The exception itself
         # is never rendered: httpx puts the full request URL in its messages.
-        return OriginProbeResult(
-            INACCESSIBLE,
-            _failure_code(exc),
-            contacted=not isinstance(exc, SSRFError),
-        )
+        detail, contacted = _classify_failure(exc, responded=responded)
+        return OriginProbeResult(INACCESSIBLE, detail, contacted=contacted)
 
     return _status_result(status_code)
 
