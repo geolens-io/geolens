@@ -358,6 +358,20 @@ WHERE reconciler.rolname = current_user
     )\gexec
 \endif
 
+-- geolens_reader is cluster-global, as are all PostgreSQL roles. Remove the
+-- database default that would let another GeoLens database's runtime login
+-- connect here and SET ROLE into this database's reader grants. Keep the
+-- reconciler, actual migration owner, and this database's runtime admitted;
+-- any additional service login needs its own explicit per-database grant.
+SELECT format(
+    'REVOKE CONNECT ON DATABASE %I FROM PUBLIC', current_database()
+)\gexec
+SELECT format(
+    'GRANT CONNECT ON DATABASE %I TO %I', current_database(), current_user
+)\gexec
+SELECT format(
+    'GRANT CONNECT ON DATABASE %I TO %I', current_database(), :'migration_role'
+)\gexec
 SELECT format(
     'GRANT CONNECT ON DATABASE %I TO %I', current_database(), :'runtime_role'
 )\gexec
@@ -611,6 +625,21 @@ SELECT (
     )
     AND NOT has_schema_privilege(runtime.oid, 'catalog', 'CREATE')
     AND NOT has_schema_privilege(runtime.oid, 'public', 'CREATE')
+    AND NOT EXISTS (
+        SELECT 1
+        FROM pg_database AS database
+        CROSS JOIN LATERAL aclexplode(
+            COALESCE(database.datacl, acldefault('d', database.datdba))
+        ) AS database_acl
+        WHERE database.datname = current_database()
+          AND database_acl.grantee = 0
+          AND database_acl.privilege_type = 'CONNECT'
+    )
+    AND has_database_privilege(current_user, current_database(), 'CONNECT')
+    AND has_database_privilege(
+        :'migration_role', current_database(), 'CONNECT'
+    )
+    AND has_database_privilege(runtime.oid, current_database(), 'CONNECT')
     AND has_schema_privilege(runtime.oid, 'data', 'USAGE')
     AND has_schema_privilege(runtime.oid, 'data', 'CREATE')
     AND pg_has_role(runtime.oid, 'geolens_reader', 'MEMBER')

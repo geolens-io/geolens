@@ -200,6 +200,29 @@ def test_role_script_requires_managed_marker_and_targets_migration_owner() -> No
     assert "\\quit 1" not in source
 
 
+def test_role_script_scopes_shared_reader_to_the_current_database() -> None:
+    source = ROLE_SCRIPT.read_text(encoding="utf-8")
+
+    revoke_public = "'REVOKE CONNECT ON DATABASE %I FROM PUBLIC'"
+    grant_runtime = (
+        "'GRANT CONNECT ON DATABASE %I TO %I', current_database(), :'runtime_role'"
+    )
+    grant_reader = "'GRANT geolens_reader TO %I'"
+    assert revoke_public in source
+    assert (
+        "'GRANT CONNECT ON DATABASE %I TO %I', current_database(), current_user"
+        in source
+    )
+    assert (
+        "'GRANT CONNECT ON DATABASE %I TO %I', current_database(), "
+        ":'migration_role'" in source
+    )
+    assert grant_runtime in source
+    assert source.index(revoke_public) < source.index(grant_reader)
+    assert "database_acl.grantee = 0" in source
+    assert "database_acl.privilege_type = 'CONNECT'" in source
+
+
 def test_runtime_role_never_receives_tenant_control_function_execution() -> None:
     source = ROLE_SCRIPT.read_text(encoding="utf-8")
 

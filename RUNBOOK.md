@@ -247,7 +247,15 @@ execution: tenant provisioning remains exclusive to `geolens_tenant_control`.
 Catalog default grants are installed for the validated
 `GEOLENS_MIGRATION_DB_ROLE`, so later Alembic objects remain usable even when a
 managed provider admin performed reconciliation. The migrate service then
-applies Alembic before API/worker connect.
+applies Alembic before API/worker connect. Because PostgreSQL roles are
+cluster-global, the reconciler also revokes the database's default
+`PUBLIC CONNECT` and explicitly grants connection access to the reconciler,
+migration owner, and this database's runtime role. This prevents a runtime
+login for a second database on the same cluster from connecting here and
+assuming the shared `geolens_reader` role. Any additional login that needs this
+database, such as a dedicated multi-tenant tile login, requires an explicit
+`GRANT CONNECT ON DATABASE <database> TO <login>`; existing explicit grants
+are preserved. Legacy mode leaves the default connection ACL unchanged.
 The admin embedding-dimension resize is the sole catalog-DDL exception: the
 reconciler installs a bounded `SECURITY DEFINER` function, revokes its default
 `PUBLIC` execute grant, and grants it only to the configured runtime role. The
@@ -340,8 +348,9 @@ For managed/external PostgreSQL, run privileged migrations first, then run
 `GEOLENS_MIGRATION_DB_ROLE` as the username in
 `MIGRATION_DATABASE_URL_OVERRIDE`; it may differ from the provider admin used by
 the script. The provider credential must be able to create roles, change
-relation ownership, and alter default privileges for that migration owner
-(normally by membership or equivalent provider authority). On PostgreSQL 18,
+relation ownership, alter default privileges for that migration owner, and
+manage the target database's `CONNECT` ACL (normally by owning that database or
+through equivalent provider authority). On PostgreSQL 18,
 the provider admin also needs ADMIN OPTION on a pre-existing
 `geolens_reader`; an admin that created it during initial reconciliation
 already has PostgreSQL's automatic ADMIN-only membership. The reconciler uses
@@ -353,7 +362,9 @@ remains. Start runtime services only after that command succeeds. Provider
 snapshot/PITR restore normally preserves the database-scoped marker; a globals
 backup preserves it as a role comment. After any logical restore, rerun the
 same script before restarting writers, using the explicit rebind procedure
-above if the restored database name changed.
+above if the restored database name changed. A logical dump does not carry the
+database-level `PUBLIC CONNECT` revocation because GeoLens uses `--no-acl`; the
+mandatory post-restore reconciliation reapplies that boundary.
 
 ### Canonical restore entry point
 
@@ -375,9 +386,10 @@ above if the restored database name changed.
 5. Runs `pg_restore --clean --if-exists --no-owner` against the bundled `db` container.
 6. Runs the same privileged role/grant reconciler as bootstrap. It re-applies
    `geolens_reader`; when `GEOLENS_RUNTIME_DB_ROLE` is set it also restores
-   catalog runtime grants and re-owns only `data.*` runtime relations. `--clean`
-   drops schema ACLs/default privileges and `--no-owner` makes the restore login
-   own every restored relation, so this post-restore step is mandatory.
+   the database connection boundary, catalog runtime grants, and re-owns only
+   `data.*` runtime relations. `--clean` drops schema ACLs/default privileges
+   and `--no-owner` makes the restore login own every restored relation, so this
+   post-restore step is mandatory.
 7. Restarts `api` and `worker` on exit (including on failure — via a trap).
 8. Runs a post-restore row-count check (`catalog.records`, `catalog.datasets`).
 9. Auto-detects any sibling `staging-<timestamp>.tar.gz` next to the dump and

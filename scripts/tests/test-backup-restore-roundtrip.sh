@@ -394,7 +394,7 @@ UNMANAGED_CREATE_ROLE="$(psql_admin -tAc \
 [ "$UNMANAGED_CREATE_ROLE" = "t" ] \
     || fail "rejected unmanaged role was modified before the marker check"
 env PGPASSWORD="$UNMANAGED_PASSWORD" \
-    psql -X -h "$PGHOST" -p "$PGPORT" -U "$UNMANAGED_ROLE" -d "$DST_DB" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$UNMANAGED_ROLE" -d "$ADMIN_DB" \
     -Atqc "SELECT 1" | grep -qx 1 \
     || fail "rejected unmanaged role password was replaced"
 
@@ -437,6 +437,24 @@ env \
     POSTGRES_HOST="$PGHOST" POSTGRES_PORT="$PGPORT" \
     POSTGRES_USER="$PGUSER" POSTGRES_DB="$DST_DB" \
     bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" >/dev/null
+
+# Runtime and reader roles are cluster-global, so prove each database's runtime
+# can use the shared reader only inside its own database. Without a database
+# CONNECT boundary, the source runtime can connect to the restored database,
+# SET ROLE geolens_reader, and read its catalog/data grants.
+env PGPASSWORD="$RUNTIME_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$FRESH_RUNTIME_ROLE" -d "$SRC_DB" \
+    -v ON_ERROR_STOP=1 -Atqc \
+    "SET ROLE geolens_reader; SELECT name FROM data.ci_probe;" \
+    | grep -qx "runtime-ownership-probe" \
+    || fail "source runtime cannot read its own database through geolens_reader"
+if env PGPASSWORD="$RUNTIME_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$FRESH_RUNTIME_ROLE" -d "$DST_DB" \
+    -v ON_ERROR_STOP=1 -Atqc \
+    "SET ROLE geolens_reader; SELECT name FROM data.ci_probe;" \
+    >/dev/null 2>&1; then
+    fail "source runtime crossed the database boundary through geolens_reader"
+fi
 
 # Objects later created by the actual Alembic owner must inherit runtime
 # table/sequence access even though reconciliation used a different admin.
@@ -609,7 +627,7 @@ env PGPASSWORD="$PROVIDER_FAIL_PASSWORD" \
     -d "$PROVIDER_FAIL_DB" -Atqc "SELECT 1" | grep -qx 1 \
     || fail "failed reconciliation replaced the original runtime password"
 
-echo "      runtime role OK — safe attributes, catalog DML, data ownership, reader SET; catalog DDL + tenant-control functions denied."
+echo "      runtime role OK — same-DB reader SET works; cross-DB connection, catalog DDL, and tenant-control functions denied."
 echo ""
 
 # ------------------------------------------------------------------------------
