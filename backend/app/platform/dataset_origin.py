@@ -216,21 +216,23 @@ def set_dataset_origin(
         raise ValueError(
             f"unknown origin kind {kind!r}; expected one of {sorted(ORIGIN_KINDS)}"
         )
-    new_ref = build_origin_ref(kind, **ref_fields)
-    # fix(#1271 review): the stored probe state describes the origin the
-    # binding names, so a binding that now names a DIFFERENT origin
-    # invalidates it. Without this, a service dataset marked missing and then
-    # reuploaded from a local file serves the old missing/not_found verdict
-    # forever — the probe endpoint 409s on uploads, so nothing can ever
-    # correct it. An identical restamp keeps the state: same origin, still
-    # the same measurement. NULL is the honest value for "not measured since
-    # the origin changed" (the API projects it as unknown).
-    if (dataset.origin_uri, dataset.origin_ref) != (uri, new_ref):
-        dataset.source_health = None
-        dataset.source_health_detail = None
-        dataset.last_checked_at = None
+    # fix(#1271 review): every caller of this function is a successful-ingest
+    # commit, so the binding write is the moment the stored probe verdict
+    # stops describing anything real. Either the binding now names a
+    # DIFFERENT origin (a service marked missing and reuploaded from a file
+    # would otherwise serve missing/not_found forever, since uploads 409 the
+    # probe), or it re-stamps the SAME origin that the swap just exercised —
+    # in which case a pre-swap failure verdict is stale the other way round:
+    # the origin demonstrably answered. NULL is the honest value either way
+    # (the API projects it as unknown); writing "healthy" here would be a
+    # second, weaker classifier beside the probe's. Refresh paths that
+    # contacted the origin re-stamp last_checked_at in their own projection
+    # after this call.
+    dataset.source_health = None
+    dataset.source_health_detail = None
+    dataset.last_checked_at = None
     dataset.origin_uri = uri
-    dataset.origin_ref = new_ref
+    dataset.origin_ref = build_origin_ref(kind, **ref_fields)
 
 
 def project_unknown(value: str | None) -> str:

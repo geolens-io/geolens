@@ -278,11 +278,14 @@ class TestSetDatasetOrigin:
         assert dataset.source_health_detail is None
         assert dataset.last_checked_at is None
 
-    def test_identical_restamp_keeps_probe_state(self) -> None:
-        """Same origin, still the same measurement — restamping the binding
-        with identical values is not new information about its health."""
+    def test_identical_restamp_also_clears_probe_state(self) -> None:
+        """fix(#1271 review): every caller is a successful-ingest commit, so
+        an identical restamp means the SAME origin was just exercised — a
+        pre-swap ``missing`` verdict is stale in the other direction (the
+        origin demonstrably answered). NULL-means-unknown is the honest
+        state either way; a recovered origin must not keep reporting the
+        failure the swap just disproved."""
         dataset = Dataset(record_id=uuid.uuid4(), table_name="ds_x")
-        checked = datetime(2026, 8, 1, tzinfo=timezone.utc)
         set_dataset_origin(
             dataset,
             "service",
@@ -291,8 +294,9 @@ class TestSetDatasetOrigin:
             url="https://svc.test/wfs",
             layer_id="roads",
         )
-        dataset.source_health = "healthy"
-        dataset.last_checked_at = checked
+        dataset.source_health = "missing"
+        dataset.source_health_detail = "not_found"
+        dataset.last_checked_at = datetime(2026, 8, 1, tzinfo=timezone.utc)
 
         set_dataset_origin(
             dataset,
@@ -303,8 +307,9 @@ class TestSetDatasetOrigin:
             layer_id="roads",
         )
 
-        assert dataset.source_health == "healthy"
-        assert dataset.last_checked_at == checked
+        assert dataset.source_health is None
+        assert dataset.source_health_detail is None
+        assert dataset.last_checked_at is None
 
     def test_postgis_pointer_and_ref_name_the_same_table(self) -> None:
         """Two spellings of one fact; set_postgis_origin owns keeping them equal."""
