@@ -1606,7 +1606,14 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # token — and the count never exceeds 1, per the partial unique index).
         # Cap 914 -> 983, exact.
         "backend/app/modules/catalog/maps/service_public.py": 983,
-        "backend/app/modules/catalog/search/service_records.py": 500,
+        # fix(#1290 review): +5 — PUBLIC_ASSET_KEYS and the guard that reads it.
+        # _build_stac_assets published every dataset_assets row it was handed,
+        # so the first INTERNAL key (archived_original, the pre-conversion
+        # upload kept after a lossy conversion) would have been advertised as a
+        # downloadable asset — a presigned URL on published S3. An allowlist
+        # rather than a skip-list so the next internal key is private by
+        # default. Cap 500 -> 505, exact.
+        "backend/app/modules/catalog/search/service_records.py": 505,
         # fix(#448): +~40 LOC — query-embedding hot-path deadline (asyncio.wait_for
         # wrapper) + the gated/approximated vector-only match COUNT in
         # _run_rrf_merge (perf audit 2026-07-10 §2d). Cap 350 → 390
@@ -2330,7 +2337,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # dataset_id and gets a comment explaining that a replacement creates no
     # dataset, so refusing it at the count cap locked owners out of replacing
     # what they already own. Cap 1125 -> 1135, exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1135,
+    # fix(#1290 review): +8 — both doors pass the dataset OWNER rather than the
+    # requester to the replacement admission, which is the identity the worker
+    # reserves against. Wrapped across lines by the formatter.
+    # Cap 1135 -> 1143, exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1143,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python

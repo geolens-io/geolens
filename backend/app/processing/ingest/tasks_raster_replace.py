@@ -61,7 +61,6 @@ from app.processing.raster.cog import (
 from app.processing.raster.quicklook import generate_quicklook
 
 from app.processing.ingest.tasks_common import (
-    _archive_original_file,
     _bind_task_log_context,
     _job_phase_session,
     _validate_upload_file_safety,
@@ -76,6 +75,8 @@ from app.processing.ingest.tasks_raster_common import (
 )
 from app.processing.ingest.tasks_raster_swap import (
     _prior_asset_keys_to_reap,
+    archive_lossy_original,
+    upsert_archived_original_row,
     reserve_replacement_bytes,
     _run_post_swap_followups,
     _upsert_managed_asset_rows,
@@ -512,6 +513,37 @@ async def reupload_raster(
             # quicklooks to search, STAC and the download endpoint. A zero-row
             # UPDATE reporting success is the same requested-vs-happened trap
             # as round 1, one level down.
+            # fix(#1290 review): ADR-002 Decision 7's retained original lives
+            # under `originals/<dataset_id>/`, the prefix the vector tails have
+            # archived to since #430 and which `delete_dataset` already reaps.
+            # It runs HERE — before the reservation — because its bytes are
+            # part of the total being admitted and because a genuinely new
+            # object has to join the written set before anything can fail.
+            (
+                lossy_original_archived,
+                archived_key,
+                archived_bytes,
+                new_archive_key,
+            ) = await archive_lossy_original(
+                session,
+                job=job,
+                dataset_id=dataset.id,
+                file_path=file_path,
+                source_sha256=source_sha256,
+                filename=source_filename,
+                log_message=(
+                    "Failed to archive the lossy replacement original; the "
+                    "staged upload will be retained in place instead"
+                ),
+                needed=not source_preserved_in_cog,
+            )
+            # Only an object this attempt CREATED joins the written set. An
+            # archive that already existed belongs to an earlier successful
+            # replace, and reaping it on failure would destroy the original of
+            # the raster that is still live.
+            if new_archive_key is not None:
+                written_storage_keys.append(new_archive_key)
+
             # fix(#1290 review): BEFORE the upsert — see the helper's docstring
             # for why the ordering is load-bearing. Raises
             # StorageQuotaExceededError, which the task's broad handler records
@@ -521,6 +553,13 @@ async def reupload_raster(
                 dataset_id=dataset_uuid,
                 owner_id=dataset.record.created_by,
                 new_size=cog_size,
+                archived_bytes=archived_bytes,
+            )
+            await upsert_archived_original_row(
+                session,
+                dataset_id=dataset_uuid,
+                logical_key=archived_key,
+                size_bytes=archived_bytes,
             )
             await _upsert_managed_asset_rows(
                 session,
@@ -572,43 +611,6 @@ async def reupload_raster(
                     },
                 ),
             )
-
-            # fix(#1290 review): ADR-002 Decision 7's retained original moves to
-            # `originals/<dataset_id>/`, the prefix the vector tails have
-            # archived to since #430 and which `delete_dataset` already reaps.
-            # Keeping it under `staging/` made it a permanent artifact in a
-            # namespace whose whole meaning is "transient": the retention purge
-            # exempts only a dataset's most recent complete job, so the next
-            # successful replace would have made this one purgeable and the
-            # promise would have died silently. Relocating removes the class
-            # instead of adding an exemption every future purge edit must know
-            # about. Placed here, beside the vector path's own archive step, so
-            # it runs with a session in hand and before the tail decides
-            # whether the staged copy is still needed.
-            if not source_preserved_in_cog:
-                lossy_original_archived = await _archive_original_file(
-                    session,
-                    job=job,
-                    dataset_id=dataset.id,
-                    file_path=file_path,
-                    log_message=(
-                        "Failed to archive the lossy replacement original; "
-                        "the staged upload will be retained in place instead"
-                    ),
-                    commit=False,
-                    # fix(#1290 review): content-derived key. A same-named
-                    # lossy replacement used to overwrite
-                    # `originals/<dataset>/<filename>` BEFORE the swap
-                    # committed, so a failed commit left the OLD raster live
-                    # with its faithful original replaced by the failed
-                    # attempt's bytes — invariant 10 broken on the archive
-                    # instead of the asset. The hash prefix means different
-                    # bytes can never collide and identical bytes collide into
-                    # an idempotent rewrite; the filename stays so an operator
-                    # listing the prefix can still tell what they are looking
-                    # at.
-                    archive_name=f"{source_sha256[:12]}-{source_filename}",
-                )
 
             await require_ingest_job_update(
                 session,

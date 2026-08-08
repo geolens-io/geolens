@@ -26,6 +26,10 @@ from app.processing.raster.cog import (
 from app.processing.raster.quicklook import generate_quicklook
 
 from app.platform.jobs.models import owned_presigned_staging_key
+from app.processing.ingest.tasks_raster_swap import (
+    archive_lossy_original,
+    upsert_archived_original_row,
+)
 from app.processing.ingest.tasks_raster_common import (
     _build_dataset_asset_rows,
     _cleanup_orphaned_storage_keys,
@@ -36,7 +40,6 @@ from app.processing.ingest.tasks_raster_common import (
     create_raster_dataset,
 )
 from app.processing.ingest.tasks_common import (
-    _archive_original_file,
     _bind_task_log_context,
     _emit_billing_event,
     _job_phase_session,
@@ -511,38 +514,44 @@ async def ingest_raster(
             )
             session.add(distribution)
 
-            # fix(#1290 review): ADR-002 Decision 7's retained original moves to
-            # `originals/<dataset_id>/`, the prefix the vector tails have
-            # archived to since #430 and which `delete_dataset` already reaps.
-            # Keeping it under `staging/` made it a permanent artifact in a
-            # namespace whose whole meaning is "transient": the retention purge
-            # exempts only a dataset's most recent complete job, so the next
-            # successful ingest for this dataset would have made this one
-            # purgeable and the promise would have died silently.
-            if not source_preserved_in_cog:
-                lossy_original_archived = await _archive_original_file(
-                    session,
-                    job=job,
-                    dataset_id=dataset.id,
-                    file_path=file_path,
-                    log_message=(
-                        "Failed to archive the lossy ingest original; the "
-                        "staged upload will be retained in place instead"
-                    ),
-                    commit=False,
-                    # fix(#1290 review): content-derived key. A same-named
-                    # lossy replacement used to overwrite
-                    # `originals/<dataset>/<filename>` BEFORE the swap
-                    # committed, so a failed commit left the OLD raster live
-                    # with its faithful original replaced by the failed
-                    # attempt's bytes — invariant 10 broken on the archive
-                    # instead of the asset. The hash prefix means different
-                    # bytes can never collide and identical bytes collide into
-                    # an idempotent rewrite; the filename stays so an operator
-                    # listing the prefix can still tell what they are looking
-                    # at.
-                    archive_name=f"{source_sha256[:12]}-{source_filename}",
-                )
+            # fix(#1290 review): same policy as the replace tail, through the
+            # same helper. ADR-002 Decision 7's retained original lives under
+            # `originals/<dataset_id>/` — the prefix the vector tails have
+            # archived to since #430, which `delete_dataset` reaps and no purge
+            # touches — and it now carries a counted `dataset_assets` row so
+            # per-user storage can see the bytes it consumes.
+            (
+                lossy_original_archived,
+                archived_key,
+                archived_bytes,
+                new_archive_key,
+            ) = await archive_lossy_original(
+                session,
+                job=job,
+                dataset_id=dataset.id,
+                file_path=file_path,
+                source_sha256=source_sha256,
+                filename=source_filename,
+                log_message=(
+                    "Failed to archive the lossy ingest original; the staged "
+                    "upload will be retained in place instead"
+                ),
+                needed=not source_preserved_in_cog,
+            )
+            if new_archive_key is not None:
+                written_storage_keys.append(new_archive_key)
+            await upsert_archived_original_row(
+                session,
+                dataset_id=dataset.id,
+                logical_key=archived_key,
+                size_bytes=archived_bytes,
+            )
+            # First ingest reserved only the COG's bytes; the kept original is
+            # additional and has to be admitted too, under the same lock.
+            if archived_bytes:
+                from app.modules.quota.service import reserve_storage_bytes
+
+                await reserve_storage_bytes(session, uuid.UUID(user_id), archived_bytes)
 
             # 12. Finalize job.
             # REMED-02 / ingest-audit P2-07: stamp terminal progress

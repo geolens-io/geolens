@@ -1623,6 +1623,17 @@ Its lifetime is therefore tied to the dataset, not to a job:
 | The dataset is **deleted** | Removed with it. Deleting a raster dataset clears the whole `originals/<dataset-id>/` prefix. |
 | The `ingest_jobs` retention window passes | Nothing. This copy is not a job artifact. |
 
+**It counts against the owner's storage quota.** The kept original gets its own
+row in the dataset's asset table, so `MAX_STORAGE_BYTES_PER_USER` sees those
+bytes and a lossy replacement is admitted only if the COG *and* the original
+fit. That row is internal: it is not published as a downloadable asset in
+search or STAC responses, because the original is the higher-fidelity copy the
+conversion deliberately replaced.
+
+Only the newest original per dataset is counted. Superseded ones stay in
+storage as this policy promises, but an owner is not billed for history they
+cannot enumerate or delete through the product.
+
 The practical consequences:
 
 - Expect storage for lossily-converted rasters to hold roughly the COG plus the

@@ -258,7 +258,11 @@ async def reupload_dataset(
     # on top of the bytes this dataset already contributes.
     incoming_bytes = file.size if file.size is not None else 0
     await check_replacement_quota(
-        db, user.id, incoming_bytes, request, dataset_id=dataset_id
+        db,
+        dataset.record.created_by,
+        incoming_bytes,
+        request,
+        dataset_id=dataset_id,
     )
 
     job = await get_catalog_port().create_ingest_job(db, file.filename, "", user.id)
@@ -877,7 +881,11 @@ async def request_presigned_reupload(
     # fix(#1290 review): identical admission to the direct door — same function,
     # same arguments — so the two doors cannot diverge on who may replace what.
     await check_replacement_quota(
-        db, user.id, request.file_size, http_request, dataset_id=dataset_id
+        db,
+        dataset.record.created_by,
+        request.file_size,
+        http_request,
+        dataset_id=dataset_id,
     )
 
     job = await get_catalog_port().create_ingest_job(db, request.filename, "", user.id)

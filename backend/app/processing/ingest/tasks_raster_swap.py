@@ -123,8 +123,154 @@ def _write_swapped_fields(
     return new_version
 
 
+ARCHIVED_ORIGINAL_KEY = "archived_original"
+
+
+def archived_original_uri(
+    dataset_id, *, source_sha256: str, filename: str | None
+) -> str:
+    """The logical key a kept original lives at.
+
+    fix(#1290 review): content-derived so a same-named replacement cannot
+    overwrite the original belonging to a raster that is still live, and so an
+    identical re-upload collides into an idempotent rewrite. One function
+    because three callers need to agree on it: the archiver, the failure reap,
+    and the counted asset row.
+    """
+    return f"originals/{dataset_id}/{source_sha256[:12]}-{filename or 'upload'}"
+
+
+async def archive_lossy_original(
+    session,
+    *,
+    job,
+    dataset_id,
+    file_path: str,
+    source_sha256: str,
+    filename: str | None,
+    log_message: str,
+    needed: bool,
+) -> tuple[bool, str | None, int, str | None]:
+    """Keep the pre-conversion upload, and report everything the caller needs.
+
+    Returns ``(archived, logical_key, size_bytes, new_physical_key)``.
+
+    - ``archived`` gates the caller's deletes: the staged upload may only go
+      once a durable copy exists.
+    - ``logical_key`` and ``size_bytes`` feed the counted asset row and the
+      quota reservation.
+    - ``new_physical_key`` is non-None only when this attempt CREATED the
+      object, and is what may join the failure-reap set.
+
+    ``needed`` is False when the COG preserved the source, in which case there
+    is nothing to keep and every return value is empty. It lives here rather
+    than at the call site so both raster tails ask one question once.
+
+    fix(#1290 review), the trap: the key is content-derived, so a failed
+    attempt can archive bytes identical to an archive an EARLIER successful
+    replace already wrote — the same key. Adding it to the failure-reap set
+    unconditionally would then delete a good archive belonging to the raster
+    that is still live. So the existence check runs BEFORE the write, and only
+    a genuinely new object joins the written set. An object that was already
+    there is prior state and this attempt has no claim on it.
+    """
+    import os
+
+    from app.platform.storage import get_storage
+    from app.platform.storage.titiler_url import resolve_current_storage_key
+    from app.processing.ingest.tasks_common import _archive_original_file
+
+    if not needed:
+        return False, None, 0, None
+
+    logical_key = archived_original_uri(
+        dataset_id, source_sha256=source_sha256, filename=filename
+    )
+    physical_key = resolve_current_storage_key(logical_key)
+    try:
+        existed = await get_storage().exists(physical_key)
+    except Exception:  # broad: an unreadable store must not claim prior state
+        logger.warning(
+            "archive_precheck_failed", dataset_id=str(dataset_id), key=logical_key
+        )
+        existed = False
+
+    archived = await _archive_original_file(
+        session,
+        job=job,
+        dataset_id=dataset_id,
+        file_path=file_path,
+        log_message=log_message,
+        commit=False,
+        archive_name=logical_key.rsplit("/", 1)[-1],
+    )
+    if not archived:
+        return False, None, 0, None
+    return (
+        True,
+        logical_key,
+        os.path.getsize(file_path),
+        None if existed else physical_key,
+    )
+
+
+async def upsert_archived_original_row(
+    session, *, dataset_id, logical_key: str | None, size_bytes: int
+) -> None:
+    """Give the kept original a counted row so storage quota can see it.
+
+    fix(#1290 review). ``originals/`` accumulated permanently and was counted
+    by nothing — usage sums ``dataset_assets`` — so repeated distinct lossy
+    replacements exhausted a user's byte cap with no check refusing them. A row
+    makes the EXISTING sum authoritative instead of standing up a second ledger
+    that would drift, and it is cleaned by the same ``delete_dataset`` that
+    already clears the object prefix.
+
+    The key is internal: ``PUBLIC_ASSET_KEYS`` in the search serializer keeps it
+    out of STAC responses, because the kept original is the higher-fidelity copy
+    the operator chose not to serve.
+
+    One row per dataset, holding the CURRENT original. Superseded archives stay
+    in storage as the retention policy promises, but only the newest is counted
+    — counting every one would bill an owner for history they cannot enumerate
+    or delete through the product.
+    """
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from app.platform.extensions import get_catalog_port
+
+    # No key means the conversion preserved the source and nothing was kept.
+    # Handled here so the caller has one unconditional call rather than a
+    # branch it has to remember to write.
+    if logical_key is None:
+        return
+
+    DatasetAsset = get_catalog_port().dataset_asset_orm_class()
+    row = {
+        "dataset_id": dataset_id,
+        "key": ARCHIVED_ORIGINAL_KEY,
+        "href": logical_key,
+        "media_type": "image/tiff",
+        "title": "Pre-conversion original",
+        "roles": ["archive"],
+        "size_bytes": size_bytes,
+    }
+    stmt = pg_insert(DatasetAsset).values(**row)
+    await session.execute(
+        stmt.on_conflict_do_update(
+            constraint="uq_dataset_assets_key",
+            set_={k: stmt.excluded[k] for k in row if k not in ("dataset_id", "key")},
+        )
+    )
+
+
 async def reserve_replacement_bytes(
-    session, *, dataset_id: uuid.UUID, owner_id: uuid.UUID, new_size: int
+    session,
+    *,
+    dataset_id: uuid.UUID,
+    owner_id: uuid.UUID,
+    new_size: int,
+    archived_bytes: int = 0,
 ) -> None:
     """Reserve the replacement's NET byte increase under the owner's quota lock.
 
@@ -160,11 +306,16 @@ async def reserve_replacement_bytes(
         text(
             "SELECT COALESCE(SUM(size_bytes), 0)::bigint "
             "FROM catalog.dataset_assets "
-            "WHERE dataset_id = :dataset_id AND key = 'data'"
+            "WHERE dataset_id = :dataset_id AND key IN ('data', 'archived_original')"
         ),
         {"dataset_id": dataset_id},
     )
-    delta = new_size - int(counted or 0)
+    # fix(#1290 review): the archived original is part of the post-swap total,
+    # so it belongs in the same delta. It is added rather than superseded — the
+    # `data` row is what the swap replaces — and the credit above already
+    # includes any archive row this dataset carried before, so re-archiving
+    # identical bytes nets to zero on its own.
+    delta = (new_size + archived_bytes) - int(counted or 0)
     if delta <= 0:
         return
     await reserve_storage_bytes(session, owner_id, delta)
