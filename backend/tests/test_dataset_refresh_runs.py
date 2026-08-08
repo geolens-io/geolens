@@ -1248,6 +1248,42 @@ class TestAbandonedRunSweep:
         )
         await test_db_session.commit()
 
+    async def test_completed_legacy_job_records_success(self, test_db_session) -> None:
+        """fix(#1274 review): migration 0037's backfilled rows belong to
+        legacy workers that finish by marking the job complete without ever
+        calling the finalizer. A complete job IS proof the swap committed, so
+        the sweep records succeeded — stamped with the job's own completion
+        time — instead of leaving the row active forever and the dataset
+        wedged behind the admission index. No cutoff needed: the job's
+        terminal status is the proof."""
+        run, job = await _stale_run(
+            test_db_session,
+            job_status="complete",
+            age_seconds=60,
+            run_status="running",
+        )
+        job.completed_at = datetime.now(timezone.utc) - timedelta(seconds=30)
+        await test_db_session.commit()
+
+        assert await sweep_abandoned_refresh_runs(test_db_session) >= 1
+        await test_db_session.commit()
+        await test_db_session.refresh(run)
+        assert run.status == "succeeded"
+        assert run.finished_at == job.completed_at
+        assert run.error_code is None
+
+        # And the dataset is open for business again.
+        await create_pending_run(
+            test_db_session,
+            dataset_id=run.dataset_id,
+            origin_kind="upload",
+            trigger="manual",
+            triggered_by=job.created_by,
+            ingest_job_id=None,
+            feature_count_before=1,
+        )
+        await test_db_session.commit()
+
     async def test_leaves_terminal_runs_alone(self, test_db_session) -> None:
         run, _ = await _stale_run(
             test_db_session,

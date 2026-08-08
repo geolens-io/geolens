@@ -488,10 +488,13 @@ def make_refresh_run_failed_rollback(
 #    `running` job is still someone else's business — the ingest stale sweep
 #    runs first in the same pass and will fail it out if it is genuinely dead,
 #    so skipping it here costs one cycle and never writes a wrong terminal
-#    status. A `complete` job cannot coexist with an active run, because
-#    `record_refresh_success` and the job's completion commit together; if it
-#    somehow did, cancelling would claim abandonment for data that landed, so
-#    the row is deliberately left visible instead.
+#    status. A `complete` job cannot coexist with an active run for NATIVE
+#    rows, because `record_refresh_success` and the job's completion commit
+#    together — when the state does occur (migration 0037's backfilled rows,
+#    whose legacy workers finish without calling the finalizer), cancelling
+#    would claim abandonment for data that landed, so
+#    _LEGACY_COMPLETED_RUN_SQL above records the success instead and this
+#    statement keeps its hands off.
 _ABANDONED_RUN_SQL = text(
     """
     UPDATE catalog.dataset_refresh_runs AS r
@@ -519,18 +522,51 @@ _ABANDONED_RUN_SQL = text(
 )
 
 
+# fix(#1274 review): the truth-recording counterpart to the abandonment
+# cancel below. For a NATIVE run, "bound job complete + run still active" is
+# impossible by construction — record_refresh_success and the job's
+# completion commit together — which is exactly why _ABANDONED_RUN_SQL
+# refuses to touch it. But migration 0037's backfill creates active rows for
+# refreshes already executing in PRE-migration workers, and those workers
+# finish by marking the job complete without ever calling the new finalizer.
+# A complete job IS the proof the swap committed, so the honest terminal
+# state is `succeeded`, stamped with the job's own completion time. Native
+# runs never match; if a future bug manufactures the state anyway, recording
+# success-when-the-data-landed both tells the truth and un-wedges the
+# admission index. No cutoff: the job's terminal status is proof enough.
+_LEGACY_COMPLETED_RUN_SQL = text(
+    """
+    UPDATE catalog.dataset_refresh_runs AS r
+    SET status = 'succeeded',
+        finished_at = COALESCE(j.completed_at, :now)
+    FROM catalog.ingest_jobs j
+    WHERE j.id = r.ingest_job_id
+      AND r.status IN ('pending', 'running')
+      AND j.status = 'complete'
+    RETURNING r.id
+    """
+)
+
+
 async def sweep_abandoned_refresh_runs(
     session: AsyncSession, now: datetime | None = None
 ) -> int:
-    """Cancel runs whose task is proven gone. Returns the number cancelled.
+    """Finalize runs whose outcome is provable without a worker's report.
 
-    This is the compensation for the one gap Decision 4b accepts: create-then-
-    defer is not atomic, so a process that dies between the commit and the
-    ``defer`` leaves a run in ``pending`` with no task behind it. Building the
-    dispatch outbox that would close the gap properly is scheduler
+    Two statements, two proofs. The first records success for active runs
+    whose bound job completed — only reachable for migration 0037's
+    backfilled rows, whose legacy workers finished without knowing this
+    table exists. The second cancels runs whose task is proven gone: the
+    compensation for the one gap Decision 4b accepts, since create-then-
+    defer is not atomic and a process that dies between the commit and the
+    ``defer`` leaves a run in ``pending`` with no task behind it. Building
+    the dispatch outbox that would close that gap properly is scheduler
     infrastructure, and gate 4 says this milestone ships no scheduler.
+
+    Returns the number of runs finalized by either statement.
     """
     resolved_now = now or datetime.now(timezone.utc)
+    completed = await session.execute(_LEGACY_COMPLETED_RUN_SQL, {"now": resolved_now})
     result = await session.execute(
         _ABANDONED_RUN_SQL,
         {
@@ -540,7 +576,7 @@ async def sweep_abandoned_refresh_runs(
             "error_message": ABANDONED_ERROR_MESSAGE,
         },
     )
-    return len(list(result.scalars()))
+    return len(list(completed.scalars())) + len(list(result.scalars()))
 
 
 async def list_runs_for_dataset(
