@@ -157,7 +157,11 @@ class TestReuploadServiceWorkerRevalidatesSourceUrl:
     """`reupload_service` worker also re-validates source_url."""
 
     @pytest.mark.asyncio
-    async def test_reupload_worker_raises_runtime_error_on_ssrf(self):
+    async def test_reupload_worker_raises_runtime_error_on_ssrf(self, test_db_session):
+        # test_db_session: fix(#1274 review) moved the fetch-time check inside
+        # the task's handled region, so the failure handler now runs — and it
+        # finalizes job and run rows, which needs the schema to exist even
+        # though this test's ids match nothing.
         from app.processing.ingest.tasks_reupload import reupload_service
 
         async def _ssrf_raise(url: str) -> None:

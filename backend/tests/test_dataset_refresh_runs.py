@@ -33,6 +33,7 @@ from types import SimpleNamespace
 import pytest
 import sqlalchemy as sa
 from httpx import AsyncClient
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.platform.jobs.models import IngestJob
@@ -1708,3 +1709,87 @@ class TestHistoryPaging:
             test_db_session, dataset.id, skip=2, limit=2
         )
         assert [run.feature_count_before for run in tail] == [2]
+
+
+class TestMigrationBackfill:
+    """fix(#1274 review): in-flight legacy reupload jobs get run rows at
+    upgrade, or the admission index sees their dataset as idle and admits a
+    concurrent refresh against the same tables the old task will still swap."""
+
+    @staticmethod
+    def _backfill_sql() -> str:
+        import re
+        from pathlib import Path
+
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "alembic"
+            / "versions"
+            / "0037_dataset_refresh_runs.py"
+        ).read_text()
+        match = re.search(
+            r"(INSERT INTO catalog\.dataset_refresh_runs.*?\) AS s)",
+            source,
+            re.DOTALL,
+        )
+        assert match, "backfill statement not found in migration 0037"
+        return match.group(1)
+
+    async def test_in_flight_legacy_job_gets_a_running_row(
+        self, test_db_session
+    ) -> None:
+        from sqlalchemy import text as sa_text
+
+        dataset, job = await _seed(test_db_session)
+        job.attempt_id = uuid.uuid4()
+        job.source_url = "https://svc.test/wfs"
+        await test_db_session.commit()
+
+        await test_db_session.execute(sa_text(self._backfill_sql()))
+        await test_db_session.commit()
+
+        run = (
+            await test_db_session.execute(
+                select(DatasetRefreshRun).where(
+                    DatasetRefreshRun.ingest_job_id == job.id
+                )
+            )
+        ).scalar_one()
+        assert run.status == "running"
+        assert run.origin_kind == "service"
+        assert run.dataset_id == dataset.id
+        # The backfilled row is refereed by the same admission index.
+        with pytest.raises(DatasetBusyError):
+            await create_pending_run(
+                test_db_session,
+                dataset_id=dataset.id,
+                origin_kind="service",
+                trigger="manual",
+                triggered_by=job.created_by,
+                ingest_job_id=None,
+                feature_count_before=None,
+            )
+
+    async def test_staged_but_undispatched_job_is_not_backfilled(
+        self, test_db_session
+    ) -> None:
+        """A pending job with no attempt token was never handed to a worker —
+        an uncommitted staged upload, not an in-flight refresh."""
+        from sqlalchemy import text as sa_text
+
+        _dataset, job = await _seed(test_db_session)
+        job.status = "pending"
+        job.attempt_id = None
+        await test_db_session.commit()
+
+        await test_db_session.execute(sa_text(self._backfill_sql()))
+        await test_db_session.commit()
+
+        count = (
+            await test_db_session.execute(
+                select(func.count())
+                .select_from(DatasetRefreshRun)
+                .where(DatasetRefreshRun.ingest_job_id == job.id)
+            )
+        ).scalar_one()
+        assert count == 0

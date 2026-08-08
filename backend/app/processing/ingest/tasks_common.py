@@ -901,9 +901,15 @@ async def _cleanup_staging_on_failure(
 
     failure_update = sa_update(type(job)).where(type(job).id == job_id)
     if attempt_id is not None:
+        # The fence is the attempt-id equality — a superseded attempt carries
+        # a different token and can never match. `pending` is included
+        # because a failure BEFORE the claim (fix #1274 review: the worker-
+        # time SSRF refusal) must still finalize the job it owns; requiring
+        # `running` made the legitimate attempt's pre-claim failures
+        # invisible, leaving the job pending until the stale sweep.
         failure_update = failure_update.where(
             type(job).attempt_id == attempt_id,
-            type(job).status == "running",
+            type(job).status.in_(("pending", "running")),
         )
     result = await session.execute(
         failure_update.values(

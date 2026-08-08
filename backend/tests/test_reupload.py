@@ -1722,3 +1722,75 @@ class TestFailedServiceReuploadDatesTheContact:
 
         await test_db_session.refresh(dataset)
         assert dataset.last_checked_at is None
+
+
+class TestWorkerSsrfRefusalFinalizesTheRun:
+    async def test_fetch_time_ssrf_failure_fails_job_and_run(self, test_db_session):
+        """fix(#1274 review): the worker-time SSRF check used to raise before
+        the failure handler's try began, leaving the pending run active — and
+        the admission index then refused every further refresh for the
+        dataset until the stale sweep, an hour of lockout for a URL that was
+        never going to be fetched."""
+        from app.modules.catalog.sources.security import SSRFError
+        from app.platform.refresh.service import create_pending_run
+        from app.processing.ingest.tasks_reupload import reupload_service
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _create_dataset(test_db_session, created_by=admin_id)
+        attempt = uuid.uuid4()
+        job = IngestJob(
+            dataset_id=dataset.id,
+            source_filename="roads",
+            source_url="https://rebinder.test/wfs",
+            source_layer="roads",
+            created_by=admin_id,
+            status="pending",
+            attempt_id=attempt,
+            user_metadata={
+                "reupload": True,
+                "dataset_id": str(dataset.id),
+                "service_type": "WFS 2.0",
+            },
+        )
+        test_db_session.add(job)
+        await test_db_session.flush()
+        run = await create_pending_run(
+            test_db_session,
+            dataset_id=dataset.id,
+            origin_kind="service",
+            trigger="manual",
+            triggered_by=admin_id,
+            ingest_job_id=job.id,
+            feature_count_before=None,
+        )
+        await test_db_session.commit()
+
+        async def _refuse(url: str) -> None:
+            raise SSRFError("resolved to a private range at fetch time")
+
+        with (
+            patch(
+                "app.modules.catalog.sources.security.validate_url_for_ssrf",
+                new=AsyncMock(side_effect=_refuse),
+            ),
+            pytest.raises(RuntimeError, match="safety check at worker fetch time"),
+        ):
+            await reupload_service.__wrapped__(  # type: ignore[attr-defined]
+                job_id=str(job.id),
+                dataset_id=str(dataset.id),
+                source_url="https://rebinder.test/wfs",
+                source_layer="roads",
+                user_id=str(admin_id),
+                attempt_id=str(attempt),
+            )
+
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        # refresh, not select: the run is already in this session's identity
+        # map with its pre-task attributes, and a select would hand back that
+        # stale object rather than repopulating it.
+        await test_db_session.refresh(run)
+        assert run.status == "failed"
+        # No packet went out; the contact clock must not claim otherwise.
+        await test_db_session.refresh(dataset)
+        assert dataset.last_checked_at is None

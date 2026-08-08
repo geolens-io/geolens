@@ -673,16 +673,6 @@ async def reupload_service(
     from sqlalchemy import text
     from sqlalchemy.orm import joinedload
 
-    # IA-P0-03 defense-in-depth: revalidate source_url at fetch time.
-    # The route-level check at commit_import covers the preview→commit
-    # TOCTOU, but manifest-path reuploads skip that route entirely.
-    try:
-        await validate_url_for_ssrf(source_url)
-    except SSRFError as exc:
-        raise RuntimeError(
-            f"source_url failed safety check at worker fetch time: {exc}"
-        ) from exc
-
     port = get_processing_port()
     Dataset = port.get_dataset_orm_class()
 
@@ -708,6 +698,20 @@ async def reupload_service(
     heartbeat_task: asyncio.Task[None] | None = None
 
     try:
+        # IA-P0-03 defense-in-depth: revalidate source_url at fetch time.
+        # The route-level check at commit_import covers the preview→commit
+        # TOCTOU, but manifest-path reuploads skip that route entirely.
+        # fix(#1274 review): INSIDE the handled region — this task now owns a
+        # pending run row, and a worker-time refusal that skips the failure
+        # handler leaves it active, which the admission index then honors by
+        # refusing every further refresh until the stale sweep. The refusal
+        # must fail the job and finalize the run like any other failure.
+        try:
+            await validate_url_for_ssrf(source_url)
+        except SSRFError as exc:
+            raise RuntimeError(
+                f"source_url failed safety check at worker fetch time: {exc}"
+            ) from exc
         # ----------------------------------------------------------------- #
         # Phase 1 (short-lived session): load job + dataset, mark running,
         # snapshot service-import config, drop stale staging table.

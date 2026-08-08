@@ -2135,8 +2135,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # created, flushed so its id is populated, because the refresh run row
     # links to that id. Resolving it at the call site by (dataset_id,
     # version_number) instead would be a second way to name one row.
-    # Cap 1868 -> 1874, exact.
-    "backend/app/processing/ingest/tasks_common.py": 1874,
+    # Cap 1868 -> 1874, exact. fix(#1274 review): +6 — the failure finalizer's
+    # attempt fence now admits `pending`, because a failure BEFORE the claim
+    # (the worker-time SSRF refusal) must still finalize the job it owns; the
+    # comment carries why attempt-id equality, not status, is the fence.
+    # Cap 1874 -> 1880, exact.
+    "backend/app/processing/ingest/tasks_common.py": 1880,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -2145,8 +2149,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # finalization on both outcomes, the savepoint-scoped run row on the
     # failure path). Both sides earned their lines in their own reviews;
     # the sum simply tripped the inclusion threshold. Entered at its
-    # measured size.
-    "backend/app/processing/ingest/tasks_reupload.py": 1055,
+    # measured size. fix(#1274 review): +4 — the fetch-time SSRF check moved
+    # inside the handled region so its refusal finalizes the job and run
+    # instead of stranding a pending run against the admission index.
+    # Cap 1055 -> 1059, exact.
+    "backend/app/processing/ingest/tasks_reupload.py": 1059,
     # --- entered by the inclusion rule, fix(#958) -------------------------
     # These five were the ungated modules at or above _RATCHET_INCLUSION_LOC
     # when the rule was written. They arrive at their measured size with no

@@ -166,6 +166,59 @@ def upgrade() -> None:
         postgresql_where=sa.text("triggered_by IS NOT NULL"),
     )
 
+    # fix(#1274 review): the admission index can only referee runs that HAVE
+    # rows. Reupload tasks queued or claimed by pre-migration code have none,
+    # so without a backfill the index would see their dataset as idle and
+    # admit a concurrent post-deploy refresh while the old durable task can
+    # still reach the swap. Give every genuinely in-flight legacy reupload
+    # job — claimed, or dispatched with an attempt token — a `running` row
+    # here. The rows are finalized by the same machinery as native ones (the
+    # worker keys on ingest_job_id; the stale sweep cancels any whose job
+    # died with the old deploy). DISTINCT ON keeps the newest per dataset so
+    # a pathological double cannot violate the one-active index and abort
+    # the upgrade. Jobs dispatched by still-draining pre-migration API pods
+    # AFTER this statement stay unrefereed for the minutes those pods live;
+    # that window was equally unprotected before this table existed, so the
+    # backfill removes the regression without claiming to rewrite history.
+    op.execute(
+        sa.text(
+            """
+            INSERT INTO catalog.dataset_refresh_runs
+                (id, dataset_id, tenant_id, ingest_job_id, origin_kind,
+                 trigger, status, triggered_by, started_at, created_at)
+            SELECT gen_random_uuid(), s.dataset_id, s.tenant_id, s.job_id,
+                   s.origin_kind, 'manual', 'running', s.created_by,
+                   s.job_created_at, now()
+            FROM (
+                SELECT DISTINCT ON (j.dataset_id)
+                       j.dataset_id,
+                       d.tenant_id,
+                       j.id AS job_id,
+                       CASE WHEN j.source_url IS NOT NULL
+                                 AND j.file_path IS NULL
+                            THEN 'service' ELSE 'upload' END AS origin_kind,
+                       j.created_by,
+                       j.created_at AS job_created_at
+                FROM catalog.ingest_jobs j
+                JOIN catalog.datasets d ON d.id = j.dataset_id
+                WHERE (j.user_metadata->>'reupload') = 'true'
+                  AND (
+                        j.status = 'running'
+                        OR (j.status = 'pending' AND j.attempt_id IS NOT NULL)
+                  )
+                  -- Idempotent, and safe beside any row the new code already
+                  -- wrote: a dataset with an active run needs no referee.
+                  AND NOT EXISTS (
+                      SELECT 1 FROM catalog.dataset_refresh_runs r
+                      WHERE r.dataset_id = j.dataset_id
+                        AND r.status IN ('pending', 'running')
+                  )
+                ORDER BY j.dataset_id, j.created_at DESC
+            ) AS s
+            """
+        )
+    )
+
 
 def downgrade() -> None:
     op.drop_index(
