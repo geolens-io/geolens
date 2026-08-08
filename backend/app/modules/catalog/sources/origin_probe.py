@@ -186,9 +186,12 @@ async def probe_remote_uri(
 
     try:
         async with make_safe_client(timeout=timeout) as client:
-            hooks = client.event_hooks
-            hooks["response"] = [_mark_responded, *hooks.get("response", [])]
-            client.event_hooks = hooks
+            # hasattr: duck-typed clients in tests may not carry event_hooks,
+            # and an AttributeError here would masquerade as a probe failure.
+            if hasattr(client, "event_hooks"):
+                hooks = client.event_hooks
+                hooks["response"] = [_mark_responded, *hooks.get("response", [])]
+                client.event_hooks = hooks
             async with client.stream(
                 "GET", uri, headers={"Range": "bytes=0-0"}
             ) as response:
