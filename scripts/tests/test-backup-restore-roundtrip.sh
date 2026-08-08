@@ -86,6 +86,9 @@ UNMANAGED_PASSWORD="unmanaged-original-password-947-padding"
 RESTORE_ROLE="geolens_bkp_restore_app_${SUFFIX}"
 RESTORE_ROLE="${RESTORE_ROLE//[^a-zA-Z0-9_]/_}"
 RESTORE_PASSWORD="restored-runtime-password-947-padding"
+LEGACY_UNTRUSTED_ROLE="geolens_bkp_legacy_untrusted_${SUFFIX}"
+LEGACY_UNTRUSTED_ROLE="${LEGACY_UNTRUSTED_ROLE//[^a-zA-Z0-9_]/_}"
+LEGACY_UNTRUSTED_PASSWORD="legacy-untrusted-password-947-padding"
 RETIRED_DB="geolens_bkp_retired_${SUFFIX}"
 RECONCILER_ROLE="geolens_bkp_provider_admin_${SUFFIX}"
 RECONCILER_ROLE="${RECONCILER_ROLE//[^a-zA-Z0-9_]/_}"
@@ -113,7 +116,8 @@ cleanup() {
     done
     for role in \
         "$RUNTIME_ROLE" "$FRESH_RUNTIME_ROLE" "$MIGRATION_ROLE" \
-        "$UNMANAGED_ROLE" "$RESTORE_ROLE" "$PROVIDER_RUNTIME_ROLE" \
+        "$UNMANAGED_ROLE" "$RESTORE_ROLE" "$LEGACY_UNTRUSTED_ROLE" \
+        "$PROVIDER_RUNTIME_ROLE" \
         "$PROVIDER_FAIL_ROLE" "$RECONCILER_ROLE"; do
         psql_admin -v ON_ERROR_STOP=1 -c "DROP ROLE IF EXISTS \"${role}\"" \
             >/dev/null 2>&1
@@ -146,8 +150,13 @@ CREATE FUNCTION catalog.provision_tenant_data_schema(uuid) RETURNS void
 CREATE FUNCTION catalog.deprovision_tenant_data_schema(uuid) RETURNS void
     LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
     AS 'BEGIN NULL; END';
+CREATE FUNCTION catalog.geolens_rebuild_embedding_column(integer)
+    RETURNS boolean LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog
+    AS 'SELECT true';
 REVOKE ALL ON FUNCTION catalog.provision_tenant_data_schema(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION catalog.deprovision_tenant_data_schema(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION catalog.geolens_rebuild_embedding_column(integer)
+    FROM PUBLIC;
 CREATE SCHEMA data;
 CREATE TABLE data.ci_probe (id serial PRIMARY KEY, name text NOT NULL);
 INSERT INTO catalog.records (name)
@@ -217,6 +226,46 @@ echo "      restored counts: records=${DST_RECORDS} datasets=${DST_DATASETS}"
 [ "$SRC_RECORDS" = "$DST_RECORDS" ]   || fail "records count mismatch: ${SRC_RECORDS} != ${DST_RECORDS}"
 [ "$SRC_DATASETS" = "$DST_DATASETS" ] || fail "datasets count mismatch: ${SRC_DATASETS} != ${DST_DATASETS}"
 echo "      DB round-trip OK — row counts match exactly."
+
+# pg_dump --no-acl intentionally omits the source REVOKE, so PostgreSQL's
+# default PUBLIC EXECUTE returns on restore. A rollback to legacy runtime mode
+# must still repair this SECURITY DEFINER ACL before the reconciler exits.
+psql_admin -v ON_ERROR_STOP=1 -c \
+    "CREATE ROLE \"${LEGACY_UNTRUSTED_ROLE}\" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD '${LEGACY_UNTRUSTED_PASSWORD}';" \
+    >/dev/null
+psql_admin -d "$DST_DB" -v ON_ERROR_STOP=1 -c \
+    "GRANT USAGE ON SCHEMA catalog TO \"${LEGACY_UNTRUSTED_ROLE}\";" \
+    >/dev/null
+RESTORED_PUBLIC_EXECUTE="$(psql_admin -d "$DST_DB" -tAc \
+    "SELECT has_function_privilege('${LEGACY_UNTRUSTED_ROLE}', 'catalog.geolens_rebuild_embedding_column(integer)', 'EXECUTE');" \
+    | tr -d '[:space:]')"
+[ "$RESTORED_PUBLIC_EXECUTE" = "t" ] \
+    || fail "restore fixture did not reproduce default PUBLIC function execution"
+
+env \
+    GEOLENS_RUNTIME_DB_ROLE="" GEOLENS_RUNTIME_DB_PASSWORD="" \
+    GEOLENS_MIGRATION_DB_ROLE="" \
+    POSTGRES_HOST="$PGHOST" POSTGRES_PORT="$PGPORT" \
+    POSTGRES_USER="$PGUSER" POSTGRES_DB="$DST_DB" \
+    bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" >/dev/null
+
+LEGACY_CAN_EXECUTE="$(psql_admin -d "$DST_DB" -tAc \
+    "SELECT has_function_privilege('${LEGACY_UNTRUSTED_ROLE}', 'catalog.geolens_rebuild_embedding_column(integer)', 'EXECUTE');" \
+    | tr -d '[:space:]')"
+[ "$LEGACY_CAN_EXECUTE" = "f" ] \
+    || fail "legacy reconciliation left PUBLIC execution on embedding rebuild"
+if env PGPASSWORD="$LEGACY_UNTRUSTED_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$LEGACY_UNTRUSTED_ROLE" -d "$DST_DB" \
+    -Atqc "SELECT catalog.geolens_rebuild_embedding_column(768)" \
+    >/dev/null 2>&1; then
+    fail "untrusted login invoked restored SECURITY DEFINER embedding rebuild"
+fi
+OWNER_EXECUTE="$(psql_admin -d "$DST_DB" -tAc \
+    "SELECT catalog.geolens_rebuild_embedding_column(768);" \
+    | tr -d '[:space:]')"
+[ "$OWNER_EXECUTE" = "t" ] \
+    || fail "privileged function owner lost embedding rebuild execution"
+echo "      legacy rollback ACL OK — untrusted EXECUTE denied; privileged owner retained."
 
 # Preserve the original fresh-install proof: an absent safe target is created,
 # marked, and reconciled without the adoption escape hatch.

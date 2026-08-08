@@ -137,8 +137,9 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA data
     GRANT SELECT ON TABLES TO geolens_reader;
 
 -- Logical backups intentionally omit ACLs, which makes restored functions
--- regain PostgreSQL's default PUBLIC EXECUTE. Rebuild the tenant-control ACL
--- authored by migrations 0019/0024 whenever those objects already exist.
+-- regain PostgreSQL's default PUBLIC EXECUTE. Repair every privileged function
+-- that may already exist before the legacy-mode early exit; absent functions
+-- are expected on a fresh volume before Alembic runs.
 SELECT 'REVOKE ALL ON FUNCTION catalog.provision_tenant_data_schema(uuid) FROM PUBLIC'
 WHERE to_regprocedure('catalog.provision_tenant_data_schema(uuid)') IS NOT NULL
 \gexec
@@ -152,6 +153,9 @@ WHERE to_regprocedure('catalog.provision_tenant_data_schema(uuid)') IS NOT NULL
 SELECT 'GRANT EXECUTE ON FUNCTION catalog.deprovision_tenant_data_schema(uuid) TO geolens_tenant_control'
 WHERE to_regprocedure('catalog.deprovision_tenant_data_schema(uuid)') IS NOT NULL
   AND EXISTS (SELECT FROM pg_roles WHERE rolname = 'geolens_tenant_control')
+\gexec
+SELECT 'REVOKE ALL ON FUNCTION catalog.geolens_rebuild_embedding_column(integer) FROM PUBLIC'
+WHERE to_regprocedure('catalog.geolens_rebuild_embedding_column(integer)') IS NOT NULL
 \gexec
 EOSQL
 

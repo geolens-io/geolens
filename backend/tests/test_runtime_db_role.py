@@ -169,6 +169,10 @@ def test_role_script_keeps_password_out_of_argv_and_catalog_ownership() -> None:
         "REVOKE ALL ON FUNCTION catalog.geolens_rebuild_embedding_column(integer)"
         in source
     )
+    assert source.index(
+        "SELECT 'REVOKE ALL ON FUNCTION "
+        "catalog.geolens_rebuild_embedding_column(integer) FROM PUBLIC'"
+    ) < source.index('if [ -z "$runtime_role" ]')
     assert "OWNER TO" not in "\n".join(
         line for line in source.splitlines() if "catalog" in line.lower()
     )
