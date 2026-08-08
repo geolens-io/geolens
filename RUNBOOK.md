@@ -505,7 +505,7 @@ upgrade is what fixes that, and the only way to reach it is to downgrade below
 >
 > The refusals are correct: forcing them would corrupt the restored data.
 > Taken together they mean this path is unusable or lossy for most real
-> multi-tenant databases, and there is currently no supported way to re-run
+> multi-database clusters, and there is currently no supported way to re-run
 > 0019's adoption without it (0019 installs its functions with plain
 > `CREATE FUNCTION`, so `alembic stamp 0018 && alembic upgrade 0019` collides
 > with the functions the restored dump already carries).
