@@ -963,18 +963,32 @@ class TestTenantStamp:
         # database. That is the whole claim under test.
         test_db_session.expire_all()
 
-        run = await create_pending_run(
-            test_db_session,
-            dataset_id=dataset_id,
-            origin_kind="upload",
-            trigger="manual",
-            triggered_by=actor_id,
-            ingest_job_id=job_id,
-            feature_count_before=1,
-        )
-        await test_db_session.commit()
-        await test_db_session.refresh(run)
-        assert run.tenant_id == tenant_id
+        try:
+            run = await create_pending_run(
+                test_db_session,
+                dataset_id=dataset_id,
+                origin_kind="upload",
+                trigger="manual",
+                triggered_by=actor_id,
+                ingest_job_id=job_id,
+                feature_count_before=1,
+            )
+            await test_db_session.commit()
+            await test_db_session.refresh(run)
+            assert run.tenant_id == tenant_id
+        finally:
+            # The committed stamp makes this dataset's tenant mismatch its
+            # job's creator (admin, tenant NULL). Rows outlive the test on
+            # this worker's shared database, and migration 0022's integrity
+            # guard aborts `alembic upgrade` on exactly that mismatch — which
+            # the migration-subprocess tests run mid-suite. Restore
+            # consistency before any of them can see it.
+            await test_db_session.rollback()
+            await test_db_session.execute(
+                sa.text("UPDATE catalog.datasets SET tenant_id = NULL WHERE id = :id"),
+                {"id": dataset_id},
+            )
+            await test_db_session.commit()
 
     async def test_single_tenant_leaves_it_null(self, test_db_session) -> None:
         dataset, job = await _seed(test_db_session)
