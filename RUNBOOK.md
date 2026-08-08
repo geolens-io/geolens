@@ -235,6 +235,10 @@ then runs `scripts/lib/configure-runtime-db-role.sh`. The latter creates the log
 grants catalog DML/sequence/function access, grants CREATE plus relation
 ownership only in `data`, and grants SET access to `geolens_reader`. The
 privileged migrate service then applies Alembic before API/worker connect.
+The admin embedding-dimension resize is the sole catalog-DDL exception: the
+reconciler installs a bounded `SECURITY DEFINER` function, revokes its default
+`PUBLIC` execute grant, and grants it only to the configured runtime role. The
+runtime login never receives catalog ownership or general DDL privileges.
 
 #### Adopt the single-tenant runtime role on an existing install
 

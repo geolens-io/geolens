@@ -132,14 +132,32 @@ TARGET_TAG="v${TARGET_VERSION}"
 # blocking an otherwise valid upgrade.
 #
 # Codex #707: skipped when DATABASE_URL_OVERRIDE points at an external database.
-# #947 adds one intentional exception: a bundled install using the opt-in
-# GEOLENS_RUNTIME_DB_ROLE also sets DATABASE_URL_OVERRIDE, but its data still
-# lives in the bundled volume and MUST keep this major-version guard.
+# A bundled install using the opt-in GEOLENS_RUNTIME_DB_ROLE also sets that
+# override, so distinguish it by the Compose-only `db` hostname rather than by
+# the role flag alone (fix(#1287 review)).
 DATABASE_URL_OVERRIDE_VALUE="$(get_env_value DATABASE_URL_OVERRIDE)"
 RUNTIME_DB_ROLE_VALUE="$(get_env_value GEOLENS_RUNTIME_DB_ROLE)"
+override_targets_bundled_db() {
+  _url="$1"
+  _authority="${_url#*://}"
+  [ "$_authority" != "$_url" ] || return 1
+  _authority="${_authority%%/*}"
+  _host_port="${_authority##*@}"
+  case "$_host_port" in
+    db|db:*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+bundled_runtime_override=false
+if [ -n "$RUNTIME_DB_ROLE_VALUE" ] \
+   && override_targets_bundled_db "$DATABASE_URL_OVERRIDE_VALUE"; then
+  bundled_runtime_override=true
+fi
 target_pg_major=""
 current_pg_major=""
-if [ -n "$DATABASE_URL_OVERRIDE_VALUE" ] && [ -z "$RUNTIME_DB_ROLE_VALUE" ]; then
+if [ -n "$DATABASE_URL_OVERRIDE_VALUE" ] \
+   && [ "$bundled_runtime_override" = "false" ]; then
   say "External database configured (DATABASE_URL_OVERRIDE) — skipping the bundled PostgreSQL major check."
 else
   if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then

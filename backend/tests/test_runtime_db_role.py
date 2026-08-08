@@ -3,7 +3,10 @@
 from pathlib import Path
 import os
 import subprocess
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
+import pytest
 import yaml
 
 from tests.repo_paths import repo_root
@@ -57,9 +60,43 @@ def test_role_script_keeps_password_out_of_argv_and_catalog_ownership() -> None:
     assert "OWNER TO %I" in source
     assert "GRANT USAGE ON SCHEMA catalog" in source
     assert "ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA data" in source
+    assert "SECURITY DEFINER" in source
+    assert "SET search_path = pg_catalog" in source
+    assert (
+        "REVOKE ALL ON FUNCTION catalog.geolens_rebuild_embedding_column(integer)"
+        in source
+    )
     assert "OWNER TO" not in "\n".join(
         line for line in source.splitlines() if "catalog" in line.lower()
     )
+
+
+@pytest.mark.anyio
+async def test_runtime_embedding_resize_uses_narrow_definer_function(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The runtime login must not receive broad catalog ownership for one DDL path."""
+    from app.processing.embeddings import service
+
+    current_result = Mock()
+    current_result.scalar_one_or_none.return_value = 1536
+    rebuild_result = Mock()
+    rebuild_result.scalar_one.return_value = True
+    db = AsyncMock()
+    db.execute.side_effect = [current_result, rebuild_result]
+    monkeypatch.setattr(
+        service,
+        "settings",
+        SimpleNamespace(geolens_runtime_db_role="geolens_app"),
+    )
+
+    assert await service.rebuild_embedding_column(db, 768) is True
+
+    statements = [str(call.args[0]) for call in db.execute.await_args_list]
+    assert any("catalog.geolens_rebuild_embedding_column" in sql for sql in statements)
+    assert not any("ALTER TABLE" in sql or "DROP INDEX" in sql for sql in statements)
+    assert db.execute.await_args_list[-1].args[1] == {"new_dims": 768}
+    db.commit.assert_awaited_once()
 
 
 def test_env_example_documents_the_complete_opt_in_split() -> None:

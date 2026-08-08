@@ -135,6 +135,61 @@ SELECT format(
     :'runtime_role'
 )\gexec
 
+-- fix(#1287 review): embedding-dimension changes are the one live admin path
+-- that needs catalog relation-owner DDL. Keep the runtime login non-owning and
+-- expose only this bounded operation through a hardened definer function.
+-- Dynamic SQL is limited to a validated integer; every object and extension
+-- type is schema-qualified, and PUBLIC receives no implicit EXECUTE grant.
+CREATE OR REPLACE FUNCTION catalog.geolens_rebuild_embedding_column(new_dims integer)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+DECLARE
+    current_dims integer;
+BEGIN
+    IF new_dims IS NULL OR new_dims < 1 OR new_dims > 4096 THEN
+        RAISE EXCEPTION 'embedding dimensions must be between 1 and 4096'
+            USING ERRCODE = '22023';
+    END IF;
+
+    SELECT attribute.atttypmod
+      INTO current_dims
+      FROM pg_attribute AS attribute
+     WHERE attribute.attrelid = to_regclass('catalog.record_embeddings')
+       AND attribute.attname = 'embedding';
+
+    IF current_dims IS NULL OR current_dims = new_dims THEN
+        RETURN false;
+    END IF;
+
+    DELETE FROM catalog.record_embeddings;
+    DROP INDEX IF EXISTS catalog.ix_record_embeddings_hnsw;
+    EXECUTE format(
+        'ALTER TABLE catalog.record_embeddings '
+        'ALTER COLUMN embedding TYPE public.vector(%s) '
+        'USING embedding::public.vector(%s)',
+        new_dims,
+        new_dims
+    );
+    IF new_dims <= 2000 THEN
+        EXECUTE
+            'CREATE INDEX ix_record_embeddings_hnsw '
+            'ON catalog.record_embeddings USING hnsw '
+            '(embedding public.vector_cosine_ops) '
+            'WITH (m=16, ef_construction=64)';
+    END IF;
+    RETURN true;
+END
+$function$;
+REVOKE ALL ON FUNCTION catalog.geolens_rebuild_embedding_column(integer)
+    FROM PUBLIC;
+SELECT format(
+    'GRANT EXECUTE ON FUNCTION catalog.geolens_rebuild_embedding_column(integer) TO %I',
+    :'runtime_role'
+)\gexec
+
 -- Single-tenant ingest and editing create and alter relations in data. Existing
 -- relations were created by the old superuser runtime (or by pg_restore with
 -- --no-owner), so grants alone are insufficient: PostgreSQL has no ALTER/DROP

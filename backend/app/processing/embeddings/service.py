@@ -180,6 +180,18 @@ async def rebuild_embedding_column(db: AsyncSession, new_dims: int) -> bool:
         return False
 
     try:
+        if settings.geolens_runtime_db_role:
+            # fix(#1287 review): the runtime role deliberately cannot own or
+            # alter catalog relations. The privileged reconciler installs this
+            # bounded SECURITY DEFINER operation with PUBLIC execute revoked.
+            rebuild_result = await db.execute(
+                sa_text("SELECT catalog.geolens_rebuild_embedding_column(:new_dims)"),
+                {"new_dims": new_dims},
+            )
+            rebuilt = bool(rebuild_result.scalar_one())
+            await db.commit()
+            return rebuilt
+
         await db.execute(sa_text("DELETE FROM catalog.record_embeddings"))
         await db.execute(
             sa_text("DROP INDEX IF EXISTS catalog.ix_record_embeddings_hnsw")

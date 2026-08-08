@@ -639,6 +639,27 @@ else
   sed 's/^/    # /' "$WORK/out.txt"
 fi
 
+# fix(#1287 review): a managed database can use the dedicated runtime role too.
+# The hostname, not merely the role flag, distinguishes that path from the
+# bundled `db` service; a stale local db container must not block its upgrade.
+seed_prod_env
+cat >> "$FAKE/.env" <<'ENV'
+DATABASE_URL_OVERRIDE=postgresql://geolens_app:runtime@managed.example.com:5432/geolens
+GEOLENS_RUNTIME_DB_ROLE=geolens_app
+ENV
+PG_NUM=170005 TARGET_PG=18 run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -n "$(pos_of app_up)" ]; then
+  ok "managed runtime-role mode skips the bundled PostgreSQL major check"
+else
+  bad "managed runtime-role mode was blocked by the bundled check (exit=$(cat "$WORK/code.txt"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+if [ -z "$(pos_of probe_pg)" ]; then
+  ok "managed runtime-role mode does not probe the bundled db container"
+else
+  bad "managed runtime-role mode still probed the bundled db"
+fi
+
 # Fail-open: an unreadable server version (a bundled db that cannot be reached)
 # must NOT block an otherwise valid upgrade. Guards the `set -eu` edge where an
 # empty probe could abort the script outright.
