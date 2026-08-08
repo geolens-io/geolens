@@ -986,3 +986,98 @@ class TestDuplicateSourceDetection:
             headers=editor_auth_header,
         )
         assert resp.status_code != 409
+
+    async def test_an_edited_source_url_does_not_get_past_the_guard(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        mock_validate_ssrf,
+        mock_build_gdal_source,
+        mock_run_preview,
+        mock_fetch_arcgis_preview,
+    ):
+        """feat(#1220) / ADR-002 Decision 6: the guard keys on ``origin_uri``.
+
+        ``source_url`` is reachable through the metadata PATCH, so keying the
+        guard on it alone let an owner edit their way past it and register the
+        same layer a second time. ``origin_uri`` appears in no field map and
+        only ingest writes it, which is what makes it the honest key. The
+        preceding tests keep the ``source_url`` fallback honest for rows
+        migration 0036 could not backfill.
+        """
+        from tests.factories import get_user_id
+
+        # Its own service, because the worker's database is shared across the
+        # whole session and the sibling tests above register _ARCGIS_BASE —
+        # a `.limit(1)` match against a URL two tests use proves nothing about
+        # which row the guard found.
+        base = f"{_ARCGIS_BASE.replace('TestService', 'EditedUrlService')}"
+        admin_id = await get_user_id(test_db_session, "admin")
+        existing = await _create_arcgis_dataset(
+            test_db_session,
+            created_by=admin_id,
+            source_url=f"{base}/0",
+            name="Bulletin Table",
+        )
+        existing.origin_uri = f"{base}/0"
+        existing.source_url = "https://example.invalid/edited-by-the-owner"
+        await test_db_session.commit()
+
+        resp = await client.post(
+            "/services/preview/",
+            json={
+                "url": base,
+                "service_type": "ArcGIS:FeatureServer",
+                "layer_name": "0",
+                "layer_id": 0,
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 409
+        assert resp.json()["detail"]["code"] == "duplicate_source"
+        assert resp.json()["detail"]["existing_dataset_id"] == str(existing.id)
+
+    async def test_a_true_cross_dataset_duplicate_still_conflicts(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        mock_validate_ssrf,
+        mock_build_gdal_source,
+        mock_run_preview,
+        mock_fetch_arcgis_preview,
+    ):
+        """The re-key must not turn the guard off.
+
+        #1220 makes a dataset refreshable from its own origin, which is a
+        different door entirely — the refresh endpoint never consults this
+        query. Importing somebody's already-registered layer as a SECOND
+        dataset is still the thing the guard exists to refuse, and the message
+        now points at refresh rather than at deleting the existing dataset.
+        """
+        from tests.factories import get_user_id
+
+        base = f"{_ARCGIS_BASE.replace('TestService', 'CrossDatasetService')}"
+        admin_id = await get_user_id(test_db_session, "admin")
+        await _create_arcgis_dataset(
+            test_db_session,
+            created_by=admin_id,
+            source_url=f"{base}/0",
+            name="Already Imported",
+        )
+
+        resp = await client.post(
+            "/services/preview/",
+            json={
+                "url": base,
+                "service_type": "ArcGIS:FeatureServer",
+                "layer_name": "0",
+                "layer_id": 0,
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 409
+        message = resp.json()["detail"]["message"]
+        assert "refresh that dataset" in message
+        assert "delete the existing dataset" not in message

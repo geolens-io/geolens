@@ -198,6 +198,8 @@ from .dataset_delete_request import DatasetDeleteRequest
 from .dataset_list_response import DatasetListResponse
 from .dataset_meta import DatasetMeta
 from .dataset_meta_visibility_type_0 import DatasetMetaVisibilityType0
+from .dataset_refresh_request import DatasetRefreshRequest
+from .dataset_refresh_response import DatasetRefreshResponse
 from .dataset_refresh_run_list_response import DatasetRefreshRunListResponse
 from .dataset_refresh_run_response import DatasetRefreshRunResponse
 from .dataset_relationship_create import DatasetRelationshipCreate
@@ -901,6 +903,8 @@ __all__ = (
     "DatasetListResponse",
     "DatasetMeta",
     "DatasetMetaVisibilityType0",
+    "DatasetRefreshRequest",
+    "DatasetRefreshResponse",
     "DatasetRefreshRunListResponse",
     "DatasetRefreshRunResponse",
     "DatasetRelationshipCreate",

@@ -10,7 +10,7 @@ import httpx
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.url_redaction import has_url_credentials, redact_url_credentials
@@ -802,11 +802,23 @@ async def preview_service_layer(
             if effective_layer_id is not None
             else base_url
         )
+        # feat(#1220) / ADR-002 Decision 6: keyed on `origin_uri`, the
+        # system-managed pointer, with `source_url` kept only as the fallback
+        # for rows migration 0036 could not backfill. `source_url` is reachable
+        # through the metadata PATCH, so keying the guard on it alone let an
+        # owner edit their way past it and register the same layer twice;
+        # `origin_uri` appears in no field map and only ingest writes it.
         existing_stmt = (
             select(Dataset.id, Record.title)
             .join(Record, Dataset.record_id == Record.id)
             .where(
-                Dataset.source_url == enriched_url,
+                or_(
+                    Dataset.origin_uri == enriched_url,
+                    and_(
+                        Dataset.origin_uri.is_(None),
+                        Dataset.source_url == enriched_url,
+                    ),
+                ),
                 Dataset.source_format == source_format,
                 Record.created_by == user.id,
             )
@@ -820,8 +832,9 @@ async def preview_service_layer(
                     "code": "duplicate_source",
                     "message": (
                         f"A dataset from this source URL is already registered "
-                        f"(existing: '{existing.title}'). If you intended to re-import, "
-                        f"delete the existing dataset first or register a different layer."
+                        f"(existing: '{existing.title}'). To pull the latest data "
+                        f"into it, refresh that dataset instead of importing it "
+                        f"again; to keep both, register a different layer."
                     ),
                     "existing_dataset_id": str(existing.id),
                     "existing_title": existing.title,

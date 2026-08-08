@@ -22,6 +22,11 @@ from app.platform.jobs.heartbeat import (
 from app.processing.raster.cog import sha256_file
 
 from app.platform.jobs.models import owned_presigned_staging_key
+from app.platform.refresh.credentials import (
+    CredentialExpiredError,
+    CredentialStoreUnavailable,
+    claim_service_credential,
+)
 from app.platform.refresh.service import (
     claim_run_for_job,
     record_refresh_failure,
@@ -624,6 +629,45 @@ async def _record_failed_origin_contact(
         await invalidate_catalog_cache()
 
 
+def _service_refresh_error_code(exc: BaseException) -> str:
+    """Map a service-refresh failure onto its run ``error_code``.
+
+    feat(#1220). Three codes, because they send the reader to three different
+    places: a spent or expired credential needs a fresh token, an unreachable
+    credential store needs an operator, and everything else is the origin or
+    the pipeline. ``error_code`` is a closed vocabulary the history UI reads,
+    so the mapping lives in one function rather than as a conditional inside
+    the failure handler where a fourth case would grow another branch.
+    """
+    if isinstance(exc, CredentialExpiredError):
+        return "credential_expired"
+    if isinstance(exc, CredentialStoreUnavailable):
+        return "credential_store_unavailable"
+    return "service_refresh_failed"
+
+
+async def _resolve_service_token(
+    token: str | None, credential_ref: str | None
+) -> str | None:
+    """The credential this attempt will fetch with, redeeming a ref if given.
+
+    feat(#1220). Called inside the task's handled region and after the attempt
+    check, so a single-use credential is only ever consumed for an attempt
+    that is actually going to run. A ref that names nothing raises
+    ``CredentialExpiredError``, which the task's failure handler records as
+    ``credential_expired`` — deliberately NOT a fall-through to an
+    unauthenticated fetch, which would reach the origin, collect a 401, and
+    report a protected service as broken.
+
+    The ref wins over a directly-passed token when both are somehow set: the
+    door that sends a ref is the door that promised nothing durable, and
+    honouring the durable value instead would quietly undo that promise.
+    """
+    if credential_ref:
+        return await claim_service_credential(credential_ref)
+    return token
+
+
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.reupload_service"])
 @tenant_task
 async def reupload_service(
@@ -634,9 +678,19 @@ async def reupload_service(
     user_id: str,
     attempt_id: str | None = None,
     token: str | None = None,
+    credential_ref: str | None = None,
     **kwargs,
 ) -> None:
     """Background task: replace dataset data from a remote service source.
+
+    Two doors dispatch this task and they hand over a credential differently.
+    The re-upload commit door passes ``token`` directly, which is a durable
+    task argument; the one-request refresh door (#1220) passes
+    ``credential_ref``, a single-use reference redeemed once here for a secret
+    that never touched a committed row. Both are optional and at most one is
+    ever set — the reference wins if both somehow are, because the door that
+    sends one is the door that promised nothing durable. Neither is required:
+    a public service needs no credential at all.
 
     Session lifecycle (gh #100 followup): the AsyncSession is split into two
     short-lived blocks so it is NOT held open across ``run_ogr2ogr_service``
@@ -712,6 +766,8 @@ async def reupload_service(
             raise RuntimeError(
                 f"source_url failed safety check at worker fetch time: {exc}"
             ) from exc
+
+        token = await _resolve_service_token(token, credential_ref)
         # ----------------------------------------------------------------- #
         # Phase 1 (short-lived session): load job + dataset, mark running,
         # snapshot service-import config, drop stale staging table.
@@ -1045,10 +1101,20 @@ async def reupload_service(
             # feat(#1219): last_refreshed_at is untouched by construction —
             # nothing on this path writes it — so a failed refresh leaves the
             # live table and its freshness exactly as they were (invariant 10).
+            #
+            # feat(#1220): the two credential failures get their own codes.
+            # Neither is the origin's fault, and collapsing either into
+            # service_refresh_failed sends the reader to investigate a service
+            # that is working fine. They are also fixed differently: an
+            # expired credential means "start again with a fresh token", while
+            # an unreachable store is an operator's split-brain config — the
+            # API accepted the token because IT can reach the store and this
+            # worker cannot. The API refuses at the door under the same code
+            # when it can see the problem from there.
             await record_refresh_failure(
                 err_session,
                 ingest_job_id=job_uuid,
-                error_code="service_refresh_failed",
+                error_code=_service_refresh_error_code(exc),
                 error_message=str(exc),
                 contacted_origin=False,
             )

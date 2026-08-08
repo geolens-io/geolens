@@ -2280,6 +2280,37 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/datasets/{dataset_id}/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Refresh Dataset
+         * @description Re-pull this dataset's data from the origin it was imported from.
+         *
+         *     One request, no source pointer, no layer selection. The dataset keeps
+         *     serving its current data throughout: the worker loads into an
+         *     attempt-scoped staging table and swaps only once the new data is
+         *     complete, so a refresh that fails leaves the live table and its freshness
+         *     exactly as they were.
+         *
+         *     Refuses with 409 ``dataset_busy`` while another refresh or re-upload is
+         *     active for this dataset — v1 rejects rather than queues (Decision 5b), and
+         *     the refusal comes from a partial unique index rather than a check, so two
+         *     simultaneous clicks cannot both be admitted.
+         */
+        post: operations["refresh_dataset_datasets__dataset_id__refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/datasets/{dataset_id}/refresh-runs": {
         parameters: {
             query?: never;
@@ -7203,6 +7234,64 @@ export interface components {
              * @description Ordered vector-tile property allowlist; null restores zoom defaults, [] emits geometry-only tiles, list emits those properties at any zoom.
              */
             tile_columns?: string[] | null;
+        };
+        /**
+         * DatasetRefreshRequest
+         * @description Body of a one-request refresh (#1220). Carries no source pointer.
+         *
+         *     Everything about WHERE the data comes from is read server-side from the
+         *     dataset's stored origin binding — that is the whole feature. A client
+         *     cannot re-point a dataset through this door, and a client that has been
+         *     shown the wrong URL cannot refresh from it.
+         */
+        DatasetRefreshRequest: {
+            /**
+             * Token
+             * @description Transient credential for a protected service. Used for this refresh only and never persisted: it is handed to the worker through a single-use, short-lived reference and is gone once claimed. A retry needs a new token.
+             */
+            token?: string | null;
+        };
+        /**
+         * DatasetRefreshResponse
+         * @description Accepted dispatch of a refresh run.
+         *
+         *     Returns the run id as well as the job id: the run is the durable history
+         *     row (``GET /datasets/{id}/refresh-runs``) and outlives the job, which the
+         *     retention purge eventually removes.
+         */
+        DatasetRefreshResponse: {
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /**
+             * Dataset Id
+             * Format: uuid
+             */
+            dataset_id: string;
+            /**
+             * Origin Kind
+             * @description The origin this refresh re-pulled from
+             */
+            origin_kind: string;
+            /**
+             * Trigger
+             * @description api for this endpoint; cli for the CLI door
+             */
+            trigger: string;
+            /**
+             * Status
+             * @default pending
+             */
+            status: string;
+            /** Message */
+            message: string;
         };
         /** DatasetRefreshRunListResponse */
         DatasetRefreshRunListResponse: {
@@ -24716,6 +24805,115 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    refresh_dataset_datasets__dataset_id__refresh_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DatasetRefreshRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatasetRefreshResponse"];
+                };
             };
             /** @description Bad request — invalid payload */
             400: {

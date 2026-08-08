@@ -2153,7 +2153,23 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # inside the handled region so its refusal finalizes the job and run
     # instead of stranding a pending run against the admission index.
     # Cap 1055 -> 1059, exact.
-    "backend/app/processing/ingest/tasks_reupload.py": 1059,
+    # feat(#1220): +48 — the one-time credential handoff reaches the worker
+    # here. Twenty of those lines are `_resolve_service_token`, extracted
+    # rather than inlined because the claim is one `if` and inlining it
+    # tripped the C901 ceiling on `reupload_service`; the rest is the
+    # `credential_ref` parameter, the docstring paragraph saying which of the
+    # two doors sends which credential shape and why the ref wins when both
+    # are set, and the failure handler's `credential_expired` branch — the one
+    # failure on this path whose fix is "start again with a fresh token"
+    # rather than anything about the origin. Cap 1059 -> 1107, exact.
+    # feat(#1220 self-review): +18 — `_service_refresh_error_code`, which
+    # splits the credential failures into two codes instead of one. An
+    # unreachable credential store is an operator's split-brain config (the
+    # API accepted the token because IT could reach the store) and needs a
+    # different answer than a spent token; the mapping lives in a named
+    # function so a fourth case is an entry rather than another branch inside
+    # the failure handler. Cap 1107 -> 1125, exact.
+    "backend/app/processing/ingest/tasks_reupload.py": 1125,
     # --- entered by the inclusion rule, fix(#958) -------------------------
     # These five were the ungated modules at or above _RATCHET_INCLUSION_LOC
     # when the rule was written. They arrive at their measured size with no
@@ -2384,7 +2400,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # is the outcome; queue wait is only measurable because all three exist
     # separately, which the field's description has to say or a reader will
     # assume two of them are redundant. Cap 1389 -> 1396, exact.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1396,
+    # feat(#1220): +39 — DatasetRefreshRequest and DatasetRefreshResponse.
+    # The request model is one optional field and most of its lines are the
+    # docstring stating what is NOT in it: no URL, no service type, no layer,
+    # because reading those server-side is the entire feature and a reader
+    # who assumes they were merely defaulted would add them back. The
+    # response carries the run id alongside the job id, and says why — the
+    # run is the durable history row that outlives the job the retention
+    # purge removes. Cap 1396 -> 1435, exact.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1435,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch

@@ -20,6 +20,7 @@ deferred task also breaks in-flight jobs on deploy.
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -410,6 +411,7 @@ async def record_refresh_failure(
     error_code: str,
     error_message: str,
     contacted_origin: bool,
+    origin_binding: tuple[str | None, dict[str, Any] | None, str | None] | None = None,
 ) -> uuid.UUID | None:
     """Finalize this job's run as ``failed``.
 
@@ -424,12 +426,32 @@ async def record_refresh_failure(
     runs in a fresh session with no dataset loaded, and ``platform/`` may not
     import the catalog ORM at module scope.
 
+    fix(#1220): that stamp is a GUARDED write, and ``origin_binding`` is what
+    makes it one. It is the ``(origin_uri, origin_ref, source_format)`` triple
+    the failing attempt read when it started, and the UPDATE only lands while
+    the row still carries it. Without the guard, a failure report from an
+    attempt whose dataset was rebound mid-flight — a concurrent re-upload
+    finishing first, say — would date the NEW binding's contact from the OLD
+    binding's doomed fetch, and for a rebind to an upload that is a contact
+    time nothing could ever have produced. Same discipline as
+    ``_record_failed_origin_contact`` in ``tasks_reupload.py``, which is the
+    dataset-side writer on the service path; this is the one every other
+    caller reaches. Passing ``contacted_origin=True`` without a binding raises
+    rather than falling back to an ID-only write, so the unguarded shape is
+    not reachable at all.
+
     Accepts both non-terminal states. A run usually fails after it was claimed,
     but not always: ``reupload_service`` revalidates its URL for SSRF before
     phase 1, so that failure arrives while the run is still ``pending``, as
     does the defer-guard rollback. Terminal states are excluded either way,
     which is the guarantee that matters.
     """
+    if contacted_origin and origin_binding is None:
+        raise ValueError(
+            "record_refresh_failure(contacted_origin=True) requires "
+            "origin_binding; an ID-only contact stamp can land on a dataset "
+            "that was rebound while the failing attempt was running."
+        )
     now = datetime.now(timezone.utc)
     row = (
         await session.execute(
@@ -455,14 +477,68 @@ async def record_refresh_failure(
     if not won:
         return None
     if contacted_origin:
-        await session.execute(
-            text(
-                "UPDATE catalog.datasets SET last_checked_at = :now "
-                "WHERE id = :dataset_id"
-            ),
-            {"now": now, "dataset_id": row.dataset_id},
+        await _stamp_guarded_contact(
+            session,
+            dataset_id=row.dataset_id,
+            binding=origin_binding,  # non-None: checked at the top
+            now=now,
         )
     return row.id
+
+
+# fix(#1220): jsonb, not text. `origin_ref` is compared semantically, so an
+# attempt that read `{"url": ..., "kind": ...}` still matches a row whose
+# stored key order differs — which a textual comparison would call a rebind.
+_GUARDED_CONTACT_SQL = text(
+    """
+    UPDATE catalog.datasets
+    SET last_checked_at = :now
+    WHERE id = :dataset_id
+      AND origin_uri IS NOT DISTINCT FROM :origin_uri
+      AND origin_ref IS NOT DISTINCT FROM CAST(:origin_ref AS jsonb)
+      AND source_format IS NOT DISTINCT FROM :source_format
+    RETURNING id
+    """
+)
+
+
+async def _stamp_guarded_contact(
+    session: AsyncSession,
+    *,
+    dataset_id: uuid.UUID,
+    binding: tuple[str | None, dict[str, Any] | None, str | None] | None,
+    now: datetime,
+) -> bool:
+    """Date the origin contact, but only while the binding is still the one.
+
+    Returns whether the write landed. Losing the race is a silent skip: the
+    caller is a failed background attempt, there is nobody to tell, and the
+    rebind's own commit stamped whatever is true now.
+
+    ``GET /datasets/`` serves ``last_checked_at`` from a 60-second cache, so a
+    landed write invalidates it — every other writer of the field does, and a
+    lost race changed nothing worth invalidating for.
+    """
+    if binding is None:
+        return False
+    origin_uri, origin_ref, source_format = binding
+    landed = await session.scalar(
+        _GUARDED_CONTACT_SQL,
+        {
+            "now": now,
+            "dataset_id": dataset_id,
+            "origin_uri": origin_uri,
+            "origin_ref": json.dumps(origin_ref) if origin_ref is not None else None,
+            "source_format": source_format,
+        },
+    )
+    if landed is None:
+        logger.info("refresh_contact_stamp_skipped", dataset_id=str(dataset_id))
+        return False
+    from app.platform.cache.tiles import invalidate_catalog_cache
+
+    await invalidate_catalog_cache()
+    return True
 
 
 def make_refresh_run_failed_rollback(

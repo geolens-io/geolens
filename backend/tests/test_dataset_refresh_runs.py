@@ -295,9 +295,18 @@ def test_only_the_commit_handler_creates_a_run() -> None:
         if found:
             callers[path.name] = found
 
-    assert callers == {"router_reupload.py": {"reupload_commit"}}, (
-        f"A refresh run row may only be created by the commit handler. Found: {callers}"
-    )
+    # feat(#1220): a second legitimate creator. The property this test
+    # protects is not "one handler" — it is "no handler that merely LOOKS at
+    # an origin reserves the dataset". `refresh_dataset` is the refresh door's
+    # commit: it is the request that queues the work, it writes its ingest job
+    # in the same transaction as the run row, and it goes through
+    # `create_pending_run` rather than a second admission path so the partial
+    # unique index referees both doors. The preview handlers beside it still
+    # write nothing, which is the part that must not change.
+    assert callers == {
+        "router_reupload.py": {"reupload_commit"},
+        "router_refresh.py": {"refresh_dataset"},
+    }, f"A refresh run row may only be created by a dispatch handler. Found: {callers}"
 
 
 # ---------------------------------------------------------------------------
@@ -492,6 +501,13 @@ class TestRunLifecycle:
             error_code="service_refresh_failed",
             error_message="GDAL: https://svc.example/wfs?token=hunter2 returned 500",
             contacted_origin=True,
+            # feat(#1220): the contact stamp is a guarded write now, and the
+            # binding this attempt read is what guards it.
+            origin_binding=(
+                dataset.origin_uri,
+                dataset.origin_ref,
+                dataset.source_format,
+            ),
         )
         await test_db_session.commit()
         await test_db_session.refresh(run)
@@ -1335,6 +1351,7 @@ async def _seed_history(session, *, visibility: str = "public"):
         error_code="service_refresh_failed",
         error_message="Layer 'parcels' vanished from the service",
         contacted_origin=True,
+        origin_binding=(dataset.origin_uri, dataset.origin_ref, dataset.source_format),
     )
     await session.commit()
     await session.refresh(run)

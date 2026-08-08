@@ -767,6 +767,45 @@ class ReuploadCommitResponse(BaseModel):
     message: str
 
 
+class DatasetRefreshRequest(BaseModel):
+    """Body of a one-request refresh (#1220). Carries no source pointer.
+
+    Everything about WHERE the data comes from is read server-side from the
+    dataset's stored origin binding — that is the whole feature. A client
+    cannot re-point a dataset through this door, and a client that has been
+    shown the wrong URL cannot refresh from it.
+    """
+
+    token: str | None = Field(
+        default=None,
+        max_length=1000,
+        description=(
+            "Transient credential for a protected service. Used for this "
+            "refresh only and never persisted: it is handed to the worker "
+            "through a single-use, short-lived reference and is gone once "
+            "claimed. A retry needs a new token."
+        ),
+    )
+    _validate_token = field_validator("token")(_validate_safe_service_token)
+
+
+class DatasetRefreshResponse(BaseModel):
+    """Accepted dispatch of a refresh run.
+
+    Returns the run id as well as the job id: the run is the durable history
+    row (``GET /datasets/{id}/refresh-runs``) and outlives the job, which the
+    retention purge eventually removes.
+    """
+
+    run_id: uuid.UUID
+    job_id: uuid.UUID
+    dataset_id: uuid.UUID
+    origin_kind: str = Field(description="The origin this refresh re-pulled from")
+    trigger: str = Field(description="api for this endpoint; cli for the CLI door")
+    status: str = "pending"
+    message: str
+
+
 class DatasetVersionResponse(BaseModel):
     id: uuid.UUID
     dataset_id: uuid.UUID
