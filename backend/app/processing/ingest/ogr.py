@@ -5,6 +5,7 @@ import json
 import os
 import re
 import string
+from collections.abc import Callable
 from typing import TypedDict
 
 from app.core.config import settings
@@ -748,6 +749,7 @@ async def run_ogr2ogr_service(
     append: bool = False,
     *,
     schema: str,
+    on_spawn: "Callable[[], None] | None" = None,
 ) -> None:
     """Run ogr2ogr to load a remote service layer into PostGIS.
 
@@ -765,6 +767,12 @@ async def run_ogr2ogr_service(
             overwriting it. Used by chunked ArcGIS imports after the first page.
         schema: Target PostgreSQL schema. Required so service imports cannot
             silently write into the shared ``data`` schema.
+        on_spawn: Invoked once, immediately after the subprocess exists —
+            the first moment an outbound attempt can truthfully be said to
+            have begun. Callers that date origin contacts key off this
+            rather than guessing from exception types, because every local
+            preflight (argv validation, token sanitization, tempfile setup,
+            spawn itself) happens before it fires (fix #1271 review).
     """
     from app.processing.ingest.metadata import _validate_table_name
 
@@ -900,6 +908,8 @@ async def run_ogr2ogr_service(
             stderr=asyncio.subprocess.PIPE,
             env=env,
         )
+        if on_spawn is not None:
+            on_spawn()
 
         # Use the shared helper for graceful kill-on-timeout (R-9).
         stdout, stderr = await _communicate_with_timeout(

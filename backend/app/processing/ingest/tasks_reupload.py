@@ -742,8 +742,19 @@ async def reupload_service(
             )
         )
 
-        async def _run_service_import(layer_name: str) -> None:
+        def _arm_contact() -> None:
+            # fix(#1271 review): fired by run_ogr2ogr_service the instant the
+            # subprocess exists, which is the first moment an outbound
+            # attempt truthfully began — every local preflight (argv checks,
+            # token sanitization, spawn itself) happens before it. Monotonic
+            # OR, so a fallback retry that dies locally cannot erase the
+            # contact its first attempt already made.
             nonlocal origin_contact_attempted
+            origin_contact_attempted = (
+                origin_contact_attempted or attempt_matches_binding
+            )
+
+        async def _run_service_import(layer_name: str) -> None:
             gdal_source, layer_arg = port.build_gdal_source(
                 service_type_raw,
                 source_url_value,
@@ -752,26 +763,16 @@ async def reupload_service(
                 token=token,
                 order_field=reupload_oid_field,
             )
-            # fix(#1271 review): armed HERE, immediately before the fetch, so
-            # a failure in build_gdal_source or anywhere earlier never claims
-            # a contact. An OSError means the subprocess never spawned —
-            # nothing left the machine — so the claim is withdrawn; ogr2ogr's
-            # own failures surface as IngestionError and keep it, because a
-            # spawned ogr2ogr was an attempt on the wire.
-            origin_contact_attempted = attempt_matches_binding
-            try:
-                await run_ogr2ogr_service(
-                    gdal_source,
-                    layer_arg,
-                    staging_tn,
-                    db_conn_str,
-                    service_type,
-                    token=token,
-                    schema=_current_tenant_schema(),
-                )
-            except OSError:
-                origin_contact_attempted = False
-                raise
+            await run_ogr2ogr_service(
+                gdal_source,
+                layer_arg,
+                staging_tn,
+                db_conn_str,
+                service_type,
+                token=token,
+                schema=_current_tenant_schema(),
+                on_spawn=_arm_contact,
+            )
 
         try:
             await _run_service_import_with_wfs_fallback(

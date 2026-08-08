@@ -372,11 +372,12 @@ class TestStacItemHrefCapture:
             # A malformed href raises inside urljoin; one broken link must
             # not 502 the whole search result set (fix #1271 review).
             [{"rel": "self", "href": "http://[bad"}],
-            # These parse without raising but 422 the import batch downstream
-            # as HttpUrl rejects: absent host, non-numeric port, port zero.
-            [{"rel": "self", "href": "http:///items/x"}],
+            # Rejected by the same HttpUrl validator the import model runs,
+            # so surfacing them would 422 the batch downstream. The capture
+            # runs the REAL validator rather than approximating it, so
+            # whatever import accepts, capture surfaces — and vice versa.
             [{"rel": "self", "href": "https://origin.test:bad/items/x"}],
-            [{"rel": "self", "href": "https://origin.test:0/items/x"}],
+            [{"rel": "self", "href": "https://exa mple.com/items/x"}],
             # Longer than StacImportItem.item_href's 4096 cap: surfacing it
             # would 422 the import batch downstream.
             [{"rel": "self", "href": "https://origin.test/" + "a" * 4100}],

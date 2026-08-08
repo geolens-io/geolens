@@ -1400,6 +1400,14 @@ class TestStagingTableName:
         assert staging == "a" * 22 + f"_staging_{attempt_id.hex}"
 
 
+async def _spawn_then_explode(*args, on_spawn=None, **kwargs):
+    """Stand-in for run_ogr2ogr_service where the subprocess spawns and the
+    fetch then fails — on_spawn fires exactly as the real runner fires it."""
+    if on_spawn is not None:
+        on_spawn()
+    raise RuntimeError("upstream fetch exploded")
+
+
 class TestFailedServiceReuploadDatesTheContact:
     async def test_failed_fetch_still_stamps_last_checked_at(self, test_db_session):
         """fix(#1271 review): last_checked_at means "last time GeoLens
@@ -1449,7 +1457,7 @@ class TestFailedServiceReuploadDatesTheContact:
             ),
             patch(
                 "app.processing.ingest.ogr.run_ogr2ogr_service",
-                new=AsyncMock(side_effect=RuntimeError("upstream fetch exploded")),
+                new=_spawn_then_explode,
             ),
             pytest.raises(RuntimeError, match="upstream fetch exploded"),
         ):
@@ -1508,7 +1516,9 @@ class TestFailedServiceReuploadDatesTheContact:
         test_db_session.add(job)
         await test_db_session.commit()
 
-        async def rebind_then_explode(*args, **kwargs):
+        async def rebind_then_explode(*args, on_spawn=None, **kwargs):
+            if on_spawn is not None:
+                on_spawn()
             set_dataset_origin(dataset, "upload", filename="roads.gpkg")
             dataset.source_format = "gpkg"
             await test_db_session.commit()
@@ -1521,7 +1531,7 @@ class TestFailedServiceReuploadDatesTheContact:
             ),
             patch(
                 "app.processing.ingest.ogr.run_ogr2ogr_service",
-                new=AsyncMock(side_effect=rebind_then_explode),
+                new=rebind_then_explode,
             ),
             pytest.raises(RuntimeError, match="upstream fetch exploded"),
         ):
@@ -1576,7 +1586,7 @@ class TestFailedServiceReuploadDatesTheContact:
             ),
             patch(
                 "app.processing.ingest.ogr.run_ogr2ogr_service",
-                new=AsyncMock(side_effect=RuntimeError("upstream fetch exploded")),
+                new=_spawn_then_explode,
             ),
             pytest.raises(RuntimeError, match="upstream fetch exploded"),
         ):
@@ -1637,7 +1647,7 @@ class TestFailedServiceReuploadDatesTheContact:
             ),
             patch(
                 "app.processing.ingest.ogr.run_ogr2ogr_service",
-                new=AsyncMock(side_effect=RuntimeError("upstream fetch exploded")),
+                new=_spawn_then_explode,
             ),
             pytest.raises(RuntimeError, match="upstream fetch exploded"),
         ):

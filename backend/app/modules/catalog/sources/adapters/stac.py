@@ -12,10 +12,11 @@ external STAC APIs using httpx for HTTP interaction.
 from __future__ import annotations
 
 from typing import Any, TypedDict
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 
 import httpx
 import structlog
+from pydantic import HttpUrl
 
 from app.core.url_redaction import has_url_credentials
 from app.modules.catalog.sources.security import make_safe_client
@@ -78,29 +79,21 @@ def _self_link_href(feature: dict[str, Any], base_url: str) -> str | None:
         href = link.get("href")
         if not isinstance(href, str) or not href.strip():
             continue
-        # fix(#1271 review): a malformed href must be dropped, not surfaced.
-        # `http://[bad` raises out of urljoin; `http:///x` (no host) and
-        # `https://h:bad/x` (non-numeric port) parse without raising and 422
-        # the caller's whole import batch downstream when StacImportItem
-        # rejects them as HttpUrl — item_href is optional, so one broken
-        # link must cost nothing.
+        # fix(#1271 review): a malformed href must be dropped, not surfaced —
+        # item_href is optional, and the frontend echoes search results into
+        # the import request, where StacImportItem applies HttpUrl, the
+        # credential refusal, and a 4096 cap. Surfacing anything that gate
+        # rejects turns one broken link into a 422 for the caller's whole
+        # batch. So the capture runs the SAME checks: pydantic's HttpUrl
+        # (not a hand-rolled approximation of it — every predicate written
+        # here so far had a counterexample), the credential check, and the
+        # import field's length cap.
         try:
             resolved = urljoin(base_url, href)
-            parsed = urlparse(resolved)
-            usable = (
-                parsed.scheme in ("http", "https")
-                and bool(parsed.hostname)
-                # .port raises ValueError on a non-numeric or out-of-range
-                # port, which is why it is read inside this try.
-                and (parsed.port is None or parsed.port > 0)
-                # StacImportItem.item_href caps at 4096; surfacing a longer
-                # link would 422 the caller's whole import batch downstream
-                # (fix #1271 review).
-                and len(resolved) <= 4096
-            )
+            HttpUrl(resolved)
         except ValueError:
             continue
-        if usable and not has_url_credentials(resolved):
+        if len(resolved) <= 4096 and not has_url_credentials(resolved):
             return resolved
     return None
 
