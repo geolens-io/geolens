@@ -2941,6 +2941,69 @@ export type DatasetMeta = {
 };
 
 /**
+ * DatasetRefreshRequest
+ *
+ * Body of a one-request refresh (#1220). Carries no source pointer.
+ *
+ * Everything about WHERE the data comes from is read server-side from the
+ * dataset's stored origin binding — that is the whole feature. A client
+ * cannot re-point a dataset through this door, and a client that has been
+ * shown the wrong URL cannot refresh from it.
+ */
+export type DatasetRefreshRequest = {
+    /**
+     * Token
+     *
+     * Transient credential for a protected service. Used for this refresh only and never persisted: it is handed to the worker through a single-use, short-lived reference and is gone once claimed. A retry needs a new token.
+     */
+    token?: string | null;
+};
+
+/**
+ * DatasetRefreshResponse
+ *
+ * Accepted dispatch of a refresh run.
+ *
+ * Returns the run id as well as the job id: the run is the durable history
+ * row (``GET /datasets/{id}/refresh-runs``) and outlives the job, which the
+ * retention purge eventually removes.
+ */
+export type DatasetRefreshResponse = {
+    /**
+     * Run Id
+     */
+    run_id: string;
+    /**
+     * Job Id
+     */
+    job_id: string;
+    /**
+     * Dataset Id
+     */
+    dataset_id: string;
+    /**
+     * Origin Kind
+     *
+     * The origin this refresh re-pulled from
+     */
+    origin_kind: string;
+    /**
+     * Trigger
+     *
+     * api for this endpoint; cli for the CLI door
+     */
+    trigger: string;
+    /**
+     * Status
+     */
+    status?: string;
+    /**
+     * Message
+     */
+    message: string;
+};
+
+/**
  * DatasetRefreshRunListResponse
  */
 export type DatasetRefreshRunListResponse = {
@@ -18295,6 +18358,71 @@ export type GetQuicklookDatasetsDatasetIdQuicklookGetResponses = {
      */
     200: unknown;
 };
+
+export type RefreshDatasetDatasetsDatasetIdRefreshPostData = {
+    /**
+     * Request
+     */
+    body?: DatasetRefreshRequest | null;
+    path: {
+        /**
+         * Dataset Id
+         */
+        dataset_id: string;
+    };
+    query?: never;
+    url: '/datasets/{dataset_id}/refresh';
+};
+
+export type RefreshDatasetDatasetsDatasetIdRefreshPostErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type RefreshDatasetDatasetsDatasetIdRefreshPostError = RefreshDatasetDatasetsDatasetIdRefreshPostErrors[keyof RefreshDatasetDatasetsDatasetIdRefreshPostErrors];
+
+export type RefreshDatasetDatasetsDatasetIdRefreshPostResponses = {
+    /**
+     * Successful Response
+     */
+    202: DatasetRefreshResponse;
+};
+
+export type RefreshDatasetDatasetsDatasetIdRefreshPostResponse = RefreshDatasetDatasetsDatasetIdRefreshPostResponses[keyof RefreshDatasetDatasetsDatasetIdRefreshPostResponses];
 
 export type ListDatasetRefreshRunsDatasetsDatasetIdRefreshRunsGetData = {
     body?: never;

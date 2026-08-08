@@ -190,7 +190,7 @@ def _get_kwargs(
     if isinstance(body, list):
         _kwargs["json"] = body
 
-    else:
+    elif not isinstance(body, Unset):
         _kwargs["json"] = body
 
     headers["Content-Type"] = "application/json"

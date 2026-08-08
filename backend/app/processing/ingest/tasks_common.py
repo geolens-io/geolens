@@ -24,6 +24,7 @@ from procrastinate import App, PsycopgConnector
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.dataset_origin import classify_origin, set_dataset_origin
 from app.core.config import settings
+from app.core.url_redaction import redact_url_credentials
 from app.processing.embeddings.helpers import defer_embedding
 from app.platform.storage import get_storage
 
@@ -882,7 +883,15 @@ async def _cleanup_staging_on_failure(
 
     job_id = job.id
     completed_at = datetime.now(timezone.utc)
-    error_message = str(exc)
+    # fix(#1277 review): the last boundary before this text becomes durable.
+    # It fans out to three sinks below — the persisted error_message, the log
+    # record, and the notification reason — so redacting here covers all of
+    # them once, for every caller and every exception type, instead of three
+    # times per path. Pattern-based, so it also covers the re-upload commit
+    # door's token, which the worker never handles as a distinct value and so
+    # cannot scrub by exact value. The exception is left unmodified: callers
+    # that dispatch on its type or re-raise it are unaffected.
+    error_message = redact_url_credentials(str(exc))
     await session.rollback()
     try:
         await session.execute(

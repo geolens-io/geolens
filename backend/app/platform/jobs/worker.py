@@ -453,6 +453,7 @@ async def main() -> None:
     import app.processing.embeddings.models  # noqa: F401
 
     from app.observability.metrics.jobs import update_job_metrics
+    from app.platform.refresh.credentials import renew_credentials_periodically
     from app.processing.ingest.tasks import task_app
 
     # MIG-02: fail closed before touching the DB if the schema heads are skewed
@@ -507,6 +508,14 @@ async def main() -> None:
     # 5. Start job metrics collector as background task
     metrics_task = asyncio.create_task(update_job_metrics())
 
+    # fix(#1277 review round 4): the worker hosts credential renewal too. The
+    # process whose liveness gates the CLAIM is this one, so renewing here
+    # keeps a queued handoff alive exactly while a claim is still possible —
+    # the API sweeper alone left a healthy worker unable to claim a credential
+    # the API's own downtime had expired. Same helper, and EXPIRE is
+    # idempotent, so the two hosts overlapping costs one round trip.
+    credential_renewal_task = asyncio.create_task(renew_credentials_periodically())
+
     try:
         # 6. Run Procrastinate worker
         shutdown_timeout = settings.worker_shutdown_timeout
@@ -552,9 +561,15 @@ async def main() -> None:
     finally:
         # 7. Clean up background tasks after worker exits
         metrics_task.cancel()
+        credential_renewal_task.cancel()
         health_task.cancel()
         try:
-            await asyncio.gather(metrics_task, health_task, return_exceptions=True)
+            await asyncio.gather(
+                metrics_task,
+                credential_renewal_task,
+                health_task,
+                return_exceptions=True,
+            )
         except asyncio.CancelledError:
             pass
 

@@ -155,6 +155,14 @@ sdks:
 	# PEP 561 marker — generator with --meta none doesn't emit it; touch so
 	# typecheckers consume the inline annotations on consumers' machines.
 	touch sdks/python/geolens/py.typed
+	# fix(#1277 review): openapi-python-client assigns the UNSET sentinel to
+	# `json` for an optional request body, so calling such an endpoint the
+	# documented way (omit the body) raises TypeError inside httpx before
+	# anything is sent. Guarded here, in the pipeline, because a fix applied to
+	# the generated files themselves lasts exactly until the next regen. The
+	# script exits non-zero if the generator's emission stops matching, so a
+	# version bump cannot silently reinstate the bug.
+	uv run --no-project python scripts/fix_sdk_optional_body.py
 	# fix(#441): run the generator from the LOCAL lockfile-pinned install, not a
 	# fresh `npx @hey-api/openapi-ts@…` resolve. openapi-ts declares an
 	# open-ended `typescript >=5.5.3 || >=6.0.0` peer, so a cold npx resolve

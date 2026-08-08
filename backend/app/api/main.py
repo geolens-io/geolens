@@ -331,8 +331,15 @@ async def lifespan(app: FastAPI):
 
     from app.observability.metrics.memory import update_memory_metrics
     from app.observability.metrics.pool import update_pool_metrics
+    from app.observability.metrics.refresh import update_refresh_metrics
 
     pool_metrics_task = asyncio.create_task(update_pool_metrics())
+    # feat(#1268): the refresh lifecycle is observed HERE rather than in the
+    # worker that executes it — the worker serves no /metrics endpoint. The
+    # gauges are derived from catalog.dataset_refresh_runs and published in
+    # livemostrecent mode, so every uvicorn worker running this same loop
+    # reports one answer instead of N summed ones.
+    refresh_metrics_task = asyncio.create_task(update_refresh_metrics())
     # fix(#643): per-worker RSS gauge + log watermark so an OOM-bound worker
     # is visible in normal logs before the kernel kills it.
     memory_metrics_task = asyncio.create_task(update_memory_metrics())
@@ -348,10 +355,21 @@ async def lifespan(app: FastAPI):
         client polls it after the worker dies — the on-poll fail-fast logic
         in get_job_status only catches it when a user revisits the page.
         """
+        from app.platform.refresh.credentials import (
+            CREDENTIAL_RENEWAL_INTERVAL_SECONDS,
+            renew_queued_credentials_once,
+        )
+
         sweeper_log = structlog.stdlib.get_logger("stale_jobs_sweeper")
         while True:
             try:
-                await asyncio.sleep(300)  # 5 minutes
+                # feat(#1277 review round 2): the interval is the credential
+                # module's, because the refresh credential TTL is derived from
+                # it — three cycles, so a single skipped pass cannot expire a
+                # credential whose task is still queued. One constant, owned
+                # where the arithmetic that depends on it lives, rather than a
+                # 300 here and a mirror there.
+                await asyncio.sleep(CREDENTIAL_RENEWAL_INTERVAL_SECONDS)
                 pending_failed, running_failed = await sweep_stale_jobs_once()
                 if pending_failed or running_failed:
                     sweeper_log.info(
@@ -359,6 +377,14 @@ async def lifespan(app: FastAPI):
                         pending_failed=pending_failed,
                         running_failed=running_failed,
                     )
+                # Re-arm credentials whose dispatch is still waiting for
+                # a worker. Tenant-scoped, and hosted in the WORKER too — see
+                # renew_credentials_periodically for why one host was not
+                # enough. EXPIRE is idempotent, so both running in the same
+                # cycle is free.
+                renewed = await renew_queued_credentials_once()
+                if renewed:
+                    sweeper_log.debug("Renewed queued credentials", count=renewed)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # broad: sweeper-loop must survive any DB/transient error to keep running
@@ -418,6 +444,7 @@ async def lifespan(app: FastAPI):
 
     pool_metrics_task.cancel()
     memory_metrics_task.cancel()
+    refresh_metrics_task.cancel()
     metrics_sweep_task.cancel()
     stale_jobs_task.cancel()
     rate_limit_warmer_task.cancel()

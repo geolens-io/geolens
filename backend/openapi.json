@@ -4977,6 +4977,75 @@
         "title": "DatasetMeta",
         "type": "object"
       },
+      "DatasetRefreshRequest": {
+        "description": "Body of a one-request refresh (#1220). Carries no source pointer.\n\nEverything about WHERE the data comes from is read server-side from the\ndataset's stored origin binding \u2014 that is the whole feature. A client\ncannot re-point a dataset through this door, and a client that has been\nshown the wrong URL cannot refresh from it.",
+        "properties": {
+          "token": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Transient credential for a protected service. Used for this refresh only and never persisted: it is handed to the worker through a single-use, short-lived reference and is gone once claimed. A retry needs a new token.",
+            "title": "Token"
+          }
+        },
+        "title": "DatasetRefreshRequest",
+        "type": "object"
+      },
+      "DatasetRefreshResponse": {
+        "description": "Accepted dispatch of a refresh run.\n\nReturns the run id as well as the job id: the run is the durable history\nrow (``GET /datasets/{id}/refresh-runs``) and outlives the job, which the\nretention purge eventually removes.",
+        "properties": {
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "dataset_id": {
+            "format": "uuid",
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "origin_kind": {
+            "description": "The origin this refresh re-pulled from",
+            "title": "Origin Kind",
+            "type": "string"
+          },
+          "trigger": {
+            "description": "api for this endpoint; cli for the CLI door",
+            "title": "Trigger",
+            "type": "string"
+          },
+          "status": {
+            "default": "pending",
+            "title": "Status",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "job_id",
+          "dataset_id",
+          "origin_kind",
+          "trigger",
+          "message"
+        ],
+        "title": "DatasetRefreshResponse",
+        "type": "object"
+      },
       "DatasetRefreshRunListResponse": {
         "properties": {
           "runs": {
@@ -36085,6 +36154,167 @@
         "summary": "Get Quicklook",
         "tags": [
           "Datasets"
+        ]
+      }
+    },
+    "/datasets/{dataset_id}/refresh": {
+      "post": {
+        "description": "Re-pull this dataset's data from the origin it was imported from.\n\nOne request, no source pointer, no layer selection. The dataset keeps\nserving its current data throughout: the worker loads into an\nattempt-scoped staging table and swaps only once the new data is\ncomplete, so a refresh that fails leaves the live table and its freshness\nexactly as they were.\n\nRefuses with 409 ``dataset_busy`` while another refresh or re-upload is\nactive for this dataset \u2014 v1 rejects rather than queues (Decision 5b), and\nthe refusal comes from a partial unique index rather than a check, so two\nsimultaneous clicks cannot both be admitted.",
+        "operationId": "refresh_dataset_datasets__dataset_id__refresh_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/DatasetRefreshRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetRefreshResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad request \u2014 invalid payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Forbidden \u2014 caller lacks write access"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Conflict \u2014 resource state prevents the operation"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many requests \u2014 retry after the advertised interval",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the request may be retried",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Service unavailable \u2014 the database could not serve the request"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          },
+          {
+            "ApiKeyHeader": []
+          },
+          {
+            "ApiKeyQuery": []
+          }
+        ],
+        "summary": "Refresh Dataset",
+        "tags": [
+          "Datasets - Refresh"
         ]
       }
     },

@@ -1901,7 +1901,27 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # background tasks, so an OOM-killed/SIGKILLed worker's multiprocess
     # gauge files get reaped even though its own graceful shutdown hook
     # never ran. Cap 1296 -> 1305, exact.
-    "backend/app/api/main.py": 1305,
+    # feat(#1268): +8 — start and cancel the refresh-metrics loop beside the
+    # existing pool/memory/sweep tasks. Half the lines are the comment saying
+    # why the refresh lifecycle is observed in the API at all when the worker
+    # is what executes it: the worker serves no /metrics endpoint, so a
+    # counter incremented there is written to a file nothing reads.
+    # Cap 1305 -> 1313, exact.
+    # fix(#1277 review round 2): +24 — the stale-jobs sweeper also re-arms
+    # refresh credentials whose task is still queued. Round 1 tried to bound
+    # the credential lifetime with a constant derived from JOB_TIMEOUT_SECONDS;
+    # the heartbeat means no constant bounds a healthy long import, so the
+    # bound is now renewal and this loop is what drives it. Most of the lines
+    # are the comment explaining why the interval constant is imported from the
+    # credential module (the TTL arithmetic depends on it, so there is one of
+    # it) and why the renewal needs no try of its own. Cap 1313 -> 1337, exact.
+    # fix(#1277 review round 3): the tenant-scoped renewal landed here first.
+    # fix(#1277 review round 4): -58 — and moved straight back out to
+    # platform/refresh/credentials.py, because the worker has to host the same
+    # renewal and cannot import the API app module. main.py is a thin caller
+    # again, so the cap drops below where round 3 left it.
+    # Cap 1390 -> 1332, exact.
+    "backend/app/api/main.py": 1332,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative
@@ -2140,7 +2160,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # (the worker-time SSRF refusal) must still finalize the job it owns; the
     # comment carries why attempt-id equality, not status, is the fence.
     # Cap 1874 -> 1880, exact.
-    "backend/app/processing/ingest/tasks_common.py": 1880,
+    # fix(#1277 review): +9 — the shared failure sink redacts before it
+    # persists. This one function fans out to three sinks (the durable
+    # error_message, the log record, the notification reason), so the comment
+    # has to say why the redaction belongs here rather than at each of them,
+    # and why the exception itself is left unmodified for callers that
+    # dispatch on its type. Cap 1880 -> 1889, exact.
+    "backend/app/processing/ingest/tasks_common.py": 1889,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -2153,7 +2179,29 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # inside the handled region so its refusal finalizes the job and run
     # instead of stranding a pending run against the admission index.
     # Cap 1055 -> 1059, exact.
-    "backend/app/processing/ingest/tasks_reupload.py": 1059,
+    # feat(#1220): +48 — the one-time credential handoff reaches the worker
+    # here. Twenty of those lines are `_resolve_service_token`, extracted
+    # rather than inlined because the claim is one `if` and inlining it
+    # tripped the C901 ceiling on `reupload_service`; the rest is the
+    # `credential_ref` parameter, the docstring paragraph saying which of the
+    # two doors sends which credential shape and why the ref wins when both
+    # are set, and the failure handler's `credential_expired` branch — the one
+    # failure on this path whose fix is "start again with a fresh token"
+    # rather than anything about the origin. Cap 1059 -> 1107, exact.
+    # feat(#1220 self-review): +18 — `_service_refresh_error_code`, which
+    # splits the credential failures into two codes instead of one. An
+    # unreachable credential store is an operator's split-brain config (the
+    # API accepted the token because IT could reach the store) and needs a
+    # different answer than a spent token; the mapping lives in a named
+    # function so a fourth case is an entry rather than another branch inside
+    # the failure handler. Cap 1107 -> 1125, exact.
+    # fix(#1277 review): +14 — the exact-value credential scrub at the top of
+    # the broad handler. This task is the only place that knows the token's
+    # literal value, which is what makes it the redaction an unrecognised echo
+    # cannot evade; the comment records that, and why it mutates the exception
+    # in place rather than raising a replacement (the class is load-bearing for
+    # the error-code mapping below it). Cap 1125 -> 1139, exact.
+    "backend/app/processing/ingest/tasks_reupload.py": 1139,
     # --- entered by the inclusion rule, fix(#958) -------------------------
     # These five were the ungated modules at or above _RATCHET_INCLUSION_LOC
     # when the rule was written. They arrive at their measured size with no
@@ -2215,7 +2263,19 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the comment recording that ordering and why the count is logged rather
     # than added to StaleCleanupOutcome (several callers rebuild that dataclass
     # field by field). Cap 1561 -> 1573, exact.
-    "backend/app/platform/jobs/router.py": 1573,
+    # feat(#1268): +7 — the sweep now increments a Prometheus counter, with
+    # the comment explaining why this one is a real counter while the refresh
+    # run series beside it are derived gauges: the sweep runs inside one API
+    # request on one worker, so nothing sums it twice. Cap 1573 -> 1580, exact.
+    # fix(#1277 review): +25 — the increment moved off the sweep call site and
+    # behind the commit, because a counter cannot be decremented: a pass that
+    # rolled back left the metric permanently claiming cancellations that
+    # never happened. That bought `publish_refresh_reconciliation` and its
+    # docstring, the private `_refresh_runs_reconciled` field carrying the
+    # count out to whichever caller owns the commit (the admin path passes
+    # commit=False), and the comment at the second commit site.
+    # Cap 1580 -> 1605, exact.
+    "backend/app/platform/jobs/router.py": 1605,
     # fix(second-opinion review on #1236 review r3): first entry — crossed
     # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
     # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side
@@ -2384,7 +2444,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # is the outcome; queue wait is only measurable because all three exist
     # separately, which the field's description has to say or a reader will
     # assume two of them are redundant. Cap 1389 -> 1396, exact.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1396,
+    # feat(#1220): +39 — DatasetRefreshRequest and DatasetRefreshResponse.
+    # The request model is one optional field and most of its lines are the
+    # docstring stating what is NOT in it: no URL, no service type, no layer,
+    # because reading those server-side is the entire feature and a reader
+    # who assumes they were merely defaulted would add them back. The
+    # response carries the run id alongside the job id, and says why — the
+    # run is the durable history row that outlives the job the retention
+    # purge removes. Cap 1396 -> 1435, exact.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1435,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch

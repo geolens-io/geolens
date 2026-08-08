@@ -1,13 +1,34 @@
-"""Helpers for rejecting and redacting credential-bearing URLs."""
+"""Helpers for rejecting and redacting credential-bearing URLs and secrets.
+
+Two kinds of redaction live here, and they are complementary rather than
+alternatives. The URL helpers scrub by PATTERN — anything shaped like a
+credential query parameter or userinfo — and so cover strings nobody knew the
+secret for, including a token that only ever existed inside a subprocess's
+argv. :func:`scrub_secret_from_exception` scrubs by exact VALUE, for the
+callers that do hold the secret, and so covers echoes the pattern cannot
+recognise as a URL at all.
+"""
 
 from __future__ import annotations
 
 import re
 import unicodedata
-from urllib.parse import parse_qsl, unquote_plus, urlencode, urlsplit, urlunsplit
+from urllib.parse import (
+    parse_qsl,
+    quote,
+    quote_plus,
+    unquote_plus,
+    urlencode,
+    urlsplit,
+    urlunsplit,
+)
 
 REDACTED_QUERY_VALUE = "<redacted>"
 REDACTED_USERINFO = "redacted"
+# Deliberately not "<redacted>": this one replaces a bare value wherever it
+# appears rather than a name=value pair, so it needs to read as a redaction
+# even with no surrounding context.
+REDACTED_SECRET = "***"
 # fix(#1116): the optional scheme prefix is bounded to 64 characters, which is
 # longer than any registered URI scheme. An unbounded `+` here is ambiguous
 # against the `https?` that follows, so a long run of prefix-class characters
@@ -295,4 +316,67 @@ def redact_url_credentials(url: str) -> str:
         return url
     return urlunsplit(
         (parts.scheme, redacted_netloc, parts.path, redacted_query, parts.fragment)
+    )
+
+
+def _secret_variants(secret: str) -> list[str]:
+    """Every spelling of *secret* that could appear in a captured string.
+
+    A credential does not necessarily reach stderr in the form the caller
+    holds. ``build_gdal_source`` composes the ArcGIS query with ``urlencode``,
+    which percent-encodes the value, so a token containing ``/`` or ``+``
+    appears encoded in the subprocess argv and therefore in anything GDAL
+    echoes back. Scrubbing only the raw form would leave exactly those tokens
+    exposed, and they are the ones an operator is least likely to notice.
+
+    Longest first, so a variant that contains another (``a%2Fb`` and its raw
+    ``a/b`` share no prefix, but ``quote`` and ``quote_plus`` often agree)
+    cannot leave a partial match behind after the first replacement.
+    """
+    variants = {secret, quote(secret, safe=""), quote_plus(secret)}
+    return sorted(variants, key=len, reverse=True)
+
+
+def scrub_secret_value(text: str, secret: str | None) -> str:
+    """Replace every spelling of *secret* in *text* with :data:`REDACTED_SECRET`.
+
+    Exact-value redaction, for callers that hold the credential. It is the
+    stronger of the two mechanisms in this module precisely because it needs
+    no theory about the shape of what it is scrubbing: an echo is caught
+    whether it arrives in a query string, a header dump, a driver diagnostic,
+    or prose.
+
+    A pathologically short secret over-scrubs the surrounding text. That is
+    the safe direction and is left deliberate rather than floored: refusing to
+    scrub a four-character token to keep a log tidy is the wrong trade, and the
+    pattern-based helpers above still cover it as a query parameter.
+    """
+    if not secret or not text:
+        return text
+    for variant in _secret_variants(secret):
+        if variant:
+            text = text.replace(variant, REDACTED_SECRET)
+    return text
+
+
+def scrub_secret_from_exception(exc: BaseException, secret: str | None) -> None:
+    """Scrub *secret* out of an exception's message, in place.
+
+    Rewrites ``args`` rather than raising a replacement, which keeps the
+    exception's type, traceback and ``__cause__`` intact — all three matter to
+    the callers here: ``_run_service_import_with_wfs_fallback`` dispatches on
+    ``IngestionError`` for its namespace retry, and the failure handlers key
+    error codes off the class. Constructing a new exception would also fail for
+    any class whose ``__init__`` takes more than a message.
+
+    Mutating in place is what makes this reliable at a single call site: every
+    downstream reader of that exception — the persisted ``error_message``, the
+    log record, the notification reason, and the re-raise the queue records —
+    sees the scrubbed text, without each of them having to remember to scrub.
+    """
+    if not secret or not exc.args:
+        return
+    exc.args = tuple(
+        scrub_secret_value(arg, secret) if isinstance(arg, str) else arg
+        for arg in exc.args
     )

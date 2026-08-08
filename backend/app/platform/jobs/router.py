@@ -24,6 +24,7 @@ from app.processing.ingest.service import queue_ingest_job
 from app.platform.extensions import get_permission_extension
 from app.platform.jobs.heartbeat import ANALYSIS_MATERIALIZE_LEASE_SECONDS
 from app.platform.jobs.models import IngestJob, owned_presigned_staging_key
+from app.observability.metrics.refresh import refresh_sweep_reconciled_total
 from app.platform.refresh.service import sweep_abandoned_refresh_runs
 from app.platform.jobs.schemas import (
     DbfTruncationCollisionWarning,
@@ -192,6 +193,11 @@ class StaleCleanupOutcome:
     _staged_presigned_keys: tuple[str, ...] = field(
         default=(), repr=False, compare=False
     )
+    # fix(#1277 review): refresh runs the sweep finalized, carried out to
+    # whoever commits so the metric is published only once that commit lands.
+    # Private and absent from as_dict() like the two fields above, so the
+    # published API and audit shape is unchanged.
+    _refresh_runs_reconciled: int = field(default=0, repr=False, compare=False)
 
     @property
     def total_cleaned(self) -> int:
@@ -619,6 +625,24 @@ async def sweep_stale_vrt_assets(
     return len(stale_asset_ids), len(stale_generation_ids)
 
 
+def publish_refresh_reconciliation(outcome: StaleCleanupOutcome) -> None:
+    """Publish the sweep's reconciliation counter, AFTER its commit landed.
+
+    fix(#1277 review): this used to increment where the sweep runs, inside the
+    transaction. A later failure in the same pass rolls the cancellations back
+    but not the counter, and a counter only goes up — so the overcount is
+    permanent and every rate() over that window stays wrong. Publishing waits
+    for durability rather than intent.
+
+    Both commit sites call it: ``fail_stale_jobs`` when it owns the commit,
+    and the admin cleanup endpoint when it passes ``commit=False``. A
+    rolled-back pass reaches neither. Every increment is a run that reached a
+    terminal status with no worker reporting one.
+    """
+    if outcome._refresh_runs_reconciled:
+        refresh_sweep_reconciled_total.inc(outcome._refresh_runs_reconciled)
+
+
 @overload
 async def fail_stale_jobs(
     db: AsyncSession,
@@ -910,12 +934,14 @@ async def fail_stale_jobs(
         staged_cleanup_failures=staged_cleanup_failures,
         _staged_paths=tuple(sorted(deleted_paths)),
         _staged_presigned_keys=tuple(sorted(deleted_presigned_keys)),
+        _refresh_runs_reconciled=cancelled_runs,
     )
     if commit:
         # Never remove an external artifact for a DELETE that may still roll
         # back. A crash after this commit can leak a staging object, but it
         # cannot restore a job row whose only retry input has been destroyed.
         await db.commit()
+        publish_refresh_reconciliation(outcome)
         outcome = await _reap_committed_staged_paths(outcome)
         outcome = await _sweep_expired_presigned_staging(db, outcome, now=now)
     if detailed:
@@ -1045,6 +1071,12 @@ async def cleanup_stale_jobs(
         if multi_tenant:
             details = database_details
         else:
+            # fix(#1277 review): this path passed commit=False, so the sweep
+            # deferred its counter to whoever owns the commit — that is the
+            # line above. The multi-tenant branch needs nothing here: the
+            # fleet helper runs fail_stale_jobs with its own commit per
+            # tenant, so each tenant's pass publishes its own.
+            publish_refresh_reconciliation(outcome)
             outcome = await _reap_committed_staged_paths(outcome)
             outcome = await _sweep_expired_presigned_staging(db, outcome)
             details = outcome.as_dict()

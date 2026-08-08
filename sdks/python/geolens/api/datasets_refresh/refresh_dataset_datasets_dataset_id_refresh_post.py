@@ -8,30 +8,28 @@ from ...client import AuthenticatedClient, Client
 from ...types import Response, UNSET
 from ... import errors
 
+from ...models.dataset_refresh_request import DatasetRefreshRequest
+from ...models.dataset_refresh_response import DatasetRefreshResponse
 from ...models.problem_detail import ProblemDetail
-from ...models.reupload_preview_request import ReuploadPreviewRequest
-from ...models.reupload_preview_response import ReuploadPreviewResponse
 from ...types import Unset
 from uuid import UUID
 
 
 def _get_kwargs(
     dataset_id: UUID,
-    job_id: UUID,
     *,
-    body: None | ReuploadPreviewRequest | Unset = UNSET,
+    body: DatasetRefreshRequest | None | Unset = UNSET,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
 
     _kwargs: dict[str, Any] = {
         "method": "post",
-        "url": "/datasets/{dataset_id}/reupload/{job_id}/preview".format(
+        "url": "/datasets/{dataset_id}/refresh".format(
             dataset_id=quote(str(dataset_id), safe=""),
-            job_id=quote(str(job_id), safe=""),
         ),
     }
 
-    if isinstance(body, ReuploadPreviewRequest):
+    if isinstance(body, DatasetRefreshRequest):
         _kwargs["json"] = body.to_dict()
     elif not isinstance(body, Unset):
         _kwargs["json"] = body
@@ -44,11 +42,11 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> ProblemDetail | ReuploadPreviewResponse | None:
-    if response.status_code == 200:
-        response_200 = ReuploadPreviewResponse.from_dict(response.json())
+) -> DatasetRefreshResponse | ProblemDetail | None:
+    if response.status_code == 202:
+        response_202 = DatasetRefreshResponse.from_dict(response.json())
 
-        return response_200
+        return response_202
 
     if response.status_code == 400:
         response_400 = ProblemDetail.from_dict(response.json())
@@ -103,7 +101,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[ProblemDetail | ReuploadPreviewResponse]:
+) -> Response[DatasetRefreshResponse | ProblemDetail]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -114,37 +112,39 @@ def _build_response(
 
 def sync_detailed(
     dataset_id: UUID,
-    job_id: UUID,
     *,
     client: AuthenticatedClient,
-    body: None | ReuploadPreviewRequest | Unset = UNSET,
-) -> Response[ProblemDetail | ReuploadPreviewResponse]:
-    """Reupload Preview
+    body: DatasetRefreshRequest | None | Unset = UNSET,
+) -> Response[DatasetRefreshResponse | ProblemDetail]:
+    """Refresh Dataset
 
-     Preview the schema diff between old dataset and new upload.
+     Re-pull this dataset's data from the origin it was imported from.
 
-    When the uploaded file contains multiple layers, the response includes
-    ``all_layers`` (for frontend layer-select UI) and ``previous_source_layer``
-    (pre-selection hint from the most-recent completed IngestJob for this
-    dataset).  Pass ``layer_name`` in the request body to target a specific
-    layer; omit it to get the default first-layer metadata.
+    One request, no source pointer, no layer selection. The dataset keeps
+    serving its current data throughout: the worker loads into an
+    attempt-scoped staging table and swaps only once the new data is
+    complete, so a refresh that fails leaves the live table and its freshness
+    exactly as they were.
+
+    Refuses with 409 ``dataset_busy`` while another refresh or re-upload is
+    active for this dataset — v1 rejects rather than queues (Decision 5b), and
+    the refusal comes from a partial unique index rather than a check, so two
+    simultaneous clicks cannot both be admitted.
 
     Args:
         dataset_id (UUID):
-        job_id (UUID):
-        body (None | ReuploadPreviewRequest | Unset):
+        body (DatasetRefreshRequest | None | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ProblemDetail | ReuploadPreviewResponse]
+        Response[DatasetRefreshResponse | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
         dataset_id=dataset_id,
-        job_id=job_id,
         body=body,
     )
 
@@ -157,37 +157,39 @@ def sync_detailed(
 
 def sync(
     dataset_id: UUID,
-    job_id: UUID,
     *,
     client: AuthenticatedClient,
-    body: None | ReuploadPreviewRequest | Unset = UNSET,
-) -> ProblemDetail | ReuploadPreviewResponse | None:
-    """Reupload Preview
+    body: DatasetRefreshRequest | None | Unset = UNSET,
+) -> DatasetRefreshResponse | ProblemDetail | None:
+    """Refresh Dataset
 
-     Preview the schema diff between old dataset and new upload.
+     Re-pull this dataset's data from the origin it was imported from.
 
-    When the uploaded file contains multiple layers, the response includes
-    ``all_layers`` (for frontend layer-select UI) and ``previous_source_layer``
-    (pre-selection hint from the most-recent completed IngestJob for this
-    dataset).  Pass ``layer_name`` in the request body to target a specific
-    layer; omit it to get the default first-layer metadata.
+    One request, no source pointer, no layer selection. The dataset keeps
+    serving its current data throughout: the worker loads into an
+    attempt-scoped staging table and swaps only once the new data is
+    complete, so a refresh that fails leaves the live table and its freshness
+    exactly as they were.
+
+    Refuses with 409 ``dataset_busy`` while another refresh or re-upload is
+    active for this dataset — v1 rejects rather than queues (Decision 5b), and
+    the refusal comes from a partial unique index rather than a check, so two
+    simultaneous clicks cannot both be admitted.
 
     Args:
         dataset_id (UUID):
-        job_id (UUID):
-        body (None | ReuploadPreviewRequest | Unset):
+        body (DatasetRefreshRequest | None | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ProblemDetail | ReuploadPreviewResponse
+        DatasetRefreshResponse | ProblemDetail
     """
 
     return sync_detailed(
         dataset_id=dataset_id,
-        job_id=job_id,
         client=client,
         body=body,
     ).parsed
@@ -195,37 +197,39 @@ def sync(
 
 async def asyncio_detailed(
     dataset_id: UUID,
-    job_id: UUID,
     *,
     client: AuthenticatedClient,
-    body: None | ReuploadPreviewRequest | Unset = UNSET,
-) -> Response[ProblemDetail | ReuploadPreviewResponse]:
-    """Reupload Preview
+    body: DatasetRefreshRequest | None | Unset = UNSET,
+) -> Response[DatasetRefreshResponse | ProblemDetail]:
+    """Refresh Dataset
 
-     Preview the schema diff between old dataset and new upload.
+     Re-pull this dataset's data from the origin it was imported from.
 
-    When the uploaded file contains multiple layers, the response includes
-    ``all_layers`` (for frontend layer-select UI) and ``previous_source_layer``
-    (pre-selection hint from the most-recent completed IngestJob for this
-    dataset).  Pass ``layer_name`` in the request body to target a specific
-    layer; omit it to get the default first-layer metadata.
+    One request, no source pointer, no layer selection. The dataset keeps
+    serving its current data throughout: the worker loads into an
+    attempt-scoped staging table and swaps only once the new data is
+    complete, so a refresh that fails leaves the live table and its freshness
+    exactly as they were.
+
+    Refuses with 409 ``dataset_busy`` while another refresh or re-upload is
+    active for this dataset — v1 rejects rather than queues (Decision 5b), and
+    the refusal comes from a partial unique index rather than a check, so two
+    simultaneous clicks cannot both be admitted.
 
     Args:
         dataset_id (UUID):
-        job_id (UUID):
-        body (None | ReuploadPreviewRequest | Unset):
+        body (DatasetRefreshRequest | None | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ProblemDetail | ReuploadPreviewResponse]
+        Response[DatasetRefreshResponse | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
         dataset_id=dataset_id,
-        job_id=job_id,
         body=body,
     )
 
@@ -236,38 +240,40 @@ async def asyncio_detailed(
 
 async def asyncio(
     dataset_id: UUID,
-    job_id: UUID,
     *,
     client: AuthenticatedClient,
-    body: None | ReuploadPreviewRequest | Unset = UNSET,
-) -> ProblemDetail | ReuploadPreviewResponse | None:
-    """Reupload Preview
+    body: DatasetRefreshRequest | None | Unset = UNSET,
+) -> DatasetRefreshResponse | ProblemDetail | None:
+    """Refresh Dataset
 
-     Preview the schema diff between old dataset and new upload.
+     Re-pull this dataset's data from the origin it was imported from.
 
-    When the uploaded file contains multiple layers, the response includes
-    ``all_layers`` (for frontend layer-select UI) and ``previous_source_layer``
-    (pre-selection hint from the most-recent completed IngestJob for this
-    dataset).  Pass ``layer_name`` in the request body to target a specific
-    layer; omit it to get the default first-layer metadata.
+    One request, no source pointer, no layer selection. The dataset keeps
+    serving its current data throughout: the worker loads into an
+    attempt-scoped staging table and swaps only once the new data is
+    complete, so a refresh that fails leaves the live table and its freshness
+    exactly as they were.
+
+    Refuses with 409 ``dataset_busy`` while another refresh or re-upload is
+    active for this dataset — v1 rejects rather than queues (Decision 5b), and
+    the refusal comes from a partial unique index rather than a check, so two
+    simultaneous clicks cannot both be admitted.
 
     Args:
         dataset_id (UUID):
-        job_id (UUID):
-        body (None | ReuploadPreviewRequest | Unset):
+        body (DatasetRefreshRequest | None | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ProblemDetail | ReuploadPreviewResponse
+        DatasetRefreshResponse | ProblemDetail
     """
 
     return (
         await asyncio_detailed(
             dataset_id=dataset_id,
-            job_id=job_id,
             client=client,
             body=body,
         )

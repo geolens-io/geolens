@@ -12,7 +12,7 @@ from typing import Literal
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, HttpUrl, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.standards.ogc.errors import BAD_GATEWAY_RESPONSE, ERROR_RESPONSES_WRITE
@@ -510,20 +510,33 @@ async def stac_import(
     skipped = 0
     errors = 0
 
-    # Batch duplicate check — single query instead of N individual SELECTs
+    # Batch duplicate check — single query instead of N individual SELECTs.
+    #
+    # feat(#1220) / ADR-002 Decision 6: keyed on `origin_uri`, which the STAC
+    # import sets to the asset href, with `source_url` kept as the fallback
+    # for rows migration 0036 could not backfill — the re-key #1218's comment
+    # at the `set_dataset_origin` call below anticipated. `source_url` is
+    # PATCHable, so an owner who edited it could re-import the same asset as a
+    # second dataset; `origin_uri` is system-managed and reaches no field map.
     hrefs = [i.data_asset_href for i in request.items]
-    existing_hrefs: set[str] = set(
-        (
+    existing_hrefs: set[str] = {
+        row.origin_uri or row.source_url
+        for row in (
             await db.execute(
-                select(Dataset.source_url).where(
-                    Dataset.source_url.in_(hrefs),
+                select(Dataset.origin_uri, Dataset.source_url).where(
+                    or_(
+                        Dataset.origin_uri.in_(hrefs),
+                        and_(
+                            Dataset.origin_uri.is_(None),
+                            Dataset.source_url.in_(hrefs),
+                        ),
+                    ),
                     Dataset.source_format == "stac",
                 )
             )
-        )
-        .scalars()
-        .all()
-    )
+        ).all()
+        if (row.origin_uri or row.source_url) is not None
+    }
 
     # Pre-filter importable items and SSRF-validate, then fetch COG info
     # concurrently instead of N sequential HTTP calls.

@@ -41,6 +41,7 @@ make GeoLens go and re-check.
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -62,6 +63,10 @@ from app.modules.catalog.sources.origin_probe import (
     MISSING,
     OriginProbeResult,
     probe_remote_uri,
+)
+from app.observability.metrics.refresh import (
+    origin_probe_duration_seconds,
+    origin_probe_total,
 )
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.dataset_origin import classify_origin
@@ -289,10 +294,26 @@ async def check_source_health(
     # its own fresh transaction.
     await db.rollback()
 
+    # feat(#1268): timed around the outbound wait only, not the handler. The
+    # duration an operator cares about is the origin's, and folding the
+    # database work either side of it in would blur the one number that says
+    # "this source got slow". Real instruments rather than derived gauges,
+    # because a probe is a request and one request is handled by one worker.
+    probe_started = time.perf_counter()
     if origin == "stac":
         result = await _probe_stac_targets(asset_uri, item_href)
     else:
         result = await probe_remote_uri(service_target)
+    origin_probe_duration_seconds.labels(
+        origin_kind=origin, health=result.health
+    ).observe(time.perf_counter() - probe_started)
+    origin_probe_total.labels(
+        origin_kind=origin,
+        health=result.health,
+        # "none" rather than an empty label: a healthy probe has no detail
+        # code, and an empty string reads as a missing label in PromQL.
+        detail=result.detail or "none",
+    ).inc()
 
     # last_checked_at is written on BOTH outcomes — that is the whole meaning
     # of the column, and a failed probe is the case an operator most needs

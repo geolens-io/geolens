@@ -87,6 +87,15 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
         "oauth_provider.update",
         "preview_service_layer",
         "probe_service",
+        # feat(#1268) / ADR-002 Amendment A10: the refresh-run lifecycle. The
+        # run table is mutable and cascades with its dataset, so it is a status
+        # board rather than a ledger; these four are the append-only record.
+        # `abandoned` is the stale-run sweep's bookkeeping correction and is
+        # deliberately not spelled `failed`.
+        "refresh.abandoned",
+        "refresh.dispatch",
+        "refresh.failed",
+        "refresh.succeeded",
         # PersistentConfig.reset() — generic/unprefixed; resource_type="setting"
         # plus details.setting_key already carry the specificity.
         "reset",

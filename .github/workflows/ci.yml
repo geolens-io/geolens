@@ -141,6 +141,12 @@ jobs:
               # test asserts audit-archives/ stays gitignored, so a
               # .gitignore-only PR must run Backend Tests too.
               - 'scripts/audit_retention.sh'
+              # fix(#1277 review): test_sdks_round_trip.py asserts the generated
+              # SDK carries no unguarded optional-body emission, which is what
+              # this script produces during `make sdks`. A PR editing only the
+              # script would otherwise skip Backend Tests and never run the
+              # assertion that says whether it still works.
+              - 'scripts/fix_sdk_optional_body.py'
               - '.gitignore'
               # Frontend files that backend parity/drift tests read by literal
               # path (fe-sdk type drift, basemap/capability/paint-key drift,
