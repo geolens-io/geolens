@@ -2311,7 +2311,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # login/password. Those checks keep bootstrap/migration credentials
     # distinct and make a miswired Compose deployment fail before it opens a
     # pool. Cap 1004 -> 1056, exact.
-    "backend/app/core/config.py": 1056,
+    # fix(#1287 review): +35 — validate the explicit migration-object owner
+    # against the migrate service's actual database URL login, so managed DB
+    # reconciliation can install future-object defaults for the right role.
+    # Cap 1056 -> 1091, exact.
+    "backend/app/core/config.py": 1091,
     # feat(#1219): first entry — crossed _RATCHET_INCLUSION_LOC, exactly as
     # the inclusion rule's own comment predicted for this file ("watched by
     # nothing until they cross 1000. The threshold catches them then"). The

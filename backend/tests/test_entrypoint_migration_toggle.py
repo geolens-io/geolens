@@ -72,6 +72,9 @@ def test_official_compose_files_split_migration_and_runtime_credentials() -> Non
         assert services["migrate"]["environment"]["POSTGRES_PASSWORD"] == (
             "${POSTGRES_PASSWORD}"
         )
+        assert services["migrate"]["environment"]["GEOLENS_MIGRATION_DB_ROLE"] == (
+            "${GEOLENS_MIGRATION_DB_ROLE:-${POSTGRES_USER}}"
+        )
         assert services["migrate"]["environment"]["GEOLENS_RUNTIME_DB_ROLE"] == ""
 
 

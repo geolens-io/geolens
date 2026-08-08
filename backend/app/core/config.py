@@ -252,6 +252,10 @@ class Settings(BaseSettings):
     # Opt-in single-tenant runtime login. Empty preserves the legacy connection;
     # when set, bootstrap verifies this exact live session role is unprivileged.
     geolens_runtime_db_role: str | None = None
+    # Object owner used by the ordered migrate service. The role reconciler
+    # targets this identity's default privileges when it differs from the
+    # provider/bundled reconciliation admin.
+    geolens_migration_db_role: str | None = None
     # Dedicated, read-only tile login. In multi-tenant deployments this login
     # is a SET-only member of geolens_tile_gateway, never the API/worker role.
     tile_database_url_override: str | None = None
@@ -425,6 +429,7 @@ class Settings(BaseSettings):
         "dcat_contact_email",
         "database_url_override",
         "geolens_runtime_db_role",
+        "geolens_migration_db_role",
         "tile_database_url_override",
         "s3_endpoint",
         "s3_bucket",
@@ -579,6 +584,17 @@ class Settings(BaseSettings):
             )
         return v
 
+    @field_validator("geolens_migration_db_role", mode="after")
+    @classmethod
+    def validate_migration_db_role_name(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        if not re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", v):
+            raise ValueError(
+                "GEOLENS_MIGRATION_DB_ROLE must be a lowercase PostgreSQL identifier"
+            )
+        return v
+
     @field_validator("dcat_contact_email", mode="after")
     @classmethod
     def validate_dcat_contact_email(cls, v: str | None) -> str | None:
@@ -705,6 +721,25 @@ class Settings(BaseSettings):
             raise ValueError(
                 "DATABASE_URL_OVERRIDE password must match the runtime "
                 "POSTGRES_PASSWORD"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_migration_database_role(self) -> "Settings":
+        """Tie default-privilege ownership to the migration connection login."""
+        if self.geolens_migration_db_role is None:
+            return self
+
+        from urllib.parse import unquote, urlsplit
+
+        configured_user = self.postgres_user
+        if self.database_url_override is not None:
+            parsed_migration_url = urlsplit(self.database_url_override)
+            configured_user = unquote(parsed_migration_url.username or "")
+        if configured_user != self.geolens_migration_db_role:
+            raise ValueError(
+                "GEOLENS_MIGRATION_DB_ROLE username must match the migration "
+                "database connection username"
             )
         return self
 

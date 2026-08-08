@@ -73,6 +73,14 @@ SNAP_DB="geolens_bkp_snap_${SUFFIX}"   # managed-mode "provider snapshot" DB
 RUNTIME_ROLE="geolens_bkp_app_${SUFFIX}"
 RUNTIME_ROLE="${RUNTIME_ROLE//[^a-zA-Z0-9_]/_}"
 RUNTIME_PASSWORD="ci-runtime-role-test-password-947-padding"
+FRESH_RUNTIME_ROLE="geolens_bkp_fresh_app_${SUFFIX}"
+FRESH_RUNTIME_ROLE="${FRESH_RUNTIME_ROLE//[^a-zA-Z0-9_]/_}"
+MIGRATION_ROLE="geolens_bkp_migrator_${SUFFIX}"
+MIGRATION_ROLE="${MIGRATION_ROLE//[^a-zA-Z0-9_]/_}"
+MIGRATION_PASSWORD="migration-owner-password-947-padding"
+UNMANAGED_ROLE="geolens_bkp_unmanaged_${SUFFIX}"
+UNMANAGED_ROLE="${UNMANAGED_ROLE//[^a-zA-Z0-9_]/_}"
+UNMANAGED_PASSWORD="unmanaged-original-password-947-padding"
 WORKDIR="$(mktemp -d)"
 DUMP_FILE="${WORKDIR}/roundtrip.dump"
 
@@ -87,8 +95,11 @@ cleanup() {
             >/dev/null 2>&1
         dropdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" --if-exists "$db" >/dev/null 2>&1
     done
-    psql_admin -v ON_ERROR_STOP=1 -c "DROP ROLE IF EXISTS \"${RUNTIME_ROLE}\"" \
-        >/dev/null 2>&1
+    for role in \
+        "$RUNTIME_ROLE" "$FRESH_RUNTIME_ROLE" "$MIGRATION_ROLE" "$UNMANAGED_ROLE"; do
+        psql_admin -v ON_ERROR_STOP=1 -c "DROP ROLE IF EXISTS \"${role}\"" \
+            >/dev/null 2>&1
+    done
     rm -rf "$WORKDIR"
 }
 trap cleanup EXIT
@@ -189,14 +200,128 @@ echo "      restored counts: records=${DST_RECORDS} datasets=${DST_DATASETS}"
 [ "$SRC_DATASETS" = "$DST_DATASETS" ] || fail "datasets count mismatch: ${SRC_DATASETS} != ${DST_DATASETS}"
 echo "      DB round-trip OK — row counts match exactly."
 
+# Preserve the original fresh-install proof: an absent safe target is created,
+# marked, and reconciled without the adoption escape hatch.
+env \
+    GEOLENS_RUNTIME_DB_ROLE="$FRESH_RUNTIME_ROLE" \
+    GEOLENS_RUNTIME_DB_PASSWORD="$RUNTIME_PASSWORD" \
+    GEOLENS_MIGRATION_DB_ROLE="$PGUSER" \
+    POSTGRES_HOST="$PGHOST" POSTGRES_PORT="$PGPORT" \
+    POSTGRES_USER="$PGUSER" POSTGRES_DB="$SRC_DB" \
+    bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" >/dev/null
+FRESH_ROLE_MARKER="$(psql_admin -tAc \
+    "SELECT shobj_description(oid, 'pg_authid') FROM pg_roles WHERE rolname = '${FRESH_RUNTIME_ROLE}';" \
+    | tr -d '[:space:]')"
+[ "$FRESH_ROLE_MARKER" = "geolens-managed-runtime-role:v1" ] \
+    || fail "fresh runtime role lacks the durable GeoLens marker"
+
+# Model a managed database where reconciliation runs as the provider admin but
+# Alembic owns future catalog objects under a distinct migration role.
+psql_admin -v ON_ERROR_STOP=1 >/dev/null <<EOSQL
+CREATE ROLE "${MIGRATION_ROLE}" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
+    NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD '${MIGRATION_PASSWORD}';
+CREATE ROLE "${UNMANAGED_ROLE}" LOGIN NOSUPERUSER NOCREATEDB CREATEROLE
+    NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD '${UNMANAGED_PASSWORD}';
+CREATE ROLE "${RUNTIME_ROLE}" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
+    NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD '${RUNTIME_PASSWORD}';
+EOSQL
+psql_admin -d "$DST_DB" -v ON_ERROR_STOP=1 -c \
+    "GRANT USAGE, CREATE ON SCHEMA catalog TO \"${MIGRATION_ROLE}\"" >/dev/null
+psql_admin -d "$DST_DB" -v ON_ERROR_STOP=1 -c \
+    "ALTER TABLE data.ci_probe OWNER TO \"${RUNTIME_ROLE}\"" >/dev/null
+
+# An unmarked existing identity must fail before ALTER ROLE or password reset.
+if env \
+    GEOLENS_RUNTIME_DB_ROLE="$UNMANAGED_ROLE" \
+    GEOLENS_RUNTIME_DB_PASSWORD="replacement-runtime-password-947-padding" \
+    GEOLENS_MIGRATION_DB_ROLE="$MIGRATION_ROLE" \
+    POSTGRES_HOST="$PGHOST" POSTGRES_PORT="$PGPORT" \
+    POSTGRES_USER="$PGUSER" POSTGRES_DB="$DST_DB" \
+    bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" >/dev/null 2>&1; then
+    fail "reconciler adopted an unmarked existing administrative role"
+fi
+if env \
+    GEOLENS_RUNTIME_DB_ROLE="$UNMANAGED_ROLE" \
+    GEOLENS_RUNTIME_DB_PASSWORD="replacement-runtime-password-947-padding" \
+    GEOLENS_RUNTIME_DB_ROLE_ADOPT_EXISTING=true \
+    GEOLENS_MIGRATION_DB_ROLE="$MIGRATION_ROLE" \
+    POSTGRES_HOST="$PGHOST" POSTGRES_PORT="$PGPORT" \
+    POSTGRES_USER="$PGUSER" POSTGRES_DB="$DST_DB" \
+    bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" >/dev/null 2>&1; then
+    fail "reconciler adopted an administrative role via the adoption escape hatch"
+fi
+UNMANAGED_CREATE_ROLE="$(psql_admin -tAc \
+    "SELECT rolcreaterole FROM pg_roles WHERE rolname = '${UNMANAGED_ROLE}';" \
+    | tr -d '[:space:]')"
+[ "$UNMANAGED_CREATE_ROLE" = "t" ] \
+    || fail "rejected unmanaged role was modified before the marker check"
+env PGPASSWORD="$UNMANAGED_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$UNMANAGED_ROLE" -d "$DST_DB" \
+    -Atqc "SELECT 1" | grep -qx 1 \
+    || fail "rejected unmanaged role password was replaced"
+
+# A pre-created safe application login also requires explicit one-time
+# adoption. This fixture already owns a data table (the prior GeoLens recipe),
+# including its implicit pg_toast relation. Once marked, ordinary
+# reconciliation succeeds without the flag.
+if env \
+    GEOLENS_RUNTIME_DB_ROLE="$RUNTIME_ROLE" \
+    GEOLENS_RUNTIME_DB_PASSWORD="$RUNTIME_PASSWORD" \
+    GEOLENS_MIGRATION_DB_ROLE="$MIGRATION_ROLE" \
+    POSTGRES_HOST="$PGHOST" POSTGRES_PORT="$PGPORT" \
+    POSTGRES_USER="$PGUSER" POSTGRES_DB="$DST_DB" \
+    bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" >/dev/null 2>&1; then
+    fail "reconciler adopted an unmarked safe role without explicit authorization"
+fi
+
 # Exercise the SAME role/grant reconciler used by fresh bootstrap and the real
-# restore script. The role is unique to this run and is dropped in cleanup.
+# restore script. Explicit adoption writes the durable marker.
 env \
     GEOLENS_RUNTIME_DB_ROLE="$RUNTIME_ROLE" \
     GEOLENS_RUNTIME_DB_PASSWORD="$RUNTIME_PASSWORD" \
+    GEOLENS_RUNTIME_DB_ROLE_ADOPT_EXISTING=true \
+    GEOLENS_MIGRATION_DB_ROLE="$MIGRATION_ROLE" \
     POSTGRES_HOST="$PGHOST" POSTGRES_PORT="$PGPORT" \
     POSTGRES_USER="$PGUSER" POSTGRES_DB="$DST_DB" \
     bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" >/dev/null
+
+ROLE_MARKER="$(psql_admin -tAc \
+    "SELECT shobj_description(oid, 'pg_authid') FROM pg_roles WHERE rolname = '${RUNTIME_ROLE}';" \
+    | tr -d '[:space:]')"
+[ "$ROLE_MARKER" = "geolens-managed-runtime-role:v1" ] \
+    || fail "adopted runtime role lacks the durable GeoLens marker"
+
+# Marker proof is sufficient on subsequent reconciliation.
+env \
+    GEOLENS_RUNTIME_DB_ROLE="$RUNTIME_ROLE" \
+    GEOLENS_RUNTIME_DB_PASSWORD="$RUNTIME_PASSWORD" \
+    GEOLENS_MIGRATION_DB_ROLE="$MIGRATION_ROLE" \
+    POSTGRES_HOST="$PGHOST" POSTGRES_PORT="$PGPORT" \
+    POSTGRES_USER="$PGUSER" POSTGRES_DB="$DST_DB" \
+    bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" >/dev/null
+
+# Objects later created by the actual Alembic owner must inherit runtime
+# table/sequence access even though reconciliation used a different admin.
+env PGPASSWORD="$MIGRATION_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$MIGRATION_ROLE" -d "$DST_DB" \
+    -v ON_ERROR_STOP=1 >/dev/null <<'EOSQL'
+CREATE SEQUENCE catalog.future_runtime_sequence;
+CREATE TABLE catalog.future_runtime_table (
+    id bigint PRIMARY KEY DEFAULT nextval('catalog.future_runtime_sequence')
+);
+EOSQL
+FUTURE_OWNER="$(psql_admin -d "$DST_DB" -tAc \
+    "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'catalog.future_runtime_table'::regclass;" \
+    | tr -d '[:space:]')"
+[ "$FUTURE_OWNER" = "$MIGRATION_ROLE" ] \
+    || fail "future catalog table owner is ${FUTURE_OWNER}, expected ${MIGRATION_ROLE}"
+env PGPASSWORD="$RUNTIME_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$RUNTIME_ROLE" -d "$DST_DB" \
+    -v ON_ERROR_STOP=1 >/dev/null <<'EOSQL'
+INSERT INTO catalog.future_runtime_table DEFAULT VALUES;
+SELECT id FROM catalog.future_runtime_table;
+DELETE FROM catalog.future_runtime_table;
+EOSQL
 
 ROLE_FLAGS="$(psql_admin -d "$DST_DB" -tAc \
     "SELECT rolsuper || '|' || rolbypassrls || '|' || rolcreaterole || '|' ||
@@ -373,6 +498,8 @@ GLOBALS_FILE="${CYCLE_BACKUPS}/daily/globals-${CYCLE_TS}.sql"
 [ -s "$GLOBALS_FILE" ] || fail "globals dump is empty"
 grep -q "^CREATE ROLE" "$GLOBALS_FILE" \
     || fail "globals dump contains no CREATE ROLE — it is not a real --globals-only dump"
+grep -Fq "geolens-managed-runtime-role:v1" "$GLOBALS_FILE" \
+    || fail "globals dump omitted the managed runtime-role marker"
 
 # Mode: `ls -l` rather than stat, whose flags differ between BSD and GNU.
 GLOBALS_MODE="$(ls -l "$GLOBALS_FILE" | cut -c1-10)"

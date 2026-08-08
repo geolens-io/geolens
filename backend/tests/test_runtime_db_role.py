@@ -60,6 +60,9 @@ def test_compose_mounts_reconciler_read_only_and_scopes_the_password_to_db() -> 
         assert db["environment"]["GEOLENS_RUNTIME_DB_PASSWORD"] == (
             "${GEOLENS_RUNTIME_DB_PASSWORD:-}"
         )
+        assert db["environment"]["GEOLENS_MIGRATION_DB_ROLE"] == (
+            "${GEOLENS_MIGRATION_DB_ROLE:-${POSTGRES_USER}}"
+        )
         for service_name in ("api", "worker", "migrate"):
             assert (
                 "GEOLENS_RUNTIME_DB_PASSWORD"
@@ -87,6 +90,19 @@ def test_role_script_keeps_password_out_of_argv_and_catalog_ownership() -> None:
     )
 
 
+def test_role_script_requires_managed_marker_and_targets_migration_owner() -> None:
+    source = ROLE_SCRIPT.read_text(encoding="utf-8")
+
+    assert "geolens-managed-runtime-role:v1" in source
+    assert "shobj_description" in source
+    assert "GEOLENS_RUNTIME_DB_ROLE_ADOPT_EXISTING" in source
+    assert "GEOLENS_MIGRATION_DB_ROLE" in source
+    assert "ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA catalog" in source
+    # PostgreSQL 18's psql ignores arguments to \quit, so `\quit 1` reports
+    # success and would turn a fail-closed branch into a silent pass.
+    assert "\\quit 1" not in source
+
+
 def test_runtime_role_never_receives_tenant_control_function_execution() -> None:
     source = ROLE_SCRIPT.read_text(encoding="utf-8")
 
@@ -95,10 +111,7 @@ def test_runtime_role_never_receives_tenant_control_function_execution() -> None
         "ALTER DEFAULT PRIVILEGES IN SCHEMA catalog GRANT EXECUTE ON FUNCTIONS"
         not in source
     )
-    assert (
-        "ALTER DEFAULT PRIVILEGES IN SCHEMA catalog REVOKE EXECUTE ON FUNCTIONS"
-        in source
-    )
+    assert "IN SCHEMA catalog REVOKE EXECUTE ON FUNCTIONS" in source
     for signature in (
         "catalog.provision_tenant_data_schema(uuid)",
         "catalog.deprovision_tenant_data_schema(uuid)",
@@ -144,6 +157,8 @@ def test_env_example_documents_the_complete_opt_in_split() -> None:
     for variable in (
         "GEOLENS_RUNTIME_DB_ROLE",
         "GEOLENS_RUNTIME_DB_PASSWORD",
+        "GEOLENS_MIGRATION_DB_ROLE",
+        "GEOLENS_RUNTIME_DB_ROLE_ADOPT_EXISTING=false",
         "DATABASE_URL_OVERRIDE",
         "MIGRATION_DATABASE_URL_OVERRIDE",
         "GEOLENS_API_RUN_MIGRATIONS=false",
@@ -216,6 +231,9 @@ def test_role_script_rejects_reused_privileged_password_before_connecting() -> N
         ("geolens", "geolens_tile_gateway"),
         ("geolens", "geolens_reader_t_deadbeef"),
         ("geolens", "geolens_writer_t_deadbeef"),
+        ("geolens", "postgres"),
+        ("geolens", "pg_monitor"),
+        ("geolens", "pg_read_all_data"),
     ],
 )
 def test_role_script_rejects_bootstrap_and_reserved_roles_before_sql(
@@ -246,3 +264,32 @@ def test_role_script_rejects_bootstrap_and_reserved_roles_before_sql(
 
     assert completed.returncode == 64, completed.stderr
     assert "reserved" in completed.stderr or "POSTGRES_USER" in completed.stderr
+
+
+def test_role_script_rejects_migration_owner_as_runtime_before_sql(
+    tmp_path: Path,
+) -> None:
+    fake_psql = tmp_path / "psql"
+    fake_psql.write_text("#!/bin/sh\nexit 99\n", encoding="utf-8")
+    fake_psql.chmod(0o755)
+
+    completed = subprocess.run(
+        ["bash", str(ROLE_SCRIPT)],
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "POSTGRES_USER": "provider_admin",
+            "POSTGRES_DB": "geolens",
+            "GEOLENS_MIGRATION_DB_ROLE": "geolens_migrator",
+            "GEOLENS_RUNTIME_DB_ROLE": "geolens_migrator",
+            "GEOLENS_RUNTIME_DB_PASSWORD": (
+                "distinct-runtime-password-with-at-least-32-characters"
+            ),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 64, completed.stderr
+    assert "must differ" in completed.stderr

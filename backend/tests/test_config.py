@@ -205,6 +205,45 @@ class TestSingleTenantRuntimeDatabaseRole:
             )
 
 
+class TestMigrationDatabaseRole:
+    def test_matching_bundled_postgres_user_is_accepted_without_override(self):
+        settings = _make_settings(geolens_migration_db_role="geolens")
+
+        assert settings.geolens_migration_db_role == "geolens"
+
+    def test_matching_migration_override_is_accepted(self):
+        settings = _make_settings(
+            geolens_migration_db_role="geolens_migrator",
+            database_url_override=(
+                "postgresql://geolens_migrator:migration-secret@db/geolens"
+            ),
+        )
+
+        assert settings.geolens_migration_db_role == "geolens_migrator"
+
+    def test_migration_override_username_must_match_role(self):
+        with pytest.raises(Exception, match="username must match"):
+            _make_settings(
+                geolens_migration_db_role="geolens_migrator",
+                database_url_override=(
+                    "postgresql://different_migrator:migration-secret@db/geolens"
+                ),
+            )
+
+    def test_bundled_postgres_user_must_match_role(self):
+        with pytest.raises(Exception, match="username must match"):
+            _make_settings(geolens_migration_db_role="different_migrator")
+
+    def test_migration_role_must_be_a_safe_postgres_identifier(self):
+        with pytest.raises(Exception, match="lowercase PostgreSQL identifier"):
+            _make_settings(
+                geolens_migration_db_role="unsafe-migrator",
+                database_url_override=(
+                    "postgresql://unsafe-migrator:migration-secret@db/geolens"
+                ),
+            )
+
+
 class TestTileDatabaseUrlOverride:
     """The tile pool can use a dedicated login without changing other consumers."""
 

@@ -9,6 +9,8 @@ runtime_role="${GEOLENS_RUNTIME_DB_ROLE:-}"
 runtime_password="${GEOLENS_RUNTIME_DB_PASSWORD:-}"
 db_user="${POSTGRES_USER:?POSTGRES_USER is required}"
 db_name="${POSTGRES_DB:?POSTGRES_DB is required}"
+migration_role="${GEOLENS_MIGRATION_DB_ROLE:-$db_user}"
+adopt_existing="${GEOLENS_RUNTIME_DB_ROLE_ADOPT_EXISTING:-false}"
 
 if [ -n "$runtime_role" ] \
     && [[ ! "$runtime_role" =~ ^[a-z_][a-z0-9_]*$ ]]; then
@@ -25,12 +27,34 @@ if [ -n "$runtime_role" ] && [ "$runtime_role" = "$db_user" ]; then
     exit 64
 fi
 case "$runtime_role" in
-    geolens_reader | geolens_readonly | geolens_writer | geolens_tile \
+    postgres | pg_* \
+        | geolens_reader | geolens_readonly | geolens_writer | geolens_tile \
         | geolens_tenant_control | geolens_tenant_provisioner \
         | geolens_tenant_sandbox | geolens_tenant_writer \
         | geolens_tile_gateway \
         | geolens_reader_t_* | geolens_writer_t_*)
-        echo "ERROR: GEOLENS_RUNTIME_DB_ROLE uses a reserved GeoLens role name: ${runtime_role}." >&2
+        echo "ERROR: GEOLENS_RUNTIME_DB_ROLE uses a reserved PostgreSQL/GeoLens role name: ${runtime_role}." >&2
+        exit 64
+        ;;
+esac
+
+if [ -n "$runtime_role" ] \
+    && [[ ! "$migration_role" =~ ^[a-z_][a-z0-9_]*$ ]]; then
+    echo "ERROR: GEOLENS_MIGRATION_DB_ROLE must be a lowercase PostgreSQL identifier." >&2
+    exit 64
+fi
+if [ -n "$runtime_role" ] && [ "${#migration_role}" -gt 63 ]; then
+    echo "ERROR: GEOLENS_MIGRATION_DB_ROLE must be at most 63 characters." >&2
+    exit 64
+fi
+if [ -n "$runtime_role" ] && [ "$migration_role" = "$runtime_role" ]; then
+    echo "ERROR: GEOLENS_MIGRATION_DB_ROLE must differ from GEOLENS_RUNTIME_DB_ROLE." >&2
+    exit 64
+fi
+case "$adopt_existing" in
+    true | false) ;;
+    *)
+        echo "ERROR: GEOLENS_RUNTIME_DB_ROLE_ADOPT_EXISTING must be true or false." >&2
         exit 64
         ;;
 esac
@@ -110,20 +134,129 @@ if [ -z "$runtime_role" ]; then
     exit 0
 fi
 
+# psql's \getenv reads exported variables only. Export the defaults resolved
+# above so host-side reconciliation and bundled Compose use one SQL contract.
+export GEOLENS_MIGRATION_DB_ROLE="$migration_role"
+export GEOLENS_RUNTIME_DB_ROLE_ADOPT_EXISTING="$adopt_existing"
+
 # Use psql's \getenv and format(%L) so the password never appears in argv or
 # logs and is still quoted as data. The role identifier is likewise quoted via
 # format(%I); the shell validation above adds a fail-closed operator contract.
 psql "${psql_args[@]}" <<-'EOSQL'
 \getenv runtime_role GEOLENS_RUNTIME_DB_ROLE
 \getenv runtime_password GEOLENS_RUNTIME_DB_PASSWORD
+\getenv migration_role GEOLENS_MIGRATION_DB_ROLE
+\getenv adopt_existing GEOLENS_RUNTIME_DB_ROLE_ADOPT_EXISTING
 
-SELECT format(
-    'CREATE ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD %L',
-    :'runtime_role', :'runtime_password'
-)
-WHERE NOT EXISTS (
+-- Default privileges are per object-creating role, not per database. Refuse a
+-- misspelled or absent migration owner instead of silently attaching defaults
+-- to the reconciliation/admin identity.
+SELECT EXISTS (
+    SELECT FROM pg_roles WHERE rolname = :'migration_role'
+) AS migration_role_exists
+\gset
+\if :migration_role_exists
+\else
+    DO $error$
+    BEGIN
+        RAISE EXCEPTION 'GEOLENS_MIGRATION_DB_ROLE does not name an existing PostgreSQL role.';
+    END
+    $error$;
+\endif
+
+-- A role name is not ownership proof. Existing roles are left completely
+-- untouched unless a privileged GeoLens reconciler previously marked them, or
+-- the operator explicitly authorizes one safe, one-time adoption. The marker
+-- is cluster-global and is preserved by pg_dumpall --globals-only.
+SELECT EXISTS (
     SELECT FROM pg_roles WHERE rolname = :'runtime_role'
-)\gexec
+) AS runtime_role_exists
+\gset
+
+\if :runtime_role_exists
+    SELECT COALESCE(
+        shobj_description(oid, 'pg_authid'), ''
+    ) = 'geolens-managed-runtime-role:v1' AS runtime_role_managed
+    FROM pg_roles
+    WHERE rolname = :'runtime_role'
+    \gset
+
+    \if :runtime_role_managed
+    \else
+        \if :adopt_existing
+            SELECT (
+                runtime.rolcanlogin
+                AND NOT runtime.rolsuper
+                AND NOT runtime.rolbypassrls
+                AND NOT runtime.rolcreaterole
+                AND NOT runtime.rolcreatedb
+                AND NOT runtime.rolreplication
+                AND NOT runtime.rolinherit
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM pg_auth_members AS membership
+                    JOIN pg_roles AS granted
+                      ON granted.oid = membership.roleid
+                    WHERE membership.member = runtime.oid
+                      AND granted.rolname <> 'geolens_reader'
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM pg_database
+                    WHERE datdba = runtime.oid
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM pg_namespace
+                    WHERE nspowner = runtime.oid
+                )
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM pg_class AS relation
+                    JOIN pg_namespace AS namespace
+                      ON namespace.oid = relation.relnamespace
+                    WHERE relation.relowner = runtime.oid
+                      AND namespace.nspname <> 'data'
+                      -- A data table's implicit TOAST table follows its owner.
+                      -- PostgreSQL reserves pg_toast* namespaces from users.
+                      AND namespace.nspname NOT LIKE 'pg_toast%'
+                )
+            ) AS runtime_role_adoptable
+            FROM pg_roles AS runtime
+            WHERE runtime.rolname = :'runtime_role'
+            \gset
+
+            \if :runtime_role_adoptable
+                SELECT format(
+                    'COMMENT ON ROLE %I IS %L',
+                    :'runtime_role', 'geolens-managed-runtime-role:v1'
+                )
+                \gexec
+            \else
+                DO $error$
+                BEGIN
+                    RAISE EXCEPTION 'existing runtime role is not safe to adopt.';
+                END
+                $error$;
+            \endif
+        \else
+            DO $error$
+            BEGIN
+                RAISE EXCEPTION 'existing runtime role is not marked as GeoLens-managed; set GEOLENS_RUNTIME_DB_ROLE_ADOPT_EXISTING=true only for a verified dedicated app role.';
+            END
+            $error$;
+        \endif
+    \endif
+\else
+    SELECT format(
+        'CREATE ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD %L',
+        :'runtime_role', :'runtime_password'
+    )
+    \gexec
+    SELECT format(
+        'COMMENT ON ROLE %I IS %L',
+        :'runtime_role', 'geolens-managed-runtime-role:v1'
+    )
+    \gexec
+\endif
 
 SELECT format(
     'ALTER ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD %L',
@@ -155,16 +288,16 @@ SELECT format(
 -- functions keep their migration-authored ACLs: blanket/default EXECUTE would
 -- bypass the geolens_tenant_control boundary on SECURITY DEFINER functions.
 SELECT format(
-    'ALTER DEFAULT PRIVILEGES IN SCHEMA catalog GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %I',
-    :'runtime_role'
+    'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA catalog GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %I',
+    :'migration_role', :'runtime_role'
 )\gexec
 SELECT format(
-    'ALTER DEFAULT PRIVILEGES IN SCHEMA catalog GRANT USAGE, SELECT ON SEQUENCES TO %I',
-    :'runtime_role'
+    'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA catalog GRANT USAGE, SELECT ON SEQUENCES TO %I',
+    :'migration_role', :'runtime_role'
 )\gexec
 SELECT format(
-    'ALTER DEFAULT PRIVILEGES IN SCHEMA catalog REVOKE EXECUTE ON FUNCTIONS FROM %I',
-    :'runtime_role'
+    'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA catalog REVOKE EXECUTE ON FUNCTIONS FROM %I',
+    :'migration_role', :'runtime_role'
 )\gexec
 
 -- Reconcile installs that previously ran the broad EXECUTE recipe. On a fresh
@@ -327,8 +460,11 @@ WHERE runtime.rolname = :'runtime_role'
 
 \if :runtime_role_safe
 \else
-    \echo 'ERROR: runtime database role reconciliation failed its least-privilege verification.'
-    \quit 1
+    DO $error$
+    BEGIN
+        RAISE EXCEPTION 'runtime database role reconciliation failed its least-privilege verification.';
+    END
+    $error$;
 \endif
 EOSQL
 

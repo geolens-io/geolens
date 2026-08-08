@@ -218,10 +218,12 @@ changing the multi-tenant role topology.
 The credential order is load-bearing:
 
 1. `POSTGRES_USER` / `POSTGRES_PASSWORD` remain the bundled database bootstrap,
-   migration, backup, and restore identity. Do not put this credential in the
-   steady-state app URL after adoption.
-2. `MIGRATION_DATABASE_URL_OVERRIDE` carries that privileged identity only to
-   the ordered one-shot `migrate` service.
+   reconciliation, backup, and restore identity. Do not put this credential in
+   the steady-state app URL after adoption.
+2. `MIGRATION_DATABASE_URL_OVERRIDE` carries the migration identity only to the
+   ordered one-shot `migrate` service. `GEOLENS_MIGRATION_DB_ROLE` names that
+   URL's login, defaults to `POSTGRES_USER` in bundled mode, and tells the role
+   reconciler which object owner's default privileges to alter.
 3. `DATABASE_URL_OVERRIDE` carries the dedicated runtime login to API and worker.
 4. `GEOLENS_API_RUN_MIGRATIONS=false` prevents the API image's migration safety
    net from attempting extension/schema DDL with the runtime login.
@@ -230,18 +232,21 @@ The credential order is load-bearing:
    RLS, create roles/databases, replicate, assume a powerful role, or create in
    `catalog`/`public`.
 
-The reconciler rejects `POSTGRES_USER`, fixed reader/writer/tile/tenant roles,
-and dynamic `geolens_{reader,writer}_t_*` names as the runtime login before it
-opens a SQL connection; reusing one would demote or over-privilege an existing
-security identity.
+The reconciler rejects `POSTGRES_USER`, `postgres`, every `pg_*` built-in, fixed
+reader/writer/tile/tenant roles, and dynamic `geolens_{reader,writer}_t_*` names
+as the runtime login before it opens a SQL connection; reusing one would demote
+or over-privilege an existing security identity.
 
 On a fresh bundled volume, `init-db.sh` creates extensions and schemas first,
-then runs `scripts/lib/configure-runtime-db-role.sh`. The latter creates the login,
-grants catalog DML/sequence access, grants CREATE plus relation ownership only
-in `data`, and grants SET access to `geolens_reader`. It never grants blanket
-catalog-function execution: tenant provisioning remains exclusive to
-`geolens_tenant_control`. The privileged migrate service then applies Alembic
-before API/worker connect.
+then runs `scripts/lib/configure-runtime-db-role.sh`. The latter creates and
+marks the login with `geolens-managed-runtime-role:v1`, grants catalog
+DML/sequence access, grants CREATE plus relation ownership only in `data`, and
+grants SET access to `geolens_reader`. It never grants blanket catalog-function
+execution: tenant provisioning remains exclusive to `geolens_tenant_control`.
+Catalog default grants are installed for the validated
+`GEOLENS_MIGRATION_DB_ROLE`, so later Alembic objects remain usable even when a
+managed provider admin performed reconciliation. The migrate service then
+applies Alembic before API/worker connect.
 The admin embedding-dimension resize is the sole catalog-DDL exception: the
 reconciler installs a bounded `SECURITY DEFINER` function, revokes its default
 `PUBLIC` execute grant, and grants it only to the configured runtime role. The
@@ -257,11 +262,12 @@ privilege rewrite. Take a verified backup first, then:
 # 1. Generate a credential distinct from POSTGRES_PASSWORD.
 openssl rand -hex 32
 
-# 2. Put the generated value and the four companion settings in .env.
+# 2. Put the generated value and the five companion settings in .env.
 #    Use the actual existing POSTGRES_USER password in the migration URL.
 GEOLENS_RUNTIME_DB_ROLE=geolens_app
 GEOLENS_RUNTIME_DB_PASSWORD=paste_generated_hex_here
 DATABASE_URL_OVERRIDE=postgresql://geolens_app:paste_generated_hex_here@db:5432/geolens
+GEOLENS_MIGRATION_DB_ROLE=geolens
 MIGRATION_DATABASE_URL_OVERRIDE=postgresql://geolens:paste_existing_postgres_password_here@db:5432/geolens
 GEOLENS_API_RUN_MIGRATIONS=false
 
@@ -278,6 +284,23 @@ docker compose exec -T db /usr/local/bin/configure-runtime-db-role
 docker compose run --rm --no-deps migrate
 docker compose up -d
 ```
+
+If the chosen login already exists, the command refuses to modify it unless it
+has the durable GeoLens marker. This protects unrelated provider/admin roles
+from password replacement or demotion. For a login previously dedicated to
+GeoLens, verify that it is `LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEROLE
+NOCREATEDB NOREPLICATION`, has no role memberships other than
+`geolens_reader`, owns no database/schema or non-`data` user relation, and then
+authorize exactly one adoption run:
+
+```bash
+docker compose exec -T \
+  -e GEOLENS_RUNTIME_DB_ROLE_ADOPT_EXISTING=true \
+  db /usr/local/bin/configure-runtime-db-role
+```
+
+The command writes the marker before reconciliation. Do not persist the
+adoption flag; ordinary upgrades and restores prove ownership from the marker.
 
 Load `.env` into the verification shell and query through the runtime login:
 
@@ -300,11 +323,16 @@ re-owning `data.*` relations is destructive and unnecessary.
 For managed/external PostgreSQL, run privileged migrations first, then run
 `scripts/lib/configure-runtime-db-role.sh` from the host with `POSTGRES_HOST`,
 `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_DB`, `PGPASSWORD`, and the two
-`GEOLENS_RUNTIME_DB_*` variables exported. The provider credential must be able
-to create roles, change relation ownership, and alter default privileges. Start
-runtime services only after that command succeeds. Provider snapshot/PITR
-restore normally preserves the role; after any logical restore, rerun the same
-script before restarting writers.
+`GEOLENS_RUNTIME_DB_*` variables exported. Also export
+`GEOLENS_MIGRATION_DB_ROLE` as the username in
+`MIGRATION_DATABASE_URL_OVERRIDE`; it may differ from the provider admin used by
+the script. The provider credential must be able to create roles, change
+relation ownership, and alter default privileges for that migration owner
+(normally by membership or equivalent provider authority). Start runtime
+services only after that command succeeds. Provider snapshot/PITR restore
+normally preserves the role marker; a globals backup preserves it as a role
+comment. After any logical restore, rerun the same script before restarting
+writers.
 
 ### Canonical restore entry point
 
