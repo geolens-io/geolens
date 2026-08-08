@@ -454,6 +454,31 @@ def make_refresh_run_failed_rollback(
     return _rollback
 
 
+# The shared last clause guards the pathological legacy DOUBLE (fix #1274
+# review): the old system had no admission control, so two reupload tasks for
+# one dataset can both be live at upgrade time, while the backfill's DISTINCT
+# ON could only represent one of them — the unique index allows one active
+# row. That sole row's reservation must therefore outlive EVERY live legacy
+# reupload task on the dataset, not just its bound job: releasing on the
+# bound job's completion would let a new refresh race the unrepresented
+# worker's swap. Native runs are unaffected in practice — their own job's
+# live task is already accounted for, and a coincidental legacy task on the
+# same dataset merely delays finalization by a sweep cycle, which is the
+# safe direction.
+_NO_OTHER_LIVE_LEGACY_TASK = """
+      AND NOT EXISTS (
+          SELECT 1
+          FROM catalog.ingest_jobs oj
+          JOIN catalog.procrastinate_jobs pj
+            ON pj.args->>'job_id' = oj.id::text
+           AND pj.status IN ('todo', 'doing')
+          WHERE oj.dataset_id = r.dataset_id
+            AND oj.id IS DISTINCT FROM r.ingest_job_id
+            AND (oj.user_metadata->>'reupload') = 'true'
+      )
+"""
+
+
 # This statement is itself a compare-and-set: `status IN ('pending',
 # 'running')` is the expected-state test, and RETURNING gives the rowcount, so
 # the sweep can no more overwrite a terminal status than `transition_run` can.
@@ -517,6 +542,9 @@ _ABANDONED_RUN_SQL = text(
           WHERE j.id = r.ingest_job_id
             AND j.status IN ('pending', 'running', 'complete')
       )
+"""
+    + _NO_OTHER_LIVE_LEGACY_TASK
+    + """
     RETURNING r.id
     """
 )
@@ -543,6 +571,9 @@ _LEGACY_COMPLETED_RUN_SQL = text(
     WHERE j.id = r.ingest_job_id
       AND r.status IN ('pending', 'running')
       AND j.status = 'complete'
+"""
+    + _NO_OTHER_LIVE_LEGACY_TASK
+    + """
     RETURNING r.id
     """
 )

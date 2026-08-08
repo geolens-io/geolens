@@ -1870,3 +1870,78 @@ class TestMigrationBackfill:
             )
         ).scalar_one()
         assert count == 0
+
+
+class TestLegacyDoubleDrain:
+    async def test_reservation_survives_until_every_legacy_task_drains(
+        self, test_db_session
+    ) -> None:
+        """fix(#1274 review): the old system had no admission control, so two
+        legacy reupload tasks for one dataset can both be live while the
+        backfill could represent only one. The sole run's reservation must
+        outlive BOTH — releasing on its bound job's completion would let a
+        new refresh race the unrepresented worker's swap."""
+        from sqlalchemy import text as sa_text
+
+        dataset, bound_job = await _seed(test_db_session)
+        user_id = bound_job.created_by
+        other_job = IngestJob(
+            dataset_id=dataset.id,
+            status="running",
+            source_filename="other.gpkg",
+            created_by=user_id,
+            user_metadata={"reupload": True, "dataset_id": str(dataset.id)},
+        )
+        test_db_session.add(other_job)
+        await test_db_session.commit()
+
+        # The backfilled run, bound to the first job; the second legacy
+        # worker is represented only by its live Procrastinate task.
+        run = await create_pending_run(
+            test_db_session,
+            dataset_id=dataset.id,
+            origin_kind="upload",
+            trigger="manual",
+            triggered_by=user_id,
+            ingest_job_id=bound_job.id,
+            feature_count_before=1,
+        )
+        await test_db_session.execute(
+            sa_text("SET LOCAL search_path TO catalog, public")
+        )
+        await test_db_session.execute(
+            sa_text(
+                "INSERT INTO catalog.procrastinate_jobs "
+                "(queue_name, task_name, args, status) "
+                "VALUES ('ingest', 'reupload_file', "
+                "jsonb_build_object('job_id', CAST(:j AS text)), 'doing')"
+            ),
+            {"j": str(other_job.id)},
+        )
+        bound_job.status = "complete"
+        bound_job.completed_at = datetime.now(timezone.utc)
+        await test_db_session.commit()
+
+        # Bound job complete, but the OTHER legacy task is still live: hold.
+        await sweep_abandoned_refresh_runs(test_db_session)
+        await test_db_session.commit()
+        await test_db_session.refresh(run)
+        assert run.status == "pending"
+
+        # The other task drains; now the completion is safe to record.
+        # search_path again: the status column's enum type is schema-local.
+        await test_db_session.execute(
+            sa_text("SET LOCAL search_path TO catalog, public")
+        )
+        await test_db_session.execute(
+            sa_text(
+                "UPDATE catalog.procrastinate_jobs SET status = 'succeeded' "
+                "WHERE args->>'job_id' = CAST(:j AS text)"
+            ),
+            {"j": str(other_job.id)},
+        )
+        await test_db_session.commit()
+        assert await sweep_abandoned_refresh_runs(test_db_session) >= 1
+        await test_db_session.commit()
+        await test_db_session.refresh(run)
+        assert run.status == "succeeded"
