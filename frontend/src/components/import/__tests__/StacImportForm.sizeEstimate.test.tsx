@@ -68,6 +68,7 @@ function Wrapper({ children }: { children: ReactNode }) {
 function makeItem(overrides: Partial<StacItemSummary> & { id: string }): StacItemSummary {
   return {
     collection: 'test-col',
+    item_href: null,
     title: overrides.id,
     bbox: null,
     datetime: null,

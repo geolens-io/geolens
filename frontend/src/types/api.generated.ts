@@ -2479,6 +2479,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/datasets/{dataset_id}/source-health/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check Source Health
+         * @description Contact this dataset's origin and record what came back.
+         *
+         *     Owner-or-admin: this makes GeoLens issue an outbound request on the
+         *     caller's behalf and writes to the dataset row. Readers get the stored
+         *     result from ``GET /datasets/{id}`` instead.
+         */
+        post: operations["check_source_health_datasets__dataset_id__source_health__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/datasets/{dataset_id}/status/": {
         parameters: {
             query?: never;
@@ -7365,7 +7389,7 @@ export interface components {
             source_health: string;
             /**
              * Source Health Detail
-             * @description Short redacted reason for a non-healthy state
+             * @description Why the origin is not healthy, as one of a fixed set of GeoLens codes: blocked_by_policy, item_withdrawn, network_error, not_found, server_error, timeout, unauthorized, unexpected_status. Null when healthy or never probed. Never provider text, a URL, or a response body — nothing the origin sent is stored here.
              */
             source_health_detail?: string | null;
             /**
@@ -11437,6 +11461,44 @@ export interface components {
             /** Layers */
             layers: components["schemas"]["SharedLayerResponse"][];
         };
+        /**
+         * SourceHealthResponse
+         * @description Result of one on-demand origin probe (ADR-002, #1222).
+         *
+         *     Deliberately the same three words ``VrtSourceHealth.status`` uses, so the
+         *     UI renders one legend across VRT members and standalone origins. This
+         *     endpoint always probes, so it never returns the fourth value: ``unknown``
+         *     is the response-boundary projection of a never-determined NULL column and
+         *     reaches clients through ``DatasetResponse``, not through here.
+         */
+        SourceHealthResponse: {
+            /**
+             * Dataset Id
+             * Format: uuid
+             */
+            dataset_id: string;
+            /**
+             * Origin
+             * @description Origin kind that was probed: service or stac.
+             */
+            origin: string | null;
+            /**
+             * Source Health
+             * @description healthy — the origin answered and the resource is there. missing — the origin answered authoritatively that it is gone (404/410). inaccessible — GeoLens could not determine either way, which includes 401/403: access was lost, the data may be intact.
+             * @enum {string}
+             */
+            source_health: "healthy" | "missing" | "inaccessible";
+            /**
+             * Source Health Detail
+             * @description Why the origin is not healthy, as one of a fixed set of GeoLens codes: blocked_by_policy, item_withdrawn, network_error, not_found, server_error, timeout, unauthorized, unexpected_status. Null when healthy or never probed. Never provider text, a URL, or a response body — nothing the origin sent is stored here.
+             */
+            source_health_detail?: string | null;
+            /**
+             * Last Checked At
+             * @description When GeoLens last contacted this origin, success or failure.
+             */
+            last_checked_at?: string | null;
+        };
         /** StacAsset */
         StacAsset: {
             /** Href */
@@ -11710,6 +11772,11 @@ export interface components {
              * @description URL of the COG asset to reference.
              */
             data_asset_href: string;
+            /**
+             * Item Href
+             * @description The item's own canonical URL, echoed from search results.
+             */
+            item_href?: string | null;
             /**
              * Bbox
              * @description Item bounding box.
@@ -11991,6 +12058,11 @@ export interface components {
              * @description Parent collection ID.
              */
             collection?: string | null;
+            /**
+             * Item Href
+             * @description The item's own canonical URL, from its rel=self link. Echo it back on import so the dataset's origin can point at the item as well as the asset; null when the catalog omits a self link.
+             */
+            item_href?: string | null;
             /**
              * Title
              * @description Item title (falls back to ID).
@@ -25668,6 +25740,111 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DatasetRowsResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    check_source_health_datasets__dataset_id__source_health__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceHealthResponse"];
                 };
             };
             /** @description Bad request — invalid payload */

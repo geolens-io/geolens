@@ -6,11 +6,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.core.db.tenant_session import tenant_task
 from app.platform.cache.tiles import invalidate_catalog_cache
-from app.platform.dataset_origin import service_layer_identity
+from app.platform.dataset_origin import classify_origin, service_layer_identity
 from app.platform.jobs.heartbeat import (
     attempt_scoped_staging_table,
     claim_job_attempt_and_start_heartbeat,
@@ -512,6 +512,54 @@ async def reupload_file(
         )
 
 
+async def _record_failed_origin_contact(
+    err_session,
+    dataset_cls,
+    dataset_uuid,
+    *,
+    contacted: bool,
+    bound: tuple | None,
+) -> None:
+    """Date the contact a failed service reupload made before it died.
+
+    fix(#1271 review): a failed attempt that reached the outbound fetch still
+    CONTACTED the origin, and the column's contract is "last time GeoLens
+    contacted the origin at all" — the probe already dates its failures for
+    the same reason. The dataset keeps its old data (the swap never ran), so
+    only the timestamp moves; the health verdict stays with the probe's
+    classifier. ``contacted`` is False for failures before the fetch began,
+    which never touched the origin and must not claim they did.
+
+    ``bound`` is the (origin_uri, origin_ref, source_format) snapshot taken
+    when this task loaded the dataset: a concurrent reupload can rebind the
+    origin while the doomed fetch is still running, and an ID-only write
+    would stamp the OLD origin's contact onto the NEW binding — for a file
+    reupload that leaves an upload with a contact time it cannot have, and
+    uploads 409 the probe so nothing corrects it. Same conditional-update
+    discipline as the source-health probe; losing the race is a silent skip,
+    because there is nobody to tell from a failed background task.
+    """
+    if not contacted or bound is None:
+        return
+    bound_uri, bound_ref, bound_format = bound
+    outcome = await err_session.execute(
+        update(dataset_cls)
+        .where(
+            dataset_cls.id == dataset_uuid,
+            dataset_cls.origin_uri.is_not_distinct_from(bound_uri),
+            dataset_cls.origin_ref.is_not_distinct_from(bound_ref),
+            dataset_cls.source_format.is_not_distinct_from(bound_format),
+        )
+        .values(last_checked_at=datetime.now(timezone.utc))
+    )
+    await err_session.commit()
+    # fix(#1271 review): GET /datasets/ serves last_checked_at from a 60s
+    # cache, and every other writer of the field invalidates it. Only when
+    # the guarded write actually landed — a lost rebind race changed nothing.
+    if outcome.rowcount:
+        await invalidate_catalog_cache()
+
+
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.reupload_service"])
 @tenant_task
 async def reupload_service(
@@ -579,6 +627,12 @@ async def reupload_service(
         "tokens are request-only and are not persisted for retries."
     )
 
+    # fix(#1271 review): tracks whether the outbound fetch was reached, so the
+    # failure handler can date the contact. A failure before this point never
+    # touched the origin and must not claim it did.
+    origin_contact_attempted = False
+    reupload_bound: tuple | None = None
+
     resolved = await resolve_ingest_attempt_or_skip(
         job_id, attempt_id, task_label="reupload"
     )
@@ -620,6 +674,15 @@ async def reupload_service(
                 )
                 return
 
+            # fix(#1271 review): binding snapshot for the failure handler —
+            # its contact stamp must be conditional on the dataset still
+            # having the origin this task actually fetched from.
+            reupload_bound = (
+                dataset.origin_uri,
+                dataset.origin_ref,
+                dataset.source_format,
+            )
+
             staging_tn = attempt_scoped_staging_table(dataset.table_name, attempt_uuid)
             heartbeat_task = await claim_job_attempt_and_start_heartbeat(
                 session, job_uuid, attempt_uuid
@@ -659,6 +722,38 @@ async def reupload_service(
         # greenlet bridge state — same root cause as gh #100.
         # ----------------------------------------------------------------- #
 
+        # fix(#1271 review): the failure stamp may only describe the STORED
+        # origin, and a reupload is allowed to target a different source — a
+        # replacement for an upload dataset, a new service base, or the same
+        # base with a different layer or protocol. Contacting the candidate
+        # says nothing about the binding the row keeps if the swap never
+        # runs, so the stamp arms only when the COMPLETE attempted binding
+        # (type, base URL, and the same service-native layer identity the
+        # swap would write) equals the stored one. A successful swap
+        # re-stamps through set_dataset_origin regardless.
+        _stored_ref = reupload_bound[1] or {}
+        attempt_matches_binding = (
+            classify_origin(reupload_bound[2]) == "service"
+            and _stored_ref.get("service_type") == source_format
+            and _stored_ref.get("url") == source_url_value
+            and _stored_ref.get("layer_id")
+            == service_layer_identity(
+                source_format, layer_id=layer_id, layer_name=source_layer_value
+            )
+        )
+
+        def _arm_contact() -> None:
+            # fix(#1271 review): fired by run_ogr2ogr_service the instant the
+            # subprocess exists, which is the first moment an outbound
+            # attempt truthfully began — every local preflight (argv checks,
+            # token sanitization, spawn itself) happens before it. Monotonic
+            # OR, so a fallback retry that dies locally cannot erase the
+            # contact its first attempt already made.
+            nonlocal origin_contact_attempted
+            origin_contact_attempted = (
+                origin_contact_attempted or attempt_matches_binding
+            )
+
         async def _run_service_import(layer_name: str) -> None:
             gdal_source, layer_arg = port.build_gdal_source(
                 service_type_raw,
@@ -676,6 +771,7 @@ async def reupload_service(
                 service_type,
                 token=token,
                 schema=_current_tenant_schema(),
+                on_spawn=_arm_contact,
             )
 
         try:
@@ -838,6 +934,13 @@ async def reupload_service(
                     task_name="reupload_service",
                     attempt_id=attempt_uuid,
                 )
+            await _record_failed_origin_contact(
+                err_session,
+                Dataset,
+                dataset_uuid,
+                contacted=origin_contact_attempted,
+                bound=reupload_bound,
+            )
         raise
     finally:
         await stop_ingest_job_heartbeat(heartbeat_task)

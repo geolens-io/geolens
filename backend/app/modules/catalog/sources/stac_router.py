@@ -53,11 +53,32 @@ def _validate_stac_http_url(v: str) -> str:
     return v
 
 
+def _validate_optional_stac_http_url(v: str | None) -> str | None:
+    """``_validate_stac_http_url`` for a nullable field.
+
+    The nullable case has to be spelled out: a field validator runs on an
+    explicit ``None`` too, and ``HttpUrl(None)`` raises, which would reject
+    every import from a catalog whose items carry no rel=self link.
+    """
+    return None if v is None else _validate_stac_http_url(v)
+
+
 async def _fetch_cog_info(url: str) -> dict | None:
     """Fetch COG metadata + statistics from Titiler for a remote asset URL.
 
     Returns dict with band_count, dtype, width, height, band_info (with
     min/max per band for rescaling), or None on failure.
+
+    fix(#1271 review): None deliberately collapses every failure shape.
+    A non-200 from Titiler is NOT proof the origin was attempted — the
+    extension allowlist (CPL_VSIL_CURL_ALLOWED_EXTENSIONS) rejects some
+    assets before any upstream fetch, and telling that apart from a relayed
+    upstream error means parsing Titiler's opaque 500 bodies, which is the
+    connector-completeness contract this feature refuses everywhere else.
+    So the import stamps last_checked_at only on success (info in hand IS
+    proof), and every failure leaves the field NULL for the probe to
+    settle: under-stamping a real contact is recoverable, fabricating one
+    for a never-contacted origin is not.
 
     SEC-OBSV-02 (sec-audit 2026-05-21): SSRF protection here is a DUAL GATE.
     Both gates MUST be preserved when adding new callers -- bypassing either
@@ -210,6 +231,14 @@ class StacSearchRequest(BaseModel):
 class StacItemSummary(BaseModel):
     id: str = Field(description="Item identifier.")
     collection: str | None = Field(default=None, description="Parent collection ID.")
+    item_href: str | None = Field(
+        default=None,
+        description=(
+            "The item's own canonical URL, from its rel=self link. Echo it "
+            "back on import so the dataset's origin can point at the item as "
+            "well as the asset; null when the catalog omits a self link."
+        ),
+    )
     title: str = Field(description="Item title (falls back to ID).")
     bbox: list[float] | None = Field(default=None, description="Item bounding box.")
     datetime: str | None = Field(
@@ -266,6 +295,16 @@ class StacImportItem(BaseModel):
     _validate_data_asset_href = field_validator("data_asset_href")(
         _validate_stac_http_url
     )
+    # feat(#1222): the item's own href, as returned by search. Optional so an
+    # older client (or a catalog whose items carry no rel=self link) still
+    # imports; the dataset then simply has no item pointer and its health
+    # probe checks the asset alone.
+    item_href: str | None = Field(
+        default=None,
+        max_length=4096,
+        description="The item's own canonical URL, echoed from search results.",
+    )
+    _validate_item_href = field_validator("item_href")(_validate_optional_stac_http_url)
     bbox: list[float] | None = Field(default=None, description="Item bounding box.")
     epsg: int | None = Field(default=None, description="EPSG code.")
     datetime_start: str | None = Field(
@@ -589,17 +628,33 @@ async def stac_import(
                 # also what the duplicate-source guard keys on, so pointing
                 # origin_uri at it keeps that guard identical when ADR-002
                 # Decision 6 re-keys it off the PATCHable source_url.
+                # feat(#1222): item_href joins the payload now that search
+                # surfaces it. It is the only stored value that can answer
+                # "was this item withdrawn from the catalog?" — the asset href
+                # answers a different question, and a 200 on one says nothing
+                # about the other.
                 set_dataset_origin(
                     dataset,
                     "stac",
                     uri=item.data_asset_href,
                     asset_href=item.data_asset_href,
+                    item_href=item.item_href,
                     collection_id=item.collection,
                 )
+                # fix(#1271 review): the import IS a contact — the same
+                # contract _finalize_ingest and the reupload swap follow —
+                # but only when it can be PROVEN. Info in hand means Titiler
+                # reached the COG on GeoLens's behalf; every failure shape
+                # stays NULL, because a Titiler error is indistinguishable
+                # from its local pre-fetch rejections without parsing its
+                # error bodies (see _fetch_cog_info). The probe settles it.
+                ci = cog_info_map.get(item.data_asset_href)
+                if ci is not None:
+                    dataset.last_checked_at = datetime.now(timezone.utc)
                 db.add(dataset)
                 await db.flush()
 
-                ci = cog_info_map.get(item.data_asset_href) or {}
+                ci = ci or {}
                 nodata_raw = ci.get("nodata")
 
                 raster_asset = get_catalog_port().raster_asset_orm_class()(

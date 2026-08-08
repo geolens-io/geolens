@@ -85,12 +85,14 @@ ORIGIN_REF_KEYS: dict[str, frozenset[str]] = {
     # `url` is not the same value as `datasets.origin_uri`, which deliberately
     # keeps the enriched form ingest composed, as provenance.
     "service": frozenset({"service_type", "url", "layer_id"}),
-    # `asset_href` is additive to ADR-002's declared stac shape. The STAC
-    # import request carries the item id, the collection id, and the chosen
-    # data-asset href — never the item's own href — so writing that asset URL
-    # into a key named `item_href` would be a lie in the payload. The key is
-    # reserved and stays unwritten until the import request carries it
-    # (#1222 owns the STAC health probe that will want it).
+    # `asset_href` is additive to ADR-002's declared stac shape, and the two
+    # href keys are NOT interchangeable: `asset_href` is the COG the tiler
+    # reads, `item_href` is the STAC item document that publishes it. A 200 on
+    # one says nothing about the other, which is exactly why the health probe
+    # (#1222) wants both. `item_href` was reserved-but-unwritten until #1222
+    # taught STAC search to surface the item's rel=self link and the import
+    # request to echo it back; it stays absent for catalogs that publish no
+    # self link, and for datasets imported before that landed.
     "stac": frozenset({"item_href", "asset_href", "collection_id", "asset_key"}),
     "upload": frozenset({"filename", "file_hash"}),
     # Gate 2: GeoLens-internal table only. No host/port/DSN/credential key.
@@ -214,6 +216,21 @@ def set_dataset_origin(
         raise ValueError(
             f"unknown origin kind {kind!r}; expected one of {sorted(ORIGIN_KINDS)}"
         )
+    # fix(#1271 review): every caller of this function is a successful-ingest
+    # commit, so the binding write is the moment the stored probe verdict
+    # stops describing anything real. Either the binding now names a
+    # DIFFERENT origin (a service marked missing and reuploaded from a file
+    # would otherwise serve missing/not_found forever, since uploads 409 the
+    # probe), or it re-stamps the SAME origin that the swap just exercised —
+    # in which case a pre-swap failure verdict is stale the other way round:
+    # the origin demonstrably answered. NULL is the honest value either way
+    # (the API projects it as unknown); writing "healthy" here would be a
+    # second, weaker classifier beside the probe's. Refresh paths that
+    # contacted the origin re-stamp last_checked_at in their own projection
+    # after this call.
+    dataset.source_health = None
+    dataset.source_health_detail = None
+    dataset.last_checked_at = None
     dataset.origin_uri = uri
     dataset.origin_ref = build_origin_ref(kind, **ref_fields)
 

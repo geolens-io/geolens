@@ -2123,7 +2123,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # that #1220's executor takes both writes over, and why the timestamp is a
     # Python datetime rather than func.now() (a SQL expression leaves the
     # attribute expired, so the next read lazy-loads). Cap 1816 -> 1850, exact.
-    "backend/app/processing/ingest/tasks_common.py": 1850,
+    # fix(#1222 review): +11 — the swap stamps last_checked_at for service and
+    # STAC origins, because set_dataset_origin clears probe state on restamp
+    # and this swap IS a contact with the origin. The comment carries why
+    # source_health is NOT written here (the vocabulary belongs to the
+    # probe's classifier). Cap 1850 -> 1861, exact. +7 more: first ingest
+    # stamps the same contact for service/STAC origins — the import fetched
+    # from the origin too, and a fresh service dataset otherwise reported
+    # "never contacted" until manually probed. Cap 1861 -> 1868, exact.
+    "backend/app/processing/ingest/tasks_common.py": 1868,
     # --- entered by the inclusion rule, fix(#958) -------------------------
     # These five were the ungated modules at or above _RATCHET_INCLUSION_LOC
     # when the rule was written. They arrive at their measured size with no
@@ -2307,7 +2315,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # non-refreshable origin reads "unknown"; and that it is a different thing
     # from the quality score's own freshness, which the frontend already
     # computes under that word. Cap 1271 -> 1286, exact.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1286,
+    # feat(#1222): +47 — SourceHealthResponse (the probe endpoint's reply) and
+    # SOURCE_HEALTH_DETAIL_DESCRIPTION. Most of it is description text, and it
+    # earns its place twice over: the three health words have to mean the same
+    # thing here as on VrtSourceHealth or the UI cannot render one legend, and
+    # the detail description has to say OUT LOUD that the field is an
+    # enumerated GeoLens code rather than a message to show verbatim. It is
+    # built from the probe's own DETAIL_CODES instead of retyping the list, so
+    # the schema and the vocabulary cannot drift. Cap 1286 -> 1333, exact.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1333,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch

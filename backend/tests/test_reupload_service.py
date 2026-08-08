@@ -181,7 +181,12 @@ class TestServiceReuploadWorker:
             append: bool = False,
             *,
             schema: str,
+            on_spawn=None,
         ) -> None:
+            # Mirrors the real runner: a successful spawn fires on_spawn
+            # (fix #1271 review — the contact-stamp signal).
+            if on_spawn is not None:
+                on_spawn()
             import app.core.db as db_module
 
             async with db_module.async_session() as session:

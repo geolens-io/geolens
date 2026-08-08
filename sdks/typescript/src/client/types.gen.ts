@@ -3214,7 +3214,7 @@ export type DatasetResponse = {
     /**
      * Source Health Detail
      *
-     * Short redacted reason for a non-healthy state
+     * Why the origin is not healthy, as one of a fixed set of GeoLens codes: blocked_by_policy, item_withdrawn, network_error, not_found, server_error, timeout, unauthorized, unexpected_status. Null when healthy or never probed. Never provider text, a URL, or a response body — nothing the origin sent is stored here.
      */
     source_health_detail?: string | null;
     /**
@@ -8747,6 +8747,48 @@ export type SharedMapResponse = {
 };
 
 /**
+ * SourceHealthResponse
+ *
+ * Result of one on-demand origin probe (ADR-002, #1222).
+ *
+ * Deliberately the same three words ``VrtSourceHealth.status`` uses, so the
+ * UI renders one legend across VRT members and standalone origins. This
+ * endpoint always probes, so it never returns the fourth value: ``unknown``
+ * is the response-boundary projection of a never-determined NULL column and
+ * reaches clients through ``DatasetResponse``, not through here.
+ */
+export type SourceHealthResponse = {
+    /**
+     * Dataset Id
+     */
+    dataset_id: string;
+    /**
+     * Origin
+     *
+     * Origin kind that was probed: service or stac.
+     */
+    origin: string | null;
+    /**
+     * Source Health
+     *
+     * healthy — the origin answered and the resource is there. missing — the origin answered authoritatively that it is gone (404/410). inaccessible — GeoLens could not determine either way, which includes 401/403: access was lost, the data may be intact.
+     */
+    source_health: 'healthy' | 'missing' | 'inaccessible';
+    /**
+     * Source Health Detail
+     *
+     * Why the origin is not healthy, as one of a fixed set of GeoLens codes: blocked_by_policy, item_withdrawn, network_error, not_found, server_error, timeout, unauthorized, unexpected_status. Null when healthy or never probed. Never provider text, a URL, or a response body — nothing the origin sent is stored here.
+     */
+    source_health_detail?: string | null;
+    /**
+     * Last Checked At
+     *
+     * When GeoLens last contacted this origin, success or failure.
+     */
+    last_checked_at?: string | null;
+};
+
+/**
  * StacAsset
  */
 export type StacAsset = {
@@ -9095,6 +9137,12 @@ export type StacImportItem = {
      */
     data_asset_href: string;
     /**
+     * Item Href
+     *
+     * The item's own canonical URL, echoed from search results.
+     */
+    item_href?: string | null;
+    /**
      * Bbox
      *
      * Item bounding box.
@@ -9406,6 +9454,12 @@ export type StacItemSummary = {
      * Parent collection ID.
      */
     collection?: string | null;
+    /**
+     * Item Href
+     *
+     * The item's own canonical URL, from its rel=self link. Echo it back on import so the dataset's origin can point at the item as well as the asset; null when the catalog omits a self link.
+     */
+    item_href?: string | null;
     /**
      * Title
      *
@@ -18808,6 +18862,68 @@ export type GetDatasetRowsEndpointDatasetsDatasetIdRowsGetResponses = {
 };
 
 export type GetDatasetRowsEndpointDatasetsDatasetIdRowsGetResponse = GetDatasetRowsEndpointDatasetsDatasetIdRowsGetResponses[keyof GetDatasetRowsEndpointDatasetsDatasetIdRowsGetResponses];
+
+export type CheckSourceHealthDatasetsDatasetIdSourceHealthPostData = {
+    body?: never;
+    path: {
+        /**
+         * Dataset Id
+         */
+        dataset_id: string;
+    };
+    query?: never;
+    url: '/datasets/{dataset_id}/source-health/';
+};
+
+export type CheckSourceHealthDatasetsDatasetIdSourceHealthPostErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type CheckSourceHealthDatasetsDatasetIdSourceHealthPostError = CheckSourceHealthDatasetsDatasetIdSourceHealthPostErrors[keyof CheckSourceHealthDatasetsDatasetIdSourceHealthPostErrors];
+
+export type CheckSourceHealthDatasetsDatasetIdSourceHealthPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: SourceHealthResponse;
+};
+
+export type CheckSourceHealthDatasetsDatasetIdSourceHealthPostResponse = CheckSourceHealthDatasetsDatasetIdSourceHealthPostResponses[keyof CheckSourceHealthDatasetsDatasetIdSourceHealthPostResponses];
 
 export type UpdatePublicationStatusDatasetsDatasetIdStatusPatchData = {
     body: StatusUpdate;

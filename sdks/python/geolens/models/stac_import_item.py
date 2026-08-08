@@ -22,6 +22,7 @@ class StacImportItem:
         title (str): Title to use for the GeoLens dataset.
         data_asset_href (str): URL of the COG asset to reference.
         collection (None | str | Unset): Parent collection ID.
+        item_href (None | str | Unset): The item's own canonical URL, echoed from search results.
         bbox (list[float] | None | Unset): Item bounding box.
         epsg (int | None | Unset): EPSG code.
         datetime_start (None | str | Unset): Temporal start.
@@ -33,6 +34,7 @@ class StacImportItem:
     title: str
     data_asset_href: str
     collection: None | str | Unset = UNSET
+    item_href: None | str | Unset = UNSET
     bbox: list[float] | None | Unset = UNSET
     epsg: int | None | Unset = UNSET
     datetime_start: None | str | Unset = UNSET
@@ -52,6 +54,12 @@ class StacImportItem:
             collection = UNSET
         else:
             collection = self.collection
+
+        item_href: None | str | Unset
+        if isinstance(self.item_href, Unset):
+            item_href = UNSET
+        else:
+            item_href = self.item_href
 
         bbox: list[float] | None | Unset
         if isinstance(self.bbox, Unset):
@@ -95,6 +103,8 @@ class StacImportItem:
         )
         if collection is not UNSET:
             field_dict["collection"] = collection
+        if item_href is not UNSET:
+            field_dict["item_href"] = item_href
         if bbox is not UNSET:
             field_dict["bbox"] = bbox
         if epsg is not UNSET:
@@ -125,6 +135,15 @@ class StacImportItem:
             return cast(None | str | Unset, data)
 
         collection = _parse_collection(d.pop("collection", UNSET))
+
+        def _parse_item_href(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        item_href = _parse_item_href(d.pop("item_href", UNSET))
 
         def _parse_bbox(data: object) -> list[float] | None | Unset:
             if data is None:
@@ -177,6 +196,7 @@ class StacImportItem:
             title=title,
             data_asset_href=data_asset_href,
             collection=collection,
+            item_href=item_href,
             bbox=bbox,
             epsg=epsg,
             datetime_start=datetime_start,

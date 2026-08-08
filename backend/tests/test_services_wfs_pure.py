@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 
 from app.modules.catalog.sources.adapters.wfs import (
-    _build_capabilities_url,
+    build_capabilities_url,
     parse_wfs_capabilities,
 )
 
@@ -133,13 +133,13 @@ class TestBuildCapabilitiesUrl:
         return {k: v[0] for k, v in parse_qs(urlparse(url).query).items()}
 
     def test_adds_wfs_params_to_bare_url(self):
-        url = _build_capabilities_url("https://example.com/wfs")
+        url = build_capabilities_url("https://example.com/wfs")
         q = self._query(url)
         assert q["service"] == "WFS"
         assert q["request"] == "GetCapabilities"
 
     def test_preserves_existing_query_params(self):
-        url = _build_capabilities_url(
+        url = build_capabilities_url(
             "https://example.com/wfs?namespaces=xmlns(ns=http://foo)"
         )
         q = self._query(url)
@@ -148,7 +148,7 @@ class TestBuildCapabilitiesUrl:
         assert "namespaces" in q
 
     def test_overwrites_conflicting_service_param(self):
-        url = _build_capabilities_url(
+        url = build_capabilities_url(
             "https://example.com/wfs?service=WMS&request=GetMap"
         )
         q = self._query(url)
@@ -156,7 +156,7 @@ class TestBuildCapabilitiesUrl:
         assert q["request"] == "GetCapabilities"
 
     def test_preserves_scheme_host_path(self):
-        url = _build_capabilities_url("https://example.com:8443/geoserver/wfs")
+        url = build_capabilities_url("https://example.com:8443/geoserver/wfs")
         parsed = urlparse(url)
         assert parsed.scheme == "https"
         assert parsed.netloc == "example.com:8443"

@@ -12,10 +12,13 @@ external STAC APIs using httpx for HTTP interaction.
 from __future__ import annotations
 
 from typing import Any, TypedDict
+from urllib.parse import urljoin
 
 import httpx
 import structlog
+from pydantic import HttpUrl
 
+from app.core.url_redaction import has_url_credentials
 from app.modules.catalog.sources.security import make_safe_client
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -37,6 +40,61 @@ def _projection_epsg(properties: dict[str, Any]) -> int | None:
     legacy_epsg = properties.get("proj:epsg")
     if isinstance(legacy_epsg, int) and not isinstance(legacy_epsg, bool):
         return legacy_epsg
+    return None
+
+
+def _self_link_href(feature: dict[str, Any], base_url: str) -> str | None:
+    """The item's own canonical href, from its ``rel="self"`` link.
+
+    feat(#1222): search is the ONE place GeoLens ever holds a STAC item
+    document, so it is the only place the item's own href can be captured —
+    the import request carries an item id and an asset href, and neither
+    composes back into the item URL for a catalog that does not follow the
+    ``/collections/{c}/items/{id}`` layout. Without this, ``origin_ref``'s
+    reserved ``item_href`` key stays permanently unwritten and the health
+    probe can only ever check the asset, never whether the item was
+    withdrawn from the catalog.
+
+    A relative href is legal STAC (the validation fixtures accept one), so it
+    is resolved against the URL the response actually came from before any
+    check runs — dropping it would leave ``item_href`` unwritten and the
+    health probe blind to a withdrawal on exactly the catalogs that publish
+    self links most carefully (fix #1271 review). After resolution, two ways
+    a link is still dropped rather than surfaced, and the second is the one
+    that matters. A non-http(s) href goes because the probe would have
+    nothing safe to fetch. A CREDENTIALED href goes because the import
+    request validator refuses one outright (a signed URL must never reach
+    ``origin_ref``, ADR-002 invariant 4) — and since search is what fills the
+    field the UI echoes back, surfacing one here would turn an optional
+    convenience into a 422 that fails the caller's whole import batch.
+    Dropping at capture keeps the refusal for hand-crafted clients, where it
+    is the right answer, and off the path GeoLens itself drives.
+    """
+    links = feature.get("links")
+    # isinstance: a malformed scalar links value must cost only this optional
+    # field, not 502 the whole search (fix #1271 review).
+    for link in links if isinstance(links, list) else []:
+        if not isinstance(link, dict) or link.get("rel") != "self":
+            continue
+        href = link.get("href")
+        if not isinstance(href, str) or not href.strip():
+            continue
+        # fix(#1271 review): a malformed href must be dropped, not surfaced —
+        # item_href is optional, and the frontend echoes search results into
+        # the import request, where StacImportItem applies HttpUrl, the
+        # credential refusal, and a 4096 cap. Surfacing anything that gate
+        # rejects turns one broken link into a 422 for the caller's whole
+        # batch. So the capture runs the SAME checks: pydantic's HttpUrl
+        # (not a hand-rolled approximation of it — every predicate written
+        # here so far had a counterexample), the credential check, and the
+        # import field's length cap.
+        try:
+            resolved = urljoin(base_url, href)
+            HttpUrl(resolved)
+        except ValueError:
+            continue
+        if len(resolved) <= 4096 and not has_url_credentials(resolved):
+            return resolved
     return None
 
 
@@ -222,6 +280,11 @@ async def search_stac_items(
             {
                 "id": f.get("id"),
                 "collection": f.get("collection"),
+                # resp.url is the LOGICAL post-redirect URL: the SSRF
+                # transport restores the hostname after each pinned hop
+                # (see _SSRFGuardTransport), so relative self links resolve
+                # against the host the caller addressed, never the pinned IP.
+                "item_href": _self_link_href(f, str(resp.url)),
                 "bbox": f.get("bbox"),
                 "datetime": dt,
                 "datetime_start": dt_start,

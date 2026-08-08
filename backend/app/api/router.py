@@ -17,6 +17,9 @@ from app.modules.catalog.datasets.api.router_data import router as datasets_data
 from app.modules.catalog.datasets.api.router_export import (
     router as datasets_export_router,
 )
+from app.modules.catalog.datasets.api.router_health import (
+    router as datasets_health_router,
+)
 from app.modules.catalog.datasets.api.router_metadata import (
     router as datasets_metadata_router,
 )
@@ -66,6 +69,7 @@ api_router.include_router(datasets_vrt_router)
 api_router.include_router(datasets_data_router)
 api_router.include_router(datasets_metadata_router)
 api_router.include_router(datasets_reupload_router)
+api_router.include_router(datasets_health_router)
 api_router.include_router(records_router)
 api_router.include_router(features_router)
 api_router.include_router(export_router)

@@ -1398,3 +1398,327 @@ class TestStagingTableName:
         staging = attempt_scoped_staging_table(name, attempt_id)
         assert len(staging) == 63
         assert staging == "a" * 22 + f"_staging_{attempt_id.hex}"
+
+
+async def _spawn_then_explode(*args, on_spawn=None, **kwargs):
+    """Stand-in for run_ogr2ogr_service where the subprocess spawns and the
+    fetch then fails — on_spawn fires exactly as the real runner fires it."""
+    if on_spawn is not None:
+        on_spawn()
+    raise RuntimeError("upstream fetch exploded")
+
+
+class TestFailedServiceReuploadDatesTheContact:
+    async def test_failed_fetch_still_stamps_last_checked_at(self, test_db_session):
+        """fix(#1271 review): last_checked_at means "last time GeoLens
+        contacted the origin at all", and a failed refresh contact counts —
+        the probe already dates its failures for the same reason. The old
+        data stays (the swap never ran), so only the timestamp moves. The
+        stamp requires the fetch target to BE the stored service origin —
+        pinned by the sibling replacement-URL test."""
+        from app.platform.dataset_origin import set_dataset_origin
+        from app.processing.ingest.tasks_reupload import reupload_service
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _create_dataset(test_db_session, created_by=admin_id)
+        dataset.source_format = "wfs"
+        set_dataset_origin(
+            dataset,
+            "service",
+            uri="https://svc.test/wfs/roads",
+            service_type="wfs",
+            url="https://svc.test/wfs",
+            layer_id="roads",
+        )
+        await test_db_session.commit()
+        assert dataset.last_checked_at is None
+        attempt = uuid.uuid4()
+        job = IngestJob(
+            dataset_id=dataset.id,
+            source_filename="roads",
+            source_url="https://svc.test/wfs",
+            source_layer="roads",
+            created_by=admin_id,
+            status="pending",
+            attempt_id=attempt,
+            user_metadata={
+                "reupload": True,
+                "dataset_id": str(dataset.id),
+                "service_type": "WFS 2.0",
+            },
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+
+        with (
+            patch(
+                "app.modules.catalog.sources.security.validate_url_for_ssrf",
+                new=AsyncMock(return_value=None),
+            ),
+            patch(
+                "app.processing.ingest.ogr.run_ogr2ogr_service",
+                new=_spawn_then_explode,
+            ),
+            pytest.raises(RuntimeError, match="upstream fetch exploded"),
+        ):
+            await reupload_service.__wrapped__(  # type: ignore[attr-defined]
+                job_id=str(job.id),
+                dataset_id=str(dataset.id),
+                source_url="https://svc.test/wfs",
+                source_layer="roads",
+                user_id=str(admin_id),
+                attempt_id=str(attempt),
+            )
+
+        await test_db_session.refresh(dataset)
+        assert dataset.last_checked_at is not None
+        # The verdict stays with the probe's classifier, and the job failed.
+        assert dataset.source_health is None
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+
+    async def test_failed_fetch_after_rebind_stamps_nothing(self, test_db_session):
+        """fix(#1271 review): if another reupload rebinds the origin while
+        the doomed fetch is running, the failed task must not stamp the OLD
+        origin's contact onto the NEW binding — a file reupload would leave
+        an upload with a contact time it cannot have, and uploads 409 the
+        probe so nothing corrects it."""
+        from app.platform.dataset_origin import set_dataset_origin
+        from app.processing.ingest.tasks_reupload import reupload_service
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _create_dataset(test_db_session, created_by=admin_id)
+        dataset.source_format = "wfs"
+        set_dataset_origin(
+            dataset,
+            "service",
+            uri="https://svc.test/wfs/roads",
+            service_type="wfs",
+            url="https://svc.test/wfs",
+            layer_id="roads",
+        )
+        await test_db_session.commit()
+        attempt = uuid.uuid4()
+        job = IngestJob(
+            dataset_id=dataset.id,
+            source_filename="roads",
+            source_url="https://svc.test/wfs",
+            source_layer="roads",
+            created_by=admin_id,
+            status="pending",
+            attempt_id=attempt,
+            user_metadata={
+                "reupload": True,
+                "dataset_id": str(dataset.id),
+                "service_type": "WFS 2.0",
+            },
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+
+        async def rebind_then_explode(*args, on_spawn=None, **kwargs):
+            if on_spawn is not None:
+                on_spawn()
+            set_dataset_origin(dataset, "upload", filename="roads.gpkg")
+            dataset.source_format = "gpkg"
+            await test_db_session.commit()
+            raise RuntimeError("upstream fetch exploded")
+
+        with (
+            patch(
+                "app.modules.catalog.sources.security.validate_url_for_ssrf",
+                new=AsyncMock(return_value=None),
+            ),
+            patch(
+                "app.processing.ingest.ogr.run_ogr2ogr_service",
+                new=rebind_then_explode,
+            ),
+            pytest.raises(RuntimeError, match="upstream fetch exploded"),
+        ):
+            await reupload_service.__wrapped__(  # type: ignore[attr-defined]
+                job_id=str(job.id),
+                dataset_id=str(dataset.id),
+                source_url="https://svc.test/wfs",
+                source_layer="roads",
+                user_id=str(admin_id),
+                attempt_id=str(attempt),
+            )
+
+        await test_db_session.refresh(dataset)
+        assert dataset.last_checked_at is None
+
+    async def test_failed_fetch_of_a_replacement_url_stamps_nothing(
+        self, test_db_session
+    ):
+        """fix(#1271 review): a reupload may target a DIFFERENT URL than the
+        stored binding — a replacement source for an upload dataset. A failed
+        fetch of the candidate says nothing about the stored origin, so
+        stamping it would date a contact the stored origin never had; for an
+        upload the timestamp would be uncorrectable, since uploads 409 the
+        probe."""
+        from app.processing.ingest.tasks_reupload import reupload_service
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        # An upload dataset: no service binding at all.
+        dataset = await _create_dataset(test_db_session, created_by=admin_id)
+        attempt = uuid.uuid4()
+        job = IngestJob(
+            dataset_id=dataset.id,
+            source_filename="roads",
+            source_url="https://replacement.test/wfs",
+            source_layer="roads",
+            created_by=admin_id,
+            status="pending",
+            attempt_id=attempt,
+            user_metadata={
+                "reupload": True,
+                "dataset_id": str(dataset.id),
+                "service_type": "WFS 2.0",
+            },
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+
+        with (
+            patch(
+                "app.modules.catalog.sources.security.validate_url_for_ssrf",
+                new=AsyncMock(return_value=None),
+            ),
+            patch(
+                "app.processing.ingest.ogr.run_ogr2ogr_service",
+                new=_spawn_then_explode,
+            ),
+            pytest.raises(RuntimeError, match="upstream fetch exploded"),
+        ):
+            await reupload_service.__wrapped__(  # type: ignore[attr-defined]
+                job_id=str(job.id),
+                dataset_id=str(dataset.id),
+                source_url="https://replacement.test/wfs",
+                source_layer="roads",
+                user_id=str(admin_id),
+                attempt_id=str(attempt),
+            )
+
+        await test_db_session.refresh(dataset)
+        assert dataset.last_checked_at is None
+
+    async def test_failed_fetch_of_a_different_layer_stamps_nothing(
+        self, test_db_session
+    ):
+        """fix(#1271 review): same service base, different layer is still a
+        different origin — the stored layer was never contacted."""
+        from app.platform.dataset_origin import set_dataset_origin
+        from app.processing.ingest.tasks_reupload import reupload_service
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _create_dataset(test_db_session, created_by=admin_id)
+        dataset.source_format = "wfs"
+        set_dataset_origin(
+            dataset,
+            "service",
+            uri="https://svc.test/wfs/roads",
+            service_type="wfs",
+            url="https://svc.test/wfs",
+            layer_id="roads",
+        )
+        await test_db_session.commit()
+        attempt = uuid.uuid4()
+        job = IngestJob(
+            dataset_id=dataset.id,
+            source_filename="buildings",
+            source_url="https://svc.test/wfs",
+            source_layer="buildings",
+            created_by=admin_id,
+            status="pending",
+            attempt_id=attempt,
+            user_metadata={
+                "reupload": True,
+                "dataset_id": str(dataset.id),
+                "service_type": "WFS 2.0",
+            },
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+
+        with (
+            patch(
+                "app.modules.catalog.sources.security.validate_url_for_ssrf",
+                new=AsyncMock(return_value=None),
+            ),
+            patch(
+                "app.processing.ingest.ogr.run_ogr2ogr_service",
+                new=_spawn_then_explode,
+            ),
+            pytest.raises(RuntimeError, match="upstream fetch exploded"),
+        ):
+            await reupload_service.__wrapped__(  # type: ignore[attr-defined]
+                job_id=str(job.id),
+                dataset_id=str(dataset.id),
+                source_url="https://svc.test/wfs",
+                source_layer="buildings",
+                user_id=str(admin_id),
+                attempt_id=str(attempt),
+            )
+
+        await test_db_session.refresh(dataset)
+        assert dataset.last_checked_at is None
+
+    async def test_spawn_failure_withdraws_the_contact_claim(self, test_db_session):
+        """fix(#1271 review): an OSError from the subprocess launch means
+        ogr2ogr never spawned — nothing left the machine, so a matching
+        binding must still not be stamped."""
+        from app.platform.dataset_origin import set_dataset_origin
+        from app.processing.ingest.tasks_reupload import reupload_service
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _create_dataset(test_db_session, created_by=admin_id)
+        dataset.source_format = "wfs"
+        set_dataset_origin(
+            dataset,
+            "service",
+            uri="https://svc.test/wfs/roads",
+            service_type="wfs",
+            url="https://svc.test/wfs",
+            layer_id="roads",
+        )
+        await test_db_session.commit()
+        attempt = uuid.uuid4()
+        job = IngestJob(
+            dataset_id=dataset.id,
+            source_filename="roads",
+            source_url="https://svc.test/wfs",
+            source_layer="roads",
+            created_by=admin_id,
+            status="pending",
+            attempt_id=attempt,
+            user_metadata={
+                "reupload": True,
+                "dataset_id": str(dataset.id),
+                "service_type": "WFS 2.0",
+            },
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+
+        with (
+            patch(
+                "app.modules.catalog.sources.security.validate_url_for_ssrf",
+                new=AsyncMock(return_value=None),
+            ),
+            patch(
+                "app.processing.ingest.ogr.run_ogr2ogr_service",
+                new=AsyncMock(side_effect=FileNotFoundError("ogr2ogr missing")),
+            ),
+            pytest.raises(FileNotFoundError),
+        ):
+            await reupload_service.__wrapped__(  # type: ignore[attr-defined]
+                job_id=str(job.id),
+                dataset_id=str(dataset.id),
+                source_url="https://svc.test/wfs",
+                source_layer="roads",
+                user_id=str(admin_id),
+                attempt_id=str(attempt),
+            )
+
+        await test_db_session.refresh(dataset)
+        assert dataset.last_checked_at is None

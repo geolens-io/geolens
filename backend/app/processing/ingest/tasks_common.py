@@ -1382,12 +1382,19 @@ async def _finalize_ingest(ctx: IngestContext):
     # creates the dataset. Service ingest supplies the enriched URL through
     # ctx.source_url; an uploaded file has no remote origin to point at, so
     # its origin_uri stays NULL and only the ref carries the filename.
+    ingest_origin_kind = classify_origin(ctx.source_format)
     set_dataset_origin(
         dataset,
-        classify_origin(ctx.source_format),
+        ingest_origin_kind,
         uri=ctx.source_url,
         **(ctx.origin_ref or {}),
     )
+    # fix(#1271 review): a first service or STAC ingest fetched its bytes
+    # from the origin moments ago, so the import IS a contact — same contract
+    # as the reupload swap below. Without this, every freshly imported
+    # service dataset reported last_checked_at NULL until someone probed it.
+    if ingest_origin_kind in ("service", "stac"):
+        dataset.last_checked_at = datetime.now(timezone.utc)
 
     # Compute quality score (requires Dataset to exist for metadata checks)
     quality_score = await compute_quality_score(
@@ -1798,9 +1805,10 @@ async def _apply_reupload_swap(
     #
     # #1220's shared refresh executor takes over both writes below for
     # server-side refresh; until it lands, this path owns them.
+    origin_kind = classify_origin(source_format)
     set_dataset_origin(
         dataset,
-        classify_origin(source_format),
+        origin_kind,
         uri=source_url,
         **(origin_ref or {}),
     )
@@ -1809,7 +1817,17 @@ async def _apply_reupload_swap(
     # datetime rather than func.now(): a SQL expression leaves the attribute
     # expired after flush, and the next read of dataset.last_refreshed_at then
     # lazy-loads against a session that may already be closed.
-    dataset.last_refreshed_at = datetime.now(timezone.utc)
+    swap_time = datetime.now(timezone.utc)
+    # fix(#1271 review): set_dataset_origin just cleared the probe state, and
+    # for a service or STAC origin this swap IS a contact — the bytes were
+    # fetched from that origin moments ago. Leaving last_checked_at NULL
+    # would make the API claim the origin was never contacted, which is the
+    # column's contract violated in the other direction. source_health stays
+    # NULL: the health vocabulary belongs to the probe's classifier. A file
+    # upload or registered table contacts nothing and stamps nothing.
+    if origin_kind in ("service", "stac"):
+        dataset.last_checked_at = swap_time
+    dataset.last_refreshed_at = swap_time
 
     quality_score = await compute_quality_score(
         session,

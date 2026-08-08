@@ -5464,7 +5464,7 @@
                 "type": "null"
               }
             ],
-            "description": "Short redacted reason for a non-healthy state",
+            "description": "Why the origin is not healthy, as one of a fixed set of GeoLens codes: blocked_by_policy, item_withdrawn, network_error, not_found, server_error, timeout, unauthorized, unexpected_status. Null when healthy or never probed. Never provider text, a URL, or a response body \u2014 nothing the origin sent is stored here.",
             "title": "Source Health Detail"
           },
           "schema_drift_status": {
@@ -14930,6 +14930,70 @@
         "title": "SharedMapResponse",
         "type": "object"
       },
+      "SourceHealthResponse": {
+        "description": "Result of one on-demand origin probe (ADR-002, #1222).\n\nDeliberately the same three words ``VrtSourceHealth.status`` uses, so the\nUI renders one legend across VRT members and standalone origins. This\nendpoint always probes, so it never returns the fourth value: ``unknown``\nis the response-boundary projection of a never-determined NULL column and\nreaches clients through ``DatasetResponse``, not through here.",
+        "properties": {
+          "dataset_id": {
+            "format": "uuid",
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "origin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Origin kind that was probed: service or stac.",
+            "title": "Origin"
+          },
+          "source_health": {
+            "description": "healthy \u2014 the origin answered and the resource is there. missing \u2014 the origin answered authoritatively that it is gone (404/410). inaccessible \u2014 GeoLens could not determine either way, which includes 401/403: access was lost, the data may be intact.",
+            "enum": [
+              "healthy",
+              "missing",
+              "inaccessible"
+            ],
+            "title": "Source Health",
+            "type": "string"
+          },
+          "source_health_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the origin is not healthy, as one of a fixed set of GeoLens codes: blocked_by_policy, item_withdrawn, network_error, not_found, server_error, timeout, unauthorized, unexpected_status. Null when healthy or never probed. Never provider text, a URL, or a response body \u2014 nothing the origin sent is stored here.",
+            "title": "Source Health Detail"
+          },
+          "last_checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When GeoLens last contacted this origin, success or failure.",
+            "title": "Last Checked At"
+          }
+        },
+        "required": [
+          "dataset_id",
+          "origin",
+          "source_health"
+        ],
+        "title": "SourceHealthResponse",
+        "type": "object"
+      },
       "StacAsset": {
         "properties": {
           "href": {
@@ -15403,6 +15467,19 @@
             "maxLength": 4096,
             "title": "Data Asset Href",
             "type": "string"
+          },
+          "item_href": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The item's own canonical URL, echoed from search results.",
+            "title": "Item Href"
           },
           "bbox": {
             "anyOf": [
@@ -15966,6 +16043,18 @@
             ],
             "description": "Parent collection ID.",
             "title": "Collection"
+          },
+          "item_href": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The item's own canonical URL, from its rel=self link. Echo it back on import so the dataset's origin can point at the item as well as the asset; null when the catalog omits a self link.",
+            "title": "Item Href"
           },
           "title": {
             "description": "Item title (falls back to ID).",
@@ -37457,6 +37546,150 @@
         "summary": "Get Dataset Rows Endpoint",
         "tags": [
           "Datasets - Data"
+        ]
+      }
+    },
+    "/datasets/{dataset_id}/source-health/": {
+      "post": {
+        "description": "Contact this dataset's origin and record what came back.\n\nOwner-or-admin: this makes GeoLens issue an outbound request on the\ncaller's behalf and writes to the dataset row. Readers get the stored\nresult from ``GET /datasets/{id}`` instead.",
+        "operationId": "check_source_health_datasets__dataset_id__source_health__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceHealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad request \u2014 invalid payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Forbidden \u2014 caller lacks write access"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Conflict \u2014 resource state prevents the operation"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many requests \u2014 retry after the advertised interval",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the request may be retried",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Service unavailable \u2014 the database could not serve the request"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          },
+          {
+            "ApiKeyHeader": []
+          },
+          {
+            "ApiKeyQuery": []
+          }
+        ],
+        "summary": "Check Source Health",
+        "tags": [
+          "Datasets - Source health"
         ]
       }
     },
