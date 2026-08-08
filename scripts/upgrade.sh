@@ -143,6 +143,26 @@ override_targets_bundled_db() {
   [ "$_authority" != "$_url" ] || return 1
   _authority="${_authority%%/*}"
   _host_port="${_authority##*@}"
+
+  # libpq permits credentials in the authority with the host supplied only as
+  # a query parameter: postgresql://user:pass@/db?host=db. Settings accepts
+  # this form, so resolve it before applying the managed-database bypass.
+  if [ -z "$_host_port" ]; then
+    _query="${_url#*\?}"
+    if [ "$_query" != "$_url" ]; then
+      _host_port="$(printf '%s' "$_query" \
+        | tr '&' '\n' \
+        | sed -n 's/^host=\([^#]*\).*$/\1/p' \
+        | head -n 1)"
+    fi
+  fi
+
+  # PostgreSQL hostnames are case-insensitive. Decode the unreserved `db`
+  # spelling (and an encoded port separator) that urllib.parse accepts too.
+  _host_port="$(printf '%s' "$_host_port" \
+    | tr '[:upper:]' '[:lower:]' \
+    | sed -e 's/%44/d/g' -e 's/%42/b/g' -e 's/%64/d/g' -e 's/%62/b/g' \
+          -e 's/%3a/:/g')"
   case "$_host_port" in
     db|db:*) return 0 ;;
     *) return 1 ;;
