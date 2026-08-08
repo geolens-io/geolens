@@ -164,6 +164,26 @@ class _SSRFGuardTransport(httpx.AsyncHTTPTransport):
         return await super().handle_async_request(request)
 
 
+def logical_response_url(resp: httpx.Response) -> str:
+    """The response's URL with the hostname the caller addressed.
+
+    fix(#1271 review): ``_SSRFGuardTransport`` pins the connection by
+    rewriting the request URL's host to the validated IP, and httpx exposes
+    that mutated URL as ``resp.url``. Anything derived from it — resolving a
+    relative link, storing a provenance pointer — would then carry the IP
+    instead of the hostname, which breaks TLS verification and virtual-host
+    routing the next time the stored value is fetched. The transport parks
+    the logical host in the ``sni_hostname`` extension on every hop, so the
+    final request's extension names the final logical host even after
+    redirects. Falls back to ``resp.url`` unchanged for transports that never
+    pinned (tests, plain clients).
+    """
+    host = resp.request.extensions.get("sni_hostname")
+    if host:
+        return str(resp.url.copy_with(host=host))
+    return str(resp.url)
+
+
 def make_safe_transport() -> httpx.AsyncBaseTransport:
     """Return an HTTP transport that blocks SSRF and DNS rebinding.
 

@@ -18,7 +18,10 @@ import httpx
 import structlog
 
 from app.core.url_redaction import has_url_credentials
-from app.modules.catalog.sources.security import make_safe_client
+from app.modules.catalog.sources.security import (
+    logical_response_url,
+    make_safe_client,
+)
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -265,7 +268,7 @@ async def search_stac_items(
             {
                 "id": f.get("id"),
                 "collection": f.get("collection"),
-                "item_href": _self_link_href(f, str(resp.url)),
+                "item_href": _self_link_href(f, logical_response_url(resp)),
                 "bbox": f.get("bbox"),
                 "datetime": dt,
                 "datetime_start": dt_start,

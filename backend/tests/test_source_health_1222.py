@@ -57,7 +57,7 @@ from app.modules.catalog.sources.origin_probe import (
     probe_remote_uri,
     remote_asset_exists,
 )
-from app.modules.catalog.sources.security import SSRFError
+from app.modules.catalog.sources.security import SSRFError, logical_response_url
 from app.platform.dataset_origin import build_origin_ref
 from tests.factories import create_dataset as _create_dataset, get_user_id
 
@@ -331,6 +331,27 @@ class TestStacItemHrefCapture:
 
     def test_missing_links_key_yields_none(self) -> None:
         assert _self_link_href({}, _SEARCH_URL) is None
+
+
+class TestLogicalResponseUrl:
+    """fix(#1271 review): the SSRF transport pins the request URL to the
+    validated IP, so resp.url is the IP form. A relative self link resolved
+    against it would store an IP item_href that fails TLS verification and
+    virtual-host routing on the next probe."""
+
+    def test_recovers_the_hostname_the_pinning_transport_replaced(self) -> None:
+        request = httpx.Request(
+            "POST",
+            "https://93.184.216.34:8443/stac/search",
+            extensions={"sni_hostname": "origin.test"},
+        )
+        resp = httpx.Response(200, request=request)
+        assert logical_response_url(resp) == "https://origin.test:8443/stac/search"
+
+    def test_unpinned_response_url_passes_through(self) -> None:
+        request = httpx.Request("POST", _SEARCH_URL)
+        resp = httpx.Response(200, request=request)
+        assert logical_response_url(resp) == _SEARCH_URL
 
     def test_item_href_is_an_accepted_origin_ref_key(self) -> None:
         ref = build_origin_ref(
