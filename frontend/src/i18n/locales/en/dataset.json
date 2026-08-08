@@ -745,7 +745,9 @@
       "version": "Version {{number}}",
       "current": "Current",
       "catalogUpdate": "Catalog source",
-      "features": "features"
+      "features_one": "{{formattedCount}} feature",
+      "features_other": "{{formattedCount}} features",
+      "features_many": "{{formattedCount}} features"
     },
     "vrt": {
       "title": "VRT members",
@@ -778,6 +780,7 @@
       "system": "System",
       "user": "User",
       "generation": {
+        "pending": "Pending",
         "completed": "Completed",
         "running": "Running",
         "failed": "Failed"

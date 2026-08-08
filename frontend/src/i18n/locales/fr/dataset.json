@@ -794,7 +794,9 @@
       "version": "Version {{number}}",
       "current": "Actuelle",
       "catalogUpdate": "Source du catalogue",
-      "features": "entités"
+      "features_one": "{{formattedCount}} entité",
+      "features_other": "{{formattedCount}} entités",
+      "features_many": "{{formattedCount}} entités"
     },
     "vrt": {
       "title": "Membres du VRT",
@@ -827,6 +829,7 @@
       "system": "Système",
       "user": "Utilisateur",
       "generation": {
+        "pending": "En attente",
         "completed": "Terminée",
         "running": "En cours",
         "failed": "Échouée"

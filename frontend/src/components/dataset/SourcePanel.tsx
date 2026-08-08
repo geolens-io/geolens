@@ -245,7 +245,10 @@ function SourceHistory({ dataset }: { dataset: DatasetResponse }) {
                 {' · '}
                 {version.source_filename ?? t('sourcePanel.history.catalogUpdate')}
                 {version.feature_count != null
-                  ? ` · ${version.feature_count.toLocaleString(i18n.language)} ${t('sourcePanel.history.features')}`
+                  ? ` · ${t('sourcePanel.history.features', {
+                      count: version.feature_count,
+                      formattedCount: version.feature_count.toLocaleString(i18n.language),
+                    })}`
                   : ''}
               </p>
             </li>

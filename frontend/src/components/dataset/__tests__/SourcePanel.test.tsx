@@ -139,6 +139,34 @@ describe('SourcePanel', () => {
     expect(initialVersion).not.toHaveTextContent('1,234 features');
   });
 
+  it('pluralizes a single feature in source history', () => {
+    vi.mocked(useDatasetVersions).mockReturnValue({
+      data: {
+        versions: [{
+          id: 'version-1',
+          dataset_id: 'dataset-1',
+          version_number: 1,
+          source_filename: 'parks.geojson',
+          source_format: 'geojson',
+          feature_count: 1,
+          srid: 4326,
+          geometry_type: 'Polygon',
+          file_hash: null,
+          uploaded_by: null,
+          uploaded_at: '2026-08-01T14:30:00Z',
+        }],
+        total: 1,
+      },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useDatasetVersions>);
+
+    render(<SourcePanel dataset={makeDataset({ current_version: 1 })} />);
+
+    expect(screen.getByText(/parks\.geojson · 1 feature$/)).toBeInTheDocument();
+    expect(screen.queryByText(/1 features/)).not.toBeInTheDocument();
+  });
+
   it.each([
     {
       name: 'registered PostGIS table',
@@ -256,17 +284,29 @@ describe('SourcePanel', () => {
     } as unknown as ReturnType<typeof useVrtStatus>);
     vi.mocked(useVrtGenerations).mockReturnValue({
       data: {
-        generations: [{
-          id: 'generation-1',
-          status: 'failed',
-          started_at: '2026-08-02T00:00:00Z',
-          completed_at: '2026-08-02T00:00:01Z',
-          duration_seconds: 1,
-          error_message: 'https://source.test/?token=must-not-render',
-          source_count: 1,
-          triggered_by: 'system',
-        }],
-        total: 1,
+        generations: [
+          {
+            id: 'generation-1',
+            status: 'failed',
+            started_at: '2026-08-02T00:00:00Z',
+            completed_at: '2026-08-02T00:00:01Z',
+            duration_seconds: 1,
+            error_message: 'https://source.test/?token=must-not-render',
+            source_count: 1,
+            triggered_by: 'system',
+          },
+          {
+            id: 'generation-2',
+            status: 'pending',
+            started_at: '2026-08-03T00:00:00Z',
+            completed_at: null,
+            duration_seconds: null,
+            error_message: null,
+            source_count: 1,
+            triggered_by: 'user',
+          },
+        ],
+        total: 2,
       },
     } as unknown as ReturnType<typeof useVrtGenerations>);
 
@@ -304,6 +344,7 @@ describe('SourcePanel', () => {
     expect(screen.getByRole('region', { name: 'VRT member sources' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Elevation tile' })).toHaveAttribute('href', '/datasets/member-1');
     expect(screen.getByRole('region', { name: 'Generation history' })).toBeInTheDocument();
+    expect(screen.getByText('Pending')).toBeInTheDocument();
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
     expect(container.textContent).not.toMatch(/refresh now|regenerate|add source|remove source/i);
     expect(container.innerHTML).not.toContain('must-not-render');
