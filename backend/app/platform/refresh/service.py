@@ -170,7 +170,15 @@ async def create_pending_run(
     # deliberately narrow — a LIVE Procrastinate task AND a job with no run
     # row of any status — because post-migration dispatch creates the run in
     # the same transaction, so only legacy work can ever match and the check
-    # is inert once those pods drain.
+    # is inert once those pods drain. One gap is accepted and documented
+    # rather than closed (fix #1274 review r8): an old pod that has committed
+    # its job but not yet inserted the task row is invisible here for those
+    # milliseconds, and no marker can distinguish that state from a staged
+    # preview in legacy rows — treating both as busy would 409 refreshes
+    # behind every parked preview. Closing it needs a deployment barrier
+    # between API generations; single-node compose deploys (the shipping
+    # mode) never overlap generations, and rolling K8s deploys bound the
+    # exposure to concurrent same-dataset commits during the pod swap.
     legacy_live = await session.scalar(
         text(
             """
