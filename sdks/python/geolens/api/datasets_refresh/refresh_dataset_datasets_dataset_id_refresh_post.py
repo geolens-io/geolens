@@ -31,7 +31,7 @@ def _get_kwargs(
 
     if isinstance(body, DatasetRefreshRequest):
         _kwargs["json"] = body.to_dict()
-    else:
+    elif not isinstance(body, Unset):
         _kwargs["json"] = body
 
     headers["Content-Type"] = "application/json"

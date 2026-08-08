@@ -34,6 +34,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -170,6 +171,97 @@ class TestPythonAuthWrapperUnit:
     def test_client_property(self) -> None:
         c = GeolensClient(base_url="http://x", bearer_token="abc")
         assert c.client is c._client
+
+
+# ------------------- Optional request bodies (regeneration guard) -------------------
+
+
+class TestOptionalRequestBodyIsOmitted:
+    """fix(#1277 review): an omitted body must not reach httpx as UNSET.
+
+    openapi-python-client emits ``else: _kwargs["json"] = body`` for an
+    optional request body. The ``else`` is right for an explicit ``None`` — a
+    caller asking to send JSON ``null`` — and wrong for the default, because
+    ``UNSET`` is a sentinel object rather than data: httpx raises ``TypeError``
+    while serializing it and the request never leaves. Every optional-body
+    endpoint in the SDK was unusable at its own documented default.
+
+    ``scripts/fix_sdk_optional_body.py`` guards the emission inside ``make
+    sdks``, so the corrected form is the only one the tree ever holds. These
+    tests are the second line: they fail if somebody regenerates without the
+    pipeline step, or if a generator bump changes the shape the script matches.
+
+    Deliberately checks EVERY optional-body endpoint rather than the one that
+    surfaced the bug — all five were broken, and #1220 only made it visible.
+    """
+
+    def _optional_body_modules(self) -> list[Path]:
+        api_root = _SDK_PY_PATH / "geolens" / "api"
+        matches: list[Path] = []
+        for path in sorted(api_root.rglob("*.py")):
+            source = path.read_text(encoding="utf-8")
+            if re.search(r"^\s*body:\s.*\bUnset\b\s*=\s*UNSET", source, re.MULTILINE):
+                matches.append(path)
+        return matches
+
+    def test_the_sdk_still_has_optional_body_endpoints_to_guard(self) -> None:
+        """Guard the guard: an empty sweep would pass the test below vacuously."""
+        assert self._optional_body_modules(), (
+            "No optional-body endpoints found in the generated SDK. Either the "
+            "API changed or this scan stopped matching — verify before deleting."
+        )
+
+    def test_no_optional_body_endpoint_assigns_the_sentinel(self) -> None:
+        unguarded = [
+            str(path.relative_to(_SDK_PY_PATH))
+            for path in self._optional_body_modules()
+            if re.search(
+                r'^(?P<indent>[ ]+)else:\n(?P=indent)[ ]{4}_kwargs\["json"\] = body$',
+                path.read_text(encoding="utf-8"),
+                re.MULTILINE,
+            )
+        ]
+        assert not unguarded, (
+            "These generated endpoints assign the UNSET sentinel to `json`, so "
+            "calling them without a body raises TypeError inside httpx. Run "
+            "`make sdks` (which applies scripts/fix_sdk_optional_body.py) and "
+            "commit the result:\n  " + "\n  ".join(unguarded)
+        )
+
+    def test_omitting_the_body_builds_kwargs_with_no_json_key(self) -> None:
+        """The behavioural half, against the real generated function.
+
+        The scan above proves the source shape; this proves what the shape
+        does. A future generator could reintroduce the defect in a form the
+        regex does not match, and this would still catch it.
+        """
+        from geolens.api.datasets_refresh import (
+            refresh_dataset_datasets_dataset_id_refresh_post as refresh_endpoint,
+        )
+
+        omitted = refresh_endpoint._get_kwargs(dataset_id=uuid4())
+        assert "json" not in omitted
+
+        # An explicit None is a different request and keeps its null body —
+        # the one thing the generator's `else` got right.
+        explicit_null = refresh_endpoint._get_kwargs(dataset_id=uuid4(), body=None)
+        assert explicit_null["json"] is None
+
+    def test_httpx_can_serialize_the_omitted_body_request(self) -> None:
+        """The failure mode itself: building the request used to raise.
+
+        Asserting on the kwargs alone would not have caught the original bug
+        if the sentinel had been JSON-serializable, so drive httpx the way the
+        SDK does.
+        """
+        from geolens.api.datasets_refresh import (
+            refresh_dataset_datasets_dataset_id_refresh_post as refresh_endpoint,
+        )
+
+        kwargs = refresh_endpoint._get_kwargs(dataset_id=uuid4())
+        with httpx.Client(base_url="http://test") as client:
+            request = client.build_request(**kwargs)
+        assert request.read() == b""
 
 
 # --------------------------- Round-trip tests (Python) ---------------------------
