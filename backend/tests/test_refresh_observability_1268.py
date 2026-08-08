@@ -279,6 +279,86 @@ class TestRefreshAuditTrail:
         assert actions == ["refresh.dispatch", "refresh.abandoned"]
 
 
+class TestReconciliationCounterPublishesOnlyAfterCommit:
+    """fix(#1277 review): a counter increment cannot be taken back.
+
+    The sweep used to increment where it ran, inside the transaction. Any
+    later failure in the same pass rolls the cancellations back and leaves the
+    counter claiming them — permanently, because counters only go up, so every
+    rate() over that window stays wrong. Publishing therefore waits for
+    durability rather than intent.
+    """
+
+    def _outcome(self, reconciled: int):
+        from app.platform.jobs.router import StaleCleanupOutcome
+
+        return StaleCleanupOutcome(
+            pending_failed=0,
+            running_failed=0,
+            vrt_assets_recovered=0,
+            vrt_generations_failed=0,
+            terminal_jobs_purged=0,
+            staged_paths_considered=0,
+            local_files_reaped=0,
+            storage_objects_reaped=0,
+            staged_paths_skipped=0,
+            staged_cleanup_failures=0,
+            _refresh_runs_reconciled=reconciled,
+        )
+
+    def _counter_value(self) -> float:
+        return refresh_metrics.refresh_sweep_reconciled_total._value.get()
+
+    def test_publishing_an_outcome_increments_by_its_count(self) -> None:
+        from app.platform.jobs.router import publish_refresh_reconciliation
+
+        before = self._counter_value()
+        publish_refresh_reconciliation(self._outcome(3))
+        assert self._counter_value() == before + 3
+
+    def test_an_outcome_that_reconciled_nothing_publishes_nothing(self) -> None:
+        from app.platform.jobs.router import publish_refresh_reconciliation
+
+        before = self._counter_value()
+        publish_refresh_reconciliation(self._outcome(0))
+        assert self._counter_value() == before
+
+    def test_the_count_is_carried_out_of_the_sweep_not_incremented_inside_it(
+        self,
+    ) -> None:
+        """The structural half: no increment survives at the sweep call site.
+
+        A behavioural test cannot see the difference between "incremented
+        after the commit" and "incremented before it" without engineering a
+        mid-pass failure, so pin the shape instead — the sweep records the
+        count on the outcome and the commit sites publish it.
+        """
+        import inspect
+
+        from app.platform.jobs import router as jobs_router
+
+        source = inspect.getsource(jobs_router.fail_stale_jobs)
+        assert "refresh_sweep_reconciled_total.inc" not in source
+        assert "_refresh_runs_reconciled=cancelled_runs" in source
+        assert source.index("await db.commit()") < source.index(
+            "publish_refresh_reconciliation"
+        )
+
+    def test_the_admin_path_publishes_after_its_own_commit(self) -> None:
+        """commit=False hands the publish to the caller that owns the commit."""
+        import inspect
+
+        from app.platform.jobs import router as jobs_router
+
+        source = inspect.getsource(jobs_router)
+        admin = source[
+            source.index("outcome = await fail_stale_jobs(db, commit=False") :
+        ]
+        commit_at = admin.index("await db.commit()")
+        publish_at = admin.index("publish_refresh_reconciliation")
+        assert commit_at < publish_at
+
+
 class TestRefreshMetricSafety:
     """The multi-worker property, asserted on the metric definitions.
 

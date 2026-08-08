@@ -2241,7 +2241,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the comment explaining why this one is a real counter while the refresh
     # run series beside it are derived gauges: the sweep runs inside one API
     # request on one worker, so nothing sums it twice. Cap 1573 -> 1580, exact.
-    "backend/app/platform/jobs/router.py": 1580,
+    # fix(#1277 review): +25 — the increment moved off the sweep call site and
+    # behind the commit, because a counter cannot be decremented: a pass that
+    # rolled back left the metric permanently claiming cancellations that
+    # never happened. That bought `publish_refresh_reconciliation` and its
+    # docstring, the private `_refresh_runs_reconciled` field carrying the
+    # count out to whichever caller owns the commit (the admin path passes
+    # commit=False), and the comment at the second commit site.
+    # Cap 1580 -> 1605, exact.
+    "backend/app/platform/jobs/router.py": 1605,
     # fix(second-opinion review on #1236 review r3): first entry — crossed
     # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
     # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side
