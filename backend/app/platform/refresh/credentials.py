@@ -346,12 +346,27 @@ async def discard_service_credential(ref: str | None) -> None:
 
 # The credentials whose dispatch is still genuinely waiting to be picked up.
 #
-# TWO stops, and they are the abandonment sweep's own definition of "still
-# alive" rather than a second opinion about it:
+# TWO stops, and both are the abandonment sweep's own definition of "still
+# alive" rather than a second opinion about it. Round 5 made the RUN side
+# defer to the sweep; round 7 finished the job on the TASK side, which had
+# been narrower than the sweep's all along:
 #
-# 1. `pj.status = 'todo'` — the task is still QUEUED. The moment a worker
-#    claims it the row moves to 'doing' and the claim itself GETDELs the key,
-#    so renewal and the credential end together.
+# 1. the task is still LIVE — 'todo' or 'doing', which is the abandonment
+#    sweep's own liveness test, character for character.
+#
+#    fix(#1277 review round 7): this said 'todo' alone, on the belief that a
+#    worker moving the row to 'doing' and GETDELing the key were the same
+#    event. They are not. Procrastinate flips the status BEFORE invoking the
+#    task, and the task revalidates its URL for SSRF — an unbounded DNS
+#    resolution — before it claims. A stalled resolver longer than the TTL
+#    therefore expired a credential belonging to a refresh that was actively
+#    being worked on.
+#
+#    'doing' is safe to include for the reason that made GETDEL the right
+#    primitive in the first place: EXPIRE cannot resurrect. Once the claim has
+#    removed the key, every later renewal is a no-op on a key that does not
+#    exist, so this self-terminates at the true claim event rather than at a
+#    status flip that merely precedes it. No new constant, no new coordination.
 # 2. the run is still active — a terminal run cannot use a credential, so
 #    there is nothing left to keep alive.
 #
@@ -383,7 +398,7 @@ _RENEWABLE_CREDENTIALS_SQL = text(
     FROM catalog.procrastinate_jobs pj
     JOIN catalog.ingest_jobs j ON pj.args->>'job_id' = j.id::text
     JOIN catalog.dataset_refresh_runs r ON r.ingest_job_id = j.id
-    WHERE pj.status = 'todo'
+    WHERE pj.status IN ('todo', 'doing')
       AND pj.args->>'credential_ref' IS NOT NULL
       AND r.status IN ('pending', 'running')
       AND (

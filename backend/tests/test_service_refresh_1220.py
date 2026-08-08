@@ -1369,17 +1369,44 @@ class TestCredentialRenewal:
         # Still claimable afterwards — renewal must not consume it.
         assert await creds.claim_service_credential(ref) == "still-waiting"
 
-    async def test_a_claimed_dispatch_is_not_renewed(
+    async def test_a_dispatch_being_worked_on_is_still_renewed(
         self, client, test_db_session, credential_backend
     ) -> None:
-        """`doing` means a worker took it, and the claim GETDELs the key.
+        """fix(#1277 review round 7): 'doing' does not mean the key is gone.
 
-        Renewal and the credential end together; re-arming here would be
-        re-arming a key that no longer exists.
+        Procrastinate flips the row to 'doing' BEFORE invoking the task, and
+        the task revalidates its URL for SSRF — an unbounded DNS resolution —
+        before it claims the credential. Renewal keyed on 'todo' alone
+        therefore stopped during that pre-claim window, and a stalled resolver
+        longer than the TTL expired the credential of a refresh that was
+        actively being worked on.
+
+        The predicate now matches the abandonment sweep's liveness test
+        exactly, which is the same deferral round 5 applied to the run side.
         """
-        ref = await creds.stash_service_credential("already-claimed")
+        ref = await creds.stash_service_credential("being-worked-on")
         await self._dispatch(test_db_session, ref=ref, pj_status="doing")
 
+        assert await creds.renew_queued_refresh_credentials(test_db_session) == 1
+        # Untouched by the renewal — still there for the claim to consume.
+        assert await creds.claim_service_credential(ref) == "being-worked-on"
+
+    async def test_renewal_stops_at_the_claim_rather_than_the_status_flip(
+        self, client, test_db_session, credential_backend
+    ) -> None:
+        """What makes 'doing' safe to include: EXPIRE cannot resurrect.
+
+        Renewal self-terminates at the real claim event instead of at a status
+        flip that merely precedes it. Once GETDEL has removed the key, every
+        later cycle is a no-op on a key that does not exist — so widening the
+        predicate cannot keep a consumed credential alive, which is the whole
+        reason this needed no new constant or coordination.
+        """
+        ref = await creds.stash_service_credential("claim-me")
+        await self._dispatch(test_db_session, ref=ref, pj_status="doing")
+
+        assert await creds.claim_service_credential(ref) == "claim-me"
+        # The row is still 'doing' — only the claim has changed anything.
         assert await creds.renew_queued_refresh_credentials(test_db_session) == 0
 
     async def test_a_terminal_run_is_not_renewed(
@@ -1443,6 +1470,38 @@ class TestCredentialRenewal:
         )
         assert await creds.renew_queued_refresh_credentials(test_db_session) == 1, (
             "and renewal must keep the credential for exactly that run"
+        )
+        run = await _run_for(test_db_session, dataset.id)
+        assert run is not None and run.status == "pending"
+
+    async def test_renewal_and_the_sweep_agree_while_the_task_is_executing(
+        self, client, test_db_session, credential_backend
+    ) -> None:
+        """fix(#1277 review round 7): the same pin, for the 'doing' half.
+
+        The sweep's liveness test is `IN ('todo', 'doing')` in all three of
+        its predicates — an executing job is not abandoned — and renewal was
+        narrower than that. Pinning both statuses means narrowing either side
+        back to 'todo' alone breaks a test that says why they move together.
+        """
+        from app.platform.refresh.service import (
+            ABANDONED_RUN_CUTOFF_SECONDS,
+            sweep_abandoned_refresh_runs,
+        )
+
+        ref = await creds.stash_service_credential("executing-now")
+        dataset, _job = await self._dispatch(
+            test_db_session,
+            ref=ref,
+            pj_status="doing",
+            run_age_seconds=ABANDONED_RUN_CUTOFF_SECONDS + 3600,
+        )
+
+        assert await sweep_abandoned_refresh_runs(test_db_session) == 0, (
+            "the sweep must not cancel a run whose task is executing"
+        )
+        assert await creds.renew_queued_refresh_credentials(test_db_session) == 1, (
+            "and renewal must keep that run's credential through the pre-claim window"
         )
         run = await _run_for(test_db_session, dataset.id)
         assert run is not None and run.status == "pending"
