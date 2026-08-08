@@ -75,7 +75,13 @@ def _self_link_href(feature: dict[str, Any], base_url: str) -> str | None:
         href = link.get("href")
         if not isinstance(href, str) or not href.strip():
             continue
-        resolved = urljoin(base_url, href)
+        try:
+            resolved = urljoin(base_url, href)
+        except ValueError:
+            # fix(#1271 review): a malformed href (`http://[bad`) raises out
+            # of urljoin; item_href is optional and the asset may be fine, so
+            # one broken link must not 502 the whole search result set.
+            continue
         if resolved.lower().startswith(
             ("http://", "https://")
         ) and not has_url_credentials(resolved):

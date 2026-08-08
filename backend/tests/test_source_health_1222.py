@@ -324,6 +324,9 @@ class TestStacItemHrefCapture:
             # Credential checks run on the RESOLVED value, so a relative href
             # cannot smuggle userinfo past them either.
             [{"rel": "self", "href": "//user:pw@origin.test/items/x"}],
+            # A malformed href raises inside urljoin; one broken link must
+            # not 502 the whole search result set (fix #1271 review).
+            [{"rel": "self", "href": "http://[bad"}],
         ],
     )
     def test_unusable_self_links_yield_none(self, links: list) -> None:
