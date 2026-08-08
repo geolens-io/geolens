@@ -139,6 +139,21 @@ describe('SourcePanel', () => {
     expect(initialVersion).not.toHaveTextContent('1,234 features');
   });
 
+  it('keeps the synthetic initial feature count neutral before any reupload', () => {
+    vi.mocked(useDatasetVersions).mockReturnValue({
+      data: { versions: [], total: 0 },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useDatasetVersions>);
+
+    render(<SourcePanel dataset={makeDataset({ current_version: 1 })} />);
+
+    const initialVersion = screen.getByText('Version 1').closest('li');
+    expect(initialVersion).not.toBeNull();
+    expect(initialVersion).toHaveTextContent('parks.geojson');
+    expect(initialVersion).not.toHaveTextContent('1,234 features');
+  });
+
   it('pluralizes a single feature in source history', () => {
     vi.mocked(useDatasetVersions).mockReturnValue({
       data: {
