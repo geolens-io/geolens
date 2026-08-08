@@ -123,7 +123,19 @@ def _write_swapped_fields(
     return new_version
 
 
-ARCHIVED_ORIGINAL_KEY = "archived_original"
+ARCHIVED_ORIGINAL_KEY_PREFIX = "archived_original:"
+
+
+def archived_original_asset_key(source_sha256: str) -> str:
+    """The ``dataset_assets`` key for ONE kept original.
+
+    fix(#1290 review): per-archive, not per-dataset. A single constant key
+    counted only the newest original and left every superseded one accumulating
+    uncounted — the exact scenario ``MAX_STORAGE_BYTES_PER_USER`` exists to
+    bound. Keying on the same content hash the object key uses means the unique
+    constraint deduplicates identical re-uploads for free.
+    """
+    return f"{ARCHIVED_ORIGINAL_KEY_PREFIX}{source_sha256[:12]}"
 
 
 def archived_original_uri(
@@ -215,7 +227,12 @@ async def archive_lossy_original(
 
 
 async def upsert_archived_original_row(
-    session, *, dataset_id, logical_key: str | None, size_bytes: int
+    session,
+    *,
+    dataset_id,
+    logical_key: str | None,
+    asset_key: str | None,
+    size_bytes: int,
 ) -> None:
     """Give the kept original a counted row so storage quota can see it.
 
@@ -230,10 +247,11 @@ async def upsert_archived_original_row(
     out of STAC responses, because the kept original is the higher-fidelity copy
     the operator chose not to serve.
 
-    One row per dataset, holding the CURRENT original. Superseded archives stay
-    in storage as the retention policy promises, but only the newest is counted
-    — counting every one would bill an owner for history they cannot enumerate
-    or delete through the product.
+    One row per KEPT ORIGINAL, not per dataset. Counting only the newest would
+    leave superseded originals accumulating uncounted, which is precisely the
+    unbounded growth the cap exists to prevent; an owner's release valve is
+    deleting the dataset (which clears both the rows and the object prefix) or
+    removing individual objects themselves, not the accounting looking away.
     """
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -242,13 +260,13 @@ async def upsert_archived_original_row(
     # No key means the conversion preserved the source and nothing was kept.
     # Handled here so the caller has one unconditional call rather than a
     # branch it has to remember to write.
-    if logical_key is None:
+    if logical_key is None or asset_key is None:
         return
 
     DatasetAsset = get_catalog_port().dataset_asset_orm_class()
     row = {
         "dataset_id": dataset_id,
-        "key": ARCHIVED_ORIGINAL_KEY,
+        "key": asset_key,
         "href": logical_key,
         "media_type": "image/tiff",
         "title": "Pre-conversion original",
@@ -306,7 +324,8 @@ async def reserve_replacement_bytes(
         text(
             "SELECT COALESCE(SUM(size_bytes), 0)::bigint "
             "FROM catalog.dataset_assets "
-            "WHERE dataset_id = :dataset_id AND key IN ('data', 'archived_original')"
+            "WHERE dataset_id = :dataset_id "
+            "AND (key = 'data' OR key LIKE 'archived_original:%')"
         ),
         {"dataset_id": dataset_id},
     )

@@ -2535,7 +2535,8 @@ class TestArchivedOriginalsAreCounted:
                 await test_db_session.execute(
                     text(
                         "SELECT href, size_bytes FROM catalog.dataset_assets "
-                        "WHERE dataset_id = :id AND key = 'archived_original'"
+                        "WHERE dataset_id = :id "
+                        "AND key LIKE 'archived_original:%'"
                     ),
                     {"id": dataset_id},
                 )
@@ -2637,8 +2638,8 @@ class TestArchivedOriginalsAreCounted:
                 "roles": ["data"],
             },
             {
-                "key": "archived_original",
-                "href": "originals/x/abc-scene.tif",
+                "key": "archived_original:abc123def456",
+                "href": "originals/x/abc123def456-scene.tif",
                 "media_type": "image/tiff",
                 "roles": ["archive"],
             },
@@ -2653,10 +2654,10 @@ class TestArchivedOriginalsAreCounted:
             ),
         )
         assert "data" in built
-        assert "archived_original" not in built, (
+        assert "archived_original:abc123def456" not in built, (
             "the kept original is advertised as a downloadable STAC asset"
         )
-        assert "archived_original" not in PUBLIC_ASSET_KEYS
+        assert not any(k.startswith("archived_original") for k in PUBLIC_ASSET_KEYS)
 
 
 class TestRolledBackArchivesDoNotLeakOrClobber:
@@ -2871,3 +2872,132 @@ class TestDoorAdmitsAgainstTheOwner:
         usage = await get_user_quota_usage(test_db_session, None)
         assert usage.bytes_used == 0
         assert usage.dataset_count == 0
+
+
+class TestEveryKeptOriginalIsCounted:
+    """The cap's job is bounding a self-hosted operator's storage by policy, so
+    every kept original carries its own counted row — not just the newest.
+    Counting one would leave the P1's own scenario (repeated distinct lossy
+    replacements) accumulating uncounted objects forever."""
+
+    async def test_two_distinct_lossy_replaces_leave_two_counted_rows(
+        self, test_db_session, raster_storage, tmp_path
+    ) -> None:
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+
+        payloads = [_geotiff_bytes(seed=201), _geotiff_bytes(seed=202)]
+        assert payloads[0] != payloads[1]
+
+        try:
+            for i, payload in enumerate(payloads):
+                source = tmp_path / f"r{i}" / "scene.tif"
+                source.parent.mkdir()
+                source.write_bytes(payload)
+                job = await _queue_replace_job(
+                    test_db_session,
+                    dataset_id=dataset_id,
+                    user_id=admin_id,
+                    file_path=str(source),
+                )
+                job.user_metadata = {
+                    **(job.user_metadata or {}),
+                    "compression": "JPEG",
+                }
+                await test_db_session.commit()
+                await reupload_raster.func(
+                    job_id=str(job.id),
+                    dataset_id=str(dataset_id),
+                    file_path=str(source),
+                    user_id=str(admin_id),
+                    attempt_id=str(job.attempt_id),
+                )
+
+            rows = (
+                await test_db_session.execute(
+                    text(
+                        "SELECT key, size_bytes FROM catalog.dataset_assets "
+                        "WHERE dataset_id = :id AND key LIKE 'archived_original:%' "
+                        "ORDER BY key"
+                    ),
+                    {"id": dataset_id},
+                )
+            ).all()
+            assert len(rows) == 2, (
+                f"two distinct originals are kept in storage but {len(rows)} "
+                "are counted — the superseded one accumulates unbilled"
+            )
+            assert sorted(r.size_bytes for r in rows) == sorted(
+                len(p) for p in payloads
+            )
+
+            # Usage reflects BOTH, not just the survivor.
+            from app.modules.quota.service import get_user_quota_usage
+
+            usage = await get_user_quota_usage(test_db_session, admin_id)
+            assert usage.bytes_used >= sum(len(p) for p in payloads)
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
+    async def test_identical_bytes_still_count_once(
+        self, test_db_session, raster_storage, tmp_path
+    ) -> None:
+        """The key is content-derived, so a byte-identical re-upload lands on
+        the same row and updates in place. One object, one row, billed once."""
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+        payload = _geotiff_bytes(seed=211)
+
+        try:
+            for i in range(2):
+                source = tmp_path / f"same{i}" / "scene.tif"
+                source.parent.mkdir()
+                source.write_bytes(payload)
+                job = await _queue_replace_job(
+                    test_db_session,
+                    dataset_id=dataset_id,
+                    user_id=admin_id,
+                    file_path=str(source),
+                )
+                job.user_metadata = {
+                    **(job.user_metadata or {}),
+                    "compression": "JPEG",
+                }
+                await test_db_session.commit()
+                await reupload_raster.func(
+                    job_id=str(job.id),
+                    dataset_id=str(dataset_id),
+                    file_path=str(source),
+                    user_id=str(admin_id),
+                    attempt_id=str(job.attempt_id),
+                )
+
+            count = (
+                await test_db_session.execute(
+                    text(
+                        "SELECT count(*) FROM catalog.dataset_assets "
+                        "WHERE dataset_id = :id AND key LIKE 'archived_original:%'"
+                    ),
+                    {"id": dataset_id},
+                )
+            ).scalar_one()
+            assert count == 1, "an identical re-upload was billed twice"
+            assert len(await raster_storage.list(f"originals/{dataset_id}/")) == 1
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)

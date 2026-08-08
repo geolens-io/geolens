@@ -76,6 +76,7 @@ from app.processing.ingest.tasks_raster_common import (
 from app.processing.ingest.tasks_raster_swap import (
     _prior_asset_keys_to_reap,
     archive_lossy_original,
+    archived_original_asset_key,
     upsert_archived_original_row,
     reserve_replacement_bytes,
     _run_post_swap_followups,
@@ -559,6 +560,9 @@ async def reupload_raster(
                 session,
                 dataset_id=dataset_uuid,
                 logical_key=archived_key,
+                asset_key=(
+                    archived_original_asset_key(source_sha256) if archived_key else None
+                ),
                 size_bytes=archived_bytes,
             )
             await _upsert_managed_asset_rows(

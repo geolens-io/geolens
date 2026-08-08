@@ -28,7 +28,7 @@ async def get_user_quota_usage(
     """Return current bytes-used and dataset-count for a user in one SQL round-trip.
 
     Joins catalog.records → catalog.datasets → catalog.dataset_assets
-    (key='data' or 'archived_original')
+    (key='data' or 'archived_original:*')
     to sum the byte size of the user's owned dataset files.  Only dataset record
     types are counted (maps, services, and collections are excluded).
 
@@ -54,7 +54,7 @@ async def get_user_quota_usage(
         LEFT JOIN catalog.datasets d  ON d.record_id = r.id
         LEFT JOIN catalog.dataset_assets da
                ON da.dataset_id = d.id
-              AND da.key IN ('data', 'archived_original')
+              AND (da.key = 'data' OR da.key LIKE 'archived_original:%')
         WHERE  r.created_by = :user_id
           AND  r.record_type IN (
                    'vector_dataset', 'raster_dataset', 'vrt_dataset', 'table'
@@ -105,7 +105,7 @@ async def get_user_quota_usage_bulk(
         LEFT JOIN catalog.datasets d  ON d.record_id = r.id
         LEFT JOIN catalog.dataset_assets da
                ON da.dataset_id = d.id
-              AND da.key IN ('data', 'archived_original')
+              AND (da.key = 'data' OR da.key LIKE 'archived_original:%')
         WHERE  r.created_by = ANY(CAST(:user_ids AS uuid[]))
           AND  r.record_type IN (
                    'vector_dataset', 'raster_dataset', 'vrt_dataset', 'table'
@@ -202,12 +202,14 @@ async def check_replacement_quota(
     owner sitting at their permitted dataset limit could not replace a dataset
     they already own, because replacing creates no dataset.
 
-    So: no count check, and the byte check credits what this dataset already
-    contributes. ``bytes_used`` sums ``dataset_assets`` rows with ``key='data'``,
-    so the credit is read from that same row rather than from the raster asset
-    — they diverge for a STAC-imported dataset, which has an asset but no
-    counted row, and crediting bytes the quota never counted would admit an
-    upload that overshoots.
+    So: no count check, and the byte check credits what the replacement
+    SUPERSEDES — the ``data`` row, read from ``dataset_assets`` because that is
+    what ``bytes_used`` sums. It is read from the row rather than the raster
+    asset because the two diverge for a STAC-imported dataset, which has an
+    asset but no counted row, and crediting bytes the quota never counted would
+    admit an upload that overshoots. Archived originals are deliberately NOT
+    credited: a replacement does not supersede them, they persist and stay
+    counted.
 
     This is the EARLY bound and deliberately approximate: the door sees the
     uploaded file, not the COG it converts into, which can be larger. The

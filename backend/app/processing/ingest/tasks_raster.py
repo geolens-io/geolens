@@ -28,6 +28,7 @@ from app.processing.raster.quicklook import generate_quicklook
 from app.platform.jobs.models import owned_presigned_staging_key
 from app.processing.ingest.tasks_raster_swap import (
     archive_lossy_original,
+    archived_original_asset_key,
     upsert_archived_original_row,
 )
 from app.processing.ingest.tasks_raster_common import (
@@ -544,6 +545,9 @@ async def ingest_raster(
                 session,
                 dataset_id=dataset.id,
                 logical_key=archived_key,
+                asset_key=(
+                    archived_original_asset_key(source_sha256) if archived_key else None
+                ),
                 size_bytes=archived_bytes,
             )
             # First ingest reserved only the COG's bytes; the kept original is

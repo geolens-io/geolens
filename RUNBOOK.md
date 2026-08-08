@@ -1623,16 +1623,23 @@ Its lifetime is therefore tied to the dataset, not to a job:
 | The dataset is **deleted** | Removed with it. Deleting a raster dataset clears the whole `originals/<dataset-id>/` prefix. |
 | The `ingest_jobs` retention window passes | Nothing. This copy is not a job artifact. |
 
-**It counts against the owner's storage quota.** The kept original gets its own
-row in the dataset's asset table, so `MAX_STORAGE_BYTES_PER_USER` sees those
-bytes and a lossy replacement is admitted only if the COG *and* the original
-fit. That row is internal: it is not published as a downloadable asset in
+**It counts against the owner's storage quota.** Every kept original gets its
+own row in the dataset's asset table, so `MAX_STORAGE_BYTES_PER_USER` sees
+those bytes and a lossy replacement is admitted only if the COG *and* the
+original fit. That includes superseded originals: the cap exists to bound your
+storage by policy, so nothing that persists is left uncounted. Re-uploading a
+byte-identical file does not double-count — it is the same object and the same
+row.
+
+Those rows are internal. They are not published as downloadable assets in
 search or STAC responses, because the original is the higher-fidelity copy the
 conversion deliberately replaced.
 
-Only the newest original per dataset is counted. Superseded ones stay in
-storage as this policy promises, but an owner is not billed for history they
-cannot enumerate or delete through the product.
+> **If you delete an original object by hand, its row stays.** There is no
+> reconciliation between storage and the asset table, so the owner's usage will
+> overstate by the size of whatever you removed until the dataset itself is
+> deleted (which clears both). If you need the quota back immediately, delete
+> the dataset rather than the object — or accept the overstatement until then.
 
 The practical consequences:
 

@@ -209,18 +209,20 @@ class DatasetAsset(Base):
       - 'thumbnail': 256px quicklook
       - 'overview': 512px quicklook
       - 'metadata': sidecar metadata JSON
-      - 'archived_original': the pre-conversion upload kept when the COG
-        conversion was lossy (ADR-002 Decision 7). INTERNAL — it exists so the
-        per-user storage sum can see those bytes, and it is deliberately not
-        published as a STAC asset; see ``PUBLIC_ASSET_KEYS``.
+      - 'archived_original:<hash>': one row per pre-conversion upload kept
+        when the COG conversion was lossy (ADR-002 Decision 7). The hash suffix
+        makes the key per-archive, so every kept original is counted rather
+        than only the newest. INTERNAL — it exists so the per-user storage sum
+        can see those bytes, and it is deliberately not published as a STAC
+        asset; see ``PUBLIC_ASSET_KEYS``.
     """
 
     __tablename__ = "dataset_assets"
     __table_args__ = (
         UniqueConstraint("dataset_id", "key", name="uq_dataset_assets_key"),
         CheckConstraint(
-            "key IN ('data', 'vrt', 'thumbnail', 'overview', 'metadata', "
-            "'archived_original')",
+            "key IN ('data', 'vrt', 'thumbnail', 'overview', 'metadata') "
+            "OR key LIKE 'archived_original:%'",
             name="chk_dataset_assets_key",
         ),
         {"schema": "catalog"},
