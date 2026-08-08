@@ -300,10 +300,6 @@ async def refresh_dataset(
             },
         )
 
-    prior_filename, object_id_field = await _prior_service_ingest_settings(
-        db, dataset_id
-    )
-
     # ------------------------------------------------------------------ #
     # fix(#1277 review) — THE ORDERING, and why it is this and not another.
     #
@@ -336,8 +332,10 @@ async def refresh_dataset(
     #      the cheap refusals never touch the index and DNS never resolves
     #      while an uncommitted run row is held;
     #   2. insert the job and reserve the run;
-    #   3. re-read the binding from the database and refuse if it moved;
-    #   4. fill the job from that re-read binding;
+    #   3. re-read EVERY piece of dispatched state from the database — the
+    #      binding and the previous ingest's settings — and refuse if the
+    #      binding moved;
+    #   4. fill the job from those re-read values;
     #   5. stash the credential (still after the reservation and before the
     #      commit, which is round 1's ordering, unchanged);
     #   6. commit, then defer.
@@ -410,6 +408,19 @@ async def refresh_dataset(
                 ),
             },
         )
+
+    # fix(#1277 review): read after the reservation too, for the same reason
+    # the binding is. An unchanged binding does NOT mean unchanged dispatch
+    # state: a re-upload of the same URL and the same layer leaves origin_ref
+    # identical while still writing a new job, and `object_id_field` is the
+    # ArcGIS paging order key — carrying the previous one forward pages the
+    # service by a column that may no longer be its identifier, which silently
+    # duplicates or drops features. The binding check above cannot see that,
+    # so the rule is the whole rule: every piece of state this dispatch
+    # persists is read after the reservation exists.
+    prior_filename, object_id_field = await _prior_service_ingest_settings(
+        db, dataset_id
+    )
 
     # Step 4. Refusing on ANY change rather than dispatching the new binding
     # is the deliberate choice: the caller asked to refresh the source they

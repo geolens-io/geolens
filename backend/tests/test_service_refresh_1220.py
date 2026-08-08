@@ -535,6 +535,79 @@ class TestRefreshRefusals:
         )
         assert jobs == []
 
+    async def test_an_unchanged_binding_still_picks_up_new_ingest_settings(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """fix(#1277 review): the binding check is not the whole check.
+
+        A re-upload of the SAME url and the SAME layer completing during
+        admission leaves `origin_ref` byte-identical, so the binding re-read
+        passes and this request is admitted — correctly. But it also writes a
+        new ingest job, and `object_id_field` from that job is the ArcGIS
+        paging order key. Reading it before the reservation carried the
+        previous key forward, paging the service by a column that may no
+        longer be its identifier: features silently duplicated or dropped, on
+        a refresh that reported success.
+
+        So every piece of dispatched state is read after the reservation, not
+        just the binding.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(test_db_session, created_by=admin_id)
+        test_db_session.add(
+            IngestJob(
+                dataset_id=dataset.id,
+                source_filename="Parcels (old)",
+                source_url=_WFS_BASE,
+                source_layer="topp:parcels",
+                created_by=admin_id,
+                status="complete",
+                completed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                user_metadata={"object_id_field": "old_gid"},
+            )
+        )
+        await test_db_session.commit()
+
+        real_create_pending_run = router_refresh.create_pending_run
+
+        async def _reingest_then_reserve(*args, **kwargs):
+            # Same url, same layer — the binding does not move — but a newer
+            # completed job now carries a different paging key.
+            test_db_session.add(
+                IngestJob(
+                    dataset_id=dataset.id,
+                    source_filename="Parcels (new)",
+                    source_url=_WFS_BASE,
+                    source_layer="topp:parcels",
+                    created_by=admin_id,
+                    status="complete",
+                    completed_at=datetime(2026, 6, 1, tzinfo=timezone.utc),
+                    user_metadata={"object_id_field": "new_gid"},
+                )
+            )
+            await test_db_session.commit()
+            return await real_create_pending_run(*args, **kwargs)
+
+        async with _dispatch_harness():
+            with patch.object(
+                router_refresh, "create_pending_run", _reingest_then_reserve
+            ):
+                resp = await client.post(
+                    f"/datasets/{dataset.id}/refresh", headers=admin_auth_header
+                )
+
+        # Admitted, because the binding genuinely did not change.
+        assert resp.status_code == 202, resp.text
+        job = (
+            await test_db_session.execute(
+                select(IngestJob).where(
+                    IngestJob.id == uuid.UUID(resp.json()["job_id"])
+                )
+            )
+        ).scalar_one()
+        assert job.user_metadata["object_id_field"] == "new_gid"
+        assert job.source_filename == "Parcels (new)"
+
     async def test_a_rebind_to_an_unrefreshable_origin_releases_the_reservation(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ) -> None:
