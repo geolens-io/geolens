@@ -388,6 +388,12 @@ class TestStacItemHrefCapture:
     def test_missing_links_key_yields_none(self) -> None:
         assert _self_link_href({}, _SEARCH_URL) is None
 
+    @pytest.mark.parametrize("links", [1, "self", {"rel": "self"}, None])
+    def test_non_list_links_value_yields_none(self, links) -> None:
+        """A malformed scalar links value costs only this optional field,
+        never a 502 for the whole search (fix #1271 review)."""
+        assert _self_link_href({"links": links}, _SEARCH_URL) is None
+
 
 class TestPinnedUrlRestoration:
     """fix(#1271 review): the SSRF transport pins the request URL to the

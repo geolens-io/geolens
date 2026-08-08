@@ -69,7 +69,10 @@ def _self_link_href(feature: dict[str, Any], base_url: str) -> str | None:
     Dropping at capture keeps the refusal for hand-crafted clients, where it
     is the right answer, and off the path GeoLens itself drives.
     """
-    for link in feature.get("links") or []:
+    links = feature.get("links")
+    # isinstance: a malformed scalar links value must cost only this optional
+    # field, not 502 the whole search (fix #1271 review).
+    for link in links if isinstance(links, list) else []:
         if not isinstance(link, dict) or link.get("rel") != "self":
             continue
         href = link.get("href")
