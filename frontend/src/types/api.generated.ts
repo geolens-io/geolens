@@ -13133,7 +13133,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "healthy" | "missing" | "inaccessible";
+            status: "healthy" | "missing" | "inaccessible" | "stale";
         };
         /** VrtSourceItem */
         VrtSourceItem: {
