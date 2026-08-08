@@ -6,7 +6,7 @@ Static regression locks in:
 - README.md §'See It in Action' has the JWT-mint one-liner so a first-time
   reader can actually execute the curl examples (M-76).
 - README.md keeps the six body-prose lines flagged by L-16 in the
-  humanized separator style (line 90 + the five Why GeoLens bullets at 94-98).
+  humanized separator style (one lead-in plus five selected Why GeoLens bullets).
 
 Pure static analysis — no docker daemon, database, or HTTP fixture needed.
 """
@@ -89,7 +89,7 @@ def test_readme_humanized_separator_style_in_six_known_lines() -> None:
     body = _read("README.md")
     expected_humanized_signals = [
         "Spatial data ends up scattered: ",
-        "One catalog:** ",
+        "One data hub:** ",
         "Works with your tools:** ",
         "Semantic and spatial search:** ",
         "Built-in map builder:** ",
