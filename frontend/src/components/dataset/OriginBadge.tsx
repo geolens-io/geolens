@@ -14,11 +14,11 @@ const SERVICE_FORMATS = new Set(['wfs', 'arcgis_featureserver', 'ogcapi_features
 /**
  * Derive the origin from persisted source fields.
  *
- * Registration of an existing PostGIS table stores no `source_format`
- * (see backend `register_existing_table`), so null means "referenced in
- * place". VRTs also store null but are composed from other datasets, and
- * collections have no dataset row — both return null so the type badge
- * speaks for them alone.
+ * Register Table keeps an existing table in GeoLens's own PostGIS database
+ * in place and stores no `source_format` (see backend
+ * `register_existing_table`), so null identifies that source mode. VRTs also
+ * store null but are composed from other datasets, and collections have no
+ * dataset row — both return null so the type badge speaks for them alone.
  */
 export function datasetOrigin(input: {
   source_format?: string | null;

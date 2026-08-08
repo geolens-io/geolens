@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { BBoxPreview } from '@/components/layout/BBoxPreview';
 import { OriginBadge, datasetOrigin } from '@/components/dataset/OriginBadge';
+import { FreshnessChip, HealthChip } from '@/components/dataset/SourceStateChips';
 import { RecordTypeBadge } from './RecordTypeBadge';
 import { formatProvenanceTime } from '@/lib/provenance-attribution';
 import { formatGsd } from '@/lib/format';
@@ -242,6 +243,8 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
                   <div className="flex flex-wrap items-center gap-2">
                     <RecordTypeBadge recordType={recordType} />
                     {origin && <OriginBadge origin={origin} />}
+                    <FreshnessChip state={properties.source_freshness} />
+                    <HealthChip state={properties.source_health} />
                     {properties.keywords?.includes('synthetic') && (
                       <Badge variant="outline" className={`text-xs ${syntheticBadgeColor}`}>
                         {t('card.testData', { defaultValue: 'Test Data' })}

@@ -113,6 +113,67 @@ describe('SearchResultCard', () => {
     });
   });
 
+  describe('Source state', () => {
+    it('wires freshness and optional health summary fields into visible chips', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature({
+            source_format: 'stac',
+            source_freshness: 'overdue',
+            source_health: 'inaccessible',
+          })}
+        />,
+      );
+
+      expect(screen.getByTestId('origin-badge')).toHaveAttribute('data-origin', 'stac');
+      expect(screen.getByTestId('source-freshness-chip')).toHaveAttribute('data-state', 'overdue');
+      expect(screen.getByText('Source refresh overdue')).toBeVisible();
+      expect(screen.getByTestId('source-health-chip')).toHaveAttribute('data-state', 'inaccessible');
+      expect(screen.getByText('Source inaccessible')).toBeVisible();
+    });
+
+    it('stays silent when source state is unknown or omitted', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature({ source_freshness: 'unknown' })}
+        />,
+      );
+
+      expect(screen.queryByTestId('source-freshness-chip')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('source-health-chip')).not.toBeInTheDocument();
+    });
+
+    it('does not show dataset source state on collection cards', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature(
+            {
+              type: 'collection',
+              title: 'Collection',
+              description: null,
+              record_type: 'collection',
+              dataset_count: 1,
+              keywords: null,
+              geometry_type: null,
+              feature_count: null,
+              crs: null,
+              source_organization: null,
+              quality_detail: null,
+              updated_by_display: null,
+              never_edited: true,
+              source_freshness: 'overdue',
+              source_health: 'missing',
+            },
+            { id: 'coll-source-state', geometry: null },
+          )}
+        />,
+      );
+
+      expect(screen.queryByTestId('source-freshness-chip')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('source-health-chip')).not.toBeInTheDocument();
+    });
+  });
+
   // Raster card tests
   describe('Raster records', () => {
     it('renders Raster type badge, band count, and gsd', () => {

@@ -449,4 +449,22 @@ describe('DatasetPage header status badge', () => {
     expect(screen.getByText('Catalog: Draft')).toBeInTheDocument();
     expect(screen.getByText('Access: Private')).toBeInTheDocument();
   });
+
+  it('wires detail freshness and health fields into header chips', () => {
+    setup({ source_freshness: 'overdue', source_health: 'missing' });
+    render(<DatasetPage />, { route: '/datasets/dataset-1' });
+
+    expect(screen.getByTestId('source-freshness-chip')).toHaveAttribute('data-state', 'overdue');
+    expect(screen.getByText('Source refresh overdue')).toBeVisible();
+    expect(screen.getByTestId('source-health-chip')).toHaveAttribute('data-state', 'missing');
+    expect(screen.getByText('Source missing')).toBeVisible();
+  });
+
+  it('omits header chips for unknown source state', () => {
+    setup({ source_freshness: 'unknown', source_health: 'unknown' });
+    render(<DatasetPage />, { route: '/datasets/dataset-1' });
+
+    expect(screen.queryByTestId('source-freshness-chip')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('source-health-chip')).not.toBeInTheDocument();
+  });
 });

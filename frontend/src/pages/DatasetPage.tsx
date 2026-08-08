@@ -54,6 +54,7 @@ const VrtCreateDialog = lazy(() =>
 );
 import { RecordTypeBadge } from '@/components/search/RecordTypeBadge';
 import { OriginBadge, datasetOrigin } from '@/components/dataset/OriginBadge';
+import { FreshnessChip, HealthChip } from '@/components/dataset/SourceStateChips';
 import { CopyButton } from '@/components/ui/copy-button';
 import { DatasetStatsBar } from '@/components/dataset/DatasetStatsBar';
 import { MapErrorBoundary } from '@/components/error';
@@ -415,8 +416,10 @@ export function DatasetPage() {
   const statsLine = (
     <>
       <RecordTypeBadge recordType={dataset.record_type} />
-      <div className="flex items-center gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
         {origin && <OriginBadge origin={origin} />}
+        <FreshnessChip state={dataset.source_freshness} />
+        <HealthChip state={dataset.source_health} />
         {/* fix(#430 V-07): "Catalog: <status>" always shown (was hidden when
             published), paired with "Access: <visibility>" below, so the two
             orthogonal states never read as contradictory. */}
