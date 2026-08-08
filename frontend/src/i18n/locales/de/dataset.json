@@ -23,7 +23,7 @@
     "history": "Verlauf",
     "api": "API",
     "structure": "Struktur",
-    "sources": "Quellen",
+    "sources": "Quelle",
     "access": "Zugriff",
     "members": "Mitglieder"
   },
@@ -715,6 +715,123 @@
     "system": "System",
     "user": "Benutzer",
     "elapsed": "Vergangen: {{seconds}}s"
+  },
+  "sourcePanel": {
+    "title": "Quelle",
+    "storageMode": "Speichermodus",
+    "lastRefreshed": "Zuletzt aktualisiert",
+    "lastChecked": "Zuletzt geprüft",
+    "featureCount": "Feature-Anzahl",
+    "health": "Zustand",
+    "freshness": "Quellaktualität",
+    "drift": "Schemaänderung",
+    "origin": {
+      "vrt": "VRT-Zusammenstellung",
+      "unknown": "Herkunft nicht erfasst"
+    },
+    "description": {
+      "upload": "Aus einer Datei importiert. GeoLens hält eine eigene Kopie für Abfragen und Kacheln vor.",
+      "postgis": "Direkt aus einer vorhandenen Tabelle in dieser GeoLens-Datenbank registriert. Es wurde keine Kopie angelegt.",
+      "service": "Aus einem entfernten Dienst importiert. GeoLens hält eine eigene Kopie für lokale Abfragen und Kacheln vor.",
+      "stac": "Entfernte Referenz aus einem STAC-Katalog. Das Quell-Asset muss verfügbar bleiben.",
+      "created": "In GeoLens erstellt und als eigener, bearbeitbarer Datensatz gespeichert.",
+      "vrt": "Aus anderen von GeoLens verwalteten Rasterdatensätzen zusammengesetzt.",
+      "unknown": "Für diesen Datensatz ist keine maschinenlesbare Herkunft erfasst."
+    },
+    "storage": {
+      "upload": "Eigene Kopie",
+      "postgis": "Direkt registriert",
+      "service": "Eigene Kopie",
+      "stac": "Entfernte Referenz",
+      "created": "Eigene Kopie",
+      "vrt": "Zusammengesetzt",
+      "unknown": "Nicht erfasst"
+    },
+    "pointer": {
+      "filename": "Quelldateiname",
+      "fingerprint": "Dateifingerabdruck",
+      "table": "Registrierte Tabelle",
+      "serviceType": "Diensttyp",
+      "layer": "Layer-ID",
+      "endpoint": "Sicherer Quellzeiger",
+      "collection": "STAC-Collection",
+      "asset": "STAC-Asset",
+      "item": "STAC-Element"
+    },
+    "status": {
+      "health": {
+        "healthy": "Verfügbar",
+        "missing": "Fehlt",
+        "inaccessible": "Nicht erreichbar",
+        "unknown": "Nicht geprüft"
+      },
+      "freshness": {
+        "fresh": "Aktuell",
+        "due": "Fällig",
+        "overdue": "Überfällig",
+        "unknown": "Unbekannt"
+      },
+      "drift": {
+        "none": "Keine Änderung",
+        "drifted": "Änderung erkannt",
+        "unknown": "Nicht verglichen"
+      }
+    },
+    "healthDetail": {
+      "not_found": "Die Quellressource wurde nicht gefunden.",
+      "item_withdrawn": "Das STAC-Element wurde zurückgezogen.",
+      "unauthorized": "Die Quelle erfordert nun einen Zugriff, den GeoLens nicht besitzt.",
+      "server_error": "Die Quelle hat einen Serverfehler zurückgegeben.",
+      "unexpected_status": "Die Quelle hat eine unerwartete Antwort zurückgegeben.",
+      "timeout": "Die Quelle hat nicht rechtzeitig geantwortet.",
+      "network_error": "GeoLens konnte die Quelle nicht erreichen.",
+      "blocked_by_policy": "Die GeoLens-Sicherheitsrichtlinie hat diese Quelle blockiert."
+    },
+    "history": {
+      "title": "Quellverlauf",
+      "loading": "Quellverlauf wird geladen",
+      "loadFailed": "Der Quellverlauf konnte nicht geladen werden.",
+      "version": "Version {{number}}",
+      "current": "Aktuell",
+      "catalogUpdate": "Katalogquelle",
+      "features": "Features"
+    },
+    "vrt": {
+      "title": "VRT-Mitglieder",
+      "description": "Dieses VRT wird aus den folgenden Rasterdatensätzen zusammengestellt.",
+      "regenerating": "Die VRT-Erzeugung läuft.",
+      "failed": "Die VRT-Erzeugung ist fehlgeschlagen. Prüfen Sie den Zustand der Mitglieder und den Erzeugungsverlauf.",
+      "signIn": "Melden Sie sich an, um Details zu VRT-Mitgliedern anzuzeigen.",
+      "loading": "VRT-Mitglieder werden geladen",
+      "loadFailed": "Die VRT-Mitglieder konnten nicht geladen werden.",
+      "tableLabel": "VRT-Mitgliedsquellen",
+      "health": "Zustand",
+      "position": "#",
+      "dataset": "Datensatz",
+      "crs": "CRS",
+      "bands": "Bänder",
+      "resolution": "Auflösung",
+      "empty": "Keine VRT-Mitglieder",
+      "memberHealth": {
+        "healthy": "Verfügbar",
+        "missing": "Fehlt",
+        "inaccessible": "Nicht erreichbar",
+        "unknown": "Unbekannt"
+      },
+      "history": "Erzeugungsverlauf",
+      "generationStatus": "Status",
+      "generatedAt": "Zeitstempel",
+      "duration": "Dauer",
+      "sourceCount": "Quellen",
+      "triggeredBy": "Ausgelöst von",
+      "system": "System",
+      "user": "Benutzer",
+      "generation": {
+        "completed": "Abgeschlossen",
+        "running": "Läuft",
+        "failed": "Fehlgeschlagen"
+      }
+    }
   },
   "data": {
     "collapseTable": "Tabelle einklappen",

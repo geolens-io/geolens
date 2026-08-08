@@ -23,7 +23,7 @@
     "history": "History",
     "api": "API",
     "structure": "Structure",
-    "sources": "Sources",
+    "sources": "Source",
     "access": "Access",
     "members": "Members"
   },
@@ -666,6 +666,123 @@
     "system": "System",
     "user": "User",
     "elapsed": "Elapsed: {{seconds}}s"
+  },
+  "sourcePanel": {
+    "title": "Source",
+    "storageMode": "Storage mode",
+    "lastRefreshed": "Last refreshed",
+    "lastChecked": "Last checked",
+    "featureCount": "Feature count",
+    "health": "Health",
+    "freshness": "Source freshness",
+    "drift": "Schema drift",
+    "origin": {
+      "vrt": "VRT composition",
+      "unknown": "Origin not recorded"
+    },
+    "description": {
+      "upload": "Imported from a file. GeoLens keeps an owned copy for querying and tiling.",
+      "postgis": "Registered in place from an existing table in this GeoLens database. No duplicate copy was created.",
+      "service": "Imported from a remote service. GeoLens keeps an owned copy for local querying and tiling.",
+      "stac": "Referenced remotely from a STAC catalog. The source asset must remain available.",
+      "created": "Created in GeoLens and stored as an owned, editable dataset.",
+      "vrt": "Composed from other raster datasets managed by GeoLens.",
+      "unknown": "No machine-readable origin is recorded for this dataset."
+    },
+    "storage": {
+      "upload": "Owned copy",
+      "postgis": "Registered in place",
+      "service": "Owned copy",
+      "stac": "Remote reference",
+      "created": "Owned copy",
+      "vrt": "Composite",
+      "unknown": "Not recorded"
+    },
+    "pointer": {
+      "filename": "Source filename",
+      "fingerprint": "File fingerprint",
+      "table": "Registered table",
+      "serviceType": "Service type",
+      "layer": "Layer identifier",
+      "endpoint": "Safe source pointer",
+      "collection": "STAC collection",
+      "asset": "STAC asset",
+      "item": "STAC item"
+    },
+    "status": {
+      "health": {
+        "healthy": "Healthy",
+        "missing": "Missing",
+        "inaccessible": "Inaccessible",
+        "unknown": "Not checked"
+      },
+      "freshness": {
+        "fresh": "Fresh",
+        "due": "Due",
+        "overdue": "Overdue",
+        "unknown": "Unknown"
+      },
+      "drift": {
+        "none": "No drift",
+        "drifted": "Drift detected",
+        "unknown": "Not compared"
+      }
+    },
+    "healthDetail": {
+      "not_found": "The source resource was not found.",
+      "item_withdrawn": "The STAC item was withdrawn.",
+      "unauthorized": "The source now requires access GeoLens does not have.",
+      "server_error": "The source returned a server error.",
+      "unexpected_status": "The source returned an unexpected response.",
+      "timeout": "The source did not respond in time.",
+      "network_error": "GeoLens could not reach the source.",
+      "blocked_by_policy": "GeoLens security policy blocked this source."
+    },
+    "history": {
+      "title": "Source history",
+      "loading": "Loading source history",
+      "loadFailed": "Source history could not be loaded.",
+      "version": "Version {{number}}",
+      "current": "Current",
+      "catalogUpdate": "Catalog source",
+      "features": "features"
+    },
+    "vrt": {
+      "title": "VRT members",
+      "description": "This VRT is assembled from the raster datasets below.",
+      "regenerating": "VRT generation is in progress.",
+      "failed": "VRT generation failed. Review member health and generation history.",
+      "signIn": "Sign in to view VRT member details.",
+      "loading": "Loading VRT members",
+      "loadFailed": "VRT members could not be loaded.",
+      "tableLabel": "VRT member sources",
+      "health": "Health",
+      "position": "#",
+      "dataset": "Dataset",
+      "crs": "CRS",
+      "bands": "Bands",
+      "resolution": "Resolution",
+      "empty": "No VRT members",
+      "memberHealth": {
+        "healthy": "Healthy",
+        "missing": "Missing",
+        "inaccessible": "Inaccessible",
+        "unknown": "Unknown"
+      },
+      "history": "Generation history",
+      "generationStatus": "Status",
+      "generatedAt": "Timestamp",
+      "duration": "Duration",
+      "sourceCount": "Sources",
+      "triggeredBy": "Triggered by",
+      "system": "System",
+      "user": "User",
+      "generation": {
+        "completed": "Completed",
+        "running": "Running",
+        "failed": "Failed"
+      }
+    }
   },
   "data": {
     "collapseTable": "Collapse table",
