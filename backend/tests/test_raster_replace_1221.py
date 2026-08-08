@@ -1187,7 +1187,7 @@ class TestPostCommitFailureCannotUnpublish:
         # The first thing the post-commit block does. A transient failure here
         # says nothing about the swap, which is already durable.
         monkeypatch.setattr(
-            "app.processing.ingest.tasks_raster_replace.invalidate_catalog_cache",
+            "app.processing.ingest.tasks_raster_swap.invalidate_catalog_cache",
             _die,
             raising=True,
         )
