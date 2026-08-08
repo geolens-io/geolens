@@ -239,7 +239,8 @@ or over-privilege an existing security identity.
 
 On a fresh bundled volume, `init-db.sh` creates extensions and schemas first,
 then runs `scripts/lib/configure-runtime-db-role.sh`. The latter creates and
-marks the login with `geolens-managed-runtime-role:v1`, grants catalog
+marks the login with
+`geolens-managed-runtime-role:v2:database=<current-database>`, grants catalog
 DML/sequence access, grants CREATE plus relation ownership only in `data`, and
 grants SET access to `geolens_reader`. It never grants blanket catalog-function
 execution: tenant provisioning remains exclusive to `geolens_tenant_control`.
@@ -299,8 +300,20 @@ docker compose exec -T \
   db /usr/local/bin/configure-runtime-db-role
 ```
 
-The command writes the marker before reconciliation. Do not persist the
-adoption flag; ordinary upgrades and restores prove ownership from the marker.
+The marker, password, runtime ownership transfers, and temporary SET authority
+used for those transfers are committed atomically. Do not persist the adoption
+flag; ordinary upgrades and restores prove ownership from the marker.
+
+PostgreSQL roles are cluster-global, so the marker binds a managed runtime role
+to the database name that claimed it. A second live database cannot reuse that
+role or rotate its password, even with the adoption flag. A same-name restore
+continues to reconcile normally. For a database rename or a globals-backed
+restore under a different name, first ensure the marker's old database no
+longer exists, then perform one explicit adoption run to rebind the marker. If
+the old database still exists, choose a different runtime role; the reconciler
+will not treat adoption as a collision override. Legacy `v1` markers are
+unscoped and therefore require the same one-time safe adoption as an unmarked
+dedicated login.
 
 Load `.env` into the verification shell and query through the runtime login:
 
@@ -328,11 +341,19 @@ For managed/external PostgreSQL, run privileged migrations first, then run
 `MIGRATION_DATABASE_URL_OVERRIDE`; it may differ from the provider admin used by
 the script. The provider credential must be able to create roles, change
 relation ownership, and alter default privileges for that migration owner
-(normally by membership or equivalent provider authority). Start runtime
-services only after that command succeeds. Provider snapshot/PITR restore
-normally preserves the role marker; a globals backup preserves it as a role
-comment. After any logical restore, rerun the same script before restarting
-writers.
+(normally by membership or equivalent provider authority). On PostgreSQL 18,
+the provider admin also needs ADMIN OPTION on a pre-existing
+`geolens_reader`; an admin that created it during initial reconciliation
+already has PostgreSQL's automatic ADMIN-only membership. The reconciler uses
+that authority to grant the runtime reader transition. It likewise preserves
+the automatic ADMIN-only membership on a runtime role it creates, enables SET
+through a separate grant only inside the reconciliation transaction, and
+revokes that grant before commit so only the original SET=false ADMIN authority
+remains. Start runtime services only after that command succeeds. Provider
+snapshot/PITR restore normally preserves the database-scoped marker; a globals
+backup preserves it as a role comment. After any logical restore, rerun the
+same script before restarting writers, using the explicit rebind procedure
+above if the restored database name changed.
 
 ### Canonical restore entry point
 

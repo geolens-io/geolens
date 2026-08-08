@@ -70,6 +70,8 @@ SUFFIX="$$_$(date +%s)"
 SRC_DB="geolens_bkp_src_${SUFFIX}"
 DST_DB="geolens_bkp_dst_${SUFFIX}"
 SNAP_DB="geolens_bkp_snap_${SUFFIX}"   # managed-mode "provider snapshot" DB
+PROVIDER_DB="geolens_bkp_provider_${SUFFIX}"
+PROVIDER_FAIL_DB="geolens_bkp_provider_fail_${SUFFIX}"
 RUNTIME_ROLE="geolens_bkp_app_${SUFFIX}"
 RUNTIME_ROLE="${RUNTIME_ROLE//[^a-zA-Z0-9_]/_}"
 RUNTIME_PASSWORD="ci-runtime-role-test-password-947-padding"
@@ -81,6 +83,19 @@ MIGRATION_PASSWORD="migration-owner-password-947-padding"
 UNMANAGED_ROLE="geolens_bkp_unmanaged_${SUFFIX}"
 UNMANAGED_ROLE="${UNMANAGED_ROLE//[^a-zA-Z0-9_]/_}"
 UNMANAGED_PASSWORD="unmanaged-original-password-947-padding"
+RESTORE_ROLE="geolens_bkp_restore_app_${SUFFIX}"
+RESTORE_ROLE="${RESTORE_ROLE//[^a-zA-Z0-9_]/_}"
+RESTORE_PASSWORD="restored-runtime-password-947-padding"
+RETIRED_DB="geolens_bkp_retired_${SUFFIX}"
+RECONCILER_ROLE="geolens_bkp_provider_admin_${SUFFIX}"
+RECONCILER_ROLE="${RECONCILER_ROLE//[^a-zA-Z0-9_]/_}"
+RECONCILER_PASSWORD="provider-admin-password-947-padding"
+PROVIDER_RUNTIME_ROLE="geolens_bkp_provider_app_${SUFFIX}"
+PROVIDER_RUNTIME_ROLE="${PROVIDER_RUNTIME_ROLE//[^a-zA-Z0-9_]/_}"
+PROVIDER_RUNTIME_PASSWORD="provider-runtime-password-947-padding"
+PROVIDER_FAIL_ROLE="geolens_bkp_provider_fail_app_${SUFFIX}"
+PROVIDER_FAIL_ROLE="${PROVIDER_FAIL_ROLE//[^a-zA-Z0-9_]/_}"
+PROVIDER_FAIL_PASSWORD="provider-failure-original-password-947-padding"
 WORKDIR="$(mktemp -d)"
 DUMP_FILE="${WORKDIR}/roundtrip.dump"
 
@@ -89,14 +104,17 @@ psql_admin() { psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$ADMIN_DB" "$@"; 
 cleanup() {
     set +e
     # Terminate any lingering connections, then drop ALL throwaway DBs.
-    for db in "$SRC_DB" "$DST_DB" "$SNAP_DB"; do
+    for db in \
+        "$SRC_DB" "$DST_DB" "$SNAP_DB" "$PROVIDER_DB" "$PROVIDER_FAIL_DB"; do
         psql_admin -tAc \
             "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='${db}' AND pid <> pg_backend_pid();" \
             >/dev/null 2>&1
         dropdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" --if-exists "$db" >/dev/null 2>&1
     done
     for role in \
-        "$RUNTIME_ROLE" "$FRESH_RUNTIME_ROLE" "$MIGRATION_ROLE" "$UNMANAGED_ROLE"; do
+        "$RUNTIME_ROLE" "$FRESH_RUNTIME_ROLE" "$MIGRATION_ROLE" \
+        "$UNMANAGED_ROLE" "$RESTORE_ROLE" "$PROVIDER_RUNTIME_ROLE" \
+        "$PROVIDER_FAIL_ROLE" "$RECONCILER_ROLE"; do
         psql_admin -v ON_ERROR_STOP=1 -c "DROP ROLE IF EXISTS \"${role}\"" \
             >/dev/null 2>&1
     done
@@ -212,8 +230,48 @@ env \
 FRESH_ROLE_MARKER="$(psql_admin -tAc \
     "SELECT shobj_description(oid, 'pg_authid') FROM pg_roles WHERE rolname = '${FRESH_RUNTIME_ROLE}';" \
     | tr -d '[:space:]')"
-[ "$FRESH_ROLE_MARKER" = "geolens-managed-runtime-role:v1" ] \
+[ "$FRESH_ROLE_MARKER" = "geolens-managed-runtime-role:v2:database=${SRC_DB}" ] \
     || fail "fresh runtime role lacks the durable GeoLens marker"
+
+# PostgreSQL roles are cluster-global. A second GeoLens database must not be
+# able to claim the first database's runtime role and rotate its password. The
+# adoption flag is deliberately not an override while the marker's DB exists.
+for adopt_collision in false true; do
+    if env \
+        GEOLENS_RUNTIME_DB_ROLE="$FRESH_RUNTIME_ROLE" \
+        GEOLENS_RUNTIME_DB_PASSWORD="collision-runtime-password-947-padding" \
+        GEOLENS_RUNTIME_DB_ROLE_ADOPT_EXISTING="$adopt_collision" \
+        GEOLENS_MIGRATION_DB_ROLE="$PGUSER" \
+        POSTGRES_HOST="$PGHOST" POSTGRES_PORT="$PGPORT" \
+        POSTGRES_USER="$PGUSER" POSTGRES_DB="$DST_DB" \
+        bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" \
+        >/dev/null 2>&1; then
+        fail "second database claimed a foreign-scoped runtime role (adopt=${adopt_collision})"
+    fi
+done
+COLLISION_MARKER="$(psql_admin -tAc \
+    "SELECT shobj_description(oid, 'pg_authid') FROM pg_roles WHERE rolname = '${FRESH_RUNTIME_ROLE}';" \
+    | tr -d '[:space:]')"
+[ "$COLLISION_MARKER" = "$FRESH_ROLE_MARKER" ] \
+    || fail "foreign-database collision replaced the first database's marker"
+env PGPASSWORD="$RUNTIME_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$FRESH_RUNTIME_ROLE" -d "$SRC_DB" \
+    -Atqc "SELECT 1" | grep -qx 1 \
+    || fail "foreign-database collision replaced the first database's password"
+if env PGPASSWORD="collision-runtime-password-947-padding" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$FRESH_RUNTIME_ROLE" -d "$SRC_DB" \
+    -Atqc "SELECT 1" >/dev/null 2>&1; then
+    fail "foreign-database replacement password authenticated to the first database"
+fi
+
+# The exact database-scoped marker remains the ordinary idempotent path.
+env \
+    GEOLENS_RUNTIME_DB_ROLE="$FRESH_RUNTIME_ROLE" \
+    GEOLENS_RUNTIME_DB_PASSWORD="$RUNTIME_PASSWORD" \
+    GEOLENS_MIGRATION_DB_ROLE="$PGUSER" \
+    POSTGRES_HOST="$PGHOST" POSTGRES_PORT="$PGPORT" \
+    POSTGRES_USER="$PGUSER" POSTGRES_DB="$SRC_DB" \
+    bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" >/dev/null
 
 # Model a managed database where reconciliation runs as the provider admin but
 # Alembic owns future catalog objects under a distinct migration role.
@@ -224,11 +282,42 @@ CREATE ROLE "${UNMANAGED_ROLE}" LOGIN NOSUPERUSER NOCREATEDB CREATEROLE
     NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD '${UNMANAGED_PASSWORD}';
 CREATE ROLE "${RUNTIME_ROLE}" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
     NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD '${RUNTIME_PASSWORD}';
+CREATE ROLE "${RESTORE_ROLE}" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
+    NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD '${RESTORE_PASSWORD}';
+COMMENT ON ROLE "${RESTORE_ROLE}" IS
+    'geolens-managed-runtime-role:v2:database=${RETIRED_DB}';
 EOSQL
 psql_admin -d "$DST_DB" -v ON_ERROR_STOP=1 -c \
     "GRANT USAGE, CREATE ON SCHEMA catalog TO \"${MIGRATION_ROLE}\"" >/dev/null
 psql_admin -d "$DST_DB" -v ON_ERROR_STOP=1 -c \
     "ALTER TABLE data.ci_probe OWNER TO \"${RUNTIME_ROLE}\"" >/dev/null
+
+# A globals-backed role restored under a different database name is foreign
+# until the operator explicitly rebinds it, and rebind is allowed only because
+# the marker's old database no longer exists in this cluster.
+if env \
+    GEOLENS_RUNTIME_DB_ROLE="$RESTORE_ROLE" \
+    GEOLENS_RUNTIME_DB_PASSWORD="$RESTORE_PASSWORD" \
+    GEOLENS_MIGRATION_DB_ROLE="$MIGRATION_ROLE" \
+    POSTGRES_HOST="$PGHOST" POSTGRES_PORT="$PGPORT" \
+    POSTGRES_USER="$PGUSER" POSTGRES_DB="$DST_DB" \
+    bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" \
+    >/dev/null 2>&1; then
+    fail "restored role rebound to a renamed database without explicit adoption"
+fi
+env \
+    GEOLENS_RUNTIME_DB_ROLE="$RESTORE_ROLE" \
+    GEOLENS_RUNTIME_DB_PASSWORD="$RESTORE_PASSWORD" \
+    GEOLENS_RUNTIME_DB_ROLE_ADOPT_EXISTING=true \
+    GEOLENS_MIGRATION_DB_ROLE="$MIGRATION_ROLE" \
+    POSTGRES_HOST="$PGHOST" POSTGRES_PORT="$PGPORT" \
+    POSTGRES_USER="$PGUSER" POSTGRES_DB="$DST_DB" \
+    bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" >/dev/null
+RESTORE_MARKER="$(psql_admin -tAc \
+    "SELECT shobj_description(oid, 'pg_authid') FROM pg_roles WHERE rolname = '${RESTORE_ROLE}';" \
+    | tr -d '[:space:]')"
+[ "$RESTORE_MARKER" = "geolens-managed-runtime-role:v2:database=${DST_DB}" ] \
+    || fail "explicit restore/rename adoption did not bind the current database"
 
 # An unmarked existing identity must fail before ALTER ROLE or password reset.
 if env \
@@ -288,7 +377,7 @@ env \
 ROLE_MARKER="$(psql_admin -tAc \
     "SELECT shobj_description(oid, 'pg_authid') FROM pg_roles WHERE rolname = '${RUNTIME_ROLE}';" \
     | tr -d '[:space:]')"
-[ "$ROLE_MARKER" = "geolens-managed-runtime-role:v1" ] \
+[ "$ROLE_MARKER" = "geolens-managed-runtime-role:v2:database=${DST_DB}" ] \
     || fail "adopted runtime role lacks the durable GeoLens marker"
 
 # Marker proof is sufficient on subsequent reconciliation.
@@ -369,6 +458,108 @@ if PGPASSWORD="$RUNTIME_PASSWORD" "${runtime_psql[@]}" \
     >/dev/null 2>&1; then
     fail "runtime role executed privileged tenant provisioning function"
 fi
+
+# A managed provider reconciliation login is commonly non-superuser with
+# CREATEROLE. Prove it can transfer its existing data relations by holding SET
+# authority only for the transaction, and that the membership is removed.
+psql_admin -v ON_ERROR_STOP=1 >/dev/null <<EOSQL
+CREATE ROLE "${RECONCILER_ROLE}" LOGIN NOSUPERUSER NOCREATEDB CREATEROLE
+    INHERIT NOREPLICATION NOBYPASSRLS PASSWORD '${RECONCILER_PASSWORD}';
+-- PostgreSQL 18 gives the CREATEROLE identity that originally creates a role
+-- an ADMIN-only membership. This shared test cluster's reader was created by
+-- the superuser in an earlier leg, so reproduce the managed first-bootstrap
+-- authority without granting SET/INHERIT access to the provider admin.
+GRANT geolens_reader TO "${RECONCILER_ROLE}" WITH ADMIN TRUE;
+GRANT geolens_reader TO "${RECONCILER_ROLE}" WITH INHERIT FALSE;
+GRANT geolens_reader TO "${RECONCILER_ROLE}" WITH SET FALSE;
+EOSQL
+createdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" \
+    --owner "$RECONCILER_ROLE" "$PROVIDER_DB"
+env PGPASSWORD="$RECONCILER_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$RECONCILER_ROLE" \
+    -d "$PROVIDER_DB" -v ON_ERROR_STOP=1 >/dev/null <<'EOSQL'
+CREATE SCHEMA catalog;
+CREATE SCHEMA data;
+CREATE TABLE data.provider_probe (id bigint PRIMARY KEY);
+EOSQL
+env \
+    PGPASSWORD="$RECONCILER_PASSWORD" \
+    POSTGRES_PASSWORD="$RECONCILER_PASSWORD" \
+    POSTGRES_HOST="$PGHOST" POSTGRES_PORT="$PGPORT" \
+    POSTGRES_USER="$RECONCILER_ROLE" POSTGRES_DB="$PROVIDER_DB" \
+    GEOLENS_MIGRATION_DB_ROLE="$RECONCILER_ROLE" \
+    GEOLENS_RUNTIME_DB_ROLE="$PROVIDER_RUNTIME_ROLE" \
+    GEOLENS_RUNTIME_DB_PASSWORD="$PROVIDER_RUNTIME_PASSWORD" \
+    bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" >/dev/null
+PROVIDER_OWNER="$(psql_admin -d "$PROVIDER_DB" -tAc \
+    "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'data.provider_probe'::regclass;" \
+    | tr -d '[:space:]')"
+[ "$PROVIDER_OWNER" = "$PROVIDER_RUNTIME_ROLE" ] \
+    || fail "non-superuser reconciler did not transfer its data table"
+PROVIDER_MEMBERSHIP_FLAGS="$(psql_admin -tAc \
+    "SELECT admin_option || '|' || inherit_option || '|' || set_option
+       FROM pg_auth_members
+      WHERE roleid = (SELECT oid FROM pg_roles WHERE rolname = '${PROVIDER_RUNTIME_ROLE}')
+        AND member = (SELECT oid FROM pg_roles WHERE rolname = '${RECONCILER_ROLE}');" \
+    | tr -d '[:space:]')"
+[ "$PROVIDER_MEMBERSHIP_FLAGS" = "true|false|false" ] \
+    || fail "successful reconciliation did not restore the provider admin's ADMIN-only membership: ${PROVIDER_MEMBERSHIP_FLAGS}"
+
+# Induce an ownership error after the temporary membership is granted. The
+# runtime SQL transaction must roll back its password/owner changes and remove
+# membership even though psql exits through ON_ERROR_STOP.
+createdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" \
+    --owner "$RECONCILER_ROLE" "$PROVIDER_FAIL_DB"
+env PGPASSWORD="$RECONCILER_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$RECONCILER_ROLE" \
+    -d "$PROVIDER_FAIL_DB" -v ON_ERROR_STOP=1 >/dev/null <<'EOSQL'
+CREATE SCHEMA catalog;
+CREATE SCHEMA data;
+CREATE TABLE data.reconciler_probe (id bigint PRIMARY KEY);
+EOSQL
+psql_admin -d "$PROVIDER_FAIL_DB" -v ON_ERROR_STOP=1 \
+    -c "CREATE SEQUENCE data.foreign_probe" >/dev/null
+env PGPASSWORD="$RECONCILER_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$RECONCILER_ROLE" \
+    -d "$PROVIDER_FAIL_DB" -v ON_ERROR_STOP=1 >/dev/null <<EOSQL
+CREATE ROLE "${PROVIDER_FAIL_ROLE}" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
+    NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD '${PROVIDER_FAIL_PASSWORD}';
+COMMENT ON ROLE "${PROVIDER_FAIL_ROLE}" IS
+    'geolens-managed-runtime-role:v2:database=${PROVIDER_FAIL_DB}';
+EOSQL
+PROVIDER_FAIL_LOG="${WORKDIR}/provider-fail.log"
+if env \
+    PGPASSWORD="$RECONCILER_PASSWORD" \
+    POSTGRES_PASSWORD="$RECONCILER_PASSWORD" \
+    POSTGRES_HOST="$PGHOST" POSTGRES_PORT="$PGPORT" \
+    POSTGRES_USER="$RECONCILER_ROLE" POSTGRES_DB="$PROVIDER_FAIL_DB" \
+    GEOLENS_MIGRATION_DB_ROLE="$RECONCILER_ROLE" \
+    GEOLENS_RUNTIME_DB_ROLE="$PROVIDER_FAIL_ROLE" \
+    GEOLENS_RUNTIME_DB_PASSWORD="provider-failure-replacement-password-947" \
+    bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" \
+    >"$PROVIDER_FAIL_LOG" 2>&1; then
+    fail "induced provider ownership failure unexpectedly reconciled"
+fi
+grep -q "must be owner of sequence foreign_probe" "$PROVIDER_FAIL_LOG" \
+    || { cat "$PROVIDER_FAIL_LOG" >&2; fail "provider failure did not reach ownership transfer"; }
+FAILED_MEMBERSHIP_FLAGS="$(psql_admin -tAc \
+    "SELECT admin_option || '|' || inherit_option || '|' || set_option
+       FROM pg_auth_members
+      WHERE roleid = (SELECT oid FROM pg_roles WHERE rolname = '${PROVIDER_FAIL_ROLE}')
+        AND member = (SELECT oid FROM pg_roles WHERE rolname = '${RECONCILER_ROLE}');" \
+    | tr -d '[:space:]')"
+[ "$FAILED_MEMBERSHIP_FLAGS" = "true|false|false" ] \
+    || fail "failed reconciliation did not roll back to the provider admin's ADMIN-only membership: ${FAILED_MEMBERSHIP_FLAGS}"
+FAILED_OWNER="$(psql_admin -d "$PROVIDER_FAIL_DB" -tAc \
+    "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'data.reconciler_probe'::regclass;" \
+    | tr -d '[:space:]')"
+[ "$FAILED_OWNER" = "$RECONCILER_ROLE" ] \
+    || fail "failed reconciliation partially transferred data ownership"
+env PGPASSWORD="$PROVIDER_FAIL_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$PROVIDER_FAIL_ROLE" \
+    -d "$PROVIDER_FAIL_DB" -Atqc "SELECT 1" | grep -qx 1 \
+    || fail "failed reconciliation replaced the original runtime password"
+
 echo "      runtime role OK — safe attributes, catalog DML, data ownership, reader SET; catalog DDL + tenant-control functions denied."
 echo ""
 
@@ -498,7 +689,7 @@ GLOBALS_FILE="${CYCLE_BACKUPS}/daily/globals-${CYCLE_TS}.sql"
 [ -s "$GLOBALS_FILE" ] || fail "globals dump is empty"
 grep -q "^CREATE ROLE" "$GLOBALS_FILE" \
     || fail "globals dump contains no CREATE ROLE — it is not a real --globals-only dump"
-grep -Fq "geolens-managed-runtime-role:v1" "$GLOBALS_FILE" \
+grep -Fq "geolens-managed-runtime-role:v2:database=${SRC_DB}" "$GLOBALS_FILE" \
     || fail "globals dump omitted the managed runtime-role marker"
 
 # Mode: `ls -l` rather than stat, whose flags differ between BSD and GNU.

@@ -102,9 +102,35 @@ BEGIN
     END IF;
 END
 $$;
-ALTER ROLE geolens_reader
-    NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT
-    NOREPLICATION NOBYPASSRLS;
+
+-- PostgreSQL permits a CREATEROLE provider admin to create safe roles, but
+-- only a superuser may mention SUPERUSER/BYPASSRLS in ALTER ROLE, even when
+-- setting them to false. Verify those attributes before using the reduced
+-- hardening statement on a non-superuser connection.
+SELECT rolsuper AS reconciler_is_superuser
+FROM pg_roles
+WHERE rolname = current_user
+\gset
+SELECT rolsuper OR rolbypassrls OR rolcreatedb OR rolreplication
+    AS reader_has_protected_attribute
+FROM pg_roles
+WHERE rolname = 'geolens_reader'
+\gset
+\if :reconciler_is_superuser
+    ALTER ROLE geolens_reader
+        NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT
+        NOREPLICATION NOBYPASSRLS;
+\else
+    \if :reader_has_protected_attribute
+        DO $error$
+        BEGIN
+            RAISE EXCEPTION 'non-superuser reconciler cannot safely harden geolens_reader.';
+        END
+        $error$;
+    \endif
+    ALTER ROLE geolens_reader
+        NOLOGIN NOCREATEROLE NOINHERIT;
+\endif
 GRANT USAGE ON SCHEMA data TO geolens_reader;
 GRANT SELECT ON ALL TABLES IN SCHEMA data TO geolens_reader;
 ALTER DEFAULT PRIVILEGES IN SCHEMA data
@@ -148,6 +174,15 @@ psql "${psql_args[@]}" <<-'EOSQL'
 \getenv migration_role GEOLENS_MIGRATION_DB_ROLE
 \getenv adopt_existing GEOLENS_RUNTIME_DB_ROLE_ADOPT_EXISTING
 
+-- Role comments and memberships are cluster-global. Keep all runtime-role
+-- mutations in one transaction so an ownership/ACL failure cannot leave a
+-- rotated password, rebound marker, or temporary SET membership behind.
+BEGIN;
+
+SELECT 'geolens-managed-runtime-role:v2:database=' || current_database()
+    AS expected_runtime_marker
+\gset
+
 -- Default privileges are per object-creating role, not per database. Refuse a
 -- misspelled or absent migration owner instead of silently attaching defaults
 -- to the reconciliation/admin identity.
@@ -167,22 +202,51 @@ SELECT EXISTS (
 -- A role name is not ownership proof. Existing roles are left completely
 -- untouched unless a privileged GeoLens reconciler previously marked them, or
 -- the operator explicitly authorizes one safe, one-time adoption. The marker
--- is cluster-global and is preserved by pg_dumpall --globals-only.
+-- binds this cluster-global role to one database name and is preserved by
+-- pg_dumpall --globals-only.
 SELECT EXISTS (
     SELECT FROM pg_roles WHERE rolname = :'runtime_role'
 ) AS runtime_role_exists
 \gset
 
 \if :runtime_role_exists
-    SELECT COALESCE(
-        shobj_description(oid, 'pg_authid'), ''
-    ) = 'geolens-managed-runtime-role:v1' AS runtime_role_managed
-    FROM pg_roles
-    WHERE rolname = :'runtime_role'
+    SELECT
+        COALESCE(shobj_description(runtime.oid, 'pg_authid'), '')
+            = :'expected_runtime_marker' AS runtime_role_managed,
+        COALESCE(shobj_description(runtime.oid, 'pg_authid'), '')
+            LIKE 'geolens-managed-runtime-role:v2:database=%'
+            AS runtime_role_has_scoped_marker,
+        CASE
+            WHEN COALESCE(shobj_description(runtime.oid, 'pg_authid'), '')
+                    LIKE 'geolens-managed-runtime-role:v2:database=%'
+            THEN EXISTS (
+                SELECT 1
+                FROM pg_database
+                WHERE datname = substr(
+                    shobj_description(runtime.oid, 'pg_authid'),
+                    length('geolens-managed-runtime-role:v2:database=') + 1
+                )
+            )
+            ELSE false
+        END AS runtime_marker_database_exists
+    FROM pg_roles AS runtime
+    WHERE runtime.rolname = :'runtime_role'
     \gset
 
     \if :runtime_role_managed
     \else
+        -- Never let a second live database claim a cluster-global role, even
+        -- with the adoption escape hatch. A missing prior database models a
+        -- rename or globals-backed restore and still requires explicit rebind.
+        \if :runtime_role_has_scoped_marker
+            \if :runtime_marker_database_exists
+                DO $error$
+                BEGIN
+                    RAISE EXCEPTION 'runtime role is managed by another existing database.';
+                END
+                $error$;
+            \endif
+        \endif
         \if :adopt_existing
             SELECT (
                 runtime.rolcanlogin
@@ -227,7 +291,7 @@ SELECT EXISTS (
             \if :runtime_role_adoptable
                 SELECT format(
                     'COMMENT ON ROLE %I IS %L',
-                    :'runtime_role', 'geolens-managed-runtime-role:v1'
+                    :'runtime_role', :'expected_runtime_marker'
                 )
                 \gexec
             \else
@@ -253,15 +317,42 @@ SELECT EXISTS (
     \gexec
     SELECT format(
         'COMMENT ON ROLE %I IS %L',
-        :'runtime_role', 'geolens-managed-runtime-role:v1'
+        :'runtime_role', :'expected_runtime_marker'
     )
     \gexec
 \endif
 
-SELECT format(
-    'ALTER ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD %L',
-    :'runtime_role', :'runtime_password'
-)\gexec
+-- As above, a non-superuser CREATEROLE admin may alter a role it administers,
+-- but cannot spell NOSUPERUSER/NOBYPASSRLS in ALTER ROLE. Refuse dangerous
+-- attributes before changing the password, then use the permitted statement.
+SELECT
+    reconciler.rolsuper AS reconciler_is_superuser,
+    runtime.rolsuper OR runtime.rolbypassrls
+        OR runtime.rolcreatedb OR runtime.rolreplication
+        AS runtime_has_protected_attribute
+FROM pg_roles AS reconciler
+CROSS JOIN pg_roles AS runtime
+WHERE reconciler.rolname = current_user
+  AND runtime.rolname = :'runtime_role'
+\gset
+\if :reconciler_is_superuser
+    SELECT format(
+        'ALTER ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD %L',
+        :'runtime_role', :'runtime_password'
+    )\gexec
+\else
+    \if :runtime_has_protected_attribute
+        DO $error$
+        BEGIN
+            RAISE EXCEPTION 'non-superuser reconciler cannot safely harden the runtime role.';
+        END
+        $error$;
+    \endif
+    SELECT format(
+        'ALTER ROLE %I LOGIN NOCREATEROLE NOINHERIT PASSWORD %L',
+        :'runtime_role', :'runtime_password'
+    )\gexec
+\endif
 
 SELECT format(
     'GRANT CONNECT ON DATABASE %I TO %I', current_database(), :'runtime_role'
@@ -374,9 +465,72 @@ SELECT format(
 -- Single-tenant ingest and editing create and alter relations in data. Existing
 -- relations were created by the old superuser runtime (or by pg_restore with
 -- --no-owner), so grants alone are insufficient: PostgreSQL has no ALTER/DROP
--- privilege to grant. Transfer only data-schema runtime relations, never the
--- migration-owned catalog schema or its tables.
+-- privilege to grant. ALTER OWNER also requires SET authority on the target
+-- role. Temporarily add only that capability and restore the exact prior
+-- membership shape before commit. PostgreSQL 18 gives a CREATEROLE creator an
+-- ADMIN-only membership on roles it creates, normally granted by the session's
+-- bootstrap identity. A separate current-user grant supplies SET during this
+-- transaction and is revoked by that same grantor, leaving the durable ADMIN
+-- authority untouched for future reconciliation. PostgreSQL 13-15 have one
+-- membership row per role/member pair and no SET option; any direct membership
+-- already permits SET ROLE, so use the portable legacy check there.
+SELECT current_setting('server_version_num')::integer >= 160000
+    AS membership_options_supported
+\gset
+\if :membership_options_supported
+    SELECT
+        pg_has_role(current_user, runtime.oid, 'SET')
+            AS reconciler_can_set_runtime,
+        EXISTS (
+            SELECT 1
+            FROM pg_auth_members AS membership
+            WHERE membership.roleid = runtime.oid
+              AND membership.member = reconciler.oid
+              AND membership.grantor = reconciler.oid
+        ) AS reconciler_has_self_granted_runtime_membership
+    FROM pg_roles AS runtime
+    CROSS JOIN pg_roles AS reconciler
+    WHERE runtime.rolname = :'runtime_role'
+      AND reconciler.rolname = current_user
+    \gset
+\else
+    SELECT
+        EXISTS (
+            SELECT 1
+            FROM pg_auth_members AS membership
+            WHERE membership.roleid = runtime.oid
+              AND membership.member = reconciler.oid
+        ) AS reconciler_can_set_runtime,
+        false AS reconciler_has_self_granted_runtime_membership
+    FROM pg_roles AS runtime
+    CROSS JOIN pg_roles AS reconciler
+    WHERE runtime.rolname = :'runtime_role'
+      AND reconciler.rolname = current_user
+    \gset
+\endif
+
+\set revoke_temporary_runtime_membership false
+\if :reconciler_can_set_runtime
+\else
+    \if :reconciler_has_self_granted_runtime_membership
+        DO $error$
+        BEGIN
+            RAISE EXCEPTION 'existing current-grantor runtime membership is not SET-capable; refusing to overwrite its options.';
+        END
+        $error$;
+    \else
+        SELECT format('GRANT %I TO %I', :'runtime_role', current_user)\gexec
+        \set revoke_temporary_runtime_membership true
+    \endif
+\endif
+
+-- Transfer only data-schema runtime relations, never the migration-owned
+-- catalog schema or its tables.
 SELECT format('GRANT USAGE, CREATE ON SCHEMA data TO %I', :'runtime_role')\gexec
+SELECT format(
+    'GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA data TO %I', :'runtime_role'
+)\gexec
+SELECT format('GRANT geolens_reader TO %I', :'runtime_role')\gexec
 SELECT format(
     'ALTER %s %I.%I OWNER TO %I',
     CASE c.relkind
@@ -400,6 +554,9 @@ WHERE n.nspname = 'data'
 ORDER BY CASE c.relkind WHEN 'S' THEN 2 ELSE 1 END, c.relname
 \gexec
 
+-- Ownership checks for the remaining relation grants run as the new owner,
+-- not through INHERIT. RESET ROLE before revoking the temporary SET grant.
+SELECT format('SET LOCAL ROLE %I', :'runtime_role')\gexec
 SELECT format(
     'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA data TO %I',
     :'runtime_role'
@@ -409,13 +566,21 @@ SELECT format(
     :'runtime_role'
 )\gexec
 SELECT format(
-    'GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA data TO %I', :'runtime_role'
-)\gexec
-SELECT format('GRANT geolens_reader TO %I', :'runtime_role')\gexec
-SELECT format(
     'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA data GRANT SELECT ON TABLES TO geolens_reader',
     :'runtime_role'
 )\gexec
+RESET ROLE;
+
+\if :revoke_temporary_runtime_membership
+    \if :membership_options_supported
+        SELECT format(
+            'REVOKE %I FROM %I GRANTED BY %I',
+            :'runtime_role', current_user, current_user
+        )\gexec
+    \else
+        SELECT format('REVOKE %I FROM %I', :'runtime_role', current_user)\gexec
+    \endif
+\endif
 
 -- Fail closed if the role can still inherit/assume a powerful role, can create
 -- in a protected schema, lacks its reader transition, or does not own every
@@ -466,6 +631,7 @@ WHERE runtime.rolname = :'runtime_role'
     END
     $error$;
 \endif
+COMMIT;
 EOSQL
 
 echo "Least-privilege PostgreSQL runtime role reconciled: ${runtime_role}"

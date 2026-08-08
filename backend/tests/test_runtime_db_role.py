@@ -30,6 +30,9 @@ def test_bootstrap_restore_and_upgrade_share_one_role_reconciler() -> None:
     assert restore_source.index(command) > restore_source.index("pg_restore -U")
     assert "Adopt the single-tenant runtime role on an existing install" in runbook
     assert f"docker compose exec -T db {command}" in runbook
+    assert "geolens-managed-runtime-role:v2:database=<current-database>" in runbook
+    assert "A second live database" in runbook
+    assert "cannot reuse that" in runbook
 
 
 def test_clean_db_migration_smoke_mounts_role_reconciler_read_only() -> None:
@@ -93,11 +96,19 @@ def test_role_script_keeps_password_out_of_argv_and_catalog_ownership() -> None:
 def test_role_script_requires_managed_marker_and_targets_migration_owner() -> None:
     source = ROLE_SCRIPT.read_text(encoding="utf-8")
 
-    assert "geolens-managed-runtime-role:v1" in source
+    assert "geolens-managed-runtime-role:v2:database=" in source
+    assert "current_database()" in source
     assert "shobj_description" in source
     assert "GEOLENS_RUNTIME_DB_ROLE_ADOPT_EXISTING" in source
     assert "GEOLENS_MIGRATION_DB_ROLE" in source
     assert "ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA catalog" in source
+    assert "server_version_num" in source
+    assert "pg_has_role(current_user" in source
+    assert "'GRANT %I TO %I'" in source
+    assert "'REVOKE %I FROM %I GRANTED BY %I'" in source
+    assert "'REVOKE %I FROM %I'" in source
+    assert "BEGIN;" in source
+    assert "COMMIT;" in source
     # PostgreSQL 18's psql ignores arguments to \quit, so `\quit 1` reports
     # success and would turn a fail-closed branch into a silent pass.
     assert "\\quit 1" not in source
