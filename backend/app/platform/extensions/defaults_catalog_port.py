@@ -198,6 +198,11 @@ class DefaultCatalogPort:
 
         return reupload_service
 
+    def reupload_raster_task(self):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.tasks import reupload_raster
+
+        return reupload_raster
+
     def materialize_analysis_task(self):  # type: ignore[no-untyped-def]
         from app.processing.analysis.tasks import materialize_analysis
 

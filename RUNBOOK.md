@@ -21,6 +21,7 @@ documentation.
 6. [Major PostgreSQL version upgrade (17 → 18)](#6-major-postgresql-version-upgrade-17--18)
 7. [Schema rollback](#7-schema-rollback)
 8. [Audit log retention](#8-audit-log-retention)
+9. [Uploaded source-file retention](#9-uploaded-source-file-retention)
 
 ---
 
@@ -1552,3 +1553,57 @@ ability to answer "who did X on day Y" for anything older than the window.
 That is the intended tradeoff of retention; keep the exported archive (offsite,
 per §1's guidance on the primary backup) if you need to answer that question
 later without re-enabling unbounded storage in the live table.
+
+---
+
+## 9. Uploaded source-file retention
+
+When someone uploads a file, GeoLens keeps the uploaded bytes only as long as it
+needs them to build the dataset. This section says what survives the ingest, so
+you are not surprised later by what a restore does and does not contain.
+
+### What is deleted, and when
+
+| Upload | Where the data ends up | The uploaded file |
+| --- | --- | --- |
+| Vector (Shapefile, GPKG, GeoJSON, CSV, …) | PostGIS table | Deleted after a successful ingest |
+| Raster (GeoTIFF) | A Cloud-Optimized GeoTIFF in object storage | Deleted after a successful conversion |
+| Raster replace (re-upload onto an existing raster dataset) | The dataset's COG is swapped for the new one | Deleted after a successful conversion |
+
+A raster dataset **is** its COG. Conversion is lossless, so the converted asset
+carries everything the upload did, and every re-processing case an operator
+actually has — different overview levels, different compression, different
+internal tiling — starts from the COG just as well as from the original. Keeping
+a second copy of every raster ever uploaded bought nothing and cost object
+storage forever, so it is no longer kept (ADR-002 Decision 7).
+
+Provenance is still recorded: the dataset's `source_filename` and the
+`file_hash` in `origin_ref` identify exactly which bytes were ingested. What is
+gone is the ability to hand those bytes back.
+
+> **If your workflow depends on re-downloading the file a user uploaded,
+> archive it before it reaches GeoLens.** GeoLens is a catalog, not an archive
+> of submissions, and the download endpoints serve the COG, not the original.
+
+### The one case where the original is kept
+
+If COG conversion **fails**, the uploaded file is retained. At that point it is
+the only copy in the system and it is what you need to diagnose the failure —
+open it with `gdalinfo`, check the driver, check the CRS.
+
+That retention is bounded, not permanent. The failed `ingest_jobs` row and its
+staged file are removed by the periodic purge once the row is older than
+`INGEST_JOBS_RETENTION_DAYS` (default 30; `0` disables the purge and keeps
+everything). So the practical rule is: **you have the retention window to
+retrieve a failed upload's source file, and after that it is gone.**
+
+Failed uploads are visible on the admin Jobs page with their error message.
+The files themselves live under `staging/<job-id>/` — in the `upload_staging`
+volume on local storage, or under that prefix in your bucket on S3/MinIO.
+
+### Interaction with backups
+
+§1's `staging-<timestamp>.tar.gz` archives the `upload_staging` volume, so a
+backup taken while a failed upload is still inside the retention window contains
+that file. It is not a way to recover a successfully ingested original — that
+file was already deleted before the backup ran.

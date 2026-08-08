@@ -442,13 +442,18 @@ class TestReuploadUpload:
         detail = resp.json()["detail"].lower()
         assert "raster dataset" in detail
 
-    async def test_reupload_rejects_tif_for_raster_dataset(
+    async def test_reupload_accepts_tif_for_raster_dataset(
         self,
         client: AsyncClient,
         admin_auth_header: dict,
         test_db_session,
     ):
-        """The API does not advertise a raster replacement pipeline it lacks."""
+        """feat(#1221): the record-type gate no longer refuses raster outright.
+
+        These bytes are not a TIFF, so the request still fails — but at the
+        CONTENT check (422), not the record-type gate (400). That distinction
+        is the assertion: a 400 here would mean the door is still shut.
+        """
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _create_dataset(
             test_db_session, created_by=admin_id, record_type="raster_dataset"
@@ -460,8 +465,7 @@ class TestReuploadUpload:
             headers=admin_auth_header,
         )
 
-        assert resp.status_code == 400
-        assert "not supported" in resp.json()["detail"].lower()
+        assert resp.status_code == 422, resp.text
 
     async def test_reupload_rejects_any_file_for_vrt_dataset(
         self,

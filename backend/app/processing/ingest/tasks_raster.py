@@ -34,6 +34,7 @@ from app.processing.ingest.tasks_common import (
     _job_phase_session,
     _parse_temporal_fields,
     _validate_upload_file_safety,
+    reap_downloaded_staging_source,
     reap_presigned_staging_object,
     task_app,
 )
@@ -894,4 +895,24 @@ async def ingest_raster(
         # tail so the two cannot drift.
         await reap_presigned_staging_object(
             job_id, owned_staging_key, final_status=final_status
+        )
+        # fix(#1210), ADR-002 Decision 7: the pre-conversion source object.
+        # This is the vector tail's #430 BA-09 block, which raster never had —
+        # so every raster ever ingested kept its uploaded bytes forever beside
+        # a COG that already contains them losslessly. `final_status ==
+        # "complete"` is reached only after the COG was written, read (metadata
+        # + both quicklooks come off it) and its row committed, so the delete
+        # can never race the verification it depends on.
+        #
+        # failed_source_replayable=True is Decision 7's one exception: a failed
+        # conversion leaves those bytes as the operator's only diagnostic copy,
+        # so they are retained and the retention purge in platform/jobs is what
+        # eventually reaps them — a failed job is not its dataset's
+        # latest-complete row, so nothing exempts it. RUNBOOK.md section 9
+        # states the window for operators.
+        await reap_downloaded_staging_source(
+            job_id,
+            original_file_path=original_file_path,
+            final_status=final_status,
+            failed_source_replayable=True,
         )

@@ -1725,7 +1725,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # fix(#1235 review r8): +5 — the sign-with-deadline delegation. The
         # reupload door hands this to a worker thread, so the whole callable
         # has to cross the port rather than just the lifetime number.
-        "backend/app/platform/extensions/defaults_catalog_port.py": 430,
+        # feat(#1221): +5 — the raster-replace task delegation, same three-line
+        # shape as its reupload_file/reupload_service siblings. The reupload
+        # commit door picks the executor by record type and reaches all three
+        # through the port.
+        "backend/app/platform/extensions/defaults_catalog_port.py": 435,
         # feat(#683): +58 — run_analysis_preview carries a clip mask DATASET
         # now, which costs a widened signature (one param per line once ruff
         # wraps it) plus the mask's shape and size gates. Those live here on
@@ -2304,7 +2308,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # STRING, which the queue-time is-None check cannot see, and the stale
     # reservation it left blocked every refresh for the bound-job timeout.
     # Cap 1027 -> 1046, exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1046,
+    # feat(#1221): +79 — raster replace. The eligibility gate stops refusing
+    # raster_dataset outright and instead constrains it to raster payloads
+    # (plus a service-preview refusal, since nothing fetches a GeoTIFF from a
+    # feature service); the schema-preview endpoint gains an explicit refusal
+    # because a raster has no attribute schema and the ogrinfo call below it
+    # would fail as if the upload were broken; and _dispatch_reupload_task
+    # extracts the three-way defer out of reupload_commit, which the raster
+    # branch pushed past the McCabe gate. Most of the added lines are the
+    # extraction's docstring and the raster branch's comment on why it stays
+    # off the priority queue. Cap 1046 -> 1125, exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1125,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python

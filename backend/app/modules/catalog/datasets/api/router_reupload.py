@@ -149,9 +149,15 @@ def _assert_compatible_record_type(
     pipeline work, so the user sees the precise cross-record-type message rather
     than a deep-pipeline 500.
 
-    Raster and VRT reupload are rejected at this shared boundary because the
-    worker implements only vector/table replacement. File paths additionally
-    reject raster inputs for vector and table datasets.
+    VRT reupload is rejected at this shared boundary because a VRT is defined by
+    its membership, not by a file. Raster reupload IS supported (#1221) and is
+    constrained here to raster payloads. File paths additionally reject raster
+    inputs for vector and table datasets.
+
+    Every door routes through this one function, which is what makes the
+    error class identical across them: the direct multipart door passes
+    ``file.filename``, the presigned door passes ``request.filename``, and both
+    get the same 400 with the same message for the same rejected payload.
 
     Audit action `reupload.commit` is shipped — see test_provenance_attribution.py.
     Do not rename to `dataset.reupload`.
@@ -178,13 +184,28 @@ def _assert_compatible_record_type(
         )
 
     if record_type == "raster_dataset":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "Raster dataset reupload is not supported. "
-                "Import a replacement raster dataset instead."
-            ),
-        )
+        # feat(#1221): a raster dataset is replaced by uploading a replacement
+        # raster. There is no service path — nothing fetches a GeoTIFF from a
+        # feature service — so a service preview against a raster is refused
+        # here rather than failing deep in an ogr2ogr the dataset can never use.
+        if service_type is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Raster datasets cannot be refreshed from a remote service. "
+                    "Upload a replacement raster file instead."
+                ),
+            )
+        if ext and ext not in _RASTER_EXTENSIONS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"This dataset is a raster dataset; {ext} files are not "
+                    "supported for reupload. "
+                    "Cross-record-type swaps are not allowed."
+                ),
+            )
+        return
 
     if record_type in ("vector_dataset", "table") and ext in _RASTER_EXTENSIONS:
         raise HTTPException(
@@ -417,6 +438,18 @@ async def reupload_preview(
         )
     await check_dataset_write_access(db, dataset, dataset_id, user)
     _assert_compatible_record_type(dataset, None)
+    # feat(#1221): this endpoint's whole output is a schema diff, and a raster
+    # has no attribute schema — the ogrinfo call below would fail on a GeoTIFF
+    # for reasons that read as a broken upload. The raster flow is upload then
+    # commit, with no preview step in between.
+    if dataset.record.record_type == "raster_dataset":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Raster datasets have no schema to preview. "
+                "Commit the replacement directly."
+            ),
+        )
 
     job = await _get_bound_reupload_job_or_404(
         db,
@@ -537,6 +570,107 @@ def _require_reupload_source(job, is_service_refresh: bool) -> None:
         )
 
 
+async def _dispatch_reupload_task(
+    db: AsyncSession,
+    *,
+    job: IngestJob,
+    dataset_id: uuid.UUID,
+    record_type: str,
+    user_id: uuid.UUID,
+    token: str | None,
+    is_service_refresh: bool,
+    rollback,
+) -> None:
+    """Defer the worker task this committed reupload needs.
+
+    Three destinations, one admission gate. The run row that admitted this
+    commit was already reserved by the caller, so nothing here decides whether
+    the refresh may proceed — only which executor performs it and on which
+    queue. Every branch goes through ``defer_with_orphan_guard`` so a
+    Procrastinate outage flips the committed job to ``failed`` and finalizes
+    the run instead of leaving a ghost ``pending`` row.
+
+    Extracted from ``reupload_commit`` when the raster branch (#1221) pushed
+    that handler past the McCabe gate.
+    """
+    if is_service_refresh:
+        source_url = job.source_url
+
+        async def _defer_service() -> None:
+            await defer_async_with_tenant(
+                get_catalog_port().reupload_service_task(),
+                job_id=str(job.id),
+                attempt_id=str(job.attempt_id),
+                dataset_id=str(dataset_id),
+                source_url=source_url,
+                source_layer=job.source_layer or "",
+                user_id=str(user_id),
+                token=token,
+            )
+
+        await defer_with_orphan_guard(_defer_service, rollback=rollback, db=db)
+        return
+
+    if job.file_path is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Job has no file_path and no source_url — cannot queue reupload",
+        )
+    file_path = job.file_path
+
+    if record_type == "raster_dataset":
+        # feat(#1221): the raster swap is a different worker task — it moves a
+        # RasterAsset pointer rather than renaming a staging table — but it is
+        # reached through this door and admitted by the same
+        # `create_pending_run` reservation the caller already holds, so a
+        # raster replace and a vector reupload cannot both run on one dataset.
+        #
+        # No priority-queue branch: raster work goes to the `raster` queue,
+        # where COG conversion is already the slow tenant. A small GeoTIFF
+        # jumping into `priority` would put a minutes-long GDAL conversion in
+        # the queue that exists to keep small vector imports snappy.
+        async def _defer_raster() -> None:
+            await defer_async_with_tenant(
+                get_catalog_port().reupload_raster_task(),
+                job_id=str(job.id),
+                attempt_id=str(job.attempt_id),
+                dataset_id=str(dataset_id),
+                file_path=file_path,
+                user_id=str(user_id),
+            )
+
+        await defer_with_orphan_guard(_defer_raster, rollback=rollback, db=db)
+        return
+
+    # Route small files to priority queue
+    import os
+
+    file_size = 0
+    # Only check local files; S3 paths (no leading /) use default queue
+    if file_path.startswith("/"):
+        try:
+            if Path(file_path).exists():
+                file_size = os.path.getsize(file_path)
+        except OSError:
+            pass  # If we can't stat, use default queue
+
+    task = get_catalog_port().reupload_file_task()
+    if file_size > 0 and file_size <= get_catalog_port().priority_queue_threshold_bytes:
+        task = task.configure(queue="priority")
+
+    async def _defer_file() -> None:
+        await defer_async_with_tenant(
+            task,
+            job_id=str(job.id),
+            attempt_id=str(job.attempt_id),
+            dataset_id=str(dataset_id),
+            file_path=file_path,
+            user_id=str(user_id),
+        )
+
+    await defer_with_orphan_guard(_defer_file, rollback=rollback, db=db)
+
+
 @router.post(
     "/{dataset_id}/reupload/{job_id}/commit",
     response_model=ReuploadCommitResponse,
@@ -652,71 +786,16 @@ async def reupload_commit(
         ingest_job_id=job.id,
     )
 
-    if is_service_refresh:
-        source_url = job.source_url
-
-        async def _defer_service() -> None:
-            await defer_async_with_tenant(
-                get_catalog_port().reupload_service_task(),
-                job_id=str(job.id),
-                attempt_id=str(job.attempt_id),
-                dataset_id=str(dataset_id),
-                source_url=source_url,
-                source_layer=job.source_layer or "",
-                user_id=str(user.id),
-                token=request.token,
-            )
-
-        await defer_with_orphan_guard(_defer_service, rollback=rollback, db=db)
-    else:
-        # Route small files to priority queue
-        import os
-
-        if job.file_path is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Job has no file_path and no source_url — cannot queue reupload",
-            )
-        file_path = job.file_path
-
-        file_size = 0
-        # Only check local files; S3 paths (no leading /) use default queue
-        if file_path.startswith("/"):
-            try:
-                if Path(file_path).exists():
-                    file_size = os.path.getsize(file_path)
-            except OSError:
-                pass  # If we can't stat, use default queue
-
-        if (
-            file_size > 0
-            and file_size <= get_catalog_port().priority_queue_threshold_bytes
-        ):
-
-            async def _defer_priority() -> None:
-                await defer_async_with_tenant(
-                    get_catalog_port().reupload_file_task().configure(queue="priority"),
-                    job_id=str(job.id),
-                    attempt_id=str(job.attempt_id),
-                    dataset_id=str(dataset_id),
-                    file_path=file_path,
-                    user_id=str(user.id),
-                )
-
-            await defer_with_orphan_guard(_defer_priority, rollback=rollback, db=db)
-        else:
-
-            async def _defer_default() -> None:
-                await defer_async_with_tenant(
-                    get_catalog_port().reupload_file_task(),
-                    job_id=str(job.id),
-                    attempt_id=str(job.attempt_id),
-                    dataset_id=str(dataset_id),
-                    file_path=file_path,
-                    user_id=str(user.id),
-                )
-
-            await defer_with_orphan_guard(_defer_default, rollback=rollback, db=db)
+    await _dispatch_reupload_task(
+        db,
+        job=job,
+        dataset_id=dataset_id,
+        record_type=dataset.record.record_type,
+        user_id=user.id,
+        token=request.token,
+        is_service_refresh=is_service_refresh,
+        rollback=rollback,
+    )
 
     return ReuploadCommitResponse(
         job_id=job.id,
