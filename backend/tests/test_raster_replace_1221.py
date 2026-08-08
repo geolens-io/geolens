@@ -786,3 +786,106 @@ class TestIdempotentReplace:
             )
         finally:
             await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
+
+# ---------------------------------------------------------------------------
+# 6. The parent VRT's view of a replaced member
+# ---------------------------------------------------------------------------
+
+
+class TestVrtMemberStaleness:
+    """A replaced member leaves the parent's stored VRT naming a COG that was
+    reaped. The member itself probes healthy — `storage.exists` is asked about
+    its NEW pointer — so without a distinct state the parent looks fine while
+    its mosaic is broken. Surfacing only; the fix is a regenerate."""
+
+    async def test_member_replaced_after_the_last_build_reads_stale(
+        self, client, admin_auth_header, test_db_session, raster_storage
+    ) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        from app.processing.raster.models import VrtSourceLink
+
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        built_at = datetime.now(timezone.utc) - timedelta(hours=1)
+
+        member = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        parent = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        parent_record = (
+            await test_db_session.execute(
+                select(Record).where(Record.id == parent.dataset.record_id)
+            )
+        ).scalar_one()
+        parent_record.record_type = "vrt_dataset"
+        parent_asset = (
+            await test_db_session.execute(
+                select(RasterAsset).where(RasterAsset.dataset_id == parent.dataset.id)
+            )
+        ).scalar_one()
+        parent_asset.last_regenerated_at = built_at
+        test_db_session.add(
+            VrtSourceLink(
+                vrt_dataset_id=parent.dataset.id,
+                source_dataset_id=member.dataset.id,
+                position=0,
+            )
+        )
+        await test_db_session.commit()
+
+        parent_id = parent.dataset.id
+        parent_record_id = parent.dataset.record_id
+        member_id = member.dataset.id
+        member_record_id = member.dataset.record_id
+
+        try:
+            # The member predates the build: nothing to report.
+            await test_db_session.execute(
+                text(
+                    "UPDATE catalog.raster_assets SET ingested_at = :ts "
+                    "WHERE dataset_id = :id"
+                ),
+                {"ts": built_at - timedelta(minutes=5), "id": member_id},
+            )
+            await test_db_session.commit()
+
+            resp = await client.get(
+                f"/datasets/{parent_id}/vrt/status/", headers=admin_auth_header
+            )
+            assert resp.status_code == 200, resp.text
+            assert [s["status"] for s in resp.json()["source_health"]] == ["healthy"]
+
+            # Now the member's raster is replaced — this is exactly what
+            # reupload_raster stamps when it swaps the pointer.
+            await test_db_session.execute(
+                text(
+                    "UPDATE catalog.raster_assets SET ingested_at = :ts "
+                    "WHERE dataset_id = :id"
+                ),
+                {"ts": built_at + timedelta(minutes=5), "id": member_id},
+            )
+            await test_db_session.commit()
+
+            resp = await client.get(
+                f"/datasets/{parent_id}/vrt/status/", headers=admin_auth_header
+            )
+            assert resp.status_code == 200, resp.text
+            assert [s["status"] for s in resp.json()["source_health"]] == ["stale"]
+        finally:
+            await test_db_session.execute(
+                delete(VrtSourceLink).where(VrtSourceLink.vrt_dataset_id == parent_id)
+            )
+            await test_db_session.commit()
+            await _purge(
+                test_db_session, dataset_id=parent_id, record_id=parent_record_id
+            )
+            await _purge(
+                test_db_session, dataset_id=member_id, record_id=member_record_id
+            )

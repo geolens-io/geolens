@@ -228,7 +228,8 @@ async def get_vrt_status(
                 r.title,
                 d.id AS ds_id,
                 ra.asset_uri,
-                ra.storage_backend
+                ra.storage_backend,
+                ra.ingested_at
             FROM catalog.vrt_source_links vsl
             LEFT JOIN catalog.datasets d ON d.id = vsl.source_dataset_id
             LEFT JOIN catalog.records r ON r.id = d.record_id
@@ -286,12 +287,29 @@ async def get_vrt_status(
                 for row in sources_to_check
             )
         )
+        # feat(#1221): a member whose own raster was replaced (#1221's replace
+        # path restamps `ingested_at` when it swaps the pointer) leaves this
+        # parent's stored VRT naming a COG that no longer exists. The member
+        # itself probes healthy — it is the parent that needs regenerating —
+        # so surface that as its own state rather than letting a working
+        # source read as fine while the mosaic is broken.
+        built_at = vrt_asset.last_regenerated_at or vrt_asset.ingested_at
         for row, file_exists in zip(sources_to_check, exists_results):
+            if not file_exists:
+                member_status = "inaccessible"
+            elif (
+                built_at is not None
+                and row.ingested_at is not None
+                and row.ingested_at > built_at
+            ):
+                member_status = "stale"
+            else:
+                member_status = "healthy"
             source_health_list.append(
                 VrtSourceHealth(
                     dataset_id=row.source_dataset_id,
                     title=row.title or "Unknown",
-                    status="healthy" if file_exists else "inaccessible",
+                    status=member_status,
                 )
             )
 

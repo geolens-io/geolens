@@ -2466,7 +2466,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # response carries the run id alongside the job id, and says why — the
     # run is the durable history row that outlives the job the retention
     # purge removes. Cap 1396 -> 1435, exact.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1435,
+    # feat(#1221): +5 — `stale` joins VrtSourceHealth.status, for a member
+    # whose own raster was replaced after the parent VRT was last built. The
+    # comment is the value: the member probes healthy and it is the PARENT
+    # that needs regenerating, which is the opposite of where `inaccessible`
+    # sends the reader. Cap 1435 -> 1440, exact.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1440,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch
