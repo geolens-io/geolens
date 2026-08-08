@@ -129,6 +129,16 @@ describe('SourcePanel', () => {
     expect(screen.getByRole('button', { name: 'Future source action' })).toBeInTheDocument();
   });
 
+  it('does not reconstruct the initial source from current fields after a reupload', () => {
+    render(<SourcePanel dataset={makeDataset()} />);
+
+    const initialVersion = screen.getByText('Version 1').closest('li');
+    expect(initialVersion).not.toBeNull();
+    expect(initialVersion).toHaveTextContent('Catalog source');
+    expect(initialVersion).not.toHaveTextContent('parks.geojson');
+    expect(initialVersion).not.toHaveTextContent('1,234 features');
+  });
+
   it.each([
     {
       name: 'registered PostGIS table',

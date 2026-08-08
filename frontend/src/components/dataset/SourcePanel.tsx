@@ -193,6 +193,8 @@ function SourceHistory({ dataset }: { dataset: DatasetResponse }) {
   const { data, isLoading, isError } = useDatasetVersions(dataset.id);
   const fetched = data?.versions ?? [];
   const hasFirstVersion = fetched.some((version) => version.version_number === 1);
+  // fix(#1280): current fields cannot reconstruct version 1 after a reupload.
+  const currentFieldsAreInitial = dataset.current_version === 1;
   const versions: DatasetVersionResponse[] = [
     ...fetched,
     ...(!hasFirstVersion
@@ -200,11 +202,11 @@ function SourceHistory({ dataset }: { dataset: DatasetResponse }) {
           id: 'source-panel-v1',
           dataset_id: dataset.id,
           version_number: 1,
-          source_filename: dataset.source_filename,
-          source_format: dataset.source_format,
-          feature_count: dataset.feature_count,
-          srid: dataset.srid,
-          geometry_type: dataset.geometry_type,
+          source_filename: currentFieldsAreInitial ? dataset.source_filename : null,
+          source_format: currentFieldsAreInitial ? dataset.source_format : null,
+          feature_count: currentFieldsAreInitial ? dataset.feature_count : null,
+          srid: currentFieldsAreInitial ? dataset.srid : null,
+          geometry_type: currentFieldsAreInitial ? dataset.geometry_type : null,
           file_hash: null,
           uploaded_by: dataset.created_by,
           uploaded_at: dataset.created_at,
