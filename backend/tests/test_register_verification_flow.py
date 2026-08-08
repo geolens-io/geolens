@@ -142,35 +142,25 @@ def verification_required_off(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Helper: force PersistentConfig to bypass its DB cache and return a value
+# Helper: set PersistentConfig through the same DB-backed path as the app
 # ---------------------------------------------------------------------------
 
 
-def _patch_persistent_config(monkeypatch, config_obj, value: bool):
-    """Monkeypatch a PersistentConfig[bool] to always return *value* from .get().
+@pytest.fixture
+async def set_persistent_config(test_db_session):
+    """Commit config overrides for a test and remove those rows afterward."""
+    touched_configs = []
 
-    PersistentConfig.get() resolves: env_only → cache → DB → env_default.
-    In integration tests the DB starts without an AppSetting row, and the
-    in-memory cache is cleared per test, so get() falls through to env_default.
+    async def _set(config_obj, value: bool) -> None:
+        if config_obj not in touched_configs:
+            touched_configs.append(config_obj)
+        await config_obj.set(test_db_session, value)
 
-    Strategy:
-    - If env_default_factory is set (e.g. REGISTRATION_ENABLED reads settings.registration_enabled):
-      patch the settings attribute.
-    - If env_default is a static constant (e.g. EMAIL_VERIFICATION_REQUIRED=True):
-      patch _env_default_static on the config object.
-    """
-    from app.core.config import settings
+    yield _set
 
-    if config_obj._env_default_factory is not None:
-        # Factory reads from settings; patch the settings attribute.
-        attr_name = config_obj.key  # e.g. "registration_enabled"
-        try:
-            monkeypatch.setattr(settings, attr_name, value, raising=False)
-        except (AttributeError, TypeError):
-            pass
-    else:
-        # Static env_default; patch the instance attribute.
-        monkeypatch.setattr(config_obj, "_env_default_static", value, raising=False)
+    await test_db_session.rollback()
+    for config_obj in reversed(touched_configs):
+        await config_obj.reset(test_db_session)
 
 
 @pytest.mark.anyio
@@ -221,12 +211,12 @@ async def test_hosted_verification_email_uses_validated_tenant_origin(
 async def test_signup_off_returns_403_no_email(
     client: AsyncClient,
     captured_send_email: list,
-    monkeypatch,
+    set_persistent_config,
 ) -> None:
     """SIGNUP-06: when REGISTRATION_ENABLED is off, register returns 403 and no email is sent."""
     from app.core.persistent_config import REGISTRATION_ENABLED
 
-    _patch_persistent_config(monkeypatch, REGISTRATION_ENABLED, False)
+    await set_persistent_config(REGISTRATION_ENABLED, False)
 
     resp = await client.post(
         "/auth/register/",
@@ -251,7 +241,7 @@ async def test_signup_on_verification_required_emails_registrant(
     client: AsyncClient,
     captured_send_email: list,
     test_db_session,
-    monkeypatch,
+    set_persistent_config,
 ) -> None:
     """SIGNUP-03: register with verification on sends 1 email to the registrant."""
     from app.core.persistent_config import (
@@ -260,8 +250,8 @@ async def test_signup_on_verification_required_emails_registrant(
     )
     from app.modules.auth.models import User
 
-    _patch_persistent_config(monkeypatch, REGISTRATION_ENABLED, True)
-    _patch_persistent_config(monkeypatch, EMAIL_VERIFICATION_REQUIRED, True)
+    await set_persistent_config(REGISTRATION_ENABLED, True)
+    await set_persistent_config(EMAIL_VERIFICATION_REQUIRED, True)
 
     username = _unique_username()
     email = _unique_email()
@@ -310,7 +300,7 @@ async def test_signup_collision_verification_sends_uniform_decoy_email(
     client: AsyncClient,
     captured_send_email: list,
     test_db_session,
-    monkeypatch,
+    set_persistent_config,
 ) -> None:
     """#267: a swallowed username collision must still trigger uniform delivery."""
     from app.core.persistent_config import (
@@ -319,8 +309,8 @@ async def test_signup_collision_verification_sends_uniform_decoy_email(
     )
     from app.modules.auth.models import User
 
-    _patch_persistent_config(monkeypatch, REGISTRATION_ENABLED, True)
-    _patch_persistent_config(monkeypatch, EMAIL_VERIFICATION_REQUIRED, True)
+    await set_persistent_config(REGISTRATION_ENABLED, True)
+    await set_persistent_config(EMAIL_VERIFICATION_REQUIRED, True)
 
     username = _unique_username()
     real_email = _unique_email()
@@ -370,7 +360,7 @@ async def test_verify_email_activates_account_and_login_works(
     client: AsyncClient,
     captured_send_email: list,
     test_db_session,
-    monkeypatch,
+    set_persistent_config,
 ) -> None:
     """SIGNUP-03/04: verify-email with valid token activates the account; login then succeeds."""
     from app.core.persistent_config import (
@@ -379,8 +369,8 @@ async def test_verify_email_activates_account_and_login_works(
     )
     from app.modules.auth.models import User
 
-    _patch_persistent_config(monkeypatch, REGISTRATION_ENABLED, True)
-    _patch_persistent_config(monkeypatch, EMAIL_VERIFICATION_REQUIRED, True)
+    await set_persistent_config(REGISTRATION_ENABLED, True)
+    await set_persistent_config(EMAIL_VERIFICATION_REQUIRED, True)
 
     username = _unique_username()
     email = _unique_email()
@@ -442,7 +432,7 @@ async def test_verify_email_does_not_reactivate_suspended_account(
     client: AsyncClient,
     captured_send_email: list,
     test_db_session,
-    monkeypatch,
+    set_persistent_config,
 ) -> None:
     """CR-01: if an admin suspends a still-pending account within the token's
     validity window, clicking the verification link must consume the token but
@@ -455,8 +445,8 @@ async def test_verify_email_does_not_reactivate_suspended_account(
     )
     from app.modules.auth.models import User
 
-    _patch_persistent_config(monkeypatch, REGISTRATION_ENABLED, True)
-    _patch_persistent_config(monkeypatch, EMAIL_VERIFICATION_REQUIRED, True)
+    await set_persistent_config(REGISTRATION_ENABLED, True)
+    await set_persistent_config(EMAIL_VERIFICATION_REQUIRED, True)
 
     username = _unique_username()
     email = _unique_email()
@@ -510,7 +500,7 @@ async def test_verify_email_invalid_token_returns_400(
     client: AsyncClient,
     captured_send_email: list,
     test_db_session,
-    monkeypatch,
+    set_persistent_config,
 ) -> None:
     """Expired/garbage token → clear 400, account stays inactive."""
     from app.core.persistent_config import (
@@ -519,8 +509,8 @@ async def test_verify_email_invalid_token_returns_400(
     )
     from app.modules.auth.models import User
 
-    _patch_persistent_config(monkeypatch, REGISTRATION_ENABLED, True)
-    _patch_persistent_config(monkeypatch, EMAIL_VERIFICATION_REQUIRED, True)
+    await set_persistent_config(REGISTRATION_ENABLED, True)
+    await set_persistent_config(EMAIL_VERIFICATION_REQUIRED, True)
 
     username = _unique_username()
     email = _unique_email()
@@ -564,7 +554,7 @@ async def test_verify_email_invalid_token_returns_400(
 async def test_resend_verification_enumeration_safe(
     client: AsyncClient,
     captured_send_email: list,
-    monkeypatch,
+    set_persistent_config,
 ) -> None:
     """SIGNUP-05: resend returns same 200 body for known and unknown email."""
     from app.core.persistent_config import (
@@ -572,8 +562,8 @@ async def test_resend_verification_enumeration_safe(
         REGISTRATION_ENABLED,
     )
 
-    _patch_persistent_config(monkeypatch, REGISTRATION_ENABLED, True)
-    _patch_persistent_config(monkeypatch, EMAIL_VERIFICATION_REQUIRED, True)
+    await set_persistent_config(REGISTRATION_ENABLED, True)
+    await set_persistent_config(EMAIL_VERIFICATION_REQUIRED, True)
 
     # Register a real user so there is an unverified account
     username = _unique_username()
@@ -639,7 +629,7 @@ async def test_resend_verification_enumeration_safe(
 async def test_unverified_user_blocked_from_protected_endpoint(
     client: AsyncClient,
     captured_send_email: list,
-    monkeypatch,
+    set_persistent_config,
 ) -> None:
     """SIGNUP-04: an inactive/unverified user cannot reach /auth/me."""
     from app.core.persistent_config import (
@@ -647,8 +637,8 @@ async def test_unverified_user_blocked_from_protected_endpoint(
         REGISTRATION_ENABLED,
     )
 
-    _patch_persistent_config(monkeypatch, REGISTRATION_ENABLED, True)
-    _patch_persistent_config(monkeypatch, EMAIL_VERIFICATION_REQUIRED, True)
+    await set_persistent_config(REGISTRATION_ENABLED, True)
+    await set_persistent_config(EMAIL_VERIFICATION_REQUIRED, True)
 
     username = _unique_username()
     email = _unique_email()
@@ -680,6 +670,7 @@ async def test_unverified_user_blocked_from_protected_endpoint(
 async def test_smtp_failure_returns_clear_non_leaky_error(
     client: AsyncClient,
     smtp_configured,
+    set_persistent_config,
     monkeypatch,
 ) -> None:
     """T-1231-07: SMTP failure → clear HTTP error, secret never in response body."""
@@ -690,8 +681,8 @@ async def test_smtp_failure_returns_clear_non_leaky_error(
         REGISTRATION_ENABLED,
     )
 
-    _patch_persistent_config(monkeypatch, REGISTRATION_ENABLED, True)
-    _patch_persistent_config(monkeypatch, EMAIL_VERIFICATION_REQUIRED, True)
+    await set_persistent_config(REGISTRATION_ENABLED, True)
+    await set_persistent_config(EMAIL_VERIFICATION_REQUIRED, True)
 
     # Inject a fake send_email that raises with a message containing the secret
     async def _raising_send(notification) -> None:
@@ -754,13 +745,14 @@ async def test_smtp_failure_returns_clear_non_leaky_error(
 async def test_cloud_gate_preserved(
     client: AsyncClient,
     captured_send_email: list,
+    set_persistent_config,
     monkeypatch,
 ) -> None:
     """T-1231-08: cloud mode 403 gate is preserved; global self-signup stays disabled."""
     from app.core.persistent_config import REGISTRATION_ENABLED
 
     # Turn signup ON so the cloud-gate check is the ONLY reason for the 403
-    _patch_persistent_config(monkeypatch, REGISTRATION_ENABLED, True)
+    await set_persistent_config(REGISTRATION_ENABLED, True)
 
     # Monkeypatch has_extension to return True for "cloud"
     monkeypatch.setattr(
@@ -812,7 +804,7 @@ async def test_google_sso_oauth_providers_endpoint_unaffected(
 @pytest.mark.anyio
 async def test_config_exposes_signup_flags(
     client: AsyncClient,
-    monkeypatch,
+    set_persistent_config,
 ) -> None:
     """GET /auth/config exposes allow_signup and email_verification_required."""
     from app.core.persistent_config import (
@@ -820,8 +812,8 @@ async def test_config_exposes_signup_flags(
         REGISTRATION_ENABLED,
     )
 
-    _patch_persistent_config(monkeypatch, REGISTRATION_ENABLED, True)
-    _patch_persistent_config(monkeypatch, EMAIL_VERIFICATION_REQUIRED, True)
+    await set_persistent_config(REGISTRATION_ENABLED, True)
+    await set_persistent_config(EMAIL_VERIFICATION_REQUIRED, True)
 
     resp = await client.get("/auth/config/")
     assert resp.status_code == 200, resp.text
@@ -840,12 +832,12 @@ async def test_config_exposes_signup_flags(
 @pytest.mark.anyio
 async def test_config_allow_signup_false_when_disabled(
     client: AsyncClient,
-    monkeypatch,
+    set_persistent_config,
 ) -> None:
     """GET /auth/config → allow_signup=false when REGISTRATION_ENABLED is off."""
     from app.core.persistent_config import REGISTRATION_ENABLED
 
-    _patch_persistent_config(monkeypatch, REGISTRATION_ENABLED, False)
+    await set_persistent_config(REGISTRATION_ENABLED, False)
 
     resp = await client.get("/auth/config/")
     assert resp.status_code == 200, resp.text
@@ -864,7 +856,7 @@ async def test_config_allow_signup_false_when_disabled(
 async def test_register_next_step_verify_email(
     client: AsyncClient,
     captured_send_email: list,
-    monkeypatch,
+    set_persistent_config,
 ) -> None:
     """Verification + SMTP + email → response carries next_step='verify_email'."""
     from app.core.persistent_config import (
@@ -872,8 +864,8 @@ async def test_register_next_step_verify_email(
         REGISTRATION_ENABLED,
     )
 
-    _patch_persistent_config(monkeypatch, REGISTRATION_ENABLED, True)
-    _patch_persistent_config(monkeypatch, EMAIL_VERIFICATION_REQUIRED, True)
+    await set_persistent_config(REGISTRATION_ENABLED, True)
+    await set_persistent_config(EMAIL_VERIFICATION_REQUIRED, True)
 
     resp = await client.post(
         "/auth/register/",
@@ -891,7 +883,7 @@ async def test_register_next_step_verify_email(
 async def test_register_next_step_await_approval_when_verification_off(
     client: AsyncClient,
     captured_send_email: list,
-    monkeypatch,
+    set_persistent_config,
 ) -> None:
     """Verification off (SMTP present) → next_step='await_approval', no email sent."""
     from app.core.persistent_config import (
@@ -899,8 +891,8 @@ async def test_register_next_step_await_approval_when_verification_off(
         REGISTRATION_ENABLED,
     )
 
-    _patch_persistent_config(monkeypatch, REGISTRATION_ENABLED, True)
-    _patch_persistent_config(monkeypatch, EMAIL_VERIFICATION_REQUIRED, False)
+    await set_persistent_config(REGISTRATION_ENABLED, True)
+    await set_persistent_config(EMAIL_VERIFICATION_REQUIRED, False)
 
     resp = await client.post(
         "/auth/register/",
@@ -919,7 +911,7 @@ async def test_register_next_step_await_approval_when_verification_off(
 async def test_register_collision_response_identical_to_new_user(
     client: AsyncClient,
     captured_send_email: list,
-    monkeypatch,
+    set_persistent_config,
 ) -> None:
     """SEC-012 regression: under verification+SMTP, a swallowed username/email
     collision returns a response BYTE-IDENTICAL to a genuine new signup (same
@@ -932,8 +924,8 @@ async def test_register_collision_response_identical_to_new_user(
         REGISTRATION_ENABLED,
     )
 
-    _patch_persistent_config(monkeypatch, REGISTRATION_ENABLED, True)
-    _patch_persistent_config(monkeypatch, EMAIL_VERIFICATION_REQUIRED, True)
+    await set_persistent_config(REGISTRATION_ENABLED, True)
+    await set_persistent_config(EMAIL_VERIFICATION_REQUIRED, True)
 
     username = _unique_username()
     email = _unique_email()
@@ -978,7 +970,7 @@ async def test_register_collision_response_identical_to_new_user(
 async def test_no_email_registration_falls_back_to_admin_approval(
     client: AsyncClient,
     captured_send_email: list,
-    monkeypatch,
+    set_persistent_config,
 ) -> None:
     """When verification is required but no email is provided, fall back to admin-approval.
 
@@ -991,8 +983,8 @@ async def test_no_email_registration_falls_back_to_admin_approval(
         REGISTRATION_ENABLED,
     )
 
-    _patch_persistent_config(monkeypatch, REGISTRATION_ENABLED, True)
-    _patch_persistent_config(monkeypatch, EMAIL_VERIFICATION_REQUIRED, True)
+    await set_persistent_config(REGISTRATION_ENABLED, True)
+    await set_persistent_config(EMAIL_VERIFICATION_REQUIRED, True)
 
     resp = await client.post(
         "/auth/register/",
@@ -1020,6 +1012,7 @@ async def test_no_email_registration_falls_back_to_admin_approval(
 async def test_verify_notify_not_called(
     client: AsyncClient,
     captured_send_email: list,
+    set_persistent_config,
     monkeypatch,
 ) -> None:
     """Verification email must use send_email DIRECTLY, never notify().
@@ -1032,8 +1025,8 @@ async def test_verify_notify_not_called(
         REGISTRATION_ENABLED,
     )
 
-    _patch_persistent_config(monkeypatch, REGISTRATION_ENABLED, True)
-    _patch_persistent_config(monkeypatch, EMAIL_VERIFICATION_REQUIRED, True)
+    await set_persistent_config(REGISTRATION_ENABLED, True)
+    await set_persistent_config(EMAIL_VERIFICATION_REQUIRED, True)
 
     notify_calls: list = []
 
