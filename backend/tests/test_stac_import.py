@@ -440,14 +440,17 @@ class TestStacImport:
         with patch(
             "app.modules.catalog.sources.stac_router._fetch_cog_info",
             new=AsyncMock(
-                return_value={
-                    "band_count": 1,
-                    "dtype": "float32",
-                    "width": 512,
-                    "height": 512,
-                    "nodata": None,
-                    "band_info": None,
-                }
+                return_value=(
+                    {
+                        "band_count": 1,
+                        "dtype": "float32",
+                        "width": 512,
+                        "height": 512,
+                        "nodata": None,
+                        "band_info": None,
+                    },
+                    True,
+                )
             ),
         ):
             resp = await client.post(
@@ -848,3 +851,49 @@ class TestStacAdapter:
             == "https://example.com/data/item-001.tif"
         )
         assert result["items"][1]["thumbnail_href"] is None
+
+
+class TestStacImportContactSemantics:
+    async def test_titiler_upstream_error_still_stamps_the_contact(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        mock_stac_ssrf,
+    ):
+        """fix(#1271 review): Titiler answering non-200 means it was up and
+        attempted the upstream COG — the origin path was exercised even
+        though it failed, which is exactly the failed-contact case the
+        column's contract dates."""
+        with patch(
+            "app.modules.catalog.sources.stac_router._fetch_cog_info",
+            new=AsyncMock(return_value=(None, True)),
+        ):
+            resp = await client.post(
+                "/services/stac/import",
+                json={
+                    "url": "https://stac.example.com/v1",
+                    "items": [
+                        {
+                            "id": f"test-item-{uuid.uuid4().hex[:8]}",
+                            "collection": "dem-collection",
+                            "title": "Upstream-Error STAC Import",
+                            "data_asset_href": "https://example.com/data/u.tif",
+                            "bbox": [-1, -1, 1, 1],
+                            "epsg": 4326,
+                        }
+                    ],
+                    "visibility": "private",
+                },
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["created"] == 1
+
+        detail = await client.get(
+            f"/datasets/{data['results'][0]['dataset_id']}",
+            headers=admin_auth_header,
+        )
+        assert detail.status_code == 200
+        assert detail.json()["last_checked_at"] is not None
+        assert detail.json()["source_health"] == "unknown"
