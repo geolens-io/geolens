@@ -71,6 +71,11 @@ class OGCRecordProperties:
         source_freshness (str | Unset): fresh, due, overdue, or unknown — how the dataset's last refresh compares to its
             declared update_frequency. 'unknown' for origins nothing can refresh. Advisory only, and distinct from the
             quality score's own freshness. Default: 'unknown'.
+        source_health (str | Unset): healthy, missing, inaccessible, or unknown. 'unknown' means never probed, or an
+            origin kind with nothing to probe. Default: 'unknown'.
+        last_checked_at (datetime.datetime | None | Unset): Last time GeoLens contacted the origin, whether the attempt
+            succeeded or failed.
+        last_refreshed_at (datetime.datetime | None | Unset): Last committed successful refresh — not the last attempt.
         constraints (None | OGCRecordPropertiesConstraintsType0 | Unset):
         distributions (list[OGCRecordPropertiesDistributionsType0Item] | None | Unset):
         record_status (None | str | Unset):
@@ -113,6 +118,9 @@ class OGCRecordProperties:
     lineage: None | str | Unset = UNSET
     update_frequency: None | str | Unset = UNSET
     source_freshness: str | Unset = "unknown"
+    source_health: str | Unset = "unknown"
+    last_checked_at: datetime.datetime | None | Unset = UNSET
+    last_refreshed_at: datetime.datetime | None | Unset = UNSET
     constraints: None | OGCRecordPropertiesConstraintsType0 | Unset = UNSET
     distributions: list[OGCRecordPropertiesDistributionsType0Item] | None | Unset = (
         UNSET
@@ -283,6 +291,24 @@ class OGCRecordProperties:
 
         source_freshness = self.source_freshness
 
+        source_health = self.source_health
+
+        last_checked_at: None | str | Unset
+        if isinstance(self.last_checked_at, Unset):
+            last_checked_at = UNSET
+        elif isinstance(self.last_checked_at, datetime.datetime):
+            last_checked_at = self.last_checked_at.isoformat()
+        else:
+            last_checked_at = self.last_checked_at
+
+        last_refreshed_at: None | str | Unset
+        if isinstance(self.last_refreshed_at, Unset):
+            last_refreshed_at = UNSET
+        elif isinstance(self.last_refreshed_at, datetime.datetime):
+            last_refreshed_at = self.last_refreshed_at.isoformat()
+        else:
+            last_refreshed_at = self.last_refreshed_at
+
         constraints: dict[str, Any] | None | Unset
         if isinstance(self.constraints, Unset):
             constraints = UNSET
@@ -400,6 +426,12 @@ class OGCRecordProperties:
             field_dict["update_frequency"] = update_frequency
         if source_freshness is not UNSET:
             field_dict["source_freshness"] = source_freshness
+        if source_health is not UNSET:
+            field_dict["source_health"] = source_health
+        if last_checked_at is not UNSET:
+            field_dict["last_checked_at"] = last_checked_at
+        if last_refreshed_at is not UNSET:
+            field_dict["last_refreshed_at"] = last_refreshed_at
         if constraints is not UNSET:
             field_dict["constraints"] = constraints
         if distributions is not UNSET:
@@ -679,6 +711,42 @@ class OGCRecordProperties:
 
         source_freshness = d.pop("source_freshness", UNSET)
 
+        source_health = d.pop("source_health", UNSET)
+
+        def _parse_last_checked_at(data: object) -> datetime.datetime | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                last_checked_at_type_0 = isoparse(data)
+
+                return last_checked_at_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(datetime.datetime | None | Unset, data)
+
+        last_checked_at = _parse_last_checked_at(d.pop("last_checked_at", UNSET))
+
+        def _parse_last_refreshed_at(data: object) -> datetime.datetime | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                last_refreshed_at_type_0 = isoparse(data)
+
+                return last_refreshed_at_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(datetime.datetime | None | Unset, data)
+
+        last_refreshed_at = _parse_last_refreshed_at(d.pop("last_refreshed_at", UNSET))
+
         def _parse_constraints(
             data: object,
         ) -> None | OGCRecordPropertiesConstraintsType0 | Unset:
@@ -815,6 +883,9 @@ class OGCRecordProperties:
             lineage=lineage,
             update_frequency=update_frequency,
             source_freshness=source_freshness,
+            source_health=source_health,
+            last_checked_at=last_checked_at,
+            last_refreshed_at=last_refreshed_at,
             constraints=constraints,
             distributions=distributions,
             record_status=record_status,

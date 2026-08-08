@@ -12258,6 +12258,38 @@
             "title": "Source Freshness",
             "type": "string"
           },
+          "source_health": {
+            "default": "unknown",
+            "description": "healthy, missing, inaccessible, or unknown. 'unknown' means never probed, or an origin kind with nothing to probe.",
+            "title": "Source Health",
+            "type": "string"
+          },
+          "last_checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Last time GeoLens contacted the origin, whether the attempt succeeded or failed.",
+            "title": "Last Checked At"
+          },
+          "last_refreshed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Last committed successful refresh \u2014 not the last attempt.",
+            "title": "Last Refreshed At"
+          },
           "constraints": {
             "anyOf": [
               {
