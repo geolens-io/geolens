@@ -473,6 +473,131 @@ class TestRefreshRefusals:
         assert resp.status_code == 400
         assert await _run_for(test_db_session, dataset.id) is None
 
+    async def test_a_rebind_landing_at_the_reservation_never_dispatches_the_old_origin(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """fix(#1277 review): the TOCTOU between the snapshot and the reservation.
+
+        A re-upload that was already in flight finishes mid-request: it commits
+        its swap, restamps `origin_ref`, and takes its own run terminal. The
+        admission index then sees no active run and lets this request in — and
+        the old code dispatched the binding it had read BEFORE that swap, so
+        the worker would re-fetch the old origin and restamp the old binding,
+        undoing a re-upload that had already succeeded.
+
+        The rebind is committed from a second session inside a patched
+        `create_pending_run`, which puts it at the exact moment the reservation
+        is taken — the tightest interleaving the window allows.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(test_db_session, created_by=admin_id)
+        old_base = dataset.origin_ref["url"]
+        new_base = "https://elsewhere.example.com/geoserver/wfs"
+
+        real_create_pending_run = router_refresh.create_pending_run
+
+        async def _rebind_then_reserve(*args, **kwargs):
+            set_dataset_origin(
+                dataset,
+                "service",
+                uri=new_base,
+                service_type="wfs",
+                url=new_base,
+                layer_id="topp:moved",
+            )
+            await test_db_session.commit()
+            return await real_create_pending_run(*args, **kwargs)
+
+        async with _dispatch_harness() as task:
+            with patch.object(
+                router_refresh, "create_pending_run", _rebind_then_reserve
+            ):
+                resp = await client.post(
+                    f"/datasets/{dataset.id}/refresh", headers=admin_auth_header
+                )
+
+        assert resp.status_code == 409, resp.text
+        assert resp.json()["detail"]["code"] == "origin_changed"
+        # The point of the whole fix: the stale binding never left the door.
+        task.defer_async.assert_not_awaited()
+        assert old_base not in str(task.defer_async.call_args)
+        # And the refusal released the dataset rather than leaving a run row
+        # holding the admission index against the retry that follows.
+        assert await _run_for(test_db_session, dataset.id) is None
+        jobs = (
+            (
+                await test_db_session.execute(
+                    select(IngestJob).where(IngestJob.dataset_id == dataset.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert jobs == []
+
+    async def test_a_rebind_to_an_unrefreshable_origin_releases_the_reservation(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """The same race, landing on a kind that cannot refresh at all.
+
+        A concurrent FILE re-upload rebinds the dataset to an upload origin.
+        The post-reservation read raises `refresh_not_applicable`, and the
+        handler has to roll the reservation back on that path too — a leaked
+        run row would refuse every later refresh with dataset_busy until the
+        stale sweep cancelled it an hour later.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(test_db_session, created_by=admin_id)
+
+        real_create_pending_run = router_refresh.create_pending_run
+
+        async def _rebind_then_reserve(*args, **kwargs):
+            set_dataset_origin(
+                dataset,
+                "upload",
+                uri=None,
+                filename="replacement.gpkg",
+                file_hash="abc123",
+            )
+            dataset.source_format = "gpkg"
+            await test_db_session.commit()
+            return await real_create_pending_run(*args, **kwargs)
+
+        async with _dispatch_harness() as task:
+            with patch.object(
+                router_refresh, "create_pending_run", _rebind_then_reserve
+            ):
+                resp = await client.post(
+                    f"/datasets/{dataset.id}/refresh", headers=admin_auth_header
+                )
+
+        assert resp.status_code == 409, resp.text
+        assert resp.json()["detail"]["code"] == "refresh_not_applicable"
+        task.defer_async.assert_not_awaited()
+        assert await _run_for(test_db_session, dataset.id) is None
+
+    async def test_an_unraced_dispatch_still_carries_the_stored_binding(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """The common path, asserted against the re-read rather than assumed.
+
+        Reserving before reading the binding is only safe if the ordinary case
+        still dispatches what is stored — otherwise the fix would trade a race
+        for a permanent refusal.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(test_db_session, created_by=admin_id)
+
+        async with _dispatch_harness() as task:
+            resp = await client.post(
+                f"/datasets/{dataset.id}/refresh", headers=admin_auth_header
+            )
+
+        assert resp.status_code == 202, resp.text
+        kwargs = task.defer_async.call_args.kwargs
+        assert kwargs["source_url"] == dataset.origin_ref["url"]
+        assert kwargs["source_layer"] == dataset.origin_ref["layer_id"]
+
     async def test_second_refresh_is_refused_as_dataset_busy(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ) -> None:

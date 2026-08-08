@@ -257,14 +257,26 @@ async def refresh_dataset(
     # for both. The re-upload door's record-type guard exists to explain a
     # cross-record-type file swap, and its wording says "reupload" — reusing
     # it here would answer a refresh with advice about a different feature.
-    origin = _resolve_service_origin(dataset)
+    #
+    # fix(#1277 review): this read is a PRE-CHECK and is explicitly not what
+    # gets dispatched. It answers the cheap refusals before touching the
+    # admission index, and it supplies a URL to validate outside the
+    # reservation window. The binding the worker is actually handed is read
+    # again below, after the reservation exists. See the ordering note there.
+    candidate = _resolve_service_origin(dataset)
 
     # Rule 2: the URL is ours, but "ours" is not a safety property — it was a
     # client's when ingest stored it, and DNS moves. Revalidating at dispatch
     # matches what the preview door does with a fresh URL; the worker
     # revalidates again at fetch time for the window in between.
+    #
+    # Kept BEFORE the reservation on purpose: this resolves DNS, and holding
+    # an uncommitted run row across a network wait would make every other
+    # refresh of this dataset queue behind a resolver. The binding is proven
+    # identical to the validated one below, so validating the pre-check value
+    # is validating the dispatched one.
     try:
-        await validate_url_for_ssrf(origin.base_url)
+        await validate_url_for_ssrf(candidate.base_url)
     except SSRFError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -292,28 +304,53 @@ async def refresh_dataset(
         db, dataset_id
     )
 
+    # ------------------------------------------------------------------ #
+    # fix(#1277 review) — THE ORDERING, and why it is this and not another.
+    #
+    # The race: this handler used to snapshot the binding, then reserve. In
+    # between, a re-upload that was already in flight could finish — commit
+    # its swap, restamp `origin_ref`, and take its own run terminal. The
+    # admission index then saw no active run and let this request in, and the
+    # dispatch carried the binding read BEFORE that swap. The worker would
+    # have re-fetched the old origin and restamped the old binding, quietly
+    # undoing a re-upload that had already succeeded.
+    #
+    # The fix is to read the binding that gets dispatched only once the
+    # reservation exists, which works because of a property the worker
+    # already guarantees: `_apply_reupload_swap` and `record_refresh_success`
+    # commit in ONE transaction. So a run being non-active implies its swap is
+    # already committed and visible (the session is READ COMMITTED, so each
+    # statement takes a fresh snapshot). That makes the two outcomes total:
+    #
+    #   - the other refresh is still going  -> it holds the reservation, and
+    #     create_pending_run below refuses this request with dataset_busy;
+    #   - the other refresh has finished    -> its rebind is committed, and
+    #     the re-read below sees it.
+    #
+    # There is no third case where a completed swap is invisible to a request
+    # that won the reservation. Keying off the reservation rather than off a
+    # pre-check is the same lesson this milestone keeps relearning.
+    #
+    # Order, and every step's reason:
+    #   1. eligibility + SSRF on the pre-check binding, BEFORE reserving, so
+    #      the cheap refusals never touch the index and DNS never resolves
+    #      while an uncommitted run row is held;
+    #   2. insert the job and reserve the run;
+    #   3. re-read the binding from the database and refuse if it moved;
+    #   4. fill the job from that re-read binding;
+    #   5. stash the credential (still after the reservation and before the
+    #      commit, which is round 1's ordering, unchanged);
+    #   6. commit, then defer.
+    # Every refusal from step 3 onward rolls the whole request back, so a
+    # refused request leaves no run row holding the dataset.
+    # ------------------------------------------------------------------ #
     job = IngestJob(
         dataset_id=dataset_id,
-        source_filename=prior_filename or origin.layer_name or str(origin.layer_id),
-        source_url=origin.base_url,
-        source_layer=origin.layer_name,
         created_by=user.id,
         status="pending",
-        user_metadata={
-            "reupload": True,
-            "dataset_id": str(dataset_id),
-            "service_type": origin.service_label,
-            "layer_id": origin.layer_id,
-            "source_type": "service_url",
-            "object_id_field": object_id_field,
-            # Records that this job's credential was request-scoped, so a
-            # retry cannot reproduce the authenticated fetch. Same marker the
-            # commit door writes; the value is a boolean, never the token.
-            **({"service_auth_required": True} if body.token else {}),
-            # Distinguishes a server-side refresh from a dialog-driven
-            # re-upload in the job list, where both are `reupload: True`.
-            "refresh": True,
-        },
+        # Enough to be a well-formed re-upload job; the source binding is
+        # filled in below, from the read that happens after the reservation.
+        user_metadata={"reupload": True, "dataset_id": str(dataset_id)},
     )
     db.add(job)
     await db.flush()
@@ -345,6 +382,62 @@ async def refresh_dataset(
                 ),
             },
         ) from exc
+
+    # Step 3. `refresh` rather than a second `get_dataset`: the identity map
+    # would hand back the instance already loaded above, with the stale
+    # attributes intact, and the whole point of this read is to see writes
+    # that landed after it.
+    await db.refresh(
+        dataset, ["origin_uri", "origin_ref", "source_format", "feature_count"]
+    )
+    try:
+        origin = _resolve_service_origin(dataset)
+    except HTTPException:
+        # Rebound to something unrefreshable while we were reserving — an
+        # upload, most likely. Release the reservation before answering.
+        await db.rollback()
+        raise
+    if origin != candidate:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "origin_changed",
+                "message": (
+                    "This dataset's source changed while the refresh was "
+                    "being queued, so it was not started. Check the new "
+                    "source and try again."
+                ),
+            },
+        )
+
+    # Step 4. Refusing on ANY change rather than dispatching the new binding
+    # is the deliberate choice: the caller asked to refresh the source they
+    # were looking at, the validated URL above is the pre-check one, and a
+    # retry against the settled binding succeeds immediately. Dispatching a
+    # source nobody has seen would be the surprising outcome.
+    job.source_filename = prior_filename or origin.layer_name or str(origin.layer_id)
+    job.source_url = origin.base_url
+    job.source_layer = origin.layer_name
+    job.user_metadata = {
+        "reupload": True,
+        "dataset_id": str(dataset_id),
+        "service_type": origin.service_label,
+        "layer_id": origin.layer_id,
+        "source_type": "service_url",
+        "object_id_field": object_id_field,
+        # Records that this job's credential was request-scoped, so a
+        # retry cannot reproduce the authenticated fetch. Same marker the
+        # commit door writes; the value is a boolean, never the token.
+        **({"service_auth_required": True} if body.token else {}),
+        # Distinguishes a server-side refresh from a dialog-driven
+        # re-upload in the job list, where both are `reupload: True`.
+        "refresh": True,
+    }
+    # Read after the reservation too, for the same reason the binding is: a
+    # refresh that finished in the window changed the count this one is
+    # measured against, and the history row renders it as the "before".
+    run.feature_count_before = dataset.feature_count
 
     # Stashed before the commit so a store failure rolls the whole request
     # back — no committed job, no reserved run, nothing for the sweep to
