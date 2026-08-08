@@ -1798,9 +1798,10 @@ async def _apply_reupload_swap(
     #
     # #1220's shared refresh executor takes over both writes below for
     # server-side refresh; until it lands, this path owns them.
+    origin_kind = classify_origin(source_format)
     set_dataset_origin(
         dataset,
-        classify_origin(source_format),
+        origin_kind,
         uri=source_url,
         **(origin_ref or {}),
     )
@@ -1809,7 +1810,17 @@ async def _apply_reupload_swap(
     # datetime rather than func.now(): a SQL expression leaves the attribute
     # expired after flush, and the next read of dataset.last_refreshed_at then
     # lazy-loads against a session that may already be closed.
-    dataset.last_refreshed_at = datetime.now(timezone.utc)
+    swap_time = datetime.now(timezone.utc)
+    # fix(#1271 review): set_dataset_origin just cleared the probe state, and
+    # for a service or STAC origin this swap IS a contact — the bytes were
+    # fetched from that origin moments ago. Leaving last_checked_at NULL
+    # would make the API claim the origin was never contacted, which is the
+    # column's contract violated in the other direction. source_health stays
+    # NULL: the health vocabulary belongs to the probe's classifier. A file
+    # upload or registered table contacts nothing and stamps nothing.
+    if origin_kind in ("service", "stac"):
+        dataset.last_checked_at = swap_time
+    dataset.last_refreshed_at = swap_time
 
     quality_score = await compute_quality_score(
         session,

@@ -2123,7 +2123,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # that #1220's executor takes both writes over, and why the timestamp is a
     # Python datetime rather than func.now() (a SQL expression leaves the
     # attribute expired, so the next read lazy-loads). Cap 1816 -> 1850, exact.
-    "backend/app/processing/ingest/tasks_common.py": 1850,
+    # fix(#1222 review): +11 — the swap stamps last_checked_at for service and
+    # STAC origins, because set_dataset_origin clears probe state on restamp
+    # and this swap IS a contact with the origin. The comment carries why
+    # source_health is NOT written here (the vocabulary belongs to the
+    # probe's classifier). Cap 1850 -> 1861, exact.
+    "backend/app/processing/ingest/tasks_common.py": 1861,
     # --- entered by the inclusion rule, fix(#958) -------------------------
     # These five were the ungated modules at or above _RATCHET_INCLUSION_LOC
     # when the rule was written. They arrive at their measured size with no

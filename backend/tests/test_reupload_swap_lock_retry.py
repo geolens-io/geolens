@@ -242,6 +242,74 @@ class TestApplyReuploadSwapRetry:
         ).scalar_one()
         assert pkey == f"{self.live}_pkey"
 
+        # A file reupload contacts no origin, so the swap stamps
+        # last_refreshed_at but leaves last_checked_at cleared.
+        assert dataset.last_refreshed_at is not None
+        assert dataset.last_checked_at is None
+
+    async def test_service_swap_stamps_last_checked_at(self, monkeypatch) -> None:
+        """fix(#1271 review): a service reupload fetched its bytes from the
+        origin moments before the swap, so the swap IS a contact. Clearing
+        probe state without re-stamping the timestamp made the API claim the
+        origin was never contacted right after it demonstrably was."""
+        dataset = _make_dataset_stub(self.live)
+
+        async def _noop_refresh(*args, **kwargs):
+            return None
+
+        async def _noop_quality(*args, **kwargs):
+            return {"score": 0.0, "issues": []}
+
+        async def _noop_audit(*args, **kwargs):
+            return None
+
+        monkeypatch.setattr(
+            "app.processing.ingest.metadata.refresh_attribute_metadata",
+            _noop_refresh,
+        )
+        monkeypatch.setattr(
+            "app.processing.ingest.metadata.compute_quality_score",
+            _noop_quality,
+        )
+        monkeypatch.setattr(
+            "app.modules.audit.service.audit_emit",
+            _noop_audit,
+        )
+
+        class _Port:
+            @staticmethod
+            def get_dataset_version_orm_class():
+                return lambda **kwargs: types.SimpleNamespace(**kwargs)
+
+        monkeypatch.setattr(
+            "app.platform.extensions.get_processing_port",
+            lambda: _Port,
+        )
+        monkeypatch.setattr(self.session, "add", lambda *a, **kw: None)
+
+        await _apply_reupload_swap(
+            self.session,
+            dataset=dataset,
+            staging_table=self.staging,
+            metadata=_minimal_metadata(),
+            sample_values={},
+            user_id=str(uuid.uuid4()),
+            source_filename=None,
+            source_format="wfs",
+            original_srid=4326,
+            source_url="https://svc.test/wfs/topp:roads",
+            origin_ref={
+                "service_type": "wfs",
+                "url": "https://svc.test/wfs",
+                "layer_id": "topp:roads",
+            },
+        )
+
+        assert dataset.last_checked_at is not None
+        assert dataset.last_checked_at == dataset.last_refreshed_at
+        # The health verdict itself stays with the probe's classifier.
+        assert dataset.source_health is None
+
     async def test_retry_path_logs_and_succeeds(self, monkeypatch) -> None:
         """First swap raises ``LockNotAvailableError``; retry succeeds and both logs fire."""
         dataset = _make_dataset_stub(self.live)
