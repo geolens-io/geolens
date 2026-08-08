@@ -254,6 +254,58 @@ class TestSetDatasetOrigin:
         assert dataset.origin_uri is None
         assert dataset.origin_ref is None
 
+    def test_rebinding_to_a_different_origin_clears_probe_state(self) -> None:
+        """fix(#1271 review): the stored probe verdict describes the origin
+        the binding names. A service marked missing and then reuploaded from
+        a local file would otherwise serve missing/not_found forever, since
+        the probe endpoint 409s on uploads and nothing could correct it."""
+        dataset = Dataset(record_id=uuid.uuid4(), table_name="ds_x")
+        set_dataset_origin(
+            dataset,
+            "service",
+            uri="https://svc.test/wfs/roads",
+            service_type="wfs",
+            url="https://svc.test/wfs",
+            layer_id="roads",
+        )
+        dataset.source_health = "missing"
+        dataset.source_health_detail = "not_found"
+        dataset.last_checked_at = datetime(2026, 8, 1, tzinfo=timezone.utc)
+
+        set_dataset_origin(dataset, "upload", filename="roads.gpkg")
+
+        assert dataset.source_health is None
+        assert dataset.source_health_detail is None
+        assert dataset.last_checked_at is None
+
+    def test_identical_restamp_keeps_probe_state(self) -> None:
+        """Same origin, still the same measurement — restamping the binding
+        with identical values is not new information about its health."""
+        dataset = Dataset(record_id=uuid.uuid4(), table_name="ds_x")
+        checked = datetime(2026, 8, 1, tzinfo=timezone.utc)
+        set_dataset_origin(
+            dataset,
+            "service",
+            uri="https://svc.test/wfs/roads",
+            service_type="wfs",
+            url="https://svc.test/wfs",
+            layer_id="roads",
+        )
+        dataset.source_health = "healthy"
+        dataset.last_checked_at = checked
+
+        set_dataset_origin(
+            dataset,
+            "service",
+            uri="https://svc.test/wfs/roads",
+            service_type="wfs",
+            url="https://svc.test/wfs",
+            layer_id="roads",
+        )
+
+        assert dataset.source_health == "healthy"
+        assert dataset.last_checked_at == checked
+
     def test_postgis_pointer_and_ref_name_the_same_table(self) -> None:
         """Two spellings of one fact; set_postgis_origin owns keeping them equal."""
         dataset = Dataset(record_id=uuid.uuid4(), table_name="parcels")

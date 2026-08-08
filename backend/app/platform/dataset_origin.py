@@ -216,8 +216,21 @@ def set_dataset_origin(
         raise ValueError(
             f"unknown origin kind {kind!r}; expected one of {sorted(ORIGIN_KINDS)}"
         )
+    new_ref = build_origin_ref(kind, **ref_fields)
+    # fix(#1271 review): the stored probe state describes the origin the
+    # binding names, so a binding that now names a DIFFERENT origin
+    # invalidates it. Without this, a service dataset marked missing and then
+    # reuploaded from a local file serves the old missing/not_found verdict
+    # forever — the probe endpoint 409s on uploads, so nothing can ever
+    # correct it. An identical restamp keeps the state: same origin, still
+    # the same measurement. NULL is the honest value for "not measured since
+    # the origin changed" (the API projects it as unknown).
+    if (dataset.origin_uri, dataset.origin_ref) != (uri, new_ref):
+        dataset.source_health = None
+        dataset.source_health_detail = None
+        dataset.last_checked_at = None
     dataset.origin_uri = uri
-    dataset.origin_ref = build_origin_ref(kind, **ref_fields)
+    dataset.origin_ref = new_ref
 
 
 def project_unknown(value: str | None) -> str:

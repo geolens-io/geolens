@@ -182,7 +182,14 @@ async def _probe_service_origin(dataset: Dataset) -> OriginProbeResult:
     ref = dataset.origin_ref or {}
     service_type = ref.get("service_type")
     if service_type in ("wfs", "ogcapi_features"):
-        target = ref.get("url") or dataset.origin_uri
+        # No fallback to origin_uri here: migration 0036's legacy branch
+        # deliberately leaves ``url`` unset when the base is not derivable
+        # (the enriched URI cannot be split without the layer name that went
+        # missing), so the only value on hand is the non-endpoint. Probing
+        # it would persist a false result; refusing keeps "nothing safe to
+        # probe" distinguishable from a health state, same as every other
+        # pointerless row.
+        target = ref.get("url")
         if target and service_type == "wfs":
             target = build_capabilities_url(target)
     else:

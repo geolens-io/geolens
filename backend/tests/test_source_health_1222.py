@@ -798,6 +798,32 @@ class TestServiceOriginProbe:
             == "https://origin.test/wfs?service=WFS&request=GetCapabilities"
         )
 
+    async def test_legacy_wfs_row_without_a_base_url_refuses_to_probe(
+        self, client, admin_auth_header, test_db_session, probe_transport
+    ) -> None:
+        """fix(#1271 review): migration 0036's legacy branch leaves
+        origin_ref.url unset when the service base is not derivable. The only
+        value on hand is the enriched non-endpoint, and probing it would
+        persist a false result — refuse instead, like every pointerless row."""
+        install, recorded = probe_transport
+        install(_status_map({}, default=200))
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(
+            test_db_session,
+            created_by=admin_id,
+            service_type="wfs",
+            origin_uri="https://origin.test/wfs/topp:roads",
+            service_url=None,
+            layer_id=None,
+        )
+
+        resp = await client.post(
+            f"/datasets/{dataset.id}/source-health/", headers=admin_auth_header
+        )
+        assert resp.status_code == 409, resp.text
+        assert resp.json()["detail"]["code"] == "origin_pointer_missing"
+        assert recorded == []
+
     async def test_ogcapi_probe_targets_the_canonical_service_url(
         self, client, admin_auth_header, test_db_session, probe_transport
     ) -> None:
