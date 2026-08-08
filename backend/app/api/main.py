@@ -355,10 +355,24 @@ async def lifespan(app: FastAPI):
         client polls it after the worker dies — the on-poll fail-fast logic
         in get_job_status only catches it when a user revisits the page.
         """
+        # fix(#909): late-bind, like every other async_session user here, so
+        # tests that swap the engine are not pinned to the boot-time binding.
+        from app.core.db import async_session
+        from app.platform.refresh.credentials import (
+            CREDENTIAL_RENEWAL_INTERVAL_SECONDS,
+            renew_queued_refresh_credentials,
+        )
+
         sweeper_log = structlog.stdlib.get_logger("stale_jobs_sweeper")
         while True:
             try:
-                await asyncio.sleep(300)  # 5 minutes
+                # feat(#1277 review round 2): the interval is the credential
+                # module's, because the refresh credential TTL is derived from
+                # it — three cycles, so a single skipped pass cannot expire a
+                # credential whose task is still queued. One constant, owned
+                # where the arithmetic that depends on it lives, rather than a
+                # 300 here and a mirror there.
+                await asyncio.sleep(CREDENTIAL_RENEWAL_INTERVAL_SECONDS)
                 pending_failed, running_failed = await sweep_stale_jobs_once()
                 if pending_failed or running_failed:
                     sweeper_log.info(
@@ -366,6 +380,16 @@ async def lifespan(app: FastAPI):
                         pending_failed=pending_failed,
                         running_failed=running_failed,
                     )
+                # Re-arm credentials whose dispatch is still waiting for a
+                # worker. No try of its own: the helper swallows store and
+                # query failures by contract (a missed cycle is survivable —
+                # the TTL covers three), so the only thing that can raise here
+                # is the session itself, which is exactly what the loop's own
+                # handler below is for.
+                async with async_session() as cred_session:
+                    renewed = await renew_queued_refresh_credentials(cred_session)
+                if renewed:
+                    sweeper_log.debug("Renewed queued credentials", count=renewed)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # broad: sweeper-loop must survive any DB/transient error to keep running

@@ -18,9 +18,11 @@ three properties that matter, and where each comes from:
   would leave a window; that window is the whole point of using ``GETDEL``.
 - **Bounded lifetime.** ``SET ... EX`` expires the key whether or not anyone
   claims it, so a dispatch that never reaches a worker leaves no credential
-  behind for anyone to find later. The TTL is derived from the queue wait it
-  has to survive rather than picked — see :data:`CREDENTIAL_TTL_SECONDS`,
-  which also documents the one case it deliberately does not cover.
+  behind for anyone to find later. The TTL is short and stays short: rather
+  than sizing it for the worst queue anybody might have,
+  :func:`renew_queued_refresh_credentials` re-arms it while the dispatch is
+  provably still waiting, so the lifetime IS the queue wait rather than an
+  estimate of it. See :data:`CREDENTIAL_TTL_SECONDS`.
 - **Nothing durable.** The reference is a random string that means nothing
   once claimed or expired. It is the only thing that reaches a task argument
   or a log line.
@@ -49,56 +51,43 @@ from __future__ import annotations
 
 import re
 import secrets
-from typing import Protocol
+from typing import Any, Protocol
 
 import structlog
+from sqlalchemy import text
 
 logger = structlog.get_logger(__name__)
 
-# fix(#1277 review): the TTL is DERIVED from the wait it has to survive, not
-# picked. The first version used a flat 900s on the reasoning that a queue is
-# usually short — but `worker_concurrency` defaults to 1 and refreshes share
-# the `ingest` queue with every other ingest, so a refresh queued behind one
-# large import waits for that import, and Procrastinate offers no pickup
-# guarantee to bound it. Fifteen minutes is well inside the range a single
-# large ingest occupies, which made `credential_expired` reachable on a
-# perfectly healthy instance.
+# fix(#1277 review round 2): the TTL is bounded by RENEWAL, not by a constant.
 #
-# The supported bound on the job at the head of a concurrency-1 queue is
-# JOB_TIMEOUT_SECONDS: past that the stale sweep fails it and the queue moves.
-# So one blocking job plus a margin is the wait this has to outlive.
+# Round 1 derived it from JOB_TIMEOUT_SECONDS on the reasoning that the job at
+# the head of a concurrency-1 queue is bounded by the stale sweep. That premise
+# was wrong: `maintain_ingest_job_heartbeat` refreshes `heartbeat_at` every 30
+# seconds and the sweep only fails rows whose heartbeat has gone stale, so
+# JOB_TIMEOUT_SECONDS bounds a DEAD worker's lease, not a healthy long import.
+# A legitimate multi-hour ingest at the queue head outlives any constant, and
+# raising the constant until it does not is walking toward durable storage —
+# which is the one thing A7 exists to prevent.
 #
-# Mirrored rather than imported, because `platform/jobs/router.py` is an API
-# edge and importing it executes route registration as a side effect — the
-# same reason `ABANDONED_RUN_CUTOFF_SECONDS` mirrors it one module over.
-# `test_service_refresh_1220` pins the two values together so drift fails a
-# test rather than silently shortening the window again.
-_QUEUE_HEAD_JOB_TIMEOUT_SECONDS = 3600
-
-# Slack over the bound above, covering the sweep's own cycle time plus the gap
-# between a queue freeing up and this task being claimed.
-_CREDENTIAL_TTL_MARGIN_SECONDS = 600
-
-# Never shorter than the original 15 minutes, whatever the timeout is tuned
-# to. An operator who lowers JOB_TIMEOUT_SECONDS is tightening a liveness
-# policy, not asking for credentials that expire during a normal dispatch.
-_CREDENTIAL_TTL_FLOOR_SECONDS = 900
-
-# How long a stashed credential survives unclaimed. Short enough that a
-# dispatch nobody ever ran does not leave a usable secret sitting around, long
-# enough that an ordinary queue never eats it.
+# So the lifetime tracks the real queue wait instead. The TTL stays short, and
+# `renew_queued_refresh_credentials` re-arms it every sweep cycle for exactly
+# those credentials whose dispatch is still waiting to be picked up. The bound
+# is then the actual wait by construction, and renewal stops on its own at
+# three independent points — see that function.
 #
-# ACCEPTED RESIDUAL: a queue several large ingests deep can still outlast
-# this, and no TTL fixes that — the whole point of A7 is that the credential
-# is single-use and short-lived, and stretching it toward "long enough for any
-# queue" is stretching it toward "durable", which is the property this
-# mechanism exists to avoid. When it does happen the outcome is clean and
-# actionable rather than mysterious: the run fails `credential_expired` and
-# its message already says to start again with a fresh token.
-CREDENTIAL_TTL_SECONDS = max(
-    _CREDENTIAL_TTL_FLOOR_SECONDS,
-    _QUEUE_HEAD_JOB_TIMEOUT_SECONDS + _CREDENTIAL_TTL_MARGIN_SECONDS,
-)
+# The arithmetic, against the real interval: renewal runs once per
+# CREDENTIAL_RENEWAL_INTERVAL_SECONDS (300s), so the TTL must survive at least
+# two cycles or a single skipped pass — a slow sweep, a GC pause, a restart
+# between cycles — expires a credential whose task is still queued. Two cycles
+# is 600s; the remaining 300s is margin for scheduling jitter, giving 900.
+#
+# If the API dies, renewal stops and the credential expires within one TTL.
+# That is the correct outcome rather than a gap: nothing is left to dispatch
+# the work, and the run fails `credential_expired`, whose message already says
+# to start again with a fresh token.
+CREDENTIAL_RENEWAL_INTERVAL_SECONDS = 300
+
+CREDENTIAL_TTL_SECONDS = 3 * CREDENTIAL_RENEWAL_INTERVAL_SECONDS
 
 _KEY_PREFIX = "geolens:refresh-cred:"
 
@@ -139,6 +128,10 @@ class CredentialBackend(Protocol):
 
     async def take(self, key: str) -> str | None:
         """Atomically read and delete *key*. None when it does not exist."""
+        ...
+
+    async def renew(self, key: str, ttl_seconds: int) -> bool:
+        """Re-arm *key*'s expiry. False when it no longer exists."""
         ...
 
 
@@ -201,6 +194,26 @@ class RedisCredentialBackend:
                 "The credential store could not be reached, so this refresh "
                 "could not retrieve its token."
             ) from exc
+
+    async def renew(self, key: str, ttl_seconds: int) -> bool:
+        """``EXPIRE``, which is a no-op on a key that is already gone.
+
+        That is the property the renewal sweep needs: a credential claimed
+        between the query and this call cannot be resurrected, because
+        ``EXPIRE`` only ever moves the deadline of a key that still exists.
+        Redis reports that as 0, and this returns False.
+
+        Failures are swallowed rather than raised. A missed renewal costs at
+        most one cycle — the TTL is sized to survive two — and this runs in a
+        background sweep with nobody to report to.
+        """
+        try:
+            return bool(await self._client.expire(key, ttl_seconds))
+        except Exception as exc:  # broad: a missed renewal is not fatal
+            logger.warning(
+                "refresh_credential_renew_failed", error_type=type(exc).__name__
+            )
+            return False
 
 
 _backend: CredentialBackend | None = None
@@ -328,3 +341,83 @@ async def discard_service_credential(ref: str | None) -> None:
         await get_credential_backend().take(_KEY_PREFIX + ref)
     except Exception:  # broad: cleanup must not mask the caller's failure
         logger.warning("refresh_credential_discard_failed")
+
+
+# fix(#1277 review round 2): the credentials whose dispatch is still genuinely
+# waiting to be picked up, and nothing else.
+#
+# Three independent stops, so no single stuck component keeps a secret alive:
+#
+# 1. `pj.status = 'todo'` — the task is still QUEUED. The moment a worker
+#    claims it the row moves to 'doing' and the claim itself GETDELs the key,
+#    so renewal and the credential end together.
+# 2. the run is still active — a terminal run cannot use a credential, so
+#    there is nothing left to keep alive.
+# 3. the run is younger than the abandonment cutoff — the backstop for the
+#    case the other two cannot see. A job deferred to a queue no worker
+#    subscribes to sits 'todo' INDEFINITELY (documented on the `worker`
+#    service in docker-compose.yml, fix #695), and its run stays active until
+#    the sweep cancels it. Without this clause renewal would keep re-arming
+#    that credential forever, reintroducing durable storage through the back
+#    door. Bounding on the same clock the abandoned-run sweep uses means a
+#    credential can never outlive the run it belongs to.
+#
+# Correlated on `args->>'job_id'`, the correlation every task in this codebase
+# passes and the one both refresh sweeps already use.
+_RENEWABLE_CREDENTIALS_SQL = text(
+    """
+    SELECT DISTINCT pj.args->>'credential_ref' AS credential_ref
+    FROM catalog.procrastinate_jobs pj
+    JOIN catalog.ingest_jobs j ON pj.args->>'job_id' = j.id::text
+    JOIN catalog.dataset_refresh_runs r ON r.ingest_job_id = j.id
+    WHERE pj.status = 'todo'
+      AND pj.args->>'credential_ref' IS NOT NULL
+      AND r.status IN ('pending', 'running')
+      AND r.started_at > :cutoff
+    """
+)
+
+
+async def renew_queued_refresh_credentials(session: Any) -> int:
+    """Re-arm the TTL of every credential whose task is still queued.
+
+    Returns how many were renewed. Driven by the API's existing stale-job
+    sweeper, once per :data:`CREDENTIAL_RENEWAL_INTERVAL_SECONDS`.
+
+    This is what makes a short TTL correct rather than optimistic: the
+    credential's lifetime becomes the real queue wait instead of a number
+    somebody guessed, and it shortens itself the moment the wait ends.
+
+    Never raises. It runs inside a background loop whose other work must not
+    be lost to a credential-store blip, and a missed cycle is survivable by
+    construction — the TTL covers two.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from app.platform.refresh.service import ABANDONED_RUN_CUTOFF_SECONDS
+
+    if not credential_store_available():
+        return 0
+    cutoff = datetime.now(timezone.utc) - timedelta(
+        seconds=ABANDONED_RUN_CUTOFF_SECONDS
+    )
+    try:
+        rows = await session.execute(_RENEWABLE_CREDENTIALS_SQL, {"cutoff": cutoff})
+        refs = [row.credential_ref for row in rows]
+    except Exception:  # broad: the sweep's other work must survive this
+        logger.warning("refresh_credential_renewal_query_failed", exc_info=True)
+        return 0
+
+    renewed = 0
+    for ref in refs:
+        if not ref or not _REF_PATTERN.match(ref):
+            continue
+        try:
+            if await get_credential_backend().renew(
+                _KEY_PREFIX + ref, CREDENTIAL_TTL_SECONDS
+            ):
+                renewed += 1
+        except CredentialStoreUnavailable:
+            # No store, no renewals — and nothing to report to.
+            break
+    return renewed

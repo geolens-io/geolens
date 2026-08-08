@@ -70,6 +70,7 @@ class _FakeCredentialBackend:
     def __init__(self) -> None:
         self.store: dict[str, str] = {}
         self.puts: list[tuple[str, str, int]] = []
+        self.renewals: list[tuple[str, int]] = []
 
     async def put(self, key: str, value: str, ttl_seconds: int) -> None:
         self.puts.append((key, value, ttl_seconds))
@@ -77,6 +78,17 @@ class _FakeCredentialBackend:
 
     async def take(self, key: str) -> str | None:
         return self.store.pop(key, None)
+
+    async def renew(self, key: str, ttl_seconds: int) -> bool:
+        """Models EXPIRE: moves a live key's deadline, never revives a dead one.
+
+        That asymmetry is the property the renewal sweep depends on, so the
+        fake has to reproduce it rather than just returning True.
+        """
+        if key not in self.store:
+            return False
+        self.renewals.append((key, ttl_seconds))
+        return True
 
     def expire_all(self) -> None:
         self.store.clear()
@@ -921,34 +933,39 @@ class TestCredentialHandoff:
         (_key, _value, ttl) = credential_backend.puts[0]
         assert ttl == creds.CREDENTIAL_TTL_SECONDS
 
-    def test_the_ttl_outlives_a_full_length_job_at_the_queue_head(self) -> None:
-        """fix(#1277 review): the TTL is derived, and this is the derivation.
+    def test_the_ttl_survives_a_skipped_renewal_cycle(self) -> None:
+        """fix(#1277 review round 2): the TTL is bounded by renewal now.
 
-        `worker_concurrency` defaults to 1 and refreshes share the `ingest`
-        queue, so a refresh can wait behind one large import with no pickup
-        guarantee from Procrastinate. The supported bound on that blocking job
-        is JOB_TIMEOUT_SECONDS — past it the stale sweep fails the job and the
-        queue moves — so the credential has to outlive one of those plus
-        slack, or `credential_expired` becomes reachable on a healthy
-        instance.
+        Round 1 derived it from JOB_TIMEOUT_SECONDS, which turned out not to
+        bound anything relevant: the heartbeat keeps a healthy long import
+        alive indefinitely, so that constant bounds a DEAD worker's lease. The
+        mirrored constant and its drift test went with the premise — a dead
+        mirror is worse than no mirror.
+
+        What replaces it is arithmetic against the interval renewal actually
+        runs on: survive at least two cycles, so one skipped pass (a slow
+        sweep, a GC pause, a restart between cycles) cannot expire a
+        credential whose task is still queued.
         """
-        from app.platform.jobs.router import JOB_TIMEOUT_SECONDS
+        assert (
+            creds.CREDENTIAL_TTL_SECONDS > 2 * creds.CREDENTIAL_RENEWAL_INTERVAL_SECONDS
+        )
 
-        assert creds.CREDENTIAL_TTL_SECONDS > JOB_TIMEOUT_SECONDS
-        assert creds.CREDENTIAL_TTL_SECONDS >= 900
+    def test_the_sweeper_drives_renewal_on_the_interval_the_ttl_assumes(self) -> None:
+        """The arithmetic above is only true if the loop uses this interval.
 
-    def test_the_mirrored_job_timeout_has_not_drifted(self) -> None:
-        """The constant is mirrored, so pin it to the authority.
-
-        `platform/jobs/router.py` is an API edge and importing it executes
-        route registration, so `credentials.py` copies the number rather than
-        importing it — the same trade `ABANDONED_RUN_CUTOFF_SECONDS` makes one
-        module over. A test is what keeps a copy honest: tune the timeout
-        without this, and the credential window silently stops covering it.
+        Structural, because the alternative is waiting five minutes. The
+        constant lives in the credential module precisely so there is one of
+        it; this asserts the lifespan sweeper sleeps on that one rather than
+        on a literal that could drift away from the TTL it justifies.
         """
-        from app.platform.jobs.router import JOB_TIMEOUT_SECONDS
+        import inspect
 
-        assert creds._QUEUE_HEAD_JOB_TIMEOUT_SECONDS == JOB_TIMEOUT_SECONDS
+        from app.api import main
+
+        source = inspect.getsource(main.lifespan)
+        assert "await asyncio.sleep(CREDENTIAL_RENEWAL_INTERVAL_SECONDS)" in source
+        assert "renew_queued_refresh_credentials" in source
 
     async def test_a_malformed_reference_never_reaches_the_store(
         self, credential_backend
@@ -1236,3 +1253,169 @@ class TestGuardedContactStamp:
                 error_message="boom",
                 contacted_origin=True,
             )
+
+
+# ---------------------------------------------------------------------------
+# Credential renewal (#1277 review round 2)
+# ---------------------------------------------------------------------------
+
+
+class TestCredentialRenewal:
+    """The TTL is short because renewal keeps it honest, not because the queue
+    is short. Round 1 assumed a constant could bound the wait; the heartbeat
+    means it cannot, so the bound is now "the dispatch is still queued".
+
+    Three independent stops, one test each, because a renewal that keeps
+    re-arming past any of them is durable storage wearing a TTL.
+    """
+
+    async def _dispatch(
+        self,
+        session,
+        *,
+        ref: str,
+        pj_status: str = "todo",
+        run_status: str = "pending",
+        run_age_seconds: int = 0,
+    ):
+        from datetime import datetime, timedelta, timezone
+
+        import sqlalchemy as sa
+
+        from app.platform.refresh.service import create_pending_run
+
+        admin_id = await get_user_id(session, "admin")
+        dataset = await _service_dataset(session, created_by=admin_id)
+        job = IngestJob(
+            dataset_id=dataset.id,
+            source_url=_WFS_BASE,
+            source_layer="topp:parcels",
+            created_by=admin_id,
+            status="pending",
+            user_metadata={"reupload": True, "dataset_id": str(dataset.id)},
+        )
+        session.add(job)
+        await session.commit()
+        await session.refresh(job)
+        run = await create_pending_run(
+            session,
+            dataset_id=dataset.id,
+            origin_kind="service",
+            trigger="api",
+            triggered_by=admin_id,
+            ingest_job_id=job.id,
+            feature_count_before=dataset.feature_count,
+        )
+        run.status = run_status
+        run.started_at = datetime.now(timezone.utc) - timedelta(seconds=run_age_seconds)
+        # Procrastinate's insert trigger writes procrastinate_events through
+        # unqualified names, so the schema has to be on the search_path for a
+        # hand-written INSERT the way it is for the library's own.
+        await session.execute(sa.text("SET LOCAL search_path TO catalog, public"))
+        await session.execute(
+            sa.text(
+                "INSERT INTO catalog.procrastinate_jobs "
+                "(queue_name, task_name, args, status) "
+                "VALUES ('ingest', 'reupload_service', "
+                "jsonb_build_object('job_id', CAST(:job_id AS text), "
+                "'credential_ref', CAST(:ref AS text)), "
+                "CAST(:pj_status AS catalog.procrastinate_job_status))"
+            ),
+            {"job_id": str(job.id), "ref": ref, "pj_status": pj_status},
+        )
+        await session.commit()
+        return dataset, job
+
+    async def test_a_still_queued_dispatch_gets_its_ttl_re_armed(
+        self, client, test_db_session, credential_backend
+    ) -> None:
+        ref = await creds.stash_service_credential("still-waiting")
+        await self._dispatch(test_db_session, ref=ref)
+
+        assert await creds.renew_queued_refresh_credentials(test_db_session) == 1
+        # Still claimable afterwards — renewal must not consume it.
+        assert await creds.claim_service_credential(ref) == "still-waiting"
+
+    async def test_a_claimed_dispatch_is_not_renewed(
+        self, client, test_db_session, credential_backend
+    ) -> None:
+        """`doing` means a worker took it, and the claim GETDELs the key.
+
+        Renewal and the credential end together; re-arming here would be
+        re-arming a key that no longer exists.
+        """
+        ref = await creds.stash_service_credential("already-claimed")
+        await self._dispatch(test_db_session, ref=ref, pj_status="doing")
+
+        assert await creds.renew_queued_refresh_credentials(test_db_session) == 0
+
+    async def test_a_terminal_run_is_not_renewed(
+        self, client, test_db_session, credential_backend
+    ) -> None:
+        """A finished run has nothing left to authenticate."""
+        ref = await creds.stash_service_credential("run-is-over")
+        await self._dispatch(test_db_session, ref=ref, run_status="failed")
+
+        assert await creds.renew_queued_refresh_credentials(test_db_session) == 0
+
+    async def test_an_indefinitely_queued_dispatch_stops_being_renewed(
+        self, client, test_db_session, credential_backend
+    ) -> None:
+        """The backstop the other two stops cannot see.
+
+        A job deferred to a queue no worker subscribes to sits `todo`
+        INDEFINITELY (documented on the worker service in docker-compose.yml,
+        fix #695) with its run still active. Without an age bound, renewal
+        would re-arm that credential forever — durable storage through the
+        back door, which is the exact property this whole mechanism exists to
+        avoid. Bounded on the same clock the abandoned-run sweep uses, so a
+        credential can never outlive the run it belongs to.
+        """
+        from app.platform.refresh.service import ABANDONED_RUN_CUTOFF_SECONDS
+
+        ref = await creds.stash_service_credential("queued-forever")
+        await self._dispatch(
+            test_db_session,
+            ref=ref,
+            run_age_seconds=ABANDONED_RUN_CUTOFF_SECONDS + 60,
+        )
+
+        assert await creds.renew_queued_refresh_credentials(test_db_session) == 0
+
+    async def test_renewal_only_touches_its_own_dispatch(
+        self, client, test_db_session, credential_backend
+    ) -> None:
+        """One renewable and one not, in the same pass."""
+        live_ref = await creds.stash_service_credential("live")
+        done_ref = await creds.stash_service_credential("done")
+        await self._dispatch(test_db_session, ref=live_ref)
+        await self._dispatch(test_db_session, ref=done_ref, run_status="succeeded")
+
+        assert await creds.renew_queued_refresh_credentials(test_db_session) == 1
+
+    async def test_renewal_is_a_no_op_without_a_store(
+        self, client, test_db_session, monkeypatch
+    ) -> None:
+        """No store, nothing to renew, and no exception on the sweep path."""
+        from app.core.config import settings
+
+        creds.set_credential_backend(None)
+        monkeypatch.setattr(settings, "redis_url", None, raising=False)
+        assert await creds.renew_queued_refresh_credentials(test_db_session) == 0
+
+    async def test_expire_cannot_resurrect_a_claimed_credential(
+        self, credential_backend
+    ) -> None:
+        """Renewal races a claim and loses, which is the required direction.
+
+        EXPIRE only moves the deadline of a key that still exists, so a
+        credential consumed between the query and the re-arm stays consumed.
+        """
+        ref = await creds.stash_service_credential("claim-me")
+        assert await creds.claim_service_credential(ref) == "claim-me"
+        assert (
+            await credential_backend.renew(
+                "geolens:refresh-cred:" + ref, creds.CREDENTIAL_TTL_SECONDS
+            )
+            is False
+        )

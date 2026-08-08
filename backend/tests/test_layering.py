@@ -1907,7 +1907,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # is what executes it: the worker serves no /metrics endpoint, so a
     # counter incremented there is written to a file nothing reads.
     # Cap 1305 -> 1313, exact.
-    "backend/app/api/main.py": 1313,
+    # fix(#1277 review round 2): +24 — the stale-jobs sweeper also re-arms
+    # refresh credentials whose task is still queued. Round 1 tried to bound
+    # the credential lifetime with a constant derived from JOB_TIMEOUT_SECONDS;
+    # the heartbeat means no constant bounds a healthy long import, so the
+    # bound is now renewal and this loop is what drives it. Most of the lines
+    # are the comment explaining why the interval constant is imported from the
+    # credential module (the TTL arithmetic depends on it, so there is one of
+    # it) and why the renewal needs no try of its own. Cap 1313 -> 1337, exact.
+    "backend/app/api/main.py": 1337,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative
