@@ -1484,3 +1484,155 @@ class TestCredentialRenewal:
             )
             is False
         )
+
+
+# ---------------------------------------------------------------------------
+# One token policy, both sides (#1277 review round 6)
+# ---------------------------------------------------------------------------
+
+
+class TestServiceTokenPolicy:
+    """The door and the worker must judge a token the same way.
+
+    They did not: the request model accepted anything printable and
+    whitespace-free, while the worker pinned header-auth tokens to base64url
+    with a length floor. A WFS token containing '+' therefore got a 202, burned
+    its single-use credential, and failed deterministically in the background —
+    the caller told everything was fine right up until nothing was.
+    """
+
+    async def test_a_wfs_token_outside_the_charset_is_refused_at_the_door(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        credential_backend,
+    ) -> None:
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(test_db_session, created_by=admin_id)
+
+        async with _dispatch_harness() as task:
+            resp = await client.post(
+                f"/datasets/{dataset.id}/refresh",
+                json={"token": "abc+def/ghi=="},
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"]["code"] == "invalid_service_token"
+        # Nothing dispatched, and no reservation left holding the dataset.
+        task.defer_async.assert_not_awaited()
+        assert await _run_for(test_db_session, dataset.id) is None
+
+    async def test_the_refusal_describes_the_policy_and_not_the_token(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        credential_backend,
+    ) -> None:
+        """A rejected credential must not come back in the response.
+
+        The worker's own message names the first offending character, which is
+        right for a worker-side ValueError and wrong for an API body: it would
+        put a fragment of a secret into a response, a log line and a job row.
+        """
+        secret = "tok+" + uuid.uuid4().hex
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(test_db_session, created_by=admin_id)
+
+        async with _dispatch_harness():
+            resp = await client.post(
+                f"/datasets/{dataset.id}/refresh",
+                json={"token": secret},
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 422
+        body = resp.text
+        assert secret not in body
+        assert "+" not in resp.json()["detail"]["message"]
+        # ...but it does say what IS allowed.
+        assert "base64url" in resp.json()["detail"]["message"]
+
+    async def test_a_short_token_is_refused_too(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        credential_backend,
+    ) -> None:
+        """The length floor is half the policy and was equally invisible."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(test_db_session, created_by=admin_id)
+
+        async with _dispatch_harness():
+            resp = await client.post(
+                f"/datasets/{dataset.id}/refresh",
+                json={"token": "short"},
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 422
+
+    async def test_arcgis_keeps_its_wider_vocabulary(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        credential_backend,
+    ) -> None:
+        """The strict policy is header-auth only, and that is deliberate.
+
+        An ArcGIS token is a urlencoded query parameter, never a header line,
+        so it carries none of the smuggling risk the charset exists to prevent.
+        Applying the policy everywhere would reject valid ArcGIS tokens.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(
+            test_db_session,
+            created_by=admin_id,
+            source_format="arcgis_featureserver",
+            base_url=_ARCGIS_BASE,
+            layer_id=7,
+        )
+
+        async with _dispatch_harness() as task:
+            resp = await client.post(
+                f"/datasets/{dataset.id}/refresh",
+                json={"token": "AAPK/secret+value=="},
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 202, resp.text
+        task.defer_async.assert_awaited_once()
+
+    def test_both_sides_consume_the_same_policy(self) -> None:
+        """The invariant, named where whoever edits either side will trip.
+
+        Structural like round 8's sweep-versus-renewal pin, and for the same
+        reason: neither policy was wrong on its own, so only their agreement is
+        worth asserting. The worker keeps its own enforcement — the guarantee
+        is about what reaches libcurl and must not rest on a validator in
+        another process — but it must enforce the SHARED definition.
+        """
+        import inspect
+
+        from app.core import service_tokens
+        from app.modules.catalog.datasets.api import router_refresh
+        from app.processing.ingest import ogr
+
+        worker_source = inspect.getsource(ogr._sanitize_authorization_token)
+        assert "HEADER_TOKEN_CHARSET" in worker_source
+        assert "HEADER_TOKEN_MIN_LENGTH" in worker_source
+        # No private copy of the charset survives anywhere in the module.
+        assert "_BASE64URL_CHARSET" not in inspect.getsource(ogr)
+
+        door_source = inspect.getsource(router_refresh.refresh_dataset)
+        assert "header_token_rejection_reason" in door_source
+        assert "requires_header_token_policy" in door_source
+
+        # And the policy text itself never interpolates the token. The
+        # worker's message DOES name the offending character, deliberately —
+        # a worker ValueError is read by whoever debugs a failed job, while an
+        # HTTP body must never echo part of a submitted credential.
+        assert "{" not in service_tokens.HEADER_TOKEN_POLICY

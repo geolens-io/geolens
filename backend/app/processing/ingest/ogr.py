@@ -4,12 +4,12 @@ import asyncio
 import json
 import os
 import re
-import string
 from collections.abc import Callable
 from typing import TypedDict
 
 from app.core.config import settings
 from app.core.crs_uri import parse_crs_uri
+from app.core.service_tokens import HEADER_TOKEN_CHARSET, HEADER_TOKEN_MIN_LENGTH
 from app.core.url_redaction import redact_url_credentials
 
 
@@ -19,45 +19,39 @@ from app.core.url_redaction import redact_url_credentials
 # without a mode suffix, so the regex accepts " -> 'NAME'" with optional "(...)" after.
 _OGR_DRIVER_LIST_LINE_RE = re.compile(r"^\s*->\s*'[^']+'\s*(\([^)]*\))?\s*$")
 
-# SEC-FU-04 (sec-audit-20260519.md line 535, Phase 1063-03):
-# Allowed characters for an Authorization bearer token passed to GDAL_HTTP_HEADERS.
-# JWT-shaped tokens use the base64url charset (RFC 4648 §5) plus dot separators
-# (RFC 7519 — header.payload.signature segments). Restricting to this set prevents
-# a token containing CR/LF from smuggling extra HTTP headers into libcurl via the
-# GDAL_HTTP_HEADERS environment variable.
-_BASE64URL_CHARSET = frozenset(string.ascii_letters + string.digits + "._-=")
-
 
 def _sanitize_authorization_token(token: "str | None") -> "str | None":
-    """SEC-FU-04: pin Authorization bearer token to base64url charset before GDAL env composition.
+    """SEC-FU-04: pin an Authorization bearer token to the shared header policy.
 
-    A token containing CR/LF or arbitrary unicode could let an attacker inject additional
-    HTTP headers via the GDAL_HTTP_HEADERS env-var → libcurl pipeline. JWT-shaped tokens
-    use the base64url charset plus dot separators (RFC 4648 §5 + RFC 7519); legitimate
-    tokens never include CR/LF/whitespace/unicode.
+    A token containing CR/LF or arbitrary unicode could let an attacker inject
+    additional HTTP headers via the GDAL_HTTP_HEADERS env-var → libcurl
+    pipeline, so the charset and the length floor are a security boundary
+    rather than a formatting preference.
 
-    Tokens shorter than 8 characters raise ValueError with a SEC-FU-04-prefixed
-    message. The 8-character floor is intentional: legitimate JWT-shaped tokens
-    always exceed this (a minimal three-segment header.payload.signature exceeds
-    20 characters), and accepting 1-7 character tokens lets a single accidental
-    truncation upstream — for example, a quoted JSON field cut at the wrong
-    index, or an ArcGIS deployment that emits a short tracking token mistaken
-    for a bearer — silently slip into the GDAL_HTTP_HEADERS pipeline. Callers
-    who legitimately need to pass a sub-8-character token must use a different
-    authentication path (e.g., GDAL_HTTP_HEADER_FILE with a custom header).
+    fix(#1277 review round 6): the charset and the floor come from
+    ``app.core.service_tokens``, which the refresh endpoint applies at the door
+    too — a caller now learns immediately instead of after their single-use
+    credential has been spent. This check stays regardless: the guarantee is
+    about what reaches libcurl, and it must not come to rest on a validator
+    running in another process.
 
-    Returns the token unchanged if every character is in _BASE64URL_CHARSET.
-    Raises ValueError with a SEC-FU-04-prefixed message otherwise.
-    None passes through (caller's no-token path).
+    The MESSAGE is deliberately not shared. This one names the offending
+    character because a worker-side ValueError is read by whoever is debugging
+    a failed job, and the API's is policy-only because an HTTP body must never
+    echo any part of a submitted credential. Same rule, two audiences.
+
+    Returns the token unchanged when it satisfies the policy, raises ValueError
+    with a SEC-FU-04-prefixed message otherwise. None passes through.
     """
     if token is None:
         return None
-    if not token or len(token) < 8:
+    if not token or len(token) < HEADER_TOKEN_MIN_LENGTH:
         raise ValueError(
             "SEC-FU-04: Authorization token is empty or implausibly short "
-            "(minimum 8 characters required to prevent single-char attack payloads)."
+            f"(minimum {HEADER_TOKEN_MIN_LENGTH} characters required to "
+            "prevent single-char attack payloads)."
         )
-    bad = [c for c in token if c not in _BASE64URL_CHARSET]
+    bad = [c for c in token if c not in HEADER_TOKEN_CHARSET]
     if bad:
         sample = bad[0]
         raise ValueError(

@@ -37,6 +37,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db.tenant_session import defer_async_with_tenant
 from app.core.dependencies import get_db
 from app.core.identity import Identity
+from app.core.service_tokens import (
+    header_token_rejection_reason,
+    requires_header_token_policy,
+)
 from app.modules.auth.dependencies import require_permission
 from app.modules.catalog.authorization import check_dataset_write_access
 from app.modules.catalog.datasets.domain.schemas import (
@@ -421,6 +425,39 @@ async def refresh_dataset(
     prior_filename, object_id_field = await _prior_service_ingest_settings(
         db, dataset_id
     )
+
+    # fix(#1277 review round 6): the token is judged by the policy the WORKER
+    # will apply, selected by the service type of the binding that is actually
+    # going to be dispatched. That is why it happens HERE, after the re-read,
+    # rather than in the request model: the model cannot know the service type,
+    # and the pre-check binding is not guaranteed to be the dispatched one.
+    #
+    # Header-auth services (WFS, OGC API) pin their token to the base64url
+    # charset because it becomes an Authorization header line reaching libcurl
+    # through GDAL — a character outside that set is a header-smuggling
+    # primitive. ArcGIS is deliberately exempt: its token is a urlencoded query
+    # parameter, so its vocabulary is legitimately wider and applying the
+    # strict policy up front would reject valid ArcGIS tokens for a danger
+    # that path does not have.
+    #
+    # Before the stash, so a rejected token never burns a credential — which is
+    # the whole failure this closes: a 202 followed by a deterministic
+    # background failure and a spent single-use secret.
+    if body.token and requires_header_token_policy(origin.source_format):
+        rejection = header_token_rejection_reason(body.token)
+        if rejection is not None:
+            await db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={
+                    "code": "invalid_service_token",
+                    # The policy, never the input. The caller has the token and
+                    # can compare it against the rule; echoing any part of a
+                    # credential into a response, a log and a job row is the
+                    # cost of a marginally friendlier message.
+                    "message": rejection,
+                },
+            )
 
     # Step 4. Refusing on ANY change rather than dispatching the new binding
     # is the deliberate choice: the caller asked to refresh the source they
