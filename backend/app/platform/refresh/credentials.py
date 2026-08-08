@@ -374,11 +374,17 @@ _RENEWABLE_CREDENTIALS_SQL = text(
       AND pj.args->>'credential_ref' IS NOT NULL
       AND r.status IN ('pending', 'running')
       AND r.started_at > :cutoff
+      AND (
+          CAST(:tenant_id AS uuid) IS NULL
+          OR j.tenant_id = CAST(:tenant_id AS uuid)
+      )
     """
 )
 
 
-async def renew_queued_refresh_credentials(session: Any) -> int:
+async def renew_queued_refresh_credentials(
+    session: Any, *, tenant_id: str | None = None
+) -> int:
     """Re-arm the TTL of every credential whose task is still queued.
 
     Returns how many were renewed. Driven by the API's existing stale-job
@@ -387,6 +393,18 @@ async def renew_queued_refresh_credentials(session: Any) -> int:
     This is what makes a short TTL correct rather than optimistic: the
     credential's lifetime becomes the real queue wait instead of a number
     somebody guessed, and it shortens itself the moment the wait ends.
+
+    fix(#1277 review round 4): ``tenant_id`` filters the query EXPLICITLY
+    rather than leaning on RLS to do it. Pre-#998 ``tenant_job_context`` only
+    sets a GUC that nothing reads, so without this every tenant's iteration
+    renewed every OTHER tenant's credentials too — N tenants meant N passes of
+    fleet-wide EXPIRE, an inflated count, and a boundary crossed in a loop
+    written specifically to respect it. Filtering on ``ingest_jobs.tenant_id``
+    rather than joining out to ``datasets``: it is already in the join, it
+    carries ``trg_stamp_current_tenant_on_insert`` like ``datasets`` does, and
+    ``trg_validate_ingest_job_parent_tenant`` keeps it equal to its parent
+    dataset's, so the two cannot disagree. Single-tenant passes None and the
+    predicate folds away.
 
     Never raises. It runs inside a background loop whose other work must not
     be lost to a credential-store blip, and a missed cycle is survivable by
@@ -402,7 +420,10 @@ async def renew_queued_refresh_credentials(session: Any) -> int:
         seconds=ABANDONED_RUN_CUTOFF_SECONDS
     )
     try:
-        rows = await session.execute(_RENEWABLE_CREDENTIALS_SQL, {"cutoff": cutoff})
+        rows = await session.execute(
+            _RENEWABLE_CREDENTIALS_SQL,
+            {"cutoff": cutoff, "tenant_id": tenant_id},
+        )
         refs = [row.credential_ref for row in rows]
     except Exception as exc:  # broad: the sweep's other work must survive this
         # fix(#1277 review round 3): named, not swallowed. The never-raises
@@ -432,3 +453,97 @@ async def renew_queued_refresh_credentials(session: Any) -> int:
             # No store, no renewals — and nothing to report to.
             break
     return renewed
+
+
+async def renew_queued_credentials_once() -> int:
+    """Re-arm queued refresh credentials across the whole deployment.
+
+    fix(#1277 review round 3): iterates tenants the way the stale-job sweep
+    does — one plain call in single-tenant mode, one scoped transaction per
+    tenant otherwise, each inside ``tenant_job_context`` so the GUC is set
+    before the query runs. Per-tenant recovery is best-effort: one broken
+    tenant must not cost the others their renewals.
+
+    fix(#1277 review round 4): lives here rather than in ``api/main.py`` so the
+    worker can host it too — see :func:`renew_credentials_periodically`. A
+    module under ``platform/`` is importable from both processes; the API app
+    module is not.
+
+    Returns before touching the database at all when no credential store is
+    configured, which is the default deployment. There is nothing to renew
+    without a store, and the alternative is a registry query plus a session
+    per tenant every cycle, forever, to find that out.
+    """
+    from app.core.db import async_session  # fix(#909): late-bind for tests
+    from app.core.db.tenant_session import tenant_job_context
+    from app.core.tenancy import is_multi_tenant
+
+    if not credential_store_available():
+        return 0
+
+    if not is_multi_tenant():
+        async with async_session() as session:
+            return await renew_queued_refresh_credentials(session)
+
+    async with async_session() as registry_session:
+        tenant_ids = list(
+            (
+                await registry_session.execute(
+                    text("SELECT id FROM catalog.tenants ORDER BY id")
+                )
+            ).scalars()
+        )
+
+    renewed = 0
+    for tenant_id in tenant_ids:
+        try:
+            with tenant_job_context(str(tenant_id)):
+                async with async_session() as session:
+                    renewed += await renew_queued_refresh_credentials(
+                        session, tenant_id=str(tenant_id)
+                    )
+        except Exception as exc:  # broad: fleet renewal continues tenant-by-tenant
+            logger.warning(
+                "refresh_credential_renewal_tenant_failed",
+                tenant_id=str(tenant_id),
+                error_type=type(exc).__name__,
+            )
+    return renewed
+
+
+async def renew_credentials_periodically() -> None:
+    """Worker-side renewal loop. The second host, and the important one.
+
+    fix(#1277 review round 4): the API sweeper alone was not enough, because
+    API liveness does not bound the lifetime of an already-committed task. The
+    API could be down for longer than the TTL while the dispatch sat queued
+    behind a long ingest, and the worker — healthy the whole time, and the only
+    process that could ever claim it — would find the credential gone.
+
+    The coupling that makes two hosts the right answer: the process whose
+    liveness gates the CLAIM is the WORKER, so worker-hosted renewal keeps the
+    handoff alive exactly while a claim is still possible. API-hosted renewal
+    covers the converse, a worker briefly down with the API up. Both call the
+    same tenant-aware helper and ``EXPIRE`` is idempotent, so a cycle where
+    both run costs one extra round trip and nothing else.
+
+    If BOTH are down past the TTL the credential expires, and that is the
+    accepted floor rather than a gap: no claimant existed at any point during
+    the credential's life, so there was never a refresh to keep alive. The run
+    fails ``credential_expired``, whose message already says to retry with a
+    fresh token.
+
+    An asyncio loop rather than a Procrastinate periodic task, deliberately:
+    the codebase registers no periodic tasks at all (``procrastinate_periodic_
+    defers`` is stock schema, not evidence of use), while this worker already
+    runs ``update_job_metrics`` exactly this way. Matching the pattern that is
+    here beats introducing the machinery that is not.
+    """
+    import asyncio
+
+    while True:
+        await asyncio.sleep(CREDENTIAL_RENEWAL_INTERVAL_SECONDS)
+        try:
+            await renew_queued_credentials_once()
+        except Exception:  # broad: the renewal loop must outlive any blip
+            logger.warning("refresh_credential_renewal_cycle_failed", exc_info=True)

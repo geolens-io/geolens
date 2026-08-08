@@ -200,8 +200,11 @@ async def test_every_tenants_queued_credential_is_renewed(
     """
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
-    from app.api.main import renew_queued_credentials_once
-    from app.core.db.tenant_session import install_tenant_session_hook
+    from app.core.db.tenant_session import (
+        install_tenant_session_hook,
+        tenant_job_context,
+    )
+    from app.platform.refresh.credentials import renew_queued_credentials_once
 
     ctx = multi_tenant_rls
     backend = _FakeBackend()
@@ -217,10 +220,8 @@ async def test_every_tenants_queued_credential_is_renewed(
     def _drop_to_reader(conn):  # noqa: ANN001 - sqlalchemy event signature
         conn.exec_driver_sql("SET LOCAL ROLE geolens_reader")
 
-    monkeypatch.setattr(
-        "app.core.db.async_session",
-        async_sessionmaker(scoped_engine, expire_on_commit=False),
-    )
+    _session_factory = async_sessionmaker(scoped_engine, expire_on_commit=False)
+    monkeypatch.setattr("app.core.db.async_session", _session_factory)
 
     seeded: list[dict] = []
     try:
@@ -263,6 +264,44 @@ async def test_every_tenants_queued_credential_is_renewed(
         assert renewed == 2, (
             "both tenants' queued credentials must be re-armed; a renewal that "
             "runs outside a tenant context sees neither"
+        )
+        # fix(#1277 review round 4): 2 as one-each, not two tenants x two
+        # keys. The explicit tenant filter is what makes the total equal the
+        # number of tenants rather than its square.
+        per_tenant = []
+        for tenant_id in (ctx.tenant_a, ctx.tenant_b):
+            with tenant_job_context(str(tenant_id)):
+                async with _session_factory() as scoped_session:
+                    per_tenant.append(
+                        await creds.renew_queued_refresh_credentials(
+                            scoped_session, tenant_id=str(tenant_id)
+                        )
+                    )
+        assert per_tenant == [1, 1], (
+            "each tenant must renew exactly its own key; anything higher means "
+            "the iteration is crossing the boundary it exists to respect"
+        )
+
+        # fix(#1277 review round 4): and the FILTER is what narrows it, not
+        # RLS. This is today's configuration — RLS is off everywhere, so
+        # tenant_job_context sets a GUC nothing enforces and the predicate in
+        # the query is the only thing keeping tenants apart. Asserted on the
+        # PRIVILEGED session, which is BYPASSRLS: unfiltered it sees both rows,
+        # and each tenant id narrows it to one. Without the predicate every
+        # tenant's iteration would renew the whole fleet.
+        privileged = async_sessionmaker(engine, expire_on_commit=False)
+        async with privileged() as bypass_session:
+            unfiltered = await creds.renew_queued_refresh_credentials(bypass_session)
+            assert unfiltered == 2, "sanity: both rows are visible to this session"
+            bypass_scoped = [
+                await creds.renew_queued_refresh_credentials(
+                    bypass_session, tenant_id=str(tenant_id)
+                )
+                for tenant_id in (ctx.tenant_a, ctx.tenant_b)
+            ]
+        assert bypass_scoped == [1, 1], (
+            "the explicit tenant predicate must narrow the query on its own; "
+            "[2, 2] is the unfiltered query renewing the fleet once per tenant"
         )
         # Renewal must not consume: both are still claimable afterwards.
         assert await creds.claim_service_credential(ref_a) == "tenant-a-token"

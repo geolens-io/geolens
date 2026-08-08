@@ -990,9 +990,15 @@ class TestCredentialHandoff:
             "scopes the query per tenant"
         )
 
-        helper = inspect.getsource(main.renew_queued_credentials_once)
+        helper = inspect.getsource(creds.renew_queued_credentials_once)
         assert "tenant_job_context" in helper
         assert "is_multi_tenant()" in helper
+        # fix(#1277 review round 4): and the worker hosts it too. API liveness
+        # does not bound an already-committed task's wait, so a single host
+        # let a healthy worker find a credential the API's downtime expired.
+        from app.platform.jobs import worker
+
+        assert "renew_credentials_periodically" in inspect.getsource(worker.main)
 
     async def test_a_malformed_reference_never_reaches_the_store(
         self, credential_backend

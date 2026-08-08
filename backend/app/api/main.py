@@ -190,65 +190,6 @@ async def seed_bootstrap_identity() -> None:
     await seed_initial_admin()
 
 
-async def renew_queued_credentials_once() -> int:
-    """Re-arm queued refresh credentials, once per tenant.
-
-    fix(#1277 review round 3): this used to run in a single session opened
-    AFTER ``sweep_stale_jobs_once`` had already exited its per-tenant
-    ``tenant_job_context`` blocks, so in multi-tenant mode the query ran with
-    no ``app.current_tenant`` set at all. Two things were wrong with that, one
-    of them latent:
-
-    - Today no ``catalog`` table has RLS enabled (enablement is #998's work,
-      and ``pg_class.relrowsecurity`` is false for all three tables this query
-      touches), so it did not fail — it read ACROSS every tenant, which is not
-      a boundary this code is entitled to cross even when the database allows
-      it.
-    - The moment #998 turns FORCE RLS on for ``ingest_jobs`` and
-      ``dataset_refresh_runs``, the same query starts returning nothing for
-      every tenant, and the renewal helper's never-raises contract would file
-      that away as "zero renewed". Every queued protected refresh would then
-      die ``credential_expired`` once past the TTL, with nothing anywhere
-      saying why.
-
-    So the iteration mirrors the stale-job sweep exactly: one plain call in
-    single-tenant mode, and one scoped transaction per tenant otherwise, each
-    inside ``tenant_job_context`` so the GUC is set before the query runs. Per
-    tenant recovery is best-effort for the same reason the sweep's is — one
-    broken tenant must not cost the others their renewals.
-    """
-    from app.core.db import async_session  # fix(#909): late-bind for tests
-    from app.platform.refresh.credentials import renew_queued_refresh_credentials
-
-    if not is_multi_tenant():
-        async with async_session() as session:
-            return await renew_queued_refresh_credentials(session)
-
-    async with async_session() as registry_session:
-        tenant_ids = list(
-            (
-                await registry_session.execute(
-                    text("SELECT id FROM catalog.tenants ORDER BY id")
-                )
-            ).scalars()
-        )
-
-    renewed = 0
-    for tenant_id in tenant_ids:
-        try:
-            with tenant_job_context(str(tenant_id)):
-                async with async_session() as session:
-                    renewed += await renew_queued_refresh_credentials(session)
-        except Exception as exc:  # broad: fleet renewal continues tenant-by-tenant
-            logger.warning(
-                "Credential renewal failed for tenant",
-                tenant_id=str(tenant_id),
-                error_type=type(exc).__name__,
-                exc_info=True,
-            )
-    return renewed
-
-
 async def sweep_stale_jobs_once(
     *, detailed: bool = False
 ) -> tuple[int, int] | dict[str, int]:
@@ -416,6 +357,7 @@ async def lifespan(app: FastAPI):
         """
         from app.platform.refresh.credentials import (
             CREDENTIAL_RENEWAL_INTERVAL_SECONDS,
+            renew_queued_credentials_once,
         )
 
         sweeper_log = structlog.stdlib.get_logger("stale_jobs_sweeper")
@@ -435,11 +377,11 @@ async def lifespan(app: FastAPI):
                         pending_failed=pending_failed,
                         running_failed=running_failed,
                     )
-                # Re-arm credentials whose dispatch is still waiting for a
-                # worker. Tenant-scoped, exactly like the sweep above — see
-                # renew_queued_credentials_once for why running it outside a
-                # tenant context is both a boundary crossing today and a
-                # silent stop once RLS lands.
+                # Re-arm credentials whose dispatch is still waiting for
+                # a worker. Tenant-scoped, and hosted in the WORKER too — see
+                # renew_credentials_periodically for why one host was not
+                # enough. EXPIRE is idempotent, so both running in the same
+                # cycle is free.
                 renewed = await renew_queued_credentials_once()
                 if renewed:
                     sweeper_log.debug("Renewed queued credentials", count=renewed)
