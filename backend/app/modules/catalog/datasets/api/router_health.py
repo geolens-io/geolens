@@ -45,7 +45,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_db
@@ -235,6 +235,17 @@ async def check_source_health(
             },
         )
 
+    # fix(#1271 review): the probe awaits a third-party host, and a reupload
+    # can commit a new origin binding in that window. Persisting through the
+    # ORM instance would write the OLD origin's verdict onto the new binding —
+    # permanently, when a service became an upload, since uploads 409 above
+    # and nothing could re-probe. Snapshot the binding now and make the write
+    # conditional on it below; set_dataset_origin clearing probe state on
+    # rebind covers the other interleaving (rebind commits after our write).
+    bound_uri = dataset.origin_uri
+    bound_ref = dataset.origin_ref
+    bound_format = dataset.source_format
+
     if origin == "stac":
         result = await _probe_stac_origin(db, dataset)
     else:
@@ -245,10 +256,34 @@ async def check_source_health(
     # dated. The probe helpers never raise for a network condition, so no path
     # from here reaches the response without this write.
     now = datetime.now(timezone.utc)
-    dataset.last_checked_at = now
-    dataset.source_health = result.health
-    dataset.source_health_detail = result.detail
+    outcome = await db.execute(
+        update(Dataset)
+        .where(
+            Dataset.id == dataset_id,
+            Dataset.origin_uri.is_not_distinct_from(bound_uri),
+            Dataset.origin_ref.is_not_distinct_from(bound_ref),
+            Dataset.source_format.is_not_distinct_from(bound_format),
+        )
+        .values(
+            last_checked_at=now,
+            source_health=result.health,
+            source_health_detail=result.detail,
+        )
+    )
     await db.commit()
+    if outcome.rowcount == 0:
+        # The row was rebound (or deleted) while the probe was in flight; the
+        # verdict describes an origin this dataset no longer has. Discard it.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "origin_changed",
+                "message": (
+                    "The dataset's origin changed while the probe was in "
+                    "flight; the result was discarded. Re-run the check."
+                ),
+            },
+        )
 
     # Built from locals rather than re-read from the instance: commit expires
     # the attributes, and touching them here would either issue a second round

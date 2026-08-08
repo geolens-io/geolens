@@ -767,6 +767,40 @@ class TestServiceOriginProbe:
         assert str(recorded[0].url) == "https://origin.test/FeatureServer/0"
         assert recorded[0].headers["Range"] == "bytes=0-0"
 
+    async def test_mid_probe_rebind_discards_the_stale_verdict(
+        self, client, admin_auth_header, test_db_session, monkeypatch
+    ) -> None:
+        """fix(#1271 review): the probe awaits a third-party host, and a
+        reupload can commit a new origin binding in that window. The old
+        origin's verdict must not land on the new binding — for a service
+        replaced by an upload it would stick forever, since uploads 409."""
+        from app.modules.catalog.datasets.api import router_health
+        from app.modules.catalog.sources.origin_probe import OriginProbeResult
+        from app.platform.dataset_origin import set_dataset_origin
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(test_db_session, created_by=admin_id)
+
+        async def rebind_then_report_healthy(_ds) -> OriginProbeResult:
+            set_dataset_origin(dataset, "upload", filename="roads.gpkg")
+            await test_db_session.commit()
+            return OriginProbeResult(HEALTHY, None)
+
+        monkeypatch.setattr(
+            router_health, "_probe_service_origin", rebind_then_report_healthy
+        )
+
+        resp = await client.post(
+            f"/datasets/{dataset.id}/source-health/", headers=admin_auth_header
+        )
+        assert resp.status_code == 409, resp.text
+        assert resp.json()["detail"]["code"] == "origin_changed"
+
+        # The rebound row keeps the NULL probe state the rebind gave it.
+        await test_db_session.refresh(dataset)
+        assert dataset.source_health is None
+        assert dataset.last_checked_at is None
+
     async def test_wfs_probe_targets_the_canonical_service_url(
         self, client, admin_auth_header, test_db_session, probe_transport
     ) -> None:
