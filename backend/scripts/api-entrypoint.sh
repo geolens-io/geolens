@@ -99,6 +99,14 @@ fi
 # migration silently serves a broken schema. Refuse to start instead: print
 # a clear FATAL to stderr and exit with the migration's return code (we never
 # reach the uvicorn exec below).
+if [ -n "${GEOLENS_RUNTIME_DB_ROLE:-}" ] \
+    && [ "${GEOLENS_API_RUN_MIGRATIONS:-true}" != "false" ]; then
+    echo "FATAL: GEOLENS_RUNTIME_DB_ROLE requires GEOLENS_API_RUN_MIGRATIONS=false." >&2
+    echo "       Run the ordered migrate service with MIGRATION_DATABASE_URL_OVERRIDE;" >&2
+    echo "       the runtime login must never attempt schema or extension DDL." >&2
+    exit 64
+fi
+
 case "${GEOLENS_API_RUN_MIGRATIONS:-true}" in
     true)
         echo "Running database migrations..."

@@ -128,6 +128,83 @@ class TestDatabaseUrlOverride:
         assert "must-not-appear" not in stderr
 
 
+class TestSingleTenantRuntimeDatabaseRole:
+    _RUNTIME_PASSWORD = "runtime-password-with-at-least-32-characters"
+
+    def test_unset_preserves_legacy_connection(self):
+        assert _make_settings().geolens_runtime_db_role is None
+
+    def test_matching_runtime_override_is_accepted(self):
+        settings = _make_settings(
+            geolens_runtime_db_role="geolens_app",
+            postgres_password=self._RUNTIME_PASSWORD,
+            database_url_override=(
+                f"postgresql://geolens_app:{self._RUNTIME_PASSWORD}@db/geolens"
+            ),
+        )
+
+        assert settings.geolens_runtime_db_role == "geolens_app"
+
+    @pytest.mark.parametrize(
+        ("role", "url"),
+        [
+            ("GeoLens-App", "postgresql://GeoLens-App:secret@db/geolens"),
+            ("geolens-app", "postgresql://geolens-app:secret@db/geolens"),
+            ("9geolens", "postgresql://9geolens:secret@db/geolens"),
+        ],
+    )
+    def test_role_name_must_be_a_safe_postgres_identifier(self, role, url):
+        with pytest.raises(Exception, match="lowercase PostgreSQL identifier"):
+            _make_settings(
+                geolens_runtime_db_role=role,
+                postgres_password=self._RUNTIME_PASSWORD,
+                database_url_override=url,
+            )
+
+    def test_role_requires_a_dedicated_override(self):
+        with pytest.raises(Exception, match="requires DATABASE_URL_OVERRIDE"):
+            _make_settings(geolens_runtime_db_role="geolens_app")
+
+    def test_override_username_must_match_role(self):
+        with pytest.raises(Exception, match="username must match"):
+            _make_settings(
+                geolens_runtime_db_role="geolens_app",
+                postgres_password=self._RUNTIME_PASSWORD,
+                database_url_override=(
+                    f"postgresql://geolens:{self._RUNTIME_PASSWORD}@db/geolens"
+                ),
+            )
+
+    def test_runtime_password_must_be_long_and_match_override(self):
+        with pytest.raises(Exception, match="at least 32 characters"):
+            _make_settings(
+                geolens_runtime_db_role="geolens_app",
+                postgres_password="too-short",
+                database_url_override=("postgresql://geolens_app:too-short@db/geolens"),
+            )
+
+        with pytest.raises(Exception, match="password must match"):
+            _make_settings(
+                geolens_runtime_db_role="geolens_app",
+                postgres_password=self._RUNTIME_PASSWORD,
+                database_url_override=(
+                    "postgresql://geolens_app:another-runtime-password-"
+                    "with-at-least-32-characters@db/geolens"
+                ),
+            )
+
+    def test_multi_tenant_mode_uses_its_existing_role_topology(self):
+        with pytest.raises(Exception, match="single-tenant role path"):
+            _make_settings(
+                geolens_tenancy_mode="multi_tenant",
+                geolens_runtime_db_role="geolens_app",
+                postgres_password=self._RUNTIME_PASSWORD,
+                database_url_override=(
+                    f"postgresql://geolens_app:{self._RUNTIME_PASSWORD}@db/geolens"
+                ),
+            )
+
+
 class TestTileDatabaseUrlOverride:
     """The tile pool can use a dedicated login without changing other consumers."""
 

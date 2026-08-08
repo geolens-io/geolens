@@ -21,6 +21,10 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-geolens}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-geolens_test}
       POSTGRES_DB: ${POSTGRES_DB:-geolens}
+      GEOLENS_RUNTIME_DB_ROLE: ${GEOLENS_RUNTIME_DB_ROLE:-}
+      GEOLENS_RUNTIME_DB_PASSWORD: ${GEOLENS_RUNTIME_DB_PASSWORD:-}
+    volumes:
+      - ../lib/configure-runtime-db-role.sh:/usr/local/bin/configure-runtime-db-role:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-geolens} -d ${POSTGRES_DB:-geolens}"]
       interval: 5s

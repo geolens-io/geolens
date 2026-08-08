@@ -51,4 +51,15 @@ test ! -f "${STARTED}"
 test ! -s "${UV_LOG}"
 grep -q "must be exactly 'true' or 'false'" "${WORK}/invalid.out"
 
+echo "==> runtime-role mode refuses the API migration safety net"
+runtime_rc=0
+GEOLENS_RUNTIME_DB_ROLE=geolens_app \
+    GEOLENS_API_RUN_MIGRATIONS=true \
+    run_entrypoint > "${WORK}/runtime-role.out" 2>&1 || runtime_rc=$?
+test "${runtime_rc}" -eq 64
+test ! -f "${STARTED}"
+test ! -s "${UV_LOG}"
+grep -q "runtime login must never attempt schema or extension DDL" \
+    "${WORK}/runtime-role.out"
+
 echo "RESULT: PASS (API entrypoint migration toggle is explicit and fail-closed)"

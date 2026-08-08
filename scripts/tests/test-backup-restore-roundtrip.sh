@@ -70,6 +70,9 @@ SUFFIX="$$_$(date +%s)"
 SRC_DB="geolens_bkp_src_${SUFFIX}"
 DST_DB="geolens_bkp_dst_${SUFFIX}"
 SNAP_DB="geolens_bkp_snap_${SUFFIX}"   # managed-mode "provider snapshot" DB
+RUNTIME_ROLE="geolens_bkp_app_${SUFFIX}"
+RUNTIME_ROLE="${RUNTIME_ROLE//[^a-zA-Z0-9_]/_}"
+RUNTIME_PASSWORD="ci-runtime-role-test-password-947-padding"
 WORKDIR="$(mktemp -d)"
 DUMP_FILE="${WORKDIR}/roundtrip.dump"
 
@@ -84,6 +87,8 @@ cleanup() {
             >/dev/null 2>&1
         dropdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" --if-exists "$db" >/dev/null 2>&1
     done
+    psql_admin -v ON_ERROR_STOP=1 -c "DROP ROLE IF EXISTS \"${RUNTIME_ROLE}\"" \
+        >/dev/null 2>&1
     rm -rf "$WORKDIR"
 }
 trap cleanup EXIT
@@ -106,10 +111,13 @@ psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC_DB" -v ON_ERROR_STOP=1 >/de
 CREATE SCHEMA IF NOT EXISTS catalog;
 CREATE TABLE catalog.records  (id serial PRIMARY KEY, name text NOT NULL);
 CREATE TABLE catalog.datasets (id serial PRIMARY KEY, slug text NOT NULL);
+CREATE SCHEMA data;
+CREATE TABLE data.ci_probe (id serial PRIMARY KEY, name text NOT NULL);
 INSERT INTO catalog.records (name)
     SELECT 'record-' || g FROM generate_series(1, 137) g;
 INSERT INTO catalog.datasets (slug)
     SELECT 'dataset-' || g FROM generate_series(1, 42) g;
+INSERT INTO data.ci_probe (name) VALUES ('runtime-ownership-probe');
 EOSQL
 
 SRC_RECORDS="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC_DB" -tAc "SELECT COUNT(*) FROM catalog.records;")"
@@ -172,6 +180,49 @@ echo "      restored counts: records=${DST_RECORDS} datasets=${DST_DATASETS}"
 [ "$SRC_RECORDS" = "$DST_RECORDS" ]   || fail "records count mismatch: ${SRC_RECORDS} != ${DST_RECORDS}"
 [ "$SRC_DATASETS" = "$DST_DATASETS" ] || fail "datasets count mismatch: ${SRC_DATASETS} != ${DST_DATASETS}"
 echo "      DB round-trip OK — row counts match exactly."
+
+# Exercise the SAME role/grant reconciler used by fresh bootstrap and the real
+# restore script. The role is unique to this run and is dropped in cleanup.
+env \
+    GEOLENS_RUNTIME_DB_ROLE="$RUNTIME_ROLE" \
+    GEOLENS_RUNTIME_DB_PASSWORD="$RUNTIME_PASSWORD" \
+    POSTGRES_HOST="$PGHOST" POSTGRES_PORT="$PGPORT" \
+    POSTGRES_USER="$PGUSER" POSTGRES_DB="$DST_DB" \
+    bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" >/dev/null
+
+ROLE_FLAGS="$(psql_admin -d "$DST_DB" -tAc \
+    "SELECT rolsuper || '|' || rolbypassrls || '|' || rolcreaterole || '|' ||
+            rolcreatedb || '|' || rolreplication || '|' || rolinherit
+     FROM pg_roles WHERE rolname = '${RUNTIME_ROLE}';" | tr -d '[:space:]')"
+[ "$ROLE_FLAGS" = "false|false|false|false|false|false" ] \
+    || fail "runtime role retained powerful/inherited attributes: ${ROLE_FLAGS}"
+
+DATA_OWNER="$(psql_admin -d "$DST_DB" -tAc \
+    "SELECT pg_get_userbyid(relowner) FROM pg_class
+     WHERE oid = 'data.ci_probe'::regclass;" | tr -d '[:space:]')"
+[ "$DATA_OWNER" = "$RUNTIME_ROLE" ] \
+    || fail "restored data.ci_probe owner is ${DATA_OWNER}, expected ${RUNTIME_ROLE}"
+
+runtime_psql=(
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$RUNTIME_ROLE" -d "$DST_DB"
+    -v ON_ERROR_STOP=1
+)
+PGPASSWORD="$RUNTIME_PASSWORD" "${runtime_psql[@]}" >/dev/null <<'EOSQL'
+BEGIN;
+INSERT INTO catalog.records (name) VALUES ('least-privilege-write-probe');
+UPDATE catalog.records SET name = name WHERE name = 'least-privilege-write-probe';
+DELETE FROM catalog.records WHERE name = 'least-privilege-write-probe';
+ALTER TABLE data.ci_probe ADD COLUMN runtime_edit integer;
+SET ROLE geolens_reader;
+SELECT COUNT(*) FROM data.ci_probe;
+RESET ROLE;
+ROLLBACK;
+EOSQL
+if PGPASSWORD="$RUNTIME_PASSWORD" "${runtime_psql[@]}" \
+    -c "CREATE TABLE catalog.must_be_denied (id integer)" >/dev/null 2>&1; then
+    fail "runtime role can CREATE in migration-owned schema catalog"
+fi
+echo "      runtime role OK — safe attributes, catalog DML, data ownership, reader SET; catalog DDL denied."
 echo ""
 
 # ------------------------------------------------------------------------------

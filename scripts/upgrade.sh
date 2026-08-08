@@ -131,17 +131,15 @@ TARGET_TAG="v${TARGET_VERSION}"
 # major, and an unreadable value on either side warns and continues rather than
 # blocking an otherwise valid upgrade.
 #
-# Codex #707: skipped entirely when DATABASE_URL_OVERRIDE is set. The prod
-# compose still defines and starts `db` in that mode, but the app does not use
-# it — so probing that container compares the target's bundled major against a
-# stale local container and would refuse an upgrade for an operator whose
-# provider is already on the new major. The bundled-volume incompatibility this
-# guard exists to prevent cannot occur when the data lives outside the bundle;
-# RUNBOOK section 6's managed-mode path covers those deployments.
+# Codex #707: skipped when DATABASE_URL_OVERRIDE points at an external database.
+# #947 adds one intentional exception: a bundled install using the opt-in
+# GEOLENS_RUNTIME_DB_ROLE also sets DATABASE_URL_OVERRIDE, but its data still
+# lives in the bundled volume and MUST keep this major-version guard.
 DATABASE_URL_OVERRIDE_VALUE="$(get_env_value DATABASE_URL_OVERRIDE)"
+RUNTIME_DB_ROLE_VALUE="$(get_env_value GEOLENS_RUNTIME_DB_ROLE)"
 target_pg_major=""
 current_pg_major=""
-if [ -n "$DATABASE_URL_OVERRIDE_VALUE" ]; then
+if [ -n "$DATABASE_URL_OVERRIDE_VALUE" ] && [ -z "$RUNTIME_DB_ROLE_VALUE" ]; then
   say "External database configured (DATABASE_URL_OVERRIDE) — skipping the bundled PostgreSQL major check."
 else
   if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then

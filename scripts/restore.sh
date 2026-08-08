@@ -185,26 +185,16 @@ if [ "$RESTORE_RC" -ne 0 ]; then
 fi
 rm -f "$RESTORE_STDERR"
 
-# Re-apply geolens_reader grants AFTER pg_restore, not before: --clean drops
-# schema `data` (taking its ACLs and default privileges with it) and the dump
-# is -Fc --no-owner --no-acl, so nothing inside it re-grants. Granting before
-# the restore only decorated a schema that was about to be dropped, and the
-# reader role silently lost SELECT on every restored table.
+# Reconcile runtime ownership/grants AFTER pg_restore, not before: --clean drops
+# schema ACLs/default privileges and --no-owner makes POSTGRES_USER own restored
+# relations. The privileged db-container script re-grants geolens_reader and,
+# when the single-tenant runtime-role opt-in is enabled, transfers only data.*
+# runtime relations to the non-superuser login. Catalog ownership stays with the
+# migrator; the app receives DML/sequence/function rights there.
 echo ""
-echo "Re-applying geolens_reader grants..."
+echo "Re-applying database runtime grants..."
 "${COMPOSE[@]}" exec -T db \
-    psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<EOSQL
-DO \$\$
-BEGIN
-    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'geolens_reader') THEN
-        CREATE ROLE geolens_reader NOLOGIN;
-    END IF;
-END
-\$\$;
-GRANT USAGE ON SCHEMA data TO geolens_reader;
-GRANT SELECT ON ALL TABLES IN SCHEMA data TO geolens_reader;
-ALTER DEFAULT PRIVILEGES IN SCHEMA data GRANT SELECT ON TABLES TO geolens_reader;
-EOSQL
+    /usr/local/bin/configure-runtime-db-role
 
 # Assert the grant actually took — a restore that leaves the reader role
 # without schema access breaks every read-only consumer until someone
@@ -219,6 +209,20 @@ if [ "$READER_USAGE" != "t" ]; then
     exit 1
 fi
 echo "geolens_reader grants verified."
+
+if [ -n "${GEOLENS_RUNTIME_DB_ROLE:-}" ]; then
+    RUNTIME_ROLE_SAFE="$("${COMPOSE[@]}" exec -T db \
+        psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
+        "SELECT NOT rolsuper AND NOT rolbypassrls AND NOT rolcreaterole
+                AND NOT rolcreatedb AND NOT rolreplication
+         FROM pg_roles WHERE rolname = '${GEOLENS_RUNTIME_DB_ROLE}';" \
+        | tr -d '[:space:]')"
+    if [ "$RUNTIME_ROLE_SAFE" != "t" ]; then
+        echo "ERROR: ${GEOLENS_RUNTIME_DB_ROLE} is absent or privileged after restore." >&2
+        exit 1
+    fi
+    echo "${GEOLENS_RUNTIME_DB_ROLE} least-privilege attributes verified."
+fi
 
 # Post-restore validation
 echo ""
