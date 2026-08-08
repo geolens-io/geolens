@@ -255,10 +255,10 @@ services:
     init: true
     stop_grace_period: 30s
     restart: unless-stopped
-    # GAP-001: 2 GB covers the Python process + Uvicorn workers + ORM caches.
-    # Raise if ingesting very large files with many concurrent workers.
+    # GAP-001: 4 GB also accommodates pytest -n 4 with coverage instrumentation.
+    # Lower via API_MEM_LIMIT on constrained hosts when not running the full suite.
     # fix(#448): env-overridable — mirrors docker-compose.prod.yml.
-    mem_limit: "${API_MEM_LIMIT:-2g}"
+    mem_limit: "${API_MEM_LIMIT:-4g}"
     # Hardening (security_opt + cap_drop + cap_add + read_only): see
     # x-hardened-base anchor at top of file. no-new-privileges:true blocks
     # setuid escalation but NOT setpriv (which de-escalates), so the
