@@ -22,23 +22,53 @@
   "origin": {
     "upload": {
       "label": "Téléversé",
-      "title": "Fichier téléversé. GeoLens conserve sa propre copie de ces données"
+      "title": "Fichier téléversé géré comme une copie locale dans GeoLens"
     },
     "postgis": {
       "label": "PostGIS",
-      "title": "Enregistré depuis une table PostGIS existante. Les données restent dans votre base"
+      "title": "Enregistré sur place depuis une table existante dans la base PostGIS de GeoLens"
     },
     "service": {
       "label": "Service",
-      "title": "Enregistré depuis l'URL d'un service distant"
+      "title": "Copie ponctuelle importée d'un service distant. Actualisez-la pour récupérer les données récentes"
     },
     "stac": {
       "label": "STAC",
-      "title": "Importé depuis un catalogue STAC"
+      "title": "Référence active vers une ressource d'un catalogue STAC distant"
     },
     "created": {
       "label": "Créé",
       "title": "Créé dans GeoLens comme couche modifiable"
+    }
+  },
+  "sourceState": {
+    "freshness": {
+      "fresh": {
+        "label": "Source à jour",
+        "description": "La source a été actualisée selon la fréquence déclarée"
+      },
+      "due": {
+        "label": "Actualisation de la source requise",
+        "description": "Une période d'actualisation déclarée s'est écoulée pour la source"
+      },
+      "overdue": {
+        "label": "Actualisation de la source en retard",
+        "description": "Deux périodes d'actualisation déclarées se sont écoulées pour la source"
+      }
+    },
+    "health": {
+      "healthy": {
+        "label": "Source disponible",
+        "description": "GeoLens a contacté la source et trouvé la ressource"
+      },
+      "missing": {
+        "label": "Source introuvable",
+        "description": "La source a indiqué que cette ressource n'existe plus"
+      },
+      "inaccessible": {
+        "label": "Origine inaccessible",
+        "description": "GeoLens n'a pas pu déterminer si la ressource source est disponible"
+      }
     }
   },
   "nav": {

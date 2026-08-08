@@ -22,23 +22,53 @@
   "origin": {
     "upload": {
       "label": "Subido",
-      "title": "Archivo subido. GeoLens almacena su propia copia de estos datos"
+      "title": "Archivo subido administrado como copia local en GeoLens"
     },
     "postgis": {
       "label": "PostGIS",
-      "title": "Registrado desde una tabla PostGIS existente. Los datos permanecen en tu base de datos"
+      "title": "Registrado en el mismo lugar desde una tabla existente en la base de datos PostGIS de GeoLens"
     },
     "service": {
       "label": "Servicio",
-      "title": "Registrado desde la URL de un servicio remoto"
+      "title": "Copia puntual importada de un servicio remoto. Actualízala para obtener datos más recientes"
     },
     "stac": {
       "label": "STAC",
-      "title": "Importado desde un catálogo STAC"
+      "title": "Referencia activa a un recurso de un catálogo STAC remoto"
     },
     "created": {
       "label": "Creado",
       "title": "Creado en GeoLens como capa editable"
+    }
+  },
+  "sourceState": {
+    "freshness": {
+      "fresh": {
+        "label": "Fuente al día",
+        "description": "La fuente se actualizó dentro de la frecuencia declarada"
+      },
+      "due": {
+        "label": "Actualización de la fuente pendiente",
+        "description": "Ha transcurrido un período de actualización declarado para la fuente"
+      },
+      "overdue": {
+        "label": "Actualización de la fuente atrasada",
+        "description": "Han transcurrido dos períodos de actualización declarados para la fuente"
+      }
+    },
+    "health": {
+      "healthy": {
+        "label": "Fuente disponible",
+        "description": "GeoLens pudo acceder a la fuente y encontró el recurso"
+      },
+      "missing": {
+        "label": "Fuente ausente",
+        "description": "La fuente indicó que este recurso ya no existe"
+      },
+      "inaccessible": {
+        "label": "Fuente inaccesible",
+        "description": "GeoLens no pudo determinar si el recurso de la fuente está disponible"
+      }
     }
   },
   "nav": {

@@ -544,6 +544,9 @@ export interface OGCRecordProperties {
    * carries, so a catalog card and a dataset page cannot disagree about how
    * late a dataset is. Served alongside `update_frequency` below. */
   source_freshness?: SourceFreshness;
+  /** feat(#1226): optional catalog projection of the persisted detail state.
+   * Search responses that do not project it remain valid; cards stay silent. */
+  source_health?: SourceHealth;
   update_frequency?: string | null;
   has_quicklook?: boolean;
   band_count?: number | null;

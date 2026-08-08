@@ -22,23 +22,53 @@
   "origin": {
     "upload": {
       "label": "Hochgeladen",
-      "title": "Hochgeladene Datei. GeoLens speichert eine eigene Kopie dieser Daten"
+      "title": "Hochgeladene Datei, die als lokale Kopie in GeoLens verwaltet wird"
     },
     "postgis": {
       "label": "PostGIS",
-      "title": "Aus einer bestehenden PostGIS-Tabelle registriert. Die Daten bleiben in Ihrer Datenbank"
+      "title": "Bestehende Tabelle in der PostGIS-Datenbank von GeoLens, die direkt registriert wurde"
     },
     "service": {
       "label": "Dienst",
-      "title": "Über die URL eines entfernten Dienstes registriert"
+      "title": "Einmalig aus einem entfernten Dienst importierte Kopie. Aktualisieren Sie sie, um neuere Daten abzurufen"
     },
     "stac": {
       "label": "STAC",
-      "title": "Aus einem STAC-Katalog importiert"
+      "title": "Live-Verweis auf eine Ressource aus einem entfernten STAC-Katalog"
     },
     "created": {
       "label": "Erstellt",
       "title": "In GeoLens als bearbeitbare Ebene erstellt"
+    }
+  },
+  "sourceState": {
+    "freshness": {
+      "fresh": {
+        "label": "Quelle aktuell",
+        "description": "Die Quelle wurde innerhalb ihres festgelegten Intervalls aktualisiert"
+      },
+      "due": {
+        "label": "Quellenaktualisierung fällig",
+        "description": "Ein festgelegtes Aktualisierungsintervall der Quelle ist verstrichen"
+      },
+      "overdue": {
+        "label": "Quellenaktualisierung überfällig",
+        "description": "Zwei festgelegte Aktualisierungsintervalle der Quelle sind verstrichen"
+      }
+    },
+    "health": {
+      "healthy": {
+        "label": "Quelle erreichbar",
+        "description": "GeoLens hat die Quelle erreicht und die Ressource gefunden"
+      },
+      "missing": {
+        "label": "Quelle fehlt",
+        "description": "Die Quelle hat gemeldet, dass diese Ressource nicht mehr vorhanden ist"
+      },
+      "inaccessible": {
+        "label": "Quelle nicht erreichbar",
+        "description": "GeoLens konnte nicht feststellen, ob die Ressource der Quelle verfügbar ist"
+      }
     }
   },
   "nav": {

@@ -22,23 +22,53 @@
   "origin": {
     "upload": {
       "label": "Uploaded",
-      "title": "Uploaded file. GeoLens stores its own copy of this data"
+      "title": "Uploaded file managed as a local copy in GeoLens"
     },
     "postgis": {
       "label": "PostGIS",
-      "title": "Registered from an existing PostGIS table. The data stays in your database"
+      "title": "Registered in place from an existing table in GeoLens's PostGIS database"
     },
     "service": {
       "label": "Service",
-      "title": "Registered from a remote service URL"
+      "title": "One-shot copy imported from a remote service. Refresh it to pull newer data"
     },
     "stac": {
       "label": "STAC",
-      "title": "Imported from a STAC catalog"
+      "title": "Live reference to an asset from a remote STAC catalog"
     },
     "created": {
       "label": "Created",
       "title": "Created in GeoLens as an editable layer"
+    }
+  },
+  "sourceState": {
+    "freshness": {
+      "fresh": {
+        "label": "Source fresh",
+        "description": "The source was refreshed within its declared cadence"
+      },
+      "due": {
+        "label": "Source refresh due",
+        "description": "The source is past one declared refresh period"
+      },
+      "overdue": {
+        "label": "Source refresh overdue",
+        "description": "The source is past two declared refresh periods"
+      }
+    },
+    "health": {
+      "healthy": {
+        "label": "Source healthy",
+        "description": "GeoLens reached the source and found the resource"
+      },
+      "missing": {
+        "label": "Source missing",
+        "description": "The source answered that this resource is gone"
+      },
+      "inaccessible": {
+        "label": "Source inaccessible",
+        "description": "GeoLens could not determine whether the source resource is available"
+      }
     }
   },
   "nav": {
