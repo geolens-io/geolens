@@ -630,6 +630,13 @@ async def stac_import(
                     item_href=item.item_href,
                     collection_id=item.collection,
                 )
+                # fix(#1271 review): _fetch_cog_info just contacted the
+                # remote asset, so the import IS a contact — the same
+                # contract _finalize_ingest and the reupload swap follow.
+                # set_dataset_origin cleared the field one line up; without
+                # this, a fresh STAC dataset claims it was never contacted
+                # until a manual probe runs.
+                dataset.last_checked_at = datetime.now(timezone.utc)
                 db.add(dataset)
                 await db.flush()
 

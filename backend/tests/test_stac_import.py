@@ -416,6 +416,17 @@ class TestStacImport:
         assert data["results"][0]["status"] == "created"
         assert data["results"][0]["dataset_id"] is not None
 
+        # fix(#1271 review): the import contacted the remote asset via
+        # _fetch_cog_info, so a fresh STAC dataset must not claim its origin
+        # was never contacted. The verdict stays with the probe's classifier.
+        detail = await client.get(
+            f"/datasets/{data['results'][0]['dataset_id']}",
+            headers=admin_auth_header,
+        )
+        assert detail.status_code == 200
+        assert detail.json()["last_checked_at"] is not None
+        assert detail.json()["source_health"] == "unknown"
+
     async def test_import_antimeridian_bbox_stores_two_rings(
         self,
         client: AsyncClient,
