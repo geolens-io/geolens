@@ -2,9 +2,9 @@
 
 [English](README.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md)
 
-**Die Geodaten Ihres Teams: an einem Ort durchsuchbar, kartierbar und teilbar.**
+**Der selbst gehostete Geodaten-Hub Ihres Teams: an einem Ort durchsuchen, kartieren und teilen.**
 
-GeoLens ist ein quelloffener, selbst gehosteter Katalog und Karteneditor für GIS- und Datenteams: ein zentraler Ort für Geodaten auf Ihrer eigenen Infrastruktur und ohne Telemetrie. GeoLens selbst stellt keinerlei externe Verbindungen her. (Von Ihnen aktivierte Funktionen können ausgehende Verbindungen nutzen: die KI-Unterstützung zum gewählten OpenAI-kompatiblen Endpunkt oder Anthropic-Schlüssel, OAuth/OIDC-Anmeldung, SMTP, Basiskartenkacheln, entfernte/S3-Datenquellen und externe Sicherungen.) Laden Sie Shapefiles, GeoTIFFs, GeoPackages, CSVs oder XLSX hoch (oder registrieren Sie vorhandene Daten); GeoLens speichert alles in PostGIS, indiziert es mit pg_trgm für sofort verfügbare unscharfe Suche (pgvector ergänzt semantische Rangfolge, sobald ein Embedding-Anbieter konfiguriert und die semantische Suche aktiviert ist) und stellt OGC/STAC-APIs bereit, mit denen sich QGIS, ArcGIS und MapLibre nativ verbinden. Erstellen, gestalten und teilen Sie mehrschichtige Karten direkt im Browser. Entwickelt mit FastAPI und React. Bereitgestellt mit einem Befehl.
+GeoLens ist ein quelloffener Geodaten-Hub für GIS- und Datenteams: ein zentraler Ort, um Daten auf Ihrer eigenen Infrastruktur und ohne Telemetrie zu finden und zu nutzen. GeoLens selbst stellt keinerlei externe Verbindungen her. (Von Ihnen aktivierte Funktionen können ausgehende Verbindungen nutzen: die KI-Unterstützung zum gewählten OpenAI-kompatiblen Endpunkt oder Anthropic-Schlüssel, OAuth/OIDC-Anmeldung, SMTP, Basiskartenkacheln, entfernte/S3-Datenquellen und externe Sicherungen.) Laden Sie Dateien hoch, erstellen Sie Datensätze im Browser, registrieren Sie bereits in GeoLens’ eigener PostGIS-Datenbank vorhandene Tabellen ohne Kopie, importieren Sie einmalige Kopien aus WFS, ArcGIS FeatureServer oder OGC API Features oder referenzieren Sie entfernte STAC-Assets live. GeoLens erfasst die Herkunft jedes Datensatzes, indiziert die Katalogmetadaten mit pg_trgm für sofort verfügbare unscharfe Suche (pgvector ergänzt semantische Rangfolge, sobald ein Embedding-Anbieter konfiguriert und die semantische Suche aktiviert ist) und stellt OGC/STAC-APIs bereit, mit denen sich QGIS, ArcGIS und MapLibre nativ verbinden. Erstellen, gestalten und teilen Sie mehrschichtige Karten direkt im Browser. Entwickelt mit FastAPI und React. Bereitgestellt mit einem Befehl.
 
 <p align="center">
   <a href="https://demo.getgeolens.com"><img src="https://img.shields.io/badge/%E2%96%B6%20Try%20the%20live%20demo-demo.getgeolens.com-2563eb?style=for-the-badge" alt="Live-Demo ausprobieren" /></a>
@@ -64,9 +64,10 @@ Geodaten sind oft verstreut: Shapefiles auf Netzlaufwerken, Tabellen in Datenban
 
 GeoLens ersetzt diesen Ablauf:
 
-- **Ein Katalog:** Laden Sie Shapefiles, GeoPackages, GeoTIFFs, CSVs oder XLSX hoch; innerhalb weniger Minuten sind sie durchsuchbar, als Vorschau verfügbar und exportierbar
-- **Funktioniert mit Ihren Werkzeugen:** OGC API Features/Records, STAC API 1.0, DCAT-3-/DCAT-US-/GeoDCAT-AP-Kataloge und direkte Kachel-URLs für QGIS, ArcGIS und MapLibre
-- **Kein Lock-in:** Ihre Daten bleiben auf der Infrastruktur, die Sie kontrollieren, und verlassen sie über offene Formate. Vektordatensätze werden als GeoPackage, GeoJSON, Shapefile, CSV oder GeoParquet exportiert; Raster werden als Cloud-optimiertes GeoTIFF (COG) heruntergeladen; und jeder OGC-API-Client liest den Katalog direkt
+- **Ein Geodaten-Hub:** Laden Sie Dateien hoch, erstellen Sie Datensätze, registrieren Sie Tabellen, die bereits in GeoLens’ Datenbank liegen, importieren Sie Snapshots von Feature-Diensten oder referenzieren Sie entfernte STAC-Assets – anschließend durchsuchen Sie alles gemeinsam und zeigen es in der Vorschau an
+- **Quellstatus statt Rätselraten:** Sehen Sie, wie jeder Datensatz in den Katalog gelangt ist, wann er zuletzt aktualisiert oder geprüft wurde, ob seine letzte Aktualisierung gemessen am angegebenen Rhythmus aktuell, fällig, überfällig oder unbekannt ist und ob eine entfernte Service- oder STAC-Quelle noch erreichbar ist
+- **Funktioniert mit Ihren Werkzeugen:** OGC API Features/Records, STAC API 1.0 und direkte Kachel-URLs für QGIS, ArcGIS und MapLibre
+- **Kein Lock-in:** Ihr Katalog und die von GeoLens verwalteten Kopien bleiben auf der Infrastruktur, die Sie kontrollieren, und verlassen sie über offene Formate. Vektordatensätze werden als GeoPackage, GeoJSON, Shapefile, CSV oder GeoParquet exportiert; Raster werden als Cloud-optimiertes GeoTIFF (COG) heruntergeladen; und jeder OGC-API-Client liest den Katalog direkt
 - **Semantische und räumliche Suche:** sofort einsatzbereiter unscharfer Abgleich mit pg_trgm; mit Embedding-Anbieter und aktivierter semantischer Suche werden Datensätze nach Bedeutung geordnet (pgvector)
 - **Integrierter Karteneditor:** mehrschichtige Karten zusammenstellen, gestalten und über öffentlichen Link oder einbettbares iframe teilen
 - **KI-Unterstützung (optional):** mit Karten chatten, Beschreibungen automatisch erzeugen und in natürlicher Sprache suchen. Verwenden Sie einen OpenAI-kompatiblen Endpunkt oder Anthropic-Schlüssel – oder verzichten Sie vollständig darauf
@@ -111,10 +112,12 @@ Für jedes Beispiel gibt es eine vollständige Anleitung in der [Dokumentation](
 
 ### Datenimport und -export
 
+- **Fünf Quellmodi:** Hochgeladene und Erstellte Daten werden lokal verwaltet; Tabelle registrieren stellt eine vorhandene Tabelle in GeoLens’ eigener PostGIS-Datenbank direkt bereit; Service-Importe sind einmalige lokale Kopien; STAC-Datensätze behalten eine Live-Referenz auf das entfernte Asset
 - **Vektor:** Shapefile, GeoPackage, GeoJSON, GeoParquet, CSV, XLSX
 - **Raster:** GeoTIFF und Cloud-Optimized GeoTIFF (COG) mit automatischer Konvertierung
 - **Mosaike:** VRT-basierte Rastermosaike aus mehreren Quelldateien
 - **Export:** GeoJSON, Shapefile, GeoPackage, CSV, mit CRS-Reprojektion
+- **Quellstatus:** Herkunft, Zeitstempel der letzten Aktualisierung und Prüfung, rhythmusbasierte Quellenaktualität und bedarfsgesteuerte Zustandsprüfungen für Service- und STAC-Quellen
 - Herkunftsverfolgung und Metadatenbearbeitung
 
 ### Analyse

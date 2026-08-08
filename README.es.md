@@ -2,9 +2,9 @@
 
 [English](README.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md)
 
-**Los datos espaciales de tu equipo: consultables, representables en mapas y compartibles desde un único lugar.**
+**El centro autohospedado de datos espaciales de tu equipo: consulta, representa y comparte todo desde un único lugar.**
 
-GeoLens es un catálogo y constructor de mapas de código abierto y autohospedado para equipos de SIG y datos: un único hogar para los datos espaciales, ejecutado en la infraestructura que controlas y sin telemetría. GeoLens no se comunica con ningún servicio externo por sí mismo. (Las funciones que actives sí pueden realizar llamadas salientes: el asistente de IA al endpoint compatible con OpenAI o la clave de Anthropic que elijas, el inicio de sesión OAuth/OIDC, SMTP, teselas de mapas base, fuentes de datos remotas/S3 y copias de seguridad externas). Sube Shapefiles, GeoTIFFs, GeoPackages, CSVs o XLSX (o registra datos que ya tengas); GeoLens lo almacena todo en PostGIS, lo indexa con pg_trgm para ofrecer búsqueda difusa desde el primer momento (pgvector añade clasificación semántica cuando configuras un proveedor de embeddings y activas la búsqueda semántica) y publica APIs OGC/STAC a las que QGIS, ArcGIS y MapLibre se conectan de forma nativa. Compón, aplica estilos y comparte mapas multicapa directamente en el navegador. Construido con FastAPI y React. Desplegado con un solo comando.
+GeoLens es un centro de datos espaciales de código abierto para equipos de SIG y datos: un único lugar donde encontrar y usar datos en la infraestructura que controlas y sin telemetría. GeoLens no se comunica con ningún servicio externo por sí mismo. (Las funciones que actives sí pueden realizar llamadas salientes: el asistente de IA al endpoint compatible con OpenAI o la clave de Anthropic que elijas, el inicio de sesión OAuth/OIDC, SMTP, teselas de mapas base, fuentes de datos remotas/S3 y copias de seguridad externas). Sube archivos, crea datasets en el navegador, registra sin copiarlas tablas que ya estén en la base de datos PostGIS de GeoLens, importa copias puntuales desde WFS, ArcGIS FeatureServer u OGC API Features, o mantén referencias activas a recursos STAC remotos. GeoLens registra el origen de cada dataset, indexa los metadatos del catálogo con pg_trgm para ofrecer búsqueda difusa desde el primer momento (pgvector añade clasificación semántica cuando configuras un proveedor de embeddings y activas la búsqueda semántica) y publica APIs OGC/STAC a las que QGIS, ArcGIS y MapLibre se conectan de forma nativa. Compón, aplica estilos y comparte mapas multicapa directamente en el navegador. Construido con FastAPI y React. Desplegado con un solo comando.
 
 <p align="center">
   <a href="https://demo.getgeolens.com"><img src="https://img.shields.io/badge/%E2%96%B6%20Try%20the%20live%20demo-demo.getgeolens.com-2563eb?style=for-the-badge" alt="Prueba la demostración en vivo" /></a>
@@ -65,9 +65,10 @@ Los datos espaciales terminan dispersos: shapefiles en unidades compartidas, tab
 
 GeoLens sustituye ese flujo de trabajo:
 
-- **Un solo catálogo:** sube Shapefiles, GeoPackages, GeoTIFFs, CSVs o XLSX y en minutos serán consultables, previsualizables y exportables
-- **Funciona con tus herramientas:** OGC API Features/Records, STAC API 1.0, catálogos DCAT 3/DCAT-US/GeoDCAT-AP y URLs directas de teselas para QGIS, ArcGIS y MapLibre
-- **Sin dependencia de proveedor:** tus datos permanecen en la infraestructura que controlas y salen mediante formatos abiertos. Los datasets vectoriales se exportan a GeoPackage, GeoJSON, Shapefile, CSV o GeoParquet; los ráster se descargan como GeoTIFF optimizado para la nube (COG); y cualquier cliente OGC API lee el catálogo directamente
+- **Un solo centro de datos:** sube archivos, crea datasets, registra tablas que ya estén en la base de datos de GeoLens, importa instantáneas de servicios de entidades o referencia recursos STAC remotos; después consulta y previsualiza todo en conjunto
+- **Estado de la fuente, sin conjeturas:** consulta cómo llegó cada dataset al catálogo, cuándo se actualizó o comprobó por última vez, si su última actualización está al día, pendiente, atrasada o es desconocida respecto a la frecuencia declarada, y si el origen remoto de tipo Servicio o STAC sigue accesible
+- **Funciona con tus herramientas:** OGC API Features/Records, STAC API 1.0 y URLs directas de teselas para QGIS, ArcGIS y MapLibre
+- **Sin dependencia de proveedor:** tu catálogo y las copias que administra GeoLens permanecen en la infraestructura que controlas y salen mediante formatos abiertos. Los datasets vectoriales se exportan a GeoPackage, GeoJSON, Shapefile, CSV o GeoParquet; los ráster se descargan como GeoTIFF optimizado para la nube (COG); y cualquier cliente OGC API lee el catálogo directamente
 - **Búsqueda semántica y espacial:** coincidencia difusa con pg_trgm desde el primer momento; añade un proveedor de embeddings y activa la búsqueda semántica para clasificar conjuntos de datos por significado (pgvector)
 - **Constructor de mapas integrado:** compón mapas multicapa, aplica estilos y compártelos mediante un enlace público o un iframe incrustable
 - **Asistencia de IA (opcional):** conversa con tus mapas, genera descripciones automáticamente y busca con lenguaje natural. Aporta un endpoint compatible con OpenAI o una clave de Anthropic, o prescinde por completo de esta función
@@ -112,10 +113,12 @@ Cada ejemplo anterior tiene una guía completa en la [documentación](https://do
 
 ### Ingesta y exportación de datos
 
+- **Cinco modos de fuente:** los datos Subidos y Creados se administran localmente; Registrar tabla sirve en el sitio una tabla existente de la propia base de datos PostGIS de GeoLens; las importaciones de Servicios son copias locales puntuales; los datasets STAC mantienen una referencia activa al recurso remoto
 - **Vector:** Shapefile, GeoPackage, GeoJSON, GeoParquet, CSV, XLSX
 - **Ráster:** GeoTIFF y Cloud-Optimized GeoTIFF (COG) con conversión automática
 - **Mosaicos:** mosaicos ráster basados en VRT a partir de varios archivos fuente
 - **Exportación:** GeoJSON, Shapefile, GeoPackage y CSV, con reproyección del CRS
+- **Estado de la fuente:** origen, marcas de tiempo de última actualización y comprobación, vigencia basada en la frecuencia y comprobaciones de salud bajo demanda para orígenes de tipo Servicio y STAC
 - Seguimiento de procedencia y edición de metadatos
 
 ### Análisis

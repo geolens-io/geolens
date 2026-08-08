@@ -2,9 +2,9 @@
 
 [English](README.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md)
 
-**Les données géospatiales de votre équipe : consultables, cartographiables et partageables au même endroit.**
+**La plateforme de données géospatiales auto-hébergée de votre équipe : recherchez, cartographiez et partagez au même endroit.**
 
-GeoLens est un catalogue et un générateur de cartes open source et auto-hébergé pour les équipes SIG et données : un espace unique pour les données géospatiales, exécuté sur l’infrastructure que vous contrôlez et sans télémétrie. GeoLens ne contacte aucun service externe de lui-même. (Les fonctions que vous activez peuvent effectuer des appels sortants : assistance IA vers le point de terminaison compatible OpenAI ou la clé Anthropic de votre choix, connexion OAuth/OIDC, SMTP, tuiles de fond de carte, sources distantes/S3 et sauvegardes hors site.) Chargez des Shapefiles, GeoTIFFs, GeoPackages, CSVs ou XLSX (ou référencez des données existantes) ; GeoLens stocke tout dans PostGIS, indexe les données avec pg_trgm pour fournir immédiatement une recherche approximative (pgvector ajoute un classement sémantique après la configuration d’un fournisseur d’embeddings et l’activation de la recherche sémantique), et expose des APIs OGC/STAC auxquelles QGIS, ArcGIS et MapLibre se connectent nativement. Composez, stylisez et partagez des cartes multicouches dans le navigateur. Construit avec FastAPI et React. Déployé en une commande.
+GeoLens est une plateforme de données géospatiales open source pour les équipes SIG et données : un espace unique où trouver et exploiter les données sur l’infrastructure que vous contrôlez, sans télémétrie. GeoLens ne contacte aucun service externe de lui-même. (Les fonctions que vous activez peuvent effectuer des appels sortants : assistance IA vers le point de terminaison compatible OpenAI ou la clé Anthropic de votre choix, connexion OAuth/OIDC, SMTP, tuiles de fond de carte, sources distantes/S3 et sauvegardes hors site.) Chargez des fichiers, créez des jeux de données dans le navigateur, enregistrez sans les copier des tables déjà présentes dans la base PostGIS de GeoLens, importez des copies ponctuelles depuis WFS, ArcGIS FeatureServer ou OGC API Features, ou conservez une référence active vers des ressources STAC distantes. GeoLens consigne l’origine de chaque jeu de données, indexe les métadonnées du catalogue avec pg_trgm pour fournir immédiatement une recherche approximative (pgvector ajoute un classement sémantique après la configuration d’un fournisseur d’embeddings et l’activation de la recherche sémantique), et expose des APIs OGC/STAC auxquelles QGIS, ArcGIS et MapLibre se connectent nativement. Composez, stylisez et partagez des cartes multicouches dans le navigateur. Construit avec FastAPI et React. Déployé en une commande.
 
 <p align="center">
   <a href="https://demo.getgeolens.com"><img src="https://img.shields.io/badge/%E2%96%B6%20Try%20the%20live%20demo-demo.getgeolens.com-2563eb?style=for-the-badge" alt="Essayer la démonstration en ligne" /></a>
@@ -64,9 +64,10 @@ Les données géospatiales finissent dispersées : shapefiles sur des lecteurs p
 
 GeoLens remplace ce processus :
 
-- **Un catalogue unique :** chargez des Shapefiles, GeoPackages, GeoTIFFs, CSVs ou XLSX ; ils deviennent consultables, prévisualisables et exportables en quelques minutes
-- **Compatible avec vos outils :** OGC API Features/Records, STAC API 1.0, catalogues DCAT 3/DCAT-US/GeoDCAT-AP et URLs directes de tuiles pour QGIS, ArcGIS et MapLibre
-- **Sans verrouillage :** vos données restent sur l’infrastructure que vous contrôlez et en sortent via des formats ouverts. Les jeux de données vectoriels s’exportent en GeoPackage, GeoJSON, Shapefile, CSV ou GeoParquet ; les rasters se téléchargent en GeoTIFF optimisé pour le cloud (COG) ; et n’importe quel client OGC API lit le catalogue directement
+- **Une plateforme de données unique :** chargez des fichiers, créez des jeux de données, enregistrez des tables déjà présentes dans la base GeoLens, importez des instantanés de services d’entités ou référencez des ressources STAC distantes, puis recherchez et prévisualisez le tout au même endroit
+- **L’état des sources, sans conjectures :** voyez comment chaque jeu est arrivé dans le catalogue, quand il a été actualisé ou vérifié pour la dernière fois, si cette actualisation est récente, à effectuer, en retard ou indéterminée par rapport à la fréquence déclarée, et si une origine Service ou STAC distante reste accessible
+- **Compatible avec vos outils :** OGC API Features/Records, STAC API 1.0 et URLs directes de tuiles pour QGIS, ArcGIS et MapLibre
+- **Sans verrouillage :** votre catalogue et les copies gérées par GeoLens restent sur l’infrastructure que vous contrôlez et en sortent via des formats ouverts. Les jeux de données vectoriels s’exportent en GeoPackage, GeoJSON, Shapefile, CSV ou GeoParquet ; les rasters se téléchargent en GeoTIFF optimisé pour le cloud (COG) ; et n’importe quel client OGC API lit le catalogue directement
 - **Recherche sémantique et spatiale :** correspondance approximative pg_trgm prête à l’emploi ; ajoutez un fournisseur d’embeddings et activez la recherche sémantique pour classer les jeux de données par sens (pgvector)
 - **Générateur de cartes intégré :** composez des cartes multicouches, stylisez-les et partagez-les par lien public ou iframe intégrable
 - **Assistance IA (facultative) :** dialogue avec les cartes, génération automatique de descriptions et recherche en langage naturel. Utilisez un point de terminaison compatible OpenAI ou une clé Anthropic, ou ignorez entièrement cette fonction
@@ -111,10 +112,12 @@ Chaque exemple ci-dessus dispose d’un guide complet dans la [documentation](ht
 
 ### Ingestion et exportation des données
 
+- **Cinq modes de source :** les données Chargées et Créées sont gérées localement ; Enregistrer une table expose sur place une table existante de la base PostGIS de GeoLens ; les importations de Services sont des copies locales ponctuelles ; les jeux STAC conservent une référence active vers la ressource distante
 - **Vecteur :** Shapefile, GeoPackage, GeoJSON, GeoParquet, CSV, XLSX
 - **Raster :** GeoTIFF et Cloud-Optimized GeoTIFF (COG) avec conversion automatique
 - **Mosaïques :** mosaïques raster basées sur VRT à partir de plusieurs fichiers sources
 - **Exportation :** GeoJSON, Shapefile, GeoPackage, CSV, avec reprojection du CRS
+- **État de la source :** origine, horodatages de dernière actualisation et de dernière vérification, fraîcheur fondée sur la fréquence, et contrôles d’état à la demande pour les origines Service et STAC
 - Suivi de provenance et édition des métadonnées
 
 ### Analyse
