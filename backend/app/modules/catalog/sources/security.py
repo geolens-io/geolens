@@ -154,34 +154,28 @@ class _SSRFGuardTransport(httpx.AsyncHTTPTransport):
     """
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-        host = request.url.host
-        validated_ip = await _resolve_and_validate(host, request.url.port)
+        original_url = request.url
+        host = original_url.host
+        validated_ip = await _resolve_and_validate(host, original_url.port)
         # Pin to the validated address. The Host header was already set from the
         # original URL at request-build time (left intact); sni_hostname keeps
         # the hostname for TLS SNI and certificate verification.
-        request.url = request.url.copy_with(host=validated_ip)
+        request.url = original_url.copy_with(host=validated_ip)
         request.extensions["sni_hostname"] = host
-        return await super().handle_async_request(request)
-
-
-def logical_response_url(resp: httpx.Response) -> str:
-    """The response's URL with the hostname the caller addressed.
-
-    fix(#1271 review): ``_SSRFGuardTransport`` pins the connection by
-    rewriting the request URL's host to the validated IP, and httpx exposes
-    that mutated URL as ``resp.url``. Anything derived from it — resolving a
-    relative link, storing a provenance pointer — would then carry the IP
-    instead of the hostname, which breaks TLS verification and virtual-host
-    routing the next time the stored value is fetched. The transport parks
-    the logical host in the ``sni_hostname`` extension on every hop, so the
-    final request's extension names the final logical host even after
-    redirects. Falls back to ``resp.url`` unchanged for transports that never
-    pinned (tests, plain clients).
-    """
-    host = resp.request.extensions.get("sni_hostname")
-    if host:
-        return str(resp.url.copy_with(host=host))
-    return str(resp.url)
+        try:
+            return await super().handle_async_request(request)
+        finally:
+            # fix(#1271 review): the pinned URL is consumed at connect time
+            # inside the super() call; leaving it on the request afterwards
+            # leaks the IP into everything downstream that reads it back —
+            # httpx resolves a RELATIVE Location against response.request.url,
+            # so the next hop would connect to the IP with SNI set to the IP
+            # (certificate failure on HTTPS), and _revalidate_redirect,
+            # response.url, cookies, and any caller-side URL derivation would
+            # all see the IP instead of the hostname the caller addressed.
+            # Restoring here removes the entire class: the mutation never
+            # outlives the one call that needs it.
+            request.url = original_url
 
 
 def make_safe_transport() -> httpx.AsyncBaseTransport:

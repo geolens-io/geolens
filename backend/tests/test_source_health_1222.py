@@ -57,7 +57,7 @@ from app.modules.catalog.sources.origin_probe import (
     probe_remote_uri,
     remote_asset_exists,
 )
-from app.modules.catalog.sources.security import SSRFError, logical_response_url
+from app.modules.catalog.sources.security import SSRFError
 from app.platform.dataset_origin import build_origin_ref
 from tests.factories import create_dataset as _create_dataset, get_user_id
 
@@ -333,25 +333,62 @@ class TestStacItemHrefCapture:
         assert _self_link_href({}, _SEARCH_URL) is None
 
 
-class TestLogicalResponseUrl:
+class TestPinnedUrlRestoration:
     """fix(#1271 review): the SSRF transport pins the request URL to the
-    validated IP, so resp.url is the IP form. A relative self link resolved
-    against it would store an IP item_href that fails TLS verification and
-    virtual-host routing on the next probe."""
+    validated IP for the duration of the connect, and must restore it after.
+    A pinned URL that outlives the hop leaks the IP into relative-redirect
+    resolution (next hop connects to the IP with SNI set to the IP — TLS
+    failure), into resp.url, and into any item_href derived from it."""
 
-    def test_recovers_the_hostname_the_pinning_transport_replaced(self) -> None:
-        request = httpx.Request(
-            "POST",
-            "https://93.184.216.34:8443/stac/search",
-            extensions={"sni_hostname": "origin.test"},
-        )
-        resp = httpx.Response(200, request=request)
-        assert logical_response_url(resp) == "https://origin.test:8443/stac/search"
+    async def test_pinned_url_is_restored_after_the_hop(self, monkeypatch) -> None:
+        from app.modules.catalog.sources import security
 
-    def test_unpinned_response_url_passes_through(self) -> None:
-        request = httpx.Request("POST", _SEARCH_URL)
-        resp = httpx.Response(200, request=request)
-        assert logical_response_url(resp) == _SEARCH_URL
+        async def fake_resolve(host: str, port) -> str:
+            return "93.184.216.34"
+
+        monkeypatch.setattr(security, "_resolve_and_validate", fake_resolve)
+
+        seen: dict[str, str] = {}
+
+        async def fake_send(self, request: httpx.Request) -> httpx.Response:
+            seen["connect_host"] = request.url.host
+            return httpx.Response(200, request=request)
+
+        monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", fake_send)
+
+        transport = security._SSRFGuardTransport()
+        request = httpx.Request("POST", "https://origin.test:8443/stac/search")
+        await transport.handle_async_request(request)
+
+        # The connection itself went to the validated IP...
+        assert seen["connect_host"] == "93.184.216.34"
+        # ...but nothing downstream of the hop can see the mutation: a
+        # relative Location resolves against the logical URL, and SNI on the
+        # next hop is set from a hostname, not an IP.
+        assert request.url.host == "origin.test"
+        assert str(request.url) == "https://origin.test:8443/stac/search"
+        assert request.extensions["sni_hostname"] == "origin.test"
+
+    async def test_url_is_restored_even_when_the_connect_fails(
+        self, monkeypatch
+    ) -> None:
+        from app.modules.catalog.sources import security
+
+        async def fake_resolve(host: str, port) -> str:
+            return "93.184.216.34"
+
+        monkeypatch.setattr(security, "_resolve_and_validate", fake_resolve)
+
+        async def fake_send(self, request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("boom", request=request)
+
+        monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", fake_send)
+
+        transport = security._SSRFGuardTransport()
+        request = httpx.Request("GET", "https://origin.test/wfs")
+        with pytest.raises(httpx.ConnectError):
+            await transport.handle_async_request(request)
+        assert request.url.host == "origin.test"
 
     def test_item_href_is_an_accepted_origin_ref_key(self) -> None:
         ref = build_origin_ref(

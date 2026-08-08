@@ -18,10 +18,7 @@ import httpx
 import structlog
 
 from app.core.url_redaction import has_url_credentials
-from app.modules.catalog.sources.security import (
-    logical_response_url,
-    make_safe_client,
-)
+from app.modules.catalog.sources.security import make_safe_client
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -268,7 +265,11 @@ async def search_stac_items(
             {
                 "id": f.get("id"),
                 "collection": f.get("collection"),
-                "item_href": _self_link_href(f, logical_response_url(resp)),
+                # resp.url is the LOGICAL post-redirect URL: the SSRF
+                # transport restores the hostname after each pinned hop
+                # (see _SSRFGuardTransport), so relative self links resolve
+                # against the host the caller addressed, never the pinned IP.
+                "item_href": _self_link_href(f, str(resp.url)),
                 "bbox": f.get("bbox"),
                 "datetime": dt,
                 "datetime_start": dt_start,
