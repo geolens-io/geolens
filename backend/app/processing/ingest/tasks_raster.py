@@ -894,9 +894,20 @@ async def ingest_raster(
         if tmp_dir:
             shutil.rmtree(tmp_dir, ignore_errors=True)
         # Clean up local staging file
-        if final_status == "complete":
+        # fix(#1290 review): the local file is one of two different things and
+        # only one of them is Decision 7's business. When it differs from
+        # `original_file_path` it is a scratch copy this task downloaded from
+        # object storage, and the durable copy is the object — always safe to
+        # remove. When they are equal this IS the durable original: local-mode
+        # uploads land in `settings.upload_staging_dir`, which is the named
+        # `upload_staging` volume (not tmpfs), survives restarts and is what the
+        # backup container archives. So on a local install it is the only
+        # lossless copy, and it gets the same gate as the object-store reaper —
+        # otherwise the RUNBOOK's retention promise held on S3 and quietly
+        # failed on every local deployment.
+        if file_path != original_file_path:
             _Path(file_path).unlink(missing_ok=True)
-        elif file_path != original_file_path:
+        elif final_status == "complete" and source_preserved_in_cog:
             _Path(file_path).unlink(missing_ok=True)
         # fix(#1202 review r5): sweep the presigned staging key. Raster has no
         # equivalent of the vector tail's #430 BA-09 block, so before this

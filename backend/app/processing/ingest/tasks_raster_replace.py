@@ -34,7 +34,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import structlog
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 
 from app.core.db.tenant_session import tenant_task
 from app.platform.cache.tiles import invalidate_catalog_cache
@@ -188,6 +188,82 @@ async def _convert_and_verify_cog(
     # everything after it starts moving pointers.
     cog_meta = await _read_published_cog(local_cog_path)
     return local_cog_path, cog_status, cog_meta
+
+
+async def _upsert_managed_asset_rows(
+    session,
+    *,
+    dataset_id: uuid.UUID,
+    record_id: uuid.UUID,
+    cog_key: str,
+    ql256_key: str,
+    ql512_key: str,
+    cog_size: int,
+) -> None:
+    """Point the STAC/search/download surfaces at the newly published COG.
+
+    fix(#1290 review). This was two UPDATEs, which is correct only for a
+    dataset that already has the rows — true of an upload-origin raster, false
+    of a STAC-imported one, whose import writes the dataset and the raster
+    asset and nothing else. Against those the UPDATEs matched zero rows and
+    reported success, so a replaced STAC raster advertised no data asset and no
+    quicklooks at all.
+
+    Upserting makes the outcome the same either way, which is the property
+    worth having: after this runs the four rows exist and describe the live
+    asset, whatever the dataset's origin was. The ``dataset_assets`` rows are
+    built by ``_build_dataset_asset_rows`` — the same helper first ingest uses
+    — so the two paths cannot describe the same asset differently.
+
+    ``record_distributions`` is delete-then-insert rather than ON CONFLICT
+    because its unique constraint includes ``url``: the replacement has a new
+    URL by construction, so a conflict target keyed on it can never match the
+    row that needs replacing.
+    """
+    from sqlalchemy import delete as sa_delete
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from app.platform.extensions import get_catalog_port, get_processing_port
+    from app.processing.ingest.tasks_raster import _build_dataset_asset_rows
+
+    DatasetAsset = get_catalog_port().dataset_asset_orm_class()
+    RecordDistribution = get_processing_port().get_record_distribution_orm_class()
+
+    for row in _build_dataset_asset_rows(
+        dataset_id=dataset_id,
+        cog_key=cog_key,
+        ql256_key=ql256_key,
+        ql512_key=ql512_key,
+        cog_size=cog_size,
+        is_manifest_vrt=False,
+    ):
+        stmt = pg_insert(DatasetAsset).values(**row)
+        await session.execute(
+            stmt.on_conflict_do_update(
+                constraint="uq_dataset_assets_key",
+                # Only the columns this row actually carries: the quicklook
+                # rows have no size_bytes, and listing it would overwrite a
+                # stored value with NULL.
+                set_={
+                    k: stmt.excluded[k] for k in row if k not in ("dataset_id", "key")
+                },
+            )
+        )
+
+    await session.execute(
+        sa_delete(RecordDistribution).where(
+            RecordDistribution.record_id == record_id,
+            RecordDistribution.format == "geotiff",
+        )
+    )
+    session.add(
+        RecordDistribution(
+            record_id=record_id,
+            distribution_type="download",
+            format="geotiff",
+            url=cog_key,
+        )
+    )
 
 
 async def _run_post_swap_followups(
@@ -558,6 +634,17 @@ async def reupload_raster(
             raster_asset.size_bytes = cog_size
             raster_asset.source_sha256 = source_sha256
             raster_asset.cog_status = cog_status
+            # fix(#1290 review): a STAC-origin row carries
+            # storage_backend="remote" because its asset_uri WAS an external
+            # href. The swap has just replaced that with a managed
+            # `rasters/...` key, so leaving the backend alone tells every
+            # consumer to treat a managed key as a URL: the COG download
+            # endpoint SSRF-validates it and proxies it, and VRT health probes
+            # it over HTTP. "local" is what `create_raster_dataset` writes for
+            # every managed raster — the value means "GeoLens owns these
+            # bytes", and `resolve_open_path` does the local/S3/Azure dispatch
+            # from the key itself.
+            raster_asset.storage_backend = "local"
             raster_asset.driver = cog_meta.get("driver")
             raster_asset.ingested_at = datetime.now(timezone.utc)
             raster_asset.crs_wkt = cog_meta.get("crs_wkt")
@@ -580,7 +667,14 @@ async def reupload_raster(
             new_version = dataset.current_version + 1
             dataset.current_version = new_version
             dataset.srid = cog_meta.get("epsg")
-            dataset.original_srid = cog_meta.get("epsg")
+            # fix(#1290 review): the two fields answer different questions and
+            # round 1 collapsed them onto one read. `srid` is what the dataset
+            # serves, which is the converted COG's; `original_srid` is
+            # documented as the SRID of the uploaded file, so under an override
+            # it must still report what the upload declared. Collapsing them
+            # made a 4326 source with srid_override=3857 record 3857 twice and
+            # lose the only record of what arrived.
+            dataset.original_srid = source_meta.get("epsg")
             dataset.source_filename = source_filename
             dataset.source_format = "geotiff"
             # fix(#525 B-038): the Valkey purge cannot reach CDN or browser
@@ -605,34 +699,21 @@ async def reupload_raster(
                 )
 
             # Keep the download and STAC surfaces pointing at what is live.
-            # Same two statements regenerate_vrt runs, for the same reason: a
-            # pointer left behind here serves a key that is about to be reaped.
-            await session.execute(
-                text(
-                    "UPDATE catalog.record_distributions SET url = :url "
-                    "WHERE record_id = (SELECT record_id FROM catalog.datasets "
-                    "WHERE id = :dataset_id) AND format = 'geotiff'"
-                ),
-                {"url": cog_key, "dataset_id": dataset_uuid},
-            )
-            await session.execute(
-                text(
-                    "UPDATE catalog.dataset_assets SET href = CASE key "
-                    "WHEN 'data' THEN :cog_key "
-                    "WHEN 'thumbnail' THEN :ql256_key "
-                    "WHEN 'overview' THEN :ql512_key ELSE href END, "
-                    "size_bytes = CASE WHEN key = 'data' THEN :size "
-                    "ELSE size_bytes END "
-                    "WHERE dataset_id = :dataset_id "
-                    "AND key IN ('data', 'thumbnail', 'overview')"
-                ),
-                {
-                    "cog_key": cog_key,
-                    "ql256_key": ql256_key,
-                    "ql512_key": ql512_key,
-                    "size": cog_size,
-                    "dataset_id": dataset_uuid,
-                },
+            # fix(#1290 review): upserts, not UPDATEs. A STAC-imported raster
+            # has neither of these rows — the import creates the dataset and
+            # the asset and stops — so the UPDATEs matched nothing, succeeded,
+            # and left the replaced dataset advertising no COG and no
+            # quicklooks to search, STAC and the download endpoint. A zero-row
+            # UPDATE reporting success is the same requested-vs-happened trap
+            # as round 1, one level down.
+            await _upsert_managed_asset_rows(
+                session,
+                dataset_id=dataset_uuid,
+                record_id=dataset.record_id,
+                cog_key=cog_key,
+                ql256_key=ql256_key,
+                ql512_key=ql512_key,
+                cog_size=cog_size,
             )
 
             DatasetVersion = port.get_dataset_version_orm_class()
@@ -789,9 +870,20 @@ async def reupload_raster(
             )
         if tmp_dir:
             shutil.rmtree(tmp_dir, ignore_errors=True)
-        if final_status == "complete":
+        # fix(#1290 review): the local file is one of two different things and
+        # only one of them is Decision 7's business. When it differs from
+        # `original_file_path` it is a scratch copy this task downloaded from
+        # object storage, and the durable copy is the object — always safe to
+        # remove. When they are equal this IS the durable original: local-mode
+        # uploads land in `settings.upload_staging_dir`, which is the named
+        # `upload_staging` volume (not tmpfs), survives restarts and is what the
+        # backup container archives. So on a local install it is the only
+        # lossless copy, and it gets the same gate as the object-store reaper —
+        # otherwise the RUNBOOK's retention promise held on S3 and quietly
+        # failed on every local deployment.
+        if file_path != original_file_path:
             Path(file_path).unlink(missing_ok=True)
-        elif file_path != original_file_path:
+        elif final_status == "complete" and source_preserved_in_cog:
             Path(file_path).unlink(missing_ok=True)
         # fix(#1207): the client-writable staging key, which stays recreatable
         # through an unexpired PUT URL until it is swept.

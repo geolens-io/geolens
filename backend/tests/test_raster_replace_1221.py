@@ -57,6 +57,7 @@ from app.modules.catalog.datasets.domain.models import (
     Record,
 )
 from app.modules.catalog.maps.models import Map, MapLayer
+from app.platform.dataset_origin import set_dataset_origin
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.refresh.service import create_pending_run
@@ -1345,6 +1346,14 @@ class TestPersistedMetadataDescribesTheServedCog:
                 "rather than the converted COG (finding 3)"
             )
             assert dataset.srid == 3857
+            # round-2 finding 3: the two fields answer different questions.
+            # `srid` is what the dataset serves; `original_srid` is documented
+            # as the SRID of the uploaded file, so it must still report what
+            # arrived. Round 1 collapsed both onto the COG read and lost that.
+            assert dataset.original_srid == 4326, (
+                "original_srid must record the SRID the UPLOAD declared, not "
+                "the override the converted COG carries"
+            )
         finally:
             await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
 
@@ -1396,4 +1405,362 @@ class TestCrsAssignmentContract:
             assert "crs_missing" not in names, (
                 f"{module.__name__} still computes its own crs_missing "
                 "predicate instead of deferring to the shared resolver"
+            )
+
+
+# ---------------------------------------------------------------------------
+# 8. Round-2 review findings (#1290)
+# ---------------------------------------------------------------------------
+
+
+async def _make_stac_origin_raster(session, *, created_by: uuid.UUID) -> _LiveRaster:
+    """A raster dataset shaped the way ``stac_import`` leaves one.
+
+    The shape is the finding: a remote backend, an external href for an
+    asset_uri, and NO dataset_assets or record_distributions rows at all —
+    the import writes the dataset and the raster asset and stops.
+    """
+    record = Record(
+        title="STAC scene",
+        summary="imported from a remote catalog",
+        record_type="raster_dataset",
+        visibility="public",
+        record_status="published",
+        created_by=created_by,
+        updated_by=created_by,
+        theme_category=["test"],
+    )
+    session.add(record)
+    await session.flush()
+
+    dataset = Dataset(
+        record_id=record.id,
+        table_name=f"raster_{record.id.hex[:16]}",
+        source_format="geotiff",
+        source_filename=None,
+        srid=4326,
+    )
+    set_dataset_origin(
+        dataset,
+        "stac",
+        uri="https://example.invalid/scenes/abc/data.tif",
+        asset_href="https://example.invalid/scenes/abc/data.tif",
+        item_href="https://example.invalid/items/abc",
+        collection_id="sentinel-2",
+    )
+    session.add(dataset)
+    await session.flush()
+
+    asset = RasterAsset(
+        dataset_id=dataset.id,
+        asset_uri="https://example.invalid/scenes/abc/data.tif",
+        storage_backend="remote",
+        cog_status="verified",
+        epsg=4326,
+        band_count=1,
+        dtype="uint8",
+    )
+    session.add(asset)
+    await session.commit()
+    return _LiveRaster(dataset, asset, "https://example.invalid/scenes/abc/data.tif")
+
+
+class TestReplacingAStacOriginRaster:
+    """FINDINGS 1 and 2, composed.
+
+    A STAC-imported raster reaches this door like any other raster_dataset, but
+    its rows describe a file GeoLens does not own. The swap makes GeoLens the
+    owner, and every field that encoded "somebody else owns this" has to move
+    with the pointer — otherwise the download endpoint SSRF-validates a managed
+    key as a URL, VRT health probes it over HTTP, and the asset rows the swap
+    tried to UPDATE never existed to be updated.
+    """
+
+    async def test_swap_takes_ownership_and_publishes_every_asset_row(
+        self, test_db_session, raster_storage, tmp_path
+    ) -> None:
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_stac_origin_raster(test_db_session, created_by=admin_id)
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+        remote_href = live.cog_key
+
+        # Precondition, asserted rather than assumed: this is the shape the
+        # finding is about.
+        assert (
+            await test_db_session.execute(
+                text(
+                    "SELECT count(*) FROM catalog.dataset_assets WHERE dataset_id = :id"
+                ),
+                {"id": dataset_id},
+            )
+        ).scalar_one() == 0
+
+        source = tmp_path / "replacement.tif"
+        source.write_bytes(_geotiff_bytes(seed=61))
+        job = await _queue_replace_job(
+            test_db_session,
+            dataset_id=dataset_id,
+            user_id=admin_id,
+            file_path=str(source),
+        )
+        job_id = job.id
+
+        try:
+            await reupload_raster.func(
+                job_id=str(job_id),
+                dataset_id=str(dataset_id),
+                file_path=str(source),
+                user_id=str(admin_id),
+                attempt_id=str(job.attempt_id),
+            )
+
+            test_db_session.expire_all()
+            asset = (
+                await test_db_session.execute(
+                    select(RasterAsset).where(RasterAsset.dataset_id == dataset_id)
+                )
+            ).scalar_one()
+
+            # FINDING 1 — ownership moved with the pointer.
+            assert asset.asset_uri != remote_href
+            assert not asset.asset_uri.startswith("http"), (
+                "the swap wrote a managed key; anything still HTTP means the "
+                "pointer did not move"
+            )
+            assert asset.storage_backend == "local", (
+                "a managed rasters/ key is still flagged remote — the COG "
+                "download endpoint will SSRF-validate it as an external URL "
+                "and VRT health will probe it over HTTP (#1290 finding 1)"
+            )
+            # The managed branch of every consumer is reachable: the key
+            # resolves in the storage the rest of the pipeline uses.
+            assert await raster_storage.exists(asset.asset_uri)
+
+            # FINDING 2 — all four rows exist and describe the live asset.
+            asset_rows = dict(
+                (
+                    await test_db_session.execute(
+                        text(
+                            "SELECT key, href FROM catalog.dataset_assets "
+                            "WHERE dataset_id = :id"
+                        ),
+                        {"id": dataset_id},
+                    )
+                ).all()
+            )
+            assert asset_rows == {
+                "data": asset.asset_uri,
+                "thumbnail": asset.quicklook_256_uri,
+                "overview": asset.quicklook_512_uri,
+            }, (
+                "search/STAC advertise no assets for a replaced STAC raster "
+                "(#1290 finding 2) — the UPDATEs matched zero rows"
+            )
+            size_bytes = (
+                await test_db_session.execute(
+                    text(
+                        "SELECT size_bytes FROM catalog.dataset_assets "
+                        "WHERE dataset_id = :id AND key = 'data'"
+                    ),
+                    {"id": dataset_id},
+                )
+            ).scalar_one()
+            assert size_bytes == asset.size_bytes
+
+            distributions = (
+                (
+                    await test_db_session.execute(
+                        text(
+                            "SELECT url FROM catalog.record_distributions "
+                            "WHERE record_id = :rid AND format = 'geotiff'"
+                        ),
+                        {"rid": record_id},
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            assert distributions == [asset.asset_uri]
+
+            # The dataset's origin rebinds too — it is an upload now.
+            dataset = (
+                await test_db_session.execute(
+                    select(Dataset).where(Dataset.id == dataset_id)
+                )
+            ).scalar_one()
+            assert dataset.origin_uri is None
+            assert (dataset.origin_ref or {}).get("kind") == "upload"
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
+    async def test_replacing_an_upload_origin_raster_does_not_duplicate_rows(
+        self, test_db_session, raster_storage, tmp_path
+    ) -> None:
+        """The upsert's other half. An upload-origin dataset already has these
+        rows, and two replaces must leave one row per key — not three, and not
+        a stale href beside a fresh one."""
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+
+        try:
+            for attempt in range(2):
+                source = tmp_path / f"replacement-{attempt}.tif"
+                source.write_bytes(_geotiff_bytes(seed=70 + attempt))
+                job = await _queue_replace_job(
+                    test_db_session,
+                    dataset_id=dataset_id,
+                    user_id=admin_id,
+                    file_path=str(source),
+                )
+                await reupload_raster.func(
+                    job_id=str(job.id),
+                    dataset_id=str(dataset_id),
+                    file_path=str(source),
+                    user_id=str(admin_id),
+                    attempt_id=str(job.attempt_id),
+                )
+
+            test_db_session.expire_all()
+            asset = (
+                await test_db_session.execute(
+                    select(RasterAsset).where(RasterAsset.dataset_id == dataset_id)
+                )
+            ).scalar_one()
+            rows = (
+                await test_db_session.execute(
+                    text(
+                        "SELECT key, href FROM catalog.dataset_assets "
+                        "WHERE dataset_id = :id ORDER BY key"
+                    ),
+                    {"id": dataset_id},
+                )
+            ).all()
+            assert [r[0] for r in rows] == ["data", "overview", "thumbnail"]
+            assert dict(rows)["data"] == asset.asset_uri
+
+            distributions = (
+                (
+                    await test_db_session.execute(
+                        text(
+                            "SELECT url FROM catalog.record_distributions "
+                            "WHERE record_id = :rid AND format = 'geotiff'"
+                        ),
+                        {"rid": record_id},
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            assert distributions == [asset.asset_uri], (
+                "each replace left its own distribution row behind"
+            )
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
+
+class TestLocalStorageHonoursTheRetentionPromise:
+    """FINDING 4. `reap_downloaded_staging_source` only governs `staging/`
+    object keys, so on a local install the retention promise was kept entirely
+    by the unlink — which was unconditional on success. The local staging
+    directory is the durable `upload_staging` volume, not scratch, so the fix
+    is one policy across both storage shapes rather than a doc caveat."""
+
+    @pytest.mark.parametrize(
+        ("compression", "source_survives"),
+        [("DEFLATE", False), ("JPEG", True)],
+    )
+    async def test_local_original_follows_the_same_lossy_gate(
+        self,
+        test_db_session,
+        raster_storage,
+        tmp_path,
+        compression: str,
+        source_survives: bool,
+    ) -> None:
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+
+        # A local absolute path, which is what save_upload_file returns on a
+        # local-storage install — the reaper never sees it, so the unlink is
+        # the only thing standing between the operator and a deleted original.
+        source = tmp_path / "local-original.tif"
+        source.write_bytes(_geotiff_bytes(seed=81))
+        job = await _queue_replace_job(
+            test_db_session,
+            dataset_id=dataset_id,
+            user_id=admin_id,
+            file_path=str(source),
+        )
+        job.user_metadata = {
+            **(job.user_metadata or {}),
+            "compression": compression,
+        }
+        await test_db_session.commit()
+        job_id = job.id
+
+        try:
+            await reupload_raster.func(
+                job_id=str(job_id),
+                dataset_id=str(dataset_id),
+                file_path=str(source),
+                user_id=str(admin_id),
+                attempt_id=str(job.attempt_id),
+            )
+
+            assert source.exists() is source_survives, (
+                f"{compression}: the local original should "
+                f"{'survive' if source_survives else 'be deleted'} — RUNBOOK "
+                "section 9 promises the same policy on both storage shapes"
+            )
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
+    def test_both_tails_gate_the_local_unlink_too(self) -> None:
+        """The object-store reaper and the local unlink are two different
+        deletions of the same file, and a gate on only one of them is the
+        finding. Structural for the first-ingest tail, for the same reason as
+        its sibling above."""
+        import ast
+        import inspect
+
+        from app.processing.ingest import tasks_raster, tasks_raster_replace
+
+        for module in (tasks_raster, tasks_raster_replace):
+            tree = ast.parse(inspect.getsource(module))
+            # The unlink branch must test the lossless predicate, not just the
+            # terminal status.
+            gated = [
+                node
+                for node in ast.walk(tree)
+                if isinstance(node, ast.BoolOp)
+                and any(
+                    isinstance(v, ast.Name) and v.id == "source_preserved_in_cog"
+                    for v in node.values
+                )
+            ]
+            assert gated, (
+                f"{module.__name__} unlinks the local original on success "
+                "without consulting whether the COG preserved it (#1290 "
+                "round-2 finding 4)"
             )

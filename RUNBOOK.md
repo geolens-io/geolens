@@ -1590,17 +1590,29 @@ original that will ever exist. GeoLens keeps it, and **that copy is permanent**,
 not bounded by the retention window below — the job it belongs to succeeded, so
 the purge that clears failed jobs never sees it.
 
+This holds on both storage shapes. Where the kept file lives depends on how
+the install stores uploads:
+
+| Install | Where the kept original is |
+| --- | --- |
+| Object storage (S3/MinIO) | the `staging/<job-id>/` prefix in your bucket |
+| Local storage (default) | the `upload_staging` Docker volume, mounted at `/app/staging` |
+
+The local volume is durable — it is not tmpfs, it survives container restarts,
+and §1's `staging-<timestamp>.tar.gz` archives it — so a lossy original kept on
+a local install is as retained as one kept in a bucket.
+
 The practical consequences:
 
-- Expect object storage for lossily-compressed rasters to hold roughly the COG
-  plus the original, not the COG alone. If storage growth surprises you, this
-  is the usual reason.
-- Those originals are reachable at `staging/<job-id>/` and are safe to delete
-  yourself if you accept losing the lossless copy. Nothing in GeoLens reads
-  them; they exist so the choice stays yours.
+- Expect storage for lossily-compressed rasters to hold roughly the COG plus
+  the original, not the COG alone. If storage growth surprises you, this is the
+  usual reason, and it applies to the `upload_staging` volume as much as to a
+  bucket.
+- Those originals are safe to delete yourself if you accept losing the lossless
+  copy. Nothing in GeoLens reads them; they exist so the choice stays yours.
 - If you want the smaller footprint and do not need the original, ingest with a
-  lossless compression and accept the larger COG, or delete the staged
-  originals on a schedule of your own.
+  lossless compression and accept the larger COG, or delete the kept originals
+  on a schedule of your own.
 
 Provenance is still recorded: the dataset's `source_filename` and the
 `file_hash` in `origin_ref` identify exactly which bytes were ingested. What is
