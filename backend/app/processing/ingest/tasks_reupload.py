@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.core.db.tenant_session import tenant_task
 from app.platform.cache.tiles import invalidate_catalog_cache
@@ -513,7 +513,12 @@ async def reupload_file(
 
 
 async def _record_failed_origin_contact(
-    err_session, dataset_cls, dataset_uuid, *, contacted: bool
+    err_session,
+    dataset_cls,
+    dataset_uuid,
+    *,
+    contacted: bool,
+    bound: tuple | None,
 ) -> None:
     """Date the contact a failed service reupload made before it died.
 
@@ -524,17 +529,30 @@ async def _record_failed_origin_contact(
     only the timestamp moves; the health verdict stays with the probe's
     classifier. ``contacted`` is False for failures before the fetch began,
     which never touched the origin and must not claim they did.
+
+    ``bound`` is the (origin_uri, origin_ref, source_format) snapshot taken
+    when this task loaded the dataset: a concurrent reupload can rebind the
+    origin while the doomed fetch is still running, and an ID-only write
+    would stamp the OLD origin's contact onto the NEW binding — for a file
+    reupload that leaves an upload with a contact time it cannot have, and
+    uploads 409 the probe so nothing corrects it. Same conditional-update
+    discipline as the source-health probe; losing the race is a silent skip,
+    because there is nobody to tell from a failed background task.
     """
-    if not contacted:
+    if not contacted or bound is None:
         return
-    err_ds = (
-        await err_session.execute(
-            select(dataset_cls).where(dataset_cls.id == dataset_uuid)
+    bound_uri, bound_ref, bound_format = bound
+    await err_session.execute(
+        update(dataset_cls)
+        .where(
+            dataset_cls.id == dataset_uuid,
+            dataset_cls.origin_uri.is_not_distinct_from(bound_uri),
+            dataset_cls.origin_ref.is_not_distinct_from(bound_ref),
+            dataset_cls.source_format.is_not_distinct_from(bound_format),
         )
-    ).scalar_one_or_none()
-    if err_ds is not None:
-        err_ds.last_checked_at = datetime.now(timezone.utc)
-        await err_session.commit()
+        .values(last_checked_at=datetime.now(timezone.utc))
+    )
+    await err_session.commit()
 
 
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.reupload_service"])
@@ -608,6 +626,7 @@ async def reupload_service(
     # failure handler can date the contact. A failure before this point never
     # touched the origin and must not claim it did.
     origin_contact_attempted = False
+    reupload_bound: tuple | None = None
 
     resolved = await resolve_ingest_attempt_or_skip(
         job_id, attempt_id, task_label="reupload"
@@ -649,6 +668,15 @@ async def reupload_service(
                     "Dataset not found, skipping", dataset_id=dataset_id
                 )
                 return
+
+            # fix(#1271 review): binding snapshot for the failure handler —
+            # its contact stamp must be conditional on the dataset still
+            # having the origin this task actually fetched from.
+            reupload_bound = (
+                dataset.origin_uri,
+                dataset.origin_ref,
+                dataset.source_format,
+            )
 
             staging_tn = attempt_scoped_staging_table(dataset.table_name, attempt_uuid)
             heartbeat_task = await claim_job_attempt_and_start_heartbeat(
@@ -874,6 +902,7 @@ async def reupload_service(
                 Dataset,
                 dataset_uuid,
                 contacted=origin_contact_attempted,
+                bound=reupload_bound,
             )
         raise
     finally:
