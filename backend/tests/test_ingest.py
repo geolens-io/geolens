@@ -804,6 +804,12 @@ async def test_arcgis_table_ingest_populates_column_info(test_db_session):
         assert by_name["Opportunity_Number"]["ordinal_position"] == 1
         assert by_name["FID2"]["ordinal_position"] == 5
 
+        # fix(#1271 review): a first service ingest fetched from the origin
+        # moments ago, so the import IS a contact and stamps last_checked_at.
+        # The health verdict itself stays with the probe's classifier.
+        assert dataset.last_checked_at is not None
+        assert dataset.source_health is None
+
         # Verify _arcgis_type_to_column_type helper directly
         assert _arcgis_type_to_column_type("esriFieldTypeString") == "text"
         assert _arcgis_type_to_column_type("esriFieldTypeInteger") == "integer"

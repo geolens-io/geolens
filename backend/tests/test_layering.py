@@ -2127,8 +2127,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # STAC origins, because set_dataset_origin clears probe state on restamp
     # and this swap IS a contact with the origin. The comment carries why
     # source_health is NOT written here (the vocabulary belongs to the
-    # probe's classifier). Cap 1850 -> 1861, exact.
-    "backend/app/processing/ingest/tasks_common.py": 1861,
+    # probe's classifier). Cap 1850 -> 1861, exact. +7 more: first ingest
+    # stamps the same contact for service/STAC origins — the import fetched
+    # from the origin too, and a fresh service dataset otherwise reported
+    # "never contacted" until manually probed. Cap 1861 -> 1868, exact.
+    "backend/app/processing/ingest/tasks_common.py": 1868,
     # --- entered by the inclusion rule, fix(#958) -------------------------
     # These five were the ungated modules at or above _RATCHET_INCLUSION_LOC
     # when the rule was written. They arrive at their measured size with no

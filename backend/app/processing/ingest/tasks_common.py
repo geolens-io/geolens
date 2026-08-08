@@ -1382,12 +1382,19 @@ async def _finalize_ingest(ctx: IngestContext):
     # creates the dataset. Service ingest supplies the enriched URL through
     # ctx.source_url; an uploaded file has no remote origin to point at, so
     # its origin_uri stays NULL and only the ref carries the filename.
+    ingest_origin_kind = classify_origin(ctx.source_format)
     set_dataset_origin(
         dataset,
-        classify_origin(ctx.source_format),
+        ingest_origin_kind,
         uri=ctx.source_url,
         **(ctx.origin_ref or {}),
     )
+    # fix(#1271 review): a first service or STAC ingest fetched its bytes
+    # from the origin moments ago, so the import IS a contact — same contract
+    # as the reupload swap below. Without this, every freshly imported
+    # service dataset reported last_checked_at NULL until someone probed it.
+    if ingest_origin_kind in ("service", "stac"):
+        dataset.last_checked_at = datetime.now(timezone.utc)
 
     # Compute quality score (requires Dataset to exist for metadata checks)
     quality_score = await compute_quality_score(
