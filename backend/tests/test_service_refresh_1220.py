@@ -133,18 +133,22 @@ async def _service_dataset(
     layer_id: str | int = "topp:parcels",
     visibility: str = "public",
 ):
-    """A dataset bound to a service origin the way ingest binds one."""
+    """A dataset bound to a service origin the way ingest binds one.
+
+    fix(#1277 review round 8): the enriched pointer is ``base/layer_id`` for
+    EVERY service type, not just ArcGIS. The probe sets
+    ``layer_id = layer["name"]`` for WFS and OGC API, and both ingest paths
+    compose the stored URL as ``base/layer_id when layer_id is not None``.
+    Seeding WFS with a bare base encoded the same wrong premise the handler
+    did, which is why round 1 looked self-consistent.
+    """
     dataset = await _create_dataset(
         session,
         created_by=created_by,
         source_format=source_format,
         visibility=visibility,
     )
-    enriched = (
-        f"{base_url}/{layer_id}"
-        if source_format == "arcgis_featureserver"
-        else base_url
-    )
+    enriched = f"{base_url}/{layer_id}"
     dataset.source_url = enriched
     set_dataset_origin(
         dataset,
@@ -245,12 +249,18 @@ class TestRefreshDispatch:
     async def test_wfs_binding_round_trips_through_the_job(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ) -> None:
-        """The typename addresses the layer, so it travels as the layer NAME.
+        """The typename addresses the layer, and travels in BOTH slots.
 
-        ``layer_id`` must stay None for WFS: the worker composes the enriched
-        source url as ``base/layer_id`` when it is set, so a stray value here
-        would append the typename to the URL and store a pointer that has
-        never addressed anything.
+        ``build_gdal_source`` reads the layer NAME for WFS and OGC API and
+        ignores ``layer_id`` — but the worker composes the stored pointer as
+        ``base/layer_id`` when it is set, and the IMPORT path composes it the
+        same way from the same field, because the probe sets
+        ``layer_id = layer["name"]`` for these services. So both slots carry
+        the identity, or a refresh rewrites the pointer the import wrote.
+
+        fix(#1277 review round 8): this asserted ``layer_id is None`` on the
+        reasoning that ``base/typename`` addressed nothing. It is exactly what
+        an imported WFS dataset stores.
         """
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _service_dataset(test_db_session, created_by=admin_id)
@@ -270,7 +280,7 @@ class TestRefreshDispatch:
         ).scalar_one()
         assert job.source_url == _WFS_BASE
         assert job.source_layer == "topp:parcels"
-        assert job.user_metadata["layer_id"] is None
+        assert job.user_metadata["layer_id"] == "topp:parcels"
         assert job.user_metadata["service_type"] == "WFS"
         assert job.user_metadata["reupload"] is True
         assert job.user_metadata["refresh"] is True
@@ -1695,3 +1705,92 @@ class TestServiceTokenPolicy:
         # a worker ValueError is read by whoever debugs a failed job, while an
         # HTTP body must never echo part of a submitted credential.
         assert "{" not in service_tokens.HEADER_TOKEN_POLICY
+
+
+class TestRefreshDoesNotRespellTheBinding:
+    """fix(#1277 review round 8): a refresh re-ingests; it must not rewrite
+    how the origin is spelled.
+
+    The worker composes the stored pointer as ``base/layer_id`` when layer_id
+    is set, and the import path does the same from the same field — the probe
+    sets ``layer_id = layer["name"]`` for WFS and OGC API. A refresh that
+    passed None therefore migrated a dataset from ``base/typename`` to bare
+    ``base``, changing the spelling of a binding it had just verified
+    unchanged.
+
+    origin_ref never showed it, because that round-trips through
+    ``service_layer_identity``. The pointer degraded underneath a green test.
+    """
+
+    async def test_the_dispatch_composes_the_pointer_the_import_wrote(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """Both paths build it from layer_id, so both must receive one.
+
+        Asserted against the import's own composition rather than a literal,
+        so the two cannot drift apart without this failing.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(test_db_session, created_by=admin_id)
+
+        async with _dispatch_harness():
+            resp = await client.post(
+                f"/datasets/{dataset.id}/refresh", headers=admin_auth_header
+            )
+        assert resp.status_code == 202, resp.text
+
+        job = (
+            await test_db_session.execute(
+                select(IngestJob).where(
+                    IngestJob.id == uuid.UUID(resp.json()["job_id"])
+                )
+            )
+        ).scalar_one()
+        layer_id = job.user_metadata["layer_id"]
+        # tasks_vector.ingest_service and tasks_reupload.reupload_service share
+        # this expression verbatim; this is it.
+        composed = (
+            f"{job.source_url}/{layer_id}" if layer_id is not None else job.source_url
+        )
+        assert composed == dataset.origin_uri
+        assert composed == dataset.source_url
+
+    async def test_the_post_refresh_pointer_still_matches_the_duplicate_guard(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """The reported symptom, at the value the guard actually compares.
+
+        The duplicate-source guard matches ``Dataset.origin_uri`` against the
+        enriched URL a fresh preview rebuilds. A refresh that respelled the
+        pointer to the bare base therefore stopped matching, and a second
+        import of the same layer was allowed through as a new dataset.
+
+        Driving the real swap needs a live WFS service, so this asserts the
+        value the worker WOULD write — the shared composition — against the
+        value the guard looks for.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(test_db_session, created_by=admin_id)
+        guard_key = dataset.origin_uri
+
+        async with _dispatch_harness():
+            resp = await client.post(
+                f"/datasets/{dataset.id}/refresh", headers=admin_auth_header
+            )
+        assert resp.status_code == 202
+        job = (
+            await test_db_session.execute(
+                select(IngestJob).where(
+                    IngestJob.id == uuid.UUID(resp.json()["job_id"])
+                )
+            )
+        ).scalar_one()
+
+        layer_id = job.user_metadata["layer_id"]
+        rewritten = (
+            f"{job.source_url}/{layer_id}" if layer_id is not None else job.source_url
+        )
+        assert rewritten == guard_key, (
+            "a refresh must leave origin_uri byte-identical, or the duplicate "
+            "guard stops recognising the dataset it already has"
+        )

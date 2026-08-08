@@ -179,11 +179,31 @@ def _resolve_service_origin(dataset) -> _ServiceOrigin:
             # identifier that nothing reads and the next reader would trust.
             layer_name="",
         )
+    # fix(#1277 review round 8): layer_id carries the identity here too, and
+    # setting it to None was a real bug rather than tidiness.
+    #
+    # `build_gdal_source` ignores layer_id for WFS and OGC API — that part was
+    # right, and it is why layer_name carries the same value. But the worker
+    # ALSO composes the stored pointer as `base/layer_id when layer_id is not
+    # None`, and the import path composes it the identical way from the same
+    # field: the probe sets `layer_id = layer["name"]` for these services
+    # (sources/probe.py), so an imported WFS dataset's origin_uri and
+    # source_url are `base/typename`. Passing None here made a refresh rewrite
+    # them to the bare base — a refresh silently RESPELLING the binding of an
+    # origin it had just verified unchanged, which is the opposite of what
+    # this endpoint promises.
+    #
+    # The visible damage was the duplicate-source guard: it matches on
+    # origin_uri, so after one refresh a second import of the same layer no
+    # longer looked like a duplicate and was allowed through. origin_ref was
+    # never affected — it round-trips through `service_layer_identity`, which
+    # is why the round-1 binding test passed while the pointer degraded
+    # underneath it.
     return _ServiceOrigin(
         source_format=stored_format or "",
         service_label=service_label,
         base_url=base_url,
-        layer_id=None,
+        layer_id=layer_identity,
         layer_name=str(layer_identity),
     )
 
