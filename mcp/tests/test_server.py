@@ -48,6 +48,22 @@ def test_every_tool_has_a_description():
         assert tool.description and tool.description.strip(), tool.name
 
 
+def test_dataset_tool_descriptions_explain_source_trust_contract():
+    descriptions = {tool.name: tool.description for tool in _tools()}
+
+    search = descriptions["search_datasets"]
+    assert "source_origin" in search
+    assert "overdue" in search
+    assert "null" in search
+    assert "get_dataset_schema" in search
+
+    detail = descriptions["get_dataset_schema"]
+    assert "inaccessible" in detail
+    assert "last_checked_at" in detail
+    assert "last_refreshed_at" in detail
+    assert "Raw provider URLs" in detail
+
+
 def test_tool_functions_stay_plain_callables():
     # The live tier (and any direct import) calls these as normal functions; an
     # MCP SDK upgrade whose decorator returns a wrapper would break that quietly.

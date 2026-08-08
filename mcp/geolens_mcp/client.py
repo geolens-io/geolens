@@ -28,6 +28,21 @@ import httpx
 
 DEFAULT_TIMEOUT = 30.0
 
+# Kept local because catalog search currently exposes ``source_format`` but not
+# the backend's computed ``origin`` field. These values mirror the public source
+# formats accepted by GeoLens; the MCP response exposes only the coarse origin
+# kind, never the provider pointer used to refresh it.
+_SERVICE_SOURCE_FORMATS = frozenset({"wfs", "arcgis_featureserver", "ogcapi_features"})
+_ORIGINLESS_RECORD_TYPES = frozenset({"collection", "vrt_dataset"})
+_RAW_SOURCE_POINTER_FIELDS = frozenset({"source_url", "origin_uri", "origin_ref"})
+_SOURCE_STATE_FIELDS = (
+    "source_freshness",
+    "source_health",
+    "source_health_detail",
+    "last_checked_at",
+    "last_refreshed_at",
+)
+
 
 class ConfigError(RuntimeError):
     """Raised when required MCP configuration (e.g. GEOLENS_INSTANCE) is absent."""
@@ -121,6 +136,72 @@ def _datasets_only(fc: Any) -> Any:
     return out
 
 
+def _source_origin(properties: dict[str, Any]) -> str | None:
+    """Return the safe, coarse origin kind for a dataset response."""
+    if "origin" in properties:
+        origin = properties["origin"]
+        return origin if isinstance(origin, str) else None
+
+    record_type = properties.get("record_type") or "vector_dataset"
+    if record_type in _ORIGINLESS_RECORD_TYPES:
+        return None
+    source_format = properties.get("source_format")
+    if not source_format:
+        return "postgis"
+    if source_format in ("created", "stac"):
+        return source_format
+    if source_format in _SERVICE_SOURCE_FORMATS:
+        return "service"
+    return "upload"
+
+
+def _with_search_source_state(fc: Any) -> Any:
+    """Add a stable, provider-safe source-state shape to search features.
+
+    Catalog search currently supplies source origin inputs and freshness, but
+    not health/check/refresh state. Null placeholders distinguish "not present
+    in this summary" from a detail response's explicit ``unknown`` health and
+    let callers consume one stable set of keys without per-row detail requests.
+    """
+    if not isinstance(fc, dict) or not isinstance(fc.get("features"), list):
+        return fc
+
+    features: list[Any] = []
+    for feature in fc["features"]:
+        if not isinstance(feature, dict):
+            features.append(feature)
+            continue
+        properties = feature.get("properties")
+        if not isinstance(properties, dict):
+            features.append(feature)
+            continue
+        safe_properties = {
+            key: value
+            for key, value in properties.items()
+            if key not in _RAW_SOURCE_POINTER_FIELDS
+        }
+        safe_properties["source_origin"] = _source_origin(properties)
+        for field in _SOURCE_STATE_FIELDS:
+            safe_properties.setdefault(field, None)
+        features.append({**feature, "properties": safe_properties})
+    return {**fc, "features": features}
+
+
+def _with_detail_source_state(detail: Any) -> Any:
+    """Add agent-facing source state and remove raw provider pointers."""
+    if not isinstance(detail, dict):
+        return detail
+    safe = {
+        key: value
+        for key, value in detail.items()
+        if key not in _RAW_SOURCE_POINTER_FIELDS
+    }
+    safe["source_origin"] = _source_origin(detail)
+    for field in _SOURCE_STATE_FIELDS:
+        safe.setdefault(field, None)
+    return safe
+
+
 def _id_segment(value: str) -> str:
     """Validate a path-parameter id as a UUID and return its canonical string.
 
@@ -172,13 +253,20 @@ class GeoLensReadOnlyAPI:
     def search_datasets(self, query: str, limit: int = 10, offset: int = 0) -> Any:
         # /search/datasets augments page 0 with up to 5 collection records; drop
         # them so every returned id is usable by the dataset tools.
-        return _datasets_only(
-            self._get("/search/datasets", _params(q=query, limit=limit, offset=offset))
+        return _with_search_source_state(
+            _datasets_only(
+                self._get(
+                    "/search/datasets",
+                    _params(q=query, limit=limit, offset=offset),
+                )
+            )
         )
 
     def get_dataset_schema(self, dataset_id: str) -> Any:
         # No trailing-slash sibling on this route — must omit it.
-        return self._get(f"/datasets/{_id_segment(dataset_id)}")
+        return _with_detail_source_state(
+            self._get(f"/datasets/{_id_segment(dataset_id)}")
+        )
 
     def get_features(
         self,

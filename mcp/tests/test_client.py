@@ -105,10 +105,115 @@ def test_search_datasets_drops_collection_features():
     assert out["numberReturned"] == 2  # count kept consistent
 
 
+@pytest.mark.parametrize(
+    ("source_format", "record_type", "expected_origin"),
+    [
+        ("gpkg", "vector_dataset", "upload"),
+        (None, "vector_dataset", "postgis"),
+        ("wfs", "vector_dataset", "service"),
+        ("stac", "raster_dataset", "stac"),
+        ("created", "vector_dataset", "created"),
+        ("geotiff", "vrt_dataset", None),
+    ],
+)
+def test_search_datasets_adds_stable_source_state_summary(
+    source_format, record_type, expected_origin
+):
+    payload = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "id": "d1",
+                "properties": {
+                    "record_type": record_type,
+                    "source_format": source_format,
+                    "source_freshness": "overdue",
+                },
+            }
+        ],
+    }
+    api, seen = _api(_ok(payload))
+
+    properties = api.search_datasets("roads")["features"][0]["properties"]
+
+    assert len(seen) == 1  # never fan out into one detail request per result
+    assert properties["source_origin"] == expected_origin
+    assert properties["source_freshness"] == "overdue"
+    assert properties["source_health"] is None
+    assert properties["source_health_detail"] is None
+    assert properties["last_checked_at"] is None
+    assert properties["last_refreshed_at"] is None
+
+
+def test_search_datasets_prefers_future_summary_state_and_drops_raw_pointers():
+    payload = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "id": "d1",
+                "properties": {
+                    "origin": "service",
+                    "source_format": "wfs",
+                    "source_health": "inaccessible",
+                    "source_health_detail": "unauthorized",
+                    "last_checked_at": "2026-08-08T12:00:00Z",
+                    "last_refreshed_at": "2026-08-01T12:00:00Z",
+                    "origin_uri": "https://provider.example/private-layer",
+                    "origin_ref": {
+                        "kind": "service",
+                        "url": "https://provider.example/wfs?token=secret",
+                    },
+                    "source_url": "https://provider.example/?token=secret",
+                },
+            }
+        ],
+    }
+    api, _ = _api(_ok(payload))
+
+    properties = api.search_datasets("roads")["features"][0]["properties"]
+
+    assert properties["source_origin"] == "service"
+    assert properties["source_health"] == "inaccessible"
+    assert properties["source_health_detail"] == "unauthorized"
+    assert properties["last_checked_at"] == "2026-08-08T12:00:00Z"
+    assert properties["last_refreshed_at"] == "2026-08-01T12:00:00Z"
+    assert not {"origin_uri", "origin_ref", "source_url"} & properties.keys()
+
+
 def test_get_dataset_schema_has_no_trailing_slash():
     api, seen = _api(_ok({"id": DS, "column_info": []}))
     api.get_dataset_schema(DS)
     assert seen[-1].url.path == f"/api/datasets/{DS}"  # detail route: NO trailing slash
+
+
+def test_get_dataset_schema_surfaces_real_source_state_without_provider_pointers():
+    payload = {
+        "id": DS,
+        "source_format": "wfs",
+        "origin": "service",
+        "origin_uri": "https://provider.example/private-layer",
+        "origin_ref": {
+            "kind": "service",
+            "url": "https://provider.example/wfs?token=secret",
+        },
+        "source_url": "https://provider.example/?token=secret",
+        "source_freshness": "overdue",
+        "source_health": "inaccessible",
+        "source_health_detail": "unauthorized",
+        "last_checked_at": "2026-08-08T12:00:00Z",
+        "last_refreshed_at": "2026-08-01T12:00:00Z",
+    }
+    api, _ = _api(_ok(payload))
+
+    detail = api.get_dataset_schema(DS)
+
+    assert detail["source_origin"] == "service"
+    assert detail["source_freshness"] == "overdue"
+    assert detail["source_health"] == "inaccessible"
+    assert detail["source_health_detail"] == "unauthorized"
+    assert detail["last_checked_at"] == "2026-08-08T12:00:00Z"
+    assert detail["last_refreshed_at"] == "2026-08-01T12:00:00Z"
+    assert not {"origin_uri", "origin_ref", "source_url"} & detail.keys()
 
 
 def test_get_features_uses_ogc_items_and_bbox():

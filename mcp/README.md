@@ -51,8 +51,8 @@ Cursor / Codex / any client that reads an `mcpServers` block:
 
 | Tool | What it does |
 |---|---|
-| `search_datasets` | Catalog search by free text (semantic ranking where the instance enables it). Returns dataset records as GeoJSON features. |
-| `get_dataset_schema` | A dataset's columns, geometry type, CRS/SRID, feature count, and extent. |
+| `search_datasets` | Catalog search by free text (semantic ranking where the instance enables it). Returns dataset records as GeoJSON features with safe origin and freshness state; health/check/refresh keys are null when unavailable in the search summary. |
+| `get_dataset_schema` | A dataset's columns, geometry type, CRS/SRID, feature count, extent, and source trust metadata. |
 | `get_features` | Bounded GeoJSON features for a dataset (OGC API — Features), with optional bbox. |
 | `list_maps` | Saved maps (id, name, visibility, layer count). |
 | `get_map` | One saved map's full metadata, including layers and view state. |
