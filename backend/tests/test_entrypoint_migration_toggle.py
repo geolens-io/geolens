@@ -44,6 +44,9 @@ def test_official_compose_files_forward_api_migration_toggle() -> None:
 
 
 def test_official_compose_files_split_migration_and_runtime_credentials() -> None:
+    conditional_migration_role = (
+        "${GEOLENS_MIGRATION_DB_ROLE:-${GEOLENS_RUNTIME_DB_ROLE:+${POSTGRES_USER}}}"
+    )
     for filename in ("docker-compose.yml", "docker-compose.prod.yml"):
         compose = yaml.safe_load((_REPO_ROOT / filename).read_text(encoding="utf-8"))
         services = compose["services"]
@@ -73,7 +76,7 @@ def test_official_compose_files_split_migration_and_runtime_credentials() -> Non
             "${POSTGRES_PASSWORD}"
         )
         assert services["migrate"]["environment"]["GEOLENS_MIGRATION_DB_ROLE"] == (
-            "${GEOLENS_MIGRATION_DB_ROLE:-${POSTGRES_USER}}"
+            conditional_migration_role
         )
         assert services["migrate"]["environment"]["GEOLENS_RUNTIME_DB_ROLE"] == ""
 

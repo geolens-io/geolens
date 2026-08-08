@@ -52,6 +52,9 @@ def test_clean_db_migration_smoke_mounts_role_reconciler_read_only() -> None:
 
 
 def test_compose_mounts_reconciler_read_only_and_scopes_the_password_to_db() -> None:
+    conditional_migration_role = (
+        "${GEOLENS_MIGRATION_DB_ROLE:-${GEOLENS_RUNTIME_DB_ROLE:+${POSTGRES_USER}}}"
+    )
     for filename in ("docker-compose.yml", "docker-compose.prod.yml"):
         services = _compose(filename)["services"]
         db = services["db"]
@@ -64,7 +67,7 @@ def test_compose_mounts_reconciler_read_only_and_scopes_the_password_to_db() -> 
             "${GEOLENS_RUNTIME_DB_PASSWORD:-}"
         )
         assert db["environment"]["GEOLENS_MIGRATION_DB_ROLE"] == (
-            "${GEOLENS_MIGRATION_DB_ROLE:-${POSTGRES_USER}}"
+            conditional_migration_role
         )
         for service_name in ("api", "worker", "migrate"):
             assert (

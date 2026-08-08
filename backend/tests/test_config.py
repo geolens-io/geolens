@@ -206,6 +206,21 @@ class TestSingleTenantRuntimeDatabaseRole:
 
 
 class TestMigrationDatabaseRole:
+    def test_unset_role_preserves_legacy_managed_override_username(self):
+        settings = _make_settings(
+            postgres_user="bundled_bootstrap",
+            # Compose deliberately forwards an empty value in legacy mode;
+            # Settings must normalize it to None instead of binding the URL
+            # login to POSTGRES_USER.
+            geolens_migration_db_role="",
+            database_url_override=(
+                "postgresql://provider_legacy:external-secret@managed/geolens"
+            ),
+        )
+
+        assert settings.geolens_migration_db_role is None
+        assert urlsplit(settings.database_url).username == "provider_legacy"
+
     def test_matching_bundled_postgres_user_is_accepted_without_override(self):
         settings = _make_settings(geolens_migration_db_role="geolens")
 
