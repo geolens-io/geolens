@@ -722,36 +722,17 @@ async def reupload_service(
         # greenlet bridge state — same root cause as gh #100.
         # ----------------------------------------------------------------- #
 
-        async def _run_service_import(layer_name: str) -> None:
-            gdal_source, layer_arg = port.build_gdal_source(
-                service_type_raw,
-                source_url_value,
-                layer_name,
-                layer_id,
-                token=token,
-                order_field=reupload_oid_field,
-            )
-            await run_ogr2ogr_service(
-                gdal_source,
-                layer_arg,
-                staging_tn,
-                db_conn_str,
-                service_type,
-                token=token,
-                schema=_current_tenant_schema(),
-            )
-
         # fix(#1271 review): the failure stamp may only describe the STORED
         # origin, and a reupload is allowed to target a different source — a
         # replacement for an upload dataset, a new service base, or the same
         # base with a different layer or protocol. Contacting the candidate
         # says nothing about the binding the row keeps if the swap never
-        # runs, so the flag arms only when the COMPLETE attempted binding
+        # runs, so the stamp arms only when the COMPLETE attempted binding
         # (type, base URL, and the same service-native layer identity the
         # swap would write) equals the stored one. A successful swap
         # re-stamps through set_dataset_origin regardless.
         _stored_ref = reupload_bound[1] or {}
-        origin_contact_attempted = (
+        attempt_matches_binding = (
             classify_origin(reupload_bound[2]) == "service"
             and _stored_ref.get("service_type") == source_format
             and _stored_ref.get("url") == source_url_value
@@ -760,6 +741,38 @@ async def reupload_service(
                 source_format, layer_id=layer_id, layer_name=source_layer_value
             )
         )
+
+        async def _run_service_import(layer_name: str) -> None:
+            nonlocal origin_contact_attempted
+            gdal_source, layer_arg = port.build_gdal_source(
+                service_type_raw,
+                source_url_value,
+                layer_name,
+                layer_id,
+                token=token,
+                order_field=reupload_oid_field,
+            )
+            # fix(#1271 review): armed HERE, immediately before the fetch, so
+            # a failure in build_gdal_source or anywhere earlier never claims
+            # a contact. An OSError means the subprocess never spawned —
+            # nothing left the machine — so the claim is withdrawn; ogr2ogr's
+            # own failures surface as IngestionError and keep it, because a
+            # spawned ogr2ogr was an attempt on the wire.
+            origin_contact_attempted = attempt_matches_binding
+            try:
+                await run_ogr2ogr_service(
+                    gdal_source,
+                    layer_arg,
+                    staging_tn,
+                    db_conn_str,
+                    service_type,
+                    token=token,
+                    schema=_current_tenant_schema(),
+                )
+            except OSError:
+                origin_contact_attempted = False
+                raise
+
         try:
             await _run_service_import_with_wfs_fallback(
                 _run_service_import,
