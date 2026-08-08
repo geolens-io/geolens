@@ -111,6 +111,14 @@ psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC_DB" -v ON_ERROR_STOP=1 >/de
 CREATE SCHEMA IF NOT EXISTS catalog;
 CREATE TABLE catalog.records  (id serial PRIMARY KEY, name text NOT NULL);
 CREATE TABLE catalog.datasets (id serial PRIMARY KEY, slug text NOT NULL);
+CREATE FUNCTION catalog.provision_tenant_data_schema(uuid) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
+    AS 'BEGIN NULL; END';
+CREATE FUNCTION catalog.deprovision_tenant_data_schema(uuid) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
+    AS 'BEGIN NULL; END';
+REVOKE ALL ON FUNCTION catalog.provision_tenant_data_schema(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION catalog.deprovision_tenant_data_schema(uuid) FROM PUBLIC;
 CREATE SCHEMA data;
 CREATE TABLE data.ci_probe (id serial PRIMARY KEY, name text NOT NULL);
 INSERT INTO catalog.records (name)
@@ -222,7 +230,21 @@ if PGPASSWORD="$RUNTIME_PASSWORD" "${runtime_psql[@]}" \
     -c "CREATE TABLE catalog.must_be_denied (id integer)" >/dev/null 2>&1; then
     fail "runtime role can CREATE in migration-owned schema catalog"
 fi
-echo "      runtime role OK — safe attributes, catalog DML, data ownership, reader SET; catalog DDL denied."
+for tenant_function in \
+    "catalog.provision_tenant_data_schema(uuid)" \
+    "catalog.deprovision_tenant_data_schema(uuid)"; do
+    CAN_EXECUTE="$(psql_admin -d "$DST_DB" -tAc \
+        "SELECT has_function_privilege('${RUNTIME_ROLE}', '${tenant_function}', 'EXECUTE');" \
+        | tr -d '[:space:]')"
+    [ "$CAN_EXECUTE" = "f" ] \
+        || fail "runtime role can execute privileged ${tenant_function}"
+done
+if PGPASSWORD="$RUNTIME_PASSWORD" "${runtime_psql[@]}" \
+    -c "SELECT catalog.provision_tenant_data_schema('00000000-0000-0000-0000-000000000947')" \
+    >/dev/null 2>&1; then
+    fail "runtime role executed privileged tenant provisioning function"
+fi
+echo "      runtime role OK — safe attributes, catalog DML, data ownership, reader SET; catalog DDL + tenant-control functions denied."
 echo ""
 
 # ------------------------------------------------------------------------------

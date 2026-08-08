@@ -20,6 +20,21 @@ if [ "${#runtime_role}" -gt 63 ]; then
     exit 64
 fi
 
+if [ -n "$runtime_role" ] && [ "$runtime_role" = "$db_user" ]; then
+    echo "ERROR: GEOLENS_RUNTIME_DB_ROLE must differ from POSTGRES_USER; the privileged bootstrap/migration identity cannot be demoted." >&2
+    exit 64
+fi
+case "$runtime_role" in
+    geolens_reader | geolens_readonly | geolens_writer | geolens_tile \
+        | geolens_tenant_control | geolens_tenant_provisioner \
+        | geolens_tenant_sandbox | geolens_tenant_writer \
+        | geolens_tile_gateway \
+        | geolens_reader_t_* | geolens_writer_t_*)
+        echo "ERROR: GEOLENS_RUNTIME_DB_ROLE uses a reserved GeoLens role name: ${runtime_role}." >&2
+        exit 64
+        ;;
+esac
+
 if [ -n "$runtime_role" ] && [ "${#runtime_password}" -lt 32 ]; then
     echo "ERROR: GEOLENS_RUNTIME_DB_PASSWORD must contain at least 32 characters when GEOLENS_RUNTIME_DB_ROLE is set." >&2
     exit 64
@@ -70,6 +85,24 @@ GRANT USAGE ON SCHEMA data TO geolens_reader;
 GRANT SELECT ON ALL TABLES IN SCHEMA data TO geolens_reader;
 ALTER DEFAULT PRIVILEGES IN SCHEMA data
     GRANT SELECT ON TABLES TO geolens_reader;
+
+-- Logical backups intentionally omit ACLs, which makes restored functions
+-- regain PostgreSQL's default PUBLIC EXECUTE. Rebuild the tenant-control ACL
+-- authored by migrations 0019/0024 whenever those objects already exist.
+SELECT 'REVOKE ALL ON FUNCTION catalog.provision_tenant_data_schema(uuid) FROM PUBLIC'
+WHERE to_regprocedure('catalog.provision_tenant_data_schema(uuid)') IS NOT NULL
+\gexec
+SELECT 'REVOKE ALL ON FUNCTION catalog.deprovision_tenant_data_schema(uuid) FROM PUBLIC'
+WHERE to_regprocedure('catalog.deprovision_tenant_data_schema(uuid)') IS NOT NULL
+\gexec
+SELECT 'GRANT EXECUTE ON FUNCTION catalog.provision_tenant_data_schema(uuid) TO geolens_tenant_control'
+WHERE to_regprocedure('catalog.provision_tenant_data_schema(uuid)') IS NOT NULL
+  AND EXISTS (SELECT FROM pg_roles WHERE rolname = 'geolens_tenant_control')
+\gexec
+SELECT 'GRANT EXECUTE ON FUNCTION catalog.deprovision_tenant_data_schema(uuid) TO geolens_tenant_control'
+WHERE to_regprocedure('catalog.deprovision_tenant_data_schema(uuid)') IS NOT NULL
+  AND EXISTS (SELECT FROM pg_roles WHERE rolname = 'geolens_tenant_control')
+\gexec
 EOSQL
 
 if [ -z "$runtime_role" ]; then
@@ -116,12 +149,11 @@ SELECT format(
     'GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA catalog TO %I',
     :'runtime_role'
 )\gexec
-SELECT format(
-    'GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA catalog TO %I', :'runtime_role'
-)\gexec
 
 -- Future Alembic objects are owned by this privileged reconciliation/migration
--- identity. The runtime role receives DML/sequence/function rights, never DDL.
+-- identity. The runtime role receives DML/sequence rights, never DDL. Catalog
+-- functions keep their migration-authored ACLs: blanket/default EXECUTE would
+-- bypass the geolens_tenant_control boundary on SECURITY DEFINER functions.
 SELECT format(
     'ALTER DEFAULT PRIVILEGES IN SCHEMA catalog GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %I',
     :'runtime_role'
@@ -131,9 +163,25 @@ SELECT format(
     :'runtime_role'
 )\gexec
 SELECT format(
-    'ALTER DEFAULT PRIVILEGES IN SCHEMA catalog GRANT EXECUTE ON FUNCTIONS TO %I',
+    'ALTER DEFAULT PRIVILEGES IN SCHEMA catalog REVOKE EXECUTE ON FUNCTIONS FROM %I',
     :'runtime_role'
 )\gexec
+
+-- Reconcile installs that previously ran the broad EXECUTE recipe. On a fresh
+-- volume these functions do not exist until Alembic runs, so the conditional
+-- REVOKEs become no-ops and migrations install their control-only ACLs.
+SELECT format(
+    'REVOKE ALL ON FUNCTION catalog.provision_tenant_data_schema(uuid) FROM %I',
+    :'runtime_role'
+)
+WHERE to_regprocedure('catalog.provision_tenant_data_schema(uuid)') IS NOT NULL
+\gexec
+SELECT format(
+    'REVOKE ALL ON FUNCTION catalog.deprovision_tenant_data_schema(uuid) FROM %I',
+    :'runtime_role'
+)
+WHERE to_regprocedure('catalog.deprovision_tenant_data_schema(uuid)') IS NOT NULL
+\gexec
 
 -- fix(#1287 review): embedding-dimension changes are the one live admin path
 -- that needs catalog relation-owner DDL. Keep the runtime login non-owning and

@@ -230,11 +230,18 @@ The credential order is load-bearing:
    RLS, create roles/databases, replicate, assume a powerful role, or create in
    `catalog`/`public`.
 
+The reconciler rejects `POSTGRES_USER`, fixed reader/writer/tile/tenant roles,
+and dynamic `geolens_{reader,writer}_t_*` names as the runtime login before it
+opens a SQL connection; reusing one would demote or over-privilege an existing
+security identity.
+
 On a fresh bundled volume, `init-db.sh` creates extensions and schemas first,
 then runs `scripts/lib/configure-runtime-db-role.sh`. The latter creates the login,
-grants catalog DML/sequence/function access, grants CREATE plus relation
-ownership only in `data`, and grants SET access to `geolens_reader`. The
-privileged migrate service then applies Alembic before API/worker connect.
+grants catalog DML/sequence access, grants CREATE plus relation ownership only
+in `data`, and grants SET access to `geolens_reader`. It never grants blanket
+catalog-function execution: tenant provisioning remains exclusive to
+`geolens_tenant_control`. The privileged migrate service then applies Alembic
+before API/worker connect.
 The admin embedding-dimension resize is the sole catalog-DDL exception: the
 reconciler installs a bounded `SECURITY DEFINER` function, revokes its default
 `PUBLIC` execute grant, and grants it only to the configured runtime role. The

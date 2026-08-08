@@ -71,6 +71,29 @@ def test_role_script_keeps_password_out_of_argv_and_catalog_ownership() -> None:
     )
 
 
+def test_runtime_role_never_receives_tenant_control_function_execution() -> None:
+    source = ROLE_SCRIPT.read_text(encoding="utf-8")
+
+    assert "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA catalog" not in source
+    assert (
+        "ALTER DEFAULT PRIVILEGES IN SCHEMA catalog GRANT EXECUTE ON FUNCTIONS"
+        not in source
+    )
+    assert (
+        "ALTER DEFAULT PRIVILEGES IN SCHEMA catalog REVOKE EXECUTE ON FUNCTIONS"
+        in source
+    )
+    for signature in (
+        "catalog.provision_tenant_data_schema(uuid)",
+        "catalog.deprovision_tenant_data_schema(uuid)",
+    ):
+        assert f"REVOKE ALL ON FUNCTION {signature}" in source
+        assert f"REVOKE ALL ON FUNCTION {signature} FROM PUBLIC" in source
+        assert (
+            f"GRANT EXECUTE ON FUNCTION {signature} TO geolens_tenant_control" in source
+        )
+
+
 @pytest.mark.anyio
 async def test_runtime_embedding_resize_uses_narrow_definer_function(
     monkeypatch: pytest.MonkeyPatch,
@@ -160,3 +183,50 @@ def test_role_script_rejects_reused_privileged_password_before_connecting() -> N
 
     assert completed.returncode == 64
     assert "must differ from the privileged" in completed.stderr
+
+
+@pytest.mark.parametrize(
+    ("postgres_user", "runtime_role"),
+    [
+        ("geolens_app", "geolens_app"),
+        ("geolens", "geolens_reader"),
+        ("geolens", "geolens_readonly"),
+        ("geolens", "geolens_writer"),
+        ("geolens", "geolens_tile"),
+        ("geolens", "geolens_tenant_control"),
+        ("geolens", "geolens_tenant_provisioner"),
+        ("geolens", "geolens_tenant_sandbox"),
+        ("geolens", "geolens_tenant_writer"),
+        ("geolens", "geolens_tile_gateway"),
+        ("geolens", "geolens_reader_t_deadbeef"),
+        ("geolens", "geolens_writer_t_deadbeef"),
+    ],
+)
+def test_role_script_rejects_bootstrap_and_reserved_roles_before_sql(
+    tmp_path: Path,
+    postgres_user: str,
+    runtime_role: str,
+) -> None:
+    fake_psql = tmp_path / "psql"
+    fake_psql.write_text("#!/bin/sh\nexit 99\n", encoding="utf-8")
+    fake_psql.chmod(0o755)
+
+    completed = subprocess.run(
+        ["bash", str(ROLE_SCRIPT)],
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "POSTGRES_USER": postgres_user,
+            "POSTGRES_DB": "geolens",
+            "GEOLENS_RUNTIME_DB_ROLE": runtime_role,
+            "GEOLENS_RUNTIME_DB_PASSWORD": (
+                "distinct-runtime-password-with-at-least-32-characters"
+            ),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 64, completed.stderr
+    assert "reserved" in completed.stderr or "POSTGRES_USER" in completed.stderr
