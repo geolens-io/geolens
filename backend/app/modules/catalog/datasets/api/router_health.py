@@ -271,7 +271,6 @@ async def check_source_health(
     bound_uri = dataset.origin_uri
     bound_ref = dataset.origin_ref
     bound_format = dataset.source_format
-    prior_checked_at = dataset.last_checked_at
 
     # Resolve what to contact while the session is still live...
     if origin == "stac":
@@ -319,9 +318,18 @@ async def check_source_health(
             Dataset.source_format.is_not_distinct_from(bound_format),
         )
         .values(**values)
+        # fix(#1271 review): the response reports what the row actually holds
+        # after this write, not a pre-probe snapshot — a concurrent probe may
+        # have committed a newer contact time that an uncontacted outcome
+        # here correctly leaves in place.
+        .returning(Dataset.last_checked_at)
     )
+    # Row-level, not rowcount: an ORM-enabled UPDATE..RETURNING yields a
+    # ChunkedIteratorResult, which has no rowcount — and rows also separate
+    # "no match" (empty) from "matched, NULL timestamp" (one row of None).
+    returned_rows = outcome.all()
     await db.commit()
-    if outcome.rowcount == 0:
+    if not returned_rows:
         # The row was rebound (or deleted) while the probe was in flight; the
         # verdict describes an origin this dataset no longer has. Discard it.
         raise HTTPException(
@@ -350,5 +358,5 @@ async def check_source_health(
         origin=origin,
         source_health=result.health,
         source_health_detail=result.detail,
-        last_checked_at=now if result.contacted else prior_checked_at,
+        last_checked_at=returned_rows[0][0],
     )
