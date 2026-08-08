@@ -327,6 +327,11 @@ class TestStacItemHrefCapture:
             # A malformed href raises inside urljoin; one broken link must
             # not 502 the whole search result set (fix #1271 review).
             [{"rel": "self", "href": "http://[bad"}],
+            # These parse without raising but 422 the import batch downstream
+            # as HttpUrl rejects: absent host, non-numeric port, port zero.
+            [{"rel": "self", "href": "http:///items/x"}],
+            [{"rel": "self", "href": "https://origin.test:bad/items/x"}],
+            [{"rel": "self", "href": "https://origin.test:0/items/x"}],
         ],
     )
     def test_unusable_self_links_yield_none(self, links: list) -> None:

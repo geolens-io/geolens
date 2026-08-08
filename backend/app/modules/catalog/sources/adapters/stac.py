@@ -12,7 +12,7 @@ external STAC APIs using httpx for HTTP interaction.
 from __future__ import annotations
 
 from typing import Any, TypedDict
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import httpx
 import structlog
@@ -75,16 +75,25 @@ def _self_link_href(feature: dict[str, Any], base_url: str) -> str | None:
         href = link.get("href")
         if not isinstance(href, str) or not href.strip():
             continue
+        # fix(#1271 review): a malformed href must be dropped, not surfaced.
+        # `http://[bad` raises out of urljoin; `http:///x` (no host) and
+        # `https://h:bad/x` (non-numeric port) parse without raising and 422
+        # the caller's whole import batch downstream when StacImportItem
+        # rejects them as HttpUrl — item_href is optional, so one broken
+        # link must cost nothing.
         try:
             resolved = urljoin(base_url, href)
+            parsed = urlparse(resolved)
+            usable = (
+                parsed.scheme in ("http", "https")
+                and bool(parsed.hostname)
+                # .port raises ValueError on a non-numeric or out-of-range
+                # port, which is why it is read inside this try.
+                and (parsed.port is None or parsed.port > 0)
+            )
         except ValueError:
-            # fix(#1271 review): a malformed href (`http://[bad`) raises out
-            # of urljoin; item_href is optional and the asset may be fine, so
-            # one broken link must not 502 the whole search result set.
             continue
-        if resolved.lower().startswith(
-            ("http://", "https://")
-        ) and not has_url_credentials(resolved):
+        if usable and not has_url_credentials(resolved):
             return resolved
     return None
 
