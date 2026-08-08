@@ -1391,29 +1391,61 @@ class TestCredentialRenewal:
 
         assert await creds.renew_queued_refresh_credentials(test_db_session) == 0
 
-    async def test_an_indefinitely_queued_dispatch_stops_being_renewed(
+    async def test_an_old_run_with_a_live_task_is_still_renewed(
         self, client, test_db_session, credential_backend
     ) -> None:
-        """The backstop the other two stops cannot see.
+        """fix(#1277 review round 5): the sweep owns "abandoned", not this.
 
-        A job deferred to a queue no worker subscribes to sits `todo`
-        INDEFINITELY (documented on the worker service in docker-compose.yml,
-        fix #695) with its run still active. Without an age bound, renewal
-        would re-arm that credential forever — durable storage through the
-        back door, which is the exact property this whole mechanism exists to
-        avoid. Bounded on the same clock the abandoned-run sweep uses, so a
-        credential can never outlive the run it belongs to.
+        An earlier version stopped renewing once the run passed
+        ABANDONED_RUN_CUTOFF_SECONDS. That contradicted the sweep, which
+        deliberately never cancels a run whose task is still live `todo`
+        (#1274) — so a protected refresh queued behind a healthy long ingest
+        kept its run while losing its credential, and the eventual claim
+        failed `credential_expired` with the system's own definition saying
+        the run was fine. Two modules disagreeing about the same run is worse
+        than either answer.
         """
         from app.platform.refresh.service import ABANDONED_RUN_CUTOFF_SECONDS
 
-        ref = await creds.stash_service_credential("queued-forever")
+        ref = await creds.stash_service_credential("queued-a-long-time")
         await self._dispatch(
             test_db_session,
             ref=ref,
-            run_age_seconds=ABANDONED_RUN_CUTOFF_SECONDS + 60,
+            run_age_seconds=ABANDONED_RUN_CUTOFF_SECONDS + 3600,
         )
 
-        assert await creds.renew_queued_refresh_credentials(test_db_session) == 0
+        assert await creds.renew_queued_refresh_credentials(test_db_session) == 1
+
+    async def test_renewal_and_the_sweep_agree_on_the_same_run(
+        self, client, test_db_session, credential_backend
+    ) -> None:
+        """One seeded state, both predicates, named as one invariant.
+
+        The bug was not either predicate in isolation — each was defensible —
+        it was that they disagreed. Pinning them together here means the next
+        person to edit either one breaks a test that says why they have to
+        move in step: a run the sweep considers alive keeps its credential.
+        """
+        from app.platform.refresh.service import (
+            ABANDONED_RUN_CUTOFF_SECONDS,
+            sweep_abandoned_refresh_runs,
+        )
+
+        ref = await creds.stash_service_credential("old-but-queued")
+        dataset, _job = await self._dispatch(
+            test_db_session,
+            ref=ref,
+            run_age_seconds=ABANDONED_RUN_CUTOFF_SECONDS + 3600,
+        )
+
+        assert await sweep_abandoned_refresh_runs(test_db_session) == 0, (
+            "the sweep must not cancel a run whose task is still live todo"
+        )
+        assert await creds.renew_queued_refresh_credentials(test_db_session) == 1, (
+            "and renewal must keep the credential for exactly that run"
+        )
+        run = await _run_for(test_db_session, dataset.id)
+        assert run is not None and run.status == "pending"
 
     async def test_renewal_only_touches_its_own_dispatch(
         self, client, test_db_session, credential_backend

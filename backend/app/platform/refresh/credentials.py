@@ -73,7 +73,8 @@ logger = structlog.get_logger(__name__)
 # `renew_queued_refresh_credentials` re-arms it every sweep cycle for exactly
 # those credentials whose dispatch is still waiting to be picked up. The bound
 # is then the actual wait by construction, and renewal stops on its own at
-# three independent points — see that function.
+# two points, both of them the abandonment sweep's own definition of a run
+# that is still alive — see that function.
 #
 # The arithmetic, against the real interval: renewal runs once per
 # CREDENTIAL_RENEWAL_INTERVAL_SECONDS (300s), so the TTL must survive at least
@@ -343,24 +344,36 @@ async def discard_service_credential(ref: str | None) -> None:
         logger.warning("refresh_credential_discard_failed")
 
 
-# fix(#1277 review round 2): the credentials whose dispatch is still genuinely
-# waiting to be picked up, and nothing else.
+# The credentials whose dispatch is still genuinely waiting to be picked up.
 #
-# Three independent stops, so no single stuck component keeps a secret alive:
+# TWO stops, and they are the abandonment sweep's own definition of "still
+# alive" rather than a second opinion about it:
 #
 # 1. `pj.status = 'todo'` — the task is still QUEUED. The moment a worker
 #    claims it the row moves to 'doing' and the claim itself GETDELs the key,
 #    so renewal and the credential end together.
 # 2. the run is still active — a terminal run cannot use a credential, so
 #    there is nothing left to keep alive.
-# 3. the run is younger than the abandonment cutoff — the backstop for the
-#    case the other two cannot see. A job deferred to a queue no worker
-#    subscribes to sits 'todo' INDEFINITELY (documented on the `worker`
-#    service in docker-compose.yml, fix #695), and its run stays active until
-#    the sweep cancels it. Without this clause renewal would keep re-arming
-#    that credential forever, reintroducing durable storage through the back
-#    door. Bounding on the same clock the abandoned-run sweep uses means a
-#    credential can never outlive the run it belongs to.
+#
+# fix(#1277 review round 5): there was a third, an age bound on the run, and
+# it CONTRADICTED the sweep. `_ABANDONED_RUN_SQL` deliberately never cancels a
+# run whose task is live 'todo' (#1274), so a protected refresh queued behind
+# a healthy long ingest kept its run — while renewal dropped its credential at
+# the cutoff and the eventual claim failed `credential_expired`. Two modules
+# disagreeing about whether the same run is abandoned is worse than either
+# answer; the sweep owns that question, so this defers to it.
+#
+# What the age bound was guarding is answered here instead of by a constant. A
+# task no worker subscribes to sits 'todo' forever (documented on the `worker`
+# service in docker-compose.yml, fix #695) and would be renewed forever — but
+# while a claimant-reachable task exists the credential is legitimately in
+# flight, which IS the A7 window rather than durable storage. In that
+# misconfiguration the whole run, job and task are stuck and visible as queue
+# depth; the credential is the least of what is wrong, and it still dies the
+# instant either the task or the run leaves its state, because renewal keys on
+# both. Any constant here would just reproduce the finding it was meant to
+# prevent one level up: "healthy but longer than the number" is unbounded by
+# construction, which is exactly what rounds 2 and 5 already established.
 #
 # Correlated on `args->>'job_id'`, the correlation every task in this codebase
 # passes and the one both refresh sweeps already use.
@@ -373,7 +386,6 @@ _RENEWABLE_CREDENTIALS_SQL = text(
     WHERE pj.status = 'todo'
       AND pj.args->>'credential_ref' IS NOT NULL
       AND r.status IN ('pending', 'running')
-      AND r.started_at > :cutoff
       AND (
           CAST(:tenant_id AS uuid) IS NULL
           OR j.tenant_id = CAST(:tenant_id AS uuid)
@@ -410,19 +422,12 @@ async def renew_queued_refresh_credentials(
     be lost to a credential-store blip, and a missed cycle is survivable by
     construction — the TTL covers two.
     """
-    from datetime import datetime, timedelta, timezone
-
-    from app.platform.refresh.service import ABANDONED_RUN_CUTOFF_SECONDS
-
     if not credential_store_available():
         return 0
-    cutoff = datetime.now(timezone.utc) - timedelta(
-        seconds=ABANDONED_RUN_CUTOFF_SECONDS
-    )
     try:
         rows = await session.execute(
             _RENEWABLE_CREDENTIALS_SQL,
-            {"cutoff": cutoff, "tenant_id": tenant_id},
+            {"tenant_id": tenant_id},
         )
         refs = [row.credential_ref for row in rows]
     except Exception as exc:  # broad: the sweep's other work must survive this
