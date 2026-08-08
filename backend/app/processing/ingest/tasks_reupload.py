@@ -742,15 +742,23 @@ async def reupload_service(
             )
 
         # fix(#1271 review): the failure stamp may only describe the STORED
-        # origin, and a reupload is allowed to target a different URL — a
-        # replacement source for an upload dataset, or a new service base.
-        # Contacting the candidate says nothing about the binding the row
-        # keeps if the swap never runs, so the flag arms only when the fetch
-        # target IS the stored service origin's canonical URL. A successful
-        # swap re-stamps through set_dataset_origin regardless.
+        # origin, and a reupload is allowed to target a different source — a
+        # replacement for an upload dataset, a new service base, or the same
+        # base with a different layer or protocol. Contacting the candidate
+        # says nothing about the binding the row keeps if the swap never
+        # runs, so the flag arms only when the COMPLETE attempted binding
+        # (type, base URL, and the same service-native layer identity the
+        # swap would write) equals the stored one. A successful swap
+        # re-stamps through set_dataset_origin regardless.
+        _stored_ref = reupload_bound[1] or {}
         origin_contact_attempted = (
             classify_origin(reupload_bound[2]) == "service"
-            and (reupload_bound[1] or {}).get("url") == source_url_value
+            and _stored_ref.get("service_type") == source_format
+            and _stored_ref.get("url") == source_url_value
+            and _stored_ref.get("layer_id")
+            == service_layer_identity(
+                source_format, layer_id=layer_id, layer_name=source_layer_value
+            )
         )
         try:
             await _run_service_import_with_wfs_fallback(
