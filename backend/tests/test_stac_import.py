@@ -440,17 +440,14 @@ class TestStacImport:
         with patch(
             "app.modules.catalog.sources.stac_router._fetch_cog_info",
             new=AsyncMock(
-                return_value=(
-                    {
-                        "band_count": 1,
-                        "dtype": "float32",
-                        "width": 512,
-                        "height": 512,
-                        "nodata": None,
-                        "band_info": None,
-                    },
-                    True,
-                )
+                return_value={
+                    "band_count": 1,
+                    "dtype": "float32",
+                    "width": 512,
+                    "height": 512,
+                    "nodata": None,
+                    "band_info": None,
+                }
             ),
         ):
             resp = await client.post(
@@ -854,19 +851,20 @@ class TestStacAdapter:
 
 
 class TestStacImportContactSemantics:
-    async def test_titiler_upstream_error_still_stamps_the_contact(
+    async def test_any_titiler_failure_stamps_nothing(
         self,
         client: AsyncClient,
         admin_auth_header: dict,
         mock_stac_ssrf,
     ):
-        """fix(#1271 review): Titiler answering non-200 means it was up and
-        attempted the upstream COG — the origin path was exercised even
-        though it failed, which is exactly the failed-contact case the
-        column's contract dates."""
+        """fix(#1271 review): a Titiler non-200 is NOT proof the origin was
+        attempted — the extension allowlist rejects some assets before any
+        upstream fetch, and the shapes cannot be told apart without parsing
+        Titiler's error bodies. Only proven contact (info in hand) stamps;
+        the probe settles everything else."""
         with patch(
             "app.modules.catalog.sources.stac_router._fetch_cog_info",
-            new=AsyncMock(return_value=(None, True)),
+            new=AsyncMock(return_value=None),
         ):
             resp = await client.post(
                 "/services/stac/import",
@@ -895,5 +893,5 @@ class TestStacImportContactSemantics:
             headers=admin_auth_header,
         )
         assert detail.status_code == 200
-        assert detail.json()["last_checked_at"] is not None
+        assert detail.json()["last_checked_at"] is None
         assert detail.json()["source_health"] == "unknown"

@@ -63,16 +63,22 @@ def _validate_optional_stac_http_url(v: str | None) -> str | None:
     return None if v is None else _validate_stac_http_url(v)
 
 
-async def _fetch_cog_info(url: str) -> tuple[dict | None, bool]:
+async def _fetch_cog_info(url: str) -> dict | None:
     """Fetch COG metadata + statistics from Titiler for a remote asset URL.
 
-    Returns ``(info, origin_contacted)``. ``info`` is a dict with band_count,
-    dtype, width, height, band_info (with min/max per band for rescaling),
-    or None on failure. ``origin_contacted`` distinguishes the two failure
-    shapes (fix #1271 review): a non-200 from Titiler means Titiler was up
-    and /cog/info made it attempt the upstream fetch — the origin path was
-    exercised even though it failed — while an exception reaching Titiler
-    itself proves nothing about the origin.
+    Returns dict with band_count, dtype, width, height, band_info (with
+    min/max per band for rescaling), or None on failure.
+
+    fix(#1271 review): None deliberately collapses every failure shape.
+    A non-200 from Titiler is NOT proof the origin was attempted — the
+    extension allowlist (CPL_VSIL_CURL_ALLOWED_EXTENSIONS) rejects some
+    assets before any upstream fetch, and telling that apart from a relayed
+    upstream error means parsing Titiler's opaque 500 bodies, which is the
+    connector-completeness contract this feature refuses everywhere else.
+    So the import stamps last_checked_at only on success (info in hand IS
+    proof), and every failure leaves the field NULL for the probe to
+    settle: under-stamping a real contact is recoverable, fabricating one
+    for a never-contacted origin is not.
 
     SEC-OBSV-02 (sec-audit 2026-05-21): SSRF protection here is a DUAL GATE.
     Both gates MUST be preserved when adding new callers -- bypassing either
@@ -100,7 +106,7 @@ async def _fetch_cog_info(url: str) -> tuple[dict | None, bool]:
                 build_titiler_cog_url("info", query={"url": url})
             )
             if info_resp.status_code != 200:
-                return None, True
+                return None
             info = info_resp.json()
 
             band_count = info.get("count", 1)
@@ -132,10 +138,10 @@ async def _fetch_cog_info(url: str) -> tuple[dict | None, bool]:
                 "height": info.get("height"),
                 "nodata": info.get("nodata"),
                 "band_info": band_info or None,
-            }, True
+            }
     except Exception as exc:  # broad: Titiler info call — httpx/JSON parse can throw varied errors; degrade to None
         logger.debug("Failed to fetch COG info from Titiler", url=url, error=str(exc))
-        return None, False
+        return None
 
 
 router = APIRouter(
@@ -553,11 +559,11 @@ async def stac_import(
         importable.append(item)
 
     # Parallel COG info fetch — up to 10 concurrent Titiler requests
-    cog_info_map: dict[str, tuple[dict | None, bool]] = {}
+    cog_info_map: dict[str, dict | None] = {}
     if importable:
         sem = asyncio.Semaphore(10)
 
-        async def _fetch_bounded(url: str) -> tuple[str, tuple[dict | None, bool]]:
+        async def _fetch_bounded(url: str) -> tuple[str, dict | None]:
             async with sem:
                 return url, await _fetch_cog_info(url)
 
@@ -637,16 +643,13 @@ async def stac_import(
                 )
                 # fix(#1271 review): the import IS a contact — the same
                 # contract _finalize_ingest and the reupload swap follow —
-                # but only when it actually happened. origin_contacted means
-                # Titiler attempted the COG on GeoLens's behalf (info in
-                # hand, or an upstream error it relayed); False means the
-                # failure was between GeoLens and Titiler, and stamping
-                # would date a contact nobody can show occurred, so the
-                # field stays NULL until a probe settles it.
-                ci, origin_contacted = cog_info_map.get(
-                    item.data_asset_href, (None, False)
-                )
-                if origin_contacted:
+                # but only when it can be PROVEN. Info in hand means Titiler
+                # reached the COG on GeoLens's behalf; every failure shape
+                # stays NULL, because a Titiler error is indistinguishable
+                # from its local pre-fetch rejections without parsing its
+                # error bodies (see _fetch_cog_info). The probe settles it.
+                ci = cog_info_map.get(item.data_asset_href)
+                if ci is not None:
                     dataset.last_checked_at = datetime.now(timezone.utc)
                 db.add(dataset)
                 await db.flush()
