@@ -5473,6 +5473,12 @@
             "title": "Schema Drift Status",
             "type": "string"
           },
+          "source_freshness": {
+            "default": "unknown",
+            "description": "fresh, due, overdue, or unknown, computed from last_refreshed_at against the declared update_frequency: due past one declared period, overdue past two. 'unknown' when the origin cannot be refreshed at all (created), when no cadence is declared (asNeeded, irregular, notPlanned, unknown), or when nothing has been refreshed yet. Advisory only; never blocks an operation. Distinct from the quality score's own freshness, which measures quality_detail.computed_at rather than the source.",
+            "title": "Source Freshness",
+            "type": "string"
+          },
           "quality_statement": {
             "anyOf": [
               {
@@ -11979,6 +11985,12 @@
               }
             ],
             "title": "Update Frequency"
+          },
+          "source_freshness": {
+            "default": "unknown",
+            "description": "fresh, due, overdue, or unknown \u2014 how the dataset's last refresh compares to its declared update_frequency. 'unknown' for origins nothing can refresh. Advisory only, and distinct from the quality score's own freshness.",
+            "title": "Source Freshness",
+            "type": "string"
           },
           "constraints": {
             "anyOf": [

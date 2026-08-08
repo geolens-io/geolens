@@ -113,6 +113,18 @@ class OGCRecordProperties(BaseModel):
     time: dict
     lineage: str | None = None
     update_frequency: str | None = None
+    # feat(#1224): computed from the dataset's last_refreshed_at against
+    # update_frequency above, gated on origin; never stored. See
+    # datasets/domain/source_freshness.py.
+    source_freshness: str = Field(
+        default="unknown",
+        description=(
+            "fresh, due, overdue, or unknown — how the dataset's last refresh "
+            "compares to its declared update_frequency. 'unknown' for origins "
+            "nothing can refresh. Advisory only, and distinct from the quality "
+            "score's own freshness."
+        ),
+    )
     constraints: dict | None = None
     distributions: list[dict] | None = None
     record_status: str | None = None

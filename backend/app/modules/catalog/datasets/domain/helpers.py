@@ -2,6 +2,7 @@
 
 import uuid
 from collections.abc import Iterable, Mapping
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.identity import Identity
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.modules.auth.models import User
+from app.modules.catalog.datasets.domain.source_freshness import (
+    compute_source_freshness,
+)
 from app.modules.catalog.datasets.domain.schemas import (
     DatasetResponse,
     RasterBandInfo,
@@ -164,6 +168,11 @@ def dataset_to_response(
             base_url=base_url,
         )
 
+    # feat(#1218/#1224): resolved once. It is both the `origin` response field
+    # and the gate on source freshness below, and computing it twice is how the
+    # badge and the freshness chip would come to disagree.
+    origin = classify_origin(dataset.source_format, record_type)
+
     return DatasetResponse(
         id=dataset.id,
         record_id=dataset.record_id,
@@ -209,7 +218,7 @@ def dataset_to_response(
         # value could only ever disagree with the two it derives from. Serving
         # it retires the frontend's duplicate rule in OriginBadge.tsx and gives
         # the CLI, MCP server, and SDKs the same answer.
-        origin=classify_origin(dataset.source_format, record_type),
+        origin=origin,
         origin_uri=dataset.origin_uri,
         origin_ref=dataset.origin_ref,
         last_refreshed_at=dataset.last_refreshed_at,
@@ -219,6 +228,18 @@ def dataset_to_response(
         source_health=project_unknown(dataset.source_health),
         source_health_detail=dataset.source_health_detail,
         schema_drift_status=project_unknown(dataset.schema_drift_status),
+        # feat(#1224): the clock read lives here, at the response boundary, so
+        # compute_source_freshness stays a total function of its arguments and
+        # every threshold is testable without freezing time. `origin` gates the
+        # answer — a `created` dataset carries a last_refreshed_at it can never
+        # act on — and it is the same value served as `origin` above, resolved
+        # once so the field and the gate cannot disagree.
+        source_freshness=compute_source_freshness(
+            dataset.last_refreshed_at,
+            record.update_frequency,
+            datetime.now(timezone.utc),
+            origin=origin,
+        ),
         quality_statement=dataset.quality_statement,
         visibility=record.visibility,
         created_by=record.created_by,

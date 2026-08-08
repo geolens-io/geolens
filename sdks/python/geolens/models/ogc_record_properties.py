@@ -68,6 +68,9 @@ class OGCRecordProperties:
         rights (None | str | Unset):
         lineage (None | str | Unset):
         update_frequency (None | str | Unset):
+        source_freshness (str | Unset): fresh, due, overdue, or unknown — how the dataset's last refresh compares to its
+            declared update_frequency. 'unknown' for origins nothing can refresh. Advisory only, and distinct from the
+            quality score's own freshness. Default: 'unknown'.
         constraints (None | OGCRecordPropertiesConstraintsType0 | Unset):
         distributions (list[OGCRecordPropertiesDistributionsType0Item] | None | Unset):
         record_status (None | str | Unset):
@@ -109,6 +112,7 @@ class OGCRecordProperties:
     rights: None | str | Unset = UNSET
     lineage: None | str | Unset = UNSET
     update_frequency: None | str | Unset = UNSET
+    source_freshness: str | Unset = "unknown"
     constraints: None | OGCRecordPropertiesConstraintsType0 | Unset = UNSET
     distributions: list[OGCRecordPropertiesDistributionsType0Item] | None | Unset = (
         UNSET
@@ -277,6 +281,8 @@ class OGCRecordProperties:
         else:
             update_frequency = self.update_frequency
 
+        source_freshness = self.source_freshness
+
         constraints: dict[str, Any] | None | Unset
         if isinstance(self.constraints, Unset):
             constraints = UNSET
@@ -392,6 +398,8 @@ class OGCRecordProperties:
             field_dict["lineage"] = lineage
         if update_frequency is not UNSET:
             field_dict["update_frequency"] = update_frequency
+        if source_freshness is not UNSET:
+            field_dict["source_freshness"] = source_freshness
         if constraints is not UNSET:
             field_dict["constraints"] = constraints
         if distributions is not UNSET:
@@ -669,6 +677,8 @@ class OGCRecordProperties:
 
         update_frequency = _parse_update_frequency(d.pop("update_frequency", UNSET))
 
+        source_freshness = d.pop("source_freshness", UNSET)
+
         def _parse_constraints(
             data: object,
         ) -> None | OGCRecordPropertiesConstraintsType0 | Unset:
@@ -804,6 +814,7 @@ class OGCRecordProperties:
             rights=rights,
             lineage=lineage,
             update_frequency=update_frequency,
+            source_freshness=source_freshness,
             constraints=constraints,
             distributions=distributions,
             record_status=record_status,
