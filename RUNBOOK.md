@@ -1567,15 +1567,40 @@ you are not surprised later by what a restore does and does not contain.
 | Upload | Where the data ends up | The uploaded file |
 | --- | --- | --- |
 | Vector (Shapefile, GPKG, GeoJSON, CSV, …) | PostGIS table | Deleted after a successful ingest |
-| Raster (GeoTIFF) | A Cloud-Optimized GeoTIFF in object storage | Deleted after a successful conversion |
-| Raster replace (re-upload onto an existing raster dataset) | The dataset's COG is swapped for the new one | Deleted after a successful conversion |
+| Raster (GeoTIFF) | A Cloud-Optimized GeoTIFF in object storage | Deleted after a **lossless** conversion; kept otherwise |
+| Raster replace (re-upload onto an existing raster dataset) | The dataset's COG is swapped for the new one | Deleted after a **lossless** conversion; kept otherwise |
 
-A raster dataset **is** its COG. Conversion is lossless, so the converted asset
-carries everything the upload did, and every re-processing case an operator
-actually has — different overview levels, different compression, different
-internal tiling — starts from the COG just as well as from the original. Keeping
-a second copy of every raster ever uploaded bought nothing and cost object
-storage forever, so it is no longer kept (ADR-002 Decision 7).
+A raster dataset **is** its COG. When the conversion is lossless the converted
+asset carries everything the upload did, and every re-processing case an
+operator actually has — different overview levels, different compression,
+different internal tiling — starts from the COG just as well as from the
+original. Keeping a second copy of every raster ever uploaded bought nothing and
+cost object storage forever, so in that case it is no longer kept (ADR-002
+Decision 7).
+
+### When the conversion is lossy, the upload is kept
+
+The import form lets the uploader choose the COG's compression. Three of the
+options are lossless — **DEFLATE** (the default), **LZW**, **ZSTD** — and three
+discard image detail to save space: **JPEG**, **WEBP**, **LERC**.
+
+Under a lossy option the COG is not a faithful copy of what was uploaded, so
+the reasoning above does not hold: the uploaded file is the only lossless
+original that will ever exist. GeoLens keeps it, and **that copy is permanent**,
+not bounded by the retention window below — the job it belongs to succeeded, so
+the purge that clears failed jobs never sees it.
+
+The practical consequences:
+
+- Expect object storage for lossily-compressed rasters to hold roughly the COG
+  plus the original, not the COG alone. If storage growth surprises you, this
+  is the usual reason.
+- Those originals are reachable at `staging/<job-id>/` and are safe to delete
+  yourself if you accept losing the lossless copy. Nothing in GeoLens reads
+  them; they exist so the choice stays yours.
+- If you want the smaller footprint and do not need the original, ingest with a
+  lossless compression and accept the larger COG, or delete the staged
+  originals on a schedule of your own.
 
 Provenance is still recorded: the dataset's `source_filename` and the
 `file_hash` in `origin_ref` identify exactly which bytes were ingested. What is
@@ -1585,7 +1610,7 @@ gone is the ability to hand those bytes back.
 > archive it before it reaches GeoLens.** GeoLens is a catalog, not an archive
 > of submissions, and the download endpoints serve the COG, not the original.
 
-### The one case where the original is kept
+### The other case where the original is kept
 
 If COG conversion **fails**, the uploaded file is retained. At that point it is
 the only copy in the system and it is what you need to diagnose the failure —

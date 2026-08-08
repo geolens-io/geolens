@@ -25,6 +25,68 @@ _LON_DEGENERATE_TOL = 1e-9
 _WRAP_PROBE_MIN_DEGREES = 1.0
 
 
+# fix(#1290 review): compression profiles that reproduce every input sample
+# exactly. An ALLOWLIST, and the direction is the point: `compression` reaches
+# the worker straight off `RasterCommitRequest` with no server-side vocabulary
+# check, so a value nothing here recognises has to fall on the "assume lossy,
+# keep the original" side. Getting that backwards deletes the only lossless
+# copy of a raster. The import UI currently offers three of these plus JPEG,
+# WEBP and LERC, which are exactly the ones that must NOT appear here.
+LOSSLESS_COG_COMPRESSIONS: frozenset[str] = frozenset(
+    {"NONE", "DEFLATE", "LZW", "ZSTD", "PACKBITS", "LZMA"}
+)
+
+
+def cog_preserves_source(cog_status: str | None, compression: str | None) -> bool:
+    """True when the stored COG carries everything the uploaded file did.
+
+    fix(#1290 review). ADR-002 Decision 7 licenses deleting the pre-conversion
+    upload on the stated grounds that "conversion is lossless" — which is a
+    property of the profile the conversion actually used, not of conversion in
+    general. Under JPEG or WEBP the COG is the only copy AND it has thrown away
+    detail the user handed us, so the source is the only lossless original that
+    ever existed and deleting it destroys data.
+
+    ``cog_status == "verified"`` short-circuits because nothing was converted:
+    the bytes written to storage ARE the uploaded bytes, whatever codec they
+    already carried, so there is nothing left to lose by dropping the staged
+    copy.
+    """
+    if cog_status == "verified":
+        return True
+    return (compression or "").upper() in LOSSLESS_COG_COMPRESSIONS
+
+
+def resolve_crs_assignment(
+    *, crs_wkt: str | None, srid_override: int | None
+) -> int | None:
+    """The EPSG code the conversion must apply, or None to keep the source's.
+
+    fix(#1290 review): an override applies whenever the caller supplies one,
+    not only when the source declares nothing. ``RasterCommitRequest``
+    documents this field as "EPSG code to use when source CRS is missing **or
+    incorrect**", and correcting a wrong declaration was precisely the case the
+    old ``if crs_missing`` guard dropped on the floor — the conversion ran
+    without the override and published a raster still carrying the CRS the
+    caller had just told us was wrong, with no error to say so.
+
+    Shared by first ingest and replace deliberately. The two tails held
+    identical copies of the old predicate and were wrong in identical ways;
+    leaving them as two copies is how the next fix lands on one of them.
+
+    Raises ``ValueError`` when the source declares no CRS and no override was
+    given — the one case where the pipeline genuinely cannot proceed.
+    """
+    if srid_override:
+        return srid_override
+    if not crs_wkt:
+        raise ValueError(
+            "Missing CRS: raster has no coordinate reference system. "
+            "Provide a CRS override (EPSG code) at import time."
+        )
+    return None
+
+
 def _is_float_dtype(dtype: str) -> bool:
     """Check if a raster dtype string represents a floating-point type."""
     return any(f in dtype.lower() for f in _FLOAT_DTYPES)

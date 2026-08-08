@@ -56,7 +56,9 @@ from app.platform.storage.titiler_url import resolve_current_storage_key
 from app.processing.raster.cog import (
     _scratch_dir,
     check_and_prepare_cog,
+    cog_preserves_source,
     extract_raster_metadata,
+    resolve_crs_assignment,
     sha256_file,
 )
 from app.processing.raster.quicklook import generate_quicklook
@@ -82,23 +84,32 @@ class RasterReplaceError(Exception):
     """A raster replace that failed for a reason the user can act on."""
 
 
-async def _verify_cog_readable(cog_path: str) -> None:
-    """Read the freshly written COG back before anything points at it.
+async def _read_published_cog(cog_path: str) -> dict:
+    """Read the freshly written COG back, and return what it actually says.
 
-    This is the "verified readable" half of invariant 10. Conversion reporting
-    success is not the same fact as the output being openable: a truncated
-    write, an out-of-space overview pass, or a driver quirk all produce a file
-    on disk that ``gdal_translate`` exited 0 for. Since the very next steps
-    discard the last-known-good asset, the check has to be explicit here rather
-    than left as a side effect of quicklook generation, which is a step someone
-    could reasonably make non-fatal later.
+    Two jobs, one rasterio open pass, on purpose.
 
-    Goes through ``extract_raster_metadata`` — one rasterio open pass, already
-    the reader every other raster path uses, so this adds no new GDAL seam for
-    Rule 2 to police.
+    The first is the "verified readable" half of invariant 10. Conversion
+    reporting success is not the same fact as the output being openable: a
+    truncated write, an out-of-space overview pass, or a driver quirk all
+    produce a file on disk that ``gdal_translate`` exited 0 for. Since the very
+    next steps discard the last-known-good asset, the check has to be explicit
+    here rather than left as a side effect of quicklook generation, which is a
+    step someone could reasonably make non-fatal later.
+
+    The second (fix(#1290 review)) is the catalog's metadata. It used to be
+    extracted from the pre-conversion source, so every field conversion can
+    change — ``compression`` always, ``nodata`` under an override, the CRS and
+    the footprint under ``srid_override`` — described a file the dataset does
+    not serve. Reading the artifact that WILL serve, once, means there is no
+    second seam that can drift from the first and no question about which read
+    is authoritative.
+
+    Goes through ``extract_raster_metadata`` — already the reader every other
+    raster path uses, so this adds no new GDAL seam for Rule 2 to police.
     """
     try:
-        await asyncio.to_thread(extract_raster_metadata, cog_path)
+        return await asyncio.to_thread(extract_raster_metadata, cog_path)
     except Exception as exc:  # broad: any read failure means do not publish
         raise RasterReplaceError(
             f"Converted COG could not be read back: {exc}. "
@@ -140,8 +151,12 @@ async def _convert_and_verify_cog(
     resampling: str | None,
     nodata: object,
     assign_crs: int | None,
-) -> tuple[str, str]:
-    """Convert to COG and read the result back. Returns (path, cog_status).
+) -> tuple[str, str, dict]:
+    """Convert to COG and read the result back.
+
+    Returns ``(path, cog_status, metadata_of_the_converted_file)`` — that third
+    element is what the catalog persists (fix(#1290 review)); see
+    ``_read_published_cog`` for why it comes from here and not from the source.
 
     The disk-space precheck is here rather than at the call site because it
     guards this conversion specifically: COG output can reach ~3x the source
@@ -171,8 +186,61 @@ async def _convert_and_verify_cog(
     )
     # Invariant 10's gate. Everything before this line is reversible;
     # everything after it starts moving pointers.
-    await _verify_cog_readable(local_cog_path)
-    return local_cog_path, cog_status
+    cog_meta = await _read_published_cog(local_cog_path)
+    return local_cog_path, cog_status, cog_meta
+
+
+async def _run_post_swap_followups(
+    *,
+    dataset_uuid: uuid.UUID,
+    dataset_cls: type,
+    prior_physical_keys: list[str],
+    written_storage_keys: list[str],
+    job_id: str,
+) -> None:
+    """Work that happens once the replacement is durably published.
+
+    Extracted (fix(#1290 review)) so the caller can fence the whole of it in
+    one place — every statement here is optional, and none of it may be
+    confused with a failed replace.
+
+    Reaping the superseded objects is safe only now. Up to the commit every
+    exit left the previous COG both pointed at and present; past it the pointer
+    is durably elsewhere, so those objects have no reader left. The
+    ``not in written`` filter is what makes re-uploading the identical file a
+    no-op rather than a self-inflicted delete.
+
+    "No reader left" is true of the DATABASE. An API process that served a tile
+    in the last minute may still hold this dataset in the tile router's
+    ``_resolve_raster_meta`` cache, whose entries carry the OLD asset_uri for up
+    to ``_RASTER_META_CACHE_TTL`` (60s) — so raster tiles can fail for that
+    window before the entry expires and the new pointer is read. Deliberately
+    not worked around: ``regenerate_vrt`` reaps its superseded generation the
+    same way against the same cache, the window is bounded and self-healing, and
+    closing it needs cross-process invalidation neither path has. The bumped
+    ``tile_cache_version`` already changes the tile URL, so browser and CDN
+    caches roll over immediately.
+    """
+    from app.core.db import async_session
+    from sqlalchemy.orm import joinedload
+
+    await invalidate_catalog_cache()
+    await _cleanup_orphaned_storage_keys(
+        [key for key in prior_physical_keys if key not in written_storage_keys],
+        job_id=job_id,
+    )
+    async with async_session() as embed_session:
+        embed_dataset = (
+            await embed_session.execute(
+                select(dataset_cls)
+                .options(joinedload(dataset_cls.record))
+                .where(dataset_cls.id == dataset_uuid)
+            )
+        ).scalar_one_or_none()
+        if embed_dataset is not None:
+            from app.processing.embeddings.helpers import defer_embedding
+
+            await defer_embedding(embed_dataset)
 
 
 def _prior_asset_keys_to_reap(
@@ -229,7 +297,6 @@ async def reupload_raster(
     _bind_task_log_context(
         task_name="reupload_raster", job_id=job_id, dataset_id=dataset_id
     )
-    from app.core.db import async_session
     from app.platform.extensions import get_processing_port
     from sqlalchemy.orm import joinedload
 
@@ -259,6 +326,16 @@ async def reupload_raster(
     # reaped by neither the failure path nor the success path.
     written_storage_keys: list[str] = []
     prior_physical_keys: list[str] = []
+    # fix(#1290 review): "the replacement is published", set at the commit and
+    # nowhere else. The failure cleanup keys off THIS rather than off
+    # `final_status`, because once the swap is committed the newly written
+    # objects are the dataset's live raster and nothing that happens afterwards
+    # can make them reapable.
+    swap_committed: bool = False
+    # fix(#1290 review): whether the COG carries everything the upload did.
+    # False until a conversion proves otherwise — Decision 7's delete is
+    # licensed by that fact and the default has to be the one that retains.
+    source_preserved_in_cog: bool = False
 
     try:
         # ----------------------------------------------------------------- #
@@ -357,18 +434,22 @@ async def reupload_raster(
         # CPU work — NO session open (gh #100).
         # ----------------------------------------------------------------- #
         source_sha256 = await asyncio.to_thread(sha256_file, file_path)
-        meta = await asyncio.to_thread(extract_raster_metadata, file_path)
+        # The SOURCE read, and its only remaining job: decide whether the
+        # conversion needs a CRS assignment. Nothing here is persisted —
+        # fix(#1290 review) moved every stored field onto the converted COG's
+        # own metadata, which is the file the dataset will actually serve.
+        source_meta = await asyncio.to_thread(extract_raster_metadata, file_path)
 
-        assign_crs = um.get("srid_override")
         user_compression = um.get("compression") or "DEFLATE"
         user_resampling = um.get("resampling") or None
         user_nodata = um.get("nodata_override")
-        crs_missing = not meta.get("crs_wkt")
-        if crs_missing and not assign_crs:
-            raise RasterReplaceError(
-                "Missing CRS: the replacement raster has no coordinate reference "
-                "system. Provide a CRS override (EPSG code) and try again."
-            )
+        # fix(#1290 review): shared with the first-ingest tail, and it applies a
+        # supplied override even when the source declares a CRS. Raises when the
+        # source has none and no override was given.
+        assign_crs = resolve_crs_assignment(
+            crs_wkt=source_meta.get("crs_wkt"),
+            srid_override=um.get("srid_override"),
+        )
 
         await _enforce_strict_cog(
             file_path,
@@ -386,14 +467,18 @@ async def reupload_raster(
         )
 
         tmp_dir = tempfile.mkdtemp(dir=_scratch_dir())
-        local_cog_path, cog_status = await _convert_and_verify_cog(
+        local_cog_path, cog_status, cog_meta = await _convert_and_verify_cog(
             file_path,
             tmp_dir,
             compression=user_compression,
             resampling=user_resampling,
             nodata=user_nodata,
-            assign_crs=assign_crs if assign_crs and crs_missing else None,
+            assign_crs=assign_crs,
         )
+        # fix(#1290 review): resolved state, not the request field. Decided here
+        # rather than in the tail because this is where the conversion that
+        # actually ran is known.
+        source_preserved_in_cog = cog_preserves_source(cog_status, user_compression)
 
         asset_sha256 = await asyncio.to_thread(sha256_file, local_cog_path)
         cog_size = os.path.getsize(local_cog_path)
@@ -459,7 +544,13 @@ async def reupload_raster(
             await storage.put(_storage_ql512_key, io.BytesIO(ql512))
             written_storage_keys.append(_storage_ql512_key)
 
-            nodata_val = meta.get("nodata")
+            # fix(#1290 review): every field below reads the CONVERTED COG's
+            # own metadata. Persisting the source's described a file the
+            # dataset does not serve — `compression` was wrong on every
+            # converted replace, `nodata` wrong under an override, and the CRS
+            # and footprint wrong under `srid_override`, which is exactly the
+            # case a caller reaches for when the source's CRS is the problem.
+            nodata_val = cog_meta.get("nodata")
             raster_asset.asset_uri = cog_key
             raster_asset.quicklook_256_uri = ql256_key
             raster_asset.quicklook_512_uri = ql512_key
@@ -467,29 +558,29 @@ async def reupload_raster(
             raster_asset.size_bytes = cog_size
             raster_asset.source_sha256 = source_sha256
             raster_asset.cog_status = cog_status
-            raster_asset.driver = meta.get("driver")
+            raster_asset.driver = cog_meta.get("driver")
             raster_asset.ingested_at = datetime.now(timezone.utc)
-            raster_asset.crs_wkt = meta.get("crs_wkt")
-            raster_asset.epsg = meta.get("epsg")
-            raster_asset.band_count = meta.get("band_count")
-            raster_asset.dtype = meta.get("dtype")
+            raster_asset.crs_wkt = cog_meta.get("crs_wkt")
+            raster_asset.epsg = cog_meta.get("epsg")
+            raster_asset.band_count = cog_meta.get("band_count")
+            raster_asset.dtype = cog_meta.get("dtype")
             raster_asset.nodata = str(nodata_val) if nodata_val is not None else None
-            raster_asset.res_x = meta.get("res_x")
-            raster_asset.res_y = meta.get("res_y")
-            raster_asset.width = meta.get("width")
-            raster_asset.height = meta.get("height")
-            raster_asset.compression = meta.get("compression")
-            raster_asset.band_info = meta.get("band_info")
-            raster_asset.is_rotated = meta.get("is_rotated", False)
+            raster_asset.res_x = cog_meta.get("res_x")
+            raster_asset.res_y = cog_meta.get("res_y")
+            raster_asset.width = cog_meta.get("width")
+            raster_asset.height = cog_meta.get("height")
+            raster_asset.compression = cog_meta.get("compression")
+            raster_asset.band_info = cog_meta.get("band_info")
+            raster_asset.is_rotated = cog_meta.get("is_rotated", False)
             # Recomputed, not carried over: replacing a single-band float
             # elevation raster with an RGB orthophoto has to stop rendering as
             # terrain. Same reasoning as the VRT regenerate path (#185).
-            raster_asset.is_dem = meta.get("is_dem_candidate", False)
+            raster_asset.is_dem = cog_meta.get("is_dem_candidate", False)
 
             new_version = dataset.current_version + 1
             dataset.current_version = new_version
-            dataset.srid = meta.get("epsg")
-            dataset.original_srid = meta.get("epsg")
+            dataset.srid = cog_meta.get("epsg")
+            dataset.original_srid = cog_meta.get("epsg")
             dataset.source_filename = source_filename
             dataset.source_format = "geotiff"
             # fix(#525 B-038): the Valkey purge cannot reach CDN or browser
@@ -508,9 +599,9 @@ async def reupload_raster(
             swap_time = datetime.now(timezone.utc)
             dataset.last_refreshed_at = swap_time
             dataset.record.updated_by = uuid.UUID(user_id)
-            if meta.get("bbox_wkt"):
+            if cog_meta.get("bbox_wkt"):
                 dataset.record.spatial_extent = func.ST_GeomFromText(
-                    meta["bbox_wkt"], 4326
+                    cog_meta["bbox_wkt"], 4326
                 )
 
             # Keep the download and STAC surfaces pointing at what is live.
@@ -550,7 +641,7 @@ async def reupload_raster(
                 version_number=new_version,
                 source_filename=source_filename,
                 source_format="geotiff",
-                srid=meta.get("epsg"),
+                srid=cog_meta.get("epsg"),
                 # feature_count and geometry_type stay NULL: a raster has
                 # neither, and inventing a pixel count for a column the vector
                 # path uses for row counts would make the two unreadable side
@@ -612,43 +703,42 @@ async def reupload_raster(
                 contacted_origin=False,
             )
             await session.commit()
+            # fix(#1290 review): set in the same breath as the commit, and read
+            # by the terminal cleanup instead of `final_status`. These are two
+            # different facts and the cleanup needs this one: "the replacement
+            # is published" is what makes the newly written objects
+            # unreapable, whereas `final_status` also carries "did anything go
+            # wrong afterwards", which is not a question about the objects.
+            # Keying the reap off the proxy meant a transient error in the
+            # optional post-commit work below reaped the COG the committed
+            # RasterAsset now points at.
+            swap_committed = True
             final_status = "complete"
 
-        await invalidate_catalog_cache()
-        # Only now. Up to this line every exit leaves the previous COG both
-        # pointed at and present; past it the pointer is durably elsewhere, so
-        # these objects have no reader left. The `not in written` filter is
-        # what makes re-uploading the identical file a no-op rather than a
-        # self-inflicted delete.
-        #
-        # "No reader left" is true of the DATABASE. An API process that served
-        # a tile in the last minute may still hold this dataset in the tile
-        # router's `_resolve_raster_meta` cache, whose entries carry the OLD
-        # asset_uri for up to `_RASTER_META_CACHE_TTL` (60s) — so raster tiles
-        # can fail for that window before the entry expires and the new pointer
-        # is read. Deliberately not worked around: `regenerate_vrt` reaps its
-        # superseded generation the same way against the same cache, the window
-        # is bounded and self-healing, and closing it needs cross-process
-        # invalidation that neither path has. The bumped `tile_cache_version`
-        # already changes the tile URL, so browser and CDN caches roll over.
-
-        await _cleanup_orphaned_storage_keys(
-            [key for key in prior_physical_keys if key not in written_storage_keys],
-            job_id=job_id,
-        )
-
-        async with async_session() as embed_session:
-            embed_dataset = (
-                await embed_session.execute(
-                    select(Dataset)
-                    .options(joinedload(Dataset.record))
-                    .where(Dataset.id == dataset_uuid)
-                )
-            ).scalar_one_or_none()
-            if embed_dataset is not None:
-                from app.processing.embeddings.helpers import defer_embedding
-
-                await defer_embedding(embed_dataset)
+        # fix(#1290 review): everything from here is optional post-commit work,
+        # fenced so it cannot be mistaken for a failed replace. The swap is
+        # durable; a cache purge that cannot reach Valkey, a reap that cannot
+        # reach storage, or an embedding defer against a busy queue are all
+        # things to log and move on from, not reasons to fail a job whose
+        # outcome is already committed and already reported as succeeded in the
+        # run row. The `swap_committed` guard in the `finally` is the
+        # structural half of this: the fence keeps today's code from raising,
+        # and the guard keeps tomorrow's from destroying anything if it does.
+        try:
+            await _run_post_swap_followups(
+                dataset_uuid=dataset_uuid,
+                dataset_cls=Dataset,
+                prior_physical_keys=prior_physical_keys,
+                written_storage_keys=written_storage_keys,
+                job_id=job_id,
+            )
+        except Exception:  # broad: nothing after the commit may fail the job
+            logger.warning(
+                "raster_replace_post_swap_followup_failed",
+                job_id=job_id,
+                dataset_id=dataset_id,
+                exc_info=True,
+            )
 
     except Exception as exc:  # broad: spans GDAL/COG/storage — any step can fail
         logger.exception("Raster replace failed", job_id=job_id, task="reupload_raster")
@@ -682,12 +772,17 @@ async def reupload_raster(
         raise
     finally:
         await stop_ingest_job_heartbeat(heartbeat_task)
-        # The failure mirror of the success reap above, and the reason both
-        # filter rather than delete outright: on this path the keys to remove
-        # are the ones this attempt WROTE, minus any the live asset still
-        # points at. Deleting the intersection would take out the raster the
-        # dataset is still serving — the precise failure invariant 10 forbids.
-        if final_status != "complete" and written_storage_keys:
+        # The failure mirror of the success reap, and the reason both filter
+        # rather than delete outright: on this path the keys to remove are the
+        # ones this attempt WROTE, minus any the live asset still points at.
+        # Deleting the intersection would take out the raster the dataset is
+        # still serving — the precise failure invariant 10 forbids.
+        #
+        # fix(#1290 review): gated on `swap_committed`, not `final_status`.
+        # Those diverge in exactly one place and it is the dangerous one: after
+        # the swap commits, the written keys ARE the live asset, so a later
+        # error must never bring the task through here to delete them.
+        if not swap_committed and written_storage_keys:
             await _cleanup_orphaned_storage_keys(
                 [key for key in written_storage_keys if key not in prior_physical_keys],
                 job_id=job_id,
@@ -708,9 +803,16 @@ async def reupload_raster(
         # copy — bounded by the retention purge, which reaps a failed job's
         # staged file because a failed job is not its dataset's latest-complete
         # row. RUNBOOK.md section 9 states that window.
-        await reap_downloaded_staging_source(
-            job_id,
-            original_file_path=original_file_path,
-            final_status=final_status,
-            failed_source_replayable=True,
-        )
+        #
+        # fix(#1290 review): and retained on SUCCESS too when the conversion
+        # was lossy, because Decision 7's licence to delete rests on the COG
+        # carrying everything the upload did — true of DEFLATE, false of the
+        # JPEG and WEBP profiles the import UI also offers. Same gate as the
+        # first-ingest tail, same shared predicate, so the two cannot drift.
+        if source_preserved_in_cog:
+            await reap_downloaded_staging_source(
+                job_id,
+                original_file_path=original_file_path,
+                final_status=final_status,
+                failed_source_replayable=True,
+            )

@@ -22,7 +22,9 @@ from app.processing.raster.cog import (
     _scratch_dir,
     check_and_prepare_cog,
     check_cog_compliance,
+    cog_preserves_source,
     extract_raster_metadata,
+    resolve_crs_assignment,
     sha256_file,
 )
 from app.processing.raster.quicklook import generate_quicklook
@@ -375,6 +377,10 @@ async def ingest_raster(
     tmp_dir: str | None = None
     original_file_path = file_path
     final_status: str = "pending"
+    # fix(#1290 review): False until a conversion is known to have kept every
+    # sample. Decision 7's delete is licensed by that fact and nothing else, so
+    # the default has to be the one that retains.
+    source_preserved_in_cog: bool = False
     # fix(#1202 review r5): captured in phase 1, swept in the finally.
     owned_staging_key: str | None = None
     # GAP-017: storage keys written BEFORE the terminal DB commit. base_key
@@ -501,17 +507,18 @@ async def ingest_raster(
         # fix(#1186): derive this from the raster, not from an upload-time
         # stamp. `user_metadata["crs_missing"]` was written only by the
         # non-presigned upload endpoint, so it was absent for every S3
-        # (presigned) upload — and `assign_crs` below is gated on it, meaning
+        # (presigned) upload — and `assign_crs` below was gated on it, meaning
         # a user-supplied srid_override was silently dropped and the COG came
         # out with no CRS. `meta` is read from the file itself, which is the
         # authority the flag was standing in for.
-        crs_missing = not meta.get("crs_wkt")
-
-        if crs_missing and not assign_crs:
-            raise ValueError(
-                "Missing CRS: raster has no coordinate reference system. "
-                "Provide a CRS override (EPSG code) at import time."
-            )
+        #
+        # fix(#1290 review): the missing-CRS gate and the override decision are
+        # one rule now, shared with the replace tail. It also answers the
+        # override differently: a supplied EPSG applies even when the source
+        # declares a CRS, which is what the field's own description promises.
+        assign_crs = resolve_crs_assignment(
+            crs_wkt=meta.get("crs_wkt"), srid_override=assign_crs
+        )
 
         # ING-07 / P2-09: strict-mode COG gating. When the user opted in via
         # RasterCommitRequest.strict_cog=True, reject non-COG TIFFs here
@@ -571,9 +578,14 @@ async def ingest_raster(
                 compression=user_compression,
                 resampling=user_resampling,
                 nodata=user_nodata,
-                assign_crs=assign_crs if assign_crs and crs_missing else None,
+                assign_crs=assign_crs,
             )
         assert local_cog_path is not None  # check_and_prepare_cog always returns a path
+        # fix(#1290 review): resolved state, not the request field — the branch
+        # above can reach this line without converting at all, and a verified
+        # COG loses nothing whatever codec it carries. Read in the terminal
+        # `finally` to decide whether the uploaded file is still needed.
+        source_preserved_in_cog = cog_preserves_source(cog_status, user_compression)
 
         # 7. Hash COG
         asset_sha256 = await asyncio.to_thread(sha256_file, local_cog_path)
@@ -904,15 +916,22 @@ async def ingest_raster(
         # + both quicklooks come off it) and its row committed, so the delete
         # can never race the verification it depends on.
         #
-        # failed_source_replayable=True is Decision 7's one exception: a failed
-        # conversion leaves those bytes as the operator's only diagnostic copy,
-        # so they are retained and the retention purge in platform/jobs is what
-        # eventually reaps them — a failed job is not its dataset's
-        # latest-complete row, so nothing exempts it. RUNBOOK.md section 9
-        # states the window for operators.
-        await reap_downloaded_staging_source(
-            job_id,
-            original_file_path=original_file_path,
-            final_status=final_status,
-            failed_source_replayable=True,
-        )
+        # fix(#1290 review): "losslessly" is a claim about the profile that ran,
+        # not about conversion. Under JPEG or WEBP — both offered by the import
+        # UI — the COG has discarded detail the upload carried, which makes the
+        # upload the only lossless copy in existence and deleting it data loss.
+        # So the delete is gated on the resolved conversion, and the retention
+        # purge owns the retained object exactly as it does on the failure path.
+        #
+        # failed_source_replayable=True is Decision 7's other exception: a
+        # failed conversion leaves those bytes as the operator's only diagnostic
+        # copy. It is now redundant with the gate (a failure never sets the flag)
+        # and kept because it states the intent independently. RUNBOOK.md
+        # section 9 states both windows for operators.
+        if source_preserved_in_cog:
+            await reap_downloaded_staging_source(
+                job_id,
+                original_file_path=original_file_path,
+                final_status=final_status,
+                failed_source_replayable=True,
+            )

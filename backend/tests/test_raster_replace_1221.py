@@ -73,8 +73,19 @@ pytestmark = pytest.mark.anyio
 # ---------------------------------------------------------------------------
 
 
-def _geotiff_bytes(*, width: int = 32, height: int = 32, seed: int = 1221) -> bytes:
-    """A minimal valid single-band GeoTIFF, mirroring the sibling raster suites."""
+def _geotiff_bytes(
+    *,
+    width: int = 32,
+    height: int = 32,
+    seed: int = 1221,
+    compress: str | None = None,
+) -> bytes:
+    """A minimal valid single-band GeoTIFF, mirroring the sibling raster suites.
+
+    ``compress`` defaults to None (uncompressed) so a test asking for a
+    particular COG compression can tell the source's value apart from the
+    converted asset's.
+    """
     profile = {
         "driver": "GTiff",
         "dtype": "uint8",
@@ -84,6 +95,8 @@ def _geotiff_bytes(*, width: int = 32, height: int = 32, seed: int = 1221) -> by
         "crs": CRS.from_epsg(4326),
         "transform": from_bounds(-180, -90, 180, 90, width, height),
     }
+    if compress is not None:
+        profile["compress"] = compress
     rng = np.random.default_rng(seed)
     buf = io.BytesIO()
     with MemoryFile() as mem:
@@ -967,4 +980,420 @@ class TestVrtMemberStaleness:
             )
             await _purge(
                 test_db_session, dataset_id=member_id, record_id=member_record_id
+            )
+
+
+# ---------------------------------------------------------------------------
+# 7. Round-1 review findings (#1290)
+# ---------------------------------------------------------------------------
+
+
+class TestLossyConversionRetainsSource:
+    """FINDING 1. Decision 7 licenses deleting the upload because "conversion is
+    lossless" — a claim about the profile that ran, not about conversion. The
+    import UI offers JPEG, WEBP and LERC alongside the lossless three, and under
+    those the COG has discarded detail the upload carried, which makes the
+    upload the only lossless original that ever existed."""
+
+    @pytest.mark.parametrize(
+        "compression", ["DEFLATE", "deflate", "LZW", "ZSTD", "NONE"]
+    )
+    def test_lossless_profiles_supersede_the_upload(self, compression: str) -> None:
+        from app.processing.raster.cog import cog_preserves_source
+
+        assert cog_preserves_source("converted", compression) is True
+
+    @pytest.mark.parametrize("compression", ["JPEG", "WEBP", "LERC", "jpeg"])
+    def test_lossy_profiles_do_not(self, compression: str) -> None:
+        from app.processing.raster.cog import cog_preserves_source
+
+        assert cog_preserves_source("converted", compression) is False
+
+    def test_unrecognised_profile_is_treated_as_lossy(self) -> None:
+        """The allowlist's direction is the point: `compression` reaches the
+        worker off the request with no server-side vocabulary check, so an
+        unknown value must fall on the side that keeps the original."""
+        from app.processing.raster.cog import cog_preserves_source
+
+        assert cog_preserves_source("converted", "SOME_FUTURE_CODEC") is False
+        assert cog_preserves_source("converted", None) is False
+
+    def test_a_verified_cog_supersedes_it_whatever_the_codec(self) -> None:
+        """Nothing was converted, so the stored bytes ARE the uploaded bytes —
+        there is nothing left to lose by dropping the staged copy."""
+        from app.processing.raster.cog import cog_preserves_source
+
+        assert cog_preserves_source("verified", "JPEG") is True
+
+    @pytest.mark.parametrize(
+        ("compression", "source_survives"),
+        [("DEFLATE", False), ("JPEG", True)],
+    )
+    async def test_replace_end_to_end_honours_the_profile(
+        self,
+        test_db_session,
+        raster_storage,
+        compression: str,
+        source_survives: bool,
+    ) -> None:
+        """The wiring, driven through the real task.
+
+        The staged source has to be a ``staging/`` STORAGE key, not a local
+        path — that prefix is what the reaper acts on, so a local-file test
+        could not observe this at all.
+        """
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+
+        job = await _queue_replace_job(
+            test_db_session,
+            dataset_id=dataset_id,
+            user_id=admin_id,
+            file_path="placeholder",
+        )
+        job_id = job.id
+        staging_key = f"staging/{job_id}/replacement.tif"
+        await raster_storage.put(staging_key, io.BytesIO(_geotiff_bytes(seed=21)))
+        job.file_path = staging_key
+        job.user_metadata = {
+            **(job.user_metadata or {}),
+            "compression": compression,
+        }
+        await test_db_session.commit()
+
+        try:
+            await reupload_raster.func(
+                job_id=str(job_id),
+                dataset_id=str(dataset_id),
+                file_path=staging_key,
+                user_id=str(admin_id),
+                attempt_id=str(job.attempt_id),
+            )
+
+            test_db_session.expire_all()
+            asset = (
+                await test_db_session.execute(
+                    select(RasterAsset).where(RasterAsset.dataset_id == dataset_id)
+                )
+            ).scalar_one()
+            assert asset.asset_uri != live.cog_key, "precondition: the swap ran"
+
+            assert await raster_storage.exists(staging_key) is source_survives, (
+                f"{compression}: staged source should "
+                f"{'survive' if source_survives else 'be deleted'}"
+            )
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
+    def test_both_raster_tails_gate_the_delete_on_the_profile(self) -> None:
+        """Both tails route the decision through the one shared predicate.
+
+        The end-to-end test above covers the replace tail. Driving a whole
+        successful first ingest (quota, notifications, billing, embeddings)
+        to assert the same one bit is not worth its runtime, so the wiring is
+        pinned structurally — what would actually regress is someone deleting
+        the guard, and that is exactly what this sees.
+        """
+        import ast
+        import inspect
+
+        from app.processing.ingest import tasks_raster, tasks_raster_replace
+
+        for module in (tasks_raster, tasks_raster_replace):
+            src = inspect.getsource(module)
+            assert "cog_preserves_source(" in src, (
+                f"{module.__name__} does not consult the lossless predicate"
+            )
+            tree = ast.parse(src)
+            reaps = [
+                node
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Call)
+                and getattr(node.func, "id", None) == "reap_downloaded_staging_source"
+            ]
+            assert reaps, f"{module.__name__} never reaps its staged source"
+            guarded = [
+                node
+                for node in ast.walk(tree)
+                if isinstance(node, ast.If)
+                and isinstance(node.test, ast.Name)
+                and node.test.id == "source_preserved_in_cog"
+            ]
+            assert guarded, (
+                f"{module.__name__} reaps the upload without gating on whether "
+                "the COG preserved it (ADR-002 Decision 7 / #1290 finding 1)"
+            )
+
+
+class TestPostCommitFailureCannotUnpublish:
+    """FINDING 2. The mirror image of the post-put window: an error in the
+    optional work AFTER the swap committed used to flip final_status to failed,
+    and the finally then reaped every newly written key — leaving the committed
+    RasterAsset pointing at a COG that no longer existed."""
+
+    async def test_post_commit_failure_leaves_the_replacement_published(
+        self, test_db_session, raster_storage, tmp_path, monkeypatch
+    ) -> None:
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+
+        source = tmp_path / "replacement.tif"
+        source.write_bytes(_geotiff_bytes(seed=31))
+        job = await _queue_replace_job(
+            test_db_session,
+            dataset_id=dataset_id,
+            user_id=admin_id,
+            file_path=str(source),
+        )
+        job_id = job.id
+
+        async def _die(*args, **kwargs):
+            raise RuntimeError("valkey went away right after the swap")
+
+        # The first thing the post-commit block does. A transient failure here
+        # says nothing about the swap, which is already durable.
+        monkeypatch.setattr(
+            "app.processing.ingest.tasks_raster_replace.invalidate_catalog_cache",
+            _die,
+            raising=True,
+        )
+
+        try:
+            # Must not raise: the replace succeeded, and reporting it as a
+            # failed job would be the second bug in this finding.
+            await reupload_raster.func(
+                job_id=str(job_id),
+                dataset_id=str(dataset_id),
+                file_path=str(source),
+                user_id=str(admin_id),
+                attempt_id=str(job.attempt_id),
+            )
+
+            test_db_session.expire_all()
+            asset = (
+                await test_db_session.execute(
+                    select(RasterAsset).where(RasterAsset.dataset_id == dataset_id)
+                )
+            ).scalar_one()
+
+            assert asset.asset_uri != live.cog_key, "the swap must stand"
+            for key in (
+                asset.asset_uri,
+                asset.quicklook_256_uri,
+                asset.quicklook_512_uri,
+            ):
+                assert await raster_storage.exists(key), (
+                    f"{key} was reaped after the swap committed — the dataset "
+                    "now points at bytes that do not exist"
+                )
+            assert await raster_storage.size(asset.asset_uri) == asset.size_bytes
+
+            run = (
+                await test_db_session.execute(
+                    select(DatasetRefreshRun).where(
+                        DatasetRefreshRun.ingest_job_id == job_id
+                    )
+                )
+            ).scalar_one()
+            assert run.status == "succeeded"
+
+            finished_job = (
+                await test_db_session.execute(
+                    select(IngestJob).where(IngestJob.id == job_id)
+                )
+            ).scalar_one()
+            assert finished_job.status == "complete"
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
+
+class TestPersistedMetadataDescribesTheServedCog:
+    """FINDING 3 and 4, and their composition.
+
+    Conversion changes compression always, nodata under an override, and the
+    CRS and footprint under srid_override — so metadata read from the
+    pre-conversion source described a file the dataset does not serve.
+    """
+
+    async def test_compression_and_nodata_come_from_the_converted_cog(
+        self, test_db_session, raster_storage, tmp_path
+    ) -> None:
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+
+        # The source is written with no compression and no nodata; the request
+        # asks for LZW and a nodata value, so both differ after conversion.
+        source = tmp_path / "replacement.tif"
+        source.write_bytes(_geotiff_bytes(seed=41, compress=None))
+        job = await _queue_replace_job(
+            test_db_session,
+            dataset_id=dataset_id,
+            user_id=admin_id,
+            file_path=str(source),
+        )
+        job.user_metadata = {
+            **(job.user_metadata or {}),
+            "compression": "LZW",
+            "nodata_override": 7,
+        }
+        await test_db_session.commit()
+        job_id = job.id
+
+        try:
+            await reupload_raster.func(
+                job_id=str(job_id),
+                dataset_id=str(dataset_id),
+                file_path=str(source),
+                user_id=str(admin_id),
+                attempt_id=str(job.attempt_id),
+            )
+
+            test_db_session.expire_all()
+            asset = (
+                await test_db_session.execute(
+                    select(RasterAsset).where(RasterAsset.dataset_id == dataset_id)
+                )
+            ).scalar_one()
+
+            assert (asset.compression or "").upper() == "LZW", (
+                "the catalog reports the source's compression, not the COG's"
+            )
+            assert asset.nodata is not None and float(asset.nodata) == 7.0, (
+                "the catalog reports the source's nodata, not the COG's"
+            )
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
+    async def test_srid_override_applies_when_the_source_declares_a_crs(
+        self, test_db_session, raster_storage, tmp_path
+    ) -> None:
+        """FINDING 4 and 3 composed. The override must reach the conversion
+        even though the source declares a CRS, AND the persisted EPSG must be
+        the one the converted COG actually carries — which is only the same
+        answer if both fixes are in place."""
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+
+        source = tmp_path / "replacement.tif"
+        source.write_bytes(_geotiff_bytes(seed=51))  # declares EPSG:4326
+        job = await _queue_replace_job(
+            test_db_session,
+            dataset_id=dataset_id,
+            user_id=admin_id,
+            file_path=str(source),
+        )
+        job.user_metadata = {**(job.user_metadata or {}), "srid_override": 3857}
+        await test_db_session.commit()
+        job_id = job.id
+
+        try:
+            await reupload_raster.func(
+                job_id=str(job_id),
+                dataset_id=str(dataset_id),
+                file_path=str(source),
+                user_id=str(admin_id),
+                attempt_id=str(job.attempt_id),
+            )
+
+            test_db_session.expire_all()
+            asset = (
+                await test_db_session.execute(
+                    select(RasterAsset).where(RasterAsset.dataset_id == dataset_id)
+                )
+            ).scalar_one()
+            dataset = (
+                await test_db_session.execute(
+                    select(Dataset).where(Dataset.id == dataset_id)
+                )
+            ).scalar_one()
+
+            assert asset.epsg == 3857, (
+                "srid_override was dropped because the source declared a CRS "
+                "(#1290 finding 4), or the persisted CRS came from the source "
+                "rather than the converted COG (finding 3)"
+            )
+            assert dataset.srid == 3857
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
+
+class TestCrsAssignmentContract:
+    """FINDING 4's contract, pinned in one place so the two tails cannot answer
+    it differently — the drift pattern #1277 paid for three rounds running."""
+
+    def test_override_wins_over_a_declared_crs(self) -> None:
+        from app.processing.raster.cog import resolve_crs_assignment
+
+        assert resolve_crs_assignment(crs_wkt="GEOGCS[...]", srid_override=3857) == 3857
+
+    def test_override_applies_when_the_source_declares_nothing(self) -> None:
+        from app.processing.raster.cog import resolve_crs_assignment
+
+        assert resolve_crs_assignment(crs_wkt=None, srid_override=3857) == 3857
+
+    def test_no_override_and_a_declared_crs_keeps_the_source(self) -> None:
+        from app.processing.raster.cog import resolve_crs_assignment
+
+        assert resolve_crs_assignment(crs_wkt="GEOGCS[...]", srid_override=None) is None
+
+    def test_no_crs_and_no_override_is_the_one_refusal(self) -> None:
+        from app.processing.raster.cog import resolve_crs_assignment
+
+        with pytest.raises(ValueError, match="Provide a CRS override"):
+            resolve_crs_assignment(crs_wkt=None, srid_override=None)
+
+    def test_both_raster_tails_use_the_shared_resolver(self) -> None:
+        import ast
+        import inspect
+
+        from app.processing.ingest import tasks_raster, tasks_raster_replace
+
+        for module in (tasks_raster, tasks_raster_replace):
+            src = inspect.getsource(module)
+            assert "resolve_crs_assignment(" in src, (
+                f"{module.__name__} resolves srid_override on its own"
+            )
+            # AST, not text: tasks_raster's #1186 comment quotes the old
+            # `user_metadata["crs_missing"]` stamp by name, and that history is
+            # worth keeping. What must be gone is the local predicate.
+            names = {
+                node.id
+                for node in ast.walk(ast.parse(src))
+                if isinstance(node, ast.Name)
+            }
+            assert "crs_missing" not in names, (
+                f"{module.__name__} still computes its own crs_missing "
+                "predicate instead of deferring to the shared resolver"
             )
