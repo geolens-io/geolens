@@ -1901,7 +1901,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # background tasks, so an OOM-killed/SIGKILLed worker's multiprocess
     # gauge files get reaped even though its own graceful shutdown hook
     # never ran. Cap 1296 -> 1305, exact.
-    "backend/app/api/main.py": 1305,
+    # feat(#1268): +8 — start and cancel the refresh-metrics loop beside the
+    # existing pool/memory/sweep tasks. Half the lines are the comment saying
+    # why the refresh lifecycle is observed in the API at all when the worker
+    # is what executes it: the worker serves no /metrics endpoint, so a
+    # counter incremented there is written to a file nothing reads.
+    # Cap 1305 -> 1313, exact.
+    "backend/app/api/main.py": 1313,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative
@@ -2231,7 +2237,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the comment recording that ordering and why the count is logged rather
     # than added to StaleCleanupOutcome (several callers rebuild that dataclass
     # field by field). Cap 1561 -> 1573, exact.
-    "backend/app/platform/jobs/router.py": 1573,
+    # feat(#1268): +7 — the sweep now increments a Prometheus counter, with
+    # the comment explaining why this one is a real counter while the refresh
+    # run series beside it are derived gauges: the sweep runs inside one API
+    # request on one worker, so nothing sums it twice. Cap 1573 -> 1580, exact.
+    "backend/app/platform/jobs/router.py": 1580,
     # fix(second-opinion review on #1236 review r3): first entry — crossed
     # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
     # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side

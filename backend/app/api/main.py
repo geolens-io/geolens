@@ -331,8 +331,15 @@ async def lifespan(app: FastAPI):
 
     from app.observability.metrics.memory import update_memory_metrics
     from app.observability.metrics.pool import update_pool_metrics
+    from app.observability.metrics.refresh import update_refresh_metrics
 
     pool_metrics_task = asyncio.create_task(update_pool_metrics())
+    # feat(#1268): the refresh lifecycle is observed HERE rather than in the
+    # worker that executes it — the worker serves no /metrics endpoint. The
+    # gauges are derived from catalog.dataset_refresh_runs and published in
+    # livemostrecent mode, so every uvicorn worker running this same loop
+    # reports one answer instead of N summed ones.
+    refresh_metrics_task = asyncio.create_task(update_refresh_metrics())
     # fix(#643): per-worker RSS gauge + log watermark so an OOM-bound worker
     # is visible in normal logs before the kernel kills it.
     memory_metrics_task = asyncio.create_task(update_memory_metrics())
@@ -418,6 +425,7 @@ async def lifespan(app: FastAPI):
 
     pool_metrics_task.cancel()
     memory_metrics_task.cancel()
+    refresh_metrics_task.cancel()
     metrics_sweep_task.cancel()
     stale_jobs_task.cancel()
     rate_limit_warmer_task.cancel()

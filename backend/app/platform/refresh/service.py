@@ -109,6 +109,147 @@ def drift_status_from_diff(schema_diff: dict[str, Any] | None) -> str | None:
     return "drifted" if any(structural) else "none"
 
 
+async def _run_audit_context(
+    session: AsyncSession, run_id: uuid.UUID
+) -> tuple[uuid.UUID | None, uuid.UUID, dict[str, Any]] | None:
+    """``(actor, dataset_id, details)`` for one run's audit event, or None.
+
+    feat(#1268) / ADR-002 Amendment A10. A run row is mutable and cascades
+    with its dataset, so it is a status board rather than a ledger: delete the
+    dataset and every trace of what was ever pulled into it goes too. The
+    audit log is append-only and survives, which is why the lifecycle emits
+    into it as well. The two records answer different questions and neither
+    replaces the other.
+
+    Reads the row back rather than taking the caller's word for it. Every
+    caller invokes this AFTER its transition, so ``status`` and ``error_code``
+    are what actually landed — a caller that believed it wrote something else
+    cannot log the belief.
+
+    The payload is ids, origin kind, trigger, status and error code, and
+    nothing else. Not the origin URI, not ``origin_ref``, not the schema diff,
+    and specifically not ``error_message``: that is redacted free text, and
+    redaction is the wrong thing to lean on when a closed vocabulary is
+    available. ``error_code`` carries the same diagnostic value with none of
+    the exposure, and audit rows are written for keeps.
+
+    The four emitters below spell their action as a literal rather than taking
+    it as an argument, so ``test_audit_action_registry`` can see every action
+    this module writes by reading it. That guard is the reason the registry
+    and the frontend's display list cannot drift apart again, and it only
+    works on literals.
+    """
+    row = (
+        await session.execute(
+            select(
+                DatasetRefreshRun.dataset_id,
+                DatasetRefreshRun.origin_kind,
+                DatasetRefreshRun.trigger,
+                DatasetRefreshRun.status,
+                DatasetRefreshRun.triggered_by,
+                DatasetRefreshRun.error_code,
+            ).where(DatasetRefreshRun.id == run_id)
+        )
+    ).one_or_none()
+    if row is None:
+        return None
+    return (
+        row.triggered_by,
+        row.dataset_id,
+        {
+            "run_id": str(run_id),
+            "origin_kind": row.origin_kind,
+            "trigger": row.trigger,
+            "status": row.status,
+            "error_code": row.error_code,
+        },
+    )
+
+
+async def _emit_refresh_dispatch(session: AsyncSession, run_id: uuid.UUID) -> None:
+    """Record that a refresh was admitted. See :func:`_run_audit_context`."""
+    from app.platform.audit import AuditEvent, audit_emit
+
+    context = await _run_audit_context(session, run_id)
+    if context is None:
+        return
+    actor, dataset_id, details = context
+    await audit_emit(
+        session,
+        AuditEvent(
+            user_id=actor,
+            action="refresh.dispatch",
+            resource_type="dataset",
+            resource_id=dataset_id,
+            details=details,
+        ),
+    )
+
+
+async def _emit_refresh_succeeded(session: AsyncSession, run_id: uuid.UUID) -> None:
+    """Record a refresh that installed new data."""
+    from app.platform.audit import AuditEvent, audit_emit
+
+    context = await _run_audit_context(session, run_id)
+    if context is None:
+        return
+    actor, dataset_id, details = context
+    await audit_emit(
+        session,
+        AuditEvent(
+            user_id=actor,
+            action="refresh.succeeded",
+            resource_type="dataset",
+            resource_id=dataset_id,
+            details=details,
+        ),
+    )
+
+
+async def _emit_refresh_failed(session: AsyncSession, run_id: uuid.UUID) -> None:
+    """Record a refresh that reported an error and changed no data."""
+    from app.platform.audit import AuditEvent, audit_emit
+
+    context = await _run_audit_context(session, run_id)
+    if context is None:
+        return
+    actor, dataset_id, details = context
+    await audit_emit(
+        session,
+        AuditEvent(
+            user_id=actor,
+            action="refresh.failed",
+            resource_type="dataset",
+            resource_id=dataset_id,
+            details=details,
+        ),
+    )
+
+
+async def _emit_refresh_abandoned(session: AsyncSession, run_id: uuid.UUID) -> None:
+    """Record the sweep's bookkeeping correction.
+
+    Deliberately not spelled ``refresh.failed``: a run nobody watched finish
+    is a different thing to investigate than one that reported an error.
+    """
+    from app.platform.audit import AuditEvent, audit_emit
+
+    context = await _run_audit_context(session, run_id)
+    if context is None:
+        return
+    actor, dataset_id, details = context
+    await audit_emit(
+        session,
+        AuditEvent(
+            user_id=actor,
+            action="refresh.abandoned",
+            resource_type="dataset",
+            resource_id=dataset_id,
+            details=details,
+        ),
+    )
+
+
 class DatasetBusyError(Exception):
     """Another refresh run for this dataset is already pending or running.
 
@@ -229,6 +370,10 @@ async def create_pending_run(
         raise DatasetBusyError(
             "A refresh is already in progress for this dataset."
         ) from exc
+    # feat(#1268): in the caller's transaction, so a dispatch the caller then
+    # rolls back — a busy dataset, a defer that never happened — leaves no
+    # audit row claiming a refresh started.
+    await _emit_refresh_dispatch(session, run.id)
     return run
 
 
@@ -401,7 +546,10 @@ async def record_refresh_success(
             "schema_diff": schema_diff,
         },
     )
-    return run_id if won else None
+    if not won:
+        return None
+    await _emit_refresh_succeeded(session, run_id)
+    return run_id
 
 
 async def record_refresh_failure(
@@ -476,6 +624,7 @@ async def record_refresh_failure(
     )
     if not won:
         return None
+    await _emit_refresh_failed(session, row.id)
     if contacted_origin:
         await _stamp_guarded_contact(
             session,
@@ -729,7 +878,21 @@ async def sweep_abandoned_refresh_runs(
             "error_message": ABANDONED_ERROR_MESSAGE,
         },
     )
-    return len(list(completed.scalars())) + len(list(result.scalars()))
+    # RETURNING rows, not a rowcount: an ORM UPDATE..RETURNING carries no
+    # usable `.rowcount`, and the ids are needed anyway.
+    recovered = list(completed.scalars())
+    cancelled = list(result.scalars())
+    # feat(#1268): these two statements are the only terminal transitions no
+    # worker reports, so without an event here the audit log would show a
+    # dispatch and then nothing, forever. Emitted per run rather than as one
+    # summary row: the audit log is keyed on a resource, and "seven runs were
+    # reconciled" names no dataset anybody can go look at. Both statements
+    # normally match zero rows, so the per-row read costs nothing in practice.
+    for run_id in recovered:
+        await _emit_refresh_succeeded(session, run_id)
+    for run_id in cancelled:
+        await _emit_refresh_abandoned(session, run_id)
+    return len(recovered) + len(cancelled)
 
 
 async def list_runs_for_dataset(

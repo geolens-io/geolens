@@ -24,6 +24,7 @@ from app.processing.ingest.service import queue_ingest_job
 from app.platform.extensions import get_permission_extension
 from app.platform.jobs.heartbeat import ANALYSIS_MATERIALIZE_LEASE_SECONDS
 from app.platform.jobs.models import IngestJob, owned_presigned_staging_key
+from app.observability.metrics.refresh import refresh_sweep_reconciled_total
 from app.platform.refresh.service import sweep_abandoned_refresh_runs
 from app.platform.jobs.schemas import (
     DbfTruncationCollisionWarning,
@@ -738,6 +739,12 @@ async def fail_stale_jobs(
     cancelled_runs = await sweep_abandoned_refresh_runs(db, now)
     if cancelled_runs:
         log.info("abandoned_refresh_runs_cancelled", count=cancelled_runs)
+        # feat(#1268): a real counter, unlike the derived refresh gauges — the
+        # sweep runs inside one API request on one worker, so there is no
+        # sibling process incrementing the same series. Every increment is a
+        # run that reached a terminal status with no worker reporting one,
+        # which is the alert worth having.
+        refresh_sweep_reconciled_total.inc(cancelled_runs)
 
     terminal_jobs_purged = 0
     staged_paths_considered = 0
