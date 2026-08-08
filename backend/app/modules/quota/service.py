@@ -182,6 +182,62 @@ async def check_upload_quota(
     await enforce_limit(request, "dataset_count", usage.dataset_count + 1)
 
 
+async def check_replacement_quota(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    incoming_bytes: int,
+    request: Request,
+    *,
+    dataset_id: uuid.UUID,
+) -> None:
+    """Admit a REPLACEMENT at the door, where ``check_upload_quota`` cannot.
+
+    fix(#1290 review). ``check_upload_quota`` is creation-shaped: it refuses at
+    ``dataset_count >= count_cap`` and charges the incoming file on top of
+    everything the user already stores. Applied to a replacement both halves
+    are wrong, and the first is a feature lockout rather than protection — an
+    owner sitting at their permitted dataset limit could not replace a dataset
+    they already own, because replacing creates no dataset.
+
+    So: no count check, and the byte check credits what this dataset already
+    contributes. ``bytes_used`` sums ``dataset_assets`` rows with ``key='data'``,
+    so the credit is read from that same row rather than from the raster asset
+    — they diverge for a STAC-imported dataset, which has an asset but no
+    counted row, and crediting bytes the quota never counted would admit an
+    upload that overshoots.
+
+    This is the EARLY bound and deliberately approximate: the door sees the
+    uploaded file, not the COG it converts into, which can be larger. The
+    authoritative check is ``reserve_storage_bytes`` at publish time, under the
+    per-user advisory lock, against the real converted size. Shared by both
+    reupload doors and by every record type — the vector path had the identical
+    lockout.
+    """
+    usage = await get_user_quota_usage(db, user_id)
+    counted = await db.scalar(
+        text(
+            "SELECT COALESCE(SUM(size_bytes), 0)::bigint "
+            "FROM catalog.dataset_assets "
+            "WHERE dataset_id = :dataset_id AND key = 'data'"
+        ),
+        {"dataset_id": dataset_id},
+    )
+    projected = usage.bytes_used - int(counted or 0) + incoming_bytes
+
+    if usage.storage_cap > 0 and projected > usage.storage_cap:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=(
+                f"Storage quota exceeded: used {usage.bytes_used} of "
+                f"{usage.storage_cap} bytes (replacing {int(counted or 0)} "
+                f"bytes with {incoming_bytes} bytes)"
+            ),
+        )
+
+    # No dataset_count seam call: a replacement does not create one.
+    await enforce_limit(request, "storage_bytes", projected)
+
+
 class DatasetQuotaExceededError(Exception):
     """Dataset-count cap exceeded at Record-creation time (fix #302).
 

@@ -324,7 +324,7 @@ async def test_presigned_reupload_round_trip_uses_tenant_provider_key(monkeypatc
         patch.object(
             router_reupload.UPLOAD_MAX_SIZE_MB, "get", AsyncMock(return_value=10)
         ),
-        patch.object(router_reupload, "check_upload_quota", AsyncMock()),
+        patch.object(router_reupload, "check_replacement_quota", AsyncMock()),
         patch.object(router_reupload, "get_catalog_port", return_value=port),
         patch.object(router_reupload, "get_storage", return_value=storage),
         _tenant_mode(monkeypatch, "multi_tenant", TENANT_A),

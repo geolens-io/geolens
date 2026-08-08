@@ -1596,10 +1596,17 @@ will ever exist, so GeoLens keeps it.
 
 ### Where the kept original lives, and for how long
 
-It is copied to `originals/<dataset-id>/<filename>` — the same place vector
-ingests archive their sources. On an object-storage install that is a prefix in
-your bucket; on a local install it is `originals/` inside the `upload_staging`
-volume. One location, both shapes.
+It is copied to `originals/<dataset-id>/<hash>-<filename>` — the same place
+vector ingests archive their sources. On an object-storage install that is a
+prefix in your bucket; on a local install it is `originals/` inside the
+`upload_staging` volume. One location, both shapes.
+
+The `<hash>` is the first twelve characters of the uploaded file's SHA-256. It
+is there so two uploads that happen to share a filename cannot overwrite each
+other: a replacement is archived before its swap is committed, and if that swap
+then fails, the dataset keeps serving the previous raster — whose original must
+still be sitting there untouched. The filename is kept alongside it so the
+prefix stays readable when you list it.
 
 That location is deliberate. The copy is **not** left under `staging/`, because
 staging is for transient files and the retention purge is entitled to clean it:
@@ -1611,7 +1618,7 @@ Its lifetime is therefore tied to the dataset, not to a job:
 
 | Event | What happens to the kept original |
 | --- | --- |
-| The dataset is replaced again with a lossy conversion | The new original is kept alongside it, keyed by uploaded filename. Same filename overwrites; a different filename adds. |
+| The dataset is replaced again with a lossy conversion | The new original is kept alongside it. Every upload with distinct content persists, whatever it is called; re-uploading a byte-identical file rewrites the same object rather than adding a second copy. |
 | The dataset is replaced with a **lossless** conversion | Nothing new is kept. Earlier originals stay — they are still the only copy of what those uploads contained. |
 | The dataset is **deleted** | Removed with it. Deleting a raster dataset clears the whole `originals/<dataset-id>/` prefix. |
 | The `ingest_jobs` retention window passes | Nothing. This copy is not a job artifact. |

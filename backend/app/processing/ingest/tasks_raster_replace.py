@@ -76,6 +76,7 @@ from app.processing.ingest.tasks_raster_common import (
 )
 from app.processing.ingest.tasks_raster_swap import (
     _prior_asset_keys_to_reap,
+    reserve_replacement_bytes,
     _run_post_swap_followups,
     _upsert_managed_asset_rows,
     _write_swapped_fields,
@@ -511,6 +512,16 @@ async def reupload_raster(
             # quicklooks to search, STAC and the download endpoint. A zero-row
             # UPDATE reporting success is the same requested-vs-happened trap
             # as round 1, one level down.
+            # fix(#1290 review): BEFORE the upsert — see the helper's docstring
+            # for why the ordering is load-bearing. Raises
+            # StorageQuotaExceededError, which the task's broad handler records
+            # as a failed run, leaving the previous raster serving.
+            await reserve_replacement_bytes(
+                session,
+                dataset_id=dataset_uuid,
+                owner_id=dataset.record.created_by,
+                new_size=cog_size,
+            )
             await _upsert_managed_asset_rows(
                 session,
                 dataset_id=dataset_uuid,
@@ -585,7 +596,18 @@ async def reupload_raster(
                         "the staged upload will be retained in place instead"
                     ),
                     commit=False,
-                    archive_name=source_filename,
+                    # fix(#1290 review): content-derived key. A same-named
+                    # lossy replacement used to overwrite
+                    # `originals/<dataset>/<filename>` BEFORE the swap
+                    # committed, so a failed commit left the OLD raster live
+                    # with its faithful original replaced by the failed
+                    # attempt's bytes — invariant 10 broken on the archive
+                    # instead of the asset. The hash prefix means different
+                    # bytes can never collide and identical bytes collide into
+                    # an idempotent rewrite; the filename stays so an operator
+                    # listing the prefix can still tell what they are looking
+                    # at.
+                    archive_name=f"{source_sha256[:12]}-{source_filename}",
                 )
 
             await require_ingest_job_update(

@@ -123,6 +123,53 @@ def _write_swapped_fields(
     return new_version
 
 
+async def reserve_replacement_bytes(
+    session, *, dataset_id: uuid.UUID, owner_id: uuid.UUID, new_size: int
+) -> None:
+    """Reserve the replacement's NET byte increase under the owner's quota lock.
+
+    fix(#1290 review). The swap rewrites the quota-counted
+    ``dataset_assets.data.size_bytes`` and did so with no reservation at all —
+    only first ingest took the lock. So a small source expanding into a large
+    COG, or two replaces of DIFFERENT datasets owned by one user running
+    concurrently, both committed past ``MAX_STORAGE_BYTES_PER_USER``. (Two
+    replaces of the SAME dataset cannot race: the one-active-run index refuses
+    the second at the door.)
+
+    Net, not absolute, and that composes with the existing primitive rather
+    than forking a second lock discipline: ``reserve_storage_bytes`` adds its
+    argument to a LIVE recount, and at this point the recount still includes
+    the row this swap is about to overwrite. So passing the delta asks exactly
+    "will the post-swap total fit". It must therefore run BEFORE
+    ``_upsert_managed_asset_rows`` — after it, the recount already holds the
+    new value and the delta would be counted twice.
+
+    The credit comes from the ``dataset_assets`` row rather than the
+    ``RasterAsset``, because that row is what the quota sums: a STAC-imported
+    dataset has an asset carrying bytes and no counted row, and crediting bytes
+    the quota never counted would admit an overshoot.
+
+    A shrinking replacement reserves nothing and needs no special case — usage
+    is a live sum, so it self-corrects the moment the smaller row commits.
+    """
+    from sqlalchemy import text
+
+    from app.modules.quota.service import reserve_storage_bytes
+
+    counted = await session.scalar(
+        text(
+            "SELECT COALESCE(SUM(size_bytes), 0)::bigint "
+            "FROM catalog.dataset_assets "
+            "WHERE dataset_id = :dataset_id AND key = 'data'"
+        ),
+        {"dataset_id": dataset_id},
+    )
+    delta = new_size - int(counted or 0)
+    if delta <= 0:
+        return
+    await reserve_storage_bytes(session, owner_id, delta)
+
+
 async def _upsert_managed_asset_rows(
     session,
     *,

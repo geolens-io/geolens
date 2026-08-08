@@ -2325,7 +2325,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # branch pushed past the McCabe gate. Most of the added lines are the
     # extraction's docstring and the raster branch's comment on why it stays
     # off the priority queue. Cap 1046 -> 1125, exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1125,
+    # fix(#1290 review): +10 — both doors swap the creation-shaped
+    # check_upload_quota for check_replacement_quota, which needs the
+    # dataset_id and gets a comment explaining that a replacement creates no
+    # dataset, so refusing it at the count cap locked owners out of replacing
+    # what they already own. Cap 1125 -> 1135, exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1135,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python

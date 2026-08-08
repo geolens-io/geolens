@@ -35,9 +35,11 @@ block, because this suite runs against the shared dev Postgres.
 from __future__ import annotations
 
 import io
+import re
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import numpy as np
 import pytest
@@ -131,6 +133,19 @@ def raster_storage(tmp_path, monkeypatch):
         "app.processing.ingest.tasks_common.get_storage", lambda: storage, raising=True
     )
     return storage
+
+
+async def _archived_originals(storage, dataset_id) -> list[str]:
+    """The uploaded filenames archived under ``originals/<dataset_id>/``.
+
+    Keys carry a content-hash prefix (#1290 round-4 finding 3) so a same-named
+    replacement cannot overwrite the previous original. Tests care about which
+    uploads are retained, not about the hash, so strip it back to the filename.
+    """
+    keys = await storage.list(f"originals/{dataset_id}/")
+    # Strip exactly a 12-hex-char prefix. A blunt split("-", 1) would also eat
+    # the first segment of a hyphenated filename like `local-original.tif`.
+    return sorted(re.sub(r"^[0-9a-f]{12}-", "", k.rsplit("/", 1)[-1]) for k in keys)
 
 
 class _LiveRaster:
@@ -1105,8 +1120,8 @@ class TestLossyConversionRetainsSource:
                 "the staged copy must not survive either way — it is either "
                 "redundant or relocated"
             )
-            durable = f"originals/{dataset_id}/replacement.tif"
-            assert await raster_storage.exists(durable) is source_survives, (
+            durable = await _archived_originals(raster_storage, dataset_id)
+            assert (durable == ["replacement.tif"]) is source_survives, (
                 f"{compression}: a durable original should "
                 f"{'exist' if source_survives else 'not exist'} under originals/"
             )
@@ -1749,8 +1764,8 @@ class TestLocalStorageHonoursTheRetentionPromise:
                 "the staged local copy goes in both cases — it is either "
                 "redundant or already relocated"
             )
-            durable = f"originals/{dataset_id}/local-original.tif"
-            assert await raster_storage.exists(durable) is source_survives, (
+            durable = await _archived_originals(raster_storage, dataset_id)
+            assert (durable == ["local-original.tif"]) is source_survives, (
                 f"{compression}: a durable original should "
                 f"{'exist' if source_survives else 'not exist'} under "
                 "originals/ — RUNBOOK section 9 promises the same policy on "
@@ -1856,9 +1871,9 @@ class TestReprojectionCountsAsSampleAltering:
                 user_id=str(admin_id),
                 attempt_id=str(job.attempt_id),
             )
-            assert await raster_storage.exists(
-                f"originals/{dataset_id}/reprojected.tif"
-            ), (
+            assert await _archived_originals(raster_storage, dataset_id) == [
+                "reprojected.tif"
+            ], (
                 "a reprojected replace deleted its only un-resampled copy — "
                 "DEFLATE says nothing about a warp (#1290 round-3 finding 1)"
             )
@@ -1916,7 +1931,9 @@ class TestRetainedOriginalLivesOutsideThePurgesDomain:
                 "retention purge will reap it once a newer job supersedes this "
                 "one, and the RUNBOOK calls the copy permanent"
             )
-            assert await raster_storage.exists(f"originals/{dataset_id}/scene.tif")
+            assert await _archived_originals(raster_storage, dataset_id) == [
+                "scene.tif"
+            ]
         finally:
             await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
 
@@ -1962,8 +1979,10 @@ class TestRetainedOriginalLivesOutsideThePurgesDomain:
                     attempt_id=str(job.attempt_id),
                 )
 
-            kept = sorted(await raster_storage.list(f"originals/{dataset_id}/"))
-            assert [k.rsplit("/", 1)[-1] for k in kept] == ["first.tif", "second.tif"]
+            assert await _archived_originals(raster_storage, dataset_id) == [
+                "first.tif",
+                "second.tif",
+            ]
         finally:
             await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
 
@@ -2053,3 +2072,415 @@ class TestFirstIngestPersistsTheServedCogToo:
             assert asset.epsg == 3857
         finally:
             await _purge(test_db_session, dataset_id=dataset.id, record_id=record.id)
+
+
+# ---------------------------------------------------------------------------
+# 10. Round-4 review findings (#1290)
+# ---------------------------------------------------------------------------
+
+
+class TestReplacementReservesItsNetIncrease:
+    """FINDING 1. The swap rewrites the quota-counted `dataset_assets.data`
+    size, and did it with no reservation — only first ingest took the lock. A
+    source that expands into a much larger COG, or a second replace committing
+    against the same owner's budget, sailed past the cap."""
+
+    async def test_expansion_reserves_only_the_delta(
+        self, test_db_session, raster_storage
+    ) -> None:
+        from app.processing.ingest.tasks_raster_swap import reserve_replacement_bytes
+
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+        await test_db_session.execute(
+            text(
+                "INSERT INTO catalog.dataset_assets "
+                "(dataset_id, key, href, size_bytes) "
+                "VALUES (:id, 'data', 'x', 400)"
+            ),
+            {"id": dataset_id},
+        )
+        await test_db_session.commit()
+
+        reserved: list[int] = []
+
+        async def _spy(session, user_id, incoming_bytes):
+            reserved.append(incoming_bytes)
+
+        try:
+            with patch("app.modules.quota.service.reserve_storage_bytes", new=_spy):
+                # Growing 400 -> 1000 must charge 600, not 1000: the 400 is
+                # already in the user's counted total and is being superseded.
+                await reserve_replacement_bytes(
+                    test_db_session,
+                    dataset_id=dataset_id,
+                    owner_id=admin_id,
+                    new_size=1000,
+                )
+                assert reserved == [600]
+
+                # Shrinking needs no reservation at all; the live sum
+                # self-corrects when the smaller row commits.
+                reserved.clear()
+                await reserve_replacement_bytes(
+                    test_db_session,
+                    dataset_id=dataset_id,
+                    owner_id=admin_id,
+                    new_size=100,
+                )
+                assert reserved == []
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
+    async def test_credit_comes_from_the_counted_row_not_the_raster_asset(
+        self, test_db_session, raster_storage
+    ) -> None:
+        """A STAC-imported dataset has a RasterAsset carrying bytes and NO
+        counted `dataset_assets` row. Crediting the asset's bytes would admit
+        an upload the quota never had room for."""
+        from app.processing.ingest.tasks_raster_swap import reserve_replacement_bytes
+
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_stac_origin_raster(test_db_session, created_by=admin_id)
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+        await test_db_session.execute(
+            text(
+                "UPDATE catalog.raster_assets SET size_bytes = 900 "
+                "WHERE dataset_id = :id"
+            ),
+            {"id": dataset_id},
+        )
+        await test_db_session.commit()
+
+        reserved: list[int] = []
+
+        async def _spy(session, user_id, incoming_bytes):
+            reserved.append(incoming_bytes)
+
+        try:
+            with patch("app.modules.quota.service.reserve_storage_bytes", new=_spy):
+                await reserve_replacement_bytes(
+                    test_db_session,
+                    dataset_id=dataset_id,
+                    owner_id=admin_id,
+                    new_size=1000,
+                )
+            assert reserved == [1000], (
+                "the asset's 900 bytes were credited, but the quota never "
+                "counted them — a STAC dataset has no data asset row"
+            )
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
+    async def test_one_owner_replacing_a_second_dataset_cannot_overshoot(
+        self, test_db_session, raster_storage, tmp_path
+    ) -> None:
+        """The concurrency that matters: SAME OWNER, DIFFERENT DATASETS.
+
+        Two replaces of one dataset cannot race (the one-active-run index
+        refuses the second at the door), so the exposure is a second dataset
+        owned by the same user. Expressed deterministically here — the other
+        dataset's bytes are already counted, which is exactly the state a
+        concurrent peer would have committed under the advisory lock.
+        """
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        neighbour = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        target = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        # Captured before any expire_all(): reading them off an expired ORM
+        # instance lazy-loads, which under AnyIO is MissingGreenlet.
+        target_id = target.dataset.id
+        target_record_id = target.dataset.record_id
+        target_cog_key = target.cog_key
+        neighbour_id = neighbour.dataset.id
+        neighbour_record_id = neighbour.dataset.record_id
+        # The neighbour already consumes the whole budget.
+        await test_db_session.execute(
+            text(
+                "INSERT INTO catalog.dataset_assets "
+                "(dataset_id, key, href, size_bytes) "
+                "VALUES (:id, 'data', 'x', 100000)"
+            ),
+            {"id": neighbour_id},
+        )
+        await test_db_session.commit()
+
+        source = tmp_path / "overshoot.tif"
+        source.write_bytes(_geotiff_bytes(seed=131))
+        job = await _queue_replace_job(
+            test_db_session,
+            dataset_id=target_id,
+            user_id=admin_id,
+            file_path=str(source),
+        )
+        job_id = job.id
+
+        try:
+            with patch(
+                "app.modules.quota.service.MAX_STORAGE_BYTES_PER_USER.get",
+                new_callable=AsyncMock,
+                return_value=100_500,
+            ):
+                with pytest.raises(Exception, match="[Ss]torage quota"):
+                    await reupload_raster.func(
+                        job_id=str(job_id),
+                        dataset_id=str(target_id),
+                        file_path=str(source),
+                        user_id=str(admin_id),
+                        attempt_id=str(job.attempt_id),
+                    )
+
+            test_db_session.expire_all()
+            asset = (
+                await test_db_session.execute(
+                    select(RasterAsset).where(RasterAsset.dataset_id == target_id)
+                )
+            ).scalar_one()
+            assert asset.asset_uri == target_cog_key, (
+                "the swap committed past the owner's byte cap"
+            )
+            assert await raster_storage.exists(target_cog_key)
+        finally:
+            await _purge(
+                test_db_session,
+                dataset_id=neighbour_id,
+                record_id=neighbour_record_id,
+            )
+            await _purge(
+                test_db_session,
+                dataset_id=target_id,
+                record_id=target_record_id,
+            )
+
+
+class TestReplacementAdmissionIsNotCreationAdmission:
+    """FINDING 2. `check_upload_quota` rejects at `dataset_count >= count_cap`.
+    Applied to a replacement that is a feature lockout, not protection: a
+    replacement creates no dataset, so an owner sitting at their permitted
+    limit could not replace anything they already own."""
+
+    async def test_owner_at_the_dataset_cap_can_still_replace(
+        self, client, admin_auth_header, test_db_session, raster_storage
+    ) -> None:
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+
+        try:
+            # A cap of 1 puts this owner AT their limit — they own datasets
+            # already, so any creation would be refused.
+            with patch(
+                "app.modules.quota.service.MAX_DATASETS_PER_USER.get",
+                new_callable=AsyncMock,
+                return_value=1,
+            ):
+                resp = await client.post(
+                    f"/datasets/{dataset_id}/reupload",
+                    files={"file": ("replacement.tif", _geotiff_bytes(), "image/tiff")},
+                    headers=admin_auth_header,
+                )
+            assert resp.status_code == 201, (
+                f"an owner at the dataset cap was locked out of replacing a "
+                f"dataset they already own: {resp.status_code} {resp.text}"
+            )
+        finally:
+            await test_db_session.execute(
+                delete(IngestJob).where(IngestJob.dataset_id == dataset_id)
+            )
+            await test_db_session.commit()
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
+    async def test_both_doors_share_the_replacement_admission(self) -> None:
+        """Door parity, extended from the round-1 error-class test to the
+        quota check. The two doors must call the SAME admission function —
+        a creation-shaped check on either one restores the lockout."""
+        import ast
+        import inspect
+
+        from app.modules.catalog.datasets.api import router_reupload
+
+        tree = ast.parse(inspect.getsource(router_reupload))
+        called = {
+            node.func.id
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        assert "check_replacement_quota" in called
+        assert "check_upload_quota" not in called, (
+            "a reupload door still runs the creation-shaped quota check"
+        )
+        for handler in ("reupload_dataset", "request_presigned_reupload"):
+            fn = next(
+                node
+                for node in ast.walk(tree)
+                if isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef))
+                and node.name == handler
+            )
+            names = {
+                n.func.id
+                for n in ast.walk(fn)
+                if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+            }
+            assert "check_replacement_quota" in names, (
+                f"{handler} does not run replacement-aware admission"
+            )
+
+
+class TestArchiveCannotDestroyThePreviousOriginal:
+    """FINDING 3. Invariant 10, turned on the archive. A lossy replacement
+    reusing a filename overwrote `originals/<dataset>/<filename>` BEFORE the
+    swap committed, so a failed commit left the old raster live with its
+    faithful original replaced by the failed attempt's bytes."""
+
+    async def test_failed_replace_leaves_the_prior_original_intact(
+        self, test_db_session, raster_storage, tmp_path, monkeypatch
+    ) -> None:
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+
+        first_bytes = _geotiff_bytes(seed=141)
+        second_bytes = _geotiff_bytes(seed=142)
+        assert first_bytes != second_bytes
+
+        try:
+            # A successful lossy replace, archiving "scene.tif".
+            source = tmp_path / "scene.tif"
+            source.write_bytes(first_bytes)
+            job = await _queue_replace_job(
+                test_db_session,
+                dataset_id=dataset_id,
+                user_id=admin_id,
+                file_path=str(source),
+            )
+            job.user_metadata = {**(job.user_metadata or {}), "compression": "JPEG"}
+            await test_db_session.commit()
+            await reupload_raster.func(
+                job_id=str(job.id),
+                dataset_id=str(dataset_id),
+                file_path=str(source),
+                user_id=str(admin_id),
+                attempt_id=str(job.attempt_id),
+            )
+            kept = await raster_storage.list(f"originals/{dataset_id}/")
+            assert len(kept) == 1
+            preserved_key = kept[0]
+            assert await raster_storage.get(preserved_key) == first_bytes
+
+            # A second replace, SAME FILENAME, DIFFERENT BYTES, that fails at
+            # the commit. The old raster stays live, so its original must too.
+            source2 = tmp_path / "again" / "scene.tif"
+            source2.parent.mkdir()
+            source2.write_bytes(second_bytes)
+            job2 = await _queue_replace_job(
+                test_db_session,
+                dataset_id=dataset_id,
+                user_id=admin_id,
+                file_path=str(source2),
+            )
+            job2.user_metadata = {**(job2.user_metadata or {}), "compression": "JPEG"}
+            await test_db_session.commit()
+
+            async def _die(*args, **kwargs):
+                raise RuntimeError("the swap transaction died after the archive")
+
+            monkeypatch.setattr(
+                "app.processing.ingest.tasks_raster_replace.record_refresh_success",
+                _die,
+                raising=True,
+            )
+            with pytest.raises(RuntimeError, match="died after the archive"):
+                await reupload_raster.func(
+                    job_id=str(job2.id),
+                    dataset_id=str(dataset_id),
+                    file_path=str(source2),
+                    user_id=str(admin_id),
+                    attempt_id=str(job2.attempt_id),
+                )
+
+            assert await raster_storage.get(preserved_key) == first_bytes, (
+                "the failed attempt's bytes overwrote the original belonging "
+                "to the raster that is STILL LIVE (#1290 round-4 finding 3)"
+            )
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
+    async def test_identical_bytes_do_not_double(
+        self, test_db_session, raster_storage, tmp_path
+    ) -> None:
+        """The other half of a content-derived key: re-uploading the same file
+        collides into an idempotent rewrite rather than accumulating."""
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+        payload = _geotiff_bytes(seed=151)
+
+        try:
+            for attempt in range(2):
+                source = tmp_path / f"copy{attempt}" / "same.tif"
+                source.parent.mkdir()
+                source.write_bytes(payload)
+                job = await _queue_replace_job(
+                    test_db_session,
+                    dataset_id=dataset_id,
+                    user_id=admin_id,
+                    file_path=str(source),
+                )
+                job.user_metadata = {
+                    **(job.user_metadata or {}),
+                    "compression": "JPEG",
+                }
+                await test_db_session.commit()
+                await reupload_raster.func(
+                    job_id=str(job.id),
+                    dataset_id=str(dataset_id),
+                    file_path=str(source),
+                    user_id=str(admin_id),
+                    attempt_id=str(job.attempt_id),
+                )
+
+            kept = await raster_storage.list(f"originals/{dataset_id}/")
+            assert len(kept) == 1, f"identical uploads accumulated: {kept}"
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)

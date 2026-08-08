@@ -53,7 +53,7 @@ from app.platform.refresh.service import (
 )
 from app.platform.extensions import get_catalog_port
 from app.core.persistent_config import UPLOAD_MAX_SIZE_MB, get_allowed_extensions_list
-from app.modules.quota.service import check_upload_quota
+from app.modules.quota.service import check_replacement_quota
 from app.modules.catalog.sources.preview import build_gdal_source, run_service_preview
 from app.modules.catalog.sources.security import SSRFError, validate_url_for_ssrf
 from app.platform.storage import get_storage
@@ -252,8 +252,14 @@ async def reupload_dataset(
         )
 
     # QUOTA-01/02: per-user quota check before any staging or job creation.
+    # fix(#1290 review): the REPLACEMENT variant. The creation-shaped check
+    # refused at the dataset-count cap, which locked an owner at their limit
+    # out of replacing datasets they already own, and charged the incoming file
+    # on top of the bytes this dataset already contributes.
     incoming_bytes = file.size if file.size is not None else 0
-    await check_upload_quota(db, user.id, incoming_bytes, request)
+    await check_replacement_quota(
+        db, user.id, incoming_bytes, request, dataset_id=dataset_id
+    )
 
     job = await get_catalog_port().create_ingest_job(db, file.filename, "", user.id)
     job.dataset_id = dataset_id
@@ -868,7 +874,11 @@ async def request_presigned_reupload(
         )
 
     # QUOTA-01/02: per-user quota check before any staging or job creation.
-    await check_upload_quota(db, user.id, request.file_size, http_request)
+    # fix(#1290 review): identical admission to the direct door — same function,
+    # same arguments — so the two doors cannot diverge on who may replace what.
+    await check_replacement_quota(
+        db, user.id, request.file_size, http_request, dataset_id=dataset_id
+    )
 
     job = await get_catalog_port().create_ingest_job(db, request.filename, "", user.id)
     job.dataset_id = dataset_id

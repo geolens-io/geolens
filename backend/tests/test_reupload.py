@@ -58,7 +58,7 @@ async def test_reupload_commit_failure_cleans_owned_staged_file(tmp_path):
             "get_allowed_extensions_list",
             AsyncMock(return_value=[".geojson"]),
         ),
-        patch.object(router_reupload, "check_upload_quota", AsyncMock()),
+        patch.object(router_reupload, "check_replacement_quota", AsyncMock()),
         patch.object(
             router_reupload.UPLOAD_MAX_SIZE_MB, "get", AsyncMock(return_value=10)
         ),

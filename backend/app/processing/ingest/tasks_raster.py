@@ -530,7 +530,18 @@ async def ingest_raster(
                         "staged upload will be retained in place instead"
                     ),
                     commit=False,
-                    archive_name=source_filename,
+                    # fix(#1290 review): content-derived key. A same-named
+                    # lossy replacement used to overwrite
+                    # `originals/<dataset>/<filename>` BEFORE the swap
+                    # committed, so a failed commit left the OLD raster live
+                    # with its faithful original replaced by the failed
+                    # attempt's bytes — invariant 10 broken on the archive
+                    # instead of the asset. The hash prefix means different
+                    # bytes can never collide and identical bytes collide into
+                    # an idempotent rewrite; the filename stays so an operator
+                    # listing the prefix can still tell what they are looking
+                    # at.
+                    archive_name=f"{source_sha256[:12]}-{source_filename}",
                 )
 
             # 12. Finalize job.
