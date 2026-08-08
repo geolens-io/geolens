@@ -8,9 +8,8 @@ import { OverviewTab } from '../tabs/OverviewTab';
 import { MetadataTab } from '../tabs/MetadataTab';
 import { DataTab } from '../tabs/DataTab';
 import { StructureTab } from '../tabs/StructureTab';
-import { SourcesTab } from '../tabs/SourcesTab';
+import { SourcePanel } from '../SourcePanel';
 import { AccessTab } from '../tabs/AccessTab';
-import { useAuthStore } from '@/stores/auth-store';
 
 export interface DetailPanelProps {
   dataset: DatasetResponse;
@@ -47,27 +46,18 @@ export function DetailPanel(props: DetailPanelProps) {
 
   const recordType = dataset.record_type;
   const isTable = recordType === 'table';
-  const isVrt = recordType === 'vrt_dataset';
   const isVector = recordType === 'vector_dataset' || isTable || !recordType;
 
   const showData = isVector;
   const showStructure = isVector;
-  // fix(#644): SourcesTab's queries need an authenticated user (the VRT GET
-  // routes visibility-check but reject anonymous), so showing the tab to
-  // anonymous viewers could only ever render 401 noise. Signed-in non-owners
-  // keep the read-only view (codex P2 on #649); mutation controls inside the
-  // tab stay gated by canEdit.
-  const isAuthenticated = useAuthStore((s) => !!s.token);
-  const showSources = isVrt && isAuthenticated;
 
-  // fix(#649 codex r2): a deep link or sign-out can leave activeTab pointing
-  // at a tab whose trigger/content are hidden (anonymous + #sources, ?tab=data
-  // on a raster, …); Radix controlled tabs then render nothing below the tab
-  // list. Clamp to Overview whenever the selected tab isn't visible.
+  // fix(#649): a deep link can leave activeTab pointing at a tab whose
+  // trigger/content are hidden (for example ?tab=data on a raster); Radix
+  // controlled tabs then render nothing below the tab list. Clamp to Overview
+  // whenever the selected tab isn't visible.
   const hiddenTabs = {
     data: !showData,
     structure: !showStructure,
-    sources: !showSources,
   } as const;
   const effectiveTab =
     hiddenTabs[activeTab as keyof typeof hiddenTabs] ? 'overview' : activeTab;
@@ -90,7 +80,7 @@ export function DetailPanel(props: DetailPanelProps) {
         <TabsTrigger value="metadata">{t('tabs.metadata')}</TabsTrigger>
         {showData && <TabsTrigger value="data">{t('tabs.data')}</TabsTrigger>}
         {showStructure && <TabsTrigger value="structure">{t('tabs.structure')}</TabsTrigger>}
-        {showSources && <TabsTrigger value="sources">{t('tabs.sources')}</TabsTrigger>}
+        <TabsTrigger value="sources">{t('tabs.sources')}</TabsTrigger>
         {/* Members tab hidden until collection membership is implemented */}
         <TabsTrigger value="access">{t('tabs.access')}</TabsTrigger>
       </TabsList>
@@ -142,11 +132,9 @@ export function DetailPanel(props: DetailPanelProps) {
         </TabsContent>
       )}
 
-      {showSources && (
-        <TabsContent value="sources" className="space-y-6">
-          <SourcesTab dataset={dataset} canEdit={canEdit} datasetId={dataset.id} />
-        </TabsContent>
-      )}
+      <TabsContent value="sources" className="space-y-6">
+        <SourcePanel dataset={dataset} />
+      </TabsContent>
 
       <TabsContent value="access" className="space-y-6">
         <AccessTab dataset={dataset} canEdit={canEdit} />

@@ -23,7 +23,7 @@
     "history": "Historique",
     "api": "API",
     "structure": "Structure",
-    "sources": "Sources",
+    "sources": "Source",
     "access": "Accès",
     "members": "Membres"
   },
@@ -715,6 +715,126 @@
     "system": "Système",
     "user": "Utilisateur",
     "elapsed": "Écoulé : {{seconds}}s"
+  },
+  "sourcePanel": {
+    "title": "Source",
+    "storageMode": "Mode de stockage",
+    "lastRefreshed": "Dernière actualisation",
+    "lastChecked": "Dernière vérification",
+    "featureCount": "Nombre d’entités",
+    "health": "État",
+    "freshness": "Actualité de la source",
+    "drift": "Évolution du schéma",
+    "origin": {
+      "vrt": "Composition VRT",
+      "unknown": "Origine non enregistrée"
+    },
+    "description": {
+      "upload": "Importé depuis un fichier. GeoLens conserve une copie propre pour les requêtes et les tuiles.",
+      "postgis": "Référencé directement depuis une table existante de cette base GeoLens. Aucune copie n’a été créée.",
+      "service": "Importé depuis un service distant. GeoLens conserve une copie propre pour les requêtes et les tuiles locales.",
+      "stac": "Référencé à distance depuis un catalogue STAC. La ressource source doit rester disponible.",
+      "created": "Créé dans GeoLens et stocké comme un jeu de données propre et modifiable.",
+      "vrt": "Composé d’autres jeux de données raster gérés par GeoLens.",
+      "unknown": "Aucune origine lisible par machine n’est enregistrée pour ce jeu de données."
+    },
+    "storage": {
+      "upload": "Copie propre",
+      "postgis": "Référencé sur place",
+      "service": "Copie propre",
+      "stac": "Référence distante",
+      "created": "Copie propre",
+      "vrt": "Composite",
+      "unknown": "Non enregistré"
+    },
+    "pointer": {
+      "filename": "Nom du fichier source",
+      "fingerprint": "Empreinte du fichier",
+      "table": "Table référencée",
+      "serviceType": "Type de service",
+      "layer": "Identifiant de couche",
+      "endpoint": "Pointeur source sécurisé",
+      "collection": "Collection STAC",
+      "asset": "Ressource STAC",
+      "item": "Élément STAC"
+    },
+    "status": {
+      "health": {
+        "healthy": "Disponible",
+        "missing": "Manquante",
+        "inaccessible": "Inaccessible",
+        "unknown": "Non vérifiée"
+      },
+      "freshness": {
+        "fresh": "À jour",
+        "due": "À actualiser",
+        "overdue": "En retard",
+        "unknown": "Inconnue"
+      },
+      "drift": {
+        "none": "Aucune évolution",
+        "drifted": "Évolution détectée",
+        "unknown": "Non comparé"
+      }
+    },
+    "healthDetail": {
+      "not_found": "La ressource source est introuvable.",
+      "item_withdrawn": "L’élément STAC a été retiré.",
+      "unauthorized": "La source exige désormais un accès dont GeoLens ne dispose pas.",
+      "server_error": "La source a renvoyé une erreur serveur.",
+      "unexpected_status": "La source a renvoyé une réponse inattendue.",
+      "timeout": "La source n’a pas répondu à temps.",
+      "network_error": "GeoLens n’a pas pu joindre la source.",
+      "blocked_by_policy": "La politique de sécurité de GeoLens a bloqué cette source."
+    },
+    "history": {
+      "title": "Historique de la source",
+      "loading": "Chargement de l’historique de la source",
+      "loadFailed": "Impossible de charger l’historique de la source.",
+      "version": "Version {{number}}",
+      "current": "Actuelle",
+      "catalogUpdate": "Source du catalogue",
+      "features_one": "{{formattedCount}} entité",
+      "features_other": "{{formattedCount}} entités",
+      "features_many": "{{formattedCount}} entités"
+    },
+    "vrt": {
+      "title": "Membres du VRT",
+      "description": "Ce VRT est assemblé à partir des jeux de données raster ci-dessous.",
+      "regenerating": "La génération du VRT est en cours.",
+      "failed": "La génération du VRT a échoué. Consultez l’état des membres et l’historique de génération.",
+      "signIn": "Connectez-vous pour afficher les détails des membres du VRT.",
+      "loading": "Chargement des membres du VRT",
+      "loadFailed": "Impossible de charger les membres du VRT.",
+      "tableLabel": "Sources membres du VRT",
+      "health": "État",
+      "position": "#",
+      "dataset": "Jeu de données",
+      "crs": "SCR",
+      "bands": "Bandes",
+      "resolution": "Résolution",
+      "empty": "Aucun membre VRT",
+      "memberHealth": {
+        "healthy": "Disponible",
+        "missing": "Manquante",
+        "inaccessible": "Inaccessible",
+        "unknown": "Inconnu"
+      },
+      "history": "Historique de génération",
+      "generationStatus": "État",
+      "generatedAt": "Horodatage",
+      "duration": "Durée",
+      "sourceCount": "Sources",
+      "triggeredBy": "Déclenchée par",
+      "system": "Système",
+      "user": "Utilisateur",
+      "generation": {
+        "pending": "En attente",
+        "completed": "Terminée",
+        "running": "En cours",
+        "failed": "Échouée"
+      }
+    }
   },
   "data": {
     "collapseTable": "Réduire le tableau",
