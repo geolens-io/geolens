@@ -249,6 +249,9 @@ class Settings(BaseSettings):
     tile_cache_ttl: int = Field(default=300, ge=0)
 
     database_url_override: str | None = None
+    # Opt-in single-tenant runtime login. Empty preserves the legacy connection;
+    # when set, bootstrap verifies this exact live session role is unprivileged.
+    geolens_runtime_db_role: str | None = None
     # Dedicated, read-only tile login. In multi-tenant deployments this login
     # is a SET-only member of geolens_tile_gateway, never the API/worker role.
     tile_database_url_override: str | None = None
@@ -421,6 +424,7 @@ class Settings(BaseSettings):
         "tenant_base_domain",
         "dcat_contact_email",
         "database_url_override",
+        "geolens_runtime_db_role",
         "tile_database_url_override",
         "s3_endpoint",
         "s3_bucket",
@@ -564,6 +568,17 @@ class Settings(BaseSettings):
             raise ValueError("DATABASE_URL_OVERRIDE must contain exactly one host")
         return value
 
+    @field_validator("geolens_runtime_db_role", mode="after")
+    @classmethod
+    def validate_runtime_db_role_name(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        if not re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", v):
+            raise ValueError(
+                "GEOLENS_RUNTIME_DB_ROLE must be a lowercase PostgreSQL identifier"
+            )
+        return v
+
     @field_validator("dcat_contact_email", mode="after")
     @classmethod
     def validate_dcat_contact_email(cls, v: str | None) -> str | None:
@@ -653,6 +668,43 @@ class Settings(BaseSettings):
                 "for work_mem. Raise the budget, lower WORKER_CONCURRENCY, or "
                 "set ANALYSIS_MATERIALIZE_WORK_MEM_MB=0 to leave work_mem at "
                 "the cluster's own value."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_single_tenant_runtime_db_role(self) -> "Settings":
+        """Keep the opt-in role exact and separate from the migrator login."""
+        if self.geolens_runtime_db_role is None:
+            return self
+        if self.geolens_tenancy_mode != "single_tenant":
+            raise ValueError(
+                "GEOLENS_RUNTIME_DB_ROLE is the single-tenant role path; "
+                "multi-tenant deployments must use the tenant role topology"
+            )
+        if self.database_url_override is None:
+            raise ValueError(
+                "GEOLENS_RUNTIME_DB_ROLE requires DATABASE_URL_OVERRIDE for the "
+                "dedicated runtime credential"
+            )
+
+        from urllib.parse import unquote, urlsplit
+
+        parsed_runtime_url = urlsplit(self.database_url_override)
+        configured_user = unquote(parsed_runtime_url.username or "")
+        if configured_user != self.geolens_runtime_db_role:
+            raise ValueError(
+                "DATABASE_URL_OVERRIDE username must match GEOLENS_RUNTIME_DB_ROLE"
+            )
+        runtime_password = self.postgres_password.get_secret_value()
+        if len(runtime_password) < 32:
+            raise ValueError(
+                "GEOLENS_RUNTIME_DB_ROLE requires a POSTGRES_PASSWORD of at least "
+                "32 characters"
+            )
+        if unquote(parsed_runtime_url.password or "") != runtime_password:
+            raise ValueError(
+                "DATABASE_URL_OVERRIDE password must match the runtime "
+                "POSTGRES_PASSWORD"
             )
         return self
 

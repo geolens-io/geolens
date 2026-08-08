@@ -21,6 +21,7 @@ def test_api_entrypoint_migration_toggle_is_default_on_and_fail_closed() -> None
     assert "${GEOLENS_API_RUN_MIGRATIONS:-true}" in source
     assert "GEOLENS_API_RUN_MIGRATIONS must be exactly 'true' or 'false'" in source
     assert "alembic upgrade heads" in source
+    assert "GEOLENS_RUNTIME_DB_ROLE requires GEOLENS_API_RUN_MIGRATIONS=false" in source
 
 
 def test_api_entrypoint_migration_toggle_shell_contract() -> None:
@@ -40,6 +41,38 @@ def test_official_compose_files_forward_api_migration_toggle() -> None:
         api_environment = compose["services"]["api"]["environment"]
 
         assert api_environment["GEOLENS_API_RUN_MIGRATIONS"] == _COMPOSE_TOGGLE
+
+
+def test_official_compose_files_split_migration_and_runtime_credentials() -> None:
+    for filename in ("docker-compose.yml", "docker-compose.prod.yml"):
+        compose = yaml.safe_load((_REPO_ROOT / filename).read_text(encoding="utf-8"))
+        services = compose["services"]
+
+        runtime_user = "${GEOLENS_RUNTIME_DB_ROLE:-${POSTGRES_USER}}"
+        runtime_password = "${GEOLENS_RUNTIME_DB_PASSWORD:-${POSTGRES_PASSWORD}}"
+        for service_name in ("api", "worker"):
+            assert services[service_name]["environment"]["POSTGRES_USER"] == (
+                runtime_user
+            )
+            assert services[service_name]["environment"]["POSTGRES_PASSWORD"] == (
+                runtime_password
+            )
+        assert services["api"]["environment"]["DATABASE_URL_OVERRIDE"] == (
+            "${DATABASE_URL_OVERRIDE:-}"
+        )
+        assert services["worker"]["environment"]["DATABASE_URL_OVERRIDE"] == (
+            "${DATABASE_URL_OVERRIDE:-}"
+        )
+        assert services["migrate"]["environment"]["DATABASE_URL_OVERRIDE"] == (
+            "${MIGRATION_DATABASE_URL_OVERRIDE:-${DATABASE_URL_OVERRIDE:-}}"
+        )
+        assert services["migrate"]["environment"]["POSTGRES_USER"] == (
+            "${POSTGRES_USER}"
+        )
+        assert services["migrate"]["environment"]["POSTGRES_PASSWORD"] == (
+            "${POSTGRES_PASSWORD}"
+        )
+        assert services["migrate"]["environment"]["GEOLENS_RUNTIME_DB_ROLE"] == ""
 
 
 def test_env_example_documents_api_migration_toggle() -> None:

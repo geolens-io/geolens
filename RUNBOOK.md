@@ -207,6 +207,93 @@ mc admin config get <alias> api
 Use this path when Postgres runs in the bundled `db` container (the default
 self-hosted Docker Compose deployment).
 
+### Single-tenant least-privilege database runtime role
+
+The default remains backward-compatible: API and worker use `POSTGRES_USER`
+unless the operator explicitly sets `GEOLENS_RUNTIME_DB_ROLE`. New and existing
+single-tenant installs can opt into a dedicated non-superuser login without
+changing the multi-tenant role topology.
+
+The credential order is load-bearing:
+
+1. `POSTGRES_USER` / `POSTGRES_PASSWORD` remain the bundled database bootstrap,
+   migration, backup, and restore identity. Do not put this credential in the
+   steady-state app URL after adoption.
+2. `MIGRATION_DATABASE_URL_OVERRIDE` carries that privileged identity only to
+   the ordered one-shot `migrate` service.
+3. `DATABASE_URL_OVERRIDE` carries the dedicated runtime login to API and worker.
+4. `GEOLENS_API_RUN_MIGRATIONS=false` prevents the API image's migration safety
+   net from attempting extension/schema DDL with the runtime login.
+5. API and worker bootstrap verify the exact live login named by
+   `GEOLENS_RUNTIME_DB_ROLE` and refuse to start if it is superuser, can bypass
+   RLS, create roles/databases, replicate, assume a powerful role, or create in
+   `catalog`/`public`.
+
+On a fresh bundled volume, `init-db.sh` creates extensions and schemas first,
+then runs `scripts/lib/configure-runtime-db-role.sh`. The latter creates the login,
+grants catalog DML/sequence/function access, grants CREATE plus relation
+ownership only in `data`, and grants SET access to `geolens_reader`. The
+privileged migrate service then applies Alembic before API/worker connect.
+
+#### Adopt the single-tenant runtime role on an existing install
+
+`init-db.sh` never reruns on a non-empty PostgreSQL volume. Adoption is therefore
+an explicit maintenance operation, not an Alembic migration or silent startup
+privilege rewrite. Take a verified backup first, then:
+
+```bash
+# 1. Generate a credential distinct from POSTGRES_PASSWORD.
+openssl rand -hex 32
+
+# 2. Put the generated value and the four companion settings in .env.
+#    Use the actual existing POSTGRES_USER password in the migration URL.
+GEOLENS_RUNTIME_DB_ROLE=geolens_app
+GEOLENS_RUNTIME_DB_PASSWORD=paste_generated_hex_here
+DATABASE_URL_OVERRIDE=postgresql://geolens_app:paste_generated_hex_here@db:5432/geolens
+MIGRATION_DATABASE_URL_OVERRIDE=postgresql://geolens:paste_existing_postgres_password_here@db:5432/geolens
+GEOLENS_API_RUN_MIGRATIONS=false
+
+# 3. Stop writers. Recreate only db so it receives the new env and read-only
+#    reconciler mount; the named pgdata volume is preserved.
+docker compose stop api worker
+docker compose up -d --no-deps --force-recreate --wait db
+
+# 4. Run the canonical idempotent grant/ownership reconciliation as
+#    POSTGRES_USER inside db. It does not run any Alembic migration.
+docker compose exec -T db /usr/local/bin/configure-runtime-db-role
+
+# 5. Prove migrations still run with the separate privileged URL, then start.
+docker compose run --rm --no-deps migrate
+docker compose up -d
+```
+
+Load `.env` into the verification shell and query through the runtime login:
+
+```bash
+set -a; . ./.env; set +a
+docker compose exec -T db env PGPASSWORD="$GEOLENS_RUNTIME_DB_PASSWORD" \
+  psql -h 127.0.0.1 -U "$GEOLENS_RUNTIME_DB_ROLE" -d "$POSTGRES_DB" -c \
+  "SELECT current_user, rolsuper, rolbypassrls, rolcreaterole,
+          rolcreatedb, rolreplication
+     FROM pg_roles WHERE rolname = current_user;"
+```
+
+All five capability booleans must be `f`. Also confirm API and worker are
+healthy. To roll back the connection change, clear `GEOLENS_RUNTIME_DB_ROLE`,
+`GEOLENS_RUNTIME_DB_PASSWORD`, and `MIGRATION_DATABASE_URL_OVERRIDE`, restore
+the previous `DATABASE_URL_OVERRIDE`/migration-toggle values, then recreate API
+and worker. Leave the role in place during rollback: dropping it before
+re-owning `data.*` relations is destructive and unnecessary.
+
+For managed/external PostgreSQL, run privileged migrations first, then run
+`scripts/lib/configure-runtime-db-role.sh` from the host with `POSTGRES_HOST`,
+`POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_DB`, `PGPASSWORD`, and the two
+`GEOLENS_RUNTIME_DB_*` variables exported. The provider credential must be able
+to create roles, change relation ownership, and alter default privileges. Start
+runtime services only after that command succeeds. Provider snapshot/PITR
+restore normally preserves the role; after any logical restore, rerun the same
+script before restarting writers.
+
 ### Canonical restore entry point
 
 ```bash
@@ -225,10 +312,11 @@ self-hosted Docker Compose deployment).
 3. Creates required extensions and schemas in the database.
 4. Stops `api` and `worker` to prevent write conflicts.
 5. Runs `pg_restore --clean --if-exists --no-owner` against the bundled `db` container.
-6. Re-applies the `geolens_reader` grants on schema `data` and asserts they took
-   (`has_schema_privilege`). `--clean` drops the schema together with its ACLs
-   and default privileges, and the dump carries no ACLs (`--no-acl`), so the
-   grants must be rebuilt after every restore.
+6. Runs the same privileged role/grant reconciler as bootstrap. It re-applies
+   `geolens_reader`; when `GEOLENS_RUNTIME_DB_ROLE` is set it also restores
+   catalog runtime grants and re-owns only `data.*` runtime relations. `--clean`
+   drops schema ACLs/default privileges and `--no-owner` makes the restore login
+   own every restored relation, so this post-restore step is mandatory.
 7. Restarts `api` and `worker` on exit (including on failure — via a trap).
 8. Runs a post-restore row-count check (`catalog.records`, `catalog.datasets`).
 9. Auto-detects any sibling `staging-<timestamp>.tar.gz` next to the dump and

@@ -2282,7 +2282,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fixed margin in `_sweep_expired_presigned_staging` is what actually
     # closes the gap; this Field bound only stops a fresh boot from
     # configuring past S3's own single-PUT ceiling in the first place).
-    "backend/app/core/config.py": 1004,
+    # feat(#947): +52 — the opt-in single-tenant runtime DB role field is
+    # normalized and validated as a safe PostgreSQL identifier, is restricted
+    # to single-tenant mode, and must exactly match DATABASE_URL_OVERRIDE's
+    # login/password. Those checks keep bootstrap/migration credentials
+    # distinct and make a miswired Compose deployment fail before it opens a
+    # pool. Cap 1004 -> 1056, exact.
+    "backend/app/core/config.py": 1056,
     # feat(#1219): first entry — crossed _RATCHET_INCLUSION_LOC, exactly as
     # the inclusion rule's own comment predicted for this file ("watched by
     # nothing until they cross 1000. The threshold catches them then"). The
