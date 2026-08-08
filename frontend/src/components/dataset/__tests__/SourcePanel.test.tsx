@@ -154,6 +154,36 @@ describe('SourcePanel', () => {
     expect(initialVersion).not.toHaveTextContent('1,234 features');
   });
 
+  it('does not render placeholder history from a previously viewed dataset', () => {
+    vi.mocked(useDatasetVersions).mockReturnValue({
+      data: {
+        versions: [{
+          id: 'other-version-3',
+          dataset_id: 'previous-dataset',
+          version_number: 3,
+          source_filename: 'private-previous-source.geojson',
+          source_format: 'geojson',
+          feature_count: 999,
+          srid: 4326,
+          geometry_type: 'Polygon',
+          file_hash: null,
+          uploaded_by: null,
+          uploaded_at: '2026-07-01T00:00:00Z',
+        }],
+        total: 1,
+      },
+      isLoading: false,
+      isError: false,
+      isPlaceholderData: true,
+    } as unknown as ReturnType<typeof useDatasetVersions>);
+
+    render(<SourcePanel dataset={makeDataset()} />);
+
+    expect(screen.queryByText(/private-previous-source\.geojson/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Version 3')).not.toBeInTheDocument();
+    expect(screen.getByText('Version 1')).toBeInTheDocument();
+  });
+
   it('pluralizes a single feature in source history', () => {
     vi.mocked(useDatasetVersions).mockReturnValue({
       data: {

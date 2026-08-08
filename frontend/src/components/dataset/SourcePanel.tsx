@@ -191,7 +191,7 @@ function SourceMetric({ label, children }: { label: string; children: ReactNode 
 function SourceHistory({ dataset }: { dataset: DatasetResponse }) {
   const { t, i18n } = useTranslation('dataset');
   const { data, isLoading, isError } = useDatasetVersions(dataset.id);
-  const fetched = data?.versions ?? [];
+  const fetched = (data?.versions ?? []).filter((version) => version.dataset_id === dataset.id);
   const hasFirstVersion = fetched.some((version) => version.version_number === 1);
   // fix(#1280): current fields cannot reconstruct mutable version-1 state.
   const currentFieldsAreInitial = dataset.current_version === 1;
