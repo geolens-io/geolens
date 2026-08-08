@@ -33,6 +33,7 @@ Six properties this suite exists to hold:
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -219,6 +220,33 @@ class TestProbeStatusMapping:
         assert result.health == INACCESSIBLE
         assert result.detail == expected_detail
 
+    async def test_stalled_resolution_is_cut_off_by_the_outer_deadline(
+        self, monkeypatch
+    ) -> None:
+        """fix(#1271 review): the guard transport resolves DNS before
+        httpx's phase timeouts apply, so a stalling resolver would hold the
+        probe far beyond the advertised bound without the outer deadline."""
+
+        class _StalledClient:
+            async def __aenter__(self):
+                await asyncio.sleep(30)
+                return self
+
+            async def __aexit__(self, *_args):
+                return None
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.origin_probe.make_safe_client",
+            lambda **_: _StalledClient(),
+        )
+        import time
+
+        start = time.monotonic()
+        result = await probe_remote_uri(_ASSET, timeout=0.1)
+        assert time.monotonic() - start < 5
+        assert result.health == INACCESSIBLE
+        assert result.detail == TIMEOUT
+
     def test_failure_classification_tracks_contact_honestly(self) -> None:
         """fix(#1271 review): the SSRF shapes report contact from whether a
         response hop arrived before the failure — a public origin redirecting
@@ -248,6 +276,15 @@ class TestProbeStatusMapping:
         )
         assert _classify_failure(httpx.ConnectError("x"), responded=False) == (
             NETWORK_ERROR,
+            True,
+        )
+        # The outer deadline can expire during DNS, before any packet.
+        assert _classify_failure(TimeoutError(), responded=False) == (
+            TIMEOUT,
+            False,
+        )
+        assert _classify_failure(TimeoutError(), responded=True) == (
+            TIMEOUT,
             True,
         )
         # Request-construction failures never put a packet on the wire.

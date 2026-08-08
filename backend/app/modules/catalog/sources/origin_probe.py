@@ -46,6 +46,7 @@ incapable of leaking, which "remember to redact" is not.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 
 import httpx
@@ -140,6 +141,12 @@ def _classify_failure(exc: BaseException, *, responded: bool) -> tuple[str, bool
         return BLOCKED_BY_POLICY, responded
     if isinstance(exc, httpx.TimeoutException):
         return TIMEOUT, True
+    # fix(#1271 review): the OUTER deadline (asyncio.timeout around the whole
+    # probe) — unlike httpx's phase timeouts it can expire during DNS
+    # resolution, before any packet goes out, so contact is whatever the
+    # response hook can prove rather than assumed.
+    if isinstance(exc, TimeoutError):
+        return TIMEOUT, responded
     # fix(#1271 review): raised while CONSTRUCTING the request — a malformed
     # stored URL (migration 0036 backfills check only prefix and credentials)
     # never puts a packet on the wire, so it must not advance the contact
@@ -185,17 +192,28 @@ async def probe_remote_uri(
         responded = True
 
     try:
-        async with make_safe_client(timeout=timeout) as client:
-            # hasattr: duck-typed clients in tests may not carry event_hooks,
-            # and an AttributeError here would masquerade as a probe failure.
-            if hasattr(client, "event_hooks"):
-                hooks = client.event_hooks
-                hooks["response"] = [_mark_responded, *hooks.get("response", [])]
-                client.event_hooks = hooks
-            async with client.stream(
-                "GET", uri, headers={"Range": "bytes=0-0"}
-            ) as response:
-                status_code = response.status_code
+        # fix(#1271 review): a hard deadline around the WHOLE operation. The
+        # guard transport resolves DNS before httpx's phase timeouts apply,
+        # so a stalling resolver would otherwise hold the probe (and its
+        # caller's request) far beyond the advertised bound. Doubled because
+        # the phase timeouts remain the primary bound — this is the backstop
+        # for the phases they cannot see.
+        async with asyncio.timeout(timeout * 2):
+            async with make_safe_client(timeout=timeout) as client:
+                # hasattr: duck-typed clients in tests may not carry
+                # event_hooks, and an AttributeError here would masquerade
+                # as a probe failure.
+                if hasattr(client, "event_hooks"):
+                    hooks = client.event_hooks
+                    hooks["response"] = [
+                        _mark_responded,
+                        *hooks.get("response", []),
+                    ]
+                    client.event_hooks = hooks
+                async with client.stream(
+                    "GET", uri, headers={"Range": "bytes=0-0"}
+                ) as response:
+                    status_code = response.status_code
     except (
         Exception
     ) as exc:  # broad: every transport failure means "could not determine"
