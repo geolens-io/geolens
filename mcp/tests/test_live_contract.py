@@ -290,9 +290,22 @@ def test_search_datasets_contract(live):
         # The wrapper strips catalog collections (their ids 404 in the other
         # tools) — none may leak through.
         assert props.get("record_type") != "collection"
+        # Search emits one stable source-state shape without making a detail
+        # request per row. Health/check/refresh values are null until the
+        # backend summary API grows them; detail below carries real values.
+        for key in (
+            "source_origin",
+            "source_freshness",
+            "source_health",
+            "source_health_detail",
+            "last_checked_at",
+            "last_refreshed_at",
+        ):
+            assert key in props, key
         by_id[str(feature["id"])] = props
     assert live.dataset_id in by_id, "seeded dataset is findable by its marker"
     assert by_id[live.dataset_id].get("title") == live.dataset_title
+    assert by_id[live.dataset_id]["source_origin"] == "created"
 
 
 def test_get_dataset_schema_contract(live):
@@ -303,6 +316,18 @@ def test_get_dataset_schema_contract(live):
     # type, CRS/SRID, feature count, and spatial extent.
     for key in ("column_info", "geometry_type", "srid", "feature_count", "extent_bbox"):
         assert key in schema, key
+    for key in (
+        "source_origin",
+        "source_freshness",
+        "source_health",
+        "source_health_detail",
+        "last_checked_at",
+        "last_refreshed_at",
+    ):
+        assert key in schema, key
+    assert schema["source_origin"] == "created"
+    assert schema["source_health"] == "unknown"
+    assert not {"origin_uri", "origin_ref", "source_url"} & schema.keys()
     columns = {c["name"]: c for c in schema["column_info"] or []}
     assert "name" in columns, "seeded user column is reported"
     assert columns["name"].get("type"), "columns carry a type"

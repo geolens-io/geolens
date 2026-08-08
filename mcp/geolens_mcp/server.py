@@ -35,7 +35,17 @@ def search_datasets(query: str, limit: int = 10, offset: int = 0) -> Any:
     Matches title, description, and keywords (semantic ranking is used
     automatically when the instance has it enabled). Returns a GeoJSON
     FeatureCollection where each feature is a dataset record; use the feature
-    `id` as the dataset_id for the other tools.
+    `id` as the dataset_id for the other tools. Each feature's properties include
+    `source_origin` (upload, postgis, service, stac, created, or null) and
+    `source_freshness` (fresh, due, overdue, or unknown). Freshness is advisory:
+    `due` means one declared update interval has elapsed, while `overdue` means
+    two have elapsed; neither proves that the content is wrong.
+
+    Search does not make a detail request per result. When the catalog summary
+    has no health/check/refresh value, `source_health`, `source_health_detail`,
+    `last_checked_at`, and `last_refreshed_at` are null. Call
+    `get_dataset_schema` for populated trust metadata. Raw provider URLs and
+    credentials are never included in these source-state fields.
 
     Args:
         query: Search text.
@@ -47,9 +57,19 @@ def search_datasets(query: str, limit: int = 10, offset: int = 0) -> Any:
 
 @mcp.tool()
 def get_dataset_schema(dataset_id: str) -> Any:
-    """Get a dataset's schema: columns (name/type/role), geometry type, CRS/SRID,
-    feature count, and spatial extent. Call this before writing spatial questions
-    so you know the available columns and geometry.
+    """Get a dataset's schema and source trust metadata.
+
+    Returns columns (name/type/role), geometry type, CRS/SRID, feature count,
+    spatial extent, and the safe `source_origin`. `source_health` is healthy,
+    missing, inaccessible, or unknown: inaccessible means GeoLens could not
+    determine whether the source still exists, while unknown means it was never
+    probed or cannot be probed. `source_health_detail` is a fixed GeoLens reason
+    code, not provider text. `last_checked_at` records the latest probe attempt;
+    `last_refreshed_at` records only the latest successful committed refresh.
+    `source_freshness` is advisory; overdue means two declared update intervals
+    elapsed without a successful refresh. Raw provider URLs, origin pointers,
+    and credentials are excluded. Call this before writing spatial questions so
+    you know both the available columns and whether the source may be stale.
 
     Args:
         dataset_id: Dataset id (e.g. from search_datasets).
