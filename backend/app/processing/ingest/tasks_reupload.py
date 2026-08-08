@@ -512,6 +512,31 @@ async def reupload_file(
         )
 
 
+async def _record_failed_origin_contact(
+    err_session, dataset_cls, dataset_uuid, *, contacted: bool
+) -> None:
+    """Date the contact a failed service reupload made before it died.
+
+    fix(#1271 review): a failed attempt that reached the outbound fetch still
+    CONTACTED the origin, and the column's contract is "last time GeoLens
+    contacted the origin at all" — the probe already dates its failures for
+    the same reason. The dataset keeps its old data (the swap never ran), so
+    only the timestamp moves; the health verdict stays with the probe's
+    classifier. ``contacted`` is False for failures before the fetch began,
+    which never touched the origin and must not claim they did.
+    """
+    if not contacted:
+        return
+    err_ds = (
+        await err_session.execute(
+            select(dataset_cls).where(dataset_cls.id == dataset_uuid)
+        )
+    ).scalar_one_or_none()
+    if err_ds is not None:
+        err_ds.last_checked_at = datetime.now(timezone.utc)
+        await err_session.commit()
+
+
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.reupload_service"])
 @tenant_task
 async def reupload_service(
@@ -578,6 +603,11 @@ async def reupload_service(
         "Remote service authentication failed. Retry commit with a service token; "
         "tokens are request-only and are not persisted for retries."
     )
+
+    # fix(#1271 review): tracks whether the outbound fetch was reached, so the
+    # failure handler can date the contact. A failure before this point never
+    # touched the origin and must not claim it did.
+    origin_contact_attempted = False
 
     resolved = await resolve_ingest_attempt_or_skip(
         job_id, attempt_id, task_label="reupload"
@@ -678,6 +708,7 @@ async def reupload_service(
                 schema=_current_tenant_schema(),
             )
 
+        origin_contact_attempted = True
         try:
             await _run_service_import_with_wfs_fallback(
                 _run_service_import,
@@ -838,6 +869,12 @@ async def reupload_service(
                     task_name="reupload_service",
                     attempt_id=attempt_uuid,
                 )
+            await _record_failed_origin_contact(
+                err_session,
+                Dataset,
+                dataset_uuid,
+                contacted=origin_contact_attempted,
+            )
         raise
     finally:
         await stop_ingest_job_heartbeat(heartbeat_task)
