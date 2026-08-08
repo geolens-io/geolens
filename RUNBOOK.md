@@ -1567,8 +1567,8 @@ you are not surprised later by what a restore does and does not contain.
 | Upload | Where the data ends up | The uploaded file |
 | --- | --- | --- |
 | Vector (Shapefile, GPKG, GeoJSON, CSV, …) | PostGIS table | Deleted after a successful ingest |
-| Raster (GeoTIFF) | A Cloud-Optimized GeoTIFF in object storage | Deleted after a **lossless** conversion; kept otherwise |
-| Raster replace (re-upload onto an existing raster dataset) | The dataset's COG is swapped for the new one | Deleted after a **lossless** conversion; kept otherwise |
+| Raster (GeoTIFF) | A Cloud-Optimized GeoTIFF in object storage | Deleted after a **lossless** conversion; archived to `originals/` otherwise |
+| Raster replace (re-upload onto an existing raster dataset) | The dataset's COG is swapped for the new one | Deleted after a **lossless** conversion; archived to `originals/` otherwise |
 
 A raster dataset **is** its COG. When the conversion is lossless the converted
 asset carries everything the upload did, and every re-processing case an
@@ -1580,39 +1580,52 @@ Decision 7).
 
 ### When the conversion is lossy, the upload is kept
 
-The import form lets the uploader choose the COG's compression. Three of the
-options are lossless — **DEFLATE** (the default), **LZW**, **ZSTD** — and three
-discard image detail to save space: **JPEG**, **WEBP**, **LERC**.
+Two things about a conversion can make the COG an unfaithful copy, and either
+one causes the upload to be kept.
 
-Under a lossy option the COG is not a faithful copy of what was uploaded, so
-the reasoning above does not hold: the uploaded file is the only lossless
-original that will ever exist. GeoLens keeps it, and **that copy is permanent**,
-not bounded by the retention window below — the job it belongs to succeeded, so
-the purge that clears failed jobs never sees it.
+**Compression.** The import form lets the uploader choose. Three options are
+lossless — **DEFLATE** (the default), **LZW**, **ZSTD** — and three discard
+image detail to save space: **JPEG**, **WEBP**, **LERC**.
 
-This holds on both storage shapes. Where the kept file lives depends on how
-the install stores uploads:
+**Reprojection.** Supplying a CRS override reprojects the raster, which
+resamples every pixel onto a new grid. The output is a faithful *rendering* but
+not the original measurements, so this counts as lossy even under DEFLATE.
 
-| Install | Where the kept original is |
+In either case the uploaded file is the only copy of the original samples that
+will ever exist, so GeoLens keeps it.
+
+### Where the kept original lives, and for how long
+
+It is copied to `originals/<dataset-id>/<filename>` — the same place vector
+ingests archive their sources. On an object-storage install that is a prefix in
+your bucket; on a local install it is `originals/` inside the `upload_staging`
+volume. One location, both shapes.
+
+That location is deliberate. The copy is **not** left under `staging/`, because
+staging is for transient files and the retention purge is entitled to clean it:
+the purge keeps only each dataset's most recent completed job, so a kept
+original would have been deleted the next time that dataset was ingested or
+replaced. Under `originals/` no purge touches it.
+
+Its lifetime is therefore tied to the dataset, not to a job:
+
+| Event | What happens to the kept original |
 | --- | --- |
-| Object storage (S3/MinIO) | the `staging/<job-id>/` prefix in your bucket |
-| Local storage (default) | the `upload_staging` Docker volume, mounted at `/app/staging` |
-
-The local volume is durable — it is not tmpfs, it survives container restarts,
-and §1's `staging-<timestamp>.tar.gz` archives it — so a lossy original kept on
-a local install is as retained as one kept in a bucket.
+| The dataset is replaced again with a lossy conversion | The new original is kept alongside it, keyed by uploaded filename. Same filename overwrites; a different filename adds. |
+| The dataset is replaced with a **lossless** conversion | Nothing new is kept. Earlier originals stay — they are still the only copy of what those uploads contained. |
+| The dataset is **deleted** | Removed with it. Deleting a raster dataset clears the whole `originals/<dataset-id>/` prefix. |
+| The `ingest_jobs` retention window passes | Nothing. This copy is not a job artifact. |
 
 The practical consequences:
 
-- Expect storage for lossily-compressed rasters to hold roughly the COG plus
-  the original, not the COG alone. If storage growth surprises you, this is the
-  usual reason, and it applies to the `upload_staging` volume as much as to a
-  bucket.
-- Those originals are safe to delete yourself if you accept losing the lossless
-  copy. Nothing in GeoLens reads them; they exist so the choice stays yours.
+- Expect storage for lossily-converted rasters to hold roughly the COG plus the
+  original, not the COG alone. If storage growth surprises you, list the
+  `originals/` prefix — that is usually where it is.
+- Those originals are safe to delete yourself if you accept losing the only
+  faithful copy. Nothing in GeoLens reads them; they exist so the choice stays
+  yours.
 - If you want the smaller footprint and do not need the original, ingest with a
-  lossless compression and accept the larger COG, or delete the kept originals
-  on a schedule of your own.
+  lossless compression and no CRS override, and accept the larger COG.
 
 Provenance is still recorded: the dataset's `source_filename` and the
 `file_hash` in `origin_ref` identify exactly which bytes were ingested. What is

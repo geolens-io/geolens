@@ -123,6 +123,13 @@ def raster_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "app.platform.storage.get_storage", lambda: storage, raising=True
     )
+    # `tasks_common` binds get_storage at module import, so `_archive_original_file`
+    # reads THAT name and never sees the patch above. Without this the archive
+    # step wrote to the real configured storage during the test — silently, and
+    # outside tmp_path.
+    monkeypatch.setattr(
+        "app.processing.ingest.tasks_common.get_storage", lambda: storage, raising=True
+    )
     return storage
 
 
@@ -1064,6 +1071,9 @@ class TestLossyConversionRetainsSource:
         staging_key = f"staging/{job_id}/replacement.tif"
         await raster_storage.put(staging_key, io.BytesIO(_geotiff_bytes(seed=21)))
         job.file_path = staging_key
+        # The worker downloads the staged object to a generated temp name, so
+        # this is what decides the archived object's filename.
+        job.source_filename = "replacement.tif"
         job.user_metadata = {
             **(job.user_metadata or {}),
             "compression": compression,
@@ -1087,9 +1097,18 @@ class TestLossyConversionRetainsSource:
             ).scalar_one()
             assert asset.asset_uri != live.cog_key, "precondition: the swap ran"
 
-            assert await raster_storage.exists(staging_key) is source_survives, (
-                f"{compression}: staged source should "
-                f"{'survive' if source_survives else 'be deleted'}"
+            # The staged copy always goes: round 3 moved the retained original
+            # out of `staging/` rather than pinning it there, because a
+            # permanent artifact under a prefix that means "transient" is
+            # reaped by the next purge once a newer job supersedes this one.
+            assert not await raster_storage.exists(staging_key), (
+                "the staged copy must not survive either way — it is either "
+                "redundant or relocated"
+            )
+            durable = f"originals/{dataset_id}/replacement.tif"
+            assert await raster_storage.exists(durable) is source_survives, (
+                f"{compression}: a durable original should "
+                f"{'exist' if source_survives else 'not exist'} under originals/"
             )
         finally:
             await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
@@ -1121,16 +1140,14 @@ class TestLossyConversionRetainsSource:
                 and getattr(node.func, "id", None) == "reap_downloaded_staging_source"
             ]
             assert reaps, f"{module.__name__} never reaps its staged source"
-            guarded = [
-                node
-                for node in ast.walk(tree)
-                if isinstance(node, ast.If)
-                and isinstance(node.test, ast.Name)
-                and node.test.id == "source_preserved_in_cog"
-            ]
-            assert guarded, (
-                f"{module.__name__} reaps the upload without gating on whether "
-                "the COG preserved it (ADR-002 Decision 7 / #1290 finding 1)"
+            # The gate is two facts now: the COG preserved the samples, OR the
+            # original was relocated somewhere durable. Either makes the staged
+            # copy redundant; neither alone is enough.
+            names = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+            assert {"source_preserved_in_cog", "lossy_original_archived"} <= names, (
+                f"{module.__name__} reaps the upload without consulting both "
+                "whether the COG preserved it and whether it was archived "
+                "(ADR-002 Decision 7 / #1290 findings 1 and 2)"
             )
 
 
@@ -1728,10 +1745,17 @@ class TestLocalStorageHonoursTheRetentionPromise:
                 attempt_id=str(job.attempt_id),
             )
 
-            assert source.exists() is source_survives, (
-                f"{compression}: the local original should "
-                f"{'survive' if source_survives else 'be deleted'} — RUNBOOK "
-                "section 9 promises the same policy on both storage shapes"
+            assert not source.exists(), (
+                "the staged local copy goes in both cases — it is either "
+                "redundant or already relocated"
+            )
+            durable = f"originals/{dataset_id}/local-original.tif"
+            assert await raster_storage.exists(durable) is source_survives, (
+                f"{compression}: a durable original should "
+                f"{'exist' if source_survives else 'not exist'} under "
+                "originals/ — RUNBOOK section 9 promises the same policy on "
+                "both storage shapes, and in local mode the provider is rooted "
+                "at the same durable volume the staging file lived on"
             )
         finally:
             await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
@@ -1755,8 +1779,9 @@ class TestLocalStorageHonoursTheRetentionPromise:
                 for node in ast.walk(tree)
                 if isinstance(node, ast.BoolOp)
                 and any(
-                    isinstance(v, ast.Name) and v.id == "source_preserved_in_cog"
-                    for v in node.values
+                    isinstance(v, ast.Name)
+                    and v.id in ("source_preserved_in_cog", "lossy_original_archived")
+                    for v in ast.walk(node)
                 )
             ]
             assert gated, (
@@ -1764,3 +1789,267 @@ class TestLocalStorageHonoursTheRetentionPromise:
                 "without consulting whether the COG preserved it (#1290 "
                 "round-2 finding 4)"
             )
+
+
+# ---------------------------------------------------------------------------
+# 9. Round-3 review findings (#1290)
+# ---------------------------------------------------------------------------
+
+
+class TestReprojectionCountsAsSampleAltering:
+    """FINDING 1. `gdalwarp -t_srs` resamples every pixel onto a new grid, so a
+    reprojection under DEFLATE alters samples exactly as JPEG does. Looking
+    only at the codec answered the wrong question."""
+
+    def test_a_warp_under_a_lossless_codec_still_alters_samples(self) -> None:
+        from app.processing.raster.cog import cog_preserves_source
+
+        assert cog_preserves_source("converted", "DEFLATE") is True
+        assert cog_preserves_source("converted", "DEFLATE", reprojected=True) is False
+
+    def test_a_lossy_codec_is_still_lossy_without_a_warp(self) -> None:
+        from app.processing.raster.cog import cog_preserves_source
+
+        assert cog_preserves_source("converted", "JPEG", reprojected=False) is False
+
+    def test_verified_still_short_circuits(self) -> None:
+        """Nothing ran, so neither axis applies. A warp cannot co-occur:
+        `check_and_prepare_cog` treats any assign_crs as a custom option and
+        always converts."""
+        from app.processing.raster.cog import cog_preserves_source
+
+        assert cog_preserves_source("verified", "JPEG") is True
+
+    async def test_replace_with_srid_override_keeps_the_original(
+        self, test_db_session, raster_storage, tmp_path
+    ) -> None:
+        """End to end: default DEFLATE plus an override. Lossless codec, warped
+        pixels — the upload is the only copy of the original samples."""
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+
+        source = tmp_path / "reprojected.tif"
+        source.write_bytes(_geotiff_bytes(seed=91))
+        job = await _queue_replace_job(
+            test_db_session,
+            dataset_id=dataset_id,
+            user_id=admin_id,
+            file_path=str(source),
+        )
+        job.user_metadata = {**(job.user_metadata or {}), "srid_override": 3857}
+        await test_db_session.commit()
+        job_id = job.id
+
+        try:
+            await reupload_raster.func(
+                job_id=str(job_id),
+                dataset_id=str(dataset_id),
+                file_path=str(source),
+                user_id=str(admin_id),
+                attempt_id=str(job.attempt_id),
+            )
+            assert await raster_storage.exists(
+                f"originals/{dataset_id}/reprojected.tif"
+            ), (
+                "a reprojected replace deleted its only un-resampled copy — "
+                "DEFLATE says nothing about a warp (#1290 round-3 finding 1)"
+            )
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
+
+class TestRetainedOriginalLivesOutsideThePurgesDomain:
+    """FINDING 2. `staging/` means transient and the retention purge is right to
+    clean it — it exempts only a dataset's most recent complete job, so a
+    retained original from an older job was reaped once the window passed. The
+    fix moves the artifact rather than teaching the purge an exemption."""
+
+    async def test_the_kept_original_is_under_originals_not_staging(
+        self, test_db_session, raster_storage, tmp_path
+    ) -> None:
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+
+        job = await _queue_replace_job(
+            test_db_session,
+            dataset_id=dataset_id,
+            user_id=admin_id,
+            file_path="placeholder",
+        )
+        job_id = job.id
+        staging_key = f"staging/{job_id}/scene.tif"
+        await raster_storage.put(staging_key, io.BytesIO(_geotiff_bytes(seed=95)))
+        job.file_path = staging_key
+        job.source_filename = "scene.tif"
+        job.user_metadata = {**(job.user_metadata or {}), "compression": "JPEG"}
+        await test_db_session.commit()
+
+        try:
+            await reupload_raster.func(
+                job_id=str(job_id),
+                dataset_id=str(dataset_id),
+                file_path=staging_key,
+                user_id=str(admin_id),
+                attempt_id=str(job.attempt_id),
+            )
+
+            surviving = await raster_storage.list("")
+            staged = [k for k in surviving if k.startswith("staging/")]
+            assert staged == [], (
+                f"a permanent artifact was left under staging/: {staged} — the "
+                "retention purge will reap it once a newer job supersedes this "
+                "one, and the RUNBOOK calls the copy permanent"
+            )
+            assert await raster_storage.exists(f"originals/{dataset_id}/scene.tif")
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
+    async def test_a_second_lossy_replace_keeps_both_originals(
+        self, test_db_session, raster_storage, tmp_path
+    ) -> None:
+        """The lifecycle question: what happens to the kept original when the
+        dataset is replaced again. They coexist, keyed by uploaded filename, so
+        a differently-named upload adds and a same-named one overwrites. Both
+        are reaped together when the dataset is deleted, because
+        `delete_dataset` already cleans the whole `originals/<id>/` prefix."""
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+
+        try:
+            for name in ("first.tif", "second.tif"):
+                source = tmp_path / name
+                source.write_bytes(_geotiff_bytes(seed=hash(name) % 500))
+                job = await _queue_replace_job(
+                    test_db_session,
+                    dataset_id=dataset_id,
+                    user_id=admin_id,
+                    file_path=str(source),
+                )
+                job.user_metadata = {
+                    **(job.user_metadata or {}),
+                    "compression": "JPEG",
+                }
+                await test_db_session.commit()
+                await reupload_raster.func(
+                    job_id=str(job.id),
+                    dataset_id=str(dataset_id),
+                    file_path=str(source),
+                    user_id=str(admin_id),
+                    attempt_id=str(job.attempt_id),
+                )
+
+            kept = sorted(await raster_storage.list(f"originals/{dataset_id}/"))
+            assert [k.rsplit("/", 1)[-1] for k in kept] == ["first.tif", "second.tif"]
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
+
+class TestFirstIngestPersistsTheServedCogToo:
+    """FINDING 3. The round-1 CRS fix made first ingest warp declared-CRS
+    sources, but its metadata still came from the pre-warp read — the same
+    defect the replace tail fixed a round earlier, left behind because that
+    dispatch was scoped to replace only."""
+
+    def test_both_tails_persist_cog_derived_metadata(self) -> None:
+        """Structural, and deliberately so: this pins the drift CLASS the way
+        the shared CRS resolver did. Each tail must read the converted artifact
+        and hand THAT to its row builder — a tail that goes back to persisting
+        the source read fails here even if its own behaviour tests pass."""
+        import ast
+        import inspect
+
+        from app.processing.ingest import tasks_raster, tasks_raster_replace
+
+        for module, task_name in (
+            (tasks_raster, "ingest_raster"),
+            (tasks_raster_replace, "reupload_raster"),
+        ):
+            tree = ast.parse(inspect.getsource(module))
+            # Scoped to the TASK body. `create_raster_dataset` legitimately
+            # takes a parameter called `meta` — it receives the COG's metadata
+            # and its docstring says so. The drift this pins is in the task,
+            # which is the thing that decides WHICH read to hand over.
+            task = next(
+                node
+                for node in ast.walk(tree)
+                if isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef))
+                and node.name == task_name
+            )
+            names = {node.id for node in ast.walk(task) if isinstance(node, ast.Name)}
+            assert "cog_meta" in names, (
+                f"{task_name} never reads the converted COG's metadata"
+            )
+            assert "source_meta" in names, (
+                f"{task_name} does not keep a separate source read for "
+                "original_srid and the CRS decision"
+            )
+            # The old undifferentiated name is what the drift looked like.
+            assert "meta" not in names, (
+                f"{task_name} still carries an undifferentiated `meta` — the "
+                "two reads answer different questions and the names have to "
+                "say which is which (#1290 round-3 finding 3)"
+            )
+
+    async def test_first_ingest_records_the_uploads_srid_separately(
+        self, test_db_session, raster_storage, tmp_path, monkeypatch
+    ) -> None:
+        """Behavioural half, on the field the finding is really about.
+        `create_raster_dataset` is the seam both the task and this test go
+        through, so this pins what the task hands it."""
+        from app.processing.ingest.tasks_raster_common import create_raster_dataset
+
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+
+        cog_meta = {"epsg": 3857, "driver": "GTiff", "dtype": "uint8", "band_count": 1}
+        record, dataset, asset = await create_raster_dataset(
+            test_db_session,
+            meta=cog_meta,
+            source_sha256="a" * 64,
+            asset_sha256="b" * 64,
+            cog_status="converted",
+            cog_size=123,
+            source_filename="scene.tif",
+            created_by=admin_id,
+            title="round-3 srid split",
+            summary=None,
+            visibility="private",
+            original_srid=4326,
+        )
+        await test_db_session.commit()
+        try:
+            assert dataset.srid == 3857, "srid must describe the served COG"
+            assert dataset.original_srid == 4326, (
+                "original_srid must describe the upload — first ingest was "
+                "storing nothing here while replace stored the source's SRID"
+            )
+            assert asset.epsg == 3857
+        finally:
+            await _purge(test_db_session, dataset_id=dataset.id, record_id=record.id)

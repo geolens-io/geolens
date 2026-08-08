@@ -723,8 +723,15 @@ async def _archive_original_file(
     file_path: str,
     log_message: str = "Failed to archive original file to storage",
     commit: bool = True,
-) -> None:
+    archive_name: str | None = None,
+) -> bool:
     """Upload the original source file to the storage provider (best-effort).
+
+    Returns True when the archive landed. fix(#1290 review): the raster tails
+    call this to satisfy ADR-002 Decision 7 when a conversion was lossy, and
+    they must not delete the staged upload unless the durable copy exists — so
+    for them the outcome is a decision input, not just a breadcrumb. The vector
+    callers ignore the return and are unaffected.
 
     Archive failures must NOT fail the ingest — the dataset is already
     committed at this point. Instead, record the failure on
@@ -745,7 +752,11 @@ async def _archive_original_file(
     """
 
     logger = structlog.get_logger()
-    archive_key = f"originals/{dataset_id}/{Path(file_path).name}"
+    # fix(#1290 review): `file_path` is a temp download on any object-store
+    # deployment, so deriving the name from it archives the upload under a
+    # generated filename nobody recognises. Callers that know what the user
+    # actually uploaded pass it.
+    archive_key = f"originals/{dataset_id}/{archive_name or Path(file_path).name}"
     try:
         from app.core.db.tenant_session import current_tenant_var
         from app.platform.storage.titiler_url import resolve_storage_key
@@ -756,6 +767,7 @@ async def _archive_original_file(
         )
         with open(file_path, "rb") as fobj:
             await storage.put(physical_archive_key, fobj)
+        return True
     except Exception as archive_exc:  # broad: archive is best-effort; S3/local I/O can fail for any reason
         logger.warning(
             log_message,
@@ -769,7 +781,7 @@ async def _archive_original_file(
             "archive_error": str(archive_exc)[:500],
         }
         if not commit:
-            return
+            return False
         try:
             await session.commit()
         except Exception as commit_exc:  # broad: transient DB errors (deadlock, pooler drop) during flag persistence
@@ -780,6 +792,7 @@ async def _archive_original_file(
                 dataset_id=str(dataset_id),
                 error=str(commit_exc)[:500],
             )
+        return False
 
 
 async def _run_staging_pipeline(

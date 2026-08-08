@@ -2170,7 +2170,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # has to say why the redaction belongs here rather than at each of them,
     # and why the exception itself is left unmodified for callers that
     # dispatch on its type. Cap 1880 -> 1889, exact.
-    "backend/app/processing/ingest/tasks_common.py": 1889,
+    # fix(#1290 review): +13 — _archive_original_file reports whether the
+    # archive landed and accepts the uploaded filename. The raster tails call
+    # it to satisfy ADR-002 Decision 7 when a conversion was lossy, so for them
+    # the outcome is a decision input (do not delete the staged upload unless
+    # the durable copy exists) rather than a breadcrumb, and `file_path` is a
+    # temp download on object storage so the name had to come from the caller.
+    # Cap 1889 -> 1902, exact.
+    "backend/app/processing/ingest/tasks_common.py": 1902,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed

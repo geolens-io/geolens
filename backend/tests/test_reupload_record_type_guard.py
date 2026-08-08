@@ -116,7 +116,7 @@ class TestFilePathStillWorks:
 
 
 def test_raster_worker_rejects_standalone_vrt_jobs():
-    from app.processing.ingest.tasks_raster import _reject_raw_vrt_job
+    from app.processing.ingest.tasks_raster_common import _reject_raw_vrt_job
 
     with pytest.raises(ValueError, match="Standalone VRT"):
         _reject_raw_vrt_job("unsafe.vrt")

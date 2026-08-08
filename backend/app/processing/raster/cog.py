@@ -37,23 +37,50 @@ LOSSLESS_COG_COMPRESSIONS: frozenset[str] = frozenset(
 )
 
 
-def cog_preserves_source(cog_status: str | None, compression: str | None) -> bool:
-    """True when the stored COG carries everything the uploaded file did.
+def cog_preserves_source(
+    cog_status: str | None,
+    compression: str | None,
+    *,
+    reprojected: bool = False,
+) -> bool:
+    """True when the stored COG carries the samples the uploaded file did.
 
     fix(#1290 review). ADR-002 Decision 7 licenses deleting the pre-conversion
-    upload on the stated grounds that "conversion is lossless" — which is a
-    property of the profile the conversion actually used, not of conversion in
-    general. Under JPEG or WEBP the COG is the only copy AND it has thrown away
-    detail the user handed us, so the source is the only lossless original that
-    ever existed and deleting it destroys data.
+    upload on the stated grounds that "conversion is lossless". That is a claim
+    about what the conversion DID, and there is more than one way for it to be
+    false.
 
-    ``cog_status == "verified"`` short-circuits because nothing was converted:
+    The audit of everything ``convert_to_cog`` can apply, so the next reader
+    does not have to redo it:
+
+    - **compression** — JPEG, WEBP and LERC discard detail. Sample-altering.
+    - **assign_crs** — runs ``gdalwarp -t_srs``, which resamples the raster
+      onto a new grid. Every output pixel is interpolated from neighbours, so
+      the source's samples are gone even under DEFLATE. Sample-altering, and
+      the case round 2 missed by looking only at the codec.
+    - **resampling** — feeds ``gdaladdo`` (overviews are additional data, the
+      base band is untouched) and ``gdalwarp -r``. It only alters samples
+      through the warp, which ``reprojected`` already covers.
+    - **nodata** — ``gdal_translate -a_nodata`` writes a metadata tag. Pixel
+      values are byte-identical, so this is not sample-altering; it changes how
+      the samples are interpreted, not what they are.
+    - **overviews / tiling / COPY_SRC_OVERVIEWS** — add or rearrange, never
+      discard.
+
+    So the predicate is "no lossy codec AND no warp". Anything not proven
+    sample-preserving must return False: the cost of a wrong True is the
+    permanent loss of the only faithful copy, and the cost of a wrong False is
+    some retained bytes.
+
+    ``cog_status == "verified"`` short-circuits because nothing ran at all —
     the bytes written to storage ARE the uploaded bytes, whatever codec they
-    already carried, so there is nothing left to lose by dropping the staged
-    copy.
+    already carried. A warp cannot coexist with it: ``check_and_prepare_cog``
+    treats any ``assign_crs`` as a custom option and always converts.
     """
     if cog_status == "verified":
         return True
+    if reprojected:
+        return False
     return (compression or "").upper() in LOSSLESS_COG_COMPRESSIONS
 
 

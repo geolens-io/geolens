@@ -64,6 +64,7 @@ from app.processing.raster.cog import (
 from app.processing.raster.quicklook import generate_quicklook
 
 from app.processing.ingest.tasks_common import (
+    _archive_original_file,
     _bind_task_log_context,
     _job_phase_session,
     _validate_upload_file_safety,
@@ -190,6 +191,102 @@ async def _convert_and_verify_cog(
     return local_cog_path, cog_status, cog_meta
 
 
+def _write_swapped_fields(
+    raster_asset,
+    dataset,
+    *,
+    cog_meta: dict,
+    cog_key: str,
+    ql256_key: str,
+    ql512_key: str,
+    asset_sha256: str,
+    source_sha256: str,
+    source_meta: dict,
+    cog_size: int,
+    cog_status: str,
+    source_filename: str | None,
+    user_id: str,
+) -> int:
+    """Move every catalog field the swap owns, and return the new version.
+
+    Extracted from ``reupload_raster`` when the round-3 archive step pushed
+    that function back over the McCabe gate. Pure field assignment on two
+    attached ORM instances — the caller's transaction is what makes it atomic
+    with the storage puts and the job's terminal write.
+    """
+    nodata_val = cog_meta.get("nodata")
+    raster_asset.asset_uri = cog_key
+    raster_asset.quicklook_256_uri = ql256_key
+    raster_asset.quicklook_512_uri = ql512_key
+    raster_asset.sha256 = asset_sha256
+    raster_asset.size_bytes = cog_size
+    raster_asset.source_sha256 = source_sha256
+    raster_asset.cog_status = cog_status
+    # fix(#1290 review): a STAC-origin row carries
+    # storage_backend="remote" because its asset_uri WAS an external
+    # href. The swap has just replaced that with a managed
+    # `rasters/...` key, so leaving the backend alone tells every
+    # consumer to treat a managed key as a URL: the COG download
+    # endpoint SSRF-validates it and proxies it, and VRT health probes
+    # it over HTTP. "local" is what `create_raster_dataset` writes for
+    # every managed raster — the value means "GeoLens owns these
+    # bytes", and `resolve_open_path` does the local/S3/Azure dispatch
+    # from the key itself.
+    raster_asset.storage_backend = "local"
+    raster_asset.driver = cog_meta.get("driver")
+    raster_asset.ingested_at = datetime.now(timezone.utc)
+    raster_asset.crs_wkt = cog_meta.get("crs_wkt")
+    raster_asset.epsg = cog_meta.get("epsg")
+    raster_asset.band_count = cog_meta.get("band_count")
+    raster_asset.dtype = cog_meta.get("dtype")
+    raster_asset.nodata = str(nodata_val) if nodata_val is not None else None
+    raster_asset.res_x = cog_meta.get("res_x")
+    raster_asset.res_y = cog_meta.get("res_y")
+    raster_asset.width = cog_meta.get("width")
+    raster_asset.height = cog_meta.get("height")
+    raster_asset.compression = cog_meta.get("compression")
+    raster_asset.band_info = cog_meta.get("band_info")
+    raster_asset.is_rotated = cog_meta.get("is_rotated", False)
+    # Recomputed, not carried over: replacing a single-band float
+    # elevation raster with an RGB orthophoto has to stop rendering as
+    # terrain. Same reasoning as the VRT regenerate path (#185).
+    raster_asset.is_dem = cog_meta.get("is_dem_candidate", False)
+
+    new_version = dataset.current_version + 1
+    dataset.current_version = new_version
+    dataset.srid = cog_meta.get("epsg")
+    # fix(#1290 review): the two fields answer different questions and
+    # round 1 collapsed them onto one read. `srid` is what the dataset
+    # serves, which is the converted COG's; `original_srid` is
+    # documented as the SRID of the uploaded file, so under an override
+    # it must still report what the upload declared. Collapsing them
+    # made a 4326 source with srid_override=3857 record 3857 twice and
+    # lose the only record of what arrived.
+    dataset.original_srid = source_meta.get("epsg")
+    dataset.source_filename = source_filename
+    dataset.source_format = "geotiff"
+    # fix(#525 B-038): the Valkey purge cannot reach CDN or browser
+    # caches keyed on the tile URL, so the `_v=` buster has to roll in
+    # the same transaction as the pointer it invalidates.
+    dataset.bump_tile_cache_version()
+    # feat(#1218) ADR-002 Decision 7: the dataset IS the COG and the
+    # upload is a transient input, so the origin restamps to the new
+    # file with no remote URI to point at.
+    set_dataset_origin(
+        dataset,
+        "upload",
+        filename=source_filename,
+        file_hash=source_sha256,
+    )
+    swap_time = datetime.now(timezone.utc)
+    dataset.last_refreshed_at = swap_time
+    dataset.record.updated_by = uuid.UUID(user_id)
+    if cog_meta.get("bbox_wkt"):
+        dataset.record.spatial_extent = func.ST_GeomFromText(cog_meta["bbox_wkt"], 4326)
+
+    return new_version
+
+
 async def _upsert_managed_asset_rows(
     session,
     *,
@@ -224,7 +321,7 @@ async def _upsert_managed_asset_rows(
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
     from app.platform.extensions import get_catalog_port, get_processing_port
-    from app.processing.ingest.tasks_raster import _build_dataset_asset_rows
+    from app.processing.ingest.tasks_raster_common import _build_dataset_asset_rows
 
     DatasetAsset = get_catalog_port().dataset_asset_orm_class()
     RecordDistribution = get_processing_port().get_record_distribution_orm_class()
@@ -412,6 +509,10 @@ async def reupload_raster(
     # False until a conversion proves otherwise — Decision 7's delete is
     # licensed by that fact and the default has to be the one that retains.
     source_preserved_in_cog: bool = False
+    # fix(#1290 review): set when a lossy conversion's original has been copied
+    # to the durable `originals/` prefix. Until it is true the staged upload is
+    # the only faithful copy and nothing may delete it.
+    lossy_original_archived: bool = False
 
     try:
         # ----------------------------------------------------------------- #
@@ -553,8 +654,11 @@ async def reupload_raster(
         )
         # fix(#1290 review): resolved state, not the request field. Decided here
         # rather than in the tail because this is where the conversion that
-        # actually ran is known.
-        source_preserved_in_cog = cog_preserves_source(cog_status, user_compression)
+        # actually ran is known — including whether a warp ran, which a
+        # lossless codec does not tell you and which resamples every pixel.
+        source_preserved_in_cog = cog_preserves_source(
+            cog_status, user_compression, reprojected=assign_crs is not None
+        )
 
         asset_sha256 = await asyncio.to_thread(sha256_file, local_cog_path)
         cog_size = os.path.getsize(local_cog_path)
@@ -626,77 +730,21 @@ async def reupload_raster(
             # converted replace, `nodata` wrong under an override, and the CRS
             # and footprint wrong under `srid_override`, which is exactly the
             # case a caller reaches for when the source's CRS is the problem.
-            nodata_val = cog_meta.get("nodata")
-            raster_asset.asset_uri = cog_key
-            raster_asset.quicklook_256_uri = ql256_key
-            raster_asset.quicklook_512_uri = ql512_key
-            raster_asset.sha256 = asset_sha256
-            raster_asset.size_bytes = cog_size
-            raster_asset.source_sha256 = source_sha256
-            raster_asset.cog_status = cog_status
-            # fix(#1290 review): a STAC-origin row carries
-            # storage_backend="remote" because its asset_uri WAS an external
-            # href. The swap has just replaced that with a managed
-            # `rasters/...` key, so leaving the backend alone tells every
-            # consumer to treat a managed key as a URL: the COG download
-            # endpoint SSRF-validates it and proxies it, and VRT health probes
-            # it over HTTP. "local" is what `create_raster_dataset` writes for
-            # every managed raster — the value means "GeoLens owns these
-            # bytes", and `resolve_open_path` does the local/S3/Azure dispatch
-            # from the key itself.
-            raster_asset.storage_backend = "local"
-            raster_asset.driver = cog_meta.get("driver")
-            raster_asset.ingested_at = datetime.now(timezone.utc)
-            raster_asset.crs_wkt = cog_meta.get("crs_wkt")
-            raster_asset.epsg = cog_meta.get("epsg")
-            raster_asset.band_count = cog_meta.get("band_count")
-            raster_asset.dtype = cog_meta.get("dtype")
-            raster_asset.nodata = str(nodata_val) if nodata_val is not None else None
-            raster_asset.res_x = cog_meta.get("res_x")
-            raster_asset.res_y = cog_meta.get("res_y")
-            raster_asset.width = cog_meta.get("width")
-            raster_asset.height = cog_meta.get("height")
-            raster_asset.compression = cog_meta.get("compression")
-            raster_asset.band_info = cog_meta.get("band_info")
-            raster_asset.is_rotated = cog_meta.get("is_rotated", False)
-            # Recomputed, not carried over: replacing a single-band float
-            # elevation raster with an RGB orthophoto has to stop rendering as
-            # terrain. Same reasoning as the VRT regenerate path (#185).
-            raster_asset.is_dem = cog_meta.get("is_dem_candidate", False)
-
-            new_version = dataset.current_version + 1
-            dataset.current_version = new_version
-            dataset.srid = cog_meta.get("epsg")
-            # fix(#1290 review): the two fields answer different questions and
-            # round 1 collapsed them onto one read. `srid` is what the dataset
-            # serves, which is the converted COG's; `original_srid` is
-            # documented as the SRID of the uploaded file, so under an override
-            # it must still report what the upload declared. Collapsing them
-            # made a 4326 source with srid_override=3857 record 3857 twice and
-            # lose the only record of what arrived.
-            dataset.original_srid = source_meta.get("epsg")
-            dataset.source_filename = source_filename
-            dataset.source_format = "geotiff"
-            # fix(#525 B-038): the Valkey purge cannot reach CDN or browser
-            # caches keyed on the tile URL, so the `_v=` buster has to roll in
-            # the same transaction as the pointer it invalidates.
-            dataset.bump_tile_cache_version()
-            # feat(#1218) ADR-002 Decision 7: the dataset IS the COG and the
-            # upload is a transient input, so the origin restamps to the new
-            # file with no remote URI to point at.
-            set_dataset_origin(
+            new_version = _write_swapped_fields(
+                raster_asset,
                 dataset,
-                "upload",
-                filename=source_filename,
-                file_hash=source_sha256,
+                cog_meta=cog_meta,
+                cog_key=cog_key,
+                ql256_key=ql256_key,
+                ql512_key=ql512_key,
+                asset_sha256=asset_sha256,
+                source_sha256=source_sha256,
+                source_meta=source_meta,
+                cog_size=cog_size,
+                cog_status=cog_status,
+                source_filename=source_filename,
+                user_id=user_id,
             )
-            swap_time = datetime.now(timezone.utc)
-            dataset.last_refreshed_at = swap_time
-            dataset.record.updated_by = uuid.UUID(user_id)
-            if cog_meta.get("bbox_wkt"):
-                dataset.record.spatial_extent = func.ST_GeomFromText(
-                    cog_meta["bbox_wkt"], 4326
-                )
 
             # Keep the download and STAC surfaces pointing at what is live.
             # fix(#1290 review): upserts, not UPDATEs. A STAC-imported raster
@@ -756,6 +804,32 @@ async def reupload_raster(
                     },
                 ),
             )
+
+            # fix(#1290 review): ADR-002 Decision 7's retained original moves to
+            # `originals/<dataset_id>/`, the prefix the vector tails have
+            # archived to since #430 and which `delete_dataset` already reaps.
+            # Keeping it under `staging/` made it a permanent artifact in a
+            # namespace whose whole meaning is "transient": the retention purge
+            # exempts only a dataset's most recent complete job, so the next
+            # successful replace would have made this one purgeable and the
+            # promise would have died silently. Relocating removes the class
+            # instead of adding an exemption every future purge edit must know
+            # about. Placed here, beside the vector path's own archive step, so
+            # it runs with a session in hand and before the tail decides
+            # whether the staged copy is still needed.
+            if not source_preserved_in_cog:
+                lossy_original_archived = await _archive_original_file(
+                    session,
+                    job=job,
+                    dataset_id=dataset.id,
+                    file_path=file_path,
+                    log_message=(
+                        "Failed to archive the lossy replacement original; "
+                        "the staged upload will be retained in place instead"
+                    ),
+                    commit=False,
+                    archive_name=source_filename,
+                )
 
             await require_ingest_job_update(
                 session,
@@ -883,7 +957,9 @@ async def reupload_raster(
         # failed on every local deployment.
         if file_path != original_file_path:
             Path(file_path).unlink(missing_ok=True)
-        elif final_status == "complete" and source_preserved_in_cog:
+        elif final_status == "complete" and (
+            source_preserved_in_cog or lossy_original_archived
+        ):
             Path(file_path).unlink(missing_ok=True)
         # fix(#1207): the client-writable staging key, which stays recreatable
         # through an unexpired PUT URL until it is swept.
@@ -901,7 +977,7 @@ async def reupload_raster(
         # carrying everything the upload did — true of DEFLATE, false of the
         # JPEG and WEBP profiles the import UI also offers. Same gate as the
         # first-ingest tail, same shared predicate, so the two cannot drift.
-        if source_preserved_in_cog:
+        if source_preserved_in_cog or lossy_original_archived:
             await reap_downloaded_staging_source(
                 job_id,
                 original_file_path=original_file_path,
