@@ -86,7 +86,7 @@ def parse_wfs_capabilities(xml_text: str) -> tuple[str, list[dict]]:
     return version, layers
 
 
-def _build_capabilities_url(url: str) -> str:
+def build_capabilities_url(url: str) -> str:
     """Build a GetCapabilities URL, preserving existing query params."""
     parsed = urlparse(url)
     existing_params = parse_qs(parsed.query)
@@ -109,7 +109,7 @@ async def probe_wfs(
     Fetches GetCapabilities and parses the response. Returns a dict with
     service_type and layers on success, or None if not a WFS service.
     """
-    capabilities_url = _build_capabilities_url(url)
+    capabilities_url = build_capabilities_url(url)
     request_headers = {}
     if token:
         request_headers["Authorization"] = f"Bearer {token}"

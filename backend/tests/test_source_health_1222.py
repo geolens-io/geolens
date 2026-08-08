@@ -280,6 +280,9 @@ class TestProbeStatusMapping:
 # ---------------------------------------------------------------------------
 
 
+_SEARCH_URL = "https://origin.test/stac/search"
+
+
 class TestStacItemHrefCapture:
     def test_self_link_is_picked_out_of_the_item_links(self) -> None:
         feature = {
@@ -288,19 +291,29 @@ class TestStacItemHrefCapture:
                 {"rel": "self", "href": _ITEM},
             ]
         }
-        assert _self_link_href(feature) == _ITEM
+        assert _self_link_href(feature, _SEARCH_URL) == _ITEM
+
+    def test_relative_self_link_resolves_against_the_search_url(self) -> None:
+        """fix(#1271 review): a relative self href is legal STAC. Dropping it
+        left item_href unwritten, so health reported healthy off the asset
+        even after the item was withdrawn."""
+        feature = {"links": [{"rel": "self", "href": "/collections/c/items/scene"}]}
+        assert (
+            _self_link_href(feature, _SEARCH_URL)
+            == "https://origin.test/collections/c/items/scene"
+        )
 
     @pytest.mark.parametrize(
         "links",
         [
             [],
             [{"rel": "parent", "href": "https://origin.test/x"}],
-            # Relative and non-HTTP self links are dropped: the probe would
-            # have nothing safe to fetch, and a stored value the probe must
-            # then special-case is worse than an absent one.
-            [{"rel": "self", "href": "/collections/c/items/scene"}],
+            # Non-HTTP self links are dropped: the probe would have nothing
+            # safe to fetch, and a stored value the probe must then
+            # special-case is worse than an absent one.
             [{"rel": "self", "href": "s3://bucket/items/scene.json"}],
             [{"rel": "self"}],
+            [{"rel": "self", "href": "   "}],
             ["not-a-dict"],
             # A signed self link is dropped at capture, not passed on: the
             # import validator refuses credentialed URLs outright, so
@@ -308,13 +321,16 @@ class TestStacItemHrefCapture:
             # they never asked for.
             [{"rel": "self", "href": "https://origin.test/items/x?token=abc"}],
             [{"rel": "self", "href": "https://user:pw@origin.test/items/x"}],
+            # Credential checks run on the RESOLVED value, so a relative href
+            # cannot smuggle userinfo past them either.
+            [{"rel": "self", "href": "//user:pw@origin.test/items/x"}],
         ],
     )
     def test_unusable_self_links_yield_none(self, links: list) -> None:
-        assert _self_link_href({"links": links}) is None
+        assert _self_link_href({"links": links}, _SEARCH_URL) is None
 
     def test_missing_links_key_yields_none(self) -> None:
-        assert _self_link_href({}) is None
+        assert _self_link_href({}, _SEARCH_URL) is None
 
     def test_item_href_is_an_accepted_origin_ref_key(self) -> None:
         ref = build_origin_ref(
@@ -698,8 +714,9 @@ class TestServiceOriginProbe:
     ) -> None:
         """fix(#1271 review): WFS addresses layers by typename, so the
         enriched ``<base>/<layer name>`` origin_uri is provenance, not an
-        endpoint. Probing it would record the server's 404 fallback as the
-        service's health."""
+        endpoint — and the base alone is not enough either, since many
+        servers 4xx a request without the capabilities parameters. The probe
+        must ask the same question the import adapter asks."""
         install, recorded = probe_transport
         install(_status_map({}, default=200))
         admin_id = await get_user_id(test_db_session, "admin")
@@ -718,7 +735,10 @@ class TestServiceOriginProbe:
         assert resp.status_code == 200, resp.text
         assert resp.json()["source_health"] == HEALTHY
         assert len(recorded) == 1
-        assert str(recorded[0].url) == "https://origin.test/wfs"
+        assert (
+            str(recorded[0].url)
+            == "https://origin.test/wfs?service=WFS&request=GetCapabilities"
+        )
 
     async def test_ogcapi_probe_targets_the_canonical_service_url(
         self, client, admin_auth_header, test_db_session, probe_transport

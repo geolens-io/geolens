@@ -55,6 +55,7 @@ from app.modules.catalog.authorization import check_dataset_write_access
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.datasets.domain.schemas import SourceHealthResponse
 from app.modules.catalog.datasets.domain.service import get_dataset
+from app.modules.catalog.sources.adapters.wfs import build_capabilities_url
 from app.modules.catalog.sources.origin_probe import (
     ITEM_WITHDRAWN,
     MISSING,
@@ -172,11 +173,18 @@ async def _probe_service_origin(dataset: Dataset) -> OriginProbeResult:
     parameter, so their enriched URI is a non-endpoint and probing it records
     whatever the server's 404 fallback happens to say about a URL nobody
     serves. For those two the canonical service base in ``origin_ref.url`` is
-    the thing whose reachability the answer claims to describe.
+    the thing whose reachability the answer claims to describe — and for WFS
+    the base alone is not enough either: many servers 4xx a request without
+    ``service=WFS&request=GetCapabilities``, so the probe asks the same
+    question the import adapter asks, via the same URL builder. An OGC API
+    base is a plain JSON landing page and needs no parameters.
     """
     ref = dataset.origin_ref or {}
-    if ref.get("service_type") in ("wfs", "ogcapi_features"):
+    service_type = ref.get("service_type")
+    if service_type in ("wfs", "ogcapi_features"):
         target = ref.get("url") or dataset.origin_uri
+        if target and service_type == "wfs":
+            target = build_capabilities_url(target)
     else:
         target = dataset.origin_uri or ref.get("url")
     if not target:
