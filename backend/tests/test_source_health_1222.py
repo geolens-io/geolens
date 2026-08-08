@@ -489,20 +489,23 @@ async def _service_dataset(
     created_by: uuid.UUID,
     origin_uri: str | None = "https://origin.test/FeatureServer/0",
     visibility: str = "public",
+    service_type: str = "arcgis_featureserver",
+    service_url: str | None = "https://origin.test/FeatureServer",
+    layer_id: str | None = "0",
 ) -> object:
     dataset = await _create_dataset(
         session,
         created_by=created_by,
         name=f"Service Origin {uuid.uuid4().hex[:6]}",
-        source_format="arcgis_featureserver",
+        source_format=service_type,
         visibility=visibility,
     )
     dataset.origin_uri = origin_uri
     dataset.origin_ref = build_origin_ref(
         "service",
-        service_type="arcgis_featureserver",
-        url="https://origin.test/FeatureServer" if origin_uri else None,
-        layer_id="0" if origin_uri else None,
+        service_type=service_type,
+        url=service_url if origin_uri else None,
+        layer_id=layer_id if origin_uri else None,
     )
     await session.commit()
     return dataset
@@ -684,9 +687,61 @@ class TestServiceOriginProbe:
         assert resp.status_code == 200, resp.text
         assert resp.json()["origin"] == "service"
         assert resp.json()["source_health"] == HEALTHY
-        # Bounded: the layer endpoint, once, ranged.
+        # Bounded: the layer endpoint, once, ranged. For ArcGIS the enriched
+        # origin_uri IS the layer resource, so it is the sharper probe target.
         assert len(recorded) == 1
+        assert str(recorded[0].url) == "https://origin.test/FeatureServer/0"
         assert recorded[0].headers["Range"] == "bytes=0-0"
+
+    async def test_wfs_probe_targets_the_canonical_service_url(
+        self, client, admin_auth_header, test_db_session, probe_transport
+    ) -> None:
+        """fix(#1271 review): WFS addresses layers by typename, so the
+        enriched ``<base>/<layer name>`` origin_uri is provenance, not an
+        endpoint. Probing it would record the server's 404 fallback as the
+        service's health."""
+        install, recorded = probe_transport
+        install(_status_map({}, default=200))
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(
+            test_db_session,
+            created_by=admin_id,
+            service_type="wfs",
+            origin_uri="https://origin.test/wfs/topp:roads",
+            service_url="https://origin.test/wfs",
+            layer_id="topp:roads",
+        )
+
+        resp = await client.post(
+            f"/datasets/{dataset.id}/source-health/", headers=admin_auth_header
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["source_health"] == HEALTHY
+        assert len(recorded) == 1
+        assert str(recorded[0].url) == "https://origin.test/wfs"
+
+    async def test_ogcapi_probe_targets_the_canonical_service_url(
+        self, client, admin_auth_header, test_db_session, probe_transport
+    ) -> None:
+        install, recorded = probe_transport
+        install(_status_map({}, default=200))
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(
+            test_db_session,
+            created_by=admin_id,
+            service_type="ogcapi_features",
+            origin_uri="https://origin.test/ogc/roads",
+            service_url="https://origin.test/ogc",
+            layer_id="roads",
+        )
+
+        resp = await client.post(
+            f"/datasets/{dataset.id}/source-health/", headers=admin_auth_header
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["source_health"] == HEALTHY
+        assert len(recorded) == 1
+        assert str(recorded[0].url) == "https://origin.test/ogc"
 
     async def test_gone_service_endpoint_is_missing(
         self, client, admin_auth_header, test_db_session, probe_transport

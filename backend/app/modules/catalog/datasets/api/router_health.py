@@ -164,8 +164,21 @@ async def _probe_service_origin(dataset: Dataset) -> OriginProbeResult:
     connector-completeness contract, which ADR-002 leaves out of v1; until
     then ``missing`` on a service origin means the HTTP resource itself is
     gone, not that a layer was dropped from a service that still answers.
+
+    fix(#1271 review): the probe target depends on the service type. Ingest
+    stores ``origin_uri`` as ``<base>/<layer identity>`` for provenance, and
+    only ArcGIS's flavor of that (``<base>/<numeric id>``) is a real HTTP
+    resource — WFS and OGC API address layers through a typename or collection
+    parameter, so their enriched URI is a non-endpoint and probing it records
+    whatever the server's 404 fallback happens to say about a URL nobody
+    serves. For those two the canonical service base in ``origin_ref.url`` is
+    the thing whose reachability the answer claims to describe.
     """
-    target = dataset.origin_uri or (dataset.origin_ref or {}).get("url")
+    ref = dataset.origin_ref or {}
+    if ref.get("service_type") in ("wfs", "ogcapi_features"):
+        target = ref.get("url") or dataset.origin_uri
+    else:
+        target = dataset.origin_uri or ref.get("url")
     if not target:
         raise _origin_pointer_missing("service")
     return await probe_remote_uri(target)
