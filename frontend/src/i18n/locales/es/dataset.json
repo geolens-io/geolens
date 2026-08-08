@@ -818,6 +818,7 @@
         "healthy": "Correcto",
         "missing": "Ausente",
         "inaccessible": "Inaccesible",
+        "stale": "Desactualizado",
         "unknown": "Desconocido"
       },
       "history": "Historial de generación",
