@@ -1945,3 +1945,76 @@ class TestLegacyDoubleDrain:
         await test_db_session.commit()
         await test_db_session.refresh(run)
         assert run.status == "succeeded"
+
+
+class TestDrainingPodAdmission:
+    async def test_live_legacy_task_without_a_run_row_refuses_admission(
+        self, test_db_session
+    ) -> None:
+        """fix(#1274 review): a reupload enqueued by a still-draining
+        pre-migration API pod has a live task but no run row, so the index
+        cannot referee it — admission must, until those pods drain."""
+        from sqlalchemy import text as sa_text
+
+        dataset, legacy_job = await _seed(test_db_session)
+        dataset_id, legacy_job_id = dataset.id, legacy_job.id
+        actor_id = legacy_job.created_by
+        await test_db_session.execute(
+            sa_text("SET LOCAL search_path TO catalog, public")
+        )
+        await test_db_session.execute(
+            sa_text(
+                "INSERT INTO catalog.procrastinate_jobs "
+                "(queue_name, task_name, args, status) "
+                "VALUES ('ingest', 'reupload_file', "
+                "jsonb_build_object('job_id', CAST(:j AS text)), 'todo')"
+            ),
+            {"j": str(legacy_job_id)},
+        )
+        await test_db_session.commit()
+
+        with pytest.raises(DatasetBusyError):
+            await create_pending_run(
+                test_db_session,
+                dataset_id=dataset_id,
+                origin_kind="upload",
+                trigger="manual",
+                triggered_by=actor_id,
+                ingest_job_id=None,
+                feature_count_before=1,
+            )
+
+        # Once the legacy job has a run row, the check goes inert and the
+        # index referees as usual.
+        await test_db_session.rollback()
+        run = await create_pending_run(
+            test_db_session,
+            dataset_id=dataset_id,
+            origin_kind="upload",
+            trigger="manual",
+            triggered_by=actor_id,
+            ingest_job_id=legacy_job_id,
+            feature_count_before=1,
+        )
+        await test_db_session.commit()
+        assert run.status == "pending"
+
+
+class TestInterruptedDispatchRelease:
+    async def test_pending_job_with_no_task_releases_after_cutoff(
+        self, test_db_session
+    ) -> None:
+        """fix(#1274 review): death between the commit and the defer leaves
+        job and run pending with no task. The bound-job sweep waits 24 hours
+        for a staged completion, but the RUN must release at the abandonment
+        cutoff or every retry 409s for that whole window."""
+        run, _job = await _stale_run(
+            test_db_session,
+            job_status="pending",
+            age_seconds=_WELL_PAST_CUTOFF,
+            run_status="pending",
+        )
+        assert await sweep_abandoned_refresh_runs(test_db_session) >= 1
+        await test_db_session.commit()
+        await test_db_session.refresh(run)
+        assert run.status == "cancelled"

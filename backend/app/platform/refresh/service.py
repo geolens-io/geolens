@@ -164,6 +164,39 @@ async def create_pending_run(
         {"dataset_id": dataset_id},
     )
 
+    # fix(#1274 review): a reupload enqueued by a still-draining PRE-migration
+    # API pod has a live task but no run row, so the index cannot referee it.
+    # Refuse admission while one exists for this dataset. The predicate is
+    # deliberately narrow — a LIVE Procrastinate task AND a job with no run
+    # row of any status — because post-migration dispatch creates the run in
+    # the same transaction, so only legacy work can ever match and the check
+    # is inert once those pods drain.
+    legacy_live = await session.scalar(
+        text(
+            """
+            SELECT 1
+            FROM catalog.ingest_jobs j
+            JOIN catalog.procrastinate_jobs pj
+              ON pj.args->>'job_id' = j.id::text
+             AND pj.status IN ('todo', 'doing')
+            WHERE j.dataset_id = :dataset_id
+              AND (j.user_metadata->>'reupload') = 'true'
+              AND (CAST(:dispatching_job_id AS uuid) IS NULL
+                   OR j.id != CAST(:dispatching_job_id AS uuid))
+              AND NOT EXISTS (
+                  SELECT 1 FROM catalog.dataset_refresh_runs r
+                  WHERE r.ingest_job_id = j.id
+              )
+            LIMIT 1
+            """
+        ),
+        # dispatching_job_id, not ingest_job_id: the immutable-binding AST
+        # check treats any dict key of that name as UPDATE values.
+        {"dataset_id": dataset_id, "dispatching_job_id": ingest_job_id},
+    )
+    if legacy_live is not None:
+        raise DatasetBusyError("A refresh is already in progress for this dataset.")
+
     now = datetime.now(timezone.utc)
     run = DatasetRefreshRun(
         dataset_id=dataset_id,
@@ -509,11 +542,16 @@ _NO_OTHER_LIVE_LEGACY_TASK = """
 #    A NULL ingest_job_id makes the comparison NULL, so the NOT EXISTS holds:
 #    the job row was purged by retention, which means its task is long gone.
 #
-# 2. The bound ingest job is absent or already `failed`. A `pending` or
-#    `running` job is still someone else's business — the ingest stale sweep
-#    runs first in the same pass and will fail it out if it is genuinely dead,
-#    so skipping it here costs one cycle and never writes a wrong terminal
-#    status. A `complete` job cannot coexist with an active run for NATIVE
+# 2. The bound ingest job is absent, `failed`, or `pending` with no live
+#    task. A `running` job is still someone else's business — the ingest
+#    stale sweep runs first in the same pass and will fail it out if it is
+#    genuinely dead, so skipping it here costs one cycle and never writes a
+#    wrong terminal status. `pending` is NOT excluded (fix #1274 review):
+#    proof 1 already established no live task exists, and pending-plus-no-
+#    task past the cutoff is precisely the create-then-defer death this
+#    sweep exists to compensate — a presigned commit interrupted before its
+#    defer would otherwise hold the reservation for the bound-job sweep's
+#    24-hour timeout, refusing every retry with dataset_busy. A `complete` job cannot coexist with an active run for NATIVE
 #    rows, because `record_refresh_success` and the job's completion commit
 #    together — when the state does occur (migration 0037's backfilled rows,
 #    whose legacy workers finish without calling the finalizer), cancelling
@@ -540,7 +578,7 @@ _ABANDONED_RUN_SQL = text(
       AND NOT EXISTS (
           SELECT 1 FROM catalog.ingest_jobs j
           WHERE j.id = r.ingest_job_id
-            AND j.status IN ('pending', 'running', 'complete')
+            AND j.status IN ('running', 'complete')
       )
 """
     + _NO_OTHER_LIVE_LEGACY_TASK
