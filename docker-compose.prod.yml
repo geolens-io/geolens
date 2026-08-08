@@ -394,15 +394,22 @@ services:
     read_only: true
     tmpfs:
       - /tmp:size=128m,mode=1777
-    # fix(#579): derive GDAL's AWS_* trio from the app's S3_* settings before
-    # exec'ing uvicorn — /vsis3/ reads against a custom endpoint (MinIO, R2)
-    # otherwise target the default AWS endpoint and fail. Mirrors the wrapper
+    # fix(#579): derive GDAL's AWS endpoint settings from the app's S3 endpoint
+    # settings before exec'ing uvicorn — /vsis3/ reads against a custom endpoint
+    # (MinIO, R2) otherwise target the default AWS endpoint and fail. Mirrors the wrapper
     # in docker-compose.yml ($$ escapes compose interpolation; explicitly set
     # AWS_* env always wins).
     command:
       - /bin/sh
       - -ec
       - |
+        # fix(#1191): the flags carry no credential material. They let the
+        # sidecar reject a partial dedicated-pair rollout before Uvicorn starts
+        # without also exposing the unused shared writer credential.
+        if [ "$${TITILER_S3_ACCESS_KEY_ID_SET:-}" != "$${TITILER_S3_SECRET_ACCESS_KEY_SET:-}" ]; then
+          echo "TiTiler dedicated S3 access key and secret must be set together" >&2
+          exit 1
+        fi
         if [ -z "$${AWS_S3_ENDPOINT:-}" ]; then
           ep="$${S3_ENDPOINT:-}"
           allow_http=$$(printf '%s' "$${S3_ALLOW_HTTP:-}" | tr '[:upper:]' '[:lower:]')
@@ -419,7 +426,7 @@ services:
         [ "$${S3_ADDRESSING_STYLE:-auto}" = "path" ] && export AWS_VIRTUAL_HOSTING="$${AWS_VIRTUAL_HOSTING:-FALSE}"
         exec uvicorn titiler.application.main:app --host 0.0.0.0 --port 8000 --workers $${TITILER_WORKERS:-1}
     environment:
-      # fix(#579): inputs for the AWS_* derivation in the command wrapper above.
+      # fix(#579): inputs for the AWS endpoint derivation in the command wrapper above.
       S3_ENDPOINT: "${S3_ENDPOINT:-}"
       S3_ALLOW_HTTP: "${S3_ALLOW_HTTP:-}"
       S3_ADDRESSING_STYLE: "${S3_ADDRESSING_STYLE:-auto}"
@@ -454,8 +461,16 @@ services:
       CPL_VSIL_CURL_CACHE_SIZE: "16777216"
       GDAL_HTTP_MERGE_CONSECUTIVE_RANGES: "YES"
       # fix(#937): do not re-add GDAL_HTTP_FOLLOWLOCATION — not a GDAL option, no effect.
-      AWS_ACCESS_KEY_ID: "${S3_ACCESS_KEY_ID:-}"
-      AWS_SECRET_ACCESS_KEY: "${S3_SECRET_ACCESS_KEY:-}"
+      # fix(#1191): prefer TiTiler's read-only, rasters-prefix credential. The
+      # nested fallback preserves existing installs until operators provision
+      # the dedicated principal, while only the selected credential enters the
+      # sidecar environment (the shared write credential is not also exposed).
+      AWS_ACCESS_KEY_ID: "${TITILER_S3_ACCESS_KEY_ID:-${S3_ACCESS_KEY_ID:-}}"
+      AWS_SECRET_ACCESS_KEY: "${TITILER_S3_SECRET_ACCESS_KEY:-${S3_SECRET_ACCESS_KEY:-}}"
+      # Presence flags contain no secrets and make a partial dedicated pair
+      # fail closed in the command wrapper before the mixed AWS_* pair is used.
+      TITILER_S3_ACCESS_KEY_ID_SET: "${TITILER_S3_ACCESS_KEY_ID:+1}"
+      TITILER_S3_SECRET_ACCESS_KEY_SET: "${TITILER_S3_SECRET_ACCESS_KEY:+1}"
       AWS_DEFAULT_REGION: "${S3_REGION:-us-east-1}"
       AZURE_STORAGE_CONNECTION_STRING: "${AZURE_STORAGE_CONNECTION_STRING:-}"
       AZURE_STORAGE_ACCOUNT: "${AZURE_STORAGE_ACCOUNT:-}"

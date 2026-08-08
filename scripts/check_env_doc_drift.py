@@ -288,6 +288,10 @@ def compose_contract_errors(compose_files: tuple[Path, ...]) -> list[str]:
     }
     errors: list[str] = []
     canonical_key_mapping = 'AZURE_STORAGE_ACCESS_KEY: "${AZURE_STORAGE_ACCOUNT_KEY:-}"'
+    titiler_s3_mappings = (
+        'AWS_ACCESS_KEY_ID: "${TITILER_S3_ACCESS_KEY_ID:-${S3_ACCESS_KEY_ID:-}}"',
+        'AWS_SECRET_ACCESS_KEY: "${TITILER_S3_SECRET_ACCESS_KEY:-${S3_SECRET_ACCESS_KEY:-}}"',
+    )
 
     for path in compose_files:
         text = path.read_text()
@@ -301,6 +305,12 @@ def compose_contract_errors(compose_files: tuple[Path, ...]) -> list[str]:
                 f"{path.name}: Titiler must map AZURE_STORAGE_ACCOUNT_KEY "
                 "to AZURE_STORAGE_ACCESS_KEY"
             )
+        for mapping in titiler_s3_mappings:
+            if mapping not in text:
+                errors.append(
+                    f"{path.name}: Titiler must prefer its dedicated S3 credential "
+                    f"with the shared-credential compatibility fallback: {mapping}"
+                )
     return errors
 
 
