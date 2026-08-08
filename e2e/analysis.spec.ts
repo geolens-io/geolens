@@ -67,6 +67,12 @@ test.describe('builder analysis tools', () => {
     await page.getByRole('button', { name: 'Analysis', exact: true }).click();
     await expect(page.getByTestId('analysis-panel')).toBeVisible();
 
+    // fix(#1253): preview is clipped to the current viewport, so fit the map
+    // to the seeded New York layer after the panel opens and finalizes layout.
+    await page.getByRole('button', { name: `Layer options for ${seed.title}` }).click();
+    await page.getByTestId('kebab-zoom-to-layer').click();
+    await page.waitForTimeout(1500); // the fly-to animation
+
     // Default operation is buffer @ 500 m; the only dataset layer auto-selects.
     await page.getByRole('button', { name: 'Preview', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Clear preview' })).toBeVisible({
