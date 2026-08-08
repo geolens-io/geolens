@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from dataclasses import replace
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -112,8 +113,26 @@ async def _remote_stac_asset_uri(db: AsyncSession, dataset_id: uuid.UUID) -> str
     return result.scalar_one_or_none()
 
 
-async def _probe_stac_origin(db: AsyncSession, dataset: Dataset) -> OriginProbeResult:
-    """Probe a STAC dataset's item document and its data asset.
+async def _stac_probe_targets(
+    db: AsyncSession, dataset: Dataset
+) -> tuple[str | None, str | None]:
+    """Resolve what a STAC probe would contact, on the request's DB session.
+
+    fix(#1271 review): split from the probing itself so the handler can
+    release its pooled connection before the outbound wait — target
+    resolution is the only part that needs the database.
+    """
+    asset_uri = await _remote_stac_asset_uri(db, dataset.id) or dataset.origin_uri
+    item_href = (dataset.origin_ref or {}).get("item_href")
+    if not asset_uri and not item_href:
+        raise _origin_pointer_missing("stac")
+    return asset_uri, item_href
+
+
+async def _probe_stac_targets(
+    asset_uri: str | None, item_href: str | None
+) -> OriginProbeResult:
+    """Probe a STAC dataset's item document and its data asset. Pure network.
 
     Both, because they answer different questions and either can fail alone.
     An item withdrawn from the catalog while its bucket keeps serving the COG
@@ -133,12 +152,12 @@ async def _probe_stac_origin(db: AsyncSession, dataset: Dataset) -> OriginProbeR
     ``item_href`` is absent for catalogs that publish no rel=self link and for
     datasets imported before #1222 taught the import path to record it, so
     this degrades to the asset probe alone rather than requiring it.
-    """
-    asset_uri = await _remote_stac_asset_uri(db, dataset.id) or dataset.origin_uri
-    item_href = (dataset.origin_ref or {}).get("item_href")
-    if not asset_uri and not item_href:
-        raise _origin_pointer_missing("stac")
 
+    ``contacted`` is the OR of the two probes' flags (fix #1271 review): a
+    403 from the item beside a policy-blocked asset still means the origin
+    answered once, and the contact clock must say so even though the asset's
+    verdict is the one that stands.
+    """
     item_result: OriginProbeResult | None = None
     asset_result: OriginProbeResult | None = None
     if item_href and asset_uri:
@@ -150,14 +169,20 @@ async def _probe_stac_origin(db: AsyncSession, dataset: Dataset) -> OriginProbeR
     else:
         asset_result = await probe_remote_uri(asset_uri)
 
+    contacted_any = any(
+        r.contacted for r in (item_result, asset_result) if r is not None
+    )
     if item_result is not None and item_result.health == MISSING:
-        return OriginProbeResult(MISSING, ITEM_WITHDRAWN)
+        return OriginProbeResult(MISSING, ITEM_WITHDRAWN, contacted=contacted_any)
     # One of the two is set: the guard above rejected the neither case.
-    return asset_result if asset_result is not None else item_result
+    chosen = asset_result if asset_result is not None else item_result
+    if chosen.contacted != contacted_any:
+        chosen = replace(chosen, contacted=contacted_any)
+    return chosen
 
 
-async def _probe_service_origin(dataset: Dataset) -> OriginProbeResult:
-    """Probe a service origin for reachability only.
+def _service_probe_target(dataset: Dataset) -> str:
+    """The URL a service probe contacts. Reachability is all it can claim.
 
     Reachability is genuinely all this can claim. ArcGIS FeatureServer in
     particular answers a request for a layer that no longer exists with HTTP
@@ -197,7 +222,7 @@ async def _probe_service_origin(dataset: Dataset) -> OriginProbeResult:
         target = dataset.origin_uri or ref.get("url")
     if not target:
         raise _origin_pointer_missing("service")
-    return await probe_remote_uri(target)
+    return target
 
 
 @router.post("/{dataset_id}/source-health/", response_model=SourceHealthResponse)
@@ -248,10 +273,27 @@ async def check_source_health(
     bound_format = dataset.source_format
     prior_checked_at = dataset.last_checked_at
 
+    # Resolve what to contact while the session is still live...
     if origin == "stac":
-        result = await _probe_stac_origin(db, dataset)
+        asset_uri, item_href = await _stac_probe_targets(db, dataset)
+        service_target = None
     else:
-        result = await _probe_service_origin(dataset)
+        asset_uri = item_href = None
+        service_target = _service_probe_target(dataset)
+
+    # ...then release the pooled connection BEFORE the outbound wait
+    # (fix #1271 review). The probe can take 10s against a slow origin, and
+    # a session held across it pins a pool slot for the duration — a dozen
+    # concurrent probes would starve every other database-backed request.
+    # Everything the rest of the handler needs is in locals; the ORM
+    # instance is dead after this line. The conditional UPDATE below opens
+    # its own fresh transaction.
+    await db.rollback()
+
+    if origin == "stac":
+        result = await _probe_stac_targets(asset_uri, item_href)
+    else:
+        result = await probe_remote_uri(service_target)
 
     # last_checked_at is written on BOTH outcomes — that is the whole meaning
     # of the column, and a failed probe is the case an operator most needs

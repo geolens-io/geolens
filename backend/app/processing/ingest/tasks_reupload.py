@@ -10,7 +10,7 @@ from sqlalchemy import select, update
 
 from app.core.db.tenant_session import tenant_task
 from app.platform.cache.tiles import invalidate_catalog_cache
-from app.platform.dataset_origin import service_layer_identity
+from app.platform.dataset_origin import classify_origin, service_layer_identity
 from app.platform.jobs.heartbeat import (
     attempt_scoped_staging_table,
     claim_job_attempt_and_start_heartbeat,
@@ -736,7 +736,17 @@ async def reupload_service(
                 schema=_current_tenant_schema(),
             )
 
-        origin_contact_attempted = True
+        # fix(#1271 review): the failure stamp may only describe the STORED
+        # origin, and a reupload is allowed to target a different URL — a
+        # replacement source for an upload dataset, or a new service base.
+        # Contacting the candidate says nothing about the binding the row
+        # keeps if the swap never runs, so the flag arms only when the fetch
+        # target IS the stored service origin's canonical URL. A successful
+        # swap re-stamps through set_dataset_origin regardless.
+        origin_contact_attempted = (
+            classify_origin(reupload_bound[2]) == "service"
+            and (reupload_bound[1] or {}).get("url") == source_url_value
+        )
         try:
             await _run_service_import_with_wfs_fallback(
                 _run_service_import,
