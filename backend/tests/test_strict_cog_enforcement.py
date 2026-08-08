@@ -2,7 +2,7 @@
 
 `RasterCommitRequest.strict_cog=True` opts the commit path out of the
 silent `check_and_prepare_cog` rewrite. The gate lives in
-``tasks_raster._enforce_strict_cog``: on non-compliance it raises
+``tasks_raster_common._enforce_strict_cog``: on non-compliance it raises
 ``ValueError("Strict-COG mode rejected upload: <reason>. ...")`` which
 the existing outer ``except Exception`` handler in ``ingest_raster``
 translates into ``job.status='failed'`` + ``job.error_message``.
@@ -24,7 +24,7 @@ from unittest.mock import patch
 
 import pytest
 
-from app.processing.ingest.tasks_raster import _enforce_strict_cog
+from app.processing.ingest.tasks_raster_common import _enforce_strict_cog
 
 
 class TestStrictCogEnforcement:
@@ -33,7 +33,7 @@ class TestStrictCogEnforcement:
     async def test_rejects_non_compliant_when_strict(self) -> None:
         """strict_cog=True + non-compliant → ValueError with the reason."""
         with patch(
-            "app.processing.ingest.tasks_raster.check_cog_compliance",
+            "app.processing.ingest.tasks_raster_common.check_cog_compliance",
             return_value=(False, "Not tiled"),
         ) as mock_check:
             with pytest.raises(ValueError) as exc_info:
@@ -50,7 +50,7 @@ class TestStrictCogEnforcement:
     async def test_accepts_compliant_when_strict(self) -> None:
         """strict_cog=True + compliant → no raise, helper returns None."""
         with patch(
-            "app.processing.ingest.tasks_raster.check_cog_compliance",
+            "app.processing.ingest.tasks_raster_common.check_cog_compliance",
             return_value=(True, ""),
         ) as mock_check:
             result = await _enforce_strict_cog(
@@ -70,7 +70,7 @@ class TestStrictCogEnforcement:
         change.
         """
         with patch(
-            "app.processing.ingest.tasks_raster.check_cog_compliance",
+            "app.processing.ingest.tasks_raster_common.check_cog_compliance",
         ) as mock_check:
             await _enforce_strict_cog(
                 "/tmp/sample.tif",
@@ -88,7 +88,7 @@ class TestStrictCogEnforcement:
         own validation rails upstream.
         """
         with patch(
-            "app.processing.ingest.tasks_raster.check_cog_compliance",
+            "app.processing.ingest.tasks_raster_common.check_cog_compliance",
         ) as mock_check:
             await _enforce_strict_cog(
                 "/tmp/manifest.vrt",
