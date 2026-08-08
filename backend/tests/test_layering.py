@@ -2238,7 +2238,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # rollback that keeps the refused job re-committable, and the comment
     # recording why admission belongs here rather than at the worker's
     # advisory lock. Cap 1005 -> 1027, exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1027,
+    # fix(#1274 review): +19 — _require_reupload_source, the guard that
+    # rejects a source-less commit BEFORE the run row reserves the dataset.
+    # Its docstring carries the trap: a presigned job's file_path is an empty
+    # STRING, which the queue-time is-None check cannot see, and the stale
+    # reservation it left blocked every refresh for the bound-job timeout.
+    # Cap 1027 -> 1046, exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1046,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python

@@ -519,6 +519,24 @@ async def reupload_preview(
     )
 
 
+def _require_reupload_source(job, is_service_refresh: bool) -> None:
+    """fix(#1274 review): reject a source-less job BEFORE reserving the dataset.
+
+    A presigned reupload whose upload never completed has an EMPTY-STRING
+    file_path (not None — which is why the truthiness test matters) and no
+    source_url. Creating the run first and 400ing after left that
+    reservation active, and once the client completed the upload the retry
+    hit dataset_busy — unreleasable by the sweep while the job sat pending,
+    for up to the 24-hour bound-job timeout. The queue-time is-None check
+    stays as defense in depth.
+    """
+    if not is_service_refresh and not job.file_path:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Job has no file_path and no source_url — cannot queue reupload",
+        )
+
+
 @router.post(
     "/{dataset_id}/reupload/{job_id}/commit",
     response_model=ReuploadCommitResponse,
@@ -589,6 +607,7 @@ async def reupload_commit(
     # is refused HERE, atomically, rather than being discovered by the second
     # worker at the advisory lock with both jobs already queued.
     is_service_refresh = bool(job.source_url and not job.file_path)
+    _require_reupload_source(job, is_service_refresh)
     try:
         await create_pending_run(
             db,

@@ -1794,3 +1794,46 @@ class TestWorkerSsrfRefusalFinalizesTheRun:
         # No packet went out; the contact clock must not claim otherwise.
         await test_db_session.refresh(dataset)
         assert dataset.last_checked_at is None
+
+
+class TestSourcelessCommitDoesNotReserve:
+    async def test_incomplete_presigned_commit_400s_without_a_run(
+        self, client: AsyncClient, admin_auth_header, test_db_session
+    ):
+        """fix(#1274 review): a presigned reupload whose upload never
+        completed has file_path='' and no source_url. Committing it must 400
+        BEFORE the run row reserves the dataset — creating the run first left
+        an active reservation the sweep could not release while the job sat
+        pending, blocking every refresh for up to the bound-job timeout."""
+        from sqlalchemy import func as sa_func
+
+        from app.platform.refresh.models import DatasetRefreshRun
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _create_dataset(test_db_session, created_by=admin_id)
+        job = IngestJob(
+            dataset_id=dataset.id,
+            source_filename="replacement.gpkg",
+            file_path="",
+            created_by=admin_id,
+            status="pending",
+            user_metadata={"reupload": True, "dataset_id": str(dataset.id)},
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+
+        resp = await client.post(
+            f"/datasets/{dataset.id}/reupload/{job.id}/commit",
+            json={},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 400, resp.text
+
+        count = (
+            await test_db_session.execute(
+                select(sa_func.count())
+                .select_from(DatasetRefreshRun)
+                .where(DatasetRefreshRun.dataset_id == dataset.id)
+            )
+        ).scalar_one()
+        assert count == 0
