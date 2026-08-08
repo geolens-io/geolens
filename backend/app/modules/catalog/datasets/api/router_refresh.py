@@ -509,6 +509,34 @@ async def refresh_dataset(
             # The REFERENCE, never the secret. Task arguments are durable rows
             # in PostgreSQL and a failed job keeps them until retention runs;
             # this value means nothing once claimed or expired.
+            #
+            # fix(#1277 review round 2) — ROLLING-DEPLOY SKEW, accepted.
+            # `reupload_service` takes **kwargs, so a worker from the previous
+            # generation accepts this argument and silently discards it: it
+            # fetches unauthenticated, the origin refuses, and the run fails.
+            # Old workers cannot be changed, so the only lever is what we
+            # dispatch.
+            #
+            # The alternative considered was a task name old workers do not
+            # register. Procrastinate handles that cleanly — worker.py raises
+            # TaskNotFound, logs `task_not_found`, and marks the job FAILED
+            # with no retry, so there is no poison pill and no queue stall.
+            # It is still the WORSE option, and the reason is what happens to
+            # OUR rows rather than to the queue: the task never runs, so
+            # nothing writes the ingest job or the run, and both sit pending —
+            # holding the dataset against the admission index — until the
+            # abandoned-run sweep cancels them up to ABANDONED_RUN_CUTOFF_
+            # SECONDS later. The user sees a refresh that appears to hang.
+            #
+            # Accepting the skew instead yields a prompt, actionable failure:
+            # `_looks_like_auth_error` matches the 401/403 the origin returns,
+            # so the run reports "Remote service authentication failed. Retry
+            # commit with a service token", the dataset is released
+            # immediately, and the stranded credential expires by TTL because
+            # renewal stops as soon as the task leaves `todo`. Same
+            # commit-to-defer precedent #1274 set for its own generation gap:
+            # single-node compose deploys never overlap generations, and a
+            # rolling K8s window is brief and bounded.
             credential_ref=credential_ref,
         )
 
