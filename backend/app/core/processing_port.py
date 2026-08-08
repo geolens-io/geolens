@@ -382,6 +382,18 @@ class ProcessingPort(Protocol):
 
     def get_record_distribution_orm_class(self) -> type: ...
 
+    # feat(#1223): the swap path recomputes schema drift against the staging
+    # table rather than trusting the preview, which may be minutes stale for a
+    # live service. The function is pure but lives in the catalog domain, and
+    # processing/ may not import it directly.
+    def compute_schema_diff(
+        self,
+        old_columns: list[dict],
+        new_columns: list[dict],
+        old_feature_count: int | None,
+        new_feature_count: int | None,
+    ) -> dict: ...
+
     def get_attribute_metadata_orm_class(self) -> type: ...
 
     # -------------------------------------------------------------------------

@@ -2131,7 +2131,29 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # stamps the same contact for service/STAC origins — the import fetched
     # from the origin too, and a fresh service dataset otherwise reported
     # "never contacted" until manually probed. Cap 1861 -> 1868, exact.
-    "backend/app/processing/ingest/tasks_common.py": 1868,
+    # feat(#1219): +6 — _apply_reupload_swap now RETURNS the DatasetVersion it
+    # created, flushed so its id is populated, because the refresh run row
+    # links to that id. Resolving it at the call site by (dataset_id,
+    # version_number) instead would be a second way to name one row.
+    # Cap 1868 -> 1874, exact. fix(#1274 review): +6 — the failure finalizer's
+    # attempt fence now admits `pending`, because a failure BEFORE the claim
+    # (the worker-time SSRF refusal) must still finalize the job it owns; the
+    # comment carries why attempt-id equality, not status, is the fence.
+    # Cap 1874 -> 1880, exact.
+    "backend/app/processing/ingest/tasks_common.py": 1880,
+    # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
+    # tasks_reupload crossed 1000 when two independently-reviewed features
+    # met in one file: #1222's failed-contact bookkeeping (spawn-armed
+    # binding-guarded stamp, ~90 lines with its helper and comments) and
+    # #1219's refresh-run integration (run claim on dispatch, run
+    # finalization on both outcomes, the savepoint-scoped run row on the
+    # failure path). Both sides earned their lines in their own reviews;
+    # the sum simply tripped the inclusion threshold. Entered at its
+    # measured size. fix(#1274 review): +4 — the fetch-time SSRF check moved
+    # inside the handled region so its refusal finalizes the job and run
+    # instead of stranding a pending run against the admission index.
+    # Cap 1055 -> 1059, exact.
+    "backend/app/processing/ingest/tasks_reupload.py": 1059,
     # --- entered by the inclusion rule, fix(#958) -------------------------
     # These five were the ungated modules at or above _RATCHET_INCLUSION_LOC
     # when the rule was written. They arrive at their measured size with no
@@ -2187,7 +2209,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # match, same ownership rule `owned_presigned_staging_key` already
     # enforces), so a terminal child no longer rides along on the parent's
     # ~8.9-day exemption. Cap 1545 -> 1561, exact.
-    "backend/app/platform/jobs/router.py": 1561,
+    # feat(#1219): +12 — the abandoned-refresh-run sweep runs in this pass,
+    # placed after the two job sweeps because a job flipped to `failed` by
+    # them is one of the two proofs the run sweep needs. Most of the lines are
+    # the comment recording that ordering and why the count is logged rather
+    # than added to StaleCleanupOutcome (several callers rebuild that dataclass
+    # field by field). Cap 1561 -> 1573, exact.
+    "backend/app/platform/jobs/router.py": 1573,
     # fix(second-opinion review on #1236 review r3): first entry — crossed
     # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
     # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side
@@ -2195,6 +2223,28 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # closes the gap; this Field bound only stops a fresh boot from
     # configuring past S3's own single-PUT ceiling in the first place).
     "backend/app/core/config.py": 1004,
+    # feat(#1219): first entry — crossed _RATCHET_INCLUSION_LOC, exactly as
+    # the inclusion rule's own comment predicted for this file ("watched by
+    # nothing until they cross 1000. The threshold catches them then"). The
+    # lines bought the refresh run row's creation at DISPATCH: the
+    # create_pending_run call in reupload_commit, the origin-kind decision it
+    # shares with the branch below it, and a defer-guard rollback that
+    # finalizes the run as failed when the queue is unreachable, so a dispatch
+    # that provably never happened does not read as `pending` for an hour.
+    # feat(#1219 amendment): +22 — the dispatch door is now the admission
+    # gate. `uq_refresh_runs_one_active` refuses a second active run per
+    # dataset, and this handler turns that IntegrityError into ADR-002
+    # Decision 5b's 409 `dataset_busy`. The lines are the try/except, the
+    # rollback that keeps the refused job re-committable, and the comment
+    # recording why admission belongs here rather than at the worker's
+    # advisory lock. Cap 1005 -> 1027, exact.
+    # fix(#1274 review): +19 — _require_reupload_source, the guard that
+    # rejects a source-less commit BEFORE the run row reserves the dataset.
+    # Its docstring carries the trap: a presigned job's file_path is an empty
+    # STRING, which the queue-time is-None check cannot see, and the stale
+    # reservation it left blocked every refresh for the bound-job timeout.
+    # Cap 1027 -> 1046, exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1046,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python
@@ -2323,7 +2373,18 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # enumerated GeoLens code rather than a message to show verbatim. It is
     # built from the probe's own DETAIL_CODES instead of retyping the list, so
     # the schema and the vocabulary cannot drift. Cap 1286 -> 1333, exact.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1333,
+    # feat(#1219, #1223): +56 — DatasetRefreshRunResponse and its list
+    # wrapper. Most of the growth is descriptions that state facts a reader
+    # cannot get from the field name: started_at is DISPATCH time (so queue
+    # wait is visible), ingest_job_id nulls out when the job is purged while
+    # the run survives, and the response docstring enumerates the five fields
+    # Decision 4e redacts for third-party readers. Cap 1333 -> 1389, exact.
+    # feat(#1219 amendment): +7 — claimed_at, the third timestamp. started_at
+    # is dispatch, claimed_at is when a worker picked the run up, finished_at
+    # is the outcome; queue wait is only measurable because all three exist
+    # separately, which the field's description has to say or a reader will
+    # assume two of them are redundant. Cap 1389 -> 1396, exact.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1396,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch

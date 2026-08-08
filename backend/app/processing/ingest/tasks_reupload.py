@@ -22,6 +22,11 @@ from app.platform.jobs.heartbeat import (
 from app.processing.raster.cog import sha256_file
 
 from app.platform.jobs.models import owned_presigned_staging_key
+from app.platform.refresh.service import (
+    claim_run_for_job,
+    record_refresh_failure,
+    record_refresh_success,
+)
 from app.processing.ingest.tasks_common import (
     _append_job_warning,
     _append_mercator_clip_warning,
@@ -210,6 +215,13 @@ async def reupload_file(
             if heartbeat_task is None:
                 return
 
+            # feat(#1219): pending -> running, keyed on the job rather than a
+            # run id threaded through the task arguments — those are durable
+            # rows, and a new argument breaks every in-flight job on deploy.
+            # `started_at` deliberately stays at dispatch time, so the gap to
+            # this write IS the queue wait.
+            await claim_run_for_job(session, job_uuid)
+
             # Resolve S3 key to local file for ogr2ogr
             from app.processing.ingest.service import resolve_file_path
 
@@ -232,6 +244,18 @@ async def reupload_file(
                         "error_message": str(exc),
                         "completed_at": datetime.now(timezone.utc),
                     },
+                )
+                # feat(#1219): this branch RETURNS rather than raising, so the
+                # broad handler below never sees it. Without a terminal write
+                # here the run would sit `running` until the sweep cancelled
+                # it an hour later — abandoned, when what happened was a plain
+                # content rejection the user should read.
+                await record_refresh_failure(
+                    session,
+                    ingest_job_id=job_uuid,
+                    error_code="validation_failed",
+                    error_message=str(exc),
+                    contacted_origin=False,
                 )
                 await session.commit()
                 Path(file_path).unlink(missing_ok=True)
@@ -372,7 +396,19 @@ async def reupload_file(
                 attempt_uuid,
                 values={"heartbeat_at": datetime.now(timezone.utc)},
             )
-            await _apply_reupload_swap(
+            # feat(#1223): measured HERE, against the staging table, and
+            # deliberately not carried forward from the preview. The preview
+            # can be minutes old and, for a service, describes a fetch that is
+            # not the one about to be installed. Both inputs are still the
+            # pre-swap values at this point — `_apply_reupload_swap` overwrites
+            # them — so the order of these two calls is load-bearing.
+            schema_diff = port.compute_schema_diff(
+                dataset.column_info or [],
+                metadata.get("column_info") or [],
+                dataset.feature_count,
+                metadata.get("feature_count"),
+            )
+            version = await _apply_reupload_swap(
                 session,
                 dataset=dataset,
                 staging_table=staging_tn,
@@ -421,6 +457,22 @@ async def reupload_file(
                     "completed_at": datetime.now(timezone.utc),
                 },
             )
+            # feat(#1219, #1223): the run's terminal status commits WITH the
+            # job's, which is what makes "job complete, run still running"
+            # unreachable — the stale-run sweep leans on that rather than
+            # having to guess whether such a row was abandoned.
+            # contacted_origin=False: these bytes came from the browser, so
+            # nothing remote was reached and last_checked_at must not claim a
+            # probe that never happened.
+            await record_refresh_success(
+                session,
+                ingest_job_id=job_uuid,
+                dataset=dataset,
+                dataset_version_id=version.id,
+                feature_count_after=metadata.get("feature_count"),
+                schema_diff=schema_diff,
+                contacted_origin=False,
+            )
             await session.commit()
 
         final_status = "complete"
@@ -467,6 +519,18 @@ async def reupload_file(
                     task_name="reupload_file",
                     attempt_id=attempt_uuid,
                 )
+            # feat(#1219): failures are history too — "a refresh that silently
+            # vanishes from history is worse than one that visibly failed".
+            # Outside the err_job guard on purpose: the run is keyed on the job
+            # id, which is known even when the row itself has gone.
+            await record_refresh_failure(
+                err_session,
+                ingest_job_id=job_uuid,
+                error_code="file_refresh_failed",
+                error_message=str(exc),
+                contacted_origin=False,
+            )
+            await err_session.commit()
         # fix(#1213 review r1): mark the local status terminal before
         # re-raising. `_cleanup_staging_on_failure` above writes status=failed
         # to the DB row, but the `finally` reap reads THIS variable, and it was
@@ -609,16 +673,6 @@ async def reupload_service(
     from sqlalchemy import text
     from sqlalchemy.orm import joinedload
 
-    # IA-P0-03 defense-in-depth: revalidate source_url at fetch time.
-    # The route-level check at commit_import covers the preview→commit
-    # TOCTOU, but manifest-path reuploads skip that route entirely.
-    try:
-        await validate_url_for_ssrf(source_url)
-    except SSRFError as exc:
-        raise RuntimeError(
-            f"source_url failed safety check at worker fetch time: {exc}"
-        ) from exc
-
     port = get_processing_port()
     Dataset = port.get_dataset_orm_class()
 
@@ -644,6 +698,20 @@ async def reupload_service(
     heartbeat_task: asyncio.Task[None] | None = None
 
     try:
+        # IA-P0-03 defense-in-depth: revalidate source_url at fetch time.
+        # The route-level check at commit_import covers the preview→commit
+        # TOCTOU, but manifest-path reuploads skip that route entirely.
+        # fix(#1274 review): INSIDE the handled region — this task now owns a
+        # pending run row, and a worker-time refusal that skips the failure
+        # handler leaves it active, which the admission index then honors by
+        # refusing every further refresh until the stale sweep. The refusal
+        # must fail the job and finalize the run like any other failure.
+        try:
+            await validate_url_for_ssrf(source_url)
+        except SSRFError as exc:
+            raise RuntimeError(
+                f"source_url failed safety check at worker fetch time: {exc}"
+            ) from exc
         # ----------------------------------------------------------------- #
         # Phase 1 (short-lived session): load job + dataset, mark running,
         # snapshot service-import config, drop stale staging table.
@@ -689,6 +757,8 @@ async def reupload_service(
             )
             if heartbeat_task is None:
                 return
+
+            await claim_run_for_job(session, job_uuid)  # feat(#1219)
 
             um = job.user_metadata or {}
             service_type_raw = um.get("service_type", "")
@@ -851,7 +921,17 @@ async def reupload_service(
                 attempt_uuid,
                 values={"heartbeat_at": datetime.now(timezone.utc)},
             )
-            await _apply_reupload_swap(
+            # feat(#1223): see the file path — measured against the staging
+            # table before the swap overwrites the pre-swap columns. It matters
+            # more here: a live service can have changed since the preview, so
+            # the previewed diff describes a fetch that is not this one.
+            schema_diff = port.compute_schema_diff(
+                dataset.column_info or [],
+                metadata.get("column_info") or [],
+                dataset.feature_count,
+                metadata.get("feature_count"),
+            )
+            version = await _apply_reupload_swap(
                 session,
                 dataset=dataset,
                 staging_table=staging_tn,
@@ -891,6 +971,20 @@ async def reupload_service(
                     "status": "complete",
                     "completed_at": datetime.now(timezone.utc),
                 },
+            )
+            # feat(#1219, #1223): contacted_origin=True here — this path DID
+            # reach the remote service, which is exactly what last_checked_at
+            # records. source_health stays untouched on every path: the health
+            # vocabulary and its classifier belong to the probe work (#1222),
+            # and a second classifier here would be the weaker of the two.
+            await record_refresh_success(
+                session,
+                ingest_job_id=job_uuid,
+                dataset=dataset,
+                dataset_version_id=version.id,
+                feature_count_after=metadata.get("feature_count"),
+                schema_diff=schema_diff,
+                contacted_origin=True,
             )
             await session.commit()
 
@@ -934,6 +1028,13 @@ async def reupload_service(
                     task_name="reupload_service",
                     attempt_id=attempt_uuid,
                 )
+            # Two records, one writer each (#1219 x #1222 merge): the
+            # dataset-side contact stamp is owned by
+            # _record_failed_origin_contact — spawn-armed, binding-matched,
+            # and guarded against a concurrent rebind — while
+            # record_refresh_failure owns the run row. contacted_origin=False
+            # here so the run finalizer does not repeat the dataset write a
+            # second, weaker way; two writers would be two answers.
             await _record_failed_origin_contact(
                 err_session,
                 Dataset,
@@ -941,6 +1042,17 @@ async def reupload_service(
                 contacted=origin_contact_attempted,
                 bound=reupload_bound,
             )
+            # feat(#1219): last_refreshed_at is untouched by construction —
+            # nothing on this path writes it — so a failed refresh leaves the
+            # live table and its freshness exactly as they were (invariant 10).
+            await record_refresh_failure(
+                err_session,
+                ingest_job_id=job_uuid,
+                error_code="service_refresh_failed",
+                error_message=str(exc),
+                contacted_origin=False,
+            )
+            await err_session.commit()
         raise
     finally:
         await stop_ingest_job_heartbeat(heartbeat_task)

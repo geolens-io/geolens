@@ -24,6 +24,7 @@ from app.processing.ingest.service import queue_ingest_job
 from app.platform.extensions import get_permission_extension
 from app.platform.jobs.heartbeat import ANALYSIS_MATERIALIZE_LEASE_SECONDS
 from app.platform.jobs.models import IngestJob, owned_presigned_staging_key
+from app.platform.refresh.service import sweep_abandoned_refresh_runs
 from app.platform.jobs.schemas import (
     DbfTruncationCollisionWarning,
     JobStatusResponse,
@@ -726,6 +727,17 @@ async def fail_stale_jobs(
     vrt_assets_recovered, vrt_generations_failed = await sweep_stale_vrt_assets(
         db, running_cutoff
     )
+
+    # feat(#1219): cancel refresh runs whose task is proven gone. Ordered
+    # AFTER the two job sweeps above on purpose — those flip an orphaned job
+    # to `failed`, which is one of the two facts the run sweep requires before
+    # it may write a terminal status. Deliberately not folded into
+    # StaleCleanupOutcome: the run rows are themselves the record, and the
+    # dataclass is a published shape several callers reconstruct field by
+    # field.
+    cancelled_runs = await sweep_abandoned_refresh_runs(db, now)
+    if cancelled_runs:
+        log.info("abandoned_refresh_runs_cancelled", count=cancelled_runs)
 
     terminal_jobs_purged = 0
     staged_paths_considered = 0

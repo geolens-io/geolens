@@ -46,6 +46,11 @@ from app.platform.jobs.defer_guard import (
     make_ingest_job_failed_rollback,
 )
 from app.platform.jobs.models import IngestJob
+from app.platform.refresh.service import (
+    DatasetBusyError,
+    create_pending_run,
+    make_refresh_run_failed_rollback,
+)
 from app.platform.extensions import get_catalog_port
 from app.core.persistent_config import UPLOAD_MAX_SIZE_MB, get_allowed_extensions_list
 from app.modules.quota.service import check_upload_quota
@@ -514,6 +519,24 @@ async def reupload_preview(
     )
 
 
+def _require_reupload_source(job, is_service_refresh: bool) -> None:
+    """fix(#1274 review): reject a source-less job BEFORE reserving the dataset.
+
+    A presigned reupload whose upload never completed has an EMPTY-STRING
+    file_path (not None — which is why the truthiness test matters) and no
+    source_url. Creating the run first and 400ing after left that
+    reservation active, and once the client completed the upload the retry
+    hit dataset_busy — unreleasable by the sweep while the job sat pending,
+    for up to the 24-hour bound-job timeout. The queue-time is-None check
+    stays as defense in depth.
+    """
+    if not is_service_refresh and not job.file_path:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Job has no file_path and no source_url — cannot queue reupload",
+        )
+
+
 @router.post(
     "/{dataset_id}/reupload/{job_id}/commit",
     response_model=ReuploadCommitResponse,
@@ -571,17 +594,65 @@ async def reupload_commit(
     if request.layer_name is not None:
         job.source_layer = request.layer_name  # GPKG-01 Phase 1058
 
+    # feat(#1219) ADR-002 Decision 4b: the run row is written HERE, in the
+    # request transaction, before the task is deferred — not at swap commit.
+    # An at-commit design cannot represent a run that never committed: a
+    # worker that dies mid-fetch leaves no history row at all, and the
+    # ingest_jobs row that might have hinted at it is purged after the
+    # retention window. `trigger` is `manual` because a human clicked commit;
+    # `api` and `cli` belong to #1220's server-side refresh endpoint.
+    #
+    # The insert is also the admission gate (Decision 5b): a partial unique
+    # index allows one active run per dataset, so a second concurrent commit
+    # is refused HERE, atomically, rather than being discovered by the second
+    # worker at the advisory lock with both jobs already queued.
+    is_service_refresh = bool(job.source_url and not job.file_path)
+    _require_reupload_source(job, is_service_refresh)
+    try:
+        await create_pending_run(
+            db,
+            dataset_id=dataset_id,
+            origin_kind="service" if is_service_refresh else "upload",
+            trigger="manual",
+            triggered_by=user.id,
+            ingest_job_id=job.id,
+            feature_count_before=dataset.feature_count,
+        )
+    except DatasetBusyError as exc:
+        # Nothing this request wrote is committed, so the job row it merged
+        # metadata into rolls back with it and stays `pending` — the caller can
+        # commit the same job again once the active run finishes.
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "dataset_busy",
+                "message": (
+                    "A refresh is already running for this dataset. "
+                    "Wait for it to finish, then try again."
+                ),
+            },
+        ) from exc
+
     await db.commit()
 
     # Each defer_async path is wrapped in the shared orphan guard
     # (Theme H) so a Procrastinate outage flips the committed pending
     # job to ``failed`` and returns HTTP 503 instead of leaving a ghost
-    # pending row for 60 minutes until stale-cleanup catches it.
-    rollback = make_ingest_job_failed_rollback(
-        job, message_prefix="Failed to queue reupload task"
+    # pending row for 60 minutes until stale-cleanup catches it. The run row
+    # rides along: the stale-run sweep would eventually cancel it, but the
+    # outcome is already known here, and an hour of `pending` for a dispatch
+    # that provably failed is the silent-failure shape this table exists to
+    # remove.
+    rollback = make_refresh_run_failed_rollback(
+        make_ingest_job_failed_rollback(
+            job, message_prefix="Failed to queue reupload task"
+        ),
+        db=db,
+        ingest_job_id=job.id,
     )
 
-    if job.source_url and not job.file_path:
+    if is_service_refresh:
         source_url = job.source_url
 
         async def _defer_service() -> None:

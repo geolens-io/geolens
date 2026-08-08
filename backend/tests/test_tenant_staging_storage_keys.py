@@ -403,7 +403,10 @@ async def test_cleanup_and_retention_reaper_delete_only_tenant_key(
 
     # fix(#1234): five sweep statements now — the pending clause is two, one
     # for unbound rows at 1h and one for bound-but-uncommitted at 24h.
-    empty_scalars = [MagicMock() for _ in range(5)]
+    # feat(#1219): six, with the abandoned-refresh-run sweep after them.
+    # fix(#1274 review): seven — the refresh-run sweep is two statements,
+    # the legacy-completion recorder before the abandonment cancel.
+    empty_scalars = [MagicMock() for _ in range(7)]
     for result in empty_scalars:
         result.scalars.return_value = []
     deleted = MagicMock()
