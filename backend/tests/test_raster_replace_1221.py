@@ -584,6 +584,85 @@ class TestFailedReplaceKeepsServing:
         finally:
             await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
 
+    async def test_failure_after_the_puts_keeps_the_old_asset_and_reaps_the_new(
+        self, test_db_session, raster_storage, tmp_path, monkeypatch
+    ) -> None:
+        """The window the sibling test above cannot reach.
+
+        A conversion that dies never writes anything, so its cleanup has
+        nothing to filter. The dangerous window is the one AFTER the new
+        objects are in storage and BEFORE the transaction that points at them
+        commits: there the cleanup runs with the live asset's keys in scope,
+        and reaping without filtering would delete the raster the dataset is
+        still serving. Failing inside the phase-2 transaction is what puts the
+        task in that window.
+        """
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+        old_bytes = await raster_storage.get(live.cog_key)
+
+        source = tmp_path / "replacement.tif"
+        source.write_bytes(_geotiff_bytes(seed=11))
+        job = await _queue_replace_job(
+            test_db_session,
+            dataset_id=dataset_id,
+            user_id=admin_id,
+            file_path=str(source),
+        )
+        job_id = job.id
+
+        async def _die(*args, **kwargs):
+            raise RuntimeError("the swap transaction died after the puts")
+
+        monkeypatch.setattr(
+            "app.processing.ingest.tasks_raster_replace.record_refresh_success",
+            _die,
+            raising=True,
+        )
+
+        try:
+            with pytest.raises(RuntimeError, match="died after the puts"):
+                await reupload_raster.func(
+                    job_id=str(job_id),
+                    dataset_id=str(dataset_id),
+                    file_path=str(source),
+                    user_id=str(admin_id),
+                    attempt_id=str(job.attempt_id),
+                )
+
+            test_db_session.expire_all()
+            asset = (
+                await test_db_session.execute(
+                    select(RasterAsset).where(RasterAsset.dataset_id == dataset_id)
+                )
+            ).scalar_one()
+
+            assert asset.asset_uri == live.cog_key, "the pointer must not have moved"
+            assert await raster_storage.get(live.cog_key) == old_bytes, (
+                "invariant 10: the previous COG must survive a failure that "
+                "happened after the replacement bytes were already written"
+            )
+            # And the orphans it did write are gone — the whole point of
+            # tracking the written keys separately.
+            written = [
+                key
+                for key in await raster_storage.list(f"rasters/{dataset_id}/")
+                if key != live.cog_key
+                and key != asset.quicklook_256_uri
+                and key != asset.quicklook_512_uri
+            ]
+            assert written == [], f"orphaned objects left behind: {written}"
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
     async def test_unreadable_cog_is_refused_before_the_pointer_moves(
         self, test_db_session, raster_storage, tmp_path, monkeypatch
     ) -> None:
