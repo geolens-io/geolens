@@ -285,7 +285,7 @@ test.describe('Admin Panel', () => {
     ).toBeVisible();
 
     await page.getByRole('link', { name: 'Jobs' }).click();
-    await page.waitForURL('/admin/jobs');
+    await page.waitForURL((url) => url.pathname === '/admin/jobs');
     await expect(
       page.getByRole('heading', { level: 1, name: 'Jobs' }),
     ).toBeVisible();
