@@ -965,7 +965,34 @@ class TestCredentialHandoff:
 
         source = inspect.getsource(main.lifespan)
         assert "await asyncio.sleep(CREDENTIAL_RENEWAL_INTERVAL_SECONDS)" in source
-        assert "renew_queued_refresh_credentials" in source
+        assert "renew_queued_credentials_once()" in source
+
+    def test_the_sweeper_never_renews_outside_a_tenant_context(self) -> None:
+        """fix(#1277 review round 3): the renewal is tenant-scoped now.
+
+        It used to open its own session after ``sweep_stale_jobs_once`` had
+        exited every ``tenant_job_context`` block, so in multi-tenant mode the
+        query ran with no ``app.current_tenant`` — reading across tenants
+        today, and returning nothing for all of them once #998 enables FORCE
+        RLS on the tables it joins.
+
+        Structural, and this is the assertion that fails against the previous
+        code: the lifespan loop must reach renewal only through the
+        tenant-aware helper, never by calling the raw query function itself.
+        """
+        import inspect
+
+        from app.api import main
+
+        lifespan_source = inspect.getsource(main.lifespan)
+        assert "renew_queued_refresh_credentials" not in lifespan_source, (
+            "the sweeper must go through renew_queued_credentials_once, which "
+            "scopes the query per tenant"
+        )
+
+        helper = inspect.getsource(main.renew_queued_credentials_once)
+        assert "tenant_job_context" in helper
+        assert "is_multi_tenant()" in helper
 
     async def test_a_malformed_reference_never_reaches_the_store(
         self, credential_backend

@@ -1915,7 +1915,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # are the comment explaining why the interval constant is imported from the
     # credential module (the TTL arithmetic depends on it, so there is one of
     # it) and why the renewal needs no try of its own. Cap 1313 -> 1337, exact.
-    "backend/app/api/main.py": 1337,
+    # fix(#1277 review round 3): +53 — renew_queued_credentials_once, which
+    # mirrors sweep_stale_jobs_once's tenant iteration. The renewal used to run
+    # in one session opened after that sweep had exited every
+    # tenant_job_context, so in multi-tenant mode it read across tenants today
+    # and would silently renew nothing once #998 enables FORCE RLS on the
+    # tables it joins. Most of the addition is the docstring recording both
+    # halves of that — the live boundary crossing and the latent silent stop —
+    # because the never-raises contract makes the second one invisible from the
+    # return value alone. Cap 1337 -> 1390, exact.
+    "backend/app/api/main.py": 1390,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative

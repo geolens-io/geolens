@@ -404,8 +404,19 @@ async def renew_queued_refresh_credentials(session: Any) -> int:
     try:
         rows = await session.execute(_RENEWABLE_CREDENTIALS_SQL, {"cutoff": cutoff})
         refs = [row.credential_ref for row in rows]
-    except Exception:  # broad: the sweep's other work must survive this
-        logger.warning("refresh_credential_renewal_query_failed", exc_info=True)
+    except Exception as exc:  # broad: the sweep's other work must survive this
+        # fix(#1277 review round 3): named, not swallowed. The never-raises
+        # contract is what lets the sweeper call this without a guard of its
+        # own, and it is also what would hide a misconfiguration forever —
+        # a query rejected because it ran outside a tenant context looks
+        # exactly like "nothing to renew" from the return value. The
+        # exception TYPE is enough to tell those apart in ops; the query text
+        # is deliberately not logged, because it is the one string here that
+        # carries credential references.
+        logger.warning(
+            "refresh_credential_renewal_query_failed",
+            error_type=type(exc).__name__,
+        )
         return 0
 
     renewed = 0
