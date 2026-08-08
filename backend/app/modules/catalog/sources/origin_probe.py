@@ -140,6 +140,12 @@ def _classify_failure(exc: BaseException, *, responded: bool) -> tuple[str, bool
         return BLOCKED_BY_POLICY, responded
     if isinstance(exc, httpx.TimeoutException):
         return TIMEOUT, True
+    # fix(#1271 review): raised while CONSTRUCTING the request — a malformed
+    # stored URL (migration 0036 backfills check only prefix and credentials)
+    # never puts a packet on the wire, so it must not advance the contact
+    # clock the way a connect or TLS failure legitimately does.
+    if isinstance(exc, (httpx.InvalidURL, httpx.UnsupportedProtocol)):
+        return NETWORK_ERROR, responded
     return NETWORK_ERROR, True
 
 

@@ -250,6 +250,15 @@ class TestProbeStatusMapping:
             NETWORK_ERROR,
             True,
         )
+        # Request-construction failures never put a packet on the wire.
+        assert _classify_failure(httpx.InvalidURL("x"), responded=False) == (
+            NETWORK_ERROR,
+            False,
+        )
+        assert _classify_failure(httpx.UnsupportedProtocol("x"), responded=False) == (
+            NETWORK_ERROR,
+            False,
+        )
 
     @pytest.mark.parametrize(
         "handler",
@@ -368,6 +377,9 @@ class TestStacItemHrefCapture:
             [{"rel": "self", "href": "http:///items/x"}],
             [{"rel": "self", "href": "https://origin.test:bad/items/x"}],
             [{"rel": "self", "href": "https://origin.test:0/items/x"}],
+            # Longer than StacImportItem.item_href's 4096 cap: surfacing it
+            # would 422 the import batch downstream.
+            [{"rel": "self", "href": "https://origin.test/" + "a" * 4100}],
         ],
     )
     def test_unusable_self_links_yield_none(self, links: list) -> None:

@@ -90,6 +90,10 @@ def _self_link_href(feature: dict[str, Any], base_url: str) -> str | None:
                 # .port raises ValueError on a non-numeric or out-of-range
                 # port, which is why it is read inside this try.
                 and (parsed.port is None or parsed.port > 0)
+                # StacImportItem.item_href caps at 4096; surfacing a longer
+                # link would 422 the caller's whole import batch downstream
+                # (fix #1271 review).
+                and len(resolved) <= 4096
             )
         except ValueError:
             continue
