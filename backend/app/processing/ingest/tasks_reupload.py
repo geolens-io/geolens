@@ -9,6 +9,7 @@ import structlog
 from sqlalchemy import select, update
 
 from app.core.db.tenant_session import tenant_task
+from app.core.url_redaction import scrub_secret_from_exception
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.dataset_origin import classify_origin, service_layer_identity
 from app.platform.jobs.heartbeat import (
@@ -1066,6 +1067,19 @@ async def reupload_service(
     except (
         Exception
     ) as exc:  # broad: reupload service-path spans GDAL/PostGIS — any step can fail
+        # fix(#1277 review): exact-value scrub, first thing, before `exc` is
+        # read by anything. This task is the only place that knows the
+        # credential's literal value — it claimed it — and that makes this the
+        # one redaction that cannot be evaded by an echo the pattern matcher
+        # does not recognise as a URL. The pattern layers (run_ogr2ogr_service
+        # and _cleanup_staging_on_failure) cover the tokens nobody holds; this
+        # covers the token this run holds, in whatever shape it comes back.
+        #
+        # Mutates the exception in place rather than raising a replacement, so
+        # the class survives for the handlers below that key error codes off
+        # it, and the scrub reaches every reader at once: the staging-failure
+        # sinks, the run row, and the bare re-raise the queue records.
+        scrub_secret_from_exception(exc, token)
         # Phase 1/2 sessions are already closed by the time we get here.
         async with async_session() as err_session:
             err_job_result = await err_session.execute(

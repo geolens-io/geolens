@@ -2146,7 +2146,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # (the worker-time SSRF refusal) must still finalize the job it owns; the
     # comment carries why attempt-id equality, not status, is the fence.
     # Cap 1874 -> 1880, exact.
-    "backend/app/processing/ingest/tasks_common.py": 1880,
+    # fix(#1277 review): +9 — the shared failure sink redacts before it
+    # persists. This one function fans out to three sinks (the durable
+    # error_message, the log record, the notification reason), so the comment
+    # has to say why the redaction belongs here rather than at each of them,
+    # and why the exception itself is left unmodified for callers that
+    # dispatch on its type. Cap 1880 -> 1889, exact.
+    "backend/app/processing/ingest/tasks_common.py": 1889,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -2175,7 +2181,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # different answer than a spent token; the mapping lives in a named
     # function so a fourth case is an entry rather than another branch inside
     # the failure handler. Cap 1107 -> 1125, exact.
-    "backend/app/processing/ingest/tasks_reupload.py": 1125,
+    # fix(#1277 review): +14 — the exact-value credential scrub at the top of
+    # the broad handler. This task is the only place that knows the token's
+    # literal value, which is what makes it the redaction an unrecognised echo
+    # cannot evade; the comment records that, and why it mutates the exception
+    # in place rather than raising a replacement (the class is load-bearing for
+    # the error-code mapping below it). Cap 1125 -> 1139, exact.
+    "backend/app/processing/ingest/tasks_reupload.py": 1139,
     # --- entered by the inclusion rule, fix(#958) -------------------------
     # These five were the ungated modules at or above _RATCHET_INCLUSION_LOC
     # when the rule was written. They arrive at their measured size with no

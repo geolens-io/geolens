@@ -10,6 +10,7 @@ from typing import TypedDict
 
 from app.core.config import settings
 from app.core.crs_uri import parse_crs_uri
+from app.core.url_redaction import redact_url_credentials
 
 
 # SEED-04 (Phase 1054): compiled once at module scope to avoid repeated re.compile().
@@ -929,6 +930,16 @@ async def run_ogr2ogr_service(
         stripped = _strip_ogr_driver_list(
             stderr.decode()
         )  # SEED-04: strip driver list noise
+        # fix(#1277 review): redact BEFORE the text becomes an exception, not
+        # after. For ArcGIS the credential rides in the ESRIJSON source URL
+        # (build_gdal_source puts it in the query string — only the WFS and
+        # OGC API branches get the header-file treatment above), and GDAL
+        # echoes the source it failed on. Every consumer of this exception is
+        # a sink: the persisted IngestJob.error_message, the log record, the
+        # notification reason, and the re-raise the queue records. Scrubbing
+        # at each of those is four chances to forget; scrubbing here is the
+        # boundary where the credential stops existing in error text at all.
         raise IngestionError(
-            f"ogr2ogr failed (exit {proc.returncode}): {stripped.strip()}"
+            f"ogr2ogr failed (exit {proc.returncode}): "
+            f"{redact_url_credentials(stripped.strip())}"
         )
