@@ -391,6 +391,16 @@ def test_env_example_documents_the_complete_opt_in_split() -> None:
     )
 
 
+def test_multi_tenant_recipe_admits_both_runtime_logins_to_database() -> None:
+    env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
+    recipe_start = env_example.index("# PostgreSQL 16+ membership example")
+    recipe_end = env_example.index("# Runtime application connection", recipe_start)
+    recipe = env_example[recipe_start:recipe_end]
+
+    assert "GRANT CONNECT ON DATABASE geolens TO geolens_app;" in recipe
+    assert "GRANT CONNECT ON DATABASE geolens TO geolens_tile;" in recipe
+
+
 def test_role_script_is_executable() -> None:
     mode = Path(ROLE_SCRIPT).stat().st_mode
     assert mode & 0o111
