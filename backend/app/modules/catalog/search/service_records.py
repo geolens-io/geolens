@@ -27,7 +27,7 @@ from app.modules.catalog.search.record_metadata import (
     build_time,
 )
 from app.modules.catalog.sources.provenance import derive_last_edited
-from app.platform.dataset_origin import classify_origin
+from app.platform.dataset_origin import classify_origin, project_unknown
 from app.standards.ogc.utils import build_url
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -383,6 +383,22 @@ def dataset_to_ogc_record(
                 record.update_frequency,
                 datetime.now(timezone.utc),
                 origin=classify_origin(dataset.source_format, record_type),
+            ),
+            # These values are projected only after search_datasets applies
+            # the caller's visibility filter to the Dataset query. Keep the
+            # wire spelling of an unprobed health state aligned with dataset
+            # detail responses while preserving nullable timestamps.
+            "source_health": project_unknown(dataset.source_health),
+            # ``dataset_to_ogc_record`` also feeds JSONResponse-backed OGC
+            # item and STAC routes, so these must be wire values rather than
+            # raw ORM datetimes (Pydantic does not encode this plain dict).
+            "last_checked_at": (
+                dataset.last_checked_at.isoformat() if dataset.last_checked_at else None
+            ),
+            "last_refreshed_at": (
+                dataset.last_refreshed_at.isoformat()
+                if dataset.last_refreshed_at
+                else None
             ),
             "constraints": (
                 {"usage": record.usage_constraints, "access": record.access_constraints}

@@ -7141,6 +7141,24 @@ export type OgcRecordProperties = {
      */
     source_freshness?: string;
     /**
+     * Source Health
+     *
+     * healthy, missing, inaccessible, or unknown. 'unknown' means never probed, or an origin kind with nothing to probe.
+     */
+    source_health?: string;
+    /**
+     * Last Checked At
+     *
+     * Last time GeoLens contacted the origin, whether the attempt succeeded or failed.
+     */
+    last_checked_at?: string | null;
+    /**
+     * Last Refreshed At
+     *
+     * Last committed successful refresh — not the last attempt.
+     */
+    last_refreshed_at?: string | null;
+    /**
      * Constraints
      */
     constraints?: {

@@ -10367,6 +10367,22 @@ export interface components {
              * @default unknown
              */
             source_freshness: string;
+            /**
+             * Source Health
+             * @description healthy, missing, inaccessible, or unknown. 'unknown' means never probed, or an origin kind with nothing to probe.
+             * @default unknown
+             */
+            source_health: string;
+            /**
+             * Last Checked At
+             * @description Last time GeoLens contacted the origin, whether the attempt succeeded or failed.
+             */
+            last_checked_at?: string | null;
+            /**
+             * Last Refreshed At
+             * @description Last committed successful refresh — not the last attempt.
+             */
+            last_refreshed_at?: string | null;
             /** Constraints */
             constraints?: {
                 [key: string]: unknown;

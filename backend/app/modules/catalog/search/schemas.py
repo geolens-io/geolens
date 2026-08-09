@@ -125,6 +125,24 @@ class OGCRecordProperties(BaseModel):
             "score's own freshness."
         ),
     )
+    source_health: str = Field(
+        default="unknown",
+        description=(
+            "healthy, missing, inaccessible, or unknown. 'unknown' means "
+            "never probed, or an origin kind with nothing to probe."
+        ),
+    )
+    last_checked_at: datetime | None = Field(
+        default=None,
+        description=(
+            "Last time GeoLens contacted the origin, whether the attempt "
+            "succeeded or failed."
+        ),
+    )
+    last_refreshed_at: datetime | None = Field(
+        default=None,
+        description="Last committed successful refresh — not the last attempt.",
+    )
     constraints: dict | None = None
     distributions: list[dict] | None = None
     record_status: str | None = None

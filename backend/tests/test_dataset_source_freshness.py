@@ -368,7 +368,10 @@ class TestResponseExposure:
             created_by=admin_id,
             name=f"Freshness {frequency} {age_days}",
         )
-        ds.last_refreshed_at = datetime.now(timezone.utc) - timedelta(days=age_days)
+        refreshed_at = datetime.now(timezone.utc) - timedelta(days=age_days)
+        checked_at = refreshed_at + timedelta(hours=1)
+        ds.last_refreshed_at = refreshed_at
+        ds.last_checked_at = checked_at
         ds.record.update_frequency = frequency
         await test_db_session.commit()
 
@@ -383,6 +386,8 @@ class TestResponseExposure:
         # The two columns it was computed from travel with it on this surface,
         # so a reader can check the arithmetic.
         assert props["update_frequency"] == frequency
+        assert props["last_refreshed_at"] == refreshed_at.isoformat()
+        assert props["last_checked_at"] == checked_at.isoformat()
 
     async def test_never_refreshed_dataset_reports_unknown_on_both(
         self,

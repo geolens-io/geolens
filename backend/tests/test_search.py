@@ -841,6 +841,52 @@ async def test_search_rbac_private_hidden(
     assert str(search_datasets["water"].id) in ids
 
 
+@pytest.mark.anyio
+async def test_anonymous_search_projects_health_without_private_leak(
+    client: AsyncClient,
+    test_db_session,
+    clean_tables,
+):
+    """Anonymous summaries expose health only for visibility-filtered rows."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    token = f"healthprojection{uuid.uuid4().hex}"
+    public = await _create_search_dataset(
+        test_db_session,
+        created_by=admin_id,
+        name=f"Public {token}",
+    )
+    private = await _create_search_dataset(
+        test_db_session,
+        created_by=admin_id,
+        name=f"Private {token}",
+        visibility="private",
+    )
+    public.last_checked_at = datetime(2026, 8, 7, 12, 0, tzinfo=timezone.utc)
+    public.last_refreshed_at = datetime(2026, 8, 6, 11, 0, tzinfo=timezone.utc)
+    public.source_health = "healthy"
+    private.last_checked_at = datetime(2026, 7, 5, 10, 0, tzinfo=timezone.utc)
+    private.last_refreshed_at = datetime(2026, 7, 4, 9, 0, tzinfo=timezone.utc)
+    private.source_health = "inaccessible"
+    await test_db_session.commit()
+
+    resp = await client.get(
+        "/search/datasets/",
+        params={"q": token, "limit": 10},
+    )
+
+    assert resp.status_code == 200, resp.text
+    features = resp.json()["features"]
+    assert [feature["id"] for feature in features] == [str(public.id)]
+    properties = features[0]["properties"]
+    assert properties["source_health"] == "healthy"
+    assert properties["last_checked_at"] == "2026-08-07T12:00:00Z"
+    assert properties["last_refreshed_at"] == "2026-08-06T11:00:00Z"
+    assert str(private.id) not in resp.text
+    assert "2026-07-05T10:00:00Z" not in resp.text
+    assert "2026-07-04T09:00:00Z" not in resp.text
+    assert '"source_health":"inaccessible"' not in resp.text
+
+
 # ---------------------------------------------------------------------------
 # OGC Collections tests
 # ---------------------------------------------------------------------------
