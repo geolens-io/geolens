@@ -798,18 +798,36 @@ async def test_sweep_stale_vrt_assets_restores_ready_not_failed():
         session, datetime.now(timezone.utc) - timedelta(hours=1)
     )
 
+    # fix(#1322 review round 4): _PRIOR_ATTEMPT_WAS_READY_SQL legitimately
+    # mentions the literal 'failed' in its WHERE-clause comparison (the most
+    # recent OTHER generation's status), so "'failed' not anywhere in the
+    # statement" is no longer a valid signal — isolate the SET clause (the
+    # part before WHERE) and check only that.
     ready_stmt = session.execute.await_args_list[1].args[0]
     ready_sql = str(ready_stmt.compile(compile_kwargs={"literal_binds": True}))
-    assert "status='ready'" in ready_sql or "status = 'ready'" in ready_sql
-    assert "'failed'" not in ready_sql
+    ready_set_clause = ready_sql.split("WHERE", 1)[0]
+    assert (
+        "status='ready'" in ready_set_clause or "status = 'ready'" in ready_set_clause
+    )
+    assert "'failed'" not in ready_set_clause
 
     degraded_stmt = session.execute.await_args_list[2].args[0]
     degraded_sql = str(degraded_stmt.compile(compile_kwargs={"literal_binds": True}))
-    assert "status='failed'" in degraded_sql or "status = 'failed'" in degraded_sql
-    assert "'ready'" not in degraded_sql
+    degraded_set_clause = degraded_sql.split("WHERE", 1)[0]
+    assert (
+        "status='failed'" in degraded_set_clause
+        or "status = 'failed'" in degraded_set_clause
+    )
+    assert "'ready'" not in degraded_set_clause
     # The two branches are mutually exclusive: the 2nd statement's predicate
-    # is the exact negation of the 1st's composition check.
+    # is the exact negation of the 1st's combined composition + prior-ready
+    # check.
     assert "NOT (" in degraded_sql
+    # Both facts are present in both statements' WHERE clauses (the 2nd
+    # negates their conjunction, not just one half).
+    for where_sql in (ready_sql, degraded_sql):
+        assert "vrt_source_links" in where_sql
+        assert "vrt_generations" in where_sql
 
 
 @pytest.mark.asyncio
@@ -1061,6 +1079,150 @@ async def test_sweep_keeps_failed_when_built_from_is_null(test_db_session):
 
     await test_db_session.refresh(asset)
     assert asset.status == "failed"
+
+
+# ---------------------------------------------------------------------------
+# fix(#1322 review round 4): composition-preserving alone is not enough — the
+# asset must also have PROVABLY been 'ready' (not 'failed') the instant this
+# attempt was allowed to start. regenerate_vrt_endpoint's guard only rejects
+# 'regenerating', so a caller may retry an already-'failed' asset; if that
+# retry also dies, composition-preserving alone would restore 'ready' and
+# erase a real failure the crash had nothing to do with.
+# ---------------------------------------------------------------------------
+
+
+async def test_sweep_keeps_failed_when_prior_attempt_was_failed(test_db_session):
+    """The exact scenario from the finding: a genuine regeneration failure
+    (generation 1, a real GDAL-style error — NOT this sweep's doing), then a
+    user retry (generation 2) that is itself abandoned. Composition is
+    unchanged throughout, so the composition check alone would restore
+    'ready' — but generation 1's failure was never actually resolved, and
+    the sweep must not manufacture a resolution that didn't happen."""
+    from app.platform.jobs.router import sweep_stale_vrt_assets
+    from app.processing.raster.models import RasterAsset, VrtGeneration, VrtSourceLink
+    from tests.factories import create_dataset, get_user_id
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    source = await create_dataset(test_db_session, created_by=admin_id)
+    vrt_dataset = await create_dataset(test_db_session, created_by=admin_id)
+
+    now = datetime.now(timezone.utc)
+    # Generation 1: the ORIGINAL attempt, genuinely failed (e.g. a real GDAL
+    # error) — not swept, not abandoned; explicitly terminal already.
+    failed_generation = VrtGeneration(
+        vrt_dataset_id=vrt_dataset.id,
+        status="failed",
+        started_at=now - timedelta(hours=5),
+        completed_at=now - timedelta(hours=4, minutes=55),
+        error_message="Simulated GDAL failure, unrelated to any crash",
+    )
+    test_db_session.add(failed_generation)
+    await test_db_session.flush()
+
+    # Generation 2: the user's retry (allowed — the endpoint only rejects
+    # 'regenerating', not 'failed') — now abandoned by a worker crash.
+    retry_generation = VrtGeneration(
+        vrt_dataset_id=vrt_dataset.id,
+        status="running",
+        started_at=now - timedelta(hours=2),
+        heartbeat_at=now - timedelta(hours=2),
+    )
+    test_db_session.add(retry_generation)
+    await test_db_session.flush()
+
+    asset = RasterAsset(
+        dataset_id=vrt_dataset.id,
+        asset_uri=f"rasters/{vrt_dataset.id}/source.vrt",
+        status="regenerating",
+        current_generation_id=retry_generation.id,
+        # Composition unchanged — a pure retry, not a source add/remove.
+        built_from={str(source.id): "irrelevant"},
+    )
+    test_db_session.add(asset)
+    test_db_session.add(
+        VrtSourceLink(
+            vrt_dataset_id=vrt_dataset.id, source_dataset_id=source.id, position=0
+        )
+    )
+    await test_db_session.commit()
+
+    cutoff = now - timedelta(hours=1)
+    assets_recovered, gens_failed, _keys = await sweep_stale_vrt_assets(
+        test_db_session, cutoff
+    )
+    await test_db_session.commit()
+
+    assert (assets_recovered, gens_failed) == (1, 1)
+    await test_db_session.refresh(asset)
+    await test_db_session.refresh(retry_generation)
+    assert asset.status == "failed", (
+        "restoring 'ready' here would manufacture a resolution generation 1's "
+        "real failure never actually got"
+    )
+    assert asset.current_generation_id is None  # a further retry is still triggerable
+    assert retry_generation.status == "failed"
+    # generation 1 is untouched — it was already terminal before this sweep ran.
+    await test_db_session.refresh(failed_generation)
+    assert failed_generation.status == "failed"
+
+
+async def test_sweep_restores_ready_when_prior_attempt_completed(test_db_session):
+    """Companion coverage: a prior attempt that actually SUCCEEDED (not just
+    'no prior attempt exists', which the composition-unchanged test above
+    already covers) still lets a later dead, composition-preserving attempt
+    restore 'ready'."""
+    from app.platform.jobs.router import sweep_stale_vrt_assets
+    from app.processing.raster.models import RasterAsset, VrtGeneration, VrtSourceLink
+    from tests.factories import create_dataset, get_user_id
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    source = await create_dataset(test_db_session, created_by=admin_id)
+    vrt_dataset = await create_dataset(test_db_session, created_by=admin_id)
+
+    now = datetime.now(timezone.utc)
+    completed_generation = VrtGeneration(
+        vrt_dataset_id=vrt_dataset.id,
+        status="completed",
+        started_at=now - timedelta(hours=5),
+        completed_at=now - timedelta(hours=4, minutes=55),
+    )
+    test_db_session.add(completed_generation)
+    await test_db_session.flush()
+
+    dead_generation = VrtGeneration(
+        vrt_dataset_id=vrt_dataset.id,
+        status="running",
+        started_at=now - timedelta(hours=2),
+        heartbeat_at=now - timedelta(hours=2),
+    )
+    test_db_session.add(dead_generation)
+    await test_db_session.flush()
+
+    asset = RasterAsset(
+        dataset_id=vrt_dataset.id,
+        asset_uri=f"rasters/{vrt_dataset.id}/source.vrt",
+        status="regenerating",
+        current_generation_id=dead_generation.id,
+        built_from={str(source.id): "irrelevant"},
+    )
+    test_db_session.add(asset)
+    test_db_session.add(
+        VrtSourceLink(
+            vrt_dataset_id=vrt_dataset.id, source_dataset_id=source.id, position=0
+        )
+    )
+    await test_db_session.commit()
+
+    cutoff = now - timedelta(hours=1)
+    assets_recovered, gens_failed, _keys = await sweep_stale_vrt_assets(
+        test_db_session, cutoff
+    )
+    await test_db_session.commit()
+
+    assert (assets_recovered, gens_failed) == (1, 1)
+    await test_db_session.refresh(asset)
+    assert asset.status == "ready"
+    assert asset.current_generation_id is None
 
 
 @pytest.mark.rls

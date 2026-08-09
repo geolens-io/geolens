@@ -668,6 +668,54 @@ _COMPOSITION_PRESERVED_SQL = """
     )
 """
 
+# fix(#1322 review round 4): composition-preserving is necessary but not
+# sufficient. regenerate_vrt_endpoint's guard only rejects 'regenerating' —
+# a caller may retry an asset that is already 'failed'. If THAT retry is
+# also abandoned and its membership still matches built_from, the check
+# above alone would call it composition-preserving and restore 'ready',
+# erasing a real failure signal a worker crash had nothing to do with:
+# no successful artifact was ever produced by the retry, and whatever made
+# the FIRST attempt fail is still unaddressed.
+#
+# There is no column recording "the asset's status the instant this
+# generation started" — router.py's own `previous_status` is a local
+# variable, never persisted. The nearest STORED fact is the outcome of the
+# attempt immediately before this one: at most one generation is ever
+# in-flight per dataset (the 409 + advisory lock in regenerate_vrt_endpoint
+# / add_vrt_source / remove_vrt_source forbid a second), so
+# `vrt_generations` rows for one dataset form a strict, gap-free timeline,
+# and the row immediately preceding the one being reconciled records
+# exactly what happened right before THIS attempt was allowed to start.
+# 'completed' (or no such row — the dataset's first-ever attempt, whose
+# prior state is 'ready' by construction, per create_vrt_dataset) means the
+# asset was 'ready' when this attempt began; 'failed' means it was not.
+#
+# Accepted conservative cost, stated plainly: a generation this sweep
+# itself restores to 'ready' still leaves its OWN vrt_generations row
+# 'failed' below (only the asset recovers, not the attempt's record) — so
+# a LATER dead attempt on the same dataset, whose immediately-prior row IS
+# that earlier swept-and-recovered one, reads 'failed' here and is kept
+# 'failed' even though the asset was legitimately 'ready' when it started.
+# The alternative (a further stored marker distinguishing "recovered by
+# the sweep" from "never recovered") is a bigger schema surface than this
+# fix's blast radius, and the safety direction is right for a reconciler:
+# never claims 'ready' the moment there is any doubt, at the cost of
+# occasionally staying 'failed' one cycle longer than strictly necessary,
+# which self-corrects the moment an operator retries and it succeeds.
+_PRIOR_ATTEMPT_WAS_READY_SQL = """
+    (
+        SELECT g.status FROM catalog.vrt_generations g
+        WHERE g.vrt_dataset_id = dataset_id
+          AND g.id <> current_generation_id
+        ORDER BY g.started_at DESC
+        LIMIT 1
+    ) IS DISTINCT FROM 'failed'
+"""
+
+_READY_WORTHY_SQL = (
+    f"({_COMPOSITION_PRESERVED_SQL}) AND ({_PRIOR_ATTEMPT_WAS_READY_SQL})"
+)
+
 
 async def sweep_stale_vrt_assets(
     db: AsyncSession,
@@ -687,26 +735,40 @@ async def sweep_stale_vrt_assets(
     generation_heartbeat`` renews every 30s while the worker is alive, so a
     live job's row never crosses the cutoff and this sweep never touches it.
 
-    Recovery status: ``'ready'`` for a COMPOSITION-PRESERVING dead attempt,
-    ``'failed'`` otherwise (fix(#1322 review round 3) — see
-    ``_COMPOSITION_PRESERVED_SQL``). ``regenerate_vrt`` only overwrites the
-    asset's published pointer (``asset_uri``, ``sha256``, ...) in the SAME
-    transaction that clears ``current_generation_id`` on success — a dead
-    attempt never reaches that transaction, so those fields still describe
-    the last-good VRT the asset was serving before this attempt started.
-    That is sufficient to restore ``'ready'`` when nothing about the
-    dataset's declared MEMBERSHIP changed underneath the attempt. It is
-    NOT sufficient when it did: ``add_vrt_source``/``remove_vrt_source``
-    commit their ``vrt_source_links`` mutation in the same transaction that
-    flips the asset to ``'regenerating'``, BEFORE the regeneration itself
-    ever runs, so a dead attempt of THAT kind leaves the catalog's stated
-    composition already ahead of the served bytes. Restoring ``'ready'``
-    there would erase the only visible signal of that drift — the status
-    endpoint reads the link set, not the served VRT, and would report a
-    reduced (or expanded) source list as fully healthy while stale
-    composition keeps being served. The degraded branch keeps
-    ``current_generation_id`` cleared (a retry can still be triggered) but
-    leaves ``status='failed'``, matching the ordinary explicit-failure path.
+    Recovery status: ``'ready'`` only when BOTH hold (fix(#1322 review
+    rounds 3-4) — see ``_READY_WORTHY_SQL``, ``_COMPOSITION_PRESERVED_SQL``,
+    ``_PRIOR_ATTEMPT_WAS_READY_SQL``); ``'failed'`` otherwise. ``regenerate_
+    vrt`` only overwrites the asset's published pointer (``asset_uri``,
+    ``sha256``, ...) in the SAME transaction that clears
+    ``current_generation_id`` on success — a dead attempt never reaches
+    that transaction, so those fields still describe the last-good VRT the
+    asset was serving before this attempt started. That is necessary to
+    restore ``'ready'`` but not sufficient on its own, for two independent
+    reasons:
+
+    1. Nothing about the dataset's declared MEMBERSHIP may have changed
+       underneath the attempt. ``add_vrt_source``/``remove_vrt_source``
+       commit their ``vrt_source_links`` mutation in the same transaction
+       that flips the asset to ``'regenerating'``, BEFORE the regeneration
+       itself ever runs, so a dead attempt of THAT kind leaves the
+       catalog's stated composition already ahead of the served bytes.
+       Restoring ``'ready'`` there would erase the only visible signal of
+       that drift — the status endpoint reads the link set, not the served
+       VRT, and would report a reduced (or expanded) source list as fully
+       healthy while stale composition keeps being served.
+    2. The asset must have actually BEEN ``'ready'`` — not ``'failed'`` —
+       the instant this attempt was allowed to start. ``regenerate_vrt_
+       endpoint``'s guard rejects only ``'regenerating'``, so a caller may
+       retry an asset that is already ``'failed'``. If that retry then dies
+       too and its membership still matches, condition 1 alone would call
+       it composition-preserving and restore ``'ready'`` — erasing a real
+       failure a worker crash had nothing to do with, since no successful
+       artifact was ever produced by the retry and whatever caused the
+       FIRST failure is still unaddressed.
+
+    The degraded branch keeps ``current_generation_id`` cleared (a retry
+    can still be triggered) but leaves ``status='failed'``, matching the
+    ordinary explicit-failure path.
 
     Either branch marks the dead attempt's own ``VrtGeneration`` row
     ``'failed'`` below; an operator or retry call can re-trigger
@@ -834,6 +896,11 @@ async def sweep_stale_vrt_assets(
     # answer the question at all, and falls to the same conservative branch
     # as a genuine mismatch — matching the "unknown answers unknown, not
     # fresh" posture in source_freshness.py, not the other one.
+    #
+    # fix(#1322 review round 4): composition-preserving is necessary but not
+    # sufficient — see _PRIOR_ATTEMPT_WAS_READY_SQL above for the second,
+    # independently-required fact (was the asset actually 'ready', not
+    # 'failed', the instant this attempt was allowed to start).
     _asset_composition = (
         *asset_scope,
         RasterAsset.status == "regenerating",
@@ -841,7 +908,7 @@ async def sweep_stale_vrt_assets(
     )
     ready_result = await db.execute(
         update(RasterAsset)
-        .where(*_asset_composition, text(_COMPOSITION_PRESERVED_SQL))
+        .where(*_asset_composition, text(_READY_WORTHY_SQL))
         .values(status="ready", current_generation_id=None)
         .returning(RasterAsset.dataset_id)
     )
@@ -855,7 +922,7 @@ async def sweep_stale_vrt_assets(
 
     degraded_result = await db.execute(
         update(RasterAsset)
-        .where(*_asset_composition, text(f"NOT ({_COMPOSITION_PRESERVED_SQL})"))
+        .where(*_asset_composition, text(f"NOT ({_READY_WORTHY_SQL})"))
         .values(status="failed", current_generation_id=None)
         .returning(RasterAsset.dataset_id)
     )
@@ -863,7 +930,8 @@ async def sweep_stale_vrt_assets(
     for dataset_id in degraded_ids:
         log.warning(
             "Reconciled abandoned VRT regeneration, kept failed — "
-            "composition changed since the published build",
+            "composition changed since the published build, or the "
+            "asset was not provably ready when this attempt started",
             dataset_id=str(dataset_id),
             stale_cutoff=str(stale_cutoff),
         )

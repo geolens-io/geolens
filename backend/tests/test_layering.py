@@ -2359,7 +2359,24 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # 'object' guard a real-DB test proved necessary over a bare IS NOT NULL
     # (SQLAlchemy's plain JSONB serializes Python None to the JSON scalar
     # null, not SQL NULL). Cap 1770 -> 1874, exact.
-    "backend/app/platform/jobs/router.py": 1874,
+    # fix(#1322 review round 4): +68 — composition-preserving was necessary
+    # but not sufficient: regenerate_vrt_endpoint's guard rejects only
+    # 'regenerating', so a caller may retry an already-'failed' asset, and a
+    # dead retry whose membership still matched would have restored 'ready'
+    # and erased a real failure the crash had nothing to do with. Added a
+    # second, independent SQL fragment (_PRIOR_ATTEMPT_WAS_READY_SQL) reading
+    # the immediately-prior vrt_generations row's terminal status — 'failed'
+    # blocks the restore, 'completed' or no such row (first-ever attempt)
+    # allows it — combined into _READY_WORTHY_SQL with the composition check.
+    # Most of the lines are the docstring recording why no stored "attempt
+    # type" column exists to key off directly, and the accepted conservative
+    # cost this heuristic carries: a generation this sweep itself restores to
+    # 'ready' still leaves its OWN vrt_generations row 'failed', so a LATER
+    # dead attempt on the same dataset can read that earlier row and stay
+    # 'failed' one cycle longer than strictly necessary — the safe direction
+    # for a reconciler that must never manufacture a resolution that didn't
+    # happen. Cap 1874 -> 1942, exact.
+    "backend/app/platform/jobs/router.py": 1942,
     # fix(second-opinion review on #1236 review r3): first entry — crossed
     # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
     # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side
