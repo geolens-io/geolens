@@ -755,7 +755,7 @@
     "refresh": {
       "action": "Refresh from source",
       "busyHint": "A refresh is already in progress. See refresh history below.",
-      "featureEditBlockedHint": "Finish or discard the feature edit in progress before refreshing.",
+      "featureEditBlockedHint": "Finish editing or deselect the feature before refreshing.",
       "dialogTitle": "Refresh from source",
       "dialogDescription": "Re-pull this dataset's data from where it was originally imported. The dataset keeps serving its current data until the new data is ready.",
       "tokenLabel": "Access token (optional)",

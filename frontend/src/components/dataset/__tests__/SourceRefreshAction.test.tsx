@@ -297,12 +297,14 @@ describe('SourceRefreshAction', () => {
     ).toBeInTheDocument();
   });
 
-  // fix(#1285 codex round 6): DatasetMap stays mounted above DetailPanel
-  // regardless of tab, so a selected + dirty feature edit survives a switch
-  // to the Source tab. Saving it after a refresh replaces the table calls
-  // the feature-update API with a stale GID — overwriting a refreshed row,
-  // or the wrong row if GIDs were reassigned.
-  it('disables the trigger and explains why a feature edit is selected and dirty for this dataset', () => {
+  // fix(#1285 codex round 6, widened on completion): DatasetMap stays
+  // mounted above DetailPanel regardless of tab, so a feature selection
+  // survives a switch to the Source tab. The hazard does not need an
+  // in-progress edit — handleDeleteFeature acts on a merely-selected
+  // feature immediately, and a later save would too — so the guard blocks
+  // on SELECTION presence, not edit dirtiness. isEditDirty is irrelevant to
+  // the gate; both values are exercised below to prove that.
+  it('disables the trigger and explains why for a dirty, selected feature edit on this dataset', () => {
     drawingStoreState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
     drawingStoreState.isEditDirty = true;
     drawingStoreState.targetDatasetId = 'dataset-1';
@@ -311,21 +313,27 @@ describe('SourceRefreshAction', () => {
 
     expect(screen.getByRole('button', { name: 'Refresh from source' })).toBeDisabled();
     expect(
-      screen.getByText('Finish or discard the feature edit in progress before refreshing.'),
+      screen.getByText('Finish editing or deselect the feature before refreshing.'),
     ).toBeInTheDocument();
   });
 
-  it('does not block on a feature that is merely selected, with no unsaved edit', () => {
+  it('also disables for a feature that is merely selected, with no unsaved edit', () => {
+    // The completion of the round-6 fix: a clean selection retains the
+    // pre-refresh GID just as much as a dirty one, and delete acts on a
+    // selection with no dirtiness required at all.
     drawingStoreState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
     drawingStoreState.isEditDirty = false;
     drawingStoreState.targetDatasetId = 'dataset-1';
 
     render(<SourceRefreshAction dataset={makeDataset()} watch={makeWatch()} />);
 
-    expect(screen.getByRole('button', { name: 'Refresh from source' })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Refresh from source' })).toBeDisabled();
+    expect(
+      screen.getByText('Finish editing or deselect the feature before refreshing.'),
+    ).toBeInTheDocument();
   });
 
-  it('does not block on a dirty feature edit that belongs to a different dataset', () => {
+  it('does not block on a feature selection that belongs to a different dataset', () => {
     drawingStoreState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
     drawingStoreState.isEditDirty = true;
     drawingStoreState.targetDatasetId = 'a-different-dataset';
@@ -335,7 +343,7 @@ describe('SourceRefreshAction', () => {
     expect(screen.getByRole('button', { name: 'Refresh from source' })).not.toBeDisabled();
   });
 
-  it('re-enables once the feature edit is saved or discarded (selection/dirty flag cleared)', () => {
+  it('re-enables once the feature is saved, deselected, or discarded (selection cleared)', () => {
     drawingStoreState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
     drawingStoreState.isEditDirty = true;
     drawingStoreState.targetDatasetId = 'dataset-1';
@@ -343,15 +351,15 @@ describe('SourceRefreshAction', () => {
     const { rerender } = render(<SourceRefreshAction dataset={makeDataset()} watch={makeWatch()} />);
     expect(screen.getByRole('button', { name: 'Refresh from source' })).toBeDisabled();
 
-    // Mirrors what a save or a discard does to the store: clearSelectedFeature
-    // resets both selectedFeature and isEditDirty together.
+    // Mirrors what a save, deselect, or discard does to the store:
+    // clearSelectedFeature resets both selectedFeature and isEditDirty.
     drawingStoreState.selectedFeature = null;
     drawingStoreState.isEditDirty = false;
     rerender(<SourceRefreshAction dataset={makeDataset()} watch={makeWatch()} />);
 
     expect(screen.getByRole('button', { name: 'Refresh from source' })).not.toBeDisabled();
     expect(
-      screen.queryByText('Finish or discard the feature edit in progress before refreshing.'),
+      screen.queryByText('Finish editing or deselect the feature before refreshing.'),
     ).not.toBeInTheDocument();
   });
 

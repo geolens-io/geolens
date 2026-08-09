@@ -804,7 +804,7 @@
     "refresh": {
       "action": "Actualizar desde la fuente",
       "busyHint": "Ya hay una actualización en curso. Consulta el historial de actualizaciones más abajo.",
-      "featureEditBlockedHint": "Termina o descarta la edición de la entidad en curso antes de actualizar.",
+      "featureEditBlockedHint": "Termina la edición o deselecciona la entidad antes de actualizar.",
       "dialogTitle": "Actualizar desde la fuente",
       "dialogDescription": "Vuelve a extraer los datos de este conjunto desde donde se importaron originalmente. El conjunto de datos sigue sirviendo sus datos actuales hasta que los nuevos estén listos.",
       "tokenLabel": "Token de acceso (opcional)",

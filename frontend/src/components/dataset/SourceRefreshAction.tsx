@@ -70,22 +70,23 @@ export function SourceRefreshAction({ dataset, watch }: SourceRefreshActionProps
   const supportsToken = origin === 'service';
   const { isBusy } = watch;
 
-  // fix(#1285 codex round 6): DatasetMap stays mounted above DetailPanel
-  // regardless of which tab is active, so a feature the user selected and
-  // started editing survives a switch to the Source tab. Saving it after a
-  // refresh replaces the table would call the feature-update API with a GID
-  // from before the swap — overwriting a freshly refreshed row, or the wrong
-  // row entirely if GIDs were reassigned. Mirrors DatasetMap's own
-  // hasDirtyFeatureEdit definition exactly (DatasetMap.tsx), and scopes to
-  // THIS dataset via targetDatasetId so a stale selection left over from a
-  // different dataset's map can't false-positive block a refresh here.
+  // fix(#1285 codex round 6, widened on completion): DatasetMap stays
+  // mounted above DetailPanel regardless of which tab is active, so a
+  // feature the user selected survives a switch to the Source tab — and the
+  // hazard does not require an in-progress EDIT. The selection alone keeps
+  // the pre-refresh GID and properties live: handleDeleteFeature acts on a
+  // merely-selected feature immediately (no dirtiness involved), and a
+  // later handleSaveEdit would too. Either can submit a stale GID against a
+  // table a refresh already replaced — overwriting a freshly refreshed row,
+  // or the wrong row entirely if GIDs were reassigned. So this blocks on
+  // SELECTION presence, not edit dirtiness; scoped to THIS dataset via
+  // targetDatasetId so a stale selection left over from a different
+  // dataset's map can't false-positive block a refresh here.
   const selectedFeature = useDrawingStore((s) => s.selectedFeature);
-  const isEditDirty = useDrawingStore((s) => s.isEditDirty);
   const targetDatasetId = useDrawingStore((s) => s.targetDatasetId);
-  const hasDirtyFeatureEdit =
-    targetDatasetId === dataset.id && Boolean(selectedFeature) && isEditDirty;
+  const hasSelectedFeature = targetDatasetId === dataset.id && selectedFeature !== null;
 
-  const isDisabled = isBusy || hasDirtyFeatureEdit;
+  const isDisabled = isBusy || hasSelectedFeature;
 
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
@@ -137,7 +138,7 @@ export function SourceRefreshAction({ dataset, watch }: SourceRefreshActionProps
         </Button>
         {isBusy ? (
           <p className="text-xs text-muted-foreground">{t('sourcePanel.refresh.busyHint')}</p>
-        ) : hasDirtyFeatureEdit ? (
+        ) : hasSelectedFeature ? (
           <p className="text-xs text-muted-foreground">
             {t('sourcePanel.refresh.featureEditBlockedHint')}
           </p>
