@@ -1652,6 +1652,16 @@ Those rows are internal. They are not published as downloadable assets in
 search or STAC responses, because the original is the higher-fidelity copy the
 conversion deliberately replaced.
 
+**If the archive cannot be written, the ingest fails.** A durable copy of the
+original is a precondition of a lossy conversion, not a nice-to-have: the
+conversion's success is what licenses deleting the uploaded file, so if the
+detail the COG cannot carry is not yet safely stored, GeoLens refuses to
+publish. The dataset keeps whatever it was serving, the uploaded file is
+retained with the failed job, and the job's error says so. Retry once object
+storage is healthy. That retention is the FAILED-job window —
+`INGEST_JOBS_RETENTION_DAYS`, default 30 — not the permanent one, so do not
+leave a failed lossy ingest sitting for a month before retrying it.
+
 > **If you delete an original object by hand, its row stays.** There is no
 > reconciliation between storage and the asset table, so the owner's usage will
 > overstate by the size of whatever you removed until the dataset itself is

@@ -123,6 +123,23 @@ def _write_swapped_fields(
     return new_version
 
 
+class ArchiveNotDurableError(Exception):
+    """A lossy conversion whose original could not be archived durably.
+
+    fix(#1290 review): the durable archive is a PRECONDITION of a lossy
+    publish, not a best-effort side effect. The swap's success is what licenses
+    deleting the staged source, so if the samples the COG cannot carry are not
+    yet somewhere durable, the publish has not earned its commit.
+
+    Before this, an archive-write failure returned quietly and the job
+    succeeded — leaving the only faithful source in job staging, where the
+    retention purge is entitled to remove it once a later job supersedes it. A
+    transient storage error silently downgraded a dataset-lifetime guarantee to
+    a windowed one, which is precisely the trade this path rejected in round 7
+    when it declined retain-in-place for the same reason.
+    """
+
+
 ARCHIVED_ORIGINAL_KEY_PREFIX = "archived_original:"
 
 # fix(#1290 review): 128 bits, not 48. Round 8 made the truncated hash BE the
@@ -263,6 +280,12 @@ async def archive_lossy_original(
         )
         existed = None
 
+    # fix(#1290 review): note the deliberate asymmetry with the probe above.
+    # An INDETERMINATE probe proceeds — the write is the evidence, and refusing
+    # to publish because a store could not answer a question would fail work
+    # that is fine. A failed WRITE is different in kind: it is proof the
+    # durable copy does not exist, and publishing anyway is what silently voids
+    # the retention promise.
     archived = await _archive_original_file(
         session,
         job=job,
@@ -276,7 +299,12 @@ async def archive_lossy_original(
         archive_name=logical_key.rsplit("/", 1)[-1],
     )
     if not archived:
-        return False, None, 0, None
+        raise ArchiveNotDurableError(
+            "Refusing to publish a lossy conversion whose original could not "
+            "be durably archived. The dataset keeps its previous raster and "
+            "the uploaded file is retained with the failed job; retry once "
+            "object storage is healthy."
+        )
     return (
         True,
         logical_key,

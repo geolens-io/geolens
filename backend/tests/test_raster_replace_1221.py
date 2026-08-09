@@ -4452,3 +4452,115 @@ class TestStalenessIsStateNotTime:
             )
         finally:
             await _purge_vrt(test_db_session, ids=ids)
+
+
+class TestArchiveFailureFailsThePublish:
+    """ROUND 13 FINDING. The durable archive is a PRECONDITION of a lossy
+    publish. An archive-write failure used to return quietly and let the job
+    succeed, leaving the only faithful source in job staging where the
+    retention purge removes it once a later job supersedes it — a transient
+    storage error silently downgrading a dataset-lifetime guarantee to a
+    windowed one. That is the exact trade round 7 refused for the same reason.
+    """
+
+    async def test_a_lossy_replace_fails_when_the_archive_cannot_be_written(
+        self, test_db_session, raster_storage, tmp_path, monkeypatch
+    ) -> None:
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+        old_bytes = await raster_storage.get(live.cog_key)
+
+        source = tmp_path / "unarchivable.tif"
+        source.write_bytes(_geotiff_bytes(seed=281))
+        job = await _queue_replace_job(
+            test_db_session,
+            dataset_id=dataset_id,
+            user_id=admin_id,
+            file_path=str(source),
+        )
+        job.user_metadata = {**(job.user_metadata or {}), "compression": "JPEG"}
+        await test_db_session.commit()
+        job_id = job.id
+
+        real_put = raster_storage.put
+
+        async def _put_failing_archives(key, data):
+            if "originals/" in key:
+                raise RuntimeError("object store rejected the archive write")
+            return await real_put(key, data)
+
+        monkeypatch.setattr(raster_storage, "put", _put_failing_archives)
+
+        try:
+            with pytest.raises(Exception, match="durably archived"):
+                await reupload_raster.func(
+                    job_id=str(job_id),
+                    dataset_id=str(dataset_id),
+                    file_path=str(source),
+                    user_id=str(admin_id),
+                    attempt_id=str(job.attempt_id),
+                )
+
+            monkeypatch.setattr(raster_storage, "put", real_put)
+            test_db_session.expire_all()
+            asset = (
+                await test_db_session.execute(
+                    select(RasterAsset).where(RasterAsset.dataset_id == dataset_id)
+                )
+            ).scalar_one()
+
+            # The property that makes failing SAFE: invariant 10 still holds.
+            assert asset.asset_uri == live.cog_key, "the swap must not have landed"
+            assert await raster_storage.get(live.cog_key) == old_bytes
+            # And the uploaded file survives as the failed job's diagnostic copy.
+            assert source.exists(), (
+                "the source was deleted even though nothing durable holds it"
+            )
+            failed = (
+                await test_db_session.execute(
+                    select(IngestJob).where(IngestJob.id == job_id)
+                )
+            ).scalar_one()
+            assert failed.status == "failed"
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
+    def test_the_policy_lives_in_the_shared_function_not_the_call_sites(self) -> None:
+        """Both tails must inherit the refusal from one place. If either call
+        site decided for itself how to surface it, that is the drift class this
+        PR has paid for three times."""
+        import ast
+        import inspect
+
+        from app.processing.ingest import (
+            tasks_raster,
+            tasks_raster_replace,
+            tasks_raster_swap,
+        )
+
+        swap_src = inspect.getsource(tasks_raster_swap)
+        assert "ArchiveNotDurableError" in swap_src
+        raises = [
+            n
+            for n in ast.walk(ast.parse(swap_src))
+            if isinstance(n, ast.Raise)
+            and isinstance(getattr(n.exc, "func", None), ast.Name)
+            and n.exc.func.id == "ArchiveNotDurableError"
+        ]
+        assert raises, "the shared archiver does not refuse an undurable archive"
+
+        # Neither tail may re-decide the policy locally.
+        for module in (tasks_raster, tasks_raster_replace):
+            src = inspect.getsource(module)
+            assert "ArchiveNotDurableError" not in src, (
+                f"{module.__name__} handles the archive-durability policy "
+                "itself instead of inheriting it (#1290 round-13)"
+            )
