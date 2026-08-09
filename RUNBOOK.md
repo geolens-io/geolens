@@ -312,6 +312,26 @@ The marker, password, runtime ownership transfers, and temporary SET authority
 used for those transfers are committed atomically. Do not persist the adoption
 flag; ordinary upgrades and restores prove ownership from the marker.
 
+Changing `GEOLENS_RUNTIME_DB_ROLE` is also the supported role-name rotation
+path. In the same transaction that prepares the replacement, the reconciler
+finds every other role carrying this database's exact active marker, reassigns
+its owned objects to the replacement, removes its current-database privileges
+and default privileges, revokes its held role memberships and `CONNECT`, then
+sets `NOLOGIN` and writes
+`geolens-retired-runtime-role:v1:database=<current-database>`. Roles marked for
+another database are never selected. If any ownership or membership operation
+fails, the replacement and retirement both roll back. Selecting a same-database
+retired role again performs the inverse rotation without the adoption flag, so
+an operator can revert the role-name choice with a newly supplied password.
+
+The reconciler deliberately does not require `pg_signal_backend`, which many
+managed-provider admins lack. Existing sessions lose their direct ACLs and
+memberships when the transaction commits, and `NOLOGIN` blocks new sessions.
+Drain the old API/worker connection pools before rotation: PostgreSQL does not
+automatically reset a session that had already completed `SET ROLE` before the
+membership revocation. Start the replacement services only after reconciliation
+succeeds and the old pools have exited.
+
 PostgreSQL roles are cluster-global, so the marker binds a managed runtime role
 to the database name that claimed it. A second live database cannot reuse that
 role or rotate its password, even with the adoption flag. A same-name restore
@@ -350,7 +370,11 @@ For managed/external PostgreSQL, run privileged migrations first, then run
 the script. The provider credential must be able to create roles, change
 relation ownership, alter default privileges for that migration owner, and
 manage the target database's `CONNECT` ACL (normally by owning that database or
-through equivalent provider authority). On PostgreSQL 18,
+through equivalent provider authority). A role-name rotation additionally
+requires SET/admin authority for each old and replacement runtime role plus
+ADMIN OPTION on every role membership held by the old login; missing authority
+fails the transaction rather than leaving a partially retired credential. On
+PostgreSQL 18,
 the provider admin also needs ADMIN OPTION on a pre-existing
 `geolens_reader`; an admin that created it during initial reconciliation
 already has PostgreSQL's automatic ADMIN-only membership. The reconciler uses

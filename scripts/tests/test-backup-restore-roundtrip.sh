@@ -77,6 +77,10 @@ RUNTIME_ROLE="${RUNTIME_ROLE//[^a-zA-Z0-9_]/_}"
 RUNTIME_PASSWORD="ci-runtime-role-test-password-947-padding"
 FRESH_RUNTIME_ROLE="geolens_bkp_fresh_app_${SUFFIX}"
 FRESH_RUNTIME_ROLE="${FRESH_RUNTIME_ROLE//[^a-zA-Z0-9_]/_}"
+ROTATED_RUNTIME_ROLE="geolens_bkp_rotated_app_${SUFFIX}"
+ROTATED_RUNTIME_ROLE="${ROTATED_RUNTIME_ROLE//[^a-zA-Z0-9_]/_}"
+ROTATED_RUNTIME_PASSWORD="rotated-runtime-password-947-padding"
+ROTATION_ROLLBACK_PASSWORD="rotation-rollback-password-947-padding"
 MIGRATION_ROLE="geolens_bkp_migrator_${SUFFIX}"
 MIGRATION_ROLE="${MIGRATION_ROLE//[^a-zA-Z0-9_]/_}"
 MIGRATION_PASSWORD="migration-owner-password-947-padding"
@@ -96,9 +100,16 @@ RECONCILER_PASSWORD="provider-admin-password-947-padding"
 PROVIDER_RUNTIME_ROLE="geolens_bkp_provider_app_${SUFFIX}"
 PROVIDER_RUNTIME_ROLE="${PROVIDER_RUNTIME_ROLE//[^a-zA-Z0-9_]/_}"
 PROVIDER_RUNTIME_PASSWORD="provider-runtime-password-947-padding"
+PROVIDER_ROTATED_ROLE="geolens_bkp_provider_rotated_app_${SUFFIX}"
+PROVIDER_ROTATED_ROLE="${PROVIDER_ROTATED_ROLE//[^a-zA-Z0-9_]/_}"
+PROVIDER_ROTATED_PASSWORD="provider-rotated-password-947-padding"
 PROVIDER_FAIL_ROLE="geolens_bkp_provider_fail_app_${SUFFIX}"
 PROVIDER_FAIL_ROLE="${PROVIDER_FAIL_ROLE//[^a-zA-Z0-9_]/_}"
 PROVIDER_FAIL_PASSWORD="provider-failure-original-password-947-padding"
+PROVIDER_FAIL_REPLACEMENT_ROLE="geolens_bkp_provider_fail_new_${SUFFIX}"
+PROVIDER_FAIL_REPLACEMENT_ROLE="${PROVIDER_FAIL_REPLACEMENT_ROLE//[^a-zA-Z0-9_]/_}"
+PROVIDER_FAIL_REPLACEMENT_PASSWORD="provider-failure-new-password-947-padding"
+OLD_SESSION_PID=""
 WORKDIR="$(mktemp -d)"
 DUMP_FILE="${WORKDIR}/roundtrip.dump"
 
@@ -106,6 +117,10 @@ psql_admin() { psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$ADMIN_DB" "$@"; 
 
 cleanup() {
     set +e
+    if [ -n "$OLD_SESSION_PID" ]; then
+        kill "$OLD_SESSION_PID" >/dev/null 2>&1
+        wait "$OLD_SESSION_PID" >/dev/null 2>&1
+    fi
     # Terminate any lingering connections, then drop ALL throwaway DBs.
     for db in \
         "$SRC_DB" "$DST_DB" "$SNAP_DB" "$PROVIDER_DB" "$PROVIDER_FAIL_DB"; do
@@ -115,10 +130,12 @@ cleanup() {
         dropdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" --if-exists "$db" >/dev/null 2>&1
     done
     for role in \
-        "$RUNTIME_ROLE" "$FRESH_RUNTIME_ROLE" "$MIGRATION_ROLE" \
+        "$RUNTIME_ROLE" "$FRESH_RUNTIME_ROLE" "$ROTATED_RUNTIME_ROLE" \
+        "$MIGRATION_ROLE" \
         "$UNMANAGED_ROLE" "$RESTORE_ROLE" "$LEGACY_UNTRUSTED_ROLE" \
-        "$PROVIDER_RUNTIME_ROLE" \
-        "$PROVIDER_FAIL_ROLE" "$RECONCILER_ROLE"; do
+        "$PROVIDER_RUNTIME_ROLE" "$PROVIDER_ROTATED_ROLE" \
+        "$PROVIDER_FAIL_ROLE" "$PROVIDER_FAIL_REPLACEMENT_ROLE" \
+        "$RECONCILER_ROLE"; do
         psql_admin -v ON_ERROR_STOP=1 -c "DROP ROLE IF EXISTS \"${role}\"" \
             >/dev/null 2>&1
     done
@@ -456,6 +473,157 @@ if env PGPASSWORD="$RUNTIME_PASSWORD" \
     fail "source runtime crossed the database boundary through geolens_reader"
 fi
 
+# Rotating the configured runtime name must atomically retire every older role
+# carrying this database's exact active marker before the replacement becomes
+# usable. The old credential must not retain the cluster-global reader path.
+OLD_SESSION_LOG="${WORKDIR}/old-runtime-session.log"
+env PGPASSWORD="$RUNTIME_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$FRESH_RUNTIME_ROLE" -d "$SRC_DB" \
+    -v ON_ERROR_STOP=1 \
+    >"$OLD_SESSION_LOG" 2>&1 <<'EOSQL' &
+SELECT pg_sleep(5);
+SELECT count(*) FROM catalog.records;
+EOSQL
+OLD_SESSION_PID=$!
+OLD_SESSION_SEEN=false
+for _ in $(seq 1 50); do
+    if [ "$(psql_admin -tAc \
+        "SELECT count(*) FROM pg_stat_activity WHERE datname = '${SRC_DB}' AND usename = '${FRESH_RUNTIME_ROLE}' AND query LIKE '%pg_sleep%';")" -gt 0 ]; then
+        OLD_SESSION_SEEN=true
+        break
+    fi
+    sleep 0.1
+done
+[ "$OLD_SESSION_SEEN" = true ] \
+    || { cat "$OLD_SESSION_LOG" >&2; fail "old runtime session did not reach PostgreSQL before rotation"; }
+env \
+    GEOLENS_RUNTIME_DB_ROLE="$ROTATED_RUNTIME_ROLE" \
+    GEOLENS_RUNTIME_DB_PASSWORD="$ROTATED_RUNTIME_PASSWORD" \
+    GEOLENS_MIGRATION_DB_ROLE="$PGUSER" \
+    POSTGRES_HOST="$PGHOST" POSTGRES_PORT="$PGPORT" \
+    POSTGRES_USER="$PGUSER" POSTGRES_DB="$SRC_DB" \
+    bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" >/dev/null
+if wait "$OLD_SESSION_PID"; then
+    fail "superseded active session retained catalog read access after rotation"
+fi
+OLD_SESSION_PID=""
+grep -Eq "permission denied for (schema catalog|table records)" "$OLD_SESSION_LOG" \
+    || { cat "$OLD_SESSION_LOG" >&2; fail "superseded active session failed for an unexpected reason"; }
+if env PGPASSWORD="$RUNTIME_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$FRESH_RUNTIME_ROLE" -d "$SRC_DB" \
+    -v ON_ERROR_STOP=1 -Atqc \
+    "SET ROLE geolens_reader; SELECT name FROM data.ci_probe;" \
+    >/dev/null 2>&1; then
+    fail "superseded runtime credentials still connect after role rotation"
+fi
+
+OLD_ROTATION_STATE="$(psql_admin -d "$SRC_DB" -tAc \
+    "SELECT retired.rolcanlogin || '|' ||
+            has_database_privilege(retired.oid, current_database(), 'CONNECT') || '|' ||
+            pg_has_role(retired.oid, 'geolens_reader', 'MEMBER') || '|' ||
+            has_table_privilege(retired.oid, 'catalog.records', 'SELECT,INSERT,UPDATE,DELETE') || '|' ||
+            has_sequence_privilege(retired.oid, 'catalog.records_id_seq', 'USAGE,SELECT')
+       FROM pg_roles AS retired
+      WHERE retired.rolname = '${FRESH_RUNTIME_ROLE}';" | tr -d '[:space:]')"
+[ "$OLD_ROTATION_STATE" = "false|false|false|false|false" ] \
+    || fail "superseded runtime retained login/ACL capability: ${OLD_ROTATION_STATE}"
+OLD_ROTATION_MARKER="$(psql_admin -tAc \
+    "SELECT shobj_description(oid, 'pg_authid') FROM pg_roles WHERE rolname = '${FRESH_RUNTIME_ROLE}';" \
+    | tr -d '[:space:]')"
+[ "$OLD_ROTATION_MARKER" = "geolens-retired-runtime-role:v1:database=${SRC_DB}" ] \
+    || fail "superseded runtime lacks the database-scoped retired marker"
+ROTATED_DATA_OWNER="$(psql_admin -d "$SRC_DB" -tAc \
+    "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'data.ci_probe'::regclass;" \
+    | tr -d '[:space:]')"
+[ "$ROTATED_DATA_OWNER" = "$ROTATED_RUNTIME_ROLE" ] \
+    || fail "rotation left data.ci_probe owned by ${ROTATED_DATA_OWNER}"
+
+# Both future-grant directions must point only at the replacement: Alembic's
+# catalog defaults and the runtime owner's data-reader defaults.
+psql_admin -d "$SRC_DB" -v ON_ERROR_STOP=1 >/dev/null <<'EOSQL'
+CREATE SEQUENCE catalog.rotation_future_sequence;
+CREATE TABLE catalog.rotation_future_table (
+    id bigint PRIMARY KEY DEFAULT nextval('catalog.rotation_future_sequence')
+);
+EOSQL
+env PGPASSWORD="$ROTATED_RUNTIME_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$ROTATED_RUNTIME_ROLE" -d "$SRC_DB" \
+    -v ON_ERROR_STOP=1 >/dev/null <<'EOSQL'
+BEGIN;
+INSERT INTO catalog.records (name) VALUES ('rotated-runtime-write-probe');
+DELETE FROM catalog.records WHERE name = 'rotated-runtime-write-probe';
+INSERT INTO catalog.rotation_future_table DEFAULT VALUES;
+ALTER TABLE data.ci_probe ADD COLUMN rotated_runtime_edit integer;
+SET ROLE geolens_reader;
+SELECT name FROM data.ci_probe;
+RESET ROLE;
+ROLLBACK;
+CREATE TABLE data.rotation_future_table (id bigint PRIMARY KEY);
+SET ROLE geolens_reader;
+SELECT count(*) FROM data.rotation_future_table;
+EOSQL
+OLD_FUTURE_GRANTS="$(psql_admin -d "$SRC_DB" -tAc \
+    "SELECT has_table_privilege('${FRESH_RUNTIME_ROLE}', 'catalog.rotation_future_table', 'SELECT,INSERT,UPDATE,DELETE') || '|' ||
+            has_sequence_privilege('${FRESH_RUNTIME_ROLE}', 'catalog.rotation_future_sequence', 'USAGE,SELECT') || '|' ||
+            has_table_privilege('${FRESH_RUNTIME_ROLE}', 'data.rotation_future_table', 'SELECT');" \
+    | tr -d '[:space:]')"
+[ "$OLD_FUTURE_GRANTS" = "false|false|false" ] \
+    || fail "superseded runtime received future grants after rotation: ${OLD_FUTURE_GRANTS}"
+OLD_DEFAULT_ACL="$(psql_admin -d "$SRC_DB" -tAc \
+    "SELECT EXISTS (
+         SELECT 1
+           FROM pg_roles AS retired
+           JOIN pg_default_acl AS defaults ON true
+           LEFT JOIN LATERAL aclexplode(defaults.defaclacl) AS acl ON true
+          WHERE retired.rolname = '${FRESH_RUNTIME_ROLE}'
+            AND (defaults.defaclrole = retired.oid OR acl.grantee = retired.oid)
+     );" | tr -d '[:space:]')"
+[ "$OLD_DEFAULT_ACL" = "f" ] \
+    || fail "superseded runtime remains in current-database default ACLs"
+
+# The rotation is database-scoped: the active role for the second database is
+# unchanged and can still use its own reader path.
+FOREIGN_RUNTIME_STATE="$(psql_admin -tAc \
+    "SELECT rolcanlogin || '|' || shobj_description(oid, 'pg_authid')
+       FROM pg_roles WHERE rolname = '${RUNTIME_ROLE}';" | tr -d '[:space:]')"
+[ "$FOREIGN_RUNTIME_STATE" = "true|geolens-managed-runtime-role:v2:database=${DST_DB}" ] \
+    || fail "source rotation disturbed the destination database runtime: ${FOREIGN_RUNTIME_STATE}"
+
+# A retired marker is durable rollback proof. Selecting that exact role again
+# reverses the rotation without the broad existing-role adoption escape hatch.
+env \
+    GEOLENS_RUNTIME_DB_ROLE="$FRESH_RUNTIME_ROLE" \
+    GEOLENS_RUNTIME_DB_PASSWORD="$ROTATION_ROLLBACK_PASSWORD" \
+    GEOLENS_MIGRATION_DB_ROLE="$PGUSER" \
+    POSTGRES_HOST="$PGHOST" POSTGRES_PORT="$PGPORT" \
+    POSTGRES_USER="$PGUSER" POSTGRES_DB="$SRC_DB" \
+    bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" >/dev/null
+ROLLBACK_ROLE_STATE="$(psql_admin -d "$SRC_DB" -tAc \
+    "SELECT active.rolcanlogin || '|' ||
+            shobj_description(active.oid, 'pg_authid') || '|' ||
+            retired.rolcanlogin || '|' ||
+            shobj_description(retired.oid, 'pg_authid') || '|' ||
+            pg_get_userbyid(probe.relowner)
+       FROM pg_roles AS active
+       CROSS JOIN pg_roles AS retired
+       CROSS JOIN pg_class AS probe
+      WHERE active.rolname = '${FRESH_RUNTIME_ROLE}'
+        AND retired.rolname = '${ROTATED_RUNTIME_ROLE}'
+        AND probe.oid = 'data.ci_probe'::regclass;" | tr -d '[:space:]')"
+[ "$ROLLBACK_ROLE_STATE" = "true|geolens-managed-runtime-role:v2:database=${SRC_DB}|false|geolens-retired-runtime-role:v1:database=${SRC_DB}|${FRESH_RUNTIME_ROLE}" ] \
+    || fail "inverse role rotation did not restore the retired target: ${ROLLBACK_ROLE_STATE}"
+env PGPASSWORD="$ROTATION_ROLLBACK_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$FRESH_RUNTIME_ROLE" -d "$SRC_DB" \
+    -v ON_ERROR_STOP=1 -Atqc \
+    "SET ROLE geolens_reader; SELECT name FROM data.ci_probe;" \
+    | grep -qx "runtime-ownership-probe" \
+    || fail "reactivated runtime cannot use its same-database reader path"
+if env PGPASSWORD="$RUNTIME_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$FRESH_RUNTIME_ROLE" -d "$SRC_DB" \
+    -Atqc "SELECT 1" >/dev/null 2>&1; then
+    fail "reactivated runtime accepted its pre-retirement password"
+fi
+
 # Objects later created by the actual Alembic owner must inherit runtime
 # table/sequence access even though reconciliation used a different admin.
 env PGPASSWORD="$MIGRATION_PASSWORD" \
@@ -572,6 +740,53 @@ PROVIDER_MEMBERSHIP_FLAGS="$(psql_admin -tAc \
 [ "$PROVIDER_MEMBERSHIP_FLAGS" = "true|false|false" ] \
     || fail "successful reconciliation did not restore the provider admin's ADMIN-only membership: ${PROVIDER_MEMBERSHIP_FLAGS}"
 
+# The same rotation path must work for a provider admin that owns the database
+# and has CREATEROLE but is not superuser. It gets SET only transactionally;
+# both old-ownership transfer and temporary-membership cleanup are observable.
+env \
+    PGPASSWORD="$RECONCILER_PASSWORD" \
+    POSTGRES_PASSWORD="$RECONCILER_PASSWORD" \
+    POSTGRES_HOST="$PGHOST" POSTGRES_PORT="$PGPORT" \
+    POSTGRES_USER="$RECONCILER_ROLE" POSTGRES_DB="$PROVIDER_DB" \
+    GEOLENS_MIGRATION_DB_ROLE="$RECONCILER_ROLE" \
+    GEOLENS_RUNTIME_DB_ROLE="$PROVIDER_ROTATED_ROLE" \
+    GEOLENS_RUNTIME_DB_PASSWORD="$PROVIDER_ROTATED_PASSWORD" \
+    bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" >/dev/null
+PROVIDER_ROTATED_OWNER="$(psql_admin -d "$PROVIDER_DB" -tAc \
+    "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'data.provider_probe'::regclass;" \
+    | tr -d '[:space:]')"
+[ "$PROVIDER_ROTATED_OWNER" = "$PROVIDER_ROTATED_ROLE" ] \
+    || fail "provider rotation left data table owned by ${PROVIDER_ROTATED_OWNER}"
+PROVIDER_OLD_STATE="$(psql_admin -d "$PROVIDER_DB" -tAc \
+    "SELECT rolcanlogin || '|' ||
+            has_database_privilege(oid, current_database(), 'CONNECT') || '|' ||
+            pg_has_role(oid, 'geolens_reader', 'MEMBER')
+       FROM pg_roles WHERE rolname = '${PROVIDER_RUNTIME_ROLE}';" \
+    | tr -d '[:space:]')"
+[ "$PROVIDER_OLD_STATE" = "false|false|false" ] \
+    || fail "provider rotation left old role active: ${PROVIDER_OLD_STATE}"
+PROVIDER_ROTATED_MEMBERSHIP_FLAGS="$(psql_admin -tAc \
+    "SELECT admin_option || '|' || inherit_option || '|' || set_option
+       FROM pg_auth_members
+      WHERE roleid = (SELECT oid FROM pg_roles WHERE rolname = '${PROVIDER_ROTATED_ROLE}')
+        AND member = (SELECT oid FROM pg_roles WHERE rolname = '${RECONCILER_ROLE}');" \
+    | tr -d '[:space:]')"
+[ "$PROVIDER_ROTATED_MEMBERSHIP_FLAGS" = "true|false|false" ] \
+    || fail "provider rotation did not restore replacement ADMIN-only membership: ${PROVIDER_ROTATED_MEMBERSHIP_FLAGS}"
+PROVIDER_READER_ACL="$(psql_admin -d "$PROVIDER_DB" -tAc \
+    "SELECT relacl FROM pg_class WHERE oid = 'data.provider_probe'::regclass;" \
+    | tr -d '[:space:]')"
+[ "$(psql_admin -d "$PROVIDER_DB" -tAc \
+    "SELECT has_table_privilege('geolens_reader', 'data.provider_probe', 'SELECT');" \
+    | tr -d '[:space:]')" = "t" ] \
+    || fail "provider rotation did not restore reader SELECT ACL: ${PROVIDER_READER_ACL}"
+env PGPASSWORD="$PROVIDER_ROTATED_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$PROVIDER_ROTATED_ROLE" \
+    -d "$PROVIDER_DB" -v ON_ERROR_STOP=1 -Atqc \
+    "SET ROLE geolens_reader; SELECT count(*) FROM data.provider_probe;" \
+    | grep -qx 0 \
+    || fail "provider replacement cannot use its same-database reader path"
+
 # Induce an ownership error after the temporary membership is granted. The
 # runtime SQL transaction must roll back its password/owner changes and remove
 # membership even though psql exits through ON_ERROR_STOP.
@@ -593,7 +808,12 @@ CREATE ROLE "${PROVIDER_FAIL_ROLE}" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
     NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD '${PROVIDER_FAIL_PASSWORD}';
 COMMENT ON ROLE "${PROVIDER_FAIL_ROLE}" IS
     'geolens-managed-runtime-role:v2:database=${PROVIDER_FAIL_DB}';
+GRANT CONNECT ON DATABASE "${PROVIDER_FAIL_DB}" TO "${PROVIDER_FAIL_ROLE}";
+GRANT geolens_reader TO "${PROVIDER_FAIL_ROLE}";
 EOSQL
+psql_admin -d "$PROVIDER_FAIL_DB" -v ON_ERROR_STOP=1 \
+    -c "ALTER TABLE data.reconciler_probe OWNER TO \"${PROVIDER_FAIL_ROLE}\"" \
+    >/dev/null
 PROVIDER_FAIL_LOG="${WORKDIR}/provider-fail.log"
 if env \
     PGPASSWORD="$RECONCILER_PASSWORD" \
@@ -601,8 +821,8 @@ if env \
     POSTGRES_HOST="$PGHOST" POSTGRES_PORT="$PGPORT" \
     POSTGRES_USER="$RECONCILER_ROLE" POSTGRES_DB="$PROVIDER_FAIL_DB" \
     GEOLENS_MIGRATION_DB_ROLE="$RECONCILER_ROLE" \
-    GEOLENS_RUNTIME_DB_ROLE="$PROVIDER_FAIL_ROLE" \
-    GEOLENS_RUNTIME_DB_PASSWORD="provider-failure-replacement-password-947" \
+    GEOLENS_RUNTIME_DB_ROLE="$PROVIDER_FAIL_REPLACEMENT_ROLE" \
+    GEOLENS_RUNTIME_DB_PASSWORD="$PROVIDER_FAIL_REPLACEMENT_PASSWORD" \
     bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" \
     >"$PROVIDER_FAIL_LOG" 2>&1; then
     fail "induced provider ownership failure unexpectedly reconciled"
@@ -620,8 +840,22 @@ FAILED_MEMBERSHIP_FLAGS="$(psql_admin -tAc \
 FAILED_OWNER="$(psql_admin -d "$PROVIDER_FAIL_DB" -tAc \
     "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'data.reconciler_probe'::regclass;" \
     | tr -d '[:space:]')"
-[ "$FAILED_OWNER" = "$RECONCILER_ROLE" ] \
+[ "$FAILED_OWNER" = "$PROVIDER_FAIL_ROLE" ] \
     || fail "failed reconciliation partially transferred data ownership"
+FAILED_ROLE_STATE="$(psql_admin -d "$PROVIDER_FAIL_DB" -tAc \
+    "SELECT rolcanlogin || '|' ||
+            has_database_privilege(oid, current_database(), 'CONNECT') || '|' ||
+            pg_has_role(oid, 'geolens_reader', 'MEMBER') || '|' ||
+            shobj_description(oid, 'pg_authid')
+       FROM pg_roles WHERE rolname = '${PROVIDER_FAIL_ROLE}';" \
+    | tr -d '[:space:]')"
+[ "$FAILED_ROLE_STATE" = "true|true|true|geolens-managed-runtime-role:v2:database=${PROVIDER_FAIL_DB}" ] \
+    || fail "failed rotation did not roll back old role state: ${FAILED_ROLE_STATE}"
+FAILED_REPLACEMENT_EXISTS="$(psql_admin -tAc \
+    "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${PROVIDER_FAIL_REPLACEMENT_ROLE}');" \
+    | tr -d '[:space:]')"
+[ "$FAILED_REPLACEMENT_EXISTS" = "f" ] \
+    || fail "failed rotation left the replacement role behind"
 env PGPASSWORD="$PROVIDER_FAIL_PASSWORD" \
     psql -X -h "$PGHOST" -p "$PGPORT" -U "$PROVIDER_FAIL_ROLE" \
     -d "$PROVIDER_FAIL_DB" -Atqc "SELECT 1" | grep -qx 1 \

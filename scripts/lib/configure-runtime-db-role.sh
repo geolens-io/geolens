@@ -132,9 +132,6 @@ WHERE rolname = 'geolens_reader'
         NOLOGIN NOCREATEROLE NOINHERIT;
 \endif
 GRANT USAGE ON SCHEMA data TO geolens_reader;
-GRANT SELECT ON ALL TABLES IN SCHEMA data TO geolens_reader;
-ALTER DEFAULT PRIVILEGES IN SCHEMA data
-    GRANT SELECT ON TABLES TO geolens_reader;
 
 -- Logical backups intentionally omit ACLs, which makes restored functions
 -- regain PostgreSQL's default PUBLIC EXECUTE. Repair every privileged function
@@ -160,6 +157,15 @@ WHERE to_regprocedure('catalog.geolens_rebuild_embedding_column(integer)') IS NO
 EOSQL
 
 if [ -z "$runtime_role" ]; then
+    # In legacy mode the reconciliation login still owns data relations. In
+    # split-runtime mode these grants must wait until the transactional block
+    # transfers ownership; a non-superuser provider admin cannot grant across
+    # an old runtime owner's objects during role rotation.
+    psql "${psql_args[@]}" <<-'EOSQL'
+GRANT SELECT ON ALL TABLES IN SCHEMA data TO geolens_reader;
+ALTER DEFAULT PRIVILEGES IN SCHEMA data
+    GRANT SELECT ON TABLES TO geolens_reader;
+EOSQL
     echo "GEOLENS_RUNTIME_DB_ROLE is unset; kept the legacy PostgreSQL runtime credential and reconciled geolens_reader only."
     exit 0
 fi
@@ -183,8 +189,11 @@ psql "${psql_args[@]}" <<-'EOSQL'
 -- rotated password, rebound marker, or temporary SET membership behind.
 BEGIN;
 
-SELECT 'geolens-managed-runtime-role:v2:database=' || current_database()
-    AS expected_runtime_marker
+SELECT
+    'geolens-managed-runtime-role:v2:database=' || current_database()
+        AS expected_runtime_marker,
+    'geolens-retired-runtime-role:v1:database=' || current_database()
+        AS expected_retired_marker
 \gset
 
 -- Default privileges are per object-creating role, not per database. Refuse a
@@ -218,6 +227,8 @@ SELECT EXISTS (
         COALESCE(shobj_description(runtime.oid, 'pg_authid'), '')
             = :'expected_runtime_marker' AS runtime_role_managed,
         COALESCE(shobj_description(runtime.oid, 'pg_authid'), '')
+            = :'expected_retired_marker' AS runtime_role_retired,
+        COALESCE(shobj_description(runtime.oid, 'pg_authid'), '')
             LIKE 'geolens-managed-runtime-role:v2:database=%'
             AS runtime_role_has_scoped_marker,
         CASE
@@ -239,6 +250,16 @@ SELECT EXISTS (
 
     \if :runtime_role_managed
     \else
+        \if :runtime_role_retired
+            -- Selecting a retired role again is an explicit, marker-proven
+            -- rollback. The normal hardening below re-enables LOGIN with the
+            -- newly supplied password before retiring the current role.
+            SELECT format(
+                'COMMENT ON ROLE %I IS %L',
+                :'runtime_role', :'expected_runtime_marker'
+            )
+            \gexec
+        \else
         -- Never let a second live database claim a cluster-global role, even
         -- with the adoption escape hatch. A missing prior database models a
         -- rename or globals-backed restore and still requires explicit rebind.
@@ -311,6 +332,7 @@ SELECT EXISTS (
                 RAISE EXCEPTION 'existing runtime role is not marked as GeoLens-managed; set GEOLENS_RUNTIME_DB_ROLE_ADOPT_EXISTING=true only for a verified dedicated app role.';
             END
             $error$;
+        \endif
         \endif
     \endif
 \else
@@ -542,6 +564,170 @@ SELECT current_setting('server_version_num')::integer >= 160000
     \endif
 \endif
 
+-- A role-name rotation must not leave the prior database-scoped login active.
+-- Collect only this database's exact active markers; cluster-global roles for
+-- other databases are deliberately out of scope. REASSIGN plus DROP OWNED
+-- transfers every current-database object and removes direct/default ACLs.
+-- All mutations remain inside the surrounding transaction, so a later failure
+-- restores both the old role and the not-yet-admitted replacement atomically.
+CREATE TEMP TABLE pg_temp.geolens_superseded_runtime_roles (
+    role_name name PRIMARY KEY,
+    revoke_temporary_membership boolean NOT NULL DEFAULT false
+) ON COMMIT DROP;
+INSERT INTO pg_temp.geolens_superseded_runtime_roles (role_name)
+SELECT runtime.rolname
+FROM pg_roles AS runtime
+WHERE runtime.rolname <> :'runtime_role'
+  AND COALESCE(shobj_description(runtime.oid, 'pg_authid'), '')
+      = :'expected_runtime_marker';
+
+\if :membership_options_supported
+    SELECT EXISTS (
+        SELECT 1
+        FROM pg_temp.geolens_superseded_runtime_roles AS superseded
+        JOIN pg_roles AS runtime ON runtime.rolname = superseded.role_name
+        JOIN pg_roles AS reconciler ON reconciler.rolname = current_user
+        JOIN pg_auth_members AS membership
+          ON membership.roleid = runtime.oid
+         AND membership.member = reconciler.oid
+         AND membership.grantor = reconciler.oid
+        WHERE NOT pg_has_role(current_user, runtime.oid, 'SET')
+    ) AS superseded_has_conflicting_membership
+    \gset
+    \if :superseded_has_conflicting_membership
+        DO $error$
+        BEGIN
+            RAISE EXCEPTION 'existing current-grantor superseded-role membership is not SET-capable; refusing to overwrite its options.';
+        END
+        $error$;
+    \endif
+    UPDATE pg_temp.geolens_superseded_runtime_roles AS superseded
+    SET revoke_temporary_membership = true
+    FROM pg_roles AS runtime
+    WHERE runtime.rolname = superseded.role_name
+      AND NOT pg_has_role(current_user, runtime.oid, 'SET');
+\else
+    UPDATE pg_temp.geolens_superseded_runtime_roles AS superseded
+    SET revoke_temporary_membership = true
+    FROM pg_roles AS runtime
+    WHERE runtime.rolname = superseded.role_name
+      AND NOT EXISTS (
+          SELECT 1
+          FROM pg_auth_members AS membership
+          JOIN pg_roles AS reconciler ON reconciler.oid = membership.member
+          WHERE membership.roleid = runtime.oid
+            AND reconciler.rolname = current_user
+      );
+\endif
+
+SELECT format('GRANT %I TO %I', superseded.role_name, current_user)
+FROM pg_temp.geolens_superseded_runtime_roles AS superseded
+WHERE superseded.revoke_temporary_membership
+\gexec
+SELECT format(
+    'REASSIGN OWNED BY %I TO %I', superseded.role_name, :'runtime_role'
+)
+FROM pg_temp.geolens_superseded_runtime_roles AS superseded
+\gexec
+SELECT format('DROP OWNED BY %I', superseded.role_name)
+FROM pg_temp.geolens_superseded_runtime_roles AS superseded
+\gexec
+
+-- Role memberships are cluster objects, so DROP OWNED does not remove them.
+-- Revoke every capability held by the retired login, not only geolens_reader;
+-- missing ADMIN authority fails and rolls the entire rotation back.
+SELECT format(
+    'REVOKE %I FROM %I', granted.rolname, superseded.role_name
+)
+FROM pg_temp.geolens_superseded_runtime_roles AS superseded
+JOIN pg_roles AS retired ON retired.rolname = superseded.role_name
+JOIN pg_auth_members AS membership ON membership.member = retired.oid
+JOIN pg_roles AS granted ON granted.oid = membership.roleid
+\gexec
+SELECT format(
+    'REVOKE CONNECT ON DATABASE %I FROM %I',
+    current_database(), superseded.role_name
+)
+FROM pg_temp.geolens_superseded_runtime_roles AS superseded
+\gexec
+SELECT format(
+    'ALTER ROLE %I NOLOGIN NOINHERIT', superseded.role_name
+)
+FROM pg_temp.geolens_superseded_runtime_roles AS superseded
+\gexec
+SELECT format(
+    'COMMENT ON ROLE %I IS %L',
+    superseded.role_name, :'expected_retired_marker'
+)
+FROM pg_temp.geolens_superseded_runtime_roles AS superseded
+\gexec
+
+SELECT NOT EXISTS (
+    SELECT 1
+    FROM pg_temp.geolens_superseded_runtime_roles AS superseded
+    JOIN pg_roles AS retired ON retired.rolname = superseded.role_name
+    WHERE COALESCE(shobj_description(retired.oid, 'pg_authid'), '')
+              <> :'expected_retired_marker'
+       OR retired.rolcanlogin
+       OR has_database_privilege(
+           retired.oid, current_database(), 'CONNECT'
+       )
+       OR EXISTS (
+           SELECT 1 FROM pg_auth_members AS membership
+           WHERE membership.member = retired.oid
+       )
+       OR EXISTS (
+           SELECT 1
+           FROM pg_class AS relation
+           WHERE relation.relowner = retired.oid
+       )
+       OR EXISTS (
+           SELECT 1
+           FROM pg_namespace AS namespace
+           WHERE namespace.nspowner = retired.oid
+       )
+       OR EXISTS (
+           SELECT 1
+           FROM pg_proc AS function
+           WHERE function.proowner = retired.oid
+       )
+       OR EXISTS (
+           SELECT 1
+           FROM pg_default_acl AS defaults
+           LEFT JOIN LATERAL aclexplode(defaults.defaclacl) AS acl ON true
+           WHERE defaults.defaclrole = retired.oid
+              OR acl.grantee = retired.oid
+       )
+) AS superseded_roles_retired
+\gset
+\if :superseded_roles_retired
+\else
+    DO $error$
+    BEGIN
+        RAISE EXCEPTION 'superseded runtime role retirement failed its least-privilege verification.';
+    END
+    $error$;
+\endif
+
+-- Remove only memberships this transaction added. Provider-created ADMIN-only
+-- memberships and any pre-existing SET authority retain their exact shape.
+\if :membership_options_supported
+    SELECT format(
+        'REVOKE %I FROM %I GRANTED BY %I',
+        superseded.role_name, current_user, current_user
+    )
+    FROM pg_temp.geolens_superseded_runtime_roles AS superseded
+    WHERE superseded.revoke_temporary_membership
+    \gexec
+\else
+    SELECT format(
+        'REVOKE %I FROM %I', superseded.role_name, current_user
+    )
+    FROM pg_temp.geolens_superseded_runtime_roles AS superseded
+    WHERE superseded.revoke_temporary_membership
+    \gexec
+\endif
+
 -- Transfer only data-schema runtime relations, never the migration-owned
 -- catalog schema or its tables.
 SELECT format('GRANT USAGE, CREATE ON SCHEMA data TO %I', :'runtime_role')\gexec
@@ -579,6 +765,7 @@ SELECT format(
     'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA data TO %I',
     :'runtime_role'
 )\gexec
+GRANT SELECT ON ALL TABLES IN SCHEMA data TO geolens_reader;
 SELECT format(
     'GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA data TO %I',
     :'runtime_role'

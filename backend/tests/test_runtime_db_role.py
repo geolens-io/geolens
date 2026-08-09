@@ -223,6 +223,33 @@ def test_role_script_scopes_shared_reader_to_the_current_database() -> None:
     assert "database_acl.privilege_type = 'CONNECT'" in source
 
 
+def test_role_script_atomically_retires_superseded_database_roles() -> None:
+    source = ROLE_SCRIPT.read_text(encoding="utf-8")
+
+    collect_roles = "CREATE TEMP TABLE pg_temp.geolens_superseded_runtime_roles"
+    reassign = "'REASSIGN OWNED BY %I TO %I'"
+    drop_owned = "'DROP OWNED BY %I'"
+    revoke_connect = "'REVOKE CONNECT ON DATABASE %I FROM %I'"
+    disable_login = "'ALTER ROLE %I NOLOGIN NOINHERIT'"
+    retired_marker = "geolens-retired-runtime-role:v1:database="
+    assert collect_roles in source
+    assert "= :'expected_runtime_marker'" in source
+    assert "runtime.rolname <> :'runtime_role'" in source
+    assert reassign in source
+    assert drop_owned in source
+    assert revoke_connect in source
+    assert disable_login in source
+    assert retired_marker in source
+    assert "superseded_roles_retired" in source
+    assert "pg_default_acl" in source
+    assert source.index(collect_roles) < source.index(reassign)
+    assert source.index(reassign) < source.index(drop_owned)
+    assert source.index(drop_owned) < source.index(disable_login)
+    assert source.index(disable_login) < source.index("COMMIT;")
+    # Managed-provider compatibility must not require pg_signal_backend.
+    assert "pg_terminate_backend" not in source
+
+
 def test_runtime_role_never_receives_tenant_control_function_execution() -> None:
     source = ROLE_SCRIPT.read_text(encoding="utf-8")
 
