@@ -199,17 +199,28 @@ function ShapeIcon({ colors, layerId, opacityStyle, styleHints, isPoint, discret
   // the pentagon glyph has no fill we can pattern without duplicating all five
   // patterns as SVG defs.
   if (!isPoint && styleHints?.fillPattern) {
+    // fix(#1288 codex): fillOpacity dims the PATTERN only, as a nested layer —
+    // plain CSS opacity, so it works for `color` in any format the pattern's
+    // `currentColor` resolves to — and never the border, which must stay fully
+    // opaque for a stroke-only style (fillOpacity 0) to remain visible.
+    const patternFillStyle: React.CSSProperties = {
+      color: styleHints.fillPatternColor ?? colors[0] ?? MAP_COLORS.icon.fallback,
+      ...patternPreviewStyle(styleHints.fillPattern),
+    };
+    if (styleHints.fillOpacity !== undefined && styleHints.fillOpacity < 1) {
+      patternFillStyle.opacity = styleHints.fillOpacity;
+    }
     return (
       <span
-        className="inline-block h-3.5 w-3.5 shrink-0 rounded-sm border"
+        className="relative inline-block h-3.5 w-3.5 shrink-0 overflow-hidden rounded-sm border"
         style={{
-          color: styleHints.fillPatternColor ?? colors[0] ?? MAP_COLORS.icon.fallback,
           borderColor: showOutline ? (styleHints.strokeColor ?? MAP_COLORS.icon.outline) : 'transparent',
-          ...patternPreviewStyle(styleHints.fillPattern),
           ...opacityStyle,
         }}
         aria-hidden="true"
-      />
+      >
+        <span className="absolute inset-0" style={patternFillStyle} />
+      </span>
     );
   }
 

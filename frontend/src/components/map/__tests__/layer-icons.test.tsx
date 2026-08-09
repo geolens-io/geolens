@@ -179,7 +179,9 @@ describe('patterned polygon swatch (fix #951)', () => {
       />,
     );
     expect(container.querySelector('.lucide-pentagon')).toBeNull();
-    const chip = container.firstElementChild as HTMLElement;
+    // fix(#1288 codex): the pattern now lives on a nested span so its opacity
+    // can be dimmed independently of the border — assert on that inner span.
+    const chip = container.firstElementChild!.firstElementChild as HTMLElement;
     expect(chip.style.backgroundImage).toContain('radial-gradient');
     expect(chip.style.color).toBe('rgb(255, 90, 95)');
   });
@@ -194,7 +196,26 @@ describe('patterned polygon swatch (fix #951)', () => {
         styleHints={{ fillPattern: 'geolens-fill-dots', fillPatternColor: '#1d4ed8' }}
       />,
     );
-    expect((container.firstElementChild as HTMLElement).style.color).toBe('rgb(29, 78, 216)');
+    const chip = container.firstElementChild!.firstElementChild as HTMLElement;
+    expect(chip.style.color).toBe('rgb(29, 78, 216)');
+  });
+
+  // fix(#1288 codex): a partially-transparent patterned fill (fillOpacity < 1)
+  // must dim the pattern pixels without touching the border.
+  it('applies fillOpacity to the pattern layer only, not the border', () => {
+    const { container } = render(
+      <ColorizedGeometryIcon
+        geometryType="POLYGON"
+        colors={['#ff5a5f']}
+        layerId="x"
+        styleHints={{ fillPattern: 'geolens-fill-dots', fillOpacity: 0, strokeColor: '#ec4b7f' }}
+      />,
+    );
+    const outer = container.firstElementChild as HTMLElement;
+    const inner = outer.firstElementChild as HTMLElement;
+    expect(outer.style.opacity).toBe('');
+    expect(outer.style.borderColor).toBe('rgb(236, 75, 127)');
+    expect(inner.style.opacity).toBe('0');
   });
 
   it('extractStyleHints resolves the tint from the fillColorSaved stash', () => {

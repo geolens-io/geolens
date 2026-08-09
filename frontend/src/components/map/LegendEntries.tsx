@@ -36,16 +36,6 @@ function swatchOpacityStyle(s?: SwatchStyle): React.CSSProperties | undefined {
   return opacity < 1 ? { opacity } : undefined;
 }
 
-/** Blend fillOpacity into a hex color for a CSS background, so a transparent
- * fill can sit inside a fully opaque border. Non-hex colors pass through. */
-function withFillOpacity(color: string, fillOpacity?: number): string {
-  if (fillOpacity === undefined) return color;
-  const m = color.match(/^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i);
-  if (!m) return color;
-  const [r, g, b] = [m[1], m[2], m[3]].map((h) => parseInt(h, 16));
-  return `rgba(${r}, ${g}, ${b}, ${fillOpacity})`;
-}
-
 /* ── Geometry-aware swatch ─────────────────────────── */
 
 interface GeometrySwatchProps {
@@ -92,27 +82,33 @@ export function GeometrySwatch({ geometryType, color, style: s }: GeometrySwatch
   // carries a fill-pattern, since MapLibre draws the pattern INSTEAD of the fill
   // (fix(#951): the chip used to show a solid block that appeared nowhere on the map).
   const borderColor = !s?.strokeDisabled ? (s?.outlineColor ?? MAP_COLORS.legendOutline) : undefined;
-  const style: React.CSSProperties = {
-    ...(s?.fillPattern
-      ? {
-          color: s.fillPatternColor ?? color,
-          backgroundColor: 'transparent',
-          ...patternPreviewStyle(s.fillPattern),
-        }
-      // fix(#1288): alpha-blend fillOpacity into the fill itself — a stroke-only
-      // style (fillOpacity: 0) then renders a transparent fill inside a fully
-      // opaque border, instead of an invisible swatch.
-      : { backgroundColor: withFillOpacity(color, s?.fillOpacity) }),
-    ...(borderColor ? { borderColor } : {}),
-    ...(s?.strokeWidth ? { borderWidth: s.strokeWidth } : {}),
-    ...opacityStyle,
-  };
+  const fillStyle: React.CSSProperties = s?.fillPattern
+    ? {
+        color: s.fillPatternColor ?? color,
+        backgroundColor: 'transparent',
+        ...patternPreviewStyle(s.fillPattern),
+      }
+    : { backgroundColor: color };
+  // fix(#1288 codex): fillOpacity dims the fill LAYER only, rendered as a
+  // nested element behind the border. Plain CSS opacity works for every CSS
+  // color format (hex3/4/6/8, rgb()/hsl(), named colors) with no parsing, and
+  // never touches the border, which must stay fully opaque for a stroke-only
+  // style (fillOpacity 0) to remain visible.
+  if (s?.fillOpacity !== undefined && s.fillOpacity < 1) {
+    fillStyle.opacity = s.fillOpacity;
+  }
   return (
     <div
-      className={cn('w-3.5 h-3.5 rounded-sm shrink-0', !s?.strokeDisabled && 'border')}
-      style={style}
+      className={cn('relative w-3.5 h-3.5 rounded-sm shrink-0 overflow-hidden', !s?.strokeDisabled && 'border')}
+      style={{
+        ...(borderColor ? { borderColor } : {}),
+        ...(s?.strokeWidth ? { borderWidth: s.strokeWidth } : {}),
+        ...opacityStyle,
+      }}
       aria-hidden="true"
-    />
+    >
+      <div className="absolute inset-0" style={fillStyle} />
+    </div>
   );
 }
 
