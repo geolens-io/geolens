@@ -374,6 +374,8 @@ def test_the_health_words_are_the_ones_the_api_already_describes() -> None:
     from the schema that claims to enumerate it.
     """
     assert tasks_stac_refresh._MISSING in SOURCE_HEALTH_VALUES
+    assert tasks_stac_refresh._ITEM_WITHDRAWN in DETAIL_CODES
+    assert tasks_stac_refresh._NOT_FOUND in DETAIL_CODES
     assert stac_resolve._WITHDRAWN.health in SOURCE_HEALTH_VALUES
     assert stac_resolve._WITHDRAWN.detail in DETAIL_CODES
     assert stac_resolve._ASSET_GONE.health in SOURCE_HEALTH_VALUES
@@ -389,6 +391,7 @@ def test_stored_failure_text_is_composed_here_and_carries_no_origin_words() -> N
     """
     for message in (
         tasks_stac_refresh._WITHDRAWN_MESSAGE,
+        tasks_stac_refresh._ASSET_REMOVED_MESSAGE,
         tasks_stac_refresh._UNREACHABLE_MESSAGE,
     ):
         assert "{" not in message
@@ -735,6 +738,32 @@ class TestResolution:
         install({_ITEM: (404, None), _SEARCH: (200, {"features": []})})
         empty = await _resolve(item_href=_ITEM)
         assert (empty.health, empty.detail) == ("missing", "item_withdrawn")
+
+    async def test_a_redirect_into_another_collection_binds_nothing(
+        self, stac_transport
+    ) -> None:
+        """fix(#1266 review round 17): the post-redirect URL states an
+        identity, and round 15 made it authoritative.
+
+        A stored URL that redirects to another collection's same-id item, in
+        a body that omits its optional `collection` field, passed every check
+        — and that URL is then the base the bound asset resolves against.
+        """
+        install, _ = stac_transport
+        other_collection_url = f"{_ROOT}/collections/other/items/scene-1"
+        body = _item_doc(asset_href=_MOVED_ASSET, self_href=None)
+        del body["collection"]
+        install({other_collection_url: (200, body), _MOVED_ASSET: (206, None)})
+
+        result = await resolve_stac_binding(
+            item_href=other_collection_url,
+            item_id="scene-1",
+            collection_id="scenes",
+            asset_href=_ASSET,
+            asset_key="data",
+        )
+        assert not result.resolved
+        assert (result.health, result.detail) == ("inaccessible", "unexpected_status")
 
     async def test_a_self_link_whose_hostname_does_not_resolve_is_refused(
         self, stac_transport, monkeypatch
@@ -1883,6 +1912,42 @@ class TestWorker:
         assert run.status == "failed"
         assert run.error_code == "source_missing"
         assert run.error_message == tasks_stac_refresh._WITHDRAWN_MESSAGE
+
+    async def test_a_removed_asset_is_diagnosed_as_itself_not_a_withdrawal(
+        self, client, admin_auth_header, test_db_session, stac_transport
+    ) -> None:
+        """fix(#1266 review round 17): two things are missing-shaped.
+
+        The ITEM being gone and the ASSET being gone from a live item are not
+        the same thing to the person reading the history, and the second one
+        was being told the item disappeared and to re-import from a live one
+        — advice pointing at the item they already have.
+        """
+        install, _ = stac_transport
+        install(
+            {
+                _ITEM: (
+                    200,
+                    _item_doc(assets={"thumbnail": {"href": "https://x.test/t.png"}}),
+                )
+            }
+        )
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        with pytest.raises(Exception):
+            await _execute(test_db_session, payload)
+
+        run = await _run_for(dataset.id)
+        assert run.status == "failed"
+        assert run.error_code == "source_missing"
+        assert run.error_message == tasks_stac_refresh._ASSET_REMOVED_MESSAGE
+        refreshed = await _reload(dataset.id)
+        assert refreshed.source_health == "missing"
+        assert refreshed.source_health_detail == "not_found"
+        # Invariant 10 holds either way.
+        assert refreshed.origin_uri == _ASSET
 
     async def test_an_unreachable_catalog_leaves_the_stored_verdict_alone(
         self, client, admin_auth_header, test_db_session, stac_transport

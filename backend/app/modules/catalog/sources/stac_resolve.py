@@ -276,14 +276,21 @@ def _search_root_and_item_id(
     return root, item_id
 
 
-def _self_link_contradicts(
+def _url_contradicts_identity(
     self_href: str, *, item_id: Any, collection_id: str | None
 ) -> bool:
-    """Whether an item's ``rel=self`` link points somewhere it should not.
+    """Whether a URL states an identity other than the stored one.
+
+    Asked of two URLs, for the same reason each time: both end up steering
+    something. A ``rel=self`` link becomes the stored pointer and the base
+    for relative assets; the URL a document was actually FETCHED from
+    becomes that base too when the self link is absent or dropped.
 
     fix(#1266 review round 2): the self link became load-bearing in round 1 —
     it is now the base for relative asset hrefs AND the pointer that gets
     stored — so it needs the same scrutiny as the document that carries it.
+    fix(#1266 review round 17): and so does the post-redirect document URL,
+    for exactly the same reason one round later.
     A body whose ``id`` and ``collection`` are right while its self link
     addresses a DIFFERENT item would otherwise resolve that item's relative
     assets and, worse, persist its URL: the next refresh would then derive
@@ -451,6 +458,18 @@ async def _resolve_from_item(
         item, expected_item_id=expected_item_id, collection_id=collection_id
     ):
         return _NOT_THIS_ITEM
+    # fix(#1266 review round 17): the URL the document CAME from states an
+    # identity too, and round 15 made it authoritative — it is the base for
+    # relative asset hrefs whenever the self link is absent or was dropped.
+    # A stored URL that redirects from one collection to another's same-id
+    # item, in a body that omits its optional `collection` field, would
+    # otherwise pass every check here and resolve the other collection's
+    # asset. On the search path this URL is the `/search` endpoint, which
+    # states no identity and so cannot contradict one.
+    if _url_contradicts_identity(
+        document_url, item_id=item.get("id"), collection_id=collection_id
+    ):
+        return _NOT_THIS_ITEM
     key = _bound_asset_key(assets, asset_href=asset_href, asset_key=asset_key)
     if key is None:
         # Two different facts, and they read differently to whoever acts on
@@ -474,7 +493,7 @@ async def _resolve_from_item(
     # The requested URL stays the fallback for catalogs that publish no self
     # link — it is where this document demonstrably came from.
     self_href = self_link_href(item, document_url)
-    if self_href is not None and _self_link_contradicts(
+    if self_href is not None and _url_contradicts_identity(
         self_href, item_id=item.get("id"), collection_id=collection_id
     ):
         # Dropped rather than fatal, matching how #1222 treats every other

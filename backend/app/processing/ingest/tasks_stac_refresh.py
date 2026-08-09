@@ -73,6 +73,11 @@ logger = structlog.get_logger(__name__)
 # against the probe's own vocabulary so a divergence fails a test instead of
 # persisting a value the API cannot describe.
 _MISSING = "missing"
+# The two `missing` details this strategy can receive, mirrored for the same
+# reason the health words are: they select which diagnosis the run reports,
+# and reporting the wrong one sends the reader to fix the wrong thing.
+_ITEM_WITHDRAWN = "item_withdrawn"
+_NOT_FOUND = "not_found"
 
 _ERROR_CODE_MISSING = "source_missing"
 _ERROR_CODE_INACCESSIBLE = "source_inaccessible"
@@ -92,6 +97,17 @@ _WITHDRAWN_MESSAGE = (
     "address its catalog published, and GeoLens could not locate it "
     "anywhere else in its collection. The dataset keeps pointing at the "
     "asset it always did; re-import it from a live item to move it."
+)
+# fix(#1266 review round 17): a DIFFERENT missing. The item is still on the
+# catalog and still resolves; what is gone is the asset this dataset was
+# bound to. Telling that reader the item disappeared and to re-import from a
+# live one is both a wrong diagnosis and advice that will not help, since the
+# item they would re-import from is the one they already have.
+_ASSET_REMOVED_MESSAGE = (
+    "The STAC item this dataset was imported from no longer publishes the "
+    "asset it was bound to. The item itself is still on the catalog, and the "
+    "dataset keeps pointing at the asset it always did; re-import it from "
+    "that item to bind to one of the assets it publishes now."
 )
 _UNREACHABLE_MESSAGE = (
     "GeoLens could not read the STAC item this dataset was imported from, "
@@ -188,8 +204,15 @@ def _failure_for(resolution: Any) -> StacRefreshError:
     nothing.
     """
     if resolution.health == _MISSING:
+        # Two things are missing-shaped and they are not the same thing to
+        # the person reading the history: the ITEM is gone from the catalog
+        # (`item_withdrawn`), or the item is fine and the ASSET is gone from
+        # it (`not_found`). The detail already carries which, so the message
+        # follows it rather than assuming the first.
         return StacRefreshError(
-            _WITHDRAWN_MESSAGE,
+            _ASSET_REMOVED_MESSAGE
+            if resolution.detail == _NOT_FOUND
+            else _WITHDRAWN_MESSAGE,
             error_code=_ERROR_CODE_MISSING,
             health=resolution.health,
             detail=resolution.detail,
