@@ -18,19 +18,26 @@ T = TypeVar("T", bound="DatasetVersionResponse")
 
 @_attrs_define
 class DatasetVersionResponse:
-    """
-    Attributes:
-        id (UUID):
-        dataset_id (UUID):
-        version_number (int):
-        source_filename (None | str):
-        source_format (None | str):
-        feature_count (int | None):
-        srid (int | None):
-        geometry_type (None | str):
-        file_hash (None | str):
-        uploaded_by (None | UUID):
-        uploaded_at (datetime.datetime):
+    """One version in a dataset's history.
+
+    feat(#1316): ``file_hash`` and ``uploaded_by`` are null for any caller who
+    is neither the dataset's owner nor an admin — the same predicate that
+    gates ``origin_uri``/``origin_ref`` on the dataset itself and
+    ``triggered_by`` on refresh-runs (ADR-002 Decision 4e). Unredacted, a
+    public dataset's version history enumerates its editors.
+
+        Attributes:
+            id (UUID):
+            dataset_id (UUID):
+            version_number (int):
+            source_filename (None | str):
+            source_format (None | str):
+            feature_count (int | None):
+            srid (int | None):
+            geometry_type (None | str):
+            file_hash (None | str):
+            uploaded_by (None | UUID):
+            uploaded_at (datetime.datetime):
     """
 
     id: UUID

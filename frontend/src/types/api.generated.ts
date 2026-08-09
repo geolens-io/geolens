@@ -2340,6 +2340,11 @@ export interface paths {
          *     strings. The redaction is tested against a NAMED signed-in third party as
          *     well as an anonymous reader; a requester-scoped check that only exercises
          *     the anonymous case reads as complete and is not.
+         *
+         *     The owner-or-admin predicate (`can_view_dataset_provenance`) was extracted
+         *     to `authorization.py` under #1316, which applies the same rule to dataset
+         *     reads and `/versions/` — this endpoint's redaction is no longer the odd
+         *     one out among the three.
          */
         get: operations["list_dataset_refresh_runs_datasets__dataset_id__refresh_runs_get"];
         put?: never;
@@ -2657,6 +2662,13 @@ export interface paths {
         /**
          * Get Dataset Versions Endpoint
          * @description Get paginated version history for a dataset.
+         *
+         *     Access follows Rule 1 on the read path. feat(#1316): field redaction on
+         *     top follows the same owner-or-admin predicate as refresh-runs and dataset
+         *     reads — a caller who is neither the owner nor an admin gets the version
+         *     timeline (filenames, formats, feature counts) but not ``file_hash`` or
+         *     ``uploaded_by``. Unredacted, a PUBLIC dataset's version history enumerates
+         *     its editors, the exact leak ADR-002 Decision 4e closed for refresh-runs.
          */
         get: operations["get_dataset_versions_endpoint_datasets__dataset_id__versions__get"];
         put?: never;
@@ -7575,12 +7587,12 @@ export interface components {
             origin?: string | null;
             /**
              * Origin Uri
-             * @description Machine-readable pointer back to the origin, written only by ingest and refresh. Distinct from source_url, which is editable descriptive metadata. Null for uploads and created datasets.
+             * @description Machine-readable pointer back to the origin, written only by ingest and refresh. Distinct from source_url, which is editable descriptive metadata. Null for uploads and created datasets. feat(#1316): also null for any reader who is neither the dataset's owner nor an admin — origin (above) and the freshness/health fields below are not gated and still describe the dataset's capabilities.
              */
             origin_uri?: string | null;
             /**
              * Origin Ref
-             * @description Typed per-origin payload with a `kind` discriminator, e.g. {"kind": "service", "service_type": "wfs", "url": "...", "layer_id": "0"}. Never contains credentials.
+             * @description Typed per-origin payload with a `kind` discriminator, e.g. {"kind": "service", "service_type": "wfs", "url": "...", "layer_id": "0"}. Never contains credentials. feat(#1316): owner-or-admin only, same redaction as origin_uri.
              */
             origin_ref?: {
                 [key: string]: unknown;
@@ -7740,7 +7752,16 @@ export interface components {
             /** Total */
             total: number;
         };
-        /** DatasetVersionResponse */
+        /**
+         * DatasetVersionResponse
+         * @description One version in a dataset's history.
+         *
+         *     feat(#1316): ``file_hash`` and ``uploaded_by`` are null for any caller who
+         *     is neither the dataset's owner nor an admin — the same predicate that
+         *     gates ``origin_uri``/``origin_ref`` on the dataset itself and
+         *     ``triggered_by`` on refresh-runs (ADR-002 Decision 4e). Unredacted, a
+         *     public dataset's version history enumerates its editors.
+         */
         DatasetVersionResponse: {
             /**
              * Id

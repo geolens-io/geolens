@@ -3359,13 +3359,13 @@ export type DatasetResponse = {
     /**
      * Origin Uri
      *
-     * Machine-readable pointer back to the origin, written only by ingest and refresh. Distinct from source_url, which is editable descriptive metadata. Null for uploads and created datasets.
+     * Machine-readable pointer back to the origin, written only by ingest and refresh. Distinct from source_url, which is editable descriptive metadata. Null for uploads and created datasets. feat(#1316): also null for any reader who is neither the dataset's owner nor an admin — origin (above) and the freshness/health fields below are not gated and still describe the dataset's capabilities.
      */
     origin_uri?: string | null;
     /**
      * Origin Ref
      *
-     * Typed per-origin payload with a `kind` discriminator, e.g. {"kind": "service", "service_type": "wfs", "url": "...", "layer_id": "0"}. Never contains credentials.
+     * Typed per-origin payload with a `kind` discriminator, e.g. {"kind": "service", "service_type": "wfs", "url": "...", "layer_id": "0"}. Never contains credentials. feat(#1316): owner-or-admin only, same redaction as origin_uri.
      */
     origin_ref?: {
         [key: string]: unknown;
@@ -3580,6 +3580,14 @@ export type DatasetVersionListResponse = {
 
 /**
  * DatasetVersionResponse
+ *
+ * One version in a dataset's history.
+ *
+ * feat(#1316): ``file_hash`` and ``uploaded_by`` are null for any caller who
+ * is neither the dataset's owner nor an admin — the same predicate that
+ * gates ``origin_uri``/``origin_ref`` on the dataset itself and
+ * ``triggered_by`` on refresh-runs (ADR-002 Decision 4e). Unredacted, a
+ * public dataset's version history enumerates its editors.
  */
 export type DatasetVersionResponse = {
     /**

@@ -136,8 +136,19 @@ def dataset_to_response(
     stac_assets=None,
     derived_from: dict | None = None,
     lineage_summary: str | None = None,
+    can_view_provenance: bool = False,
 ) -> DatasetResponse:
-    """Convert a Dataset ORM object to a DatasetResponse schema."""
+    """Convert a Dataset ORM object to a DatasetResponse schema.
+
+    ``can_view_provenance`` gates ``origin_uri``/``origin_ref`` per #1316: the
+    dataset owner and admins see the raw pointer, every other accessible-dataset
+    reader (named or anonymous) sees it nulled and keeps only the capability
+    summary fields (``origin``, ``source_freshness``, ``source_health``,
+    ``last_refreshed_at``, ``last_checked_at``), which are never gated. Callers
+    resolve the predicate via ``can_view_dataset_provenance`` in
+    ``authorization.py`` and pass the result in; it defaults to False so a
+    call site that forgets to decide redacts rather than leaks.
+    """
     record = dataset.record
     actor_map = actors_by_id or {}
 
@@ -219,8 +230,10 @@ def dataset_to_response(
         # it retires the frontend's duplicate rule in OriginBadge.tsx and gives
         # the CLI, MCP server, and SDKs the same answer.
         origin=origin,
-        origin_uri=dataset.origin_uri,
-        origin_ref=dataset.origin_ref,
+        # feat(#1316): raw pointers are owner-or-admin only; every other
+        # reader keeps `origin` (above) and the freshness/health fields below.
+        origin_uri=dataset.origin_uri if can_view_provenance else None,
+        origin_ref=dataset.origin_ref if can_view_provenance else None,
         last_refreshed_at=dataset.last_refreshed_at,
         last_checked_at=dataset.last_checked_at,
         # NULL is the stored spelling of "never determined"; "unknown" is the

@@ -19,7 +19,10 @@ from sqlalchemy.orm import joinedload
 from app.core.db.sqlstate import TABLE_ABSENT, sqlstate
 from app.core.identity import Identity
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
-from app.modules.catalog.authorization import apply_visibility_filter
+from app.modules.catalog.authorization import (
+    apply_visibility_filter,
+    can_view_dataset_provenance,
+)
 from app.modules.catalog.datasets.domain._sql_safety import SAFE_TABLE_NAME_RE
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
@@ -165,6 +168,10 @@ async def get_datasets_list(
             source_count=source_counts.get(str(d.id)),
             base_url=base_url,
             lineage_summary=lineage[d.record_id],
+            # feat(#1316): per-row — the page can mix the caller's own
+            # datasets with peers' public ones, so one page-level flag would
+            # either over- or under-redact.
+            can_view_provenance=can_view_dataset_provenance(d.record, user, user_roles),
         )
         for d in datasets
     ]
@@ -292,6 +299,11 @@ async def get_dataset_detail(
         # fix(#1103): the prose names the same datasets the reference points at.
         lineage_summary=await visible_lineage_summary(
             db, dataset.record, user, user_roles
+        ),
+        # feat(#1316): owner-or-admin only; every other accessible-dataset
+        # reader (named or anonymous) gets origin_uri/origin_ref nulled.
+        can_view_provenance=can_view_dataset_provenance(
+            dataset.record, user, user_roles
         ),
     )
     # fix(#430 codex r18): genericity probe (helpers.py) keeps all draw modes.

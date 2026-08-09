@@ -2509,6 +2509,11 @@ export const refreshDatasetDatasetsDatasetIdRefreshPost = <ThrowOnError extends 
  * strings. The redaction is tested against a NAMED signed-in third party as
  * well as an anonymous reader; a requester-scoped check that only exercises
  * the anonymous case reads as complete and is not.
+ *
+ * The owner-or-admin predicate (`can_view_dataset_provenance`) was extracted
+ * to `authorization.py` under #1316, which applies the same rule to dataset
+ * reads and `/versions/` — this endpoint's redaction is no longer the odd
+ * one out among the three.
  */
 export const listDatasetRefreshRunsDatasetsDatasetIdRefreshRunsGet = <ThrowOnError extends boolean = false>(options: Options<ListDatasetRefreshRunsDatasetsDatasetIdRefreshRunsGetData, ThrowOnError>): RequestResult<ListDatasetRefreshRunsDatasetsDatasetIdRefreshRunsGetResponses, ListDatasetRefreshRunsDatasetsDatasetIdRefreshRunsGetErrors, ThrowOnError> => (options.client ?? client).get<ListDatasetRefreshRunsDatasetsDatasetIdRefreshRunsGetResponses, ListDatasetRefreshRunsDatasetsDatasetIdRefreshRunsGetErrors, ThrowOnError>({
     security: [
@@ -2864,6 +2869,13 @@ export const validateDatasetDatasetsDatasetIdValidateGet = <ThrowOnError extends
  * Get Dataset Versions Endpoint
  *
  * Get paginated version history for a dataset.
+ *
+ * Access follows Rule 1 on the read path. feat(#1316): field redaction on
+ * top follows the same owner-or-admin predicate as refresh-runs and dataset
+ * reads — a caller who is neither the owner nor an admin gets the version
+ * timeline (filenames, formats, feature counts) but not ``file_hash`` or
+ * ``uploaded_by``. Unredacted, a PUBLIC dataset's version history enumerates
+ * its editors, the exact leak ADR-002 Decision 4e closed for refresh-runs.
  */
 export const getDatasetVersionsEndpointDatasetsDatasetIdVersionsGet = <ThrowOnError extends boolean = false>(options: Options<GetDatasetVersionsEndpointDatasetsDatasetIdVersionsGetData, ThrowOnError>): RequestResult<GetDatasetVersionsEndpointDatasetsDatasetIdVersionsGetResponses, GetDatasetVersionsEndpointDatasetsDatasetIdVersionsGetErrors, ThrowOnError> => (options.client ?? client).get<GetDatasetVersionsEndpointDatasetsDatasetIdVersionsGetResponses, GetDatasetVersionsEndpointDatasetsDatasetIdVersionsGetErrors, ThrowOnError>({
     security: [

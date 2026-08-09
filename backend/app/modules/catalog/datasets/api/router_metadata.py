@@ -23,6 +23,7 @@ from app.modules.auth.dependencies import (
     require_permission,
 )
 from app.modules.catalog.authorization import (
+    can_view_dataset_provenance,
     check_dataset_access,
     check_dataset_access_or_anonymous,
     check_dataset_write_access,
@@ -68,7 +69,15 @@ async def get_dataset_versions_endpoint(
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> DatasetVersionListResponse:
-    """Get paginated version history for a dataset."""
+    """Get paginated version history for a dataset.
+
+    Access follows Rule 1 on the read path. feat(#1316): field redaction on
+    top follows the same owner-or-admin predicate as refresh-runs and dataset
+    reads — a caller who is neither the owner nor an admin gets the version
+    timeline (filenames, formats, feature counts) but not ``file_hash`` or
+    ``uploaded_by``. Unredacted, a PUBLIC dataset's version history enumerates
+    its editors, the exact leak ADR-002 Decision 4e closed for refresh-runs.
+    """
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
         raise HTTPException(
@@ -76,13 +85,29 @@ async def get_dataset_versions_endpoint(
             detail="Dataset not found",
         )
 
-    # Visibility check
-    await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
+    # Visibility check — returns resolved user_roles to avoid duplicate DB query
+    user_roles = await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
+    can_view_provenance = can_view_dataset_provenance(dataset.record, user, user_roles)
 
     versions, total = await get_dataset_versions(db, dataset_id, skip=skip, limit=limit)
 
     return DatasetVersionListResponse(
-        versions=[DatasetVersionResponse.model_validate(v) for v in versions],
+        versions=[
+            DatasetVersionResponse(
+                id=v.id,
+                dataset_id=v.dataset_id,
+                version_number=v.version_number,
+                source_filename=v.source_filename,
+                source_format=v.source_format,
+                feature_count=v.feature_count,
+                srid=v.srid,
+                geometry_type=v.geometry_type,
+                file_hash=v.file_hash if can_view_provenance else None,
+                uploaded_by=v.uploaded_by if can_view_provenance else None,
+                uploaded_at=v.uploaded_at,
+            )
+            for v in versions
+        ],
         total=total,
     )
 
