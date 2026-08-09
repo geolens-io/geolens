@@ -1,9 +1,13 @@
-"""GAP-002: VRT regenerating-status stale sweep.
+"""GAP-002 / feat(#1267): VRT regenerating-status stale sweep.
 
 Tests that RasterAsset rows stuck in status='regenerating' past the
-JOB_TIMEOUT_SECONDS threshold are recovered (reset to 'failed') by the
-shared sweep helper, called from BOTH recover_stale_jobs (startup) and
-fail_stale_jobs (periodic).
+JOB_TIMEOUT_SECONDS threshold are reconciled by the shared sweep helper,
+called from BOTH recover_stale_jobs (startup) and fail_stale_jobs (periodic).
+
+feat(#1267): reconciliation restores the asset to 'ready' (not 'failed') —
+the dead attempt never touched the published pointer (asset_uri, sha256,
+...), so the VRT is still serving exactly what it served before the attempt
+started. Only the attempt's own VrtGeneration row is marked 'failed'.
 
 RED → GREEN: fails pre-fix (no sweep exists), passes post-fix.
 """
@@ -43,10 +47,12 @@ def _make_vrt_generation(
     *,
     status: str = "running",
     started_at: datetime | None = None,
+    vrt_dataset_id: uuid.UUID | None = None,
 ) -> MagicMock:
     """Build a mock VrtGeneration-like object."""
     gen = MagicMock()
     gen.id = uuid4()
+    gen.vrt_dataset_id = vrt_dataset_id or uuid4()
     gen.status = status
     gen.started_at = started_at
     gen.completed_at = None
@@ -60,6 +66,7 @@ def _make_mock_session_for_recover(
     stale_jobs_running: list | None = None,
     stale_jobs_pending: list | None = None,
     stale_vrt_assets: list | None = None,
+    stale_vrt_assets_degraded: list | None = None,
     stale_vrt_generations: list | None = None,
 ) -> MagicMock:
     """Build a mock async session for recover_stale_jobs.
@@ -68,8 +75,19 @@ def _make_mock_session_for_recover(
       1. advisory lock query → scalar() returns lock_acquired
       2. stale running IngestJobs → scalars() returns list
       3. orphaned pending IngestJobs → scalars() returns list
-      4. stale VrtGeneration UPDATE → scalars() returns generation ids
-      5. stale regenerating RasterAsset UPDATE → scalars() returns dataset ids
+      4. stale VrtGeneration UPDATE → all() returns (id, vrt_dataset_id) pairs
+      5. composition-preserving RasterAsset UPDATE (-> 'ready') → scalars()
+         returns dataset ids for ``stale_vrt_assets``
+      6. composition-changed RasterAsset UPDATE (-> 'failed', fix(#1322
+         review round 3)) → scalars() returns dataset ids for
+         ``stale_vrt_assets_degraded``
+
+    ``stale_vrt_assets`` and ``stale_vrt_assets_degraded`` are mock-level
+    routing, not a re-implementation of the SQL discrimination — a test
+    picks which of the two UPDATE results an asset's id lands in to state
+    which branch it means to exercise. The real discrimination (built_from
+    vs vrt_source_links) is proven against a live Postgres database in
+    test_ingest_job_attempt_fencing.py and the composition-drift tests below.
     """
     lock_result = MagicMock()
     lock_result.scalar.return_value = lock_acquired
@@ -84,12 +102,18 @@ def _make_mock_session_for_recover(
         mock_result.scalars.return_value = job_list
         results.append(mock_result)
 
-    for returned_ids in [
-        [generation.id for generation in (stale_vrt_generations or [])],
-        [asset.dataset_id for asset in (stale_vrt_assets or [])],
-    ]:
+    gen_result = MagicMock()
+    gen_result.all.return_value = [
+        (generation.id, generation.vrt_dataset_id)
+        for generation in (stale_vrt_generations or [])
+    ]
+    results.append(gen_result)
+
+    for asset_list in (stale_vrt_assets, stale_vrt_assets_degraded):
         mock_result = MagicMock()
-        mock_result.scalars.return_value = returned_ids
+        mock_result.scalars.return_value = [
+            asset.dataset_id for asset in (asset_list or [])
+        ]
         results.append(mock_result)
 
     mock_session = AsyncMock()
@@ -105,6 +129,7 @@ def _make_mock_db_for_fail_stale(
     stale_jobs_pending: list | None = None,
     stale_jobs_running: list | None = None,
     stale_vrt_assets: list | None = None,
+    stale_vrt_assets_degraded: list | None = None,
     stale_vrt_generations: list | None = None,
     purge_candidates: list | None = None,
     surviving_paths: list[str] | None = None,
@@ -115,9 +140,14 @@ def _make_mock_db_for_fail_stale(
       1. stale UNBOUND pending IngestJobs (1h) → scalars() returns list
       2. stale BOUND pending IngestJobs (24h, fix(#1234)) → empty here
       3. stale running IngestJobs → scalars() returns list
-      3. stale VrtGeneration UPDATE → scalars() returns generation ids
-      4. stale regenerating RasterAsset UPDATE → scalars() returns dataset ids
-      4b. abandoned dataset_refresh_runs UPDATE (feat(#1219)) → scalars()
+      3. stale VrtGeneration UPDATE → all() returns (id, vrt_dataset_id) pairs
+      4. composition-preserving RasterAsset UPDATE (-> 'ready') → scalars()
+         returns dataset ids for ``stale_vrt_assets``
+      4b. composition-changed RasterAsset UPDATE (-> 'failed', fix(#1322
+         review round 3)) → scalars() returns dataset ids for
+         ``stale_vrt_assets_degraded``. See the recover-side helper's
+         docstring for why this is mock-level routing, not the real SQL.
+      4c. abandoned dataset_refresh_runs UPDATE (feat(#1219)) → scalars()
          returns cancelled run ids. Empty in these fixtures; the sweep has
          its own suite in test_dataset_refresh_runs.py.
       5. purge DELETE .. RETURNING (id, file_path, user_metadata) → .all()
@@ -136,8 +166,23 @@ def _make_mock_db_for_fail_stale(
         # fixtures exercise the first, so the second returns nothing.
         [],
         stale_jobs_running or [],
-        [generation.id for generation in (stale_vrt_generations or [])],
+    ]:
+        mock_result = MagicMock()
+        mock_result.scalars.return_value = returned_ids
+        results.append(mock_result)
+
+    # feat(#1267): RETURNING widened to (id, vrt_dataset_id) — the storage
+    # cleanup helper needs the pairing, so .all() replaces .scalars() here.
+    gen_result = MagicMock()
+    gen_result.all.return_value = [
+        (generation.id, generation.vrt_dataset_id)
+        for generation in (stale_vrt_generations or [])
+    ]
+    results.append(gen_result)
+
+    for returned_ids in [
         [asset.dataset_id for asset in (stale_vrt_assets or [])],
+        [asset.dataset_id for asset in (stale_vrt_assets_degraded or [])],
         # feat(#1219): the refresh-run sweep, between the VRT sweep and the
         # retention purge — TWO statements since fix(#1274 review): the
         # legacy-completion success recorder, then the abandonment cancel.
@@ -183,11 +228,11 @@ def _make_mock_db_for_fail_stale(
 
 @pytest.mark.asyncio
 async def test_recover_stale_jobs_resets_stale_regenerating_vrt_asset():
-    """GAP-002 RED→GREEN: a stale regenerating VRT asset is reset to 'failed' at startup.
+    """GAP-002 RED→GREEN: a stale regenerating VRT asset is reconciled at startup.
 
     Pre-fix: recover_stale_jobs only sweeps IngestJob — the stale RasterAsset
     stays in status='regenerating' forever. Post-fix: the shared helper also
-    sweeps RasterAssets.
+    sweeps RasterAssets, restoring 'ready' (feat(#1267)).
     """
     from app.platform.jobs.worker import recover_stale_jobs
 
@@ -294,7 +339,9 @@ async def test_fail_stale_jobs_detailed_outcome_counts_every_cleanup_surface(
     from app.platform.jobs.router import StaleCleanupOutcome, fail_stale_jobs
 
     stale_asset = _make_raster_asset(status="regenerating")
-    stale_gen = _make_vrt_generation(status="running")
+    stale_gen = _make_vrt_generation(
+        status="running", vrt_dataset_id=stale_asset.dataset_id
+    )
     local_file = tmp_path / "retained-upload.geojson"
     local_file.write_text("{}")
     storage_key = "staging/job-id/retained-upload.geojson"
@@ -322,13 +369,30 @@ async def test_fail_stale_jobs_detailed_outcome_counts_every_cleanup_surface(
     assert result.terminal_jobs_purged == 2
     assert result.staged_paths_considered == 2
     assert result.local_files_reaped == 1
-    assert result.storage_objects_reaped == 1
+    # feat(#1267) / fix(#1322 review): 1 retention key + 3 VRT generation
+    # keys, all reaped by _reap_committed_staged_paths AFTER db.commit()
+    # succeeded — sweep_stale_vrt_assets itself only resolved the latter 3,
+    # never deleting them.
+    assert result.storage_objects_reaped == 4
     assert result.staged_paths_skipped == 0
     assert result.staged_cleanup_failures == 0
     assert result.total_cleaned == 2
-    assert result.total_affected == 8
+    assert result.total_affected == 11
     assert not local_file.exists()
-    storage.delete.assert_awaited_once_with(storage_key)
+
+    # feat(#1267): the reconciled generation's own storage objects are
+    # reaped best-effort alongside the retention-purge key — 3 more calls,
+    # one per object regenerate_vrt could have written before the worker
+    # died (source.vrt + 2 quicklooks), deleted even though none exist here.
+    generation_base = f"rasters/{stale_gen.vrt_dataset_id}/generations/{stale_gen.id}"
+    expected_keys = {
+        storage_key,
+        f"{generation_base}/source.vrt",
+        f"{generation_base}/quicklook_256.png",
+        f"{generation_base}/quicklook_512.png",
+    }
+    called_keys = {call.args[0] for call in storage.delete.await_args_list}
+    assert called_keys == expected_keys
 
 
 @pytest.mark.asyncio
@@ -361,6 +425,41 @@ async def test_fail_stale_jobs_commit_failure_keeps_external_artifacts(
     storage.delete.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_fail_stale_jobs_commit_failure_keeps_stale_generation_storage_intact(
+    monkeypatch,
+):
+    """fix(#1322 review): the inverse of the storage-failure test above — a
+    reconciliation whose commit fails must leave a dead attempt's generation
+    objects UNDELETED. sweep_stale_vrt_assets only resolves the keys; nothing
+    may reap them until fail_stale_jobs's own db.commit() (which raises here,
+    rolling the generation/asset UPDATEs back) has actually landed. Deleting
+    anyway would leave a resumed 'dead' worker publishing to storage keys
+    that no longer exist, behind an asset the rollback restored to
+    'regenerating'."""
+    from app.platform.jobs.router import fail_stale_jobs
+
+    stale_asset = _make_raster_asset(status="regenerating")
+    stale_gen = _make_vrt_generation(
+        status="running", vrt_dataset_id=stale_asset.dataset_id
+    )
+    mock_db = _make_mock_db_for_fail_stale(
+        stale_vrt_assets=[stale_asset],
+        stale_vrt_generations=[stale_gen],
+    )
+    mock_db.commit.side_effect = RuntimeError("commit failed")
+    storage = MagicMock()
+    storage.delete = AsyncMock()
+
+    with (
+        patch("app.platform.storage.get_storage", return_value=storage),
+        pytest.raises(RuntimeError, match="commit failed"),
+    ):
+        await fail_stale_jobs(mock_db, detailed=True)
+
+    storage.delete.assert_not_awaited()
+
+
 # ---------------------------------------------------------------------------
 # fix(#434): retention purge of terminal jobs
 # ---------------------------------------------------------------------------
@@ -379,12 +478,13 @@ async def test_fail_stale_jobs_purges_terminal_jobs_past_retention():
     await fail_stale_jobs(mock_db)
 
     # 5 sweeps (the pending clause is two statements since fix(#1234)) + the
-    # refresh-run sweep's TWO statements (feat(#1219), fix(#1274 review):
-    # legacy-completion recorder then abandonment cancel) + the purge DELETE
-    # + the post-expiry staging SELECT.
-    assert mock_db.execute.await_count == 9
-    # Indexes 5-6 are the refresh-run sweep now; the purge shifted to 7.
-    purge_stmt = mock_db.execute.await_args_list[7].args[0]
+    # VRT asset UPDATE split into two (ready / degraded, fix(#1322 review
+    # round 3)) + the refresh-run sweep's TWO statements (feat(#1219),
+    # fix(#1274 review): legacy-completion recorder then abandonment cancel)
+    # + the purge DELETE + the post-expiry staging SELECT.
+    assert mock_db.execute.await_count == 10
+    # Indexes 6-7 are the refresh-run sweep now; the purge shifted to 8.
+    purge_stmt = mock_db.execute.await_args_list[8].args[0]
     assert isinstance(purge_stmt, Delete)
     where_sql = str(purge_stmt.compile(compile_kwargs={"literal_binds": True}))
     assert "'pending'" in where_sql and "'running'" in where_sql, (
@@ -545,11 +645,12 @@ async def test_fail_stale_jobs_retention_zero_disables_purge(monkeypatch):
     mock_db = _make_mock_db_for_fail_stale()
     await fail_stale_jobs(mock_db)
 
-    # 5 sweeps (two pending clauses since fix(#1234)) plus the refresh-run
-    # sweep's two statements (feat(#1219), fix(#1274 review)) and no purge
-    # DELETE, plus the post-expiry staging SELECT, which is independent of
-    # retention.
-    assert mock_db.execute.await_count == 8
+    # 5 sweeps (two pending clauses since fix(#1234)) plus the VRT asset
+    # UPDATE split into two (ready / degraded, fix(#1322 review round 3))
+    # plus the refresh-run sweep's two statements (feat(#1219), fix(#1274
+    # review)) and no purge DELETE, plus the post-expiry staging SELECT,
+    # which is independent of retention.
+    assert mock_db.execute.await_count == 9
 
 
 # ---------------------------------------------------------------------------
@@ -593,41 +694,56 @@ async def test_fail_stale_jobs_calls_vrt_sweep_helper():
 
 @pytest.mark.asyncio
 async def test_sweep_stale_vrt_assets_returns_count():
-    """GAP-002: sweep_stale_vrt_assets(session, stale_cutoff) returns (assets_recovered, gens_failed)."""
+    """GAP-002: sweep_stale_vrt_assets(session, stale_cutoff) returns
+    (assets_recovered, gens_failed, storage_keys) — feat(#1267)/fix(#1322
+    review) widened the tuple to carry resolved-not-deleted storage keys."""
     from app.platform.jobs.router import sweep_stale_vrt_assets
 
     stale_asset = _make_raster_asset(status="regenerating")
     stale_gen = _make_vrt_generation(status="running")
 
-    # Two atomic UPDATEs: generation first, then the asset still pointing to it.
+    # Three atomic UPDATEs: generation, then the asset split into a
+    # composition-preserving branch (-> 'ready') and a composition-changed
+    # branch (-> 'failed', fix(#1322 review round 3)).
     gen_result = MagicMock()
-    gen_result.scalars.return_value = [stale_gen.id]
-    asset_result = MagicMock()
-    asset_result.scalars.return_value = [stale_asset.dataset_id]
+    gen_result.all.return_value = [(stale_gen.id, stale_gen.vrt_dataset_id)]
+    ready_result = MagicMock()
+    ready_result.scalars.return_value = [stale_asset.dataset_id]
+    degraded_result = MagicMock()
+    degraded_result.scalars.return_value = []
 
     mock_session = AsyncMock()
-    mock_session.execute = AsyncMock(side_effect=[gen_result, asset_result])
+    mock_session.execute = AsyncMock(
+        side_effect=[gen_result, ready_result, degraded_result]
+    )
 
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(hours=1)
 
+    # No tenant context is bound in this unit test, so key RESOLUTION itself
+    # (not just deletion — sweep_stale_vrt_assets never deletes anything,
+    # fix(#1322 review)) short-circuits to an empty tuple rather than raising.
+    # Either way this stays a 3-call contract: resolving/skipping keys is
+    # pure Python, never a 4th db.execute().
     with patch("app.core.tenancy.is_multi_tenant", return_value=True):
         result = await sweep_stale_vrt_assets(mock_session, cutoff)
 
-    # Returns (assets_recovered, gens_failed) both ≥ 0
     assert isinstance(result, tuple)
-    assert len(result) == 2
-    assets_recovered, gens_failed = result
+    assert len(result) == 3
+    assets_recovered, gens_failed, storage_keys = result
     assert assets_recovered == 1
     assert gens_failed == 1
+    assert storage_keys == ()
 
     statements = [str(call.args[0]) for call in mock_session.execute.await_args_list]
     assert "UPDATE catalog.vrt_generations" in statements[0]
     assert "UPDATE catalog.raster_assets" in statements[1]
+    assert "UPDATE catalog.raster_assets" in statements[2]
     assert (
         "vrt_generations.vrt_dataset_id IN (SELECT catalog.datasets.id" in statements[0]
     )
     assert "raster_assets.dataset_id IN (SELECT catalog.datasets.id" in statements[1]
+    assert "raster_assets.dataset_id IN (SELECT catalog.datasets.id" in statements[2]
 
 
 @pytest.mark.asyncio
@@ -635,11 +751,13 @@ async def test_sweep_stale_vrt_assets_preserves_single_tenant_sql_shape():
     from app.platform.jobs.router import sweep_stale_vrt_assets
 
     gen_result = MagicMock()
-    gen_result.scalars.return_value = []
-    asset_result = MagicMock()
-    asset_result.scalars.return_value = []
+    gen_result.all.return_value = []
+    ready_result = MagicMock()
+    ready_result.scalars.return_value = []
+    degraded_result = MagicMock()
+    degraded_result.scalars.return_value = []
     session = AsyncMock()
-    session.execute = AsyncMock(side_effect=[gen_result, asset_result])
+    session.execute = AsyncMock(side_effect=[gen_result, ready_result, degraded_result])
 
     await sweep_stale_vrt_assets(
         session,
@@ -649,6 +767,809 @@ async def test_sweep_stale_vrt_assets_preserves_single_tenant_sql_shape():
     statements = [str(call.args[0]) for call in session.execute.await_args_list]
     assert "SELECT catalog.datasets.id" not in statements[0]
     assert "SELECT catalog.datasets.id" not in statements[1]
+    assert "SELECT catalog.datasets.id" not in statements[2]
+
+
+# ---------------------------------------------------------------------------
+# feat(#1267): reconciliation restores 'ready', not 'failed', and reaps the
+# dead attempt's own generation-scoped storage objects.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sweep_stale_vrt_assets_restores_ready_not_failed():
+    """feat(#1267) / fix(#1322 review round 3): the FIRST asset UPDATE
+    (composition-preserving) sets status='ready'; the SECOND (composition-
+    changed) sets status='failed' — a dead attempt's own VrtGeneration row
+    is what unconditionally records the failure, not the asset, UNLESS the
+    catalog's declared composition moved out from under it."""
+    from app.platform.jobs.router import sweep_stale_vrt_assets
+
+    gen_result = MagicMock()
+    gen_result.all.return_value = []
+    ready_result = MagicMock()
+    ready_result.scalars.return_value = []
+    degraded_result = MagicMock()
+    degraded_result.scalars.return_value = []
+    session = AsyncMock()
+    session.execute = AsyncMock(side_effect=[gen_result, ready_result, degraded_result])
+
+    await sweep_stale_vrt_assets(
+        session, datetime.now(timezone.utc) - timedelta(hours=1)
+    )
+
+    # fix(#1322 review round 4): _PRIOR_ATTEMPT_WAS_READY_SQL legitimately
+    # mentions the literal 'failed' in its WHERE-clause comparison (the most
+    # recent OTHER generation's status), so "'failed' not anywhere in the
+    # statement" is no longer a valid signal — isolate the SET clause (the
+    # part before WHERE) and check only that.
+    ready_stmt = session.execute.await_args_list[1].args[0]
+    ready_sql = str(ready_stmt.compile(compile_kwargs={"literal_binds": True}))
+    ready_set_clause = ready_sql.split("WHERE", 1)[0]
+    assert (
+        "status='ready'" in ready_set_clause or "status = 'ready'" in ready_set_clause
+    )
+    assert "'failed'" not in ready_set_clause
+
+    degraded_stmt = session.execute.await_args_list[2].args[0]
+    degraded_sql = str(degraded_stmt.compile(compile_kwargs={"literal_binds": True}))
+    degraded_set_clause = degraded_sql.split("WHERE", 1)[0]
+    assert (
+        "status='failed'" in degraded_set_clause
+        or "status = 'failed'" in degraded_set_clause
+    )
+    assert "'ready'" not in degraded_set_clause
+    # The two branches are mutually exclusive: the 2nd statement's predicate
+    # is the exact negation of the 1st's combined composition + prior-ready
+    # check.
+    assert "NOT (" in degraded_sql
+    # Both facts are present in both statements' WHERE clauses (the 2nd
+    # negates their conjunction, not just one half).
+    for where_sql in (ready_sql, degraded_sql):
+        assert "vrt_source_links" in where_sql
+        assert "vrt_generations" in where_sql
+
+
+@pytest.mark.asyncio
+async def test_sweep_stale_vrt_assets_resolves_but_never_deletes_storage():
+    """fix(#1322 review): sweep_stale_vrt_assets RESOLVES a swept generation's
+    immutable object keys (3rd tuple element) but must never call storage
+    itself. Deleting before its caller's commit is durable can destroy a
+    generation a rolled-back reconciliation still owns — see
+    _reap_stale_generation_storage's docstring. No storage patch is installed
+    here on purpose: any storage.* call inside the sweep would raise
+    (get_storage() is uninitialized in this unit test) and fail the test."""
+    from app.platform.jobs.router import sweep_stale_vrt_assets
+
+    stale_gen_id = uuid4()
+    stale_dataset_id = uuid4()
+
+    gen_result = MagicMock()
+    gen_result.all.return_value = [(stale_gen_id, stale_dataset_id)]
+    ready_result = MagicMock()
+    ready_result.scalars.return_value = [stale_dataset_id]
+    degraded_result = MagicMock()
+    degraded_result.scalars.return_value = []
+    session = AsyncMock()
+    session.execute = AsyncMock(side_effect=[gen_result, ready_result, degraded_result])
+
+    result = await sweep_stale_vrt_assets(
+        session, datetime.now(timezone.utc) - timedelta(hours=1)
+    )
+
+    base = f"rasters/{stale_dataset_id}/generations/{stale_gen_id}"
+    assert result == (
+        1,
+        1,
+        (
+            f"{base}/source.vrt",
+            f"{base}/quicklook_256.png",
+            f"{base}/quicklook_512.png",
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_sweep_stale_vrt_assets_storage_failure_never_masks_reconciliation():
+    """A storage backend that is unreachable must not stop the sweep from
+    restoring the asset and failing the generation — key resolution is pure
+    Python (no storage call), so reconciliation cannot be masked by it."""
+    from app.platform.jobs.router import sweep_stale_vrt_assets
+
+    gen_result = MagicMock()
+    gen_result.all.return_value = [(uuid4(), uuid4())]
+    ready_result = MagicMock()
+    ready_result.scalars.return_value = [uuid4()]
+    degraded_result = MagicMock()
+    degraded_result.scalars.return_value = []
+    session = AsyncMock()
+    session.execute = AsyncMock(side_effect=[gen_result, ready_result, degraded_result])
+
+    # No storage patch — get_storage() would raise RuntimeError
+    # (uninitialized) if the sweep ever called it, which it must not.
+    result = await sweep_stale_vrt_assets(
+        session, datetime.now(timezone.utc) - timedelta(hours=1)
+    )
+
+    assert result[0] == 1
+    assert result[1] == 1
+    assert len(result[2]) == 3
+
+
+# ---------------------------------------------------------------------------
+# fix(#1322 review round 3): the discrimination is a STATE comparison
+# (built_from vs the live vrt_source_links set), not a timing heuristic —
+# these run against a real Postgres database so the actual
+# _COMPOSITION_PRESERVED_SQL executes, not a mock standing in for it.
+# ---------------------------------------------------------------------------
+
+
+async def _make_vrt_with_generation(
+    test_db_session,
+    *,
+    admin_id,
+    built_from_dataset_ids,
+    linked_dataset_ids,
+    started_hours_ago: float = 2,
+):
+    """A VRT dataset with a dead 'regenerating' generation, whose published
+    built_from and live vrt_source_links can be set independently — the
+    exact fork the composition-preserving check has to tell apart."""
+    from app.processing.raster.models import RasterAsset, VrtGeneration, VrtSourceLink
+    from tests.factories import create_dataset
+
+    vrt_dataset = await create_dataset(test_db_session, created_by=admin_id)
+    generation = VrtGeneration(
+        vrt_dataset_id=vrt_dataset.id,
+        status="running",
+        started_at=datetime.now(timezone.utc) - timedelta(hours=started_hours_ago),
+        heartbeat_at=datetime.now(timezone.utc) - timedelta(hours=started_hours_ago),
+    )
+    test_db_session.add(generation)
+    await test_db_session.flush()
+
+    asset = RasterAsset(
+        dataset_id=vrt_dataset.id,
+        asset_uri=f"rasters/{vrt_dataset.id}/source.vrt",
+        status="regenerating",
+        current_generation_id=generation.id,
+        built_from={str(ds_id): "irrelevant" for ds_id in built_from_dataset_ids},
+    )
+    test_db_session.add(asset)
+
+    for position, source_id in enumerate(linked_dataset_ids):
+        test_db_session.add(
+            VrtSourceLink(
+                vrt_dataset_id=vrt_dataset.id,
+                source_dataset_id=source_id,
+                position=position,
+            )
+        )
+
+    await test_db_session.commit()
+    return vrt_dataset, generation, asset
+
+
+async def test_sweep_restores_ready_when_composition_unchanged(test_db_session):
+    """A pure dead regenerate (regenerate_vrt_endpoint never touches
+    vrt_source_links) restores 'ready' — the existing, correct behavior."""
+    from app.platform.jobs.router import sweep_stale_vrt_assets
+    from tests.factories import create_dataset, get_user_id
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    source = await create_dataset(test_db_session, created_by=admin_id)
+    _vrt_dataset, generation, asset = await _make_vrt_with_generation(
+        test_db_session,
+        admin_id=admin_id,
+        built_from_dataset_ids=[source.id],
+        linked_dataset_ids=[source.id],
+    )
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
+    assets_recovered, gens_failed, _keys = await sweep_stale_vrt_assets(
+        test_db_session, cutoff
+    )
+    await test_db_session.commit()
+
+    assert (assets_recovered, gens_failed) == (1, 1)
+    await test_db_session.refresh(asset)
+    await test_db_session.refresh(generation)
+    assert asset.status == "ready"
+    assert asset.current_generation_id is None
+    assert generation.status == "failed"
+
+
+async def test_sweep_keeps_failed_when_source_was_removed(test_db_session):
+    """fix(#1322 review round 3): remove_vrt_source deletes the link and
+    commits BEFORE the (now-dead) regeneration ever runs. built_from still
+    names the removed source — the published VRT still contains it — so
+    restoring 'ready' would hide that the catalog's stated composition (1
+    source) no longer matches what is actually being served (2 sources)."""
+    from app.platform.jobs.router import sweep_stale_vrt_assets
+    from tests.factories import create_dataset, get_user_id
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    kept = await create_dataset(test_db_session, created_by=admin_id)
+    removed = await create_dataset(test_db_session, created_by=admin_id)
+    _vrt_dataset, generation, asset = await _make_vrt_with_generation(
+        test_db_session,
+        admin_id=admin_id,
+        built_from_dataset_ids=[kept.id, removed.id],  # published VRT has both
+        linked_dataset_ids=[kept.id],  # catalog link to `removed` already gone
+    )
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
+    assets_recovered, gens_failed, _keys = await sweep_stale_vrt_assets(
+        test_db_session, cutoff
+    )
+    await test_db_session.commit()
+
+    assert (assets_recovered, gens_failed) == (1, 1)
+    await test_db_session.refresh(asset)
+    await test_db_session.refresh(generation)
+    assert asset.status == "failed", (
+        "restoring 'ready' here would hide that the served VRT still "
+        "contains a source the catalog no longer lists"
+    )
+    assert asset.current_generation_id is None  # a retry is still triggerable
+    assert generation.status == "failed"
+
+
+async def test_sweep_keeps_failed_when_source_was_added(test_db_session):
+    """The mirror case: add_vrt_source's link INSERT already committed, so
+    the catalog claims 2 sources while the published VRT (built_from) was
+    only ever assembled from 1. Same drift, opposite direction — still not
+    safe to call 'ready'."""
+    from app.platform.jobs.router import sweep_stale_vrt_assets
+    from tests.factories import create_dataset, get_user_id
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    original = await create_dataset(test_db_session, created_by=admin_id)
+    added = await create_dataset(test_db_session, created_by=admin_id)
+    _vrt_dataset, generation, asset = await _make_vrt_with_generation(
+        test_db_session,
+        admin_id=admin_id,
+        built_from_dataset_ids=[original.id],  # published VRT has only this
+        linked_dataset_ids=[original.id, added.id],  # catalog already claims 2
+    )
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
+    assets_recovered, gens_failed, _keys = await sweep_stale_vrt_assets(
+        test_db_session, cutoff
+    )
+    await test_db_session.commit()
+
+    assert (assets_recovered, gens_failed) == (1, 1)
+    await test_db_session.refresh(asset)
+    assert asset.status == "failed"
+    assert asset.current_generation_id is None
+
+
+async def test_sweep_keeps_failed_when_built_from_is_null(test_db_session):
+    """A legacy pre-#1290 VRT has no built_from at all — the question
+    cannot be answered from stored state, so the sweep must not guess
+    'ready'. Same conservative branch as a proven mismatch."""
+    from app.platform.jobs.router import sweep_stale_vrt_assets
+    from app.processing.raster.models import RasterAsset, VrtGeneration
+    from tests.factories import create_dataset, get_user_id
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    vrt_dataset = await create_dataset(test_db_session, created_by=admin_id)
+    generation = VrtGeneration(
+        vrt_dataset_id=vrt_dataset.id,
+        status="running",
+        started_at=datetime.now(timezone.utc) - timedelta(hours=2),
+        heartbeat_at=datetime.now(timezone.utc) - timedelta(hours=2),
+    )
+    test_db_session.add(generation)
+    await test_db_session.flush()
+    asset = RasterAsset(
+        dataset_id=vrt_dataset.id,
+        asset_uri=f"rasters/{vrt_dataset.id}/source.vrt",
+        status="regenerating",
+        current_generation_id=generation.id,
+        built_from=None,
+    )
+    test_db_session.add(asset)
+    await test_db_session.commit()
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
+    await sweep_stale_vrt_assets(test_db_session, cutoff)
+    await test_db_session.commit()
+
+    await test_db_session.refresh(asset)
+    assert asset.status == "failed"
+
+
+# ---------------------------------------------------------------------------
+# fix(#1322 review round 4): composition-preserving alone is not enough — the
+# asset must also have PROVABLY been 'ready' (not 'failed') the instant this
+# attempt was allowed to start. regenerate_vrt_endpoint's guard only rejects
+# 'regenerating', so a caller may retry an already-'failed' asset; if that
+# retry also dies, composition-preserving alone would restore 'ready' and
+# erase a real failure the crash had nothing to do with.
+# ---------------------------------------------------------------------------
+
+
+async def test_sweep_keeps_failed_when_prior_attempt_was_failed(test_db_session):
+    """The exact scenario from the finding: a genuine regeneration failure
+    (generation 1, a real GDAL-style error — NOT this sweep's doing), then a
+    user retry (generation 2) that is itself abandoned. Composition is
+    unchanged throughout, so the composition check alone would restore
+    'ready' — but generation 1's failure was never actually resolved, and
+    the sweep must not manufacture a resolution that didn't happen."""
+    from app.platform.jobs.router import sweep_stale_vrt_assets
+    from app.processing.raster.models import RasterAsset, VrtGeneration, VrtSourceLink
+    from tests.factories import create_dataset, get_user_id
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    source = await create_dataset(test_db_session, created_by=admin_id)
+    vrt_dataset = await create_dataset(test_db_session, created_by=admin_id)
+
+    now = datetime.now(timezone.utc)
+    # Generation 1: the ORIGINAL attempt, genuinely failed (e.g. a real GDAL
+    # error) — not swept, not abandoned; explicitly terminal already.
+    # heartbeat_at is set: fix(#1322 review round 5) — this is what
+    # distinguishes a genuine build failure (the task claimed and ran) from
+    # an enqueue failure (never reached the worker at all); see
+    # test_sweep_restores_ready_when_prior_attempt_never_ran for that case.
+    failed_generation = VrtGeneration(
+        vrt_dataset_id=vrt_dataset.id,
+        status="failed",
+        started_at=now - timedelta(hours=5),
+        heartbeat_at=now - timedelta(hours=4, minutes=56),
+        completed_at=now - timedelta(hours=4, minutes=55),
+        error_message="Simulated GDAL failure, unrelated to any crash",
+    )
+    test_db_session.add(failed_generation)
+    await test_db_session.flush()
+
+    # Generation 2: the user's retry (allowed — the endpoint only rejects
+    # 'regenerating', not 'failed') — now abandoned by a worker crash.
+    retry_generation = VrtGeneration(
+        vrt_dataset_id=vrt_dataset.id,
+        status="running",
+        started_at=now - timedelta(hours=2),
+        heartbeat_at=now - timedelta(hours=2),
+    )
+    test_db_session.add(retry_generation)
+    await test_db_session.flush()
+
+    asset = RasterAsset(
+        dataset_id=vrt_dataset.id,
+        asset_uri=f"rasters/{vrt_dataset.id}/source.vrt",
+        status="regenerating",
+        current_generation_id=retry_generation.id,
+        # Composition unchanged — a pure retry, not a source add/remove.
+        built_from={str(source.id): "irrelevant"},
+    )
+    test_db_session.add(asset)
+    test_db_session.add(
+        VrtSourceLink(
+            vrt_dataset_id=vrt_dataset.id, source_dataset_id=source.id, position=0
+        )
+    )
+    await test_db_session.commit()
+
+    cutoff = now - timedelta(hours=1)
+    assets_recovered, gens_failed, _keys = await sweep_stale_vrt_assets(
+        test_db_session, cutoff
+    )
+    await test_db_session.commit()
+
+    assert (assets_recovered, gens_failed) == (1, 1)
+    await test_db_session.refresh(asset)
+    await test_db_session.refresh(retry_generation)
+    assert asset.status == "failed", (
+        "restoring 'ready' here would manufacture a resolution generation 1's "
+        "real failure never actually got"
+    )
+    assert asset.current_generation_id is None  # a further retry is still triggerable
+    assert retry_generation.status == "failed"
+    # generation 1 is untouched — it was already terminal before this sweep ran.
+    await test_db_session.refresh(failed_generation)
+    assert failed_generation.status == "failed"
+
+
+async def test_sweep_restores_ready_when_prior_attempt_completed(test_db_session):
+    """Companion coverage: a prior attempt that actually SUCCEEDED (not just
+    'no prior attempt exists', which the composition-unchanged test above
+    already covers) still lets a later dead, composition-preserving attempt
+    restore 'ready'."""
+    from app.platform.jobs.router import sweep_stale_vrt_assets
+    from app.processing.raster.models import RasterAsset, VrtGeneration, VrtSourceLink
+    from tests.factories import create_dataset, get_user_id
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    source = await create_dataset(test_db_session, created_by=admin_id)
+    vrt_dataset = await create_dataset(test_db_session, created_by=admin_id)
+
+    now = datetime.now(timezone.utc)
+    completed_generation = VrtGeneration(
+        vrt_dataset_id=vrt_dataset.id,
+        status="completed",
+        started_at=now - timedelta(hours=5),
+        heartbeat_at=now - timedelta(hours=4, minutes=56),
+        completed_at=now - timedelta(hours=4, minutes=55),
+    )
+    test_db_session.add(completed_generation)
+    await test_db_session.flush()
+
+    dead_generation = VrtGeneration(
+        vrt_dataset_id=vrt_dataset.id,
+        status="running",
+        started_at=now - timedelta(hours=2),
+        heartbeat_at=now - timedelta(hours=2),
+    )
+    test_db_session.add(dead_generation)
+    await test_db_session.flush()
+
+    asset = RasterAsset(
+        dataset_id=vrt_dataset.id,
+        asset_uri=f"rasters/{vrt_dataset.id}/source.vrt",
+        status="regenerating",
+        current_generation_id=dead_generation.id,
+        built_from={str(source.id): "irrelevant"},
+    )
+    test_db_session.add(asset)
+    test_db_session.add(
+        VrtSourceLink(
+            vrt_dataset_id=vrt_dataset.id, source_dataset_id=source.id, position=0
+        )
+    )
+    await test_db_session.commit()
+
+    cutoff = now - timedelta(hours=1)
+    assets_recovered, gens_failed, _keys = await sweep_stale_vrt_assets(
+        test_db_session, cutoff
+    )
+    await test_db_session.commit()
+
+    assert (assets_recovered, gens_failed) == (1, 1)
+    await test_db_session.refresh(asset)
+    assert asset.status == "ready"
+    assert asset.current_generation_id is None
+
+
+async def test_sweep_restores_ready_when_prior_attempt_never_ran(test_db_session):
+    """fix(#1322 review round 5): a generation's status='failed' does not by
+    itself mean the asset was not ready. regenerate_vrt_endpoint's own
+    orphan-guard rollback marks a just-created generation 'failed' when the
+    Procrastinate ENQUEUE itself throws — the task never reached a worker,
+    and the SAME rollback reverts the asset to whatever it already was
+    (commonly 'ready'). That generation's heartbeat_at is NULL forever: it
+    is set in exactly one place, tasks_vrt.regenerate_vrt's Phase-1 claim,
+    which an enqueue failure never reaches. A LATER, genuinely-run dead
+    attempt must not read that unrelated enqueue failure as proof the
+    asset was not ready."""
+    from app.platform.jobs.router import sweep_stale_vrt_assets
+    from app.processing.raster.models import RasterAsset, VrtGeneration, VrtSourceLink
+    from tests.factories import create_dataset, get_user_id
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    source = await create_dataset(test_db_session, created_by=admin_id)
+    vrt_dataset = await create_dataset(test_db_session, created_by=admin_id)
+
+    now = datetime.now(timezone.utc)
+    # The enqueue failure: status='failed', but heartbeat_at was NEVER set —
+    # the row was created and immediately failed by the SAME synchronous
+    # request, without a worker ever claiming it.
+    enqueue_failed_generation = VrtGeneration(
+        vrt_dataset_id=vrt_dataset.id,
+        status="failed",
+        started_at=now - timedelta(hours=5),
+        heartbeat_at=None,
+        completed_at=now - timedelta(hours=5),
+        error_message="Failed to queue VRT regeneration: connection refused",
+    )
+    test_db_session.add(enqueue_failed_generation)
+    await test_db_session.flush()
+
+    # A later attempt that DID actually run (heartbeat_at set) and is now
+    # dead — the one being reconciled.
+    dead_generation = VrtGeneration(
+        vrt_dataset_id=vrt_dataset.id,
+        status="running",
+        started_at=now - timedelta(hours=2),
+        heartbeat_at=now - timedelta(hours=2),
+    )
+    test_db_session.add(dead_generation)
+    await test_db_session.flush()
+
+    asset = RasterAsset(
+        dataset_id=vrt_dataset.id,
+        asset_uri=f"rasters/{vrt_dataset.id}/source.vrt",
+        status="regenerating",
+        current_generation_id=dead_generation.id,
+        built_from={str(source.id): "irrelevant"},
+    )
+    test_db_session.add(asset)
+    test_db_session.add(
+        VrtSourceLink(
+            vrt_dataset_id=vrt_dataset.id, source_dataset_id=source.id, position=0
+        )
+    )
+    await test_db_session.commit()
+
+    cutoff = now - timedelta(hours=1)
+    assets_recovered, gens_failed, _keys = await sweep_stale_vrt_assets(
+        test_db_session, cutoff
+    )
+    await test_db_session.commit()
+
+    assert (assets_recovered, gens_failed) == (1, 1)
+    await test_db_session.refresh(asset)
+    assert asset.status == "ready", (
+        "an enqueue failure that never reached a worker must not be read "
+        "as proof the asset was not ready"
+    )
+    assert asset.current_generation_id is None
+    # The unrelated enqueue-failure row is untouched by this sweep.
+    await test_db_session.refresh(enqueue_failed_generation)
+    assert enqueue_failed_generation.status == "failed"
+    assert enqueue_failed_generation.heartbeat_at is None
+
+
+# ---------------------------------------------------------------------------
+# fix(#1322 review round 6): PROVEN-DEAD FIRST for a 'pending' generation
+# specifically. started_at age alone cannot distinguish an orphan from a
+# regeneration still legitimately sitting in Procrastinate's queue through a
+# sustained worker backlog — queue waits are unbounded, the same reason
+# stale_pending_clauses requires no_live_procrastinate_job for IngestJob. A
+# 'running' generation's own heartbeat is sufficient proof on its own
+# (covered by the existing tests above) and is NOT re-tested here.
+# ---------------------------------------------------------------------------
+
+
+async def _insert_live_procrastinate_job(session, *, generation_id) -> None:
+    """A minimal 'todo' procrastinate_jobs row referencing a generation,
+    mirroring the INSERT shape test_dataset_refresh_runs.py already uses for
+    the identical class of live-job proof."""
+    from sqlalchemy import text as sa_text
+
+    await session.execute(sa_text("SET LOCAL search_path TO catalog, public"))
+    await session.execute(
+        sa_text(
+            "INSERT INTO catalog.procrastinate_jobs "
+            "(queue_name, task_name, args, status) "
+            "VALUES ('raster', 'app.ingest.tasks.regenerate_vrt', "
+            "jsonb_build_object('generation_id', CAST(:generation_id AS text)), "
+            "'todo')"
+        ),
+        {"generation_id": str(generation_id)},
+    )
+
+
+async def _insert_legacy_live_procrastinate_job(session, *, vrt_dataset_id) -> None:
+    """fix(#1322 review round 6, completed): a pre-upgrade delivery with no
+    `generation_id` argument at all — the shape tasks_vrt.regenerate_vrt
+    explicitly still accepts by adopting RasterAsset.current_generation_id.
+    Carries only `vrt_dataset_id`, matching what such a delivery's args
+    actually contain."""
+    from sqlalchemy import text as sa_text
+
+    await session.execute(sa_text("SET LOCAL search_path TO catalog, public"))
+    await session.execute(
+        sa_text(
+            "INSERT INTO catalog.procrastinate_jobs "
+            "(queue_name, task_name, args, status) "
+            "VALUES ('raster', 'app.ingest.tasks.regenerate_vrt', "
+            "jsonb_build_object('vrt_dataset_id', CAST(:vrt_dataset_id AS text)), "
+            "'todo')"
+        ),
+        {"vrt_dataset_id": str(vrt_dataset_id)},
+    )
+
+
+async def test_sweep_leaves_pending_generation_alone_while_its_job_is_still_queued(
+    test_db_session,
+):
+    """The exact scenario from the finding: a 'pending' generation with an
+    old started_at (a sustained worker backlog, not an orphan) whose task is
+    still genuinely queued in Procrastinate. Sweeping it would let the
+    queued task's own Phase-1 claim (tasks_vrt.py) fail against a
+    generation the sweep already flipped to 'failed', losing a valid
+    regeneration that was always going to run."""
+    from app.platform.jobs.router import sweep_stale_vrt_assets
+    from app.processing.raster.models import RasterAsset, VrtGeneration
+    from tests.factories import create_dataset, get_user_id
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    vrt_dataset = await create_dataset(test_db_session, created_by=admin_id)
+
+    now = datetime.now(timezone.utc)
+    queued_generation = VrtGeneration(
+        vrt_dataset_id=vrt_dataset.id,
+        status="pending",
+        started_at=now - timedelta(hours=2),  # old — a real backlog, not fresh
+        heartbeat_at=None,  # never claimed — nothing has run yet
+    )
+    test_db_session.add(queued_generation)
+    await test_db_session.flush()
+
+    asset = RasterAsset(
+        dataset_id=vrt_dataset.id,
+        asset_uri=f"rasters/{vrt_dataset.id}/source.vrt",
+        status="regenerating",
+        current_generation_id=queued_generation.id,
+        built_from={},
+    )
+    test_db_session.add(asset)
+    await _insert_live_procrastinate_job(
+        test_db_session, generation_id=queued_generation.id
+    )
+    await test_db_session.commit()
+
+    cutoff = now - timedelta(hours=1)
+    assets_recovered, gens_failed, _keys = await sweep_stale_vrt_assets(
+        test_db_session, cutoff
+    )
+    await test_db_session.commit()
+
+    assert (assets_recovered, gens_failed) == (0, 0), (
+        "a generation whose task is still queued must never be reconciled"
+    )
+    await test_db_session.refresh(queued_generation)
+    await test_db_session.refresh(asset)
+    assert queued_generation.status == "pending"
+    assert asset.status == "regenerating"
+    assert asset.current_generation_id == queued_generation.id
+
+
+async def test_sweep_reaps_pending_generation_once_its_job_is_proven_gone(
+    test_db_session,
+):
+    """Companion coverage: the same old, never-claimed 'pending' generation
+    IS swept once there is no live Procrastinate row for it at all — the
+    genuinely-orphaned case (create-then-defer death, or a purged/expired
+    queue row) this reconciliation exists to compensate for."""
+    from app.platform.jobs.router import sweep_stale_vrt_assets
+    from app.processing.raster.models import RasterAsset, VrtGeneration
+    from tests.factories import create_dataset, get_user_id
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    vrt_dataset = await create_dataset(test_db_session, created_by=admin_id)
+
+    now = datetime.now(timezone.utc)
+    orphaned_generation = VrtGeneration(
+        vrt_dataset_id=vrt_dataset.id,
+        status="pending",
+        started_at=now - timedelta(hours=2),
+        heartbeat_at=None,
+    )
+    test_db_session.add(orphaned_generation)
+    await test_db_session.flush()
+
+    asset = RasterAsset(
+        dataset_id=vrt_dataset.id,
+        asset_uri=f"rasters/{vrt_dataset.id}/source.vrt",
+        status="regenerating",
+        current_generation_id=orphaned_generation.id,
+        built_from={},
+    )
+    test_db_session.add(asset)
+    # No procrastinate_jobs row at all — no live job to prove.
+    await test_db_session.commit()
+
+    cutoff = now - timedelta(hours=1)
+    assets_recovered, gens_failed, _keys = await sweep_stale_vrt_assets(
+        test_db_session, cutoff
+    )
+    await test_db_session.commit()
+
+    assert (assets_recovered, gens_failed) == (1, 1)
+    await test_db_session.refresh(orphaned_generation)
+    await test_db_session.refresh(asset)
+    assert orphaned_generation.status == "failed"
+    assert asset.status == "ready"  # built_from={} matches the empty link set
+    assert asset.current_generation_id is None
+
+
+async def test_sweep_leaves_pending_generation_alone_for_a_live_legacy_delivery(
+    test_db_session,
+):
+    """fix(#1322 review round 6, completed): a pre-upgrade delivery queued
+    with no `generation_id` argument is still live and will still adopt
+    RasterAsset.current_generation_id once it runs (tasks_vrt.regenerate_vrt
+    explicitly supports this for rolling-deploy safety). Correlating only by
+    `generation_id` would be blind to it and let the sweep reap a generation
+    that a live task is about to claim."""
+    from app.platform.jobs.router import sweep_stale_vrt_assets
+    from app.processing.raster.models import RasterAsset, VrtGeneration
+    from tests.factories import create_dataset, get_user_id
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    vrt_dataset = await create_dataset(test_db_session, created_by=admin_id)
+
+    now = datetime.now(timezone.utc)
+    queued_generation = VrtGeneration(
+        vrt_dataset_id=vrt_dataset.id,
+        status="pending",
+        started_at=now - timedelta(hours=2),
+        heartbeat_at=None,
+    )
+    test_db_session.add(queued_generation)
+    await test_db_session.flush()
+
+    asset = RasterAsset(
+        dataset_id=vrt_dataset.id,
+        asset_uri=f"rasters/{vrt_dataset.id}/source.vrt",
+        status="regenerating",
+        # This generation is CURRENTLY the asset's pointer — exactly what a
+        # live legacy (args-less) delivery for this dataset would adopt.
+        current_generation_id=queued_generation.id,
+        built_from={},
+    )
+    test_db_session.add(asset)
+    await _insert_legacy_live_procrastinate_job(
+        test_db_session, vrt_dataset_id=vrt_dataset.id
+    )
+    await test_db_session.commit()
+
+    cutoff = now - timedelta(hours=1)
+    assets_recovered, gens_failed, _keys = await sweep_stale_vrt_assets(
+        test_db_session, cutoff
+    )
+    await test_db_session.commit()
+
+    assert (assets_recovered, gens_failed) == (0, 0), (
+        "a live legacy delivery for this dataset, which will adopt exactly "
+        "this generation, must never be reconciled"
+    )
+    await test_db_session.refresh(queued_generation)
+    await test_db_session.refresh(asset)
+    assert queued_generation.status == "pending"
+    assert asset.status == "regenerating"
+    assert asset.current_generation_id == queued_generation.id
+
+
+async def test_sweep_reaps_pending_generation_when_no_legacy_delivery_is_live(
+    test_db_session,
+):
+    """Companion coverage: a dataset with NO live procrastinate_jobs row at
+    all (neither modern nor legacy-shaped) still gets its genuinely-orphaned
+    pending generation reaped — the fallback correlation must not make the
+    sweep permanently blind."""
+    from app.platform.jobs.router import sweep_stale_vrt_assets
+    from app.processing.raster.models import RasterAsset, VrtGeneration
+    from tests.factories import create_dataset, get_user_id
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    vrt_dataset = await create_dataset(test_db_session, created_by=admin_id)
+
+    now = datetime.now(timezone.utc)
+    orphaned_generation = VrtGeneration(
+        vrt_dataset_id=vrt_dataset.id,
+        status="pending",
+        started_at=now - timedelta(hours=2),
+        heartbeat_at=None,
+    )
+    test_db_session.add(orphaned_generation)
+    await test_db_session.flush()
+
+    asset = RasterAsset(
+        dataset_id=vrt_dataset.id,
+        asset_uri=f"rasters/{vrt_dataset.id}/source.vrt",
+        status="regenerating",
+        current_generation_id=orphaned_generation.id,
+        built_from={},
+    )
+    test_db_session.add(asset)
+    # No procrastinate_jobs row of any shape.
+    await test_db_session.commit()
+
+    cutoff = now - timedelta(hours=1)
+    assets_recovered, gens_failed, _keys = await sweep_stale_vrt_assets(
+        test_db_session, cutoff
+    )
+    await test_db_session.commit()
+
+    assert (assets_recovered, gens_failed) == (1, 1)
+    await test_db_session.refresh(orphaned_generation)
+    await test_db_session.refresh(asset)
+    assert orphaned_generation.status == "failed"
+    assert asset.status == "ready"
+    assert asset.current_generation_id is None
 
 
 @pytest.mark.rls
@@ -674,6 +1595,23 @@ async def test_sweep_stale_vrt_assets_cannot_mutate_another_tenant(
                     "GRANT SELECT, UPDATE ON catalog.vrt_generations, "
                     "catalog.raster_assets TO geolens_reader"
                 )
+            )
+            # fix(#1322 review round 3): the composition-preserving check
+            # reads vrt_source_links — a real runtime role already has
+            # blanket SELECT/INSERT/UPDATE/DELETE on every catalog table
+            # (configure-runtime-db-role.sh), so this is this minimal test
+            # role catching up, not a production grant gap.
+            await conn.execute(
+                sa.text("GRANT SELECT ON catalog.vrt_source_links TO geolens_reader")
+            )
+            # fix(#1322 review round 6): the pending-generation proven-dead
+            # check reads catalog.procrastinate_jobs — same "minimal test
+            # role catching up" rationale as above; the query text references
+            # the table even for these status='running' fixture rows, so
+            # Postgres checks the privilege at plan time regardless of which
+            # OR-branch actually matches.
+            await conn.execute(
+                sa.text("GRANT SELECT ON catalog.procrastinate_jobs TO geolens_reader")
             )
             for record_id, dataset_id, tenant_id, suffix in (
                 (record_a, dataset_a, ctx.tenant_a, "a"),
@@ -732,9 +1670,9 @@ async def test_sweep_stale_vrt_assets_cannot_mutate_another_tenant(
                     sa.text(
                         "INSERT INTO catalog.raster_assets "
                         "(id, dataset_id, asset_uri, storage_backend, status, "
-                        " current_generation_id, created_at) "
+                        " current_generation_id, built_from, created_at) "
                         "VALUES (:id, :dataset_id, :uri, 'local', 'regenerating', "
-                        " :generation_id, now())"
+                        " :generation_id, '{}'::jsonb, now())"
                     ),
                     {
                         "id": asset_id,
@@ -745,7 +1683,12 @@ async def test_sweep_stale_vrt_assets_cannot_mutate_another_tenant(
                 )
 
         async with ctx.tenant_session(ctx.tenant_a) as session:
-            assert await sweep_stale_vrt_assets(session, cutoff) == (1, 1)
+            # fix(#1322 review): 3rd element is resolved-not-deleted storage
+            # keys, tenant-prefixed since ctx.tenant_session binds
+            # current_tenant_var for the block — one swept generation, 3 keys.
+            sweep_result = await sweep_stale_vrt_assets(session, cutoff)
+            assert sweep_result[:2] == (1, 1)
+            assert len(sweep_result[2]) == 3
 
         async with engine.connect() as conn:
             generations = dict(
@@ -771,7 +1714,10 @@ async def test_sweep_stale_vrt_assets_cannot_mutate_another_tenant(
                 ).all()
             )
         assert generations == {generation_a: "failed", generation_b: "running"}
-        assert assets == {asset_a: "failed", asset_b: "regenerating"}
+        # feat(#1267): restored to 'ready', not 'failed' — tenant a's asset
+        # never had its published pointer touched by the dead attempt, so it
+        # keeps serving what it served before regeneration started.
+        assert assets == {asset_a: "ready", asset_b: "regenerating"}
     finally:
         async with engine.begin() as conn:
             await conn.execute(
@@ -782,6 +1728,14 @@ async def test_sweep_stale_vrt_assets_cannot_mutate_another_tenant(
                 sa.text(
                     "REVOKE SELECT, UPDATE ON catalog.vrt_generations, "
                     "catalog.raster_assets FROM geolens_reader"
+                )
+            )
+            await conn.execute(
+                sa.text("REVOKE SELECT ON catalog.vrt_source_links FROM geolens_reader")
+            )
+            await conn.execute(
+                sa.text(
+                    "REVOKE SELECT ON catalog.procrastinate_jobs FROM geolens_reader"
                 )
             )
         await engine.dispose()

@@ -2318,7 +2318,109 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # reupload check: a service refresh job carries both markers, and moving
     # this one first would silently reword an existing message.
     # Cap 1605 -> 1615, exact.
-    "backend/app/platform/jobs/router.py": 1615,
+    # feat(#1267): +77 — sweep_stale_vrt_assets now restores 'ready' instead
+    # of 'failed' (the dead attempt never touched the published pointer, so
+    # the VRT keeps serving what it served before), the VrtGeneration
+    # RETURNING widened to (id, vrt_dataset_id) so the pairing survives to a
+    # new _reap_stale_generation_storage helper, and that helper best-effort
+    # reaps the dead attempt's own generation-scoped storage objects via the
+    # existing _cleanup_orphaned_storage_keys, keyed through current_tenant_var
+    # the same way regenerate_vrt itself resolves those keys. Most of the
+    # lines are the docstring recording why 'ready' is the correct restore
+    # target and why the pairing cannot come from the asset UPDATE's own
+    # RETURNING (its current_generation_id is nulled in the same statement).
+    # Cap 1615 -> 1692, exact.
+    # fix(#1322 review): +78 — storage deletion for a dead VRT regeneration's
+    # generation-scoped objects had run inside sweep_stale_vrt_assets itself,
+    # before its caller's commit. A rolled-back reconciliation could then
+    # leave a `'ready'` asset pointing at a generation whose bytes were
+    # already gone. Deletion is now split from resolution:
+    # _stale_generation_storage_keys (pure, no I/O) computes the keys inside
+    # the sweep; _reap_stale_generation_storage (I/O, no DB) deletes them,
+    # called only by each caller strictly after ITS OWN commit lands —
+    # threaded through StaleCleanupOutcome exactly like _staged_paths for the
+    # fail_stale_jobs path, and directly in worker.py's startup recovery
+    # path. Most of the lines are the docstrings recording why the ordering
+    # is load-bearing on both call sites. Cap 1692 -> 1770, exact.
+    # fix(#1322 review round 3): +104 — restoring 'ready' was only honest for
+    # a composition-PRESERVING dead attempt. add_vrt_source/remove_vrt_source
+    # commit their vrt_source_links mutation before the (now-dead)
+    # regeneration ever runs, so a dead attempt of that kind leaves the
+    # catalog's stated composition already ahead of the served bytes;
+    # restoring 'ready' there erased the only visible signal of that drift.
+    # The RasterAsset UPDATE split into two — composition-preserving (->
+    # 'ready') and composition-changed (-> 'failed', the same conservative
+    # outcome a NULL/non-object built_from also falls to) — discriminated by
+    # a shared SQL fragment (_COMPOSITION_PRESERVED_SQL) comparing
+    # built_from's key set against the live vrt_source_links set, reused
+    # verbatim and negated for the mirror statement. Most of the lines are
+    # the docstrings recording why this reads stored state rather than
+    # attempt provenance (no such field exists) and the jsonb_typeof(...) =
+    # 'object' guard a real-DB test proved necessary over a bare IS NOT NULL
+    # (SQLAlchemy's plain JSONB serializes Python None to the JSON scalar
+    # null, not SQL NULL). Cap 1770 -> 1874, exact.
+    # fix(#1322 review round 4): +68 — composition-preserving was necessary
+    # but not sufficient: regenerate_vrt_endpoint's guard rejects only
+    # 'regenerating', so a caller may retry an already-'failed' asset, and a
+    # dead retry whose membership still matched would have restored 'ready'
+    # and erased a real failure the crash had nothing to do with. Added a
+    # second, independent SQL fragment (_PRIOR_ATTEMPT_WAS_READY_SQL) reading
+    # the immediately-prior vrt_generations row's terminal status — 'failed'
+    # blocks the restore, 'completed' or no such row (first-ever attempt)
+    # allows it — combined into _READY_WORTHY_SQL with the composition check.
+    # Most of the lines are the docstring recording why no stored "attempt
+    # type" column exists to key off directly, and the accepted conservative
+    # cost this heuristic carries: a generation this sweep itself restores to
+    # 'ready' still leaves its OWN vrt_generations row 'failed', so a LATER
+    # dead attempt on the same dataset can read that earlier row and stay
+    # 'failed' one cycle longer than strictly necessary — the safe direction
+    # for a reconciler that must never manufacture a resolution that didn't
+    # happen. Cap 1874 -> 1942, exact.
+    # fix(#1322 review round 5): +29 — the prior-ready marker read raw
+    # generation STATUS, but regenerate_vrt_endpoint's orphan-guard rollback
+    # marks a generation 'failed' on a synchronous ENQUEUE failure (the task
+    # never reached a worker) while reverting the asset to whatever it
+    # already was — so that row's 'failed' status says nothing about the
+    # asset. Added `heartbeat_at IS NOT NULL` to the marker's subquery:
+    # heartbeat_at is set in exactly one place (tasks_vrt.regenerate_vrt's
+    # Phase-1 claim), so its absence proves a generation never actually ran,
+    # and excluding those rows finds the nearest OTHER generation that did.
+    # Most of the lines are the docstring distinguishing this from a
+    # genuine build failure (which always sets heartbeat_at during its own
+    # Phase-1 claim before anything can fail) and from a claim-starved
+    # 'pending' row swept as its own dead attempt (same "never ran" fact,
+    # consistently excluded either way). Cap 1942 -> 1971, exact.
+    # fix(#1322 review round 6): +45 — the timeout predicate for a 'pending'
+    # VrtGeneration lacked the same live-Procrastinate-job exclusion
+    # stale_pending_clauses already applies to IngestJob's pending sweep, for
+    # the identical reason: queue waits are unbounded, so started_at age
+    # alone cannot tell a genuine orphan from a regeneration still sitting
+    # in a sustained worker backlog. Split the staleness check by status —
+    # 'running' keeps the heartbeat-only proof (sufficient on its own, and
+    # required: a crashed worker can leave its procrastinate_jobs row
+    # reading 'doing' until the separate stalled-queue sweep prunes it, so a
+    # live-job requirement there would make a genuinely-dead running
+    # generation unsweepable until that other sweep runs); 'pending' now
+    # additionally requires _NO_LIVE_GENERATION_JOB_SQL, correlated via the
+    # `generation_id` kwarg every dispatch site passes (mirrors
+    # _ABANDONED_RUN_SQL's `args->>'job_id'` correlation in
+    # platform/refresh/service.py). Most of the lines are the docstring
+    # distinguishing the two branches' proof requirements. Cap 1971 -> 2016,
+    # exact.
+    # fix(#1322 review round 6, completed): +31 — the live-Procrastinate-job
+    # correlation for a 'pending' generation matched only the modern
+    # `generation_id` args shape. A pre-upgrade delivery queued without that
+    # argument (regenerate_vrt explicitly still accepts it, adopting
+    # RasterAsset.current_generation_id — rolling-deploy compatibility) was
+    # invisible to it, so a live legacy task's generation could still be
+    # reconciled out from under it. Added a second correlation form: a live
+    # row with no `generation_id` counts as live for a generation if that
+    # generation is CURRENTLY the dataset's RasterAsset.current_generation_id
+    # — the exact row such a delivery adopts on execution. Most of the lines
+    # are the docstring explaining the two delivery shapes and why the
+    # ambiguous case must resolve toward "still live," not toward sweeping.
+    # Cap 2016 -> 2047, exact.
+    "backend/app/platform/jobs/router.py": 2047,
     # fix(second-opinion review on #1236 review r3): first entry — crossed
     # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
     # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side
@@ -2407,7 +2509,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # cannot stamp commit time from inside a transaction, so no clock scheme
     # could express "committed after my snapshot" — three rounds of timestamp
     # fixes each left a window. Cap 1118 -> 1140, exact.
-    "backend/app/processing/ingest/tasks_vrt.py": 1140,
+    # feat(#1267): +10 — the dataset's last_refreshed_at is stamped at the
+    # generation's own completed_at instant, in the same transaction as the
+    # generation swap, so source_freshness (#1224) reads a live signal for a
+    # VRT instead of the creation-time floor forever. Most of the lines are
+    # the comment recording why it reuses generation.completed_at rather than
+    # a fresh now() call. Cap 1140 -> 1150, exact.
+    "backend/app/processing/ingest/tasks_vrt.py": 1150,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
     # reaper never touched the key the client's PUT URL can still recreate.

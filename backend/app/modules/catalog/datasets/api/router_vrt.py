@@ -489,11 +489,14 @@ async def regenerate_vrt_endpoint(
 
     await db.commit()
 
-    # Dispatch task with orphan guard.
-    # No stale-cleanup sweep exists for VRT ``status="regenerating"``
-    # or for ``VrtGeneration`` rows — a Procrastinate outage would
-    # leave the VRT permanently stuck and the generation row dangling
-    # until manual operator intervention.
+    # Dispatch task with orphan guard. This closes the SYNCHRONOUS failure —
+    # Procrastinate unreachable at enqueue time — by reverting the mutation
+    # below before it is ever visible. A worker that dies AFTER a successful
+    # dispatch is a different failure and is not this guard's job: fix(#1267)
+    # gives ``sweep_stale_vrt_assets`` (GAP-002) a periodic + startup pass
+    # that reconciles it — restoring the asset to ``'ready'`` and failing the
+    # orphaned ``VrtGeneration`` row — so neither state is stuck on manual
+    # operator intervention.
     async def _defer() -> None:
         await defer_async_with_tenant(
             get_catalog_port().regenerate_vrt_task(),

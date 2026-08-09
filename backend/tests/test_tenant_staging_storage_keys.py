@@ -406,9 +406,16 @@ async def test_cleanup_and_retention_reaper_delete_only_tenant_key(
     # feat(#1219): six, with the abandoned-refresh-run sweep after them.
     # fix(#1274 review): seven — the refresh-run sweep is two statements,
     # the legacy-completion recorder before the abandonment cancel.
-    empty_scalars = [MagicMock() for _ in range(7)]
+    # fix(#1322 review round 3): eight — the VRT RasterAsset UPDATE split
+    # into two (composition-preserving -> 'ready', composition-changed ->
+    # 'failed'). Both .scalars() and .all() are set on every result: the
+    # VrtGeneration UPDATE in that same sweep reads via .all(), and this
+    # fixture doesn't care which statement lands at which index, only that
+    # every accessor the sweep might call returns an empty result.
+    empty_scalars = [MagicMock() for _ in range(8)]
     for result in empty_scalars:
         result.scalars.return_value = []
+        result.all.return_value = []
     deleted = MagicMock()
     # fix(#1202 review r5): the purge's RETURNING is (id, file_path,
     # user_metadata) now — it also reaps the presigned staging key, which

@@ -101,22 +101,45 @@ async def test_vrt_generation_heartbeat_fences_stale_recovery(test_db_session):
         asset_uri="rasters/test/source.vrt",
         status="regenerating",
         current_generation_id=generation.id,
+        # fix(#1322 review round 3): this test is about HEARTBEAT-based
+        # staleness, not composition drift — an empty built_from matches
+        # this fixture's zero vrt_source_links rows (both empty sets), so
+        # the composition guard finds nothing changed and the restore-to-
+        # ready path this test asserts on is the one that actually fires.
+        # See test_vrt_stale_sweep_gap002.py for the composition-drift cases.
+        built_from={},
     )
     test_db_session.add(asset)
     await test_db_session.commit()
 
     cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
-    assert await sweep_stale_vrt_assets(test_db_session, cutoff) == (0, 0)
+    assert await sweep_stale_vrt_assets(test_db_session, cutoff) == (0, 0, ())
     await test_db_session.commit()
 
     generation.heartbeat_at = datetime.now(timezone.utc) - timedelta(hours=2)
     await test_db_session.commit()
-    assert await sweep_stale_vrt_assets(test_db_session, cutoff) == (1, 1)
+    # feat(#1322 review): the 3rd element is the dead attempt's resolved (not
+    # yet deleted) storage keys — deletion is the caller's job, strictly
+    # after ITS commit lands, so sweep_stale_vrt_assets itself never touches
+    # storage.
+    generation_base = f"rasters/{dataset.id}/generations/{generation.id}"
+    expected_keys = (
+        f"{generation_base}/source.vrt",
+        f"{generation_base}/quicklook_256.png",
+        f"{generation_base}/quicklook_512.png",
+    )
+    assert await sweep_stale_vrt_assets(test_db_session, cutoff) == (
+        1,
+        1,
+        expected_keys,
+    )
     await test_db_session.commit()
     await test_db_session.refresh(generation)
     await test_db_session.refresh(asset)
     assert generation.status == "failed"
-    assert asset.status == "failed"
+    # feat(#1267): restored to 'ready' — the dead attempt never touched the
+    # asset's published pointer, so it keeps serving what it served before.
+    assert asset.status == "ready"
     assert asset.current_generation_id is None
 
 

@@ -161,13 +161,23 @@ async def _recover_stale_jobs_for_current_scope() -> None:
         # GAP-002: sweep VRT assets stuck in status='regenerating' past the timeout.
         # Uses the same stale_cutoff as the running-jobs sweep so the window is
         # consistent — mirrors the fail_stale_jobs periodic sweep.
-        from app.platform.jobs.router import sweep_stale_vrt_assets
-
-        vrt_assets_recovered, vrt_gens_failed = await sweep_stale_vrt_assets(
-            session, stale_cutoff
+        from app.platform.jobs.router import (
+            _reap_stale_generation_storage,
+            sweep_stale_vrt_assets,
         )
 
+        (
+            vrt_assets_recovered,
+            vrt_gens_failed,
+            stale_generation_storage_keys,
+        ) = await sweep_stale_vrt_assets(session, stale_cutoff)
+
         await session.commit()
+        # fix(#1322 review): reap only after the commit above lands — deleting
+        # a dead attempt's storage objects before the reconciliation that
+        # restored ownership is durable can orphan a 'ready' asset against
+        # bytes a rolled-back commit never actually freed for deletion.
+        await _reap_stale_generation_storage(stale_generation_storage_keys)
         total = len(stale_jobs) + len(orphaned_jobs)
         if total or vrt_assets_recovered:
             log.info(
