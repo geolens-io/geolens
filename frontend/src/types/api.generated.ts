@@ -2299,6 +2299,13 @@ export interface paths {
          *     complete, so a refresh that fails leaves the live table and its freshness
          *     exactly as they were.
          *
+         *     A dataset registered from an existing PostGIS table takes the other
+         *     execution strategy (#1265): its origin IS the table it serves from, so
+         *     there is nothing to pull and nothing to swap, and the refresh re-measures
+         *     the live relation instead — recounting features, recomputing the extent,
+         *     and rebuilding the column schema snapshot and statistics. Admission, the
+         *     run row and the history it writes are identical either way.
+         *
          *     Refuses with 409 ``dataset_busy`` while another refresh or re-upload is
          *     active for this dataset — v1 rejects rather than queues (Decision 5b), and
          *     the refusal comes from a partial unique index rather than a check, so two

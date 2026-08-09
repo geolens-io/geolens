@@ -203,6 +203,11 @@ class DefaultCatalogPort:
 
         return reupload_raster
 
+    def refresh_postgis_task(self):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.tasks import refresh_postgis
+
+        return refresh_postgis
+
     def materialize_analysis_task(self):  # type: ignore[no-untyped-def]
         from app.processing.analysis.tasks import materialize_analysis
 

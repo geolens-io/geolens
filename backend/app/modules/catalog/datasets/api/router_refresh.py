@@ -22,6 +22,16 @@ SAME (handoff invariant 11): this handler calls ``create_pending_run`` exactly
 as ``reupload_commit`` does and dispatches the same ``reupload_service`` task.
 A second admission path is how one of them ends up with a rule the other
 lacks.
+
+feat(#1265) added the second execution strategy behind that same machinery.
+One endpoint, one Rule 1 gate, one admission function, one run ledger; what
+varies per origin kind is the binding it unpacks and the task it defers.
+Registered PostGIS is the strategy where the difference is largest — its
+origin is a relation in this database rather than a remote service, so it
+resolves no URL, needs no SSRF check and takes no credential — and it still
+goes through ``create_pending_run`` / ``defer_with_orphan_guard`` /
+``make_refresh_run_failed_rollback`` unchanged, because those are the parts
+that must not have two implementations.
 """
 
 from __future__ import annotations
@@ -116,8 +126,10 @@ def _resolve_service_origin(dataset) -> _ServiceOrigin:
 
     Two different 409s, because they are two different problems for the
     person reading them: ``refresh_not_applicable`` means this kind of dataset
-    has no origin to re-pull from (an upload, a drawn layer, a registered
-    table), and ``origin_unavailable`` means it does but GeoLens never
+    has no origin to re-pull from (an upload, a drawn layer, a collection, a
+    VRT — a registered table has one, and reaches this function only if it
+    was rebound mid-request, since the handler routes that kind to its own
+    strategy), and ``origin_unavailable`` means it does but GeoLens never
     recorded enough of it — a service dataset from before the binding existed
     whose backfill could not reconstruct a base URL and layer.
     """
@@ -208,6 +220,215 @@ def _resolve_service_origin(dataset) -> _ServiceOrigin:
     )
 
 
+@dataclass(frozen=True)
+class _PostgisOrigin:
+    """The registered table a postgis-origin dataset is bound to.
+
+    One field, and that is the whole of ADR-002 gate 2: ``origin_ref`` for
+    this kind accepts ``table_name`` and nothing else — no host, port, DSN or
+    credential — so there is no shape in which this dataclass could address a
+    table outside this instance. The stored value is schema-qualified
+    (``set_postgis_origin`` composes it), and the worker proves it names this
+    dataset's own live table before reading anything.
+    """
+
+    table_name: str
+
+
+def _resolve_postgis_origin(dataset) -> _PostgisOrigin:
+    """Unpack a registered table's binding, or explain why it cannot refresh.
+
+    Same two refusals, and the same distinction between them, as
+    :func:`_resolve_service_origin`: ``refresh_not_applicable`` for a kind
+    with no origin to re-measure, ``origin_unavailable`` for a registered
+    dataset whose binding predates #1218 and carries no table name. The
+    second is recoverable by re-registering the table; the first is not
+    recoverable at all, and telling the two apart is the difference between
+    useful advice and a shrug.
+    """
+    origin_kind = classify_origin(dataset.source_format, dataset.record.record_type)
+    if origin_kind != "postgis":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "refresh_not_applicable",
+                "message": (
+                    "This dataset is not backed by a registered table, so "
+                    "there is nothing to re-measure."
+                ),
+                "origin_kind": origin_kind,
+            },
+        )
+    table_name = (dataset.origin_ref or {}).get("table_name")
+    if not table_name:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "origin_unavailable",
+                "message": (
+                    "This dataset's source binding does not record which "
+                    "table it was registered from, so GeoLens cannot tell "
+                    "what to re-measure. Register the table again."
+                ),
+                "origin_kind": "postgis",
+            },
+        )
+    return _PostgisOrigin(table_name=table_name)
+
+
+async def _dispatch_postgis_refresh(
+    db: AsyncSession,
+    *,
+    dataset,
+    dataset_id: uuid.UUID,
+    user: Identity,
+    token: str | None,
+) -> DatasetRefreshResponse:
+    """Admit and dispatch a re-measurement of a registered table.
+
+    The ordering is the service path's, minus the steps that only a remote
+    origin has, and for the same reasons — see the long note in
+    :func:`refresh_dataset`. In particular the binding that gets dispatched is
+    read AFTER the reservation exists, so a re-upload that commits while this
+    request is being admitted cannot have its rebind dispatched from a
+    pre-swap snapshot. There is no SSRF step because there is no URL, and no
+    credential step because there is nothing to authenticate to: the origin is
+    a relation in this database, reached over the connection the request is
+    already using.
+    """
+    # A pre-check, exactly as on the service path: it answers the cheap
+    # refusals before the admission index is touched. The value that gets
+    # dispatched is the re-read below.
+    candidate = _resolve_postgis_origin(dataset)
+
+    if token:
+        # Refused rather than ignored. Nothing on this path could use a
+        # credential, and accepting one would answer 202 to a request that
+        # handed GeoLens a secret it silently dropped — the caller would have
+        # no way to learn their token went nowhere.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "credential_not_applicable",
+                "message": (
+                    "This dataset is backed by a registered table in this "
+                    "instance, which needs no service credential. Send the "
+                    "request without a token."
+                ),
+            },
+        )
+
+    job = IngestJob(
+        dataset_id=dataset_id,
+        created_by=user.id,
+        status="pending",
+        # Deliberately NOT `reupload: True`. That marker means "a task is
+        # replacing this dataset's data", and two pieces of shared SQL key off
+        # it — the legacy-live admission probe and the abandoned-run sweep's
+        # other-live-task clause — both of which reason about swaps this task
+        # never performs. `refresh` alone is the honest marker, and it is the
+        # one the job list already reads to tell a refresh from an import.
+        user_metadata={
+            "refresh": True,
+            "dataset_id": str(dataset_id),
+            "origin_kind": "postgis",
+        },
+    )
+    db.add(job)
+    await db.flush()
+
+    try:
+        run = await create_pending_run(
+            db,
+            dataset_id=dataset_id,
+            origin_kind="postgis",
+            trigger="api",
+            triggered_by=user.id,
+            ingest_job_id=job.id,
+            feature_count_before=dataset.feature_count,
+        )
+    except DatasetBusyError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "dataset_busy",
+                "message": (
+                    "A refresh is already running for this dataset. "
+                    "Wait for it to finish, then try again."
+                ),
+            },
+        ) from exc
+
+    await db.refresh(
+        dataset, ["origin_uri", "origin_ref", "source_format", "feature_count"]
+    )
+    try:
+        origin = _resolve_postgis_origin(dataset)
+    except HTTPException:
+        # Rebound to something this strategy cannot refresh while we were
+        # reserving — a file re-upload of the registered dataset, most
+        # likely. Release the reservation before answering, or the leaked run
+        # row refuses every later refresh until the sweep cancels it.
+        await db.rollback()
+        raise
+    if origin != candidate:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "origin_changed",
+                "message": (
+                    "This dataset's source changed while the refresh was "
+                    "being queued, so it was not started. Check the new "
+                    "source and try again."
+                ),
+            },
+        )
+
+    # The job carries no source pointer of its own — the worker reads the
+    # binding, the same way this handler does. The filename slot is what the
+    # job list renders, and the table is the only name this operation has.
+    job.source_filename = origin.table_name
+    # Read after the reservation for the same reason the binding is: a
+    # refresh that finished in the window changed the count this one is
+    # measured against, and the history row renders it as the "before".
+    run.feature_count_before = dataset.feature_count
+
+    job_id = job.id
+    attempt_id = job.attempt_id
+    run_id = run.id
+    await db.commit()
+
+    rollback = make_refresh_run_failed_rollback(
+        make_ingest_job_failed_rollback(
+            job, message_prefix="Failed to queue refresh task"
+        ),
+        db=db,
+        ingest_job_id=job_id,
+    )
+
+    async def _defer_refresh() -> None:
+        await defer_async_with_tenant(
+            get_catalog_port().refresh_postgis_task(),
+            job_id=str(job_id),
+            attempt_id=str(attempt_id),
+            dataset_id=str(dataset_id),
+        )
+
+    await defer_with_orphan_guard(_defer_refresh, rollback=rollback, db=db)
+
+    return DatasetRefreshResponse(
+        run_id=run_id,
+        job_id=job_id,
+        dataset_id=dataset_id,
+        origin_kind="postgis",
+        trigger="api",
+        status="pending",
+        message="Refresh queued from the registered table",
+    )
+
+
 async def _prior_service_ingest_settings(
     db: AsyncSession, dataset_id: uuid.UUID
 ) -> tuple[str | None, str | None]:
@@ -258,6 +479,13 @@ async def refresh_dataset(
     complete, so a refresh that fails leaves the live table and its freshness
     exactly as they were.
 
+    A dataset registered from an existing PostGIS table takes the other
+    execution strategy (#1265): its origin IS the table it serves from, so
+    there is nothing to pull and nothing to swap, and the refresh re-measures
+    the live relation instead — recounting features, recomputing the extent,
+    and rebuilding the column schema snapshot and statistics. Admission, the
+    run row and the history it writes are identical either way.
+
     Refuses with 409 ``dataset_busy`` while another refresh or re-upload is
     active for this dataset — v1 rejects rather than queues (Decision 5b), and
     the refusal comes from a partial unique index rather than a check, so two
@@ -271,8 +499,23 @@ async def refresh_dataset(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dataset not found",
         )
-    # Rule 1: this endpoint replaces the dataset's data.
+    # Rule 1: this endpoint replaces the dataset's data. One gate, before the
+    # strategy split below, so neither strategy can be reached without it.
     await check_dataset_write_access(db, dataset, dataset_id, user)
+
+    # The strategy split. `classify_origin` is the derivation ADR-002
+    # Decision 2 keeps pure, so this dispatch cannot disagree with the
+    # `origin` the API reports for the same dataset. Everything that is not a
+    # registered table falls through to the service path, whose resolver
+    # answers `refresh_not_applicable` for the kinds with no origin at all.
+    if classify_origin(dataset.source_format, dataset.record.record_type) == "postgis":
+        return await _dispatch_postgis_refresh(
+            db,
+            dataset=dataset,
+            dataset_id=dataset_id,
+            user=user,
+            token=body.token,
+        )
 
     # Record-type eligibility is not checked separately here, deliberately.
     # `classify_origin` already returns None for the two originless record
