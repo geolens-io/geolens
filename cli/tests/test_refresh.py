@@ -281,12 +281,18 @@ class TestRefreshWait:
     @staticmethod
     def _timeout_tracking_client():
         class Client:
-            def __init__(self) -> None:
-                self.timeouts: list[float] = []
+            def __init__(self, timeouts: list[float] | None = None) -> None:
+                self.timeouts = timeouts if timeouts is not None else []
+                self.transport = SimpleNamespace(timeout=None)
 
             def with_timeout(self, timeout: float):
                 self.timeouts.append(timeout)
-                return self
+                clone = Client(self.timeouts)
+                clone.transport.timeout = timeout
+                return clone
+
+            def get_httpx_client(self):
+                return self.transport
 
         return Client()
 
@@ -364,11 +370,13 @@ class TestRefreshWait:
 
         elapsed = [0.0]
         requests = [0]
+        request_timeouts: list[float] = []
         sleeps: list[float] = []
         client = self._timeout_tracking_client()
 
-        def next_status(**_kwargs):
+        def next_status(**kwargs):
             requests[0] += 1
+            request_timeouts.append(kwargs["client"].get_httpx_client().timeout)
             if requests[0] == 1:
                 elapsed[0] += 9.75
                 status = "pending"
@@ -400,16 +408,26 @@ class TestRefreshWait:
         assert result.status == "timed_out"
         assert requests[0] == 1
         assert sleeps == pytest.approx([0.25])
-        assert client.timeouts == pytest.approx([10.0])
+        assert request_timeouts == pytest.approx([10.0])
 
-    def test_each_get_uses_only_the_remaining_timeout_budget(self, monkeypatch) -> None:
+    def test_each_get_reuses_transport_with_remaining_timeout_budget(
+        self, monkeypatch
+    ) -> None:
         from geolens_cli.refresh import wait_for_refresh
 
         elapsed = [0.0]
         client = self._timeout_tracking_client()
         statuses = iter(("pending", "complete"))
+        request_clients = []
+        request_transports = []
+        request_timeouts: list[float] = []
 
-        def next_status(**_kwargs):
+        def next_status(**kwargs):
+            request_client = kwargs["client"]
+            transport = request_client.get_httpx_client()
+            request_clients.append(request_client)
+            request_transports.append(transport)
+            request_timeouts.append(transport.timeout)
             status = next(statuses)
             if status == "pending":
                 elapsed[0] += 4.0
@@ -433,7 +451,11 @@ class TestRefreshWait:
         )
 
         assert result.status == "complete"
-        assert client.timeouts == pytest.approx([10.0, 5.0])
+        assert request_clients == [client, client]
+        assert request_transports[0] is request_transports[1]
+        assert request_timeouts == pytest.approx([10.0, 5.0])
+        assert client.timeouts == []
+        assert client.transport.timeout is None
 
     def test_cli_default_wait_passes_no_deadline_to_the_poller(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
@@ -561,6 +583,19 @@ class TestDatasetStatus:
         for value in ("service", "overdue", "inaccessible", "unauthorized"):
             assert value in result.output
 
+    def test_quiet_status_suppresses_the_human_table(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        self._patch_status(monkeypatch)
+
+        result = runner.invoke(app, ["--quiet", "status", str(DATASET_ID)])
+
+        assert result.exit_code == 0, result.output
+        assert result.output == ""
+
     def test_json_status_uses_the_shipped_dataset_fields(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
@@ -569,7 +604,10 @@ class TestDatasetStatus:
         _seed_login(mock_keyring)
         self._patch_status(monkeypatch)
 
-        result = runner.invoke(app, ["--json", "status", str(DATASET_ID)])
+        result = runner.invoke(
+            app,
+            ["--quiet", "--json", "status", str(DATASET_ID)],
+        )
 
         assert result.exit_code == 0, result.output
         payload = json.loads(result.output)

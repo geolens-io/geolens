@@ -522,7 +522,7 @@ def status(
     payload = _refresh.dataset_status_payload(dataset)
     if state.json_mode:
         state.output.json(payload)
-    else:
+    elif not state.quiet:
         _refresh.render_dataset_status(state.output.console_stdout, payload)
 
 
