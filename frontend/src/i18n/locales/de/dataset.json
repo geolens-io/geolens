@@ -804,6 +804,7 @@
     "refresh": {
       "action": "Von der Quelle aktualisieren",
       "busyHint": "Es läuft bereits eine Aktualisierung. Siehe Aktualisierungsverlauf unten.",
+      "featureEditBlockedHint": "Schließen Sie die laufende Feature-Bearbeitung ab oder verwerfen Sie sie, bevor Sie aktualisieren.",
       "dialogTitle": "Von der Quelle aktualisieren",
       "dialogDescription": "Die Daten dieses Datensatzes werden erneut von der ursprünglichen Importquelle abgerufen. Der Datensatz liefert weiterhin seine aktuellen Daten, bis die neuen Daten bereit sind.",
       "tokenLabel": "Zugriffstoken (optional)",

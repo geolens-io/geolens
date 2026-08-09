@@ -20,6 +20,19 @@ vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
+// fix(#1285 codex round 6): mirrors the mock convention DatasetPage's own
+// tests use (DatasetPage.edit-affordances.test.tsx) for this same store.
+const drawingStoreState = vi.hoisted(() => ({
+  selectedFeature: null as { gid: number; tdId: string; properties: Record<string, unknown> } | null,
+  isEditDirty: false,
+  targetDatasetId: null as string | null,
+}));
+
+vi.mock('@/stores/drawing-store', () => ({
+  useDrawingStore: (selector: (state: typeof drawingStoreState) => unknown) =>
+    selector(drawingStoreState),
+}));
+
 const mockUseRefreshDataset = vi.mocked(useRefreshDataset);
 const mutateAsync = vi.fn();
 const trackDispatchedRun = vi.fn();
@@ -101,6 +114,9 @@ describe('SourceRefreshAction', () => {
       mutateAsync,
       isPending: false,
     } as unknown as ReturnType<typeof useRefreshDataset>);
+    drawingStoreState.selectedFeature = null;
+    drawingStoreState.isEditDirty = false;
+    drawingStoreState.targetDatasetId = null;
   });
 
   it('opens a confirm dialog with an optional token field for a service origin', async () => {
@@ -279,6 +295,64 @@ describe('SourceRefreshAction', () => {
     expect(
       screen.getByText('A refresh is already in progress. See refresh history below.'),
     ).toBeInTheDocument();
+  });
+
+  // fix(#1285 codex round 6): DatasetMap stays mounted above DetailPanel
+  // regardless of tab, so a selected + dirty feature edit survives a switch
+  // to the Source tab. Saving it after a refresh replaces the table calls
+  // the feature-update API with a stale GID — overwriting a refreshed row,
+  // or the wrong row if GIDs were reassigned.
+  it('disables the trigger and explains why a feature edit is selected and dirty for this dataset', () => {
+    drawingStoreState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    drawingStoreState.isEditDirty = true;
+    drawingStoreState.targetDatasetId = 'dataset-1';
+
+    render(<SourceRefreshAction dataset={makeDataset()} watch={makeWatch()} />);
+
+    expect(screen.getByRole('button', { name: 'Refresh from source' })).toBeDisabled();
+    expect(
+      screen.getByText('Finish or discard the feature edit in progress before refreshing.'),
+    ).toBeInTheDocument();
+  });
+
+  it('does not block on a feature that is merely selected, with no unsaved edit', () => {
+    drawingStoreState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    drawingStoreState.isEditDirty = false;
+    drawingStoreState.targetDatasetId = 'dataset-1';
+
+    render(<SourceRefreshAction dataset={makeDataset()} watch={makeWatch()} />);
+
+    expect(screen.getByRole('button', { name: 'Refresh from source' })).not.toBeDisabled();
+  });
+
+  it('does not block on a dirty feature edit that belongs to a different dataset', () => {
+    drawingStoreState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    drawingStoreState.isEditDirty = true;
+    drawingStoreState.targetDatasetId = 'a-different-dataset';
+
+    render(<SourceRefreshAction dataset={makeDataset()} watch={makeWatch()} />);
+
+    expect(screen.getByRole('button', { name: 'Refresh from source' })).not.toBeDisabled();
+  });
+
+  it('re-enables once the feature edit is saved or discarded (selection/dirty flag cleared)', () => {
+    drawingStoreState.selectedFeature = { gid: 7, tdId: 'td-7', properties: {} };
+    drawingStoreState.isEditDirty = true;
+    drawingStoreState.targetDatasetId = 'dataset-1';
+
+    const { rerender } = render(<SourceRefreshAction dataset={makeDataset()} watch={makeWatch()} />);
+    expect(screen.getByRole('button', { name: 'Refresh from source' })).toBeDisabled();
+
+    // Mirrors what a save or a discard does to the store: clearSelectedFeature
+    // resets both selectedFeature and isEditDirty together.
+    drawingStoreState.selectedFeature = null;
+    drawingStoreState.isEditDirty = false;
+    rerender(<SourceRefreshAction dataset={makeDataset()} watch={makeWatch()} />);
+
+    expect(screen.getByRole('button', { name: 'Refresh from source' })).not.toBeDisabled();
+    expect(
+      screen.queryByText('Finish or discard the feature edit in progress before refreshing.'),
+    ).not.toBeInTheDocument();
   });
 
   // fix(#1285 codex round 4): the whole point of lifting tracking into a

@@ -4,6 +4,7 @@ import { Loader2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { useRefreshDataset } from '@/components/dataset/hooks/use-dataset';
 import { datasetOrigin } from '@/components/dataset/OriginBadge';
+import { useDrawingStore } from '@/stores/drawing-store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -69,6 +70,23 @@ export function SourceRefreshAction({ dataset, watch }: SourceRefreshActionProps
   const supportsToken = origin === 'service';
   const { isBusy } = watch;
 
+  // fix(#1285 codex round 6): DatasetMap stays mounted above DetailPanel
+  // regardless of which tab is active, so a feature the user selected and
+  // started editing survives a switch to the Source tab. Saving it after a
+  // refresh replaces the table would call the feature-update API with a GID
+  // from before the swap — overwriting a freshly refreshed row, or the wrong
+  // row entirely if GIDs were reassigned. Mirrors DatasetMap's own
+  // hasDirtyFeatureEdit definition exactly (DatasetMap.tsx), and scopes to
+  // THIS dataset via targetDatasetId so a stale selection left over from a
+  // different dataset's map can't false-positive block a refresh here.
+  const selectedFeature = useDrawingStore((s) => s.selectedFeature);
+  const isEditDirty = useDrawingStore((s) => s.isEditDirty);
+  const targetDatasetId = useDrawingStore((s) => s.targetDatasetId);
+  const hasDirtyFeatureEdit =
+    targetDatasetId === dataset.id && Boolean(selectedFeature) && isEditDirty;
+
+  const isDisabled = isBusy || hasDirtyFeatureEdit;
+
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
     if (!next) {
@@ -111,15 +129,19 @@ export function SourceRefreshAction({ dataset, watch }: SourceRefreshActionProps
           type="button"
           variant="outline"
           size="sm"
-          disabled={isBusy}
+          disabled={isDisabled}
           onClick={() => setOpen(true)}
         >
           <RefreshCw className="me-2 h-4 w-4" />
           {t('sourcePanel.refresh.action')}
         </Button>
-        {isBusy && (
+        {isBusy ? (
           <p className="text-xs text-muted-foreground">{t('sourcePanel.refresh.busyHint')}</p>
-        )}
+        ) : hasDirtyFeatureEdit ? (
+          <p className="text-xs text-muted-foreground">
+            {t('sourcePanel.refresh.featureEditBlockedHint')}
+          </p>
+        ) : null}
       </div>
 
       <Dialog open={open} onOpenChange={handleOpenChange}>

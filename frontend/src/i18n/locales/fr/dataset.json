@@ -804,6 +804,7 @@
     "refresh": {
       "action": "Actualiser depuis la source",
       "busyHint": "Une actualisation est déjà en cours. Consultez l'historique des actualisations ci-dessous.",
+      "featureEditBlockedHint": "Terminez ou annulez la modification d'entité en cours avant d'actualiser.",
       "dialogTitle": "Actualiser depuis la source",
       "dialogDescription": "Récupère à nouveau les données de ce jeu de données depuis son origine d'importation. Le jeu de données continue de servir ses données actuelles jusqu'à ce que les nouvelles soient prêtes.",
       "tokenLabel": "Jeton d'accès (facultatif)",
