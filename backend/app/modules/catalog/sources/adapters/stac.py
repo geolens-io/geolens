@@ -43,6 +43,25 @@ def projection_epsg(properties: dict[str, Any]) -> int | None:
     return None
 
 
+# The longest asset key GeoLens will carry. STAC puts no limit on an asset
+# identifier, so this is GeoLens's own bound on a third-party string that
+# ends up in `origin_ref` — and because it is a bound rather than a fact
+# about STAC, it has to be applied at CAPTURE as well as at the import
+# model. Search surfacing a key the import model would reject is how one
+# unusual item turns into a 422 for the caller's whole batch, which is the
+# same trap `self_link_href` documents for item hrefs. An item whose key is
+# longer simply imports without one, exactly as every item did before asset
+# keys were tracked; the refresh then falls back to matching on the href.
+MAX_ASSET_KEY_CHARS = 255
+
+
+def storable_asset_key(key: str | None) -> str | None:
+    """The asset key if it is short enough to carry, else None."""
+    if key is None or len(key) > MAX_ASSET_KEY_CHARS:
+        return None
+    return key
+
+
 # The keys a published COG hides behind, in the order the import flow has
 # always tried them. `data` and `visual` are the STAC-common spellings,
 # `image` is the older one, and `B04` is Sentinel-2's red band — the asset a
@@ -346,7 +365,7 @@ async def search_stac_items(
                 # href is what moves; this is what still names the same asset
                 # afterwards, so a refresh can follow the move instead of
                 # re-running the priority list and possibly picking another.
-                "data_asset_key": data_asset_key,
+                "data_asset_key": storable_asset_key(data_asset_key),
                 "data_asset_size_bytes": data_asset_size_bytes,
                 "thumbnail_href": thumbnail.get("href") if thumbnail else None,
                 "asset_count": len(assets),

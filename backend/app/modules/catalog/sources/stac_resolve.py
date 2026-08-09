@@ -71,6 +71,7 @@ import structlog
 
 from app.modules.catalog.sources.adapters.stac import (
     pick_data_asset,
+    storable_asset_key,
     projection_epsg,
     self_link_href,
     storable_href,
@@ -505,7 +506,11 @@ async def _resolve_from_item(
         contacted=probed.contacted,
         item_href=resolved_item_href,
         asset_href=href,
-        asset_key=key,
+        # Bounded on the way into the binding by the same rule search
+        # applies on the way out of the catalog: a key too long to carry is
+        # simply not carried, and the asset is still resolved — identity was
+        # already settled above, and the href match will find it again.
+        asset_key=storable_asset_key(key),
         asset_metadata=metadata,
         epsg=projection_epsg(properties if isinstance(properties, dict) else {}),
     )

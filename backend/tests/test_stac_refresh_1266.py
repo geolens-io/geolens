@@ -1092,6 +1092,55 @@ class TestAssetKeyCapture:
 
         assert "data_asset_key" in StacItemSummary.model_fields
 
+    def test_search_never_surfaces_a_key_import_would_reject(self) -> None:
+        """fix(#1266 review round 8): one bound, applied at both ends.
+
+        STAC puts no limit on an asset identifier, and the frontend echoes
+        search results straight into the import request — so a key the import
+        model rejects, surfaced by search, is a 422 for the caller's whole
+        batch over an item that imported fine before asset keys existed. The
+        same trap `self_link_href` documents for item hrefs, closed the same
+        way: an over-long key is dropped at capture, and the item imports
+        without one exactly as it used to.
+        """
+        from app.modules.catalog.sources.adapters.stac import (
+            MAX_ASSET_KEY_CHARS,
+            storable_asset_key,
+        )
+
+        assert storable_asset_key("data") == "data"
+        assert storable_asset_key("k" * MAX_ASSET_KEY_CHARS) is not None
+        assert storable_asset_key("k" * (MAX_ASSET_KEY_CHARS + 1)) is None
+        assert storable_asset_key(None) is None
+
+    async def test_an_over_long_key_still_resolves_the_asset(
+        self, stac_transport
+    ) -> None:
+        """Identity is settled before the bound is applied, so the asset is
+        still found — the binding just carries no key, which is the state
+        every dataset was in before this feature."""
+        from app.modules.catalog.sources.adapters.stac import MAX_ASSET_KEY_CHARS
+
+        install, _ = stac_transport
+        long_key = "k" * (MAX_ASSET_KEY_CHARS + 1)
+        install(
+            {
+                _ITEM: (
+                    200,
+                    _item_doc(
+                        assets={long_key: {"href": _MOVED_ASSET, "roles": ["data"]}}
+                    ),
+                ),
+                _MOVED_ASSET: (206, None),
+            }
+        )
+        result = await resolve_stac_binding(
+            item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
+        )
+        assert result.resolved
+        assert result.asset_href == _MOVED_ASSET
+        assert result.asset_key is None
+
     async def test_import_records_the_key_search_supplied(
         self, client, admin_auth_header, test_db_session
     ) -> None:

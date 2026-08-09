@@ -31,6 +31,7 @@ from app.core.dependencies import get_db
 from app.platform.dataset_origin import set_dataset_origin
 from app.platform.extensions import get_catalog_port
 from app.modules.catalog.sources.adapters.stac import (
+    MAX_ASSET_KEY_CHARS,
     connect_stac_api,
     list_stac_collections,
     search_stac_items,
@@ -238,7 +239,7 @@ class StacImportItem(BaseModel):
     # higher-priority asset. Recording it at import closes that window.
     data_asset_key: str | None = Field(
         default=None,
-        max_length=255,
+        max_length=MAX_ASSET_KEY_CHARS,
         description="The asset key on the item, echoed from search results.",
     )
     bbox: list[float] | None = Field(default=None, description="Item bounding box.")
