@@ -745,19 +745,50 @@ _READY_WORTHY_SQL = (
     f"({_COMPOSITION_PRESERVED_SQL}) AND ({_PRIOR_ATTEMPT_WAS_READY_SQL})"
 )
 
-# fix(#1322 review round 6): the proven-dead proof for a 'pending'
-# VrtGeneration — mirrors _ABANDONED_RUN_SQL's `catalog.procrastinate_jobs`
-# correlation in platform/refresh/service.py, keyed on `generation_id`
-# instead of `ingest_job_id` because that is the kwarg every regenerate_vrt
-# dispatch site (regenerate_vrt_endpoint, add_vrt_source, remove_vrt_source)
-# actually passes — there is no ingest_job_id column on VrtGeneration to
-# correlate through. `'todo'`/`'doing'` is Procrastinate's own live-job
-# vocabulary, same two statuses stale_pending_clauses excludes for IngestJob.
+# fix(#1322 review round 6, completed): the proven-dead proof for a
+# 'pending' VrtGeneration — mirrors _ABANDONED_RUN_SQL's
+# `catalog.procrastinate_jobs` correlation in platform/refresh/service.py,
+# keyed on `generation_id` instead of `ingest_job_id` because that is the
+# kwarg every regenerate_vrt dispatch site (regenerate_vrt_endpoint,
+# add_vrt_source, remove_vrt_source) actually passes — there is no
+# ingest_job_id column on VrtGeneration to correlate through. `'todo'`/
+# `'doing'` is Procrastinate's own live-job vocabulary, same two statuses
+# stale_pending_clauses excludes for IngestJob.
+#
+# Two correlation forms, because `tasks_vrt.regenerate_vrt` accepts two
+# delivery shapes and this predicate has to cover both to be complete:
+#   1. Modern: `generation_id` is present in `args` — exact 1:1 match.
+#   2. Legacy: a delivery queued by pre-upgrade code carries no
+#      `generation_id` at all (the task parameter is optional precisely to
+#      keep such deliveries alive across a rolling deploy). On execution it
+#      adopts `RasterAsset.current_generation_id` instead (see the
+#      "Legacy queued deliveries" comment at tasks_vrt.py's claim site). A
+#      live legacy row is therefore correlated by dataset (`vrt_dataset_id`
+#      is a required, non-optional task argument, so every delivery of
+#      either shape always carries it) PLUS current ownership: it counts as
+#      live for THIS generation only if this generation IS, right now, that
+#      dataset's `RasterAsset.current_generation_id` — the exact row the
+#      legacy task will claim once it runs.
+# Deliberately conservative in the direction the finding asked for: an
+# ambiguous or legacy-shaped live row blocks the sweep rather than being
+# read as absence of one — a delayed sweep of a truly-dead attempt costs a
+# retry window; sweeping a live one loses real work.
 _NO_LIVE_GENERATION_JOB_SQL = """
     NOT EXISTS (
         SELECT 1 FROM catalog.procrastinate_jobs pj
-        WHERE pj.args->>'generation_id' = vrt_generations.id::text
-          AND pj.status IN ('todo', 'doing')
+        WHERE pj.status IN ('todo', 'doing')
+          AND (
+            pj.args->>'generation_id' = vrt_generations.id::text
+            OR (
+                pj.args->>'generation_id' IS NULL
+                AND pj.args->>'vrt_dataset_id' = vrt_generations.vrt_dataset_id::text
+                AND EXISTS (
+                    SELECT 1 FROM catalog.raster_assets ra
+                    WHERE ra.dataset_id = vrt_generations.vrt_dataset_id
+                      AND ra.current_generation_id = vrt_generations.id
+                )
+            )
+          )
     )
 """
 

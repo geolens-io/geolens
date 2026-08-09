@@ -2407,7 +2407,20 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # platform/refresh/service.py). Most of the lines are the docstring
     # distinguishing the two branches' proof requirements. Cap 1971 -> 2016,
     # exact.
-    "backend/app/platform/jobs/router.py": 2016,
+    # fix(#1322 review round 6, completed): +31 — the live-Procrastinate-job
+    # correlation for a 'pending' generation matched only the modern
+    # `generation_id` args shape. A pre-upgrade delivery queued without that
+    # argument (regenerate_vrt explicitly still accepts it, adopting
+    # RasterAsset.current_generation_id — rolling-deploy compatibility) was
+    # invisible to it, so a live legacy task's generation could still be
+    # reconciled out from under it. Added a second correlation form: a live
+    # row with no `generation_id` counts as live for a generation if that
+    # generation is CURRENTLY the dataset's RasterAsset.current_generation_id
+    # — the exact row such a delivery adopts on execution. Most of the lines
+    # are the docstring explaining the two delivery shapes and why the
+    # ambiguous case must resolve toward "still live," not toward sweeping.
+    # Cap 2016 -> 2047, exact.
+    "backend/app/platform/jobs/router.py": 2047,
     # fix(second-opinion review on #1236 review r3): first entry — crossed
     # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
     # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side

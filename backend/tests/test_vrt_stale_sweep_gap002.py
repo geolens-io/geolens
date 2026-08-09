@@ -1340,6 +1340,27 @@ async def _insert_live_procrastinate_job(session, *, generation_id) -> None:
     )
 
 
+async def _insert_legacy_live_procrastinate_job(session, *, vrt_dataset_id) -> None:
+    """fix(#1322 review round 6, completed): a pre-upgrade delivery with no
+    `generation_id` argument at all — the shape tasks_vrt.regenerate_vrt
+    explicitly still accepts by adopting RasterAsset.current_generation_id.
+    Carries only `vrt_dataset_id`, matching what such a delivery's args
+    actually contain."""
+    from sqlalchemy import text as sa_text
+
+    await session.execute(sa_text("SET LOCAL search_path TO catalog, public"))
+    await session.execute(
+        sa_text(
+            "INSERT INTO catalog.procrastinate_jobs "
+            "(queue_name, task_name, args, status) "
+            "VALUES ('raster', 'app.ingest.tasks.regenerate_vrt', "
+            "jsonb_build_object('vrt_dataset_id', CAST(:vrt_dataset_id AS text)), "
+            "'todo')"
+        ),
+        {"vrt_dataset_id": str(vrt_dataset_id)},
+    )
+
+
 async def test_sweep_leaves_pending_generation_alone_while_its_job_is_still_queued(
     test_db_session,
 ):
@@ -1441,6 +1462,113 @@ async def test_sweep_reaps_pending_generation_once_its_job_is_proven_gone(
     await test_db_session.refresh(asset)
     assert orphaned_generation.status == "failed"
     assert asset.status == "ready"  # built_from={} matches the empty link set
+    assert asset.current_generation_id is None
+
+
+async def test_sweep_leaves_pending_generation_alone_for_a_live_legacy_delivery(
+    test_db_session,
+):
+    """fix(#1322 review round 6, completed): a pre-upgrade delivery queued
+    with no `generation_id` argument is still live and will still adopt
+    RasterAsset.current_generation_id once it runs (tasks_vrt.regenerate_vrt
+    explicitly supports this for rolling-deploy safety). Correlating only by
+    `generation_id` would be blind to it and let the sweep reap a generation
+    that a live task is about to claim."""
+    from app.platform.jobs.router import sweep_stale_vrt_assets
+    from app.processing.raster.models import RasterAsset, VrtGeneration
+    from tests.factories import create_dataset, get_user_id
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    vrt_dataset = await create_dataset(test_db_session, created_by=admin_id)
+
+    now = datetime.now(timezone.utc)
+    queued_generation = VrtGeneration(
+        vrt_dataset_id=vrt_dataset.id,
+        status="pending",
+        started_at=now - timedelta(hours=2),
+        heartbeat_at=None,
+    )
+    test_db_session.add(queued_generation)
+    await test_db_session.flush()
+
+    asset = RasterAsset(
+        dataset_id=vrt_dataset.id,
+        asset_uri=f"rasters/{vrt_dataset.id}/source.vrt",
+        status="regenerating",
+        # This generation is CURRENTLY the asset's pointer — exactly what a
+        # live legacy (args-less) delivery for this dataset would adopt.
+        current_generation_id=queued_generation.id,
+        built_from={},
+    )
+    test_db_session.add(asset)
+    await _insert_legacy_live_procrastinate_job(
+        test_db_session, vrt_dataset_id=vrt_dataset.id
+    )
+    await test_db_session.commit()
+
+    cutoff = now - timedelta(hours=1)
+    assets_recovered, gens_failed, _keys = await sweep_stale_vrt_assets(
+        test_db_session, cutoff
+    )
+    await test_db_session.commit()
+
+    assert (assets_recovered, gens_failed) == (0, 0), (
+        "a live legacy delivery for this dataset, which will adopt exactly "
+        "this generation, must never be reconciled"
+    )
+    await test_db_session.refresh(queued_generation)
+    await test_db_session.refresh(asset)
+    assert queued_generation.status == "pending"
+    assert asset.status == "regenerating"
+    assert asset.current_generation_id == queued_generation.id
+
+
+async def test_sweep_reaps_pending_generation_when_no_legacy_delivery_is_live(
+    test_db_session,
+):
+    """Companion coverage: a dataset with NO live procrastinate_jobs row at
+    all (neither modern nor legacy-shaped) still gets its genuinely-orphaned
+    pending generation reaped — the fallback correlation must not make the
+    sweep permanently blind."""
+    from app.platform.jobs.router import sweep_stale_vrt_assets
+    from app.processing.raster.models import RasterAsset, VrtGeneration
+    from tests.factories import create_dataset, get_user_id
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    vrt_dataset = await create_dataset(test_db_session, created_by=admin_id)
+
+    now = datetime.now(timezone.utc)
+    orphaned_generation = VrtGeneration(
+        vrt_dataset_id=vrt_dataset.id,
+        status="pending",
+        started_at=now - timedelta(hours=2),
+        heartbeat_at=None,
+    )
+    test_db_session.add(orphaned_generation)
+    await test_db_session.flush()
+
+    asset = RasterAsset(
+        dataset_id=vrt_dataset.id,
+        asset_uri=f"rasters/{vrt_dataset.id}/source.vrt",
+        status="regenerating",
+        current_generation_id=orphaned_generation.id,
+        built_from={},
+    )
+    test_db_session.add(asset)
+    # No procrastinate_jobs row of any shape.
+    await test_db_session.commit()
+
+    cutoff = now - timedelta(hours=1)
+    assets_recovered, gens_failed, _keys = await sweep_stale_vrt_assets(
+        test_db_session, cutoff
+    )
+    await test_db_session.commit()
+
+    assert (assets_recovered, gens_failed) == (1, 1)
+    await test_db_session.refresh(orphaned_generation)
+    await test_db_session.refresh(asset)
+    assert orphaned_generation.status == "failed"
+    assert asset.status == "ready"
     assert asset.current_generation_id is None
 
 
