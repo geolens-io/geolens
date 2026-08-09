@@ -89,6 +89,12 @@ _NETWORK_ERROR = "network_error"
 _ERROR_CODE_MISSING = "source_missing"
 _ERROR_CODE_INACCESSIBLE = "source_inaccessible"
 _ERROR_CODE_GENERIC = "postgis_refresh_failed"
+_ERROR_CODE_SUPERSEDED = "superseded"
+
+# What PostGIS records in ``geometry_columns.type`` for an untyped column.
+# A specific value ("POLYGON", "MULTILINESTRING", ...) describes what the
+# column will accept; this one describes nothing.
+_GENERIC_GEOMETRY_TYPE = "GEOMETRY"
 
 
 class _Verdict(NamedTuple):
@@ -304,6 +310,35 @@ async def _relation_exists(session: Any, *, schema: str, table: str) -> bool:
     )
 
 
+async def _declared_geometry_type(
+    session: Any, *, schema: str, table: str
+) -> str | None:
+    """The geom column's DECLARED type, or None when the relation has no geom.
+
+    fix(#1313 review round 5): ``extract_metadata`` derives the geometry type
+    by sampling a row (``GeometryType(geom) ... LIMIT 1``), so a spatial table
+    that has been emptied reports None — indistinguishable, from the
+    measurement alone, from a table that never had geometry at all. Writing
+    that None reclassified the dataset as tabular, and the consequences are
+    not cosmetic: ``_require_feature_table`` refuses feature writes to a
+    dataset whose ``geometry_type`` is None, so a refresh of an emptied table
+    would lock the API out of ever repopulating it, and the builder drops its
+    layers as unsupported.
+
+    ``geometry_columns`` answers the question the rows cannot: it describes
+    the COLUMN. A row here means the relation is spatial whatever it
+    currently holds; no row means it genuinely is not.
+    """
+    return await session.scalar(
+        text(
+            "SELECT type FROM geometry_columns "
+            "WHERE f_table_schema = :schema AND f_table_name = :table "
+            "AND f_geometry_column = 'geom'"
+        ),
+        {"schema": schema, "table": table},
+    )
+
+
 async def _stamp_failed_health(
     session: Any,
     dataset_cls: Any,
@@ -356,8 +391,27 @@ async def _stamp_failed_health(
         await invalidate_catalog_cache()
 
 
-def _apply_measurement(dataset: Any, metadata: dict, sample_values: Any) -> None:
+def _apply_measurement(
+    dataset: Any,
+    metadata: dict,
+    sample_values: Any,
+    *,
+    declared_geometry_type: str | None,
+) -> None:
     """Write one measurement of the live table onto the catalog row.
+
+    ``geometry_type`` is the one field a row-based measurement is not allowed
+    to clear on its own — see :func:`_declared_geometry_type`. Three cases,
+    and each writes the best fact available:
+
+    - rows to sample: the sampled type, which is what the data actually is;
+    - no rows but a specific declared column type: that type, which is what
+      the column will accept;
+    - no rows and a generic ``geometry`` column: keep what the catalog
+      already knew, because an empty generic column establishes nothing.
+
+    A relation with no ``geom`` column at all is the only case that writes
+    None, and there it is the truth rather than an artifact.
 
     ``spatial_extent`` is CLEARED when the table has no extent, which is where
     this deliberately parts from ``_apply_reupload_swap`` (it only ever writes
@@ -373,7 +427,13 @@ def _apply_measurement(dataset: Any, metadata: dict, sample_values: Any) -> None
     column accepts.
     """
     dataset.srid = metadata.get("srid")
-    dataset.geometry_type = metadata.get("geometry_type")
+    measured_geometry_type = metadata.get("geometry_type")
+    if measured_geometry_type is not None:
+        dataset.geometry_type = measured_geometry_type
+    elif declared_geometry_type is None:
+        dataset.geometry_type = None
+    elif declared_geometry_type != _GENERIC_GEOMETRY_TYPE:
+        dataset.geometry_type = declared_geometry_type
     dataset.feature_count = metadata.get("feature_count")
     dataset.column_info = metadata.get("column_info") or []
     dataset.sample_values = sample_values
@@ -536,6 +596,14 @@ async def refresh_postgis(
 
             bound = (dataset.origin_uri, dataset.origin_ref, dataset.source_format)
             table_name = _resolve_bound_table(dataset, schema=schema)
+            # fix(#1313 review round 5): the token phase 3 checks before it
+            # writes. `bump_tile_cache_version`'s contract is that it is
+            # called in the same transaction as any change to this dataset's
+            # tile content — feature edits, column DDL, reupload — which is
+            # exactly the set of changes that would make the measurement
+            # below stale. It is the codebase's own answer to "did this
+            # dataset's content move", so it is what the write is guarded on.
+            content_version = dataset.tile_cache_version
 
             try:
                 if not await _relation_exists(session, schema=schema, table=table_name):
@@ -569,6 +637,9 @@ async def refresh_postgis(
                     ),
                     schema=schema,
                 )
+                declared_geometry_type = await _declared_geometry_type(
+                    session, schema=schema, table=table_name
+                )
             except DBAPIError as exc:
                 # Every read of the origin is inside this block, and the
                 # explicit existence check is not the only thing that can
@@ -589,6 +660,27 @@ async def refresh_postgis(
         # writing.
         # ----------------------------------------------------------------- #
         async with async_session() as session:
+            # fix(#1313 review round 5): lock the row, THEN check the token.
+            #
+            # Feature writes are not blocked by the refresh admission index —
+            # nothing stops an insert or a delete landing while a large table
+            # is being measured — and `refresh_dataset_metadata` recomputes
+            # `feature_count` and the record extent from the live table on
+            # every one of them. Applying this snapshot over the top would
+            # roll the catalog back to a count and an extent that were true
+            # before that edit, and leave it that way until the next write.
+            #
+            # `FOR UPDATE` on the datasets row makes the check and the write
+            # one indivisible step: a concurrent feature write either commits
+            # before this lock is granted (and the token check catches it) or
+            # waits behind this transaction (and re-measures afterwards).
+            # Reading a single column keeps the statement off the joined
+            # record, which PostgreSQL will not lock through an outer join.
+            locked_version = await session.scalar(
+                select(Dataset.tile_cache_version)
+                .where(Dataset.id == dataset_uuid)
+                .with_for_update()
+            )
             dataset = (
                 await session.execute(
                     select(Dataset)
@@ -599,6 +691,13 @@ async def refresh_postgis(
             if dataset is None:
                 logger.warning("Dataset not found, skipping", dataset_id=dataset_id)
                 return
+            if locked_version != content_version:
+                raise PostgisRefreshError(
+                    "This dataset's data changed while it was being measured, "
+                    "so the older measurement was discarded rather than "
+                    "written over the newer state. Refresh again.",
+                    error_code=_ERROR_CODE_SUPERSEDED,
+                )
 
             # Measured against the values still stored, before the writes
             # below overwrite them — the same ordering rule the swap paths
@@ -613,7 +712,12 @@ async def refresh_postgis(
                 feature_count,
             )
 
-            _apply_measurement(dataset, metadata, sample_values)
+            _apply_measurement(
+                dataset,
+                metadata,
+                sample_values,
+                declared_geometry_type=declared_geometry_type,
+            )
             await refresh_attribute_metadata(
                 session,
                 dataset.id,

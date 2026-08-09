@@ -939,6 +939,116 @@ class TestPostgisRefreshExecution:
         )
         assert extent is None
 
+    async def test_an_emptied_table_keeps_its_geometry_type(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """fix(#1313 review round 5): rows are not the only evidence.
+
+        ``extract_metadata`` derives the geometry type by sampling a row, so
+        an emptied spatial table reports None — the same answer a genuinely
+        tabular one gives. Writing it reclassified the dataset as
+        non-spatial, and ``_require_feature_table`` refuses feature writes to
+        a dataset whose ``geometry_type`` is None: a refresh of an emptied
+        table would have locked the API out of ever repopulating it, and the
+        builder drops its layers as unsupported. The declared column type is
+        the evidence the rows cannot supply.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _registered_dataset(test_db_session, created_by=admin_id)
+        await test_db_session.execute(
+            text(f"DELETE FROM data.{dataset.table_name}")  # noqa: S608
+        )
+        await test_db_session.commit()
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        await _execute(test_db_session, payload)
+
+        refreshed = await _reload(test_db_session, dataset.id)
+        assert refreshed.feature_count == 0
+        assert refreshed.geometry_type == "POLYGON"
+
+    async def test_an_emptied_generic_column_keeps_what_was_already_known(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """The branch where neither the rows nor the column say anything.
+
+        A ``geometry`` column with no subtype and no rows establishes only
+        that the relation is spatial, so the honest write is no write at all
+        — the catalog keeps the type it last measured.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _registered_dataset(test_db_session, created_by=admin_id)
+        await test_db_session.execute(
+            text(  # noqa: S608
+                f"ALTER TABLE data.{dataset.table_name} "
+                f"ALTER COLUMN geom TYPE geometry(Geometry, 4326)"
+            )
+        )
+        await test_db_session.execute(
+            text(f"DELETE FROM data.{dataset.table_name}")  # noqa: S608
+        )
+        await test_db_session.commit()
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        await _execute(test_db_session, payload)
+
+        refreshed = await _reload(test_db_session, dataset.id)
+        assert refreshed.geometry_type == "POLYGON"  # the stored value, kept
+
+    async def test_a_concurrent_feature_edit_is_not_rolled_back(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """fix(#1313 review round 5): a stale measurement must not win.
+
+        Feature writes are not blocked by the refresh admission index, and
+        every one of them recomputes ``feature_count`` and the record extent
+        from the live table. A measurement taken before such a write, applied
+        after it, rolls the catalog back to a state that is no longer true —
+        and leaves it there until the next write.
+
+        The edit is committed from a second session while the measure phase is
+        mid-flight, which is the exact interleaving the window allows.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _registered_dataset(
+            test_db_session, created_by=admin_id, rows=2, stored_feature_count=2
+        )
+        dataset_uuid = dataset.id
+        payload = await _dispatch(client, admin_auth_header, dataset_uuid)
+
+        real_extract = tasks_postgis_refresh_metadata.extract_metadata
+
+        async def _edit_then_measure(session, table_name, **kwargs):
+            import app.core.db as db_module
+
+            async with db_module.async_session() as other:
+                await other.execute(
+                    text(
+                        "UPDATE catalog.datasets SET feature_count = 999, "
+                        "tile_cache_version = COALESCE(tile_cache_version, 1) + 1 "
+                        "WHERE id = :did"
+                    ),
+                    {"did": dataset_uuid},
+                )
+                await other.commit()
+            return await real_extract(session, table_name, **kwargs)
+
+        with patch(
+            "app.processing.ingest.metadata.extract_metadata", _edit_then_measure
+        ):
+            with pytest.raises(tasks_postgis_refresh.PostgisRefreshError):
+                await _execute(test_db_session, payload)
+
+        after = await _reload(test_db_session, dataset_uuid)
+        # The newer value survives; the older measurement was discarded.
+        assert after.feature_count == 999
+        assert after.last_refreshed_at is None
+        assert after.source_health is None
+
+        run = await _run_for(test_db_session, dataset_uuid)
+        assert run is not None
+        assert (run.status, run.error_code) == ("failed", "superseded")
+
     async def test_a_finished_run_releases_the_dataset_for_the_next_one(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ) -> None:
