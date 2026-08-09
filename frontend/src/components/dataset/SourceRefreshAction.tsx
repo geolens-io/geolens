@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Loader2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { useDatasetRefreshRuns, useRefreshDataset } from '@/components/dataset/hooks/use-dataset';
+import { datasetOrigin } from '@/components/dataset/OriginBadge';
 import { queryKeys } from '@/lib/query-keys';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -53,6 +54,14 @@ export function SourceRefreshAction({ dataset }: SourceRefreshActionProps) {
   const [token, setToken] = useState('');
   const [error, setError] = useState<string | null>(null);
   const refreshMutation = useRefreshDataset();
+  // fix(#1285 codex round 3): _dispatch_postgis_refresh() (router_refresh.py)
+  // rejects ANY nonempty token with 422 credential_not_applicable — a
+  // registered table needs no service credential, and there is nothing else
+  // in REFRESHABLE_ORIGINS to authenticate to. Recomputed here rather than
+  // threaded in as a prop so this component stays self-contained; it is the
+  // same derivation DetailPanel uses for the REFRESHABLE_ORIGINS gate.
+  const origin = dataset.origin ?? datasetOrigin(dataset);
+  const supportsToken = origin === 'service';
   // Limit 1: only interested in whether the most recent run is still active,
   // so the trigger can be disabled ahead of a 409 dataset_busy rather than
   // only reacting to one after the click. Self-polls while active (see
@@ -83,6 +92,14 @@ export function SourceRefreshAction({ dataset }: SourceRefreshActionProps) {
     if (invalidatedRunIdRef.current === latestRunId) return;
     invalidatedRunIdRef.current = latestRunId;
     queryClient.invalidateQueries({ queryKey: queryKeys.datasets.detail(dataset.id) });
+    // fix(#1285 codex round 3): a successful SERVICE refresh writes a new
+    // DatasetVersion (tasks_reupload.py) — the versions query has a 120s
+    // staleTime and nothing else refetches it, so the Source panel's
+    // version history stayed on the old list after a visibly successful
+    // refresh. A postgis refresh writes no version, but invalidating here
+    // unconditionally (not branched on origin/status) just costs a refetch
+    // that returns unchanged data — cheaper than a second run-shape check.
+    queryClient.invalidateQueries({ queryKey: queryKeys.datasets.versionsPrefix(dataset.id) });
   }, [latestRunId, latestRunStatus, dataset.id, queryClient]);
 
   const handleOpenChange = (next: boolean) => {
@@ -142,19 +159,21 @@ export function SourceRefreshAction({ dataset }: SourceRefreshActionProps) {
           </DialogHeader>
 
           <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="source-refresh-token">{t('sourcePanel.refresh.tokenLabel')}</Label>
-              <Input
-                id="source-refresh-token"
-                type="password"
-                autoComplete="off"
-                value={token}
-                onChange={(event) => setToken(event.target.value)}
-                placeholder={t('sourcePanel.refresh.tokenPlaceholder')}
-                disabled={refreshMutation.isPending}
-              />
-              <p className="text-xs text-muted-foreground">{t('sourcePanel.refresh.tokenHint')}</p>
-            </div>
+            {supportsToken && (
+              <div className="space-y-2">
+                <Label htmlFor="source-refresh-token">{t('sourcePanel.refresh.tokenLabel')}</Label>
+                <Input
+                  id="source-refresh-token"
+                  type="password"
+                  autoComplete="off"
+                  value={token}
+                  onChange={(event) => setToken(event.target.value)}
+                  placeholder={t('sourcePanel.refresh.tokenPlaceholder')}
+                  disabled={refreshMutation.isPending}
+                />
+                <p className="text-xs text-muted-foreground">{t('sourcePanel.refresh.tokenHint')}</p>
+              </div>
+            )}
 
             {error && <p className="text-sm text-destructive">{error}</p>}
           </div>

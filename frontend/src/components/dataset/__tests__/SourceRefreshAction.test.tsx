@@ -21,7 +21,7 @@ const mockUseRefreshDataset = vi.mocked(useRefreshDataset);
 const mockUseDatasetRefreshRuns = vi.mocked(useDatasetRefreshRuns);
 const mutateAsync = vi.fn();
 
-function makeDataset(): DatasetResponse {
+function makeDataset(overrides: Partial<DatasetResponse> = {}): DatasetResponse {
   return {
     id: 'dataset-1',
     record_id: 'record-1',
@@ -73,6 +73,7 @@ function makeDataset(): DatasetResponse {
     collections: null,
     record_type: 'vector_dataset',
     raster: null,
+    ...overrides,
   };
 }
 
@@ -122,7 +123,7 @@ describe('SourceRefreshAction', () => {
     mockNoActiveRun();
   });
 
-  it('opens a confirm dialog with an optional token field', async () => {
+  it('opens a confirm dialog with an optional token field for a service origin', async () => {
     const user = userEvent.setup();
     render(<SourceRefreshAction dataset={makeDataset()} />);
 
@@ -131,6 +132,41 @@ describe('SourceRefreshAction', () => {
     expect(screen.getByLabelText('Access token (optional)')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Start refresh' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+  });
+
+  // fix(#1285 codex round 3): _dispatch_postgis_refresh() rejects ANY
+  // nonempty token with 422 credential_not_applicable — a registered table
+  // needs no service credential. Offering the field here invites a
+  // guaranteed failure, so it must not render for this origin.
+  it('does not offer a token field for a postgis origin', async () => {
+    const user = userEvent.setup();
+    render(<SourceRefreshAction dataset={makeDataset({ origin: 'postgis' })} />);
+
+    await openDialog(user);
+
+    expect(screen.queryByLabelText('Access token (optional)')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start refresh' })).toBeInTheDocument();
+  });
+
+  it('dispatches a postgis refresh with no token, since none was ever offered', async () => {
+    mutateAsync.mockResolvedValue({
+      run_id: 'run-1',
+      job_id: 'job-1',
+      dataset_id: 'dataset-1',
+      origin_kind: 'postgis',
+      trigger: 'api',
+      status: 'pending',
+      message: 'Refresh queued from the registered table',
+    });
+    const user = userEvent.setup();
+    render(<SourceRefreshAction dataset={makeDataset({ origin: 'postgis' })} />);
+
+    await openDialog(user);
+    await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+
+    await waitFor(() => {
+      expect(mutateAsync).toHaveBeenCalledWith({ datasetId: 'dataset-1', token: undefined });
+    });
   });
 
   it('dispatches the refresh, closes the dialog, and clears the token from rendered output and component state', async () => {
@@ -339,11 +375,15 @@ describe('SourceRefreshAction', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Refresh from source' })).not.toBeDisabled();
     });
-    const detailInvalidations = () =>
+    const invalidationCount = (queryKey: unknown) =>
       invalidateSpy.mock.calls.filter(
-        ([call]) => JSON.stringify(call?.queryKey) === JSON.stringify(queryKeys.datasets.detail('dataset-1')),
+        ([call]) => JSON.stringify(call?.queryKey) === JSON.stringify(queryKey),
       ).length;
-    expect(detailInvalidations()).toBe(1);
+    expect(invalidationCount(queryKeys.datasets.detail('dataset-1'))).toBe(1);
+    // fix(#1285 codex round 3): a successful service refresh writes a new
+    // DatasetVersion; the 120s staleTime on the versions query means
+    // nothing else refetches it.
+    expect(invalidationCount(queryKeys.datasets.versionsPrefix('dataset-1'))).toBe(1);
 
     // A later poll re-observing the SAME terminal run (nothing changed)
     // must not invalidate a second time — invalidatedRunIdRef's job.
@@ -352,7 +392,8 @@ describe('SourceRefreshAction', () => {
         <SourceRefreshAction dataset={makeDataset()} />
       </QueryClientProvider>,
     );
-    expect(detailInvalidations()).toBe(1);
+    expect(invalidationCount(queryKeys.datasets.detail('dataset-1'))).toBe(1);
+    expect(invalidationCount(queryKeys.datasets.versionsPrefix('dataset-1'))).toBe(1);
   });
 
   it('invalidates the dataset detail query even when our dispatched run is already terminal on first observation', async () => {
@@ -386,6 +427,7 @@ describe('SourceRefreshAction', () => {
     await waitFor(() => {
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.datasets.detail('dataset-1') });
     });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.datasets.versionsPrefix('dataset-1') });
   });
 
   it('does not invalidate for a run this component never dispatched, even if it is already terminal on mount', () => {
