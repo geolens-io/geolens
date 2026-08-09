@@ -304,7 +304,7 @@ async def search_stac_items(
         # Find the primary data asset (COG), through the same choice the
         # refresh strategy re-makes later (feat #1266).
         picked = pick_data_asset(assets)
-        data_asset = picked[1] if picked else None
+        data_asset_key, data_asset = picked if picked else (None, None)
 
         # Find thumbnail
         thumbnail = assets.get("thumbnail") or next(
@@ -342,6 +342,11 @@ async def search_stac_items(
                 "cloud_cover": props.get("eo:cloud_cover"),
                 "data_asset_href": data_asset.get("href") if data_asset else None,
                 "data_asset_type": data_asset.get("type") if data_asset else None,
+                # feat(#1266): the durable half of the asset's identity. The
+                # href is what moves; this is what still names the same asset
+                # afterwards, so a refresh can follow the move instead of
+                # re-running the priority list and possibly picking another.
+                "data_asset_key": data_asset_key,
                 "data_asset_size_bytes": data_asset_size_bytes,
                 "thumbnail_href": thumbnail.get("href") if thumbnail else None,
                 "asset_count": len(assets),

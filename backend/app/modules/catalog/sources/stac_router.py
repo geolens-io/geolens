@@ -263,6 +263,14 @@ class StacItemSummary(BaseModel):
     data_asset_type: str | None = Field(
         default=None, description="Media type of the data asset."
     )
+    data_asset_key: str | None = Field(
+        default=None,
+        description=(
+            "The key the data asset is published under on the item. Echo it "
+            "back on import so the dataset records WHICH asset it came from: "
+            "hrefs move, and the key is what survives the move (#1266)."
+        ),
+    )
     data_asset_size_bytes: int | None = Field(
         default=None,
         description="Size of the primary data asset in bytes (from STAC file:size). None when not in manifest.",
@@ -305,6 +313,16 @@ class StacImportItem(BaseModel):
         description="The item's own canonical URL, echoed from search results.",
     )
     _validate_item_href = field_validator("item_href")(_validate_optional_stac_http_url)
+    # feat(#1266): which asset on the item this dataset is being bound to.
+    # Optional so an older client still imports — the first refresh then
+    # recovers the key by matching the stored href, which works right up
+    # until the href moves and the item has meanwhile gained a
+    # higher-priority asset. Recording it at import closes that window.
+    data_asset_key: str | None = Field(
+        default=None,
+        max_length=255,
+        description="The asset key on the item, echoed from search results.",
+    )
     bbox: list[float] | None = Field(default=None, description="Item bounding box.")
     epsg: int | None = Field(default=None, description="EPSG code.")
     datetime_start: str | None = Field(
@@ -658,6 +676,7 @@ async def stac_import(
                     asset_href=item.data_asset_href,
                     item_href=item.item_href,
                     collection_id=item.collection,
+                    asset_key=item.data_asset_key,
                 )
                 # fix(#1271 review): the import IS a contact — the same
                 # contract _finalize_ingest and the reupload swap follow —

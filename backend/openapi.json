@@ -15780,6 +15780,19 @@
             "description": "The item's own canonical URL, echoed from search results.",
             "title": "Item Href"
           },
+          "data_asset_key": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The asset key on the item, echoed from search results.",
+            "title": "Data Asset Key"
+          },
           "bbox": {
             "anyOf": [
               {
@@ -16470,6 +16483,18 @@
             ],
             "description": "Media type of the data asset.",
             "title": "Data Asset Type"
+          },
+          "data_asset_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The key the data asset is published under on the item. Echo it back on import so the dataset records WHICH asset it came from: hrefs move, and the key is what survives the move (#1266).",
+            "title": "Data Asset Key"
           },
           "data_asset_size_bytes": {
             "anyOf": [

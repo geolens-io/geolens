@@ -79,6 +79,7 @@ function makeItem(overrides: Partial<StacItemSummary> & { id: string }): StacIte
     cloud_cover: null,
     data_asset_href: 'https://example.com/data.tif',
     data_asset_type: 'image/tiff; application=geotiff; profile=cloud-optimized',
+    data_asset_key: 'data',
     data_asset_size_bytes: null,
     thumbnail_href: null,
     asset_count: 1,

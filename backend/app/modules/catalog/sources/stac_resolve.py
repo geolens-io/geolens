@@ -75,6 +75,7 @@ from app.modules.catalog.sources.adapters.stac import (
     storable_href,
 )
 from app.modules.catalog.sources.origin_probe import (
+    BLOCKED_BY_POLICY,
     INACCESSIBLE,
     ITEM_WITHDRAWN,
     MISSING,
@@ -130,6 +131,23 @@ _ASSET_GONE = StacResolution(MISSING, NOT_FOUND)
 # publisher started signing hrefs, so the binding cannot be stored (ADR-002
 # invariant 4). Nothing was deleted, so this is not `missing`.
 _ASSET_UNUSABLE = StacResolution(INACCESSIBLE, UNAUTHORIZED)
+
+# "The asset exists and GeoLens cannot work out its address." Only reachable
+# on the search path, where the document arrived inside a FeatureCollection:
+# if its self link is absent or contradicts it, there is no item URL to join
+# a relative href against, and the `/search` endpoint is not a stand-in for
+# one. Declining beats composing a path under the search URL and hoping
+# nothing is served there.
+_ASSET_UNADDRESSABLE = StacResolution(INACCESSIBLE, UNEXPECTED_STATUS)
+
+# "The publisher moved the asset somewhere GeoLens is not allowed to fetch."
+# Not adopted, and this is a security property rather than a health one: the
+# stored href is read by the raster tile path, which hands an http(s) value
+# to Titiler/GDAL — and per AGENTS.md Rule 2 GDAL cannot be made
+# redirect-safe from the inside, so the safe client's refusal is the only
+# check that will ever run against it. Persisting an address the guard just
+# rejected would launder it past the guard.
+_ASSET_BLOCKED = StacResolution(INACCESSIBLE, BLOCKED_BY_POLICY)
 
 # "The origin answered, with a document for a DIFFERENT item." Same verdict
 # as the shape failure below and for the same reason — the origin answered,
@@ -303,10 +321,23 @@ def _contradicts_stored_identity(
     )
 
 
+def _absolute_http(href: Any) -> str | None:
+    """*href* if it already addresses itself, else None.
+
+    The base-free case: an absolute http(s) href needs no document URL to be
+    resolved against, so it is the only shape that can be adopted when no
+    trustworthy item address exists.
+    """
+    if not isinstance(href, str):
+        return None
+    return href if urlsplit(href).scheme in ("http", "https") else None
+
+
 async def _resolve_from_item(
     item: dict[str, Any],
     *,
-    item_url: str,
+    item_base: str | None,
+    document_url: str,
     fallback_item_href: str,
     expected_item_id: str | None,
     collection_id: str | None,
@@ -341,7 +372,7 @@ async def _resolve_from_item(
     # location, and it is also the only one that survives the item moving.
     # The requested URL stays the fallback for catalogs that publish no self
     # link — it is where this document demonstrably came from.
-    self_href = self_link_href(item, item_url)
+    self_href = self_link_href(item, document_url)
     if self_href is not None and _self_link_contradicts(
         self_href, item_id=item.get("id"), collection_id=collection_id
     ):
@@ -351,12 +382,26 @@ async def _resolve_from_item(
         # What must not happen is storing the contradictory pointer.
         logger.info("stac_self_link_identity_mismatch", item_id=item.get("id"))
         self_href = None
-    asset_base = self_href or item_url
+
+    # fix(#1266 review round 4): ``item_base`` is the item's own address when
+    # the caller has one — the URL the document was fetched from on the direct
+    # path, and NOTHING on the search path, where the document arrived inside
+    # a FeatureCollection and the `/search` endpoint addresses the query
+    # rather than the item. Round 1 fixed the trusted-self-link case; this is
+    # the same bug one branch over, reached when the self link is absent or
+    # was just dropped as contradictory. With no trustworthy item URL, a
+    # relative href cannot be resolved at all — joining it against `/search`
+    # composes a path under the query endpoint, and the danger is precisely
+    # that something might be served there.
+    raw_href = assets[key].get("href")
+    asset_base = self_href or item_base or _absolute_http(raw_href)
+    if asset_base is None:
+        return _ASSET_UNADDRESSABLE
 
     # A relative asset href is legal STAC, so it is resolved against that base
     # and then put through the same gate as every other value that reaches
     # ``origin_ref``.
-    href = storable_href(assets[key].get("href"), asset_base)
+    href = storable_href(raw_href, asset_base)
     if href is None:
         # The item is published and still carries this asset; GeoLens simply
         # may not point at where it now lives — a signed URL is the case that
@@ -372,6 +417,17 @@ async def _resolve_from_item(
     # endpoint would store one no reader could resolve.
     resolved_item_href = self_href or fallback_item_href
     probed = await probe_remote_uri(href)
+    if probed.detail == BLOCKED_BY_POLICY:
+        # fix(#1266 review round 4): refused, not merely reported. Every other
+        # probe verdict is a fact about the origin that the binding can carry
+        # — an asset that 404s is still where the publisher says it is. This
+        # one is a fact about GEOLENS: the address is one the SSRF guard will
+        # not fetch, at the first hop or somewhere down a redirect chain. The
+        # raster tile path hands a stored http(s) `asset_uri` to Titiler/GDAL,
+        # which AGENTS.md Rule 2 is explicit cannot be made redirect-safe from
+        # the inside, so adopting this href would put an address past the only
+        # guard that ever checks it.
+        return _ASSET_BLOCKED
     return StacResolution(
         health=probed.health,
         detail=probed.detail,
@@ -427,7 +483,10 @@ async def _resolve_by_search(
         return _WITHDRAWN
     return await _resolve_from_item(
         feature,
-        item_url=search_result_url,
+        # No item base: the search endpoint is not the item's address. Only
+        # the feature's own self link can supply one here.
+        item_base=None,
+        document_url=search_result_url,
         fallback_item_href=item_href,
         expected_item_id=item_id,
         collection_id=collection_id,
@@ -459,7 +518,10 @@ async def resolve_stac_binding(
     if result.ok:
         return await _resolve_from_item(
             document,
-            item_url=item_url,
+            # The URL this document was actually read from IS the item's
+            # address on this path, redirects included.
+            item_base=item_url,
+            document_url=item_url,
             fallback_item_href=item_href,
             expected_item_id=expected_item_id,
             collection_id=collection_id,

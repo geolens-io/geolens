@@ -796,6 +796,95 @@ class TestResolution:
         )
         assert result.item_href == permalink
 
+    async def test_an_asset_the_ssrf_guard_refuses_is_never_adopted(
+        self, stac_transport
+    ) -> None:
+        """fix(#1266 review round 4): a security property, not a health one.
+
+        Every other probe verdict is a fact about the origin that the binding
+        can carry — an asset that 404s is still where the publisher says it
+        is. A policy block is a fact about GeoLens, and the stored href is
+        read by the raster tile path, which hands http(s) values to
+        Titiler/GDAL. Rule 2 is explicit that GDAL cannot be made
+        redirect-safe from the inside, so the safe client's refusal is the
+        only check that will ever run against it: adopting the href would
+        launder an address straight past the guard that rejected it.
+        """
+        install, _ = stac_transport
+        blocked = "https://origin.test/internal/scene.tif"
+
+        def _handler(request: httpx.Request) -> httpx.Response:
+            if str(request.url) == blocked:
+                raise SSRFError("private address")
+            return httpx.Response(200, json=_item_doc(asset_href=blocked))
+
+        install(_handler)
+        result = await resolve_stac_binding(
+            item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
+        )
+        assert not result.resolved
+        assert result.asset_href is None
+        assert (result.health, result.detail) == ("inaccessible", "blocked_by_policy")
+
+    async def test_a_searched_item_with_no_trustworthy_url_declines_relative_assets(
+        self, stac_transport
+    ) -> None:
+        """fix(#1266 review round 4): the round-2 fix, one branch over.
+
+        Dropping a contradictory self link left `asset_base` falling back to
+        the `/search` endpoint, so a relative href still composed a path under
+        the query URL — and the danger is precisely that something might be
+        served there.
+        """
+        install, _ = stac_transport
+        liar = f"{_ROOT}/collections/scenes/items/somebody-elses-scene"
+        install(
+            {
+                _ITEM: (404, None),
+                _SEARCH: (
+                    200,
+                    {
+                        "features": [
+                            _item_doc(
+                                self_href=liar,
+                                assets={"data": {"href": "../tiles/scene.tif"}},
+                            )
+                        ]
+                    },
+                ),
+            }
+        )
+        result = await resolve_stac_binding(
+            item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
+        )
+        assert not result.resolved
+        assert result.health == "inaccessible"
+
+    async def test_a_searched_item_with_no_self_link_still_takes_absolute_assets(
+        self, stac_transport
+    ) -> None:
+        """An absolute href addresses itself and needs no base, so the
+        refusal above must not become a blanket one."""
+        install, _ = stac_transport
+        install(
+            {
+                _ITEM: (404, None),
+                _SEARCH: (
+                    200,
+                    {"features": [_item_doc(asset_href=_MOVED_ASSET, self_href=None)]},
+                ),
+                _MOVED_ASSET: (206, None),
+            }
+        )
+        result = await resolve_stac_binding(
+            item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
+        )
+        assert result.resolved
+        assert result.asset_href == _MOVED_ASSET
+        # No self link means no better address to store than the one already
+        # held, dead as it is — the next refresh searches again.
+        assert result.item_href == _ITEM
+
     async def test_a_live_item_that_dropped_the_asset_is_missing(
         self, stac_transport
     ) -> None:
@@ -837,6 +926,90 @@ class TestResolution:
         assert result.resolved
         assert result.asset_href == _MOVED_ASSET
         assert (result.health, result.detail) == ("missing", "not_found")
+
+
+# ---------------------------------------------------------------------------
+# The key has to be RECORDED, or the identity rule has nothing to read
+# ---------------------------------------------------------------------------
+
+
+class TestAssetKeyCapture:
+    def test_search_surfaces_the_key_beside_the_href(self) -> None:
+        """The two halves of the asset's identity travel together or not at
+        all: the href is what moves, the key is what still names the same
+        asset afterwards."""
+        from app.modules.catalog.sources.stac_router import StacItemSummary
+
+        assert "data_asset_key" in StacItemSummary.model_fields
+
+    async def test_import_records_the_key_search_supplied(
+        self, client, admin_auth_header, test_db_session
+    ) -> None:
+        """fix(#1266 review round 4): end to end, or the mechanism is inert.
+
+        Without this the key stays unwritten on every new import, and the
+        first refresh after a move falls back to re-running the import's
+        priority list — which silently switches a dataset imported from
+        `visual` onto a `data` asset the item has gained since.
+        """
+        item_id = f"key-{uuid.uuid4().hex[:8]}"
+        with patch("app.modules.catalog.sources.stac_router.validate_url_for_ssrf"):
+            resp = await client.post(
+                "/services/stac/import",
+                json={
+                    "url": "https://origin.test/v1",
+                    "items": [
+                        {
+                            "id": item_id,
+                            "collection": "scenes",
+                            "title": "Asset key capture",
+                            "data_asset_href": f"https://origin.test/{item_id}.tif",
+                            "data_asset_key": "B04",
+                            "item_href": f"https://origin.test/items/{item_id}",
+                            "bbox": [-1, -1, 1, 1],
+                            "epsg": 4326,
+                            "keywords": [],
+                        }
+                    ],
+                    "visibility": "private",
+                },
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 200, resp.text
+        dataset_id = uuid.UUID(resp.json()["results"][0]["dataset_id"])
+        dataset = await _reload(dataset_id)
+        assert dataset.origin_ref["asset_key"] == "B04"
+
+    async def test_an_older_client_that_sends_no_key_still_imports(
+        self, client, admin_auth_header, test_db_session
+    ) -> None:
+        """Optional, because the first refresh recovers the key by matching
+        the stored href. What recording it at import buys is the one case
+        that recovery cannot cover — the href moving first."""
+        item_id = f"nokey-{uuid.uuid4().hex[:8]}"
+        with patch("app.modules.catalog.sources.stac_router.validate_url_for_ssrf"):
+            resp = await client.post(
+                "/services/stac/import",
+                json={
+                    "url": "https://origin.test/v1",
+                    "items": [
+                        {
+                            "id": item_id,
+                            "collection": "scenes",
+                            "title": "No asset key",
+                            "data_asset_href": f"https://origin.test/{item_id}.tif",
+                            "bbox": [-1, -1, 1, 1],
+                            "keywords": [],
+                        }
+                    ],
+                    "visibility": "private",
+                },
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 200, resp.text
+        dataset_id = uuid.UUID(resp.json()["results"][0]["dataset_id"])
+        dataset = await _reload(dataset_id)
+        assert "asset_key" not in dataset.origin_ref
 
 
 # ---------------------------------------------------------------------------

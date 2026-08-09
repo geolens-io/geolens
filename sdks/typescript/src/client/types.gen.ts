@@ -9346,6 +9346,12 @@ export type StacImportItem = {
      */
     item_href?: string | null;
     /**
+     * Data Asset Key
+     *
+     * The asset key on the item, echoed from search results.
+     */
+    data_asset_key?: string | null;
+    /**
      * Bbox
      *
      * Item bounding box.
@@ -9723,6 +9729,12 @@ export type StacItemSummary = {
      * Media type of the data asset.
      */
     data_asset_type?: string | null;
+    /**
+     * Data Asset Key
+     *
+     * The key the data asset is published under on the item. Echo it back on import so the dataset records WHICH asset it came from: hrefs move, and the key is what survives the move (#1266).
+     */
+    data_asset_key?: string | null;
     /**
      * Data Asset Size Bytes
      *

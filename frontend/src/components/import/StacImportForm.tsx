@@ -158,6 +158,11 @@ export function StacImportForm() {
         collection: i.collection,
         title: i.title,
         data_asset_href: i.data_asset_href!,
+        // feat(#1266): echo which asset key the href came from. The href is
+        // what an upstream publisher moves; the key is what still names the
+        // same asset afterwards, so a refresh follows the move instead of
+        // re-running the priority list and possibly binding another band.
+        data_asset_key: i.data_asset_key,
         // feat(#1222): echo the item's own href back so the dataset's origin
         // can point at the item, not only its asset. The health probe needs
         // both to tell "the file is gone" from "the publisher withdrew it".

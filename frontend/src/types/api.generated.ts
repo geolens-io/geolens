@@ -12032,6 +12032,11 @@ export interface components {
              */
             item_href?: string | null;
             /**
+             * Data Asset Key
+             * @description The asset key on the item, echoed from search results.
+             */
+            data_asset_key?: string | null;
+            /**
              * Bbox
              * @description Item bounding box.
              */
@@ -12367,6 +12372,11 @@ export interface components {
              * @description Media type of the data asset.
              */
             data_asset_type?: string | null;
+            /**
+             * Data Asset Key
+             * @description The key the data asset is published under on the item. Echo it back on import so the dataset records WHICH asset it came from: hrefs move, and the key is what survives the move (#1266).
+             */
+            data_asset_key?: string | null;
             /**
              * Data Asset Size Bytes
              * @description Size of the primary data asset in bytes (from STAC file:size). None when not in manifest.
