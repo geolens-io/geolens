@@ -212,7 +212,7 @@ class TestRefreshRequest:
 @pytest.mark.parametrize(
     "code,expected",
     [
-        ("refresh_not_applicable", "no refreshable service origin"),
+        ("refresh_not_applicable", "origin does not support refresh"),
         ("origin_unavailable", "stored service binding is incomplete"),
         ("dataset_busy", "already running"),
         ("origin_changed", "source changed"),

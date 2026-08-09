@@ -54,8 +54,9 @@ class RefreshPollResult:
 
 _REFUSAL_MESSAGES: dict[str, str] = {
     "refresh_not_applicable": (
-        "This dataset has no refreshable service origin. Replace its data "
-        "through re-upload instead."
+        "This dataset's origin does not support refresh. Replace its data "
+        "through re-upload, or re-run 'geolens apply' with an updated "
+        "manifest."
     ),
     "origin_unavailable": (
         "This dataset's stored service binding is incomplete. Re-import the "
