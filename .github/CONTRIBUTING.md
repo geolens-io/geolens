@@ -63,9 +63,15 @@ A non-zero exit there (a failed migration, schema drift) is what blocks the rest
 **Backend:**
 
 ```bash
-docker compose exec api pytest                              # Full test suite
-docker compose exec api pytest -v -k "<pattern>"            # Filter by test name pattern
-docker compose exec api pytest backend/tests/test_auth.py   # Run a single test file
+make test   # Full test suite (wraps the writable uv environment below)
+
+# Filtered runs need the same writable uv environment the Makefile uses — a bare
+# `pytest` fails against the container's read-only default uv cache. Tests are
+# mounted at /app/tests inside the container, so paths are tests/..., not backend/tests/...
+docker compose exec api env UV_CACHE_DIR=/app/staging/uv-cache UV_PROJECT_ENVIRONMENT=/app/staging/geolens-api-test-venv \
+  uv run pytest -o cache_dir=/app/staging/.pytest_cache -v -k "<pattern>"    # Filter by test name pattern
+docker compose exec api env UV_CACHE_DIR=/app/staging/uv-cache UV_PROJECT_ENVIRONMENT=/app/staging/geolens-api-test-venv \
+  uv run pytest -o cache_dir=/app/staging/.pytest_cache tests/test_auth.py   # Run a single test file
 ```
 
 Backend tests live under `backend/tests/` as a flat directory of `test_*.py` files (no `unit/` or `api/` subdirectories). Coverage thresholds are configured in `backend/pyproject.toml`.
@@ -214,7 +220,7 @@ geolens/
 │       │   ├── import/         # File/service import workflow
 │       │   ├── layout/         # Navbar, page chrome
 │       │   ├── map/            # Shared map components (popups, basemap)
-│       │   ├── map-widgets/    # Map toolbar widgets (measure, etc.)
+│       │   ├── map-plugins/    # Map plugins (measure, etc.)
 │       │   ├── maps/           # Map list & create dialog
 │       │   ├── search/         # Search bar, filters, result cards
 │       │   ├── settings/       # User settings panels
