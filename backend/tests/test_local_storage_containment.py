@@ -4,8 +4,8 @@ Without the fix, crafted keys like ``../../etc/passwd``, ``/etc/passwd``, or
 keys containing a null byte can escape ``base_dir`` — allowing reads, writes,
 and deletes of arbitrary files on the host filesystem.
 
-Each parametrized case exercises ALL SIX IO methods (put, get, get_stream,
-get_to_file, delete, exists) so none can be a bypass.
+The containment regression cases exercise each public keyed I/O method so
+none can be a bypass.
 
 These tests are purely local-filesystem; no database or network required.
 """
@@ -170,6 +170,123 @@ class TestLocalStorageContainmentExists:
     async def test_exists_raises(self, provider: LocalStorageProvider, key: str):
         with pytest.raises((ValueError, PermissionError, OSError)):
             await provider.exists(key)
+
+
+class TestLocalStorageContainmentList:
+    """list() must validate prefixes before touching the filesystem."""
+
+    @pytest.mark.parametrize(
+        "prefix",
+        [
+            pytest.param("/etc/", id="absolute"),
+            pytest.param("bad\x00prefix/", id="null-byte"),
+            pytest.param("../outside/secret.txt", id="dotdot-file-prefix"),
+            pytest.param("foo/../../etc/passwd", id="embedded-dotdot"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_list_rejects_absolute_and_null_prefixes(
+        self, provider: LocalStorageProvider, prefix: str
+    ):
+        with pytest.raises(ValueError):
+            await provider.list(prefix)
+
+    @pytest.mark.asyncio
+    async def test_list_rejects_absent_sibling(
+        self, provider: LocalStorageProvider, tmp_path: Path
+    ):
+        prefix = f"../missing_{tmp_path.name}/"
+        with pytest.raises(ValueError):
+            await provider.list(prefix)
+
+    @pytest.mark.asyncio
+    async def test_list_rejects_empty_sibling(
+        self, provider: LocalStorageProvider, tmp_path: Path
+    ):
+        outside_dir = tmp_path.parent / f"empty_{tmp_path.name}"
+        outside_dir.mkdir()
+
+        with pytest.raises(ValueError):
+            await provider.list(f"../{outside_dir.name}/")
+
+    @pytest.mark.asyncio
+    async def test_list_rejects_nonempty_sibling_without_leaking_filename(
+        self, provider: LocalStorageProvider, tmp_path: Path
+    ):
+        outside_dir = tmp_path.parent / f"nonempty_{tmp_path.name}"
+        outside_dir.mkdir()
+        outside_file = outside_dir / "secret.txt"
+        outside_file.write_text("sensitive data")
+
+        with pytest.raises(ValueError) as exc_info:
+            await provider.list(f"../{outside_dir.name}/")
+
+        assert outside_file.name not in str(exc_info.value)
+
+    @pytest.mark.parametrize("prefix", [".", "foo/.."])
+    @pytest.mark.asyncio
+    async def test_list_resolved_base_prefixes_stay_contained(
+        self, provider: LocalStorageProvider, tmp_path: Path, prefix: str
+    ):
+        await provider.put("inside.txt", b"safe")
+        outside_file = tmp_path.parent / f"{tmp_path.name}-outside.txt"
+        outside_file.write_text("must not be listed")
+
+        result = await provider.list(prefix)
+
+        assert result == ["inside.txt"]
+        assert outside_file.name not in result
+
+    @pytest.mark.asyncio
+    async def test_list_accepts_empty_directory_and_file_prefixes(
+        self, provider: LocalStorageProvider
+    ):
+        await provider.put("datasets/nested/a.gpkg", b"a")
+        await provider.put("datasets/b.gpkg", b"b")
+        await provider.put("uploads/c.zip", b"c")
+
+        assert sorted(await provider.list("")) == [
+            "datasets/b.gpkg",
+            "datasets/nested/a.gpkg",
+            "uploads/c.zip",
+        ]
+        assert sorted(await provider.list("datasets/")) == [
+            "datasets/b.gpkg",
+            "datasets/nested/a.gpkg",
+        ]
+        assert await provider.list("datasets/b") == ["datasets/b.gpkg"]
+        assert await provider.list("missing/") == []
+
+
+class TestLocalStorageContainmentOtherKeyedMethods:
+    """The remaining keyed I/O methods must use the same containment gate."""
+
+    @pytest.mark.parametrize("key", _MALICIOUS_KEYS)
+    @pytest.mark.asyncio
+    async def test_copy_rejects_source(self, provider: LocalStorageProvider, key: str):
+        with pytest.raises((ValueError, PermissionError, OSError)):
+            await provider.copy(key, "safe-destination")
+
+    @pytest.mark.parametrize("key", _MALICIOUS_KEYS)
+    @pytest.mark.asyncio
+    async def test_copy_rejects_destination(
+        self, provider: LocalStorageProvider, key: str
+    ):
+        await provider.put("safe-source", b"source")
+        with pytest.raises((ValueError, PermissionError, OSError)):
+            await provider.copy("safe-source", key)
+
+    @pytest.mark.parametrize("key", _MALICIOUS_KEYS)
+    @pytest.mark.asyncio
+    async def test_get_range_rejects(self, provider: LocalStorageProvider, key: str):
+        with pytest.raises((ValueError, PermissionError, OSError)):
+            await provider.get_range(key, 0, 1)
+
+    @pytest.mark.parametrize("key", _MALICIOUS_KEYS)
+    @pytest.mark.asyncio
+    async def test_size_rejects(self, provider: LocalStorageProvider, key: str):
+        with pytest.raises((ValueError, PermissionError, OSError)):
+            await provider.size(key)
 
 
 # ---------------------------------------------------------------------------
