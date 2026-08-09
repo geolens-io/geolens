@@ -47,11 +47,12 @@ class AuditExtension(Protocol):
 
     fix(#873 review r1+r3): the seam has no consumer (core never calls
     ``get_export_formats`` and no overlay registers the ``audit`` slot), but
-    removing any part of it while EXTENSION_API_VERSION stays 2 breaks the v2
-    contract: a deleted symbol ImportErrors an overlay into a silent
-    ``load_extensions()`` skip, and a dispatch-less accessor silently no-ops a
-    registered overlay. Protocol, default, accessor, and dispatch therefore all
-    stay until the next version bump removes the seam wholesale.
+    removing any part of it before the coordinated EXTENSION_API_VERSION bump
+    (removal tracked in #1303) breaks the compatibility contract: a deleted
+    symbol ImportErrors an overlay into a silent ``load_extensions()`` skip,
+    and a dispatch-less accessor silently no-ops a registered overlay.
+    Protocol, default, accessor, and dispatch therefore all stay until that
+    bump removes the seam wholesale.
     """
 
     def get_export_formats(self) -> list[str]: ...
