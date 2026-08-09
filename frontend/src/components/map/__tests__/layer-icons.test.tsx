@@ -261,3 +261,62 @@ describe('patterned polygon swatch (fix #951)', () => {
     expect(container.querySelector('.lucide-pentagon')).not.toBeNull();
   });
 });
+
+// fix(#1288): a stroke-only polygon (fill-opacity: 0, visible outline) used to
+// render an invisible swatch — element-level opacity hid the outline along with
+// the fill it was meant to suppress. fillOpacity now lands on the SVG fill only.
+describe('stroke-only polygon swatch (fix #1288)', () => {
+  it('renders a visible outline when fill-opacity is 0', () => {
+    const { container } = render(
+      <ColorizedGeometryIcon
+        geometryType="POLYGON"
+        colors={['#3b82f6']}
+        layerId="x"
+        styleHints={{ fillOpacity: 0, strokeColor: '#ec4b7f' }}
+      />,
+    );
+    const span = container.firstElementChild as HTMLElement;
+    expect(span.style.opacity).toBe('');
+    const icon = container.querySelector('.lucide-pentagon') as SVGElement;
+    expect(icon.getAttribute('fill-opacity')).toBe('0');
+    expect(icon.getAttribute('stroke')).toBe('#ec4b7f');
+  });
+
+  it('leaves a normal filled polygon unchanged', () => {
+    const { container } = render(
+      <ColorizedGeometryIcon geometryType="POLYGON" colors={['#3b82f6']} layerId="x" />,
+    );
+    const span = container.firstElementChild as HTMLElement;
+    expect(span.style.opacity).toBe('');
+    const icon = container.querySelector('.lucide-pentagon') as SVGElement;
+    expect(icon.getAttribute('fill')).toBe('#3b82f6');
+    expect(icon.getAttribute('fill-opacity')).toBeNull();
+  });
+
+  it('still applies layer-level opacity to the whole swatch', () => {
+    const { container } = render(
+      <ColorizedGeometryIcon
+        geometryType="POLYGON"
+        colors={['#3b82f6']}
+        layerId="x"
+        styleHints={{ opacity: 0.4 }}
+      />,
+    );
+    const span = container.firstElementChild as HTMLElement;
+    expect(span.style.opacity).toBe('0.4');
+  });
+
+  it('extractStyleHints prefers builder.outlineColor over a stale paint mirror', () => {
+    // The renderer draws from style_config.builder, so a swatch reading only the
+    // flat paint mirror can show a color the map no longer draws.
+    const hints = extractStyleHints(
+      { 'fill-opacity': 0, '_outline-color': '#0058ac' },
+      {},
+      'POLYGON',
+      1,
+      { builder: { outlineColor: '#ec4b7f' } },
+    );
+    expect(hints.strokeColor).toBe('#ec4b7f');
+    expect(hints.fillOpacity).toBe(0);
+  });
+});

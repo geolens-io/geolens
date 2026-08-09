@@ -124,7 +124,10 @@ export function stylePreviewStyle(layer: MapLayerResponse) {
   const gt = (layer.dataset_geometry_type ?? '').toUpperCase();
   if (gt.includes('POLYGON')) {
     return {
-      outlineColor: typeof paint['_outline-color'] === 'string' ? paint['_outline-color'] as string : undefined,
+      // fix(#1288): builder.outlineColor wins over the flat paint mirror, which
+      // can go stale — the map itself renders from style_config.builder.
+      outlineColor: layer.style_config?.builder?.outlineColor
+        ?? (typeof paint['_outline-color'] === 'string' ? paint['_outline-color'] as string : undefined),
       strokeDisabled: Boolean(layer.style_config?.builder?.strokeDisabled ?? paint['_stroke-disabled']),
       opacity: layer.opacity,
       fillOpacity: typeof paint['fill-opacity'] === 'number' ? paint['fill-opacity'] as number : undefined,

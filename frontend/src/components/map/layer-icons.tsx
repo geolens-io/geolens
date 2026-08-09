@@ -37,7 +37,10 @@ export function extractStyleHints(
   geometryType: string | null,
   opacity?: number,
   // fix(#914): `builder` is read for the fill-pattern tint stash.
-  styleConfig?: { render_mode?: string; builder?: { fillColorSaved?: string } } | null,
+  // fix(#1288): also read for outlineColor — the renderer draws from builder
+  // state, so the swatch must prefer it over the paint mirror below, which can
+  // go stale (paint keeps the color a layer had before its last outline edit).
+  styleConfig?: { render_mode?: string; builder?: { fillColorSaved?: string; outlineColor?: string } } | null,
 ): StyleHints {
   const gt = (geometryType ?? '').toUpperCase();
   const hints: StyleHints = {};
@@ -65,7 +68,8 @@ export function extractStyleHints(
     if (typeof lo === 'number' && lo < 1) hints.fillOpacity = lo;
   } else if (gt.includes('POLYGON')) {
     if (!paint['_stroke-disabled']) {
-      const oc = paint['_outline-color'];
+      // fix(#1288): builder.outlineColor wins over the flat paint mirror.
+      const oc = styleConfig?.builder?.outlineColor ?? paint['_outline-color'];
       if (typeof oc === 'string') hints.strokeColor = oc;
     }
     const fo = paint['fill-opacity'];
@@ -175,7 +179,7 @@ function LineIcon({ colors, layerId, opacityStyle, styleHints, discrete }: IconS
             </linearGradient>
           </defs>
         )}
-        <line x1="1" y1="7" x2="13" y2="7" stroke={strokeColor} strokeWidth={svgStrokeWidth} strokeLinecap="round" strokeDasharray={dashArray} />
+        <line x1="1" y1="7" x2="13" y2="7" stroke={strokeColor} strokeOpacity={styleHints?.fillOpacity} strokeWidth={svgStrokeWidth} strokeLinecap="round" strokeDasharray={dashArray} />
       </svg>
     </span>
   );
@@ -218,7 +222,9 @@ function ShapeIcon({ colors, layerId, opacityStyle, styleHints, isPoint, discret
         : { strokeWidth: 0 };
     return (
       <span style={opacityStyle} className="inline-flex">
-        <Icon className={sizeClass} fill={color} {...stroke} />
+        {/* fix(#1288): fillOpacity on the SVG fill, not the span — a stroke-only
+            style (fill-opacity: 0) must leave the outline (stroke above) visible. */}
+        <Icon className={sizeClass} fill={color} fillOpacity={styleHints?.fillOpacity} {...stroke} />
       </span>
     );
   }
@@ -240,7 +246,7 @@ function ShapeIcon({ colors, layerId, opacityStyle, styleHints, isPoint, discret
             </linearGradient>
           </defs>
         </svg>
-        <Icon className={sizeClass} fill={`url(#${gradientId})`} {...stroke} />
+        <Icon className={sizeClass} fill={`url(#${gradientId})`} fillOpacity={styleHints?.fillOpacity} {...stroke} />
       </span>
     </span>
   );
@@ -266,8 +272,12 @@ export function ColorizedGeometryIcon({
   if (layerType === 'raster') return <Grid3x3 className="h-3.5 w-3.5 text-muted-foreground" />;
 
   const gt = (geometryType ?? '').toUpperCase();
-  const compoundOpacity = (styleHints?.opacity ?? 1) * (styleHints?.fillOpacity ?? 1);
-  const opacityStyle: React.CSSProperties | undefined = compoundOpacity < 1 ? { opacity: compoundOpacity } : undefined;
+  // fix(#1288): element-level opacity is for the LAYER opacity only. fillOpacity
+  // (paint's fill-/circle-/line-opacity) is a per-element hint the sub-icons
+  // apply to the specific SVG attribute (fill-opacity or stroke-opacity) so a
+  // stroke-only style (fill-opacity: 0) doesn't hide the outline it's drawn with.
+  const layerOpacity = styleHints?.opacity ?? 1;
+  const opacityStyle: React.CSSProperties | undefined = layerOpacity < 1 ? { opacity: layerOpacity } : undefined;
   const sub: IconSubProps = { colors, layerId, opacityStyle, styleHints, discrete };
 
   if (styleHints?.isHeatmap && colors.length > 1) return <HeatmapIcon {...sub} />;

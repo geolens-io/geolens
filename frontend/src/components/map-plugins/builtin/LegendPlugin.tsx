@@ -30,12 +30,16 @@ function getSwatchStyleFromPaint(
   geometryType: string | null | undefined,
   masterOpacity: number,
   // fix(#914): the builder block carries the fill-pattern tint stash.
-  builder?: { fillColorSaved?: string },
+  // fix(#1288): also carries outlineColor — the map renders from builder state,
+  // so the legend must prefer it over the paint mirror below, which can go stale.
+  builder?: { fillColorSaved?: string; outlineColor?: string },
 ): SwatchStyle {
   const gt = (inferGeometryType(paint, geometryType) ?? '').toUpperCase();
   const strokeDisabled = !!paint?.['_stroke-disabled'];
 
-  const rawOutline = gt.includes('POINT') ? paint?.['circle-stroke-color'] : paint?.['_outline-color'];
+  const rawOutline = gt.includes('POINT')
+    ? paint?.['circle-stroke-color']
+    : (builder?.outlineColor ?? paint?.['_outline-color']);
   const outlineColor = typeof rawOutline === 'string' ? rawOutline : undefined;
 
   const rawStrokeW = gt.includes('POINT') ? paint?.['circle-stroke-width'] : paint?.['_outline-width'];

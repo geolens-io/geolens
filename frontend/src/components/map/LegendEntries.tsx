@@ -24,10 +24,26 @@ export interface SwatchStyle {
   fillPatternColor?: string;
 }
 
-/** Compute compound opacity style from swatch style. */
+/**
+ * Compute element-level opacity style from swatch style — LAYER opacity only.
+ * fix(#1288): fillOpacity used to be folded in here and applied to the whole
+ * swatch, so a stroke-only style (fill-opacity: 0) hid its own outline along
+ * with the fill. fillOpacity is now applied per-element (SVG fill-opacity /
+ * stroke-opacity, or an alpha-blended background) by each renderer below.
+ */
 function swatchOpacityStyle(s?: SwatchStyle): React.CSSProperties | undefined {
-  const compoundOpacity = (s?.opacity ?? 1) * (s?.fillOpacity ?? 1);
-  return compoundOpacity < 1 ? { opacity: compoundOpacity } : undefined;
+  const opacity = s?.opacity ?? 1;
+  return opacity < 1 ? { opacity } : undefined;
+}
+
+/** Blend fillOpacity into a hex color for a CSS background, so a transparent
+ * fill can sit inside a fully opaque border. Non-hex colors pass through. */
+function withFillOpacity(color: string, fillOpacity?: number): string {
+  if (fillOpacity === undefined) return color;
+  const m = color.match(/^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i);
+  if (!m) return color;
+  const [r, g, b] = [m[1], m[2], m[3]].map((h) => parseInt(h, 16));
+  return `rgba(${r}, ${g}, ${b}, ${fillOpacity})`;
 }
 
 /* ── Geometry-aware swatch ─────────────────────────── */
@@ -49,6 +65,7 @@ export function GeometrySwatch({ geometryType, color, style: s }: GeometrySwatch
         <circle
           cx="7" cy="7" r="5"
           fill={color}
+          fillOpacity={s?.fillOpacity}
           stroke={s?.outlineColor ?? MAP_COLORS.legendOutline}
           strokeWidth={s?.strokeDisabled ? 0 : (s?.strokeWidth ?? 1)}
         />
@@ -63,6 +80,7 @@ export function GeometrySwatch({ geometryType, color, style: s }: GeometrySwatch
         <line
           x1="1" y1="7" x2="13" y2="7"
           stroke={color}
+          strokeOpacity={s?.fillOpacity}
           strokeWidth={2.5}
           strokeLinecap="round"
         />
@@ -81,7 +99,10 @@ export function GeometrySwatch({ geometryType, color, style: s }: GeometrySwatch
           backgroundColor: 'transparent',
           ...patternPreviewStyle(s.fillPattern),
         }
-      : { backgroundColor: color }),
+      // fix(#1288): alpha-blend fillOpacity into the fill itself — a stroke-only
+      // style (fillOpacity: 0) then renders a transparent fill inside a fully
+      // opaque border, instead of an invisible swatch.
+      : { backgroundColor: withFillOpacity(color, s?.fillOpacity) }),
     ...(borderColor ? { borderColor } : {}),
     ...(s?.strokeWidth ? { borderWidth: s.strokeWidth } : {}),
     ...opacityStyle,
@@ -160,6 +181,7 @@ export const GraduatedRadiusLegend = memo(function GraduatedRadiusLegend({ sizes
               cx="12" cy="12"
               r={Math.min(size, 12)}
               fill={safeColors?.[Math.min(i, safeColors.length - 1)] ?? circleColor}
+              fillOpacity={s?.fillOpacity}
               stroke={s?.outlineColor ?? MAP_COLORS.legendOutline}
               strokeWidth={s?.strokeDisabled ? 0 : (s?.strokeWidth ?? 1)}
             />
@@ -187,7 +209,7 @@ export const GraduatedWidthLegend = memo(function GraduatedWidthLegend({ sizes, 
       {sizes.map((size, i) => (
         <li key={i} className="flex items-center gap-1.5">
           <svg width="24" height="16" className="shrink-0" style={opacityStyle}>
-            <line x1="0" y1="8" x2="24" y2="8" stroke={lineColor} strokeWidth={Math.min(size, 8)} strokeLinecap="round" />
+            <line x1="0" y1="8" x2="24" y2="8" stroke={lineColor} strokeOpacity={s?.fillOpacity} strokeWidth={Math.min(size, 8)} strokeLinecap="round" />
           </svg>
           <span className="text-muted-foreground truncate">{breakLabel(i, breaks)}</span>
         </li>

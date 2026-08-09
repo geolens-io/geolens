@@ -65,3 +65,44 @@ describe('GeometrySwatch — patterned polygons', () => {
     expect(swatch.style.backgroundColor).toBe('rgb(255, 90, 95)');
   });
 });
+
+// fix(#1288): a stroke-only polygon (fillOpacity: 0) used to render at
+// container-level opacity 0 — invisible, even though it has a visible outline.
+describe('GeometrySwatch — stroke-only polygons (fix #1288)', () => {
+  it('renders a transparent fill inside a fully opaque border', () => {
+    const { container } = render(
+      <CategoricalLegend
+        geometryType="Polygon"
+        categories={[{ value: 'a', label: 'A', color: '#3b82f6' }]}
+        style={{ fillOpacity: 0, outlineColor: '#ec4b7f' }}
+      />,
+    );
+    const swatch = container.querySelector('[aria-hidden="true"]') as HTMLElement;
+    expect(swatch.style.opacity).toBe('');
+    expect(swatch.style.backgroundColor).toBe('rgba(59, 130, 246, 0)');
+    expect(swatch.style.borderColor).toBe('rgb(236, 75, 127)');
+  });
+
+  it('leaves a normal fill unchanged', () => {
+    const { container } = render(
+      <CategoricalLegend
+        geometryType="Polygon"
+        categories={[{ value: 'a', label: 'A', color: '#3b82f6' }]}
+      />,
+    );
+    const swatch = container.querySelector('[aria-hidden="true"]') as HTMLElement;
+    expect(swatch.style.backgroundColor).toBe('rgb(59, 130, 246)');
+  });
+
+  it('still applies layer-level opacity to the whole swatch', () => {
+    const { container } = render(
+      <CategoricalLegend
+        geometryType="Polygon"
+        categories={[{ value: 'a', label: 'A', color: '#3b82f6' }]}
+        style={{ opacity: 0.5 }}
+      />,
+    );
+    const swatch = container.querySelector('[aria-hidden="true"]') as HTMLElement;
+    expect(swatch.style.opacity).toBe('0.5');
+  });
+});

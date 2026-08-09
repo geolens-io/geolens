@@ -52,7 +52,9 @@ function viewerLegendEntryName(layer: SharedLayerResponse): string {
 
 /** Build SwatchStyle from viewer layer paint for consistent legend rendering. */
 function viewerSwatchStyle(layer: SharedLayerResponse): SwatchStyle {
-  const rawOutline = layer.paint?.['_outline-color'];
+  // fix(#1288): builder.outlineColor wins over the flat paint mirror, which can
+  // go stale — the map itself renders from style_config.builder.
+  const rawOutline = layer.style_config?.builder?.outlineColor ?? layer.paint?.['_outline-color'];
   const outlineColor = typeof rawOutline === 'string' ? rawOutline : undefined;
   const rawStrokeW = layer.paint?.['circle-stroke-width'] ?? layer.paint?.['_outline-width'];
   const strokeWidth = typeof rawStrokeW === 'number' ? rawStrokeW : undefined;
