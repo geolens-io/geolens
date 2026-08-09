@@ -4564,3 +4564,142 @@ class TestArchiveFailureFailsThePublish:
                 f"{module.__name__} handles the archive-durability policy "
                 "itself instead of inheriting it (#1290 round-13)"
             )
+
+
+class TestLocalFailurePathsKeepWhatIsDurable:
+    """ROUND 14. Both findings are this review's own distinctions —
+    durable-vs-scratch, and requested-vs-happened — applied to corners of the
+    LOCAL storage shape that never got them."""
+
+    async def test_worker_validation_failure_keeps_the_local_original(
+        self, test_db_session, raster_storage, tmp_path, monkeypatch
+    ) -> None:
+        """FINDING 1. A direct local upload that passes request-time validation
+        and fails the WORKER check — canonically `UPLOAD_MAX_SIZE_MB` lowered
+        while the job sat queued — used to have its only staged source deleted
+        on an exit that records the job as FAILED, leaving nothing to diagnose
+        from. The object-storage shape was already right, because what it
+        deletes there is a downloaded scratch copy."""
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+
+        source = tmp_path / "too-big-now.tif"
+        source.write_bytes(_geotiff_bytes(seed=291))
+        job = await _queue_replace_job(
+            test_db_session,
+            dataset_id=dataset_id,
+            user_id=admin_id,
+            file_path=str(source),
+        )
+        job_id = job.id
+
+        async def _reject(*args, **kwargs):
+            raise ValueError("File exceeds the maximum allowed size.")
+
+        monkeypatch.setattr(
+            "app.processing.ingest.tasks_raster_replace._validate_upload_file_safety",
+            _reject,
+            raising=True,
+        )
+
+        try:
+            await reupload_raster.func(
+                job_id=str(job_id),
+                dataset_id=str(dataset_id),
+                file_path=str(source),
+                user_id=str(admin_id),
+                attempt_id=str(job.attempt_id),
+            )
+
+            assert source.exists(), (
+                "the worker deleted the only staged copy of a file whose job "
+                "it then recorded as failed — on a local install that is the "
+                "durable original, not a scratch copy (#1290 round-14 "
+                "finding 1)"
+            )
+            finished = (
+                await test_db_session.execute(
+                    select(IngestJob).where(IngestJob.id == job_id)
+                )
+            ).scalar_one()
+            # Not complete: this is a failure path, and the point is that a
+            # failure path must not destroy the diagnostic copy.
+            assert finished.status != "complete"
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
+    async def test_a_cancelled_archive_write_is_still_owned(
+        self, test_db_session, raster_storage, tmp_path, monkeypatch
+    ) -> None:
+        """FINDING 2. `LocalStorageProvider.put` drains its worker thread before
+        re-raising `CancelledError`, so a cancelled write can have COMPLETED on
+        disk. `CancelledError` is a BaseException, so the old code never
+        reported the key and the finished object survived with no quota row.
+
+        The stub below writes and then raises, which IS the documented drain
+        semantics rather than a convenience — reproducing the real provider's
+        thread drain in-process would test asyncio, not this.
+        """
+        import asyncio as _asyncio
+
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+
+        source = tmp_path / "cancelled.tif"
+        source.write_bytes(_geotiff_bytes(seed=292))
+        job = await _queue_replace_job(
+            test_db_session,
+            dataset_id=dataset_id,
+            user_id=admin_id,
+            file_path=str(source),
+        )
+        job.user_metadata = {**(job.user_metadata or {}), "compression": "JPEG"}
+        await test_db_session.commit()
+        job_id = job.id
+
+        real_put = raster_storage.put
+
+        async def _put_then_cancel(key, data):
+            result = await real_put(key, data)
+            if "originals/" in key:
+                # The write COMPLETED; the cancellation arrives after.
+                raise _asyncio.CancelledError()
+            return result
+
+        monkeypatch.setattr(raster_storage, "put", _put_then_cancel)
+
+        try:
+            with pytest.raises(BaseException):
+                await reupload_raster.func(
+                    job_id=str(job_id),
+                    dataset_id=str(dataset_id),
+                    file_path=str(source),
+                    user_id=str(admin_id),
+                    attempt_id=str(job.attempt_id),
+                )
+
+            monkeypatch.setattr(raster_storage, "put", real_put)
+            leftovers = await _archived_originals(raster_storage, dataset_id)
+            assert leftovers == [], (
+                f"a completed-but-cancelled archive write survived unowned: "
+                f"{leftovers} — no quota row references it and nothing will "
+                "ever reap it (#1290 round-14 finding 2)"
+            )
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)

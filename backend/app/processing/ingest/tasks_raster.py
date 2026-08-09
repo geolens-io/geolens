@@ -190,7 +190,18 @@ async def ingest_raster(
                     },
                 )
                 await session.commit()
-                _Path(file_path).unlink(missing_ok=True)
+                # fix(#1290 review): NO unlink here. This exit used to delete
+                # the local file unconditionally, which on a local-storage
+                # install is the durable original — so a worker-side validation
+                # failure (canonically: UPLOAD_MAX_SIZE_MB lowered while the job
+                # sat queued) destroyed the only copy of a file the job then
+                # recorded as failed, with nothing to diagnose from. The
+                # object-storage shape was already right because the thing it
+                # deletes is a downloaded scratch copy.
+                #
+                # The terminal `finally` already knows that distinction, and it
+                # runs on this return, so the correct fix is to have ONE exit
+                # decide rather than teach a second one the same rule.
                 final_status = "failed"
                 # EVENT-03: notify on ingest failed (non-fatal, after commit — deferred import).
                 # status="failed" is already committed so a notification error cannot
@@ -538,9 +549,11 @@ async def ingest_raster(
                     "upload will be retained in place instead"
                 ),
                 needed=not source_preserved_in_cog,
+                written_storage_keys=written_storage_keys,
             )
-            if new_archive_key is not None:
-                written_storage_keys.append(new_archive_key)
+            # fix(#1290 review): the helper registers the key itself, BEFORE
+            # the cancellable write — appending here as well would double-add,
+            # and appending here INSTEAD would restore the cancellation hole.
             _archive_asset_key = (
                 archived_original_asset_key(source_sha256) if archived_key else None
             )

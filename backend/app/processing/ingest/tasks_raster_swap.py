@@ -207,6 +207,7 @@ async def archive_lossy_original(
     filename: str | None,
     log_message: str,
     needed: bool,
+    written_storage_keys: list[str] | None = None,
 ) -> tuple[bool, str | None, int, str | None]:
     """Keep the pre-conversion upload, and report everything the caller needs.
 
@@ -286,6 +287,25 @@ async def archive_lossy_original(
     # that is fine. A failed WRITE is different in kind: it is proof the
     # durable copy does not exist, and publishing anyway is what silently voids
     # the retention promise.
+    # fix(#1290 review): ownership is registered by INTENT, before the write,
+    # not by whether the write returned. `LocalStorageProvider.put` drains its
+    # worker thread before re-raising `CancelledError`, so a cancelled write
+    # can have COMPLETED on disk — and `CancelledError` is a BaseException, so
+    # nothing below runs, the key is never reported, and a finished
+    # `originals/` object survives with no quota row. Repeat that and storage
+    # grows uncounted.
+    #
+    # Registering first is safe in the other direction: reaping a key the write
+    # never created is an idempotent no-op. This is `written_storage_keys`
+    # recording what the code SET OUT to do rather than what it SAW happen —
+    # the same correction this review has made repeatedly.
+    #
+    # Confined to the `existed is False` branch on purpose. Round 7's rule is
+    # unchanged: a probe that said True, or could not answer, never registers,
+    # so a pre-existing archive stays untouchable by this attempt's cleanup.
+    if existed is False and written_storage_keys is not None:
+        written_storage_keys.append(physical_key)
+
     archived = await _archive_original_file(
         session,
         job=job,

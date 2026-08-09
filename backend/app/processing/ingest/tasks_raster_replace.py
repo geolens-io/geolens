@@ -349,7 +349,18 @@ async def reupload_raster(
                     contacted_origin=False,
                 )
                 await session.commit()
-                Path(file_path).unlink(missing_ok=True)
+                # fix(#1290 review): NO unlink here. This exit used to delete
+                # the local file unconditionally, which on a local-storage
+                # install is the durable original — so a worker-side validation
+                # failure (canonically: UPLOAD_MAX_SIZE_MB lowered while the job
+                # sat queued) destroyed the only copy of a file the job then
+                # recorded as failed, with nothing to diagnose from. The
+                # object-storage shape was already right because the thing it
+                # deletes is a downloaded scratch copy.
+                #
+                # The terminal `finally` already knows that distinction, and it
+                # runs on this return, so the correct fix is to have ONE exit
+                # decide rather than teach a second one the same rule.
                 final_status = "failed"
                 return
 
@@ -537,13 +548,15 @@ async def reupload_raster(
                     "staged upload will be retained in place instead"
                 ),
                 needed=not source_preserved_in_cog,
+                written_storage_keys=written_storage_keys,
             )
             # Only an object this attempt CREATED joins the written set. An
             # archive that already existed belongs to an earlier successful
             # replace, and reaping it on failure would destroy the original of
             # the raster that is still live.
-            if new_archive_key is not None:
-                written_storage_keys.append(new_archive_key)
+            # fix(#1290 review): the helper registers the key itself, BEFORE
+            # the cancellable write — appending here as well would double-add,
+            # and appending here INSTEAD would restore the cancellation hole.
 
             # fix(#1290 review): BEFORE the upsert — see the helper's docstring
             # for why the ordering is load-bearing. Raises
