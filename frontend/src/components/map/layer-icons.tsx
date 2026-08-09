@@ -37,10 +37,14 @@ export function extractStyleHints(
   geometryType: string | null,
   opacity?: number,
   // fix(#914): `builder` is read for the fill-pattern tint stash.
-  // fix(#1288): also read for outlineColor — the renderer draws from builder
-  // state, so the swatch must prefer it over the paint mirror below, which can
-  // go stale (paint keeps the color a layer had before its last outline edit).
-  styleConfig?: { render_mode?: string; builder?: { fillColorSaved?: string; outlineColor?: string } } | null,
+  // fix(#1288): also read for outlineColor and strokeDisabled — the renderer
+  // draws from builder state, so the swatch must prefer it over the paint
+  // mirror below, which can go stale (paint keeps the color/flag a layer had
+  // before its last edit).
+  styleConfig?: {
+    render_mode?: string;
+    builder?: { fillColorSaved?: string; outlineColor?: string; strokeDisabled?: boolean };
+  } | null,
 ): StyleHints {
   const gt = (geometryType ?? '').toUpperCase();
   const hints: StyleHints = {};
@@ -53,7 +57,11 @@ export function extractStyleHints(
     hints.opacity = opacity;
   }
 
-  if (paint['_stroke-disabled']) {
+  // fix(#1288 codex): builder.strokeDisabled wins over the paint mirror, the
+  // same precedence the map adapters and the builder's own style preview use
+  // (stylePreviewStyle). Computed once so every branch below agrees on it.
+  const strokeDisabled = Boolean(styleConfig?.builder?.strokeDisabled ?? paint['_stroke-disabled']);
+  if (strokeDisabled) {
     hints.strokeDisabled = true;
   }
 
@@ -67,7 +75,7 @@ export function extractStyleHints(
     const lo = paint['line-opacity'];
     if (typeof lo === 'number' && lo < 1) hints.fillOpacity = lo;
   } else if (gt.includes('POLYGON')) {
-    if (!paint['_stroke-disabled']) {
+    if (!strokeDisabled) {
       // fix(#1288): builder.outlineColor wins over the flat paint mirror.
       const oc = styleConfig?.builder?.outlineColor ?? paint['_outline-color'];
       if (typeof oc === 'string') hints.strokeColor = oc;
@@ -85,7 +93,7 @@ export function extractStyleHints(
   hints.fillPatternColor = fillPatternTint(paint, styleConfig?.builder);
 
   if (gt.includes('POINT')) {
-    if (!paint['_stroke-disabled']) {
+    if (!strokeDisabled) {
       const sc = paint['circle-stroke-color'];
       if (typeof sc === 'string') hints.strokeColor = sc;
     }

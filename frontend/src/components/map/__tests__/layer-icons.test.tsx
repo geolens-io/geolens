@@ -340,4 +340,19 @@ describe('stroke-only polygon swatch (fix #1288)', () => {
     expect(hints.strokeColor).toBe('#ec4b7f');
     expect(hints.fillOpacity).toBe(0);
   });
+
+  // fix(#1288 codex): with fill-opacity now revealing the outline instead of
+  // hiding the whole swatch, a stroke the user turned off via the builder (which
+  // can leave a stale/absent paint['_stroke-disabled']) must not draw as visible.
+  it('extractStyleHints prefers builder.strokeDisabled over a stale paint mirror', () => {
+    const hints = extractStyleHints(
+      { 'fill-opacity': 0, '_outline-color': '#ec4b7f' },
+      {},
+      'POLYGON',
+      1,
+      { builder: { strokeDisabled: true, outlineColor: '#ec4b7f' } },
+    );
+    expect(hints.strokeDisabled).toBe(true);
+    expect(hints.strokeColor).toBeUndefined();
+  });
 });
