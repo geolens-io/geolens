@@ -91,6 +91,9 @@ _CORE_GUARDS = (
     "check_dataset_access",
     "check_dataset_write_access",
     "apply_visibility_filter",
+    # fix(#1298): batch sibling of check_dataset_access — same fail-closed
+    # 404, one query for the whole set instead of one per id.
+    "check_datasets_access_bulk",
 )
 
 # Domain guard helpers that wrap the core checks (or implement the
@@ -123,6 +126,7 @@ _RAISING_GUARDS = frozenset(
         "check_dataset_access_or_anonymous",
         "check_dataset_access",
         "check_dataset_write_access",
+        "check_datasets_access_bulk",
         "check_map_ownership",
         "_check_map_read_access",
         "_check_record_read_access",
@@ -176,6 +180,7 @@ def _guard_objects() -> dict[str, Any]:
         ),
         "check_dataset_access": authorization.check_dataset_access,
         "check_dataset_write_access": authorization.check_dataset_write_access,
+        "check_datasets_access_bulk": authorization.check_datasets_access_bulk,
         "apply_visibility_filter": authorization.apply_visibility_filter,
         "check_map_ownership": service_crud.check_map_ownership,
         "_check_map_read_access": _router_helpers._check_map_read_access,

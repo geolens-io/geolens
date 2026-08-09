@@ -15,7 +15,7 @@ from app.core.identity import Identity
 from app.modules.auth.dependencies import get_optional_user, require_permission
 from app.modules.auth.models import User
 from app.modules.catalog.authorization import (
-    check_dataset_access,
+    check_datasets_access_bulk,
     get_user_roles,
     visible_lineage_summaries,
 )
@@ -324,19 +324,13 @@ async def add_datasets_endpoint(
     # FK-relationship create path (router_metadata.create_dataset_relationship)
     # and the VRT SEC-C link-time check. manage_collections gates the action but
     # not the link targets, so without this an editor could attach another
-    # user's private dataset. check_dataset_access raises 404 if access denied;
-    # user_roles is resolved once and reused across the batch.
-    from app.modules.catalog.datasets.domain.service import get_dataset
-
+    # user's private dataset. check_datasets_access_bulk raises 404 if access
+    # is denied for any requested id.
+    #
+    # fix(#1298): batched — a 100-id request used to cost one get_dataset() +
+    # check_dataset_access() round trip per id.
     user_roles = await get_user_roles(db, user)
-    for did in body.dataset_ids:
-        dataset = await get_dataset(db, did)
-        if dataset is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Dataset not found",
-            )
-        await check_dataset_access(db, dataset, did, user, user_roles=user_roles)
+    await check_datasets_access_bulk(db, body.dataset_ids, user, user_roles)
 
     try:
         count = await add_datasets_to_collection(

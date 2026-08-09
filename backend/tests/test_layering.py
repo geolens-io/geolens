@@ -3184,7 +3184,6 @@ _PROCESSING_CATALOG_IMPORT_BURNDOWN: dict[str, set[str]] = {
     },
     "ingest/service.py": {
         "app.modules.catalog.authorization",
-        "app.modules.catalog.datasets.domain.service",
     },
     "ingest/tasks_reupload.py": {"app.modules.catalog.sources.security"},
     "ingest/tasks_vector.py": {

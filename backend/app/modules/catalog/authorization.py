@@ -18,6 +18,7 @@ from typing import Any
 from fastapi import HTTPException, status
 from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from app.core.identity import Identity
 from app.modules.auth.models import Role, UserRole
@@ -138,6 +139,61 @@ async def check_dataset_access(
         )
 
     return user_roles
+
+
+async def check_datasets_access_bulk(
+    db: AsyncSession,
+    dataset_ids: Sequence[uuid.UUID],
+    user: Identity,
+    user_roles: set[str],
+) -> dict[uuid.UUID, Any]:
+    """Load and authorize multiple datasets in a small, constant number of queries.
+
+    fix(#1298): ``create_vrt_job`` and the collection-linking route each
+    authorized their linked datasets one id at a time — ``get_dataset()`` then
+    ``check_dataset_access()`` per id — so a 500-source VRT request cost
+    roughly 500 SELECTs plus 500 access checks before the job was even
+    queued. This is the batch sibling of ``check_dataset_access``: same
+    fail-closed 404, same "first requested id wins" ordering, but the load
+    and the visibility computation each run once for the whole set instead
+    of once per id.
+
+    Loads every requested dataset (with ``Record`` eager-loaded, mirroring
+    ``_load_source_datasets`` in ``router_vrt.py``) in one SELECT, then
+    resolves the accessible subset through the same
+    ``apply_visibility_filter``/``filter_visible`` seam ``_accessible_dataset_ids``
+    uses — so a permission-extension overlay sees the batch path exactly as
+    it sees the scalar one, never bypassed for the sake of a query count.
+    Raises the same 404 as ``check_dataset_access`` for the first id in
+    ``dataset_ids`` (request order) that is missing or denied — a batch that
+    fails partway raises without returning anything, matching what the
+    scalar loop it replaces would have done.
+
+    Returns every requested dataset keyed by id (only reachable once every
+    id has passed).
+    """
+    if not dataset_ids:
+        return {}
+
+    from app.modules.catalog.datasets.domain.models import Dataset
+
+    result = await db.execute(
+        select(Dataset)
+        .options(joinedload(Dataset.record))
+        .where(Dataset.id.in_(set(dataset_ids)))
+    )
+    datasets_by_id = {
+        dataset.id: dataset for dataset in result.scalars().unique().all()
+    }
+
+    accessible = await _accessible_dataset_ids(db, dataset_ids, user, user_roles)
+    for dataset_id in dataset_ids:
+        if dataset_id not in accessible:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+            )
+
+    return datasets_by_id
 
 
 async def _can_access_dataset_id(
