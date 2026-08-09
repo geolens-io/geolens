@@ -41,6 +41,7 @@ from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.sources import stac_resolve
 from app.modules.catalog.sources.adapters.stac import pick_data_asset
 from app.modules.catalog.sources.origin_probe import DETAIL_CODES
+from app.modules.catalog.sources.security import SSRFError
 from app.modules.catalog.sources.stac_resolve import resolve_stac_binding
 from app.platform.dataset_origin import SOURCE_HEALTH_VALUES, build_origin_ref
 from app.platform.jobs.models import IngestJob
@@ -93,6 +94,15 @@ def _item_doc(
     }
 
 
+def _raising(exc_factory):
+    """A handler that fails the request instead of answering it."""
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        raise exc_factory(request)
+
+    return _handler
+
+
 def _routes(mapping: dict[str, tuple[int, object | None]]):
     """Answer each URL from a table; anything unlisted is a 404.
 
@@ -124,8 +134,9 @@ def stac_transport(monkeypatch):
     """
     recorded: list[httpx.Request] = []
 
-    def install(mapping: dict[str, tuple[int, object | None]]) -> None:
-        handler = _routes(mapping)
+    def install(routes) -> None:
+        """Install a URL table, or a handler for the failure shapes."""
+        handler = routes if callable(routes) else _routes(routes)
 
         def factory(timeout=10.0, **_kwargs) -> httpx.AsyncClient:
             async def _handle(request: httpx.Request) -> httpx.Response:
@@ -1093,6 +1104,54 @@ class TestWorker:
         run = await _run_for(dataset.id)
         assert run.status == "failed"
         assert run.error_code == "source_inaccessible"
+
+    async def test_an_inconclusive_failure_still_dates_the_contact(
+        self, client, admin_auth_header, test_db_session, stac_transport
+    ) -> None:
+        """fix(#1266 review round 3): `last_checked_at` means the last time
+        GeoLens contacted the origin AT ALL, success or failure.
+
+        A 5xx establishes nothing about where the asset is, so no verdict is
+        written — but the publisher answered, and the failure case is the one
+        an operator most needs dated. Exactly one writer does it: the health
+        stamp when it has a verdict, the run finalizer when it does not.
+        """
+        install, _ = stac_transport
+        install({_ITEM: (503, None)})
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(
+            test_db_session, created_by=admin_id, source_health="healthy"
+        )
+        before = datetime.now(timezone.utc)
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        with pytest.raises(Exception):
+            await _execute(test_db_session, payload)
+
+        refreshed = await _reload(dataset.id)
+        assert refreshed.last_checked_at is not None
+        assert refreshed.last_checked_at >= before - timedelta(seconds=5)
+        # ...and still no verdict, because none was established.
+        assert refreshed.source_health == "healthy"
+
+    async def test_a_refusal_that_never_left_geolens_does_not_date_a_contact(
+        self, client, admin_auth_header, test_db_session, stac_transport
+    ) -> None:
+        """The other half of that contract. An SSRF policy refusal happens
+        before any packet goes out, so stamping it would overwrite a real
+        earlier contact time with a policy-check time."""
+        install, _ = stac_transport
+        install(_raising(lambda _req: SSRFError("private address")))
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        with pytest.raises(Exception):
+            await _execute(test_db_session, payload)
+
+        refreshed = await _reload(dataset.id)
+        assert refreshed.last_checked_at is None
+        assert refreshed.source_health is None
 
     async def test_a_rebind_during_the_fetch_discards_the_answer(
         self, client, admin_auth_header, test_db_session, stac_transport

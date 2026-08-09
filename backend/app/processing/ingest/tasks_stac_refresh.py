@@ -112,11 +112,20 @@ class StacRefreshError(Exception):
         error_code: str,
         health: str | None = None,
         detail: str | None = None,
+        contacted: bool = False,
     ) -> None:
         super().__init__(message)
         self.error_code = error_code
         self.health = health
         self.detail = detail
+        # fix(#1266 review round 3): whether an outbound attempt actually
+        # reached the publisher, carried separately from the verdict because
+        # they are separate facts. A 5xx or a 401 establishes NOTHING about
+        # where the asset is (health stays None) while still being a contact
+        # that `last_checked_at` is defined to date. Defaults to False so a
+        # failure raised before any request — a binding with no item href —
+        # cannot date a contact that never happened.
+        self.contacted = contacted
 
 
 def _binding(dataset: Any) -> tuple:
@@ -179,12 +188,14 @@ def _failure_for(resolution: Any) -> StacRefreshError:
             error_code=_ERROR_CODE_MISSING,
             health=resolution.health,
             detail=resolution.detail,
+            contacted=resolution.contacted,
         )
     return StacRefreshError(
         _UNREACHABLE_MESSAGE,
         error_code=_ERROR_CODE_INACCESSIBLE,
         health=None,
         detail=None,
+        contacted=resolution.contacted,
     )
 
 
@@ -378,6 +389,12 @@ async def refresh_stac(
                     "rather than written over the newer binding. Refresh "
                     "again.",
                     error_code=_ERROR_CODE_SUPERSEDED,
+                    # The publisher WAS reached, so this is a contact — but
+                    # one made against a binding the dataset no longer has.
+                    # No special case is needed for that: both stamps below
+                    # are guarded on the binding this attempt read, and the
+                    # guard is what declines the write.
+                    contacted=True,
                 )
 
             dataset = (
@@ -493,24 +510,38 @@ async def refresh_stac(
                 },
             )
             await err_session.commit()
+            health = getattr(exc, "health", None)
             await stamp_failed_origin_health(
                 err_session,
                 Dataset,
                 dataset_uuid,
-                health=getattr(exc, "health", None),
+                health=health,
                 detail=getattr(exc, "detail", None),
                 bound=bound,
             )
-            # contacted_origin=False so the run finalizer does not write the
-            # dataset a second, weaker way: the stamp above already dated the
-            # contact under the binding guard, and it did so only for the
-            # failures that actually reached the origin.
+            # fix(#1266 review round 3): exactly one writer dates the contact,
+            # and which one depends on whether there was a verdict to write.
+            #
+            # The stamp above dates it whenever it writes a verdict, so the
+            # run finalizer must not repeat that a second, weaker way. But
+            # when the attempt established nothing about the origin and still
+            # REACHED it — a 5xx, a 401/403, a body that is not a STAC item —
+            # the stamp declines to write at all, and the contact would go
+            # unrecorded even though `last_checked_at` is defined as the last
+            # time GeoLens contacted the origin at all. That is the case the
+            # finalizer takes, under the identical binding guard.
+            dates_contact = (
+                getattr(exc, "contacted", False)
+                and health is None
+                and bound is not None
+            )
             await record_refresh_failure(
                 err_session,
                 ingest_job_id=job_uuid,
                 error_code=error_code,
                 error_message=str(exc),
-                contacted_origin=False,
+                contacted_origin=dates_contact,
+                origin_binding=bound if dates_contact else None,
             )
             await err_session.commit()
         raise
