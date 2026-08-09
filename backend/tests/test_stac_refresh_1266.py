@@ -631,7 +631,10 @@ class TestResolution:
         odd_href = "https://origin.test/items/scene-1"
         install({odd_href: (404, None)})
         result = await resolve_stac_binding(
-            item_href=odd_href, collection_id="scenes", asset_href=_ASSET
+            item_href=odd_href,
+            item_id="scene-1",
+            collection_id="scenes",
+            asset_href=_ASSET,
         )
         assert (result.health, result.detail) == ("missing", "item_withdrawn")
         assert [str(r.url) for r in recorded] == [odd_href]
@@ -757,33 +760,52 @@ class TestResolution:
         self, stac_transport
     ) -> None:
         """A dataset imported before the id was recorded gains one the first
-        time it refreshes, and is checked against it thereafter."""
+        time it refreshes — but only where the answer could be checked, which
+        for a legacy binding means the URL states the identity itself."""
         install, _ = stac_transport
-        odd_href = "https://origin.test/stac/permalink/abc123"
         install(
             {
-                odd_href: (
-                    200,
-                    _item_doc(asset_href=_MOVED_ASSET, self_href=odd_href),
-                ),
+                _ITEM: (200, _item_doc(asset_href=_MOVED_ASSET)),
                 _MOVED_ASSET: (206, None),
             }
         )
         result = await resolve_stac_binding(
-            item_href=odd_href, item_id=None, collection_id="scenes", asset_href=_ASSET
+            item_href=_ITEM, item_id=None, collection_id="scenes", asset_href=_ASSET
         )
         assert result.resolved
         assert result.item_id == "scene-1"
 
-    async def test_a_catalog_whose_layout_hides_the_id_is_still_refreshable(
+    async def test_a_legacy_permalink_binding_is_refused_before_it_is_asked(
+        self, stac_transport
+    ) -> None:
+        """fix(#1266 review round 10): the residue of recording the id.
+
+        A binding written before item ids were recorded, whose catalog
+        publishes permalink-style URLs that state no identity either, gives a
+        refresh nothing to check the publisher's answer against — and an
+        unverified first answer would be adopted AND recorded as durable
+        truth, leaving a wrong binding self-consistent forever. Nothing is
+        fetched at all.
+        """
+        install, recorded = stac_transport
+        permalink = "https://origin.test/stac/permalink/abc123"
+        install({permalink: (200, _item_doc(item_id="somebody-elses-scene"))})
+        result = await resolve_stac_binding(
+            item_href=permalink, item_id=None, collection_id="scenes", asset_href=_ASSET
+        )
+        assert not result.resolved
+        assert result.contacted is False
+        assert recorded == []
+
+    async def test_a_catalog_whose_layout_hides_the_id_refreshes_on_the_binding(
         self, stac_transport
     ) -> None:
         """The contradiction test must not become a confirmation requirement.
 
         A catalog that does not use the standard item layout states no id in
-        its URL, so there is nothing to compare — and refusing those would
-        make the check a second gate on exactly the catalogs that already get
-        no fallback search.
+        its URL, so the URL contradicts nothing — the recorded id is what the
+        answer is checked against, and having one is what lets these catalogs
+        refresh at all.
         """
         install, _ = stac_transport
         odd_href = "https://origin.test/stac/scenes/scene-1.json"
@@ -794,7 +816,10 @@ class TestResolution:
             }
         )
         result = await resolve_stac_binding(
-            item_href=odd_href, collection_id="scenes", asset_href=_ASSET
+            item_href=odd_href,
+            item_id="scene-1",
+            collection_id="scenes",
+            asset_href=_ASSET,
         )
         assert result.resolved
         assert result.asset_href == _MOVED_ASSET
@@ -1349,6 +1374,26 @@ class TestDispatch:
         detail = resp.json()["detail"]
         assert detail["code"] == "origin_unavailable"
         assert detail["origin_kind"] == "stac"
+        assert await _run_for(dataset.id) is None
+
+    async def test_a_binding_whose_identity_cannot_be_checked_is_refused(
+        self, client, admin_auth_header, test_db_session
+    ) -> None:
+        """Refused at the door, so the caller learns immediately and no run
+        row is spent on a binding that could never be verified."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(
+            test_db_session,
+            created_by=admin_id,
+            item_href="https://origin.test/stac/permalink/abc123",
+            item_id=None,
+        )
+        async with _dispatch_harness():
+            resp = await client.post(
+                f"/datasets/{dataset.id}/refresh", headers=admin_auth_header
+            )
+        assert resp.status_code == 409, resp.text
+        assert resp.json()["detail"]["code"] == "origin_unavailable"
         assert await _run_for(dataset.id) is None
 
     async def test_a_credential_is_refused_rather_than_dropped(

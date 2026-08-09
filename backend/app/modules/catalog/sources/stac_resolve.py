@@ -151,6 +151,11 @@ class StacResolution:
         return self.asset_href is not None
 
 
+# "GeoLens cannot tell this item from another one the same URL might serve."
+# Nothing is fetched and nothing is written — see `states_verifiable_identity`
+# for why this refusal exists and why it is not a health verdict.
+_UNVERIFIABLE = StacResolution(INACCESSIBLE, UNEXPECTED_STATUS, contacted=False)
+
 # "The item document is gone and nothing else knows where it went." The
 # detail is the probe's own word for a withdrawn item, so the refresh and the
 # probe describe the same upstream event with the same code.
@@ -284,6 +289,40 @@ def _self_link_contradicts(
     if isinstance(item_id, str) and linked_item_id != item_id:
         return True
     return bool(collection_id and collection != collection_id)
+
+
+def states_verifiable_identity(
+    *, item_href: str, item_id: str | None, collection_id: str | None
+) -> bool:
+    """Whether a refresh could tell this item from another one.
+
+    fix(#1266 review round 10): the residue of the previous round. Once the
+    binding carries ``item_id`` every new import is checkable, and a dataset
+    that refreshes once LEARNS its id — but the learning itself has to be
+    trustworthy, and for one population it is not: a binding written before
+    the id was recorded, whose catalog publishes permalink-style item URLs
+    that state no identity either. For those there is nothing to check the
+    first answer against, so a permalink that has since been re-pointed
+    would be adopted and its unrelated id recorded as durable truth. The
+    wrong binding would then be self-consistent forever.
+
+    So this is a precondition rather than a verdict: a refresh will not adopt
+    a binding whose identity it cannot verify. It costs those datasets the
+    new capability until they are re-imported, which is a narrower rollout of
+    something new rather than the loss of something that worked — nothing
+    could refresh a STAC dataset before this feature at all. Every catalog
+    that lays items out as ``/collections/{c}/items/{id}`` is unaffected,
+    because its URLs state the identity, and every dataset imported from here
+    on is unaffected, because its binding does.
+
+    ``datasets.source_filename`` holds the same id and is deliberately not a
+    way out: it is in the metadata PATCH's field map, so backfilling from it
+    would let an edited field decide which remote item a dataset is
+    re-pointed at — the exact substitution this refusal exists to prevent.
+    """
+    return (
+        bool(item_id) or _search_root_and_item_id(item_href, collection_id) is not None
+    )
 
 
 def _bound_asset_key(
@@ -638,6 +677,13 @@ async def resolve_stac_binding(
     # collection GeoLens also stored, never a guess.
     derived = _search_root_and_item_id(item_href, collection_id)
     expected_item_id = item_id or (derived[1] if derived else None)
+    if expected_item_id is None:
+        # Nothing to check an answer against, so nothing is asked and nothing
+        # is adopted. The door refuses this binding before a job exists; this
+        # is the same refusal at the one place that decides, so a direct
+        # caller cannot route around it.
+        logger.info("stac_identity_unverifiable")
+        return _UNVERIFIABLE
 
     result, document, item_url = await fetch_json_document(item_href)
     if result.ok:

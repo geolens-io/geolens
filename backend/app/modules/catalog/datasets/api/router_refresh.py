@@ -59,6 +59,7 @@ from app.modules.catalog.datasets.domain.schemas import (
 )
 from app.modules.catalog.datasets.domain.service import get_dataset
 from app.modules.catalog.sources.security import SSRFError, validate_url_for_ssrf
+from app.modules.catalog.sources.stac_resolve import states_verifiable_identity
 from app.platform.dataset_origin import classify_origin
 from app.platform.extensions import get_catalog_port
 from app.platform.jobs.defer_guard import (
@@ -478,6 +479,8 @@ def _resolve_stac_origin(dataset) -> _StacOrigin:
         )
     ref = dataset.origin_ref or {}
     item_href = ref.get("item_href")
+    item_id = ref.get("item_id")
+    collection_id = ref.get("collection_id")
     if not item_href:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -492,10 +495,35 @@ def _resolve_stac_origin(dataset) -> _StacOrigin:
                 "origin_kind": "stac",
             },
         )
+    if not states_verifiable_identity(
+        item_href=item_href, item_id=item_id, collection_id=collection_id
+    ):
+        # fix(#1266 review round 10): refused here rather than discovered by
+        # the worker, so the caller learns immediately and no run row is
+        # spent. A binding written before the item id was recorded, whose
+        # catalog publishes item URLs that state no identity either, gives a
+        # refresh nothing to check the publisher's answer against — and an
+        # unverified first answer would be adopted AND recorded as durable
+        # truth. Re-importing records the identity and the dataset refreshes
+        # normally thereafter.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "origin_unavailable",
+                "message": (
+                    "GeoLens cannot tell this dataset's STAC item from "
+                    "another one its stored URL might serve: the binding "
+                    "predates item-identity tracking and the catalog's item "
+                    "URLs carry no identity of their own. Re-import it from "
+                    "the STAC catalog to record one."
+                ),
+                "origin_kind": "stac",
+            },
+        )
     return _StacOrigin(
         item_href=item_href,
-        item_id=ref.get("item_id"),
-        collection_id=ref.get("collection_id"),
+        item_id=item_id,
+        collection_id=collection_id,
         asset_href=ref.get("asset_href"),
         asset_key=ref.get("asset_key"),
     )

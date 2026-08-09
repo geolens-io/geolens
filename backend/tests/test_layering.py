@@ -2272,7 +2272,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1266 review round 9): +2 — the dispatched STAC binding carries the
     # item's recorded id, so a re-upload that rebinds mid-admission is caught
     # by the same equality check as every other field of it.
-    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1091,
+    # fix(#1266 review round 10): +28 — the door refuses a STAC binding whose
+    # item identity cannot be verified at all (no recorded id, and item URLs
+    # that state none), before a job or a run row exists. Most of the lines
+    # are the refusal's wording and the comment saying why it is the door's
+    # business: an unverified first answer would be both adopted and recorded
+    # as durable truth, and a caller who learns that immediately can act on
+    # it, where one who learns it from a failed run cannot. Cap 1091 -> 1119.
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1119,
     # --- entered by the inclusion rule, fix(#958) -------------------------
     # These five were the ungated modules at or above _RATCHET_INCLUSION_LOC
     # when the rule was written. They arrive at their measured size with no
