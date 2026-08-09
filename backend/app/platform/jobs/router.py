@@ -198,6 +198,15 @@ class StaleCleanupOutcome:
     # Private and absent from as_dict() like the two fields above, so the
     # published API and audit shape is unchanged.
     _refresh_runs_reconciled: int = field(default=0, repr=False, compare=False)
+    # fix(#1322 review): a dead VRT regeneration attempt's own generation-
+    # scoped storage keys (source.vrt + 2 quicklooks), already resolved by
+    # sweep_stale_vrt_assets but deliberately NOT yet deleted — carried out to
+    # whoever commits, same rule as _staged_paths below, because deleting
+    # before that commit is durable can destroy a generation a rolled-back
+    # reconciliation still owns.
+    _stale_generation_storage_keys: tuple[str, ...] = field(
+        default=(), repr=False, compare=False
+    )
 
     @property
     def total_cleaned(self) -> int:
@@ -514,6 +523,26 @@ async def _reap_committed_staged_paths(
                 storage_key=staging_key,
             )
 
+    # fix(#1322 review): a dead VRT regeneration attempt's own generation-
+    # scoped objects, resolved by sweep_stale_vrt_assets but withheld from
+    # deletion until now — this function IS "after the commit landed" for
+    # every caller (fail_stale_jobs's own commit=True branch calls it
+    # immediately after `await db.commit()`; the admin commit=False branch
+    # calls it immediately after its own commit). Already tenant-resolved at
+    # capture time, unlike the two loops above, so no resolve_current_storage_key.
+    for stale_key in outcome._stale_generation_storage_keys:
+        try:
+            from app.platform.storage import get_storage
+
+            await get_storage().delete(stale_key)
+            storage_objects_reaped += 1
+        except Exception:  # broad: best-effort staging cleanup
+            staged_cleanup_failures += 1
+            log.warning(
+                "Failed to reap stale VRT generation object",
+                storage_key=stale_key,
+            )
+
     return replace(
         outcome,
         local_files_reaped=local_files_reaped,
@@ -523,10 +552,10 @@ async def _reap_committed_staged_paths(
     )
 
 
-async def _reap_stale_generation_storage(
+def _stale_generation_storage_keys(
     stale_generations: list[tuple[uuid.UUID, uuid.UUID]],
-) -> None:
-    """Best-effort delete of a dead regeneration attempt's immutable objects.
+) -> tuple[str, ...]:
+    """Resolve (never delete) a dead attempt's immutable object keys.
 
     feat(#1267): ``regenerate_vrt`` writes its rebuilt VRT + quicklooks to an
     immutable ``rasters/{vrt_dataset_id}/generations/{generation_id}/...`` key
@@ -535,19 +564,18 @@ async def _reap_stale_generation_storage(
     tables) BEFORE the phase-2 transaction that would otherwise clean them up
     via ``_cleanup_orphaned_storage_keys``. A worker killed between that write
     and the commit leaves the objects with no reference anywhere — this sweep
-    is the only remaining owner of the key, so it reaps them the same way.
+    is the only remaining owner of the key, so its caller reaps them the same
+    way, but only once the reconciliation itself is durable (see
+    ``_reap_stale_generation_storage`` for why deletion is a separate,
+    later step).
 
-    A dead attempt may have written none, some, or all three objects before
-    the worker died; deleting a key that was never written is a documented
-    no-op on every StorageProvider.
-
-    ``current_tenant_var`` carries the right tenant because both callers of
+    ``current_tenant_var`` carries the right tenant because every caller of
     ``sweep_stale_vrt_assets`` (the startup recovery pass and the periodic
-    sweep) run this inside ``tenant_job_context`` per tenant in multi-tenant
-    mode — the same context ``regenerate_vrt`` itself reads to resolve these
-    same keys. A missing tenant context in multi-tenant mode skips cleanup
-    rather than raising: the asset/generation reconciliation above already
-    landed regardless of whether this best-effort pass can find the bytes.
+    sweep, both directly and via ``fail_stale_jobs``) runs inside
+    ``tenant_job_context`` per tenant in multi-tenant mode — the same context
+    ``regenerate_vrt`` itself reads to resolve these same keys. A missing
+    tenant context in multi-tenant mode resolves no keys rather than raising:
+    the asset/generation reconciliation is not gated on this best-effort pass.
     """
     from app.core.tenancy import is_multi_tenant
     from app.core.db.tenant_session import current_tenant_var
@@ -555,16 +583,41 @@ async def _reap_stale_generation_storage(
 
     tenant_id = current_tenant_var.get()
     if is_multi_tenant() and tenant_id is None:
-        return
+        return ()
 
-    keys = [
+    return tuple(
         resolve_storage_key(
             f"rasters/{vrt_dataset_id}/generations/{generation_id}/{suffix}",
             tenant_id=tenant_id,
         )
         for generation_id, vrt_dataset_id in stale_generations
         for suffix in ("source.vrt", "quicklook_256.png", "quicklook_512.png")
-    ]
+    )
+
+
+async def _reap_stale_generation_storage(keys: tuple[str, ...]) -> None:
+    """Best-effort delete of already-resolved, already-committed keys.
+
+    fix(#1322 review): deleting these objects had lived inside
+    ``sweep_stale_vrt_assets`` itself, before its caller's commit. A worker
+    is declared dead by a timed-out heartbeat, not by proof it can never run
+    another statement — if the reconciling transaction then failed to commit
+    (or a later statement in the same pass raised), the generation/asset
+    UPDATEs rolled back while these objects were already gone. A resumed
+    "dead" worker could pass the (rolled-back-to) ownership checks and
+    publish a generation whose own source.vrt and quicklooks no longer
+    exist, leaving a `'ready'` asset backed by deleted data. Every caller now
+    resolves the keys during the sweep (``_stale_generation_storage_keys``,
+    read-only) but defers this call until strictly after its own commit
+    succeeds — mirroring ``_reap_committed_staged_paths``, which reaps
+    ``StaleCleanupOutcome._staged_paths`` under the identical rule.
+
+    A dead attempt may have written none, some, or all three objects before
+    the worker died; deleting a key that was never written is a documented
+    no-op on every StorageProvider.
+    """
+    if not keys:
+        return
 
     # Function-local: mirrors the deferred processing-import convention
     # already used for RasterAsset/VrtGeneration below (D-17,
@@ -572,13 +625,13 @@ async def _reap_stale_generation_storage(
     # regenerate_vrt itself uses to reap its own orphaned writes.
     from app.processing.ingest.tasks_raster import _cleanup_orphaned_storage_keys
 
-    await _cleanup_orphaned_storage_keys(keys, job_id="vrt-stale-sweep")
+    await _cleanup_orphaned_storage_keys(list(keys), job_id="vrt-stale-sweep")
 
 
 async def sweep_stale_vrt_assets(
     db: AsyncSession,
     stale_cutoff: datetime,
-) -> tuple[int, int]:
+) -> tuple[int, int, tuple[str, ...]]:
     """Reconcile RasterAsset rows stuck in status='regenerating' past ``stale_cutoff``.
 
     GAP-002 / feat(#1267): a worker crash mid-regeneration leaves the VRT
@@ -603,8 +656,24 @@ async def sweep_stale_vrt_assets(
     ``VrtGeneration`` row (marked ``'failed'`` below) records that it did not
     finish. An operator or retry call can re-trigger regeneration.
 
-    Also reaps the dead attempt's own generation-scoped storage objects
-    (best-effort — see ``_reap_stale_generation_storage``).
+    There is no "first-ever generation" case where 'ready' would be wrong.
+    ``status='regenerating'`` is reachable from exactly three call sites
+    (``regenerate_vrt_endpoint``, ``add_vrt_source``, ``remove_vrt_source``),
+    and all three 404 unless a VRT dataset already exists — which means its
+    ``RasterAsset`` row was already created, and the only constructor of that
+    row (``create_vrt_dataset``, run inside ``ingest_vrt``) sets
+    ``status='ready'`` with a real ``asset_uri`` in the same flush the row
+    first becomes queryable. No code path ever inserts a ``RasterAsset`` row
+    pre-set to ``'regenerating'``. A dead FIRST regeneration therefore still
+    restores to a row whose pointer describes the dataset's original publish,
+    not a still-empty one.
+
+    Also resolves the dead attempt's own generation-scoped storage keys for
+    the caller to reap, but does NOT delete anything itself — the caller must
+    not do so either until its own commit lands (fix(#1322 review); see
+    ``_reap_stale_generation_storage``). Deleting before that commit is
+    durable can destroy a generation a rolled-back reconciliation just
+    restored ownership of, orphaning a `'ready'` asset against missing bytes.
 
     Args:
         db: The active async session (must NOT be committed before returning
@@ -613,7 +682,8 @@ async def sweep_stale_vrt_assets(
             this timestamp is considered stale.
 
     Returns:
-        ``(assets_recovered, gens_failed)``
+        ``(assets_recovered, gens_failed, storage_keys)`` — ``storage_keys``
+        are resolved, not yet deleted.
     """
     from app.processing.raster.models import RasterAsset, VrtGeneration
 
@@ -696,10 +766,11 @@ async def sweep_stale_vrt_assets(
             stale_cutoff=str(stale_cutoff),
         )
 
-    if stale_generations:
-        await _reap_stale_generation_storage(stale_generations)
+    storage_keys = (
+        _stale_generation_storage_keys(stale_generations) if stale_generations else ()
+    )
 
-    return len(stale_asset_ids), len(stale_generation_ids)
+    return len(stale_asset_ids), len(stale_generation_ids), storage_keys
 
 
 def publish_refresh_reconciliation(outcome: StaleCleanupOutcome) -> None:
@@ -825,9 +896,15 @@ async def fail_stale_jobs(
     running_job_ids = list(running_result.scalars())
 
     # GAP-002: sweep stale VRT regenerating assets using the same cutoff.
-    vrt_assets_recovered, vrt_generations_failed = await sweep_stale_vrt_assets(
-        db, running_cutoff
-    )
+    # fix(#1322 review): stale_generation_storage_keys are resolved, not yet
+    # deleted — carried into StaleCleanupOutcome and reaped only after this
+    # function's own commit (or its commit=False caller's) lands, exactly
+    # like _staged_paths below.
+    (
+        vrt_assets_recovered,
+        vrt_generations_failed,
+        stale_generation_storage_keys,
+    ) = await sweep_stale_vrt_assets(db, running_cutoff)
 
     # feat(#1219): cancel refresh runs whose task is proven gone. Ordered
     # AFTER the two job sweeps above on purpose — those flip an orphaned job
@@ -1012,6 +1089,7 @@ async def fail_stale_jobs(
         _staged_paths=tuple(sorted(deleted_paths)),
         _staged_presigned_keys=tuple(sorted(deleted_presigned_keys)),
         _refresh_runs_reconciled=cancelled_runs,
+        _stale_generation_storage_keys=stale_generation_storage_keys,
     )
     if commit:
         # Never remove an external artifact for a DELETE that may still roll

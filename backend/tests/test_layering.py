@@ -2330,7 +2330,19 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # target and why the pairing cannot come from the asset UPDATE's own
     # RETURNING (its current_generation_id is nulled in the same statement).
     # Cap 1615 -> 1692, exact.
-    "backend/app/platform/jobs/router.py": 1692,
+    # fix(#1322 review): +78 — storage deletion for a dead VRT regeneration's
+    # generation-scoped objects had run inside sweep_stale_vrt_assets itself,
+    # before its caller's commit. A rolled-back reconciliation could then
+    # leave a `'ready'` asset pointing at a generation whose bytes were
+    # already gone. Deletion is now split from resolution:
+    # _stale_generation_storage_keys (pure, no I/O) computes the keys inside
+    # the sweep; _reap_stale_generation_storage (I/O, no DB) deletes them,
+    # called only by each caller strictly after ITS OWN commit lands —
+    # threaded through StaleCleanupOutcome exactly like _staged_paths for the
+    # fail_stale_jobs path, and directly in worker.py's startup recovery
+    # path. Most of the lines are the docstrings recording why the ordering
+    # is load-bearing on both call sites. Cap 1692 -> 1770, exact.
+    "backend/app/platform/jobs/router.py": 1770,
     # fix(second-opinion review on #1236 review r3): first entry — crossed
     # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
     # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side

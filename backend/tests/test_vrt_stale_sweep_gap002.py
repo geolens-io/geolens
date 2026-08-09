@@ -349,11 +349,15 @@ async def test_fail_stale_jobs_detailed_outcome_counts_every_cleanup_surface(
     assert result.terminal_jobs_purged == 2
     assert result.staged_paths_considered == 2
     assert result.local_files_reaped == 1
-    assert result.storage_objects_reaped == 1
+    # feat(#1267) / fix(#1322 review): 1 retention key + 3 VRT generation
+    # keys, all reaped by _reap_committed_staged_paths AFTER db.commit()
+    # succeeded — sweep_stale_vrt_assets itself only resolved the latter 3,
+    # never deleting them.
+    assert result.storage_objects_reaped == 4
     assert result.staged_paths_skipped == 0
     assert result.staged_cleanup_failures == 0
     assert result.total_cleaned == 2
-    assert result.total_affected == 8
+    assert result.total_affected == 11
     assert not local_file.exists()
 
     # feat(#1267): the reconciled generation's own storage objects are
@@ -398,6 +402,41 @@ async def test_fail_stale_jobs_commit_failure_keeps_external_artifacts(
         await fail_stale_jobs(mock_db, detailed=True)
 
     assert local_file.exists()
+    storage.delete.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_fail_stale_jobs_commit_failure_keeps_stale_generation_storage_intact(
+    monkeypatch,
+):
+    """fix(#1322 review): the inverse of the storage-failure test above — a
+    reconciliation whose commit fails must leave a dead attempt's generation
+    objects UNDELETED. sweep_stale_vrt_assets only resolves the keys; nothing
+    may reap them until fail_stale_jobs's own db.commit() (which raises here,
+    rolling the generation/asset UPDATEs back) has actually landed. Deleting
+    anyway would leave a resumed 'dead' worker publishing to storage keys
+    that no longer exist, behind an asset the rollback restored to
+    'regenerating'."""
+    from app.platform.jobs.router import fail_stale_jobs
+
+    stale_asset = _make_raster_asset(status="regenerating")
+    stale_gen = _make_vrt_generation(
+        status="running", vrt_dataset_id=stale_asset.dataset_id
+    )
+    mock_db = _make_mock_db_for_fail_stale(
+        stale_vrt_assets=[stale_asset],
+        stale_vrt_generations=[stale_gen],
+    )
+    mock_db.commit.side_effect = RuntimeError("commit failed")
+    storage = MagicMock()
+    storage.delete = AsyncMock()
+
+    with (
+        patch("app.platform.storage.get_storage", return_value=storage),
+        pytest.raises(RuntimeError, match="commit failed"),
+    ):
+        await fail_stale_jobs(mock_db, detailed=True)
+
     storage.delete.assert_not_awaited()
 
 
@@ -633,7 +672,9 @@ async def test_fail_stale_jobs_calls_vrt_sweep_helper():
 
 @pytest.mark.asyncio
 async def test_sweep_stale_vrt_assets_returns_count():
-    """GAP-002: sweep_stale_vrt_assets(session, stale_cutoff) returns (assets_recovered, gens_failed)."""
+    """GAP-002: sweep_stale_vrt_assets(session, stale_cutoff) returns
+    (assets_recovered, gens_failed, storage_keys) — feat(#1267)/fix(#1322
+    review) widened the tuple to carry resolved-not-deleted storage keys."""
     from app.platform.jobs.router import sweep_stale_vrt_assets
 
     stale_asset = _make_raster_asset(status="regenerating")
@@ -651,19 +692,20 @@ async def test_sweep_stale_vrt_assets_returns_count():
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(hours=1)
 
-    # No tenant context is bound in this unit test, so the multi-tenant
-    # storage-cleanup pass (current_tenant_var.get() is None) is a documented
-    # skip — it never issues a 3rd db.execute() call, keeping this test's
-    # 2-call contract intact.
+    # No tenant context is bound in this unit test, so key RESOLUTION itself
+    # (not just deletion — sweep_stale_vrt_assets never deletes anything,
+    # fix(#1322 review)) short-circuits to an empty tuple rather than raising.
+    # Either way this stays a 2-call contract: resolving/skipping keys is
+    # pure Python, never a 3rd db.execute().
     with patch("app.core.tenancy.is_multi_tenant", return_value=True):
         result = await sweep_stale_vrt_assets(mock_session, cutoff)
 
-    # Returns (assets_recovered, gens_failed) both ≥ 0
     assert isinstance(result, tuple)
-    assert len(result) == 2
-    assets_recovered, gens_failed = result
+    assert len(result) == 3
+    assets_recovered, gens_failed, storage_keys = result
     assert assets_recovered == 1
     assert gens_failed == 1
+    assert storage_keys == ()
 
     statements = [str(call.args[0]) for call in mock_session.execute.await_args_list]
     assert "UPDATE catalog.vrt_generations" in statements[0]
@@ -727,10 +769,14 @@ async def test_sweep_stale_vrt_assets_restores_ready_not_failed():
 
 
 @pytest.mark.asyncio
-async def test_sweep_stale_vrt_assets_reaps_dead_attempt_storage():
-    """feat(#1267): a swept generation's immutable objects are best-effort
-    deleted — the dead attempt is the only thing that could have written
-    them, and nothing else will ever reference that generation-scoped key."""
+async def test_sweep_stale_vrt_assets_resolves_but_never_deletes_storage():
+    """fix(#1322 review): sweep_stale_vrt_assets RESOLVES a swept generation's
+    immutable object keys (3rd tuple element) but must never call storage
+    itself. Deleting before its caller's commit is durable can destroy a
+    generation a rolled-back reconciliation still owns — see
+    _reap_stale_generation_storage's docstring. No storage patch is installed
+    here on purpose: any storage.* call inside the sweep would raise
+    (get_storage() is uninitialized in this unit test) and fail the test."""
     from app.platform.jobs.router import sweep_stale_vrt_assets
 
     stale_gen_id = uuid4()
@@ -743,29 +789,27 @@ async def test_sweep_stale_vrt_assets_reaps_dead_attempt_storage():
     session = AsyncMock()
     session.execute = AsyncMock(side_effect=[gen_result, asset_result])
 
-    storage = MagicMock()
-    storage.delete = AsyncMock()
+    result = await sweep_stale_vrt_assets(
+        session, datetime.now(timezone.utc) - timedelta(hours=1)
+    )
 
-    with patch("app.platform.storage.get_storage", return_value=storage):
-        result = await sweep_stale_vrt_assets(
-            session, datetime.now(timezone.utc) - timedelta(hours=1)
-        )
-
-    assert result == (1, 1)
     base = f"rasters/{stale_dataset_id}/generations/{stale_gen_id}"
-    called_keys = {call.args[0] for call in storage.delete.await_args_list}
-    assert called_keys == {
-        f"{base}/source.vrt",
-        f"{base}/quicklook_256.png",
-        f"{base}/quicklook_512.png",
-    }
+    assert result == (
+        1,
+        1,
+        (
+            f"{base}/source.vrt",
+            f"{base}/quicklook_256.png",
+            f"{base}/quicklook_512.png",
+        ),
+    )
 
 
 @pytest.mark.asyncio
 async def test_sweep_stale_vrt_assets_storage_failure_never_masks_reconciliation():
     """A storage backend that is unreachable must not stop the sweep from
-    restoring the asset and failing the generation — cleanup is best-effort,
-    reconciliation is not."""
+    restoring the asset and failing the generation — key resolution is pure
+    Python (no storage call), so reconciliation cannot be masked by it."""
     from app.platform.jobs.router import sweep_stale_vrt_assets
 
     gen_result = MagicMock()
@@ -775,13 +819,15 @@ async def test_sweep_stale_vrt_assets_storage_failure_never_masks_reconciliation
     session = AsyncMock()
     session.execute = AsyncMock(side_effect=[gen_result, asset_result])
 
-    # No storage patch — get_storage() raises RuntimeError (uninitialized),
-    # which _cleanup_orphaned_storage_keys swallows.
+    # No storage patch — get_storage() would raise RuntimeError
+    # (uninitialized) if the sweep ever called it, which it must not.
     result = await sweep_stale_vrt_assets(
         session, datetime.now(timezone.utc) - timedelta(hours=1)
     )
 
-    assert result == (1, 1)
+    assert result[0] == 1
+    assert result[1] == 1
+    assert len(result[2]) == 3
 
 
 @pytest.mark.rls
@@ -878,7 +924,12 @@ async def test_sweep_stale_vrt_assets_cannot_mutate_another_tenant(
                 )
 
         async with ctx.tenant_session(ctx.tenant_a) as session:
-            assert await sweep_stale_vrt_assets(session, cutoff) == (1, 1)
+            # fix(#1322 review): 3rd element is resolved-not-deleted storage
+            # keys, tenant-prefixed since ctx.tenant_session binds
+            # current_tenant_var for the block — one swept generation, 3 keys.
+            sweep_result = await sweep_stale_vrt_assets(session, cutoff)
+            assert sweep_result[:2] == (1, 1)
+            assert len(sweep_result[2]) == 3
 
         async with engine.connect() as conn:
             generations = dict(
