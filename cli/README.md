@@ -39,8 +39,9 @@ source whose data changed independently.
 `geolens refresh <dataset-id>` is the explicit data-refresh path. It re-pulls
 the dataset from the origin binding stored by GeoLens, without accepting a URL,
 layer, or client-selected trigger. Add `--wait` to poll the refresh job to a
-terminal state. This is the supported command for scheduled cron or CI refresh
-jobs; use `apply` when the declared source configuration itself changes.
+terminal state without an implicit deadline; pass `--timeout` when automation
+needs a finite bound. This is the supported command for scheduled cron or CI
+refresh jobs; use `apply` when the declared source configuration itself changes.
 
 Protected services can receive a transient credential with `--token`. Use bare
 `--token` to open a hidden-input prompt, which keeps the value out of terminal

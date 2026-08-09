@@ -28,7 +28,6 @@ REFRESH_ACCEPTED_STATUS = 202
 DATASET_STATUS_OK = 200
 JOB_STATUS_OK = 200
 DEFAULT_POLL_INTERVAL_SECONDS = 1.0
-DEFAULT_POLL_TIMEOUT_SECONDS = 120.0
 
 
 @dataclass(frozen=True)
@@ -174,15 +173,15 @@ def wait_for_refresh(
     *,
     token: str | None = None,
     interval: float = DEFAULT_POLL_INTERVAL_SECONDS,
-    timeout: float = DEFAULT_POLL_TIMEOUT_SECONDS,
+    timeout: float | None = None,
     sleep: Callable[[float], None] = time.sleep,
     monotonic: Callable[[], float] = time.monotonic,
 ) -> RefreshPollResult:
-    """Poll a refresh job until it completes, fails, is cancelled, or times out."""
+    """Poll until terminal, or until an explicitly supplied timeout expires."""
     from geolens.api.admin import get_job_status_jobs_job_id_get
 
     uuid_arg = job_id if isinstance(job_id, UUID) else UUID(str(job_id))
-    deadline = monotonic() + timeout
+    deadline = monotonic() + timeout if timeout is not None else None
     while True:
         response = call_sdk(
             get_job_status_jobs_job_id_get.sync_detailed,
@@ -202,7 +201,7 @@ def wait_for_refresh(
                 status=status,
                 error_message=_redact_secret(str(error), token) if error else None,
             )
-        if monotonic() >= deadline:
+        if deadline is not None and monotonic() >= deadline:
             return RefreshPollResult(
                 status="timed_out",
                 error_message=(

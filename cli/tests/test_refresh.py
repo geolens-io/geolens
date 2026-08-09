@@ -206,7 +206,7 @@ class TestRefreshRequest:
         )
 
         assert result.exit_code == 2
-        assert "--timeout must be finite" in result.output
+        assert "--timeout must be a finite number greater than 0" in result.output
 
 
 @pytest.mark.parametrize(
@@ -278,6 +278,117 @@ def test_ssrf_refusal_does_not_repeat_the_stored_url(
 
 
 class TestRefreshWait:
+    def test_default_wait_survives_queue_time_beyond_120_seconds(
+        self, monkeypatch
+    ) -> None:
+        """Without an explicit bound, --wait follows the job to completion.
+
+        Queue time is unbounded, so a healthy job can still be pending or
+        running after the old 120-second default without having failed.
+        """
+        from geolens_cli.refresh import wait_for_refresh
+
+        elapsed = [0.0]
+        statuses = iter(("pending", "running", "complete"))
+
+        def next_status(**_kwargs):
+            elapsed[0] += 61.0
+            return SimpleNamespace(
+                status_code=HTTPStatus.OK,
+                parsed=SimpleNamespace(status=next(statuses), error_message=None),
+            )
+
+        monkeypatch.setattr(
+            "geolens.api.admin.get_job_status_jobs_job_id_get.sync_detailed",
+            next_status,
+        )
+
+        result = wait_for_refresh(
+            SimpleNamespace(),
+            JOB_ID,
+            interval=0,
+            sleep=lambda _seconds: None,
+            monotonic=lambda: elapsed[0],
+        )
+
+        assert elapsed[0] == 183.0
+        assert result.status == "complete"
+
+    def test_explicit_timeout_still_bounds_the_poll(self, monkeypatch) -> None:
+        from geolens_cli.refresh import wait_for_refresh
+
+        elapsed = [0.0]
+        statuses = iter(("pending", "running", "complete"))
+
+        def next_status(**_kwargs):
+            elapsed[0] += 61.0
+            return SimpleNamespace(
+                status_code=HTTPStatus.OK,
+                parsed=SimpleNamespace(status=next(statuses), error_message=None),
+            )
+
+        monkeypatch.setattr(
+            "geolens.api.admin.get_job_status_jobs_job_id_get.sync_detailed",
+            next_status,
+        )
+
+        result = wait_for_refresh(
+            SimpleNamespace(),
+            JOB_ID,
+            interval=0,
+            timeout=120.0,
+            sleep=lambda _seconds: None,
+            monotonic=lambda: elapsed[0],
+        )
+
+        assert elapsed[0] == 122.0
+        assert result.status == "timed_out"
+
+    def test_cli_default_wait_passes_no_deadline_to_the_poller(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        from geolens_cli.main import app
+        from geolens_cli.refresh import RefreshPollResult
+
+        _seed_login(mock_keyring)
+        _patch_refresh_endpoint(monkeypatch, _accepted())
+        seen: dict = {}
+
+        def capture_wait(_client, _job_id, **kwargs):
+            seen.update(kwargs)
+            return RefreshPollResult(status="complete")
+
+        monkeypatch.setattr("geolens_cli.refresh.wait_for_refresh", capture_wait)
+
+        result = runner.invoke(app, ["refresh", str(DATASET_ID), "--wait"])
+
+        assert result.exit_code == 0, result.output
+        assert seen["timeout"] is None
+
+    def test_cli_explicit_timeout_reaches_the_poller(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        from geolens_cli.main import app
+        from geolens_cli.refresh import RefreshPollResult
+
+        _seed_login(mock_keyring)
+        _patch_refresh_endpoint(monkeypatch, _accepted())
+        seen: dict = {}
+
+        def capture_wait(_client, _job_id, **kwargs):
+            seen.update(kwargs)
+            return RefreshPollResult(status="complete")
+
+        monkeypatch.setattr("geolens_cli.refresh.wait_for_refresh", capture_wait)
+
+        result = runner.invoke(
+            app,
+            ["refresh", str(DATASET_ID), "--wait", "--timeout", "30"],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert seen["timeout"] == 30.0
+
     def test_wait_reports_terminal_success(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:

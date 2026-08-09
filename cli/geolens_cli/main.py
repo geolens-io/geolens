@@ -789,15 +789,21 @@ def refresh(
         typer.Option("--wait/--no-wait", help="Wait for the refresh job to finish"),
     ] = False,
     timeout: Annotated[
-        float,
+        Optional[float],
         typer.Option(
             "--timeout",
-            min=0.1,
-            help="Maximum seconds to wait (only with --wait)",
+            help=(
+                "Seconds to wait before giving up (only with --wait; default: "
+                "until the job finishes)"
+            ),
         ),
-    ] = _refresh.DEFAULT_POLL_TIMEOUT_SECONDS,
+    ] = None,
 ) -> None:
-    """Re-pull a dataset from its server-stored source binding."""
+    """Re-pull a dataset from its server-stored source binding.
+
+    Queue time has no upper bound, so ``--wait`` follows the job to a terminal
+    state by default. Pass ``--timeout`` when automation needs a finite bound.
+    """
     state: AppState = ctx.obj
     try:
         from uuid import UUID
@@ -807,10 +813,10 @@ def refresh(
         raise typer.BadParameter(
             "Dataset id must be a UUID", param_hint="dataset_id"
         ) from exc
-    if not math.isfinite(timeout):
-        state.output.error("--timeout must be finite")
+    if timeout is not None and (timeout <= 0 or not math.isfinite(timeout)):
+        state.output.error("--timeout must be a finite number greater than 0")
         raise typer.Exit(EXIT_USAGE)
-    if not wait and timeout != _refresh.DEFAULT_POLL_TIMEOUT_SECONDS:
+    if not wait and timeout is not None:
         state.output.error("--timeout requires --wait")
         raise typer.Exit(EXIT_USAGE)
     if token == "":
@@ -826,8 +832,11 @@ def refresh(
 
     poll = None
     if wait:
+        poll_client = (
+            sdk.client if timeout is None else sdk.client.with_timeout(timeout)
+        )
         poll = _refresh.wait_for_refresh(
-            sdk.client,
+            poll_client,
             accepted.job_id,
             token=token,
             timeout=timeout,
