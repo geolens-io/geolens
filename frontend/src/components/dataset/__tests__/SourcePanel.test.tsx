@@ -1,12 +1,13 @@
 import { render, screen } from '@/test/test-utils';
-import { useDatasetVersions } from '@/components/dataset/hooks/use-dataset';
+import { useDatasetRefreshRuns, useDatasetVersions } from '@/components/dataset/hooks/use-dataset';
 import { useVrtGenerations, useVrtSources, useVrtStatus } from '@/components/import/hooks/use-vrt';
 import { useAuthStore } from '@/stores/auth-store';
 import { SourcePanel } from '../SourcePanel';
-import type { DatasetResponse, VrtSourceHealth } from '@/types/api';
+import type { DatasetRefreshRunResponse, DatasetResponse, VrtSourceHealth } from '@/types/api';
 
 vi.mock('@/components/dataset/hooks/use-dataset', () => ({
   useDatasetVersions: vi.fn(),
+  useDatasetRefreshRuns: vi.fn(),
 }));
 
 vi.mock('@/components/import/hooks/use-vrt', () => ({
@@ -104,6 +105,11 @@ beforeEach(() => {
   vi.mocked(useVrtGenerations).mockReturnValue({
     data: { generations: [], total: 0 },
   } as unknown as ReturnType<typeof useVrtGenerations>);
+  vi.mocked(useDatasetRefreshRuns).mockReturnValue({
+    data: { runs: [], total: 0 },
+    isLoading: false,
+    isError: false,
+  } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
 });
 
 describe('SourcePanel', () => {
@@ -127,6 +133,75 @@ describe('SourcePanel', () => {
     expect(screen.getByRole('heading', { name: 'Source history' })).toBeInTheDocument();
     expect(screen.getByText(/parks-v2\.geojson/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Future source action' })).toBeInTheDocument();
+  });
+
+  it('renders refresh run history distinctly from source version history', () => {
+    vi.mocked(useDatasetRefreshRuns).mockReturnValue({
+      data: {
+        runs: [
+          {
+            id: 'run-1',
+            dataset_id: 'dataset-1',
+            dataset_version_id: 'version-3',
+            ingest_job_id: 'job-1',
+            origin_kind: 'service',
+            trigger: 'api',
+            status: 'succeeded',
+            triggered_by: 'user-1',
+            triggered_by_username: 'jdoe',
+            started_at: '2026-08-05T00:00:00Z',
+            claimed_at: '2026-08-05T00:00:01Z',
+            finished_at: '2026-08-05T00:01:00Z',
+            feature_count_before: 1200,
+            feature_count_after: 1234,
+            schema_diff: null,
+            error_code: null,
+            error_message: null,
+          },
+          {
+            id: 'run-2',
+            dataset_id: 'dataset-1',
+            dataset_version_id: null,
+            ingest_job_id: 'job-0',
+            origin_kind: 'service',
+            trigger: 'api',
+            status: 'failed',
+            // Redacted for a non-owner, non-admin reader — must render safely as null.
+            triggered_by: null,
+            triggered_by_username: null,
+            started_at: '2026-08-04T00:00:00Z',
+            claimed_at: '2026-08-04T00:00:01Z',
+            finished_at: '2026-08-04T00:00:30Z',
+            feature_count_before: 1200,
+            feature_count_after: null,
+            schema_diff: null,
+            error_code: null,
+            error_message: null,
+          },
+        ],
+        total: 2,
+      } satisfies { runs: DatasetRefreshRunResponse[]; total: number },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
+
+    render(<SourcePanel dataset={makeDataset()} />);
+
+    expect(screen.getByRole('heading', { name: 'Refresh history' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Source history' })).toBeInTheDocument();
+    expect(screen.getByText('Succeeded')).toBeInTheDocument();
+    expect(screen.getByText('Failed')).toBeInTheDocument();
+    expect(screen.getByText(/1,200 → 1,234 features/)).toBeInTheDocument();
+    expect(screen.getByText(/Started by jdoe/)).toBeInTheDocument();
+    // The redacted run has no username and no delta (feature_count_after is
+    // null) — neither must render as "null" or "undefined" text.
+    expect(screen.queryByText(/null|undefined/i)).not.toBeInTheDocument();
+  });
+
+  it('shows the empty state when a dataset has never been refreshed', () => {
+    render(<SourcePanel dataset={makeDataset()} />);
+
+    expect(screen.getByText('No refresh runs yet.')).toBeInTheDocument();
   });
 
   it('does not reconstruct the initial source from current fields after a reupload', () => {

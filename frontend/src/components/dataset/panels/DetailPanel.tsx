@@ -9,6 +9,8 @@ import { MetadataTab } from '../tabs/MetadataTab';
 import { DataTab } from '../tabs/DataTab';
 import { StructureTab } from '../tabs/StructureTab';
 import { SourcePanel } from '../SourcePanel';
+import { SourceRefreshAction } from '../SourceRefreshAction';
+import { datasetOrigin } from '../OriginBadge';
 import { AccessTab } from '../tabs/AccessTab';
 
 export interface DetailPanelProps {
@@ -47,6 +49,14 @@ export function DetailPanel(props: DetailPanelProps) {
   const recordType = dataset.record_type;
   const isTable = recordType === 'table';
   const isVector = recordType === 'vector_dataset' || isTable || !recordType;
+
+  // feat(#1285): the same gate the refresh door itself applies — a VRT or
+  // collection has no dataset origin to re-pull from at all (classify_origin
+  // returns None for both), so there is nothing for the control to do.
+  // `dataset.origin` is the server-computed field; datasetOrigin() is the
+  // client-side fallback for older payloads that predate it (mirrors
+  // SourcePanel's own `origin` derivation).
+  const origin = dataset.origin ?? datasetOrigin(dataset);
 
   const showData = isVector;
   const showStructure = isVector;
@@ -133,7 +143,10 @@ export function DetailPanel(props: DetailPanelProps) {
       )}
 
       <TabsContent value="sources" className="space-y-6">
-        <SourcePanel dataset={dataset} />
+        <SourcePanel
+          dataset={dataset}
+          actions={canEdit && origin ? <SourceRefreshAction dataset={dataset} /> : undefined}
+        />
       </TabsContent>
 
       <TabsContent value="access" className="space-y-6">

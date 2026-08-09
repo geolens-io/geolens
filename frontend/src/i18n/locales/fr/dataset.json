@@ -801,6 +801,35 @@
       "features_other": "{{formattedCount}} entités",
       "features_many": "{{formattedCount}} entités"
     },
+    "refresh": {
+      "action": "Actualiser depuis la source",
+      "busyHint": "Une actualisation est déjà en cours. Consultez l'historique des actualisations ci-dessous.",
+      "dialogTitle": "Actualiser depuis la source",
+      "dialogDescription": "Récupère à nouveau les données de ce jeu de données depuis son origine d'importation. Le jeu de données continue de servir ses données actuelles jusqu'à ce que les nouvelles soient prêtes.",
+      "tokenLabel": "Jeton d'accès (facultatif)",
+      "tokenPlaceholder": "Nécessaire uniquement pour une source protégée",
+      "tokenHint": "Utilisé une seule fois pour cette actualisation et jamais stocké.",
+      "confirm": "Démarrer l'actualisation",
+      "toastAccepted": "Actualisation démarrée (exécution {{runId}}).",
+      "errors": {
+        "unknown": "L'actualisation a échoué. Réessayez."
+      },
+      "history": {
+        "title": "Historique des actualisations",
+        "loading": "Chargement de l'historique des actualisations",
+        "loadFailed": "Impossible de charger l'historique des actualisations.",
+        "empty": "Aucune actualisation pour le moment.",
+        "featureDelta": "{{before}} → {{after}} entités",
+        "triggeredBy": "Démarré par {{username}}",
+        "status": {
+          "pending": "En file d'attente",
+          "running": "En cours",
+          "succeeded": "Réussie",
+          "failed": "Échouée",
+          "cancelled": "Annulée"
+        }
+      }
+    },
     "vrt": {
       "title": "Membres du VRT",
       "description": "Ce VRT est assemblé à partir des jeux de données raster ci-dessous.",

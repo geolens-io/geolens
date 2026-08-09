@@ -60,9 +60,21 @@ function makeDataset(recordType: RecordType): DatasetResponse {
   };
 }
 
-it.each<RecordType>(['vector_dataset', 'table', 'raster_dataset', 'vrt_dataset'])(
-  'mounts the read-only Source panel for %s detail pages',
-  (recordType) => {
+// feat(#1285): DetailPanel now wires the "Refresh from source" action into
+// SourcePanel's `actions` slot, gated on canEdit AND a resolvable origin —
+// the same gate the refresh door itself applies (classify_origin returns
+// null only for collection/vrt_dataset). These synthetic datasets all set
+// source_format: null, which datasetOrigin() reads as a registered-table
+// (postgis) origin for every record type except vrt_dataset, so only the
+// VRT case has nothing to refresh from.
+it.each<[RecordType, boolean]>([
+  ['vector_dataset', true],
+  ['table', true],
+  ['raster_dataset', true],
+  ['vrt_dataset', false],
+])(
+  'mounts the read-only Source panel for %s detail pages (has-actions: %s)',
+  (recordType, expectsActions) => {
     render(
       <DetailPanel
         dataset={makeDataset(recordType)}
@@ -79,6 +91,27 @@ it.each<RecordType>(['vector_dataset', 'table', 'raster_dataset', 'vrt_dataset']
 
     expect(screen.getByRole('tab', { name: 'Source' })).toBeInTheDocument();
     expect(screen.getByTestId('source-panel')).toHaveAttribute('data-dataset-type', recordType);
-    expect(screen.getByTestId('source-panel')).toHaveAttribute('data-has-actions', 'false');
+    expect(screen.getByTestId('source-panel')).toHaveAttribute(
+      'data-has-actions',
+      String(expectsActions),
+    );
   },
 );
+
+it('withholds the refresh action from a reader who cannot edit, even with a resolvable origin', () => {
+  render(
+    <DetailPanel
+      dataset={makeDataset('vector_dataset')}
+      canEdit={false}
+      capabilities={buildDatasetEditCapabilities({ isEditor: false })}
+      activeTab="sources"
+      onTabChange={vi.fn()}
+      resolveDraftValue={() => ''}
+      stagePendingDraft={vi.fn()}
+      handleDraftDirtyChange={vi.fn()}
+      onNavigateToValidationField={vi.fn()}
+    />,
+  );
+
+  expect(screen.getByTestId('source-panel')).toHaveAttribute('data-has-actions', 'false');
+});

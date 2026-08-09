@@ -89,6 +89,33 @@ const EXACT_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
   // preview with no hint that another feature was holding the budget. The
   // locale copy names both sides, because either can be the holder.
   'Another data query is already running for this user': 'errors.sharedQueryBusy',
+  // fix(#1285): the refresh door's refusal taxonomy (backend
+  // router_refresh.py). Each literal below is stable, considered UX copy on
+  // the backend side rather than diagnostic prose, so mapping by exact text
+  // follows the table's existing convention. Distinct wordings that describe
+  // the SAME taxonomy state (a service vs. a postgis dataset both missing
+  // enough of their binding, for example) collapse to one key on purpose —
+  // the Source panel renders one message per code, not per call site.
+  'This dataset has no remote service origin to refresh from. Replace its data through re-upload instead.':
+    'errors.refreshNotApplicable',
+  'This dataset is not backed by a registered table, so there is nothing to re-measure.':
+    'errors.refreshNotApplicable',
+  "This dataset's source binding is incomplete, so GeoLens cannot re-pull it without being told where from. Re-import the layer through the service import flow.":
+    'errors.refreshOriginUnavailable',
+  "This dataset's source binding records no layer, so GeoLens cannot tell which layer of the service to re-pull. Re-import the layer through the service import flow.":
+    'errors.refreshOriginUnavailable',
+  "This dataset's source binding does not record which table it was registered from, so GeoLens cannot tell what to re-measure. Register the table again.":
+    'errors.refreshOriginUnavailable',
+  'A refresh is already running for this dataset. Wait for it to finish, then try again.':
+    'errors.refreshDatasetBusy',
+  "This dataset's source changed while the refresh was being queued, so it was not started. Check the new source and try again.":
+    'errors.refreshOriginChanged',
+  'This dataset is backed by a registered table in this instance, which needs no service credential. Send the request without a token.':
+    'errors.refreshCredentialNotApplicable',
+  'Refreshing a protected service needs a shared credential store so the token can reach the worker without being written to disk. Set REDIS_URL and try again.':
+    'errors.refreshCredentialStoreUnavailable',
+  'Could not stage the service credential for this refresh. Check that the credential store is reachable and try again.':
+    'errors.refreshCredentialStoreUnavailable',
 };
 
 const STATUS_FALLBACK_KEYS: Record<number, ApiErrorDescriptor['key']> = {
@@ -181,6 +208,14 @@ function descriptorForMessage(message: string, status: number): ApiErrorDescript
   // example origins are prose that may well be reworded.
   if (/^Validation error for 'cors_allowed_origins': Wildcard/i.test(message)) {
     return { key: 'errors.corsWildcardNotAllowed' };
+  }
+
+  // fix(#1285): the refresh door's SSRF refusal appends the validator's own
+  // exception text after the colon, which is diagnostic detail (resolved IP,
+  // blocked range) rather than something a non-admin reader should see.
+  // Anchored on the fixed prefix only; the dynamic suffix is dropped.
+  if (/^This dataset's stored source URL is not reachable:/i.test(message)) {
+    return { key: 'errors.refreshSourceUrlBlocked' };
   }
 
   // fix(#774): the four analysis 4xx literals #718 didn't map. Without these
@@ -318,6 +353,18 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
               ? value.existing_title
               : i18n.t('common:notAvailable'),
         },
+      };
+    }
+    // fix(#1285): invalid_service_token's message is the token POLICY, not
+    // the token — the backend names the allowed alphabet dynamically per
+    // service type (base64url vs. the wider ArcGIS query-param vocabulary),
+    // so it can't be a static key the way the other refresh refusals are.
+    // Interpolating server prose here mirrors the existing duplicate_source
+    // precedent below.
+    if (value.code === 'invalid_service_token' && typeof value.message === 'string') {
+      return {
+        key: 'errors.refreshInvalidServiceToken',
+        values: { message: value.message },
       };
     }
     if (Array.isArray(value.unknown_layers) && value.unknown_layers.length > 0) {

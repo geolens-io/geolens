@@ -801,6 +801,35 @@
       "features_other": "{{formattedCount}} Features",
       "features_many": "{{formattedCount}} Features"
     },
+    "refresh": {
+      "action": "Von der Quelle aktualisieren",
+      "busyHint": "Es läuft bereits eine Aktualisierung. Siehe Aktualisierungsverlauf unten.",
+      "dialogTitle": "Von der Quelle aktualisieren",
+      "dialogDescription": "Die Daten dieses Datensatzes werden erneut von der ursprünglichen Importquelle abgerufen. Der Datensatz liefert weiterhin seine aktuellen Daten, bis die neuen Daten bereit sind.",
+      "tokenLabel": "Zugriffstoken (optional)",
+      "tokenPlaceholder": "Nur für eine geschützte Quelle erforderlich",
+      "tokenHint": "Wird einmalig für diese Aktualisierung verwendet und nie gespeichert.",
+      "confirm": "Aktualisierung starten",
+      "toastAccepted": "Aktualisierung gestartet (Lauf {{runId}}).",
+      "errors": {
+        "unknown": "Aktualisierung fehlgeschlagen. Versuchen Sie es erneut."
+      },
+      "history": {
+        "title": "Aktualisierungsverlauf",
+        "loading": "Aktualisierungsverlauf wird geladen",
+        "loadFailed": "Der Aktualisierungsverlauf konnte nicht geladen werden.",
+        "empty": "Noch keine Aktualisierungen.",
+        "featureDelta": "{{before}} → {{after}} Features",
+        "triggeredBy": "Gestartet von {{username}}",
+        "status": {
+          "pending": "In Warteschlange",
+          "running": "Läuft",
+          "succeeded": "Erfolgreich",
+          "failed": "Fehlgeschlagen",
+          "cancelled": "Abgebrochen"
+        }
+      }
+    },
     "vrt": {
       "title": "VRT-Mitglieder",
       "description": "Dieses VRT wird aus den folgenden Rasterdatensätzen zusammengestellt.",

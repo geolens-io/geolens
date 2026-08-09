@@ -13,6 +13,8 @@ import {
   reuploadServicePreview,
   reuploadCommit,
   getDatasetVersions,
+  refreshDataset,
+  getDatasetRefreshRuns,
   listAttributes,
   updateAttribute,
   validateDataset,
@@ -194,6 +196,37 @@ export function useDatasetVersions(datasetId: string, skip = 0, limit = 50) {
     enabled: !!datasetId,
     placeholderData: keepPreviousData,
     staleTime: 120_000,
+  });
+}
+
+export function useRefreshDataset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ datasetId, token }: { datasetId: string; token?: string }) =>
+      refreshDataset(datasetId, token),
+    // The dispatched run belongs in history immediately (status "pending"),
+    // and dataset-detail health/freshness change once the worker finishes —
+    // both queries are cheap enough to just invalidate rather than patch.
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.refreshRunsPrefix(variables.datasetId) });
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
+    },
+  });
+}
+
+export function useDatasetRefreshRuns(
+  datasetId: string,
+  params: { skip?: number; limit?: number; refetchInterval?: number | false } = {},
+) {
+  const skip = params.skip ?? 0;
+  const limit = params.limit ?? 10;
+  return useQuery({
+    queryKey: queryKeys.datasets.refreshRuns(datasetId, skip, limit),
+    queryFn: () => getDatasetRefreshRuns(datasetId, { skip, limit }),
+    enabled: !!datasetId,
+    placeholderData: keepPreviousData,
+    staleTime: 15_000,
+    refetchInterval: params.refetchInterval,
   });
 }
 

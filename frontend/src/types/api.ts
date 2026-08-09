@@ -967,6 +967,57 @@ export interface DatasetVersionListResponse {
   total: number;
 }
 
+// feat(#1285): the refresh door (#1277/#1313) and its run history
+// (GET /datasets/{id}/refresh-runs). Hand-mirrored like the version types
+// above rather than aliased from api.generated's `components`, matching this
+// file's existing convention for the datasets domain.
+export interface DatasetRefreshRequest {
+  /** Transient credential for a protected service; never persisted. */
+  token?: string | null;
+}
+
+export interface DatasetRefreshResponse {
+  run_id: string;
+  job_id: string;
+  dataset_id: string;
+  origin_kind: string;
+  trigger: string;
+  status: string;
+  message: string;
+}
+
+export interface DatasetRefreshRunResponse {
+  id: string;
+  dataset_id: string;
+  dataset_version_id: string | null;
+  ingest_job_id: string | null;
+  origin_kind: string;
+  trigger: string;
+  /** "pending" | "running" | "succeeded" | "failed" | "cancelled", kept as a
+   *  plain string so an unrecognized future value degrades to its raw text
+   *  instead of a type error. */
+  status: string;
+  /** Redacted to null for a reader who is neither the owner nor an admin. */
+  triggered_by: string | null;
+  triggered_by_username: string | null;
+  started_at: string;
+  claimed_at: string | null;
+  finished_at: string | null;
+  feature_count_before: number | null;
+  feature_count_after: number | null;
+  /** Redacted to null for a reader who is neither the owner nor an admin. */
+  schema_diff: SchemaDiff | null;
+  /** Redacted to null for a reader who is neither the owner nor an admin. */
+  error_code: string | null;
+  /** Redacted to null for a reader who is neither the owner nor an admin. */
+  error_message: string | null;
+}
+
+export interface DatasetRefreshRunListResponse {
+  runs: DatasetRefreshRunResponse[];
+  total: number;
+}
+
 // Labels
 export type ZoomExpressionKind = 'step' | 'interpolate';
 
