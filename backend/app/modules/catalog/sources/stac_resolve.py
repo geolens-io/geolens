@@ -145,38 +145,88 @@ _NOT_THIS_ITEM = StacResolution(INACCESSIBLE, UNEXPECTED_STATUS)
 _NOT_AN_ITEM = StacResolution(INACCESSIBLE, UNEXPECTED_STATUS)
 
 
+_COLLECTIONS_SEGMENT = "/collections/"
+_ITEMS_SEGMENT = "/items/"
+
+
+def _standard_item_path(url: str) -> tuple[str, str, str] | None:
+    """``(root, collection id, item id)`` for a URL in the standard layout.
+
+    The one parser for "what identity does this URL state", used by both the
+    fallback-search derivation and the self-link check. A URL states an
+    identity only when it spells ``/collections/<c>/items/<id>`` with a single
+    segment on each side; anything else — a static catalog's
+    ``/scenes/x.json``, an ``/items/a/b`` that addresses something INSIDE an
+    item — states none, and gets None rather than a guess.
+
+    Segments are percent-decoded, because the path carries the encoded
+    spelling while the catalog's own ``id`` and ``collection`` fields carry
+    the real one.
+    """
+    parts = urlsplit(url)
+    index = parts.path.rfind(_COLLECTIONS_SEGMENT)
+    if index < 0:
+        return None
+    collection, separator, tail = parts.path[
+        index + len(_COLLECTIONS_SEGMENT) :
+    ].partition(_ITEMS_SEGMENT)
+    if not separator or not collection or "/" in collection:
+        return None
+    item_segment = tail.strip("/")
+    if not item_segment or "/" in item_segment:
+        return None
+    root = urlunsplit((parts.scheme, parts.netloc, parts.path[:index], "", ""))
+    return root, unquote(collection), unquote(item_segment)
+
+
 def _search_root_and_item_id(
     item_href: str, collection_id: str | None
 ) -> tuple[str, str] | None:
     """``(search root, item id)`` derived from the item's own URL, or None.
 
     The derivation is only permitted where the URL states the identity it is
-    being read for: the path must contain ``/collections/<collection_id>/
-    items/<id>`` with the collection id GeoLens stored at import. A catalog
-    that lays items out differently returns None here and gets no second
-    path, rather than having a root guessed for it.
-
-    Query and fragment are dropped before the split — they belong to the
-    request, not to the item's identity — and the id is percent-decoded,
-    because the path segment is the encoded spelling of it while ``/search``
-    matches on the real one.
+    being read for: the collection in the path must be the one GeoLens stored
+    at import. A catalog that lays items out differently, or a stored href
+    whose collection disagrees with the stored one, returns None here and
+    gets no second path, rather than having a root guessed for it.
     """
     if not collection_id:
         return None
-    parts = urlsplit(item_href)
-    marker = f"/collections/{collection_id}/items/"
-    index = parts.path.rfind(marker)
-    if index < 0:
+    parsed = _standard_item_path(item_href)
+    if parsed is None:
         return None
-    segment = parts.path[index + len(marker) :]
-    # One segment, or this is not an item URL: `/items/a/b` addresses
-    # something inside the item, and re-searching for `a` would bind the
-    # dataset to a different resource than the one it points at.
-    if not segment or "/" in segment.strip("/"):
+    root, collection, item_id = parsed
+    if collection != collection_id:
         return None
-    item_id = unquote(segment.strip("/"))
-    root = urlunsplit((parts.scheme, parts.netloc, parts.path[:index], "", ""))
     return root, item_id
+
+
+def _self_link_contradicts(
+    self_href: str, *, item_id: Any, collection_id: str | None
+) -> bool:
+    """Whether an item's ``rel=self`` link points somewhere it should not.
+
+    fix(#1266 review round 2): the self link became load-bearing in round 1 —
+    it is now the base for relative asset hrefs AND the pointer that gets
+    stored — so it needs the same scrutiny as the document that carries it.
+    A body whose ``id`` and ``collection`` are right while its self link
+    addresses a DIFFERENT item would otherwise resolve that item's relative
+    assets and, worse, persist its URL: the next refresh would then derive
+    its expected identity from the wrong URL, agree with itself, and the
+    dataset would have quietly walked to another scene.
+
+    Same contradiction-not-confirmation rule as everywhere else here: a self
+    link whose path states no identity (a static catalog, a permalink
+    service) cannot disagree with anything and is trusted. One that states an
+    identity must state THIS one.
+    """
+    parsed = _standard_item_path(self_href)
+    if parsed is None:
+        return False
+    _root, collection, linked_item_id = parsed
+    if isinstance(item_id, str) and linked_item_id != item_id:
+        return True
+    return bool(collection_id and collection != collection_id)
 
 
 def _bound_asset_key(
@@ -292,6 +342,15 @@ async def _resolve_from_item(
     # The requested URL stays the fallback for catalogs that publish no self
     # link — it is where this document demonstrably came from.
     self_href = self_link_href(item, item_url)
+    if self_href is not None and _self_link_contradicts(
+        self_href, item_id=item.get("id"), collection_id=collection_id
+    ):
+        # Dropped rather than fatal, matching how #1222 treats every other
+        # unusable self link: the document is still this item by its own id,
+        # so the refresh can proceed from the URL it demonstrably came from.
+        # What must not happen is storing the contradictory pointer.
+        logger.info("stac_self_link_identity_mismatch", item_id=item.get("id"))
+        self_href = None
     asset_base = self_href or item_url
 
     # A relative asset href is legal STAC, so it is resolved against that base

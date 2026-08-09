@@ -54,7 +54,9 @@ pytestmark = pytest.mark.anyio
 
 _ROOT = "https://origin.test/stac"
 _ITEM = f"{_ROOT}/collections/scenes/items/scene-1"
-_MOVED_ITEM = f"{_ROOT}/collections/scenes/items/scene-1-v2"
+# A genuinely MOVED item: same id (the path segment is the item id, so a
+# moved item that kept its identity keeps it here too), new address.
+_MOVED_ITEM = f"{_ROOT}/v2/collections/scenes/items/scene-1"
 _SEARCH = f"{_ROOT}/search"
 _ASSET = "https://origin.test/tiles/scene.tif"
 _MOVED_ASSET = "https://origin.test/v2/tiles/scene.tif"
@@ -692,10 +694,10 @@ class TestResolution:
         one, which is the worst kind of wrong answer here.
         """
         install, _ = stac_transport
-        # Relative to the item at /stac/collections/scenes/items/scene-1-v2.
-        # Against the /search endpoint the same href would compose
-        # https://origin.test/tiles/scene.tif, which is a different object.
-        moved_relative = f"{_ROOT}/collections/scenes/tiles/scene.tif"
+        # Relative to the item at its NEW address. Against the /search
+        # endpoint the same href would compose
+        # https://origin.test/tiles/scene.tif, a different object entirely.
+        moved_relative = f"{_ROOT}/v2/collections/scenes/tiles/scene.tif"
         install(
             {
                 _ITEM: (404, None),
@@ -719,6 +721,69 @@ class TestResolution:
         assert result.resolved
         assert result.asset_href == moved_relative
         assert result.item_href == _MOVED_ITEM
+
+    async def test_a_self_link_that_addresses_another_item_is_not_trusted(
+        self, stac_transport
+    ) -> None:
+        """fix(#1266 review round 2): the self link is now load-bearing.
+
+        It is the base for relative assets and the pointer that gets stored,
+        so a body that is right about its own id while its self link
+        addresses a different scene must not walk the dataset there — the
+        next refresh would derive its expected identity from that stored URL
+        and agree with itself.
+        """
+        install, _ = stac_transport
+        liar = f"{_ROOT}/collections/scenes/items/somebody-elses-scene"
+        install(
+            {
+                _ITEM: (200, _item_doc(asset_href=_MOVED_ASSET, self_href=liar)),
+                _MOVED_ASSET: (206, None),
+            }
+        )
+        result = await resolve_stac_binding(
+            item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
+        )
+        # The asset still resolves — the document IS this item by its own id —
+        # but the contradictory pointer is dropped, not stored.
+        assert result.resolved
+        assert result.asset_href == _MOVED_ASSET
+        assert result.item_href == _ITEM
+
+    async def test_a_self_link_under_another_collection_is_not_trusted(
+        self, stac_transport
+    ) -> None:
+        install, _ = stac_transport
+        liar = f"{_ROOT}/collections/other-collection/items/scene-1"
+        install(
+            {
+                _ITEM: (200, _item_doc(asset_href=_MOVED_ASSET, self_href=liar)),
+                _MOVED_ASSET: (206, None),
+            }
+        )
+        result = await resolve_stac_binding(
+            item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
+        )
+        assert result.item_href == _ITEM
+
+    async def test_a_self_link_that_states_no_identity_is_still_trusted(
+        self, stac_transport
+    ) -> None:
+        """Contradiction, not confirmation — again. A permalink service or a
+        static catalog states no identity in its path and cannot disagree
+        with anything."""
+        install, _ = stac_transport
+        permalink = "https://origin.test/permalink/abc123"
+        install(
+            {
+                _ITEM: (200, _item_doc(asset_href=_MOVED_ASSET, self_href=permalink)),
+                _MOVED_ASSET: (206, None),
+            }
+        )
+        result = await resolve_stac_binding(
+            item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
+        )
+        assert result.item_href == permalink
 
     async def test_a_live_item_that_dropped_the_asset_is_missing(
         self, stac_transport
