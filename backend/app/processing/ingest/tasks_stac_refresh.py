@@ -408,6 +408,20 @@ async def refresh_stac(
                 # busts browser and CDN caches. In the write transaction,
                 # beside the content change it describes, which is the
                 # contract on the method.
+                #
+                # It does NOT reach `tiles.router._raster_meta_cache` (#1266
+                # review): that is a per-process LRU in the API workers, keyed
+                # on tenant and dataset alone, so an API process that served a
+                # tile in the last minute keeps the pre-refresh href until its
+                # 60s TTL expires — even for requests carrying the new `_v=`.
+                # Left as it is, deliberately and not for the first time:
+                # `reupload_raster` and `regenerate_vrt` have the same window
+                # against the same cache (see the note in
+                # tasks_raster_swap._run_post_swap_followups), and closing it
+                # needs cross-process invalidation none of the three has.
+                # Building that for one of them would leave the other two
+                # stale while implying otherwise; it belongs to the tile
+                # router, once, for all of them.
                 dataset.bump_tile_cache_version()
 
             # AFTER the rebind, never before: `set_dataset_origin` clears the

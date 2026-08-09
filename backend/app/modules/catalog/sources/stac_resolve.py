@@ -131,6 +131,12 @@ _ASSET_GONE = StacResolution(MISSING, NOT_FOUND)
 # invariant 4). Nothing was deleted, so this is not `missing`.
 _ASSET_UNUSABLE = StacResolution(INACCESSIBLE, UNAUTHORIZED)
 
+# "The origin answered, with a document for a DIFFERENT item." Same verdict
+# as the shape failure below and for the same reason — the origin answered,
+# and what it said establishes nothing about THIS dataset's item — but a
+# separate name because the two are separate faults to investigate.
+_NOT_THIS_ITEM = StacResolution(INACCESSIBLE, UNEXPECTED_STATUS)
+
 # "The origin answered, with something that is not a STAC item." Inconclusive
 # rather than authoritative: a landing page, an HTML error, or a truncated
 # body says nothing about whether the item is still published.
@@ -209,11 +215,51 @@ def _bound_asset_key(
     return picked[0] if picked else None
 
 
+def _contradicts_stored_identity(
+    item: dict[str, Any],
+    *,
+    expected_item_id: str | None,
+    collection_id: str | None,
+) -> bool:
+    """Whether this document says it is something OTHER than what was asked for.
+
+    fix(#1266 review): the direct path used to accept any document carrying an
+    ``assets`` object, which is not the same claim as "this is the item this
+    dataset was imported from". A stored URL that redirects — a catalog that
+    collapsed a scene into a mosaic, a bucket that serves a default document —
+    hands back a perfectly valid item, and ``_bound_asset_key``'s last resort
+    would then pick that stranger's primary asset and the worker would publish
+    it as this dataset's raster. The search path never had the hole because
+    ``_feature_by_id`` matches on id; this is the direct path's equivalent.
+
+    Framed as CONTRADICTION rather than confirmation, deliberately, because
+    confirmation is not always available. The item id can only be read out of
+    ``item_href`` where the catalog uses the standard layout, so requiring it
+    would refuse to refresh every catalog that does not — the same catalogs
+    that already get no fallback search. What is always available is the
+    weaker but sound test: where BOTH sides state a value, they must agree.
+    A document that states a different id, or a different collection, is not
+    this item and is refused; one that states neither is accepted on the
+    strength of the stored ``item_href`` being the item's own canonical URL,
+    which is what #1222 captured it from.
+    """
+    if expected_item_id is not None and item.get("id") != expected_item_id:
+        return True
+    stated_collection = item.get("collection")
+    return bool(
+        collection_id
+        and isinstance(stated_collection, str)
+        and stated_collection != collection_id
+    )
+
+
 async def _resolve_from_item(
     item: dict[str, Any],
     *,
     item_url: str,
     fallback_item_href: str,
+    expected_item_id: str | None,
+    collection_id: str | None,
     asset_href: str | None,
     asset_key: str | None,
 ) -> StacResolution:
@@ -227,13 +273,31 @@ async def _resolve_from_item(
     assets = item.get("assets")
     if not isinstance(assets, dict):
         return _NOT_AN_ITEM
+    if _contradicts_stored_identity(
+        item, expected_item_id=expected_item_id, collection_id=collection_id
+    ):
+        return _NOT_THIS_ITEM
     key = _bound_asset_key(assets, asset_href=asset_href, asset_key=asset_key)
     if key is None:
         return _ASSET_GONE
-    # A relative asset href is legal STAC, so it is resolved against the URL
-    # the document actually came from, and then put through the same gate as
-    # every other value that reaches ``origin_ref``.
-    href = storable_href(assets[key].get("href"), item_url)
+
+    # fix(#1266 review): the item's OWN address is the base for its relative
+    # hrefs, and it is resolved first because the asset resolution depends on
+    # it. On the search path the document arrived inside a FeatureCollection,
+    # so ``item_url`` is the ``/search`` endpoint — joining a legal relative
+    # asset href against THAT composes a path under the search URL rather
+    # than under the item, which is a different object and possibly a live
+    # one. RFC 3986 would allow either reading; STAC's is the item's own
+    # location, and it is also the only one that survives the item moving.
+    # The requested URL stays the fallback for catalogs that publish no self
+    # link — it is where this document demonstrably came from.
+    self_href = self_link_href(item, item_url)
+    asset_base = self_href or item_url
+
+    # A relative asset href is legal STAC, so it is resolved against that base
+    # and then put through the same gate as every other value that reaches
+    # ``origin_ref``.
+    href = storable_href(assets[key].get("href"), asset_base)
     if href is None:
         # The item is published and still carries this asset; GeoLens simply
         # may not point at where it now lives — a signed URL is the case that
@@ -243,11 +307,11 @@ async def _resolve_from_item(
         # deleted and the stored pointer may well still serve.
         return _ASSET_UNUSABLE
     # The item's CURRENT self link, so a re-search that found the item at a
-    # new address updates the pointer that failed. Falls back to the URL this
-    # document was actually read from, which is a working address by
-    # construction — a catalog that publishes no self link still gets a
-    # pointer that resolved a moment ago.
-    resolved_item_href = self_link_href(item, item_url) or fallback_item_href
+    # new address updates the pointer that failed. Falls back to the pointer
+    # already stored: a catalog that publishes no self link has told GeoLens
+    # nothing better to point at, and inventing an address from the search
+    # endpoint would store one no reader could resolve.
+    resolved_item_href = self_href or fallback_item_href
     probed = await probe_remote_uri(href)
     return StacResolution(
         health=probed.health,
@@ -306,6 +370,8 @@ async def _resolve_by_search(
         feature,
         item_url=search_result_url,
         fallback_item_href=item_href,
+        expected_item_id=item_id,
+        collection_id=collection_id,
         asset_href=asset_href,
         asset_key=asset_key,
     )
@@ -323,12 +389,21 @@ async def resolve_stac_binding(
     Pure network and pure computation: nothing here reads or writes the
     database, and the caller is free to hold no session across it.
     """
+    # The identity the answer is checked against, where the URL states one.
+    # Same derivation the fallback search uses, for the same reason: it is
+    # only a reading of the stored href when that href spells out the
+    # collection GeoLens also stored, never a guess.
+    derived = _search_root_and_item_id(item_href, collection_id)
+    expected_item_id = derived[1] if derived else None
+
     result, document, item_url = await fetch_json_document(item_href)
     if result.ok:
         return await _resolve_from_item(
             document,
             item_url=item_url,
             fallback_item_href=item_href,
+            expected_item_id=expected_item_id,
+            collection_id=collection_id,
             asset_href=asset_href,
             asset_key=asset_key,
         )

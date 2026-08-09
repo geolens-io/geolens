@@ -620,6 +620,106 @@ class TestResolution:
         assert (searched.health, searched.detail) == (direct.health, direct.detail)
         assert (direct.health, direct.detail) == ("inaccessible", "unexpected_status")
 
+    async def test_a_stored_url_that_serves_a_different_item_binds_nothing(
+        self, stac_transport
+    ) -> None:
+        """fix(#1266 review): a valid item is not the same claim as THIS item.
+
+        A stored URL that redirects — a scene collapsed into a mosaic, a
+        bucket serving a default document — hands back a perfectly well-formed
+        item, and the asset chooser's last resort would then publish that
+        stranger's primary asset as this dataset's raster.
+        """
+        install, _ = stac_transport
+        install(
+            {
+                _ITEM: (
+                    200,
+                    _item_doc(item_id="a-different-scene", asset_href=_MOVED_ASSET),
+                )
+            }
+        )
+        result = await resolve_stac_binding(
+            item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
+        )
+        assert not result.resolved
+        assert (result.health, result.detail) == ("inaccessible", "unexpected_status")
+
+    async def test_an_item_that_names_another_collection_binds_nothing(
+        self, stac_transport
+    ) -> None:
+        install, _ = stac_transport
+        doc = _item_doc(asset_href=_MOVED_ASSET)
+        doc["collection"] = "some-other-collection"
+        install({_ITEM: (200, doc)})
+        result = await resolve_stac_binding(
+            item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
+        )
+        assert not result.resolved
+        assert result.health == "inaccessible"
+
+    async def test_a_catalog_whose_layout_hides_the_id_is_still_refreshable(
+        self, stac_transport
+    ) -> None:
+        """The contradiction test must not become a confirmation requirement.
+
+        A catalog that does not use the standard item layout states no id in
+        its URL, so there is nothing to compare — and refusing those would
+        make the check a second gate on exactly the catalogs that already get
+        no fallback search.
+        """
+        install, _ = stac_transport
+        odd_href = "https://origin.test/stac/scenes/scene-1.json"
+        install(
+            {
+                odd_href: (200, _item_doc(asset_href=_MOVED_ASSET, self_href=odd_href)),
+                _MOVED_ASSET: (206, None),
+            }
+        )
+        result = await resolve_stac_binding(
+            item_href=odd_href, collection_id="scenes", asset_href=_ASSET
+        )
+        assert result.resolved
+        assert result.asset_href == _MOVED_ASSET
+
+    async def test_a_searched_items_relative_asset_resolves_against_its_self_link(
+        self, stac_transport
+    ) -> None:
+        """fix(#1266 review): the base is the ITEM's address, not /search's.
+
+        Joining a relative asset href against the search endpoint composes a
+        path under the search URL — a different object, and possibly a live
+        one, which is the worst kind of wrong answer here.
+        """
+        install, _ = stac_transport
+        # Relative to the item at /stac/collections/scenes/items/scene-1-v2.
+        # Against the /search endpoint the same href would compose
+        # https://origin.test/tiles/scene.tif, which is a different object.
+        moved_relative = f"{_ROOT}/collections/scenes/tiles/scene.tif"
+        install(
+            {
+                _ITEM: (404, None),
+                _SEARCH: (
+                    200,
+                    {
+                        "features": [
+                            _item_doc(
+                                self_href=_MOVED_ITEM,
+                                assets={"data": {"href": "../tiles/scene.tif"}},
+                            )
+                        ]
+                    },
+                ),
+                moved_relative: (206, None),
+            }
+        )
+        result = await resolve_stac_binding(
+            item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
+        )
+        assert result.resolved
+        assert result.asset_href == moved_relative
+        assert result.item_href == _MOVED_ITEM
+
     async def test_a_live_item_that_dropped_the_asset_is_missing(
         self, stac_transport
     ) -> None:
