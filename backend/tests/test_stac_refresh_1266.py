@@ -624,6 +624,59 @@ class TestResolution:
         assert not result.resolved
         assert (result.health, result.detail) == ("missing", "item_withdrawn")
 
+    async def test_a_search_that_ignores_the_collection_filter_binds_nothing(
+        self, stac_transport
+    ) -> None:
+        """fix(#1266 review round 13): item ids are only collection-scoped.
+
+        An endpoint that honours `ids` while ignoring `collections` can
+        legitimately return a same-id item from somewhere else — and one that
+        omits its `collection` field would sail through the contradiction
+        test every other path here relies on. The request named a collection,
+        so an answer that does not affirm it has not answered the question.
+        """
+        install, _ = stac_transport
+        stranger = _item_doc(asset_href=_MOVED_ASSET)
+        stranger["collection"] = "a-different-collection"
+        nameless = _item_doc(asset_href=_MOVED_ASSET)
+        del nameless["collection"]
+        for feature in (stranger, nameless):
+            install({_ITEM: (404, None), _SEARCH: (200, {"features": [feature]})})
+            result = await _resolve(item_href=_ITEM)
+            assert not result.resolved
+            assert (result.health, result.detail) == ("missing", "item_withdrawn")
+
+    @pytest.mark.parametrize("code", [500, 503, 403])
+    async def test_a_search_that_could_not_be_carried_out_is_not_a_withdrawal(
+        self, stac_transport, code: int
+    ) -> None:
+        """fix(#1266 review round 13): round 1 collapsed "looked and found
+        nothing" into "could not look", on the reasoning that the item's own
+        404 was authoritative anyway.
+
+        But the verdict that collapse writes is `missing`, and `missing` is
+        precisely what this codebase refuses to conclude from an inconclusive
+        attempt everywhere else — while the item may simply have moved, which
+        is the entire reason the search exists.
+        """
+        install, _ = stac_transport
+        install({_ITEM: (404, None), _SEARCH: (code, None)})
+        result = await _resolve(item_href=_ITEM)
+        assert not result.resolved
+        assert result.health == "inaccessible"
+        assert result.detail in DETAIL_CODES
+
+    async def test_a_catalog_offering_no_search_endpoint_keeps_the_items_verdict(
+        self, stac_transport
+    ) -> None:
+        """A 404 from /search is the catalog saying there is nowhere to look,
+        which leaves the item's own 404 as the last authoritative word."""
+        install, _ = stac_transport
+        install({_ITEM: (404, None), _SEARCH: (404, None)})
+        result = await _resolve(item_href=_ITEM)
+        assert not result.resolved
+        assert result.health == "missing"
+
     async def test_a_deleted_item_the_search_cannot_find_is_missing(
         self, stac_transport
     ) -> None:
@@ -693,7 +746,20 @@ class TestResolution:
         install(
             {
                 _ITEM: (404, None),
-                _SEARCH: (200, {"features": [{"id": "scene-1", "assets": "nope"}]}),
+                # Affirms the collection, so it is accepted as OUR item and
+                # then judged on its shape — which is the property under test.
+                _SEARCH: (
+                    200,
+                    {
+                        "features": [
+                            {
+                                "id": "scene-1",
+                                "collection": "scenes",
+                                "assets": "nope",
+                            }
+                        ]
+                    },
+                ),
             }
         )
         searched = await resolve_stac_binding(item_href=_ITEM, collection_id="scenes")

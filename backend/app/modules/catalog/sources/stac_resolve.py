@@ -605,19 +605,33 @@ async def _storable_item_pointer(self_href: str | None, fallback: str) -> str:
     return self_href
 
 
-def _feature_by_id(document: Any, item_id: str) -> dict[str, Any] | None:
+def _searched_feature(
+    document: Any, *, item_id: str, collection_id: str
+) -> dict[str, Any] | None:
     """The searched item, if the answer actually contains it.
 
     A 200 from ``/search`` is not by itself an answer about this item: an
-    endpoint that ignores the ``ids`` filter would hand back the collection's
-    first page, and taking ``features[0]`` from that would re-point the
-    dataset at an unrelated scene. The id is re-checked here for that reason.
+    endpoint that ignores the filters hands back a page of the catalog, and
+    taking ``features[0]`` from that would re-point the dataset at an
+    unrelated scene. So both filters are re-checked against the response.
+
+    fix(#1266 review round 13): the collection is checked as well as the id,
+    and it must be AFFIRMED rather than merely not contradicted. A STAC item
+    id is only unique within its collection, so an endpoint that honours
+    ``ids`` while ignoring ``collections`` can legitimately return a
+    same-id item belonging to somewhere else — and a feature that omits its
+    ``collection`` field would sail through the contradiction test that
+    guards every other path here. On this path the stronger rule is the
+    right one: the request named a collection, so an answer that does not
+    say it is in that collection has not answered the question asked.
     """
     if not isinstance(document, dict):
         return None
     features = document.get("features")
     for feature in features if isinstance(features, list) else []:
-        if isinstance(feature, dict) and feature.get("id") == item_id:
+        if not isinstance(feature, dict) or feature.get("id") != item_id:
+            continue
+        if feature.get("collection") == collection_id:
             return feature
     return None
 
@@ -648,13 +662,25 @@ async def _resolve_by_search(
         method="POST",
         json_body={"collections": [collection_id], "ids": [wanted_id], "limit": 1},
     )
-    feature = _feature_by_id(document, wanted_id) if result.ok else None
+    if not result.ok:
+        # fix(#1266 review round 13): a search that could not be CARRIED OUT
+        # establishes nothing, and must not be reported as one that looked
+        # and found nothing. Round 1 collapsed the two on the reasoning that
+        # the item's own 404 was authoritative anyway — but the verdict it
+        # writes is `missing`, and `missing` is exactly what this codebase
+        # refuses to conclude from an inconclusive attempt everywhere else.
+        # The item may simply have moved, which is the whole reason the
+        # search exists. So the search's own verdict stands: a timed-out or
+        # 5xx or policy-blocked search reports `inaccessible` and changes
+        # nothing, while a catalog that answers "no such search endpoint"
+        # (404) still leaves the item's own 404 as the last word.
+        return StacResolution(result.health, result.detail, contacted=result.contacted)
+    feature = _searched_feature(
+        document, item_id=wanted_id, collection_id=collection_id or ""
+    )
     if feature is None:
-        # Either the catalog answered and does not have this item, or the
-        # search could not be carried out at all. Both leave the item's own
-        # 404 as the last authoritative word, which is `missing` — the same
-        # verdict the probe writes for the same observation, reached without
-        # the search having to prove anything.
+        # The catalog answered, and does not have this item in this
+        # collection. Authoritative, and the one case that earns `missing`.
         return _WITHDRAWN
     return await _resolve_from_item(
         feature,

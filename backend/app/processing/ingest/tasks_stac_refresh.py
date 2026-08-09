@@ -83,11 +83,15 @@ _ERROR_CODE_SUPERSEDED = "superseded"
 # rather than from anything the origin sent: ADR-002 Decision 3 forbids a
 # provider's error text, a response body or a URL in a stored reason string,
 # and an origin URI may legitimately carry a signed query.
+# fix(#1266 review round 13): says what is established on every path that
+# reaches it, and no more. This verdict is reached both from a search that
+# answered and did not have the item and from a catalog that offered no way
+# to look, so it may not claim a search result it might not have.
 _WITHDRAWN_MESSAGE = (
-    "The STAC item this dataset was imported from is gone from the catalog "
-    "that published it, and searching the collection for it by id did not "
-    "find it anywhere else. The dataset keeps pointing at the asset it "
-    "always did; re-import it from a live item to move it."
+    "The STAC item this dataset was imported from is no longer at the "
+    "address its catalog published, and GeoLens could not locate it "
+    "anywhere else in its collection. The dataset keeps pointing at the "
+    "asset it always did; re-import it from a live item to move it."
 )
 _UNREACHABLE_MESSAGE = (
     "GeoLens could not read the STAC item this dataset was imported from, "
