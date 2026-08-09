@@ -52,6 +52,7 @@ from app.platform.cache.provider import get_tile_cache
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.modules.catalog.collections.service import get_dataset_collections
 from app.modules.catalog.datasets.domain.service import (
+    DatasetTitleMismatchError,
     DependentVrtError,
     create_empty_dataset,
     delete_dataset,
@@ -459,7 +460,7 @@ async def bulk_delete_datasets_endpoint(
             deleted += 1
         except Exception as exc:  # broad: per-item bulk-delete is isolated — any failure is recorded per-item without aborting the batch
             await db.rollback()
-            if isinstance(exc, (DependentVrtError, ValueError)):
+            if isinstance(exc, (DependentVrtError, DatasetTitleMismatchError)):
                 detail = str(exc)
             else:
                 logger.exception(

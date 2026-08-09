@@ -41,6 +41,7 @@ from app.modules.catalog.datasets.domain.service_create import (
     create_empty_dataset,
 )
 from app.modules.catalog.datasets.domain.service_lifecycle import (
+    DatasetTitleMismatchError,
     DependentVrtError,
     delete_dataset,
     get_dataset_versions,
@@ -72,6 +73,7 @@ from app.modules.catalog.datasets.domain.service_relationships import (
 )
 
 __all__ = [
+    "DatasetTitleMismatchError",
     "DependentVrtError",
     "auto_detect_relationships",
     "build_preview_sql",
