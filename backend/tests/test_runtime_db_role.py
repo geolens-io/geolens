@@ -229,6 +229,37 @@ def test_role_script_scopes_shared_reader_to_the_current_database() -> None:
     assert "database_acl.privilege_type = 'CONNECT'" in source
 
 
+def test_reader_role_requires_durable_marker_or_safe_legacy_shape() -> None:
+    source = ROLE_SCRIPT.read_text(encoding="utf-8")
+
+    marker = "geolens-managed-reader-role:v1"
+    create_reader = "CREATE ROLE geolens_reader"
+    alter_reader = "ALTER ROLE geolens_reader"
+    assert marker in source
+    assert "reader_role_managed" in source
+    assert "reader_role_legacy_safe" in source
+    assert "existing geolens_reader role is not safe to adopt" in source
+    assert source.index(marker) < source.index(alter_reader)
+    assert source.index(create_reader) < source.index(alter_reader)
+
+
+def test_runtime_can_only_read_alembic_version_table() -> None:
+    source = ROLE_SCRIPT.read_text(encoding="utf-8")
+
+    create_version = "CREATE TABLE IF NOT EXISTS catalog.alembic_version"
+    revoke_dml = (
+        "REVOKE INSERT, UPDATE, DELETE ON TABLE catalog.alembic_version FROM %I"
+    )
+    default_dml = (
+        "ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA catalog GRANT SELECT, "
+        "INSERT, UPDATE, DELETE ON TABLES TO %I"
+    )
+    assert create_version in source
+    assert revoke_dml in source
+    assert source.index(create_version) < source.index(default_dml)
+    assert source.index(default_dml) < source.rindex(revoke_dml)
+
+
 def test_embedding_definer_is_created_as_the_validated_migration_owner() -> None:
     source = ROLE_SCRIPT.read_text(encoding="utf-8")
 

@@ -93,15 +93,68 @@ fi
 # Keep this block here, rather than copying it into init-db.sh and restore.sh,
 # because a restore drops schema ACLs and must rebuild the exact bootstrap shape.
 psql "${psql_args[@]}" <<-'EOSQL'
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'geolens_reader') THEN
-        CREATE ROLE geolens_reader
-            NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT
-            NOREPLICATION NOBYPASSRLS;
-    END IF;
-END
-$$;
+BEGIN;
+
+SELECT EXISTS (
+    SELECT FROM pg_roles WHERE rolname = 'geolens_reader'
+) AS reader_role_exists
+\gset
+
+\if :reader_role_exists
+    -- Migration 0007 created this cluster-global role before a durable marker
+    -- existed. Adopt only that inert legacy shape. A same-named login, admin,
+    -- object owner, configured identity, or member of another role is not
+    -- ownership proof and must remain completely untouched.
+    SELECT
+        COALESCE(shobj_description(reader.oid, 'pg_authid'), '')
+            = 'geolens-managed-reader-role:v1' AS reader_role_managed,
+        (
+            COALESCE(shobj_description(reader.oid, 'pg_authid'), '') = ''
+            AND NOT reader.rolcanlogin
+            AND NOT reader.rolsuper
+            AND NOT reader.rolbypassrls
+            AND NOT reader.rolcreaterole
+            AND NOT reader.rolcreatedb
+            AND NOT reader.rolreplication
+            AND reader.rolconnlimit = -1
+            AND reader.rolvaliduntil IS NULL
+            AND reader.rolconfig IS NULL
+            AND NOT EXISTS (
+                SELECT 1
+                FROM pg_auth_members AS membership
+                WHERE membership.member = reader.oid
+            )
+            AND NOT EXISTS (
+                SELECT 1
+                FROM pg_shdepend AS dependency
+                WHERE dependency.refclassid = 'pg_authid'::regclass
+                  AND dependency.refobjid = reader.oid
+                  AND dependency.deptype = 'o'
+            )
+        ) AS reader_role_legacy_safe
+    FROM pg_roles AS reader
+    WHERE reader.rolname = 'geolens_reader'
+    \gset
+
+    \if :reader_role_managed
+    \else
+        \if :reader_role_legacy_safe
+            COMMENT ON ROLE geolens_reader IS
+                'geolens-managed-reader-role:v1';
+        \else
+            DO $error$
+            BEGIN
+                RAISE EXCEPTION 'existing geolens_reader role is not safe to adopt; use a dedicated marked GeoLens reader role.';
+            END
+            $error$;
+        \endif
+    \endif
+\else
+    CREATE ROLE geolens_reader
+        NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT
+        NOREPLICATION NOBYPASSRLS;
+    COMMENT ON ROLE geolens_reader IS 'geolens-managed-reader-role:v1';
+\endif
 
 -- PostgreSQL permits a CREATEROLE provider admin to create safe roles, but
 -- only a superuser may mention SUPERUSER/BYPASSRLS in ALTER ROLE, even when
@@ -132,6 +185,7 @@ WHERE rolname = 'geolens_reader'
         NOLOGIN NOCREATEROLE NOINHERIT;
 \endif
 GRANT USAGE ON SCHEMA data TO geolens_reader;
+COMMIT;
 EOSQL
 
 if [ -z "$runtime_role" ]; then
@@ -504,6 +558,19 @@ WHERE namespace.nspname = 'catalog'
   AND relation.relkind IN ('r', 'p', 'v', 'm', 'f')
   AND owner_role.rolname = current_user
 \gexec
+-- The application must read Alembic's current revision for diagnostics, but
+-- only the migration identity may advance or rewrite it. Repair prior broad
+-- grants when this reconciliation login owns a --no-owner restored table.
+SELECT format(
+    'REVOKE INSERT, UPDATE, DELETE ON TABLE catalog.alembic_version FROM %I',
+    :'runtime_role'
+)
+WHERE to_regclass('catalog.alembic_version') IS NOT NULL
+  AND pg_get_userbyid(
+      (SELECT relowner FROM pg_class
+       WHERE oid = to_regclass('catalog.alembic_version'))
+  ) = current_user
+\gexec
 SELECT format(
     'GRANT USAGE, SELECT ON SEQUENCE %I.%I TO %I',
     namespace.nspname, relation.relname, :'runtime_role'
@@ -520,6 +587,16 @@ WHERE namespace.nspname = 'catalog'
 -- migration owner, not the login that happens to run reconciliation. SET LOCAL
 -- proves the provider admin's authority without granting inherited access.
 SELECT format('SET LOCAL ROLE %I', :'migration_role')\gexec
+
+-- Fresh bootstrap runs this reconciler before Alembic. Pre-creating Alembic's
+-- standard version table under the validated migration owner prevents the
+-- catalog-wide future-table defaults below from ever granting runtime DML on
+-- this control-plane relation. Alembic's check-first creation remains
+-- idempotent, and existing/restored installations retain their current row.
+CREATE TABLE IF NOT EXISTS catalog.alembic_version (
+    version_num varchar(32) NOT NULL,
+    CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num)
+);
 
 SELECT format(
     'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %I.%I TO %I',
@@ -552,6 +629,15 @@ SELECT format(
     'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA catalog GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %I',
     :'migration_role', :'runtime_role'
 )\gexec
+SELECT format(
+    'REVOKE INSERT, UPDATE, DELETE ON TABLE catalog.alembic_version FROM %I',
+    :'runtime_role'
+)
+WHERE pg_get_userbyid(
+    (SELECT relowner FROM pg_class
+     WHERE oid = to_regclass('catalog.alembic_version'))
+) = current_user
+\gexec
 SELECT format(
     'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA catalog GRANT USAGE, SELECT ON SEQUENCES TO %I',
     :'migration_role', :'runtime_role'

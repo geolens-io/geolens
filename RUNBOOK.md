@@ -241,9 +241,15 @@ On a fresh bundled volume, `init-db.sh` creates extensions and schemas first,
 then runs `scripts/lib/configure-runtime-db-role.sh`. The latter creates and
 marks the login with
 `geolens-managed-runtime-role:v2:database=<current-database>`, grants catalog
-DML/sequence access, grants CREATE plus relation ownership only in `data`, and
-grants SET access to `geolens_reader`. It never grants blanket catalog-function
-execution: tenant provisioning remains exclusive to `geolens_tenant_control`.
+DML/sequence access (except that `catalog.alembic_version` is read-only), grants
+CREATE plus relation ownership only in `data`, and grants SET access to
+`geolens_reader`. The shared reader itself carries the cluster-global marker
+`geolens-managed-reader-role:v1`; an unmarked role is accepted only when it has
+the inert `NOLOGIN` shape created by migration 0007, owns no object, has no
+configuration/comment, and is not a member of another role. Any same-named
+login or administrative/unrelated role fails before `ALTER ROLE`. The runtime
+role never receives blanket catalog-function execution: tenant provisioning
+remains exclusive to `geolens_tenant_control`.
 Catalog default grants are installed for the validated
 `GEOLENS_MIGRATION_DB_ROLE`, so later Alembic objects remain usable even when a
 managed provider admin performed reconciliation. The migrate service then
@@ -255,7 +261,9 @@ login for a second database on the same cluster from connecting here and
 assuming the shared `geolens_reader` role. Any additional login that needs this
 database, such as a dedicated multi-tenant tile login, requires an explicit
 `GRANT CONNECT ON DATABASE <database> TO <login>`; existing explicit grants
-are preserved. Legacy mode leaves the default connection ACL unchanged.
+are preserved. Legacy reconciliation closes the same `PUBLIC CONNECT` boundary
+and explicitly retains its reconciliation login; operators must explicitly
+grant `CONNECT` to any separate legacy app or tile login first.
 The admin embedding-dimension resize is the sole catalog-DDL exception: the
 reconciler installs a bounded `SECURITY DEFINER` function, revokes its default
 `PUBLIC` execute grant, and grants it only to the configured runtime role. The

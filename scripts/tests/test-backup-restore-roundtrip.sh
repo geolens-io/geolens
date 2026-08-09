@@ -77,6 +77,10 @@ if [ "$PGVECTOR_AVAILABLE" = "t" ]; then
 else
     echo "SKIP [pgvector]: extension unavailable; vector-specific embedding-definer DDL subproof disabled (function ownership and ACL checks still run)."
 fi
+READER_EXISTED_AT_START="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" \
+    -d "$ADMIN_DB" -tAc \
+    "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'geolens_reader');" \
+    | tr -d '[:space:]')"
 
 # --- Throwaway names (unique suffix avoids colliding with anything else) ------
 SUFFIX="$$_$(date +%s)"
@@ -174,6 +178,11 @@ psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC_DB" -v ON_ERROR_STOP=1 >/de
 CREATE SCHEMA IF NOT EXISTS catalog;
 CREATE TABLE catalog.records  (id serial PRIMARY KEY, name text NOT NULL);
 CREATE TABLE catalog.datasets (id serial PRIMARY KEY, slug text NOT NULL);
+CREATE TABLE catalog.alembic_version (
+    version_num varchar(32) NOT NULL,
+    CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num)
+);
+INSERT INTO catalog.alembic_version VALUES ('ci-roundtrip');
 CREATE FUNCTION catalog.provision_tenant_data_schema(uuid) RETURNS void
     LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
     AS 'BEGIN NULL; END';
@@ -292,6 +301,45 @@ RESTORED_PUBLIC_EXECUTE="$(psql_admin -d "$DST_DB" -tAc \
 [ "$RESTORED_PUBLIC_EXECUTE" = "t" ] \
     || fail "restore fixture did not reproduce default PUBLIC function execution"
 
+# A role name alone is not proof that a cluster-global identity belongs to
+# GeoLens. On an otherwise fresh cluster, reproduce an unrelated privileged
+# collision and prove reconciliation refuses it before changing any attribute,
+# marker, or password. Then replace it with migration 0007's exact legacy
+# NOLOGIN shape so the ordinary bundled-upgrade adoption path is exercised.
+if [ "$READER_EXISTED_AT_START" = "f" ]; then
+    UNSAFE_READER_PASSWORD="unsafe-reader-collision-password-947-padding"
+    psql_admin -v ON_ERROR_STOP=1 -c \
+        "CREATE ROLE geolens_reader LOGIN SUPERUSER PASSWORD '${UNSAFE_READER_PASSWORD}';" \
+        >/dev/null
+    if env \
+        GEOLENS_RUNTIME_DB_ROLE="" GEOLENS_RUNTIME_DB_PASSWORD="" \
+        GEOLENS_MIGRATION_DB_ROLE="" \
+        POSTGRES_HOST="$PGHOST" POSTGRES_PORT="$PGPORT" \
+        POSTGRES_USER="$PGUSER" POSTGRES_DB="$DST_DB" \
+        bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" \
+        >"${WORKDIR}/unsafe-reader.log" 2>&1; then
+        fail "unsafe unmarked geolens_reader collision was altered or adopted"
+    fi
+    grep -Fq "existing geolens_reader role is not safe to adopt" \
+        "${WORKDIR}/unsafe-reader.log" \
+        || fail "unsafe reader collision did not use the fail-closed marker contract"
+    UNSAFE_READER_STATE="$(psql_admin -tAc \
+        "SELECT rolcanlogin || '|' || rolsuper || '|' ||
+                COALESCE(shobj_description(oid, 'pg_authid'), '')
+           FROM pg_roles WHERE rolname = 'geolens_reader';" \
+        | tr -d '[:space:]')"
+    [ "$UNSAFE_READER_STATE" = "true|true|" ] \
+        || fail "rejected reader collision was mutated: ${UNSAFE_READER_STATE}"
+    env PGPASSWORD="$UNSAFE_READER_PASSWORD" \
+        psql -X -h "$PGHOST" -p "$PGPORT" -U geolens_reader -d "$DST_DB" \
+        -Atqc "SELECT 1" | grep -qx 1 \
+        || fail "rejected reader collision password was replaced"
+    psql_admin -v ON_ERROR_STOP=1 >/dev/null <<'EOSQL'
+DROP ROLE geolens_reader;
+CREATE ROLE geolens_reader NOLOGIN;
+EOSQL
+fi
+
 env \
     GEOLENS_RUNTIME_DB_ROLE="" GEOLENS_RUNTIME_DB_PASSWORD="" \
     GEOLENS_MIGRATION_DB_ROLE="" \
@@ -359,6 +407,43 @@ if env PGPASSWORD="$RUNTIME_PASSWORD" \
     >/dev/null 2>&1; then
     fail "split runtime crossed into a legacy database through geolens_reader"
 fi
+ALEMBIC_RUNTIME_ACL="$(psql_admin -d "$SRC_DB" -tAc \
+    "SELECT
+         has_table_privilege('${FRESH_RUNTIME_ROLE}',
+             'catalog.alembic_version', 'SELECT') || '|' ||
+         has_table_privilege('${FRESH_RUNTIME_ROLE}',
+             'catalog.alembic_version', 'INSERT,UPDATE,DELETE');" \
+    | tr -d '[:space:]')"
+[ "$ALEMBIC_RUNTIME_ACL" = "true|false" ] \
+    || fail "runtime alembic_version privilege boundary is ${ALEMBIC_RUNTIME_ACL}"
+env PGPASSWORD="$RUNTIME_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$FRESH_RUNTIME_ROLE" -d "$SRC_DB" \
+    -Atqc "SELECT version_num FROM catalog.alembic_version" \
+    | grep -qx "ci-roundtrip" \
+    || fail "runtime cannot read catalog.alembic_version"
+for forbidden_version_dml in \
+    "INSERT INTO catalog.alembic_version VALUES ('runtime-must-not-write')" \
+    "UPDATE catalog.alembic_version SET version_num = version_num" \
+    "DELETE FROM catalog.alembic_version"; do
+    if env PGPASSWORD="$RUNTIME_PASSWORD" \
+        psql -X -h "$PGHOST" -p "$PGPORT" -U "$FRESH_RUNTIME_ROLE" \
+        -d "$SRC_DB" -v ON_ERROR_STOP=1 -Atqc "$forbidden_version_dml" \
+        >/dev/null 2>&1; then
+        fail "runtime executed forbidden alembic_version DML: ${forbidden_version_dml}"
+    fi
+done
+
+READER_MANAGED_STATE="$(psql_admin -tAc \
+    "SELECT COALESCE(shobj_description(oid, 'pg_authid'), '') || '|' ||
+            rolcanlogin || '|' || rolsuper || '|' || rolcreatedb || '|' ||
+            rolcreaterole || '|' || rolreplication || '|' || rolbypassrls || '|' ||
+            rolinherit
+       FROM pg_roles WHERE rolname = 'geolens_reader';" \
+    | tr -d '[:space:]')"
+[ "$READER_MANAGED_STATE" = \
+    "geolens-managed-reader-role:v1|false|false|false|false|false|false|false" ] \
+    || fail "reader role lacks a safe durable GeoLens marker: ${READER_MANAGED_STATE}"
+
 FRESH_ROLE_MARKER="$(psql_admin -tAc \
     "SELECT shobj_description(oid, 'pg_authid') FROM pg_roles WHERE rolname = '${FRESH_RUNTIME_ROLE}';" \
     | tr -d '[:space:]')"
@@ -1178,6 +1263,8 @@ grep -q "^CREATE ROLE" "$GLOBALS_FILE" \
     || fail "globals dump contains no CREATE ROLE — it is not a real --globals-only dump"
 grep -Fq "geolens-managed-runtime-role:v2:database=${SRC_DB}" "$GLOBALS_FILE" \
     || fail "globals dump omitted the managed runtime-role marker"
+grep -Fq "geolens-managed-reader-role:v1" "$GLOBALS_FILE" \
+    || fail "globals dump omitted the managed reader-role marker"
 
 # Mode: `ls -l` rather than stat, whose flags differ between BSD and GNU.
 GLOBALS_MODE="$(ls -l "$GLOBALS_FILE" | cut -c1-10)"
