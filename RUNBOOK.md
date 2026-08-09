@@ -1601,8 +1601,8 @@ archive their sources. On an object-storage install that is a prefix in your
 bucket; on a local install it is `originals/` inside the `upload_staging`
 volume. One location, both shapes.
 
-The `<hash>` is the first twelve characters of the uploaded file's SHA-256, and
-it is the whole name: **no filename, no extension**. The object is identified by
+The `<hash>` is the first 32 characters of the uploaded file's SHA-256, and it
+is the whole name: **no filename, no extension**. The object is identified by
 its content and nothing else, so the same bytes are the same object however they
 were named — upload `survey.tif` and `survey-final.tif` with identical content
 and you get one stored copy, not two. That also means two uploads sharing a
@@ -1687,7 +1687,18 @@ volume on local storage, or under that prefix in your bucket on S3/MinIO.
 
 ### Interaction with backups
 
-§1's `staging-<timestamp>.tar.gz` archives the `upload_staging` volume, so a
-backup taken while a failed upload is still inside the retention window contains
-that file. It is not a way to recover a successfully ingested original — that
-file was already deleted before the backup ran.
+§1's `staging-<timestamp>.tar.gz` archives the `upload_staging` volume. What
+that does and does not recover depends on which case put the file there.
+
+| Case | In the staging tar? |
+| --- | --- |
+| Failed upload, still inside the retention window | Yes |
+| **Retained original from a lossy or reprojected ingest, local storage** | **Yes** — it lives under `originals/` inside that same volume |
+| Retained original, object-storage install | No — it is in your bucket under `originals/`, covered by whatever backs up the bucket, not by this tar |
+| Successfully ingested original from a **lossless** conversion | No — deleted before the backup ran |
+
+The last row is the only one that is genuinely unrecoverable, and it is the
+case where the COG carries the same samples anyway. Retained originals are
+recoverable on a local install, so if you are restoring one and need the
+pre-conversion files back, extract the staging archive as §2 describes and the
+`originals/` tree comes with it.

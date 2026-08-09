@@ -125,6 +125,23 @@ def _write_swapped_fields(
 
 ARCHIVED_ORIGINAL_KEY_PREFIX = "archived_original:"
 
+# fix(#1290 review): 128 bits, not 48. Round 8 made the truncated hash BE the
+# archive's identity, which is exactly what puts the truncation width on the
+# security boundary. An accidental same-dataset collision at 12 hex chars is
+# negligible; a DELIBERATE one is a ~2^24 birthday search — minutes on a laptop
+# — and it buys the attacker the invariant this key exists to protect: the
+# later archive overwrites the earlier object's only faithful original, the
+# upsert collapses both into one row, and a failed later swap leaves the live
+# raster with its retained source already destroyed. At 32 chars the birthday
+# bound is 2^64, which is not a laptop.
+#
+# ONE constant for both derivations. Two widths would be two identities again,
+# which is the thing round 8 removed. The asset-key column is String(50) and
+# the prefix is 18 characters, so 18 + 32 lands exactly on the limit — verified
+# against the model and 0001_baseline. 0038's CHECK matches on the prefix, so
+# it is width-agnostic and no migration is involved.
+ARCHIVE_HASH_CHARS = 32
+
 
 def archived_original_asset_key(source_sha256: str) -> str:
     """The ``dataset_assets`` key for ONE kept original.
@@ -132,10 +149,11 @@ def archived_original_asset_key(source_sha256: str) -> str:
     fix(#1290 review): per-archive, not per-dataset. A single constant key
     counted only the newest original and left every superseded one accumulating
     uncounted — the exact scenario ``MAX_STORAGE_BYTES_PER_USER`` exists to
-    bound. Keying on the same content hash the object key uses means the unique
-    constraint deduplicates identical re-uploads for free.
+    bound. Keying on the same content hash the object key uses — same width, one
+    constant — means the unique constraint deduplicates identical re-uploads
+    for free.
     """
-    return f"{ARCHIVED_ORIGINAL_KEY_PREFIX}{source_sha256[:12]}"
+    return f"{ARCHIVED_ORIGINAL_KEY_PREFIX}{source_sha256[:ARCHIVE_HASH_CHARS]}"
 
 
 def archived_original_uri(dataset_id, *, source_sha256: str) -> str:
@@ -159,7 +177,7 @@ def archived_original_uri(dataset_id, *, source_sha256: str) -> str:
     human-readable name is not lost; it rides on the counted row's description,
     where an operator can read it and no equality depends on it.
     """
-    return f"originals/{dataset_id}/{source_sha256[:12]}"
+    return f"originals/{dataset_id}/{source_sha256[:ARCHIVE_HASH_CHARS]}"
 
 
 async def archive_lossy_original(

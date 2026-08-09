@@ -2829,8 +2829,8 @@ class TestArchivedOriginalsAreCounted:
                 "roles": ["data"],
             },
             {
-                "key": "archived_original:abc123def456",
-                "href": "originals/x/abc123def456-scene.tif",
+                "key": "archived_original:a1b2c3d4e5f60718293a4b5c6d7e8f90",
+                "href": "originals/x/a1b2c3d4e5f60718293a4b5c6d7e8f90",
                 "media_type": "image/tiff",
                 "roles": ["archive"],
             },
@@ -2845,7 +2845,7 @@ class TestArchivedOriginalsAreCounted:
             ),
         )
         assert "data" in built
-        assert "archived_original:abc123def456" not in built, (
+        assert "archived_original:a1b2c3d4e5f60718293a4b5c6d7e8f90" not in built, (
             "the kept original is advertised as a downloadable STAC asset"
         )
         assert not any(k.startswith("archived_original") for k in PUBLIC_ASSET_KEYS)
@@ -3383,8 +3383,10 @@ class TestArchiveKeyIsDerivedFromContentAlone:
     def test_the_key_ignores_the_filename_completely(self) -> None:
         from app.processing.ingest.tasks_raster_swap import archived_original_uri
 
+        from app.processing.ingest.tasks_raster_swap import ARCHIVE_HASH_CHARS
+
         key = archived_original_uri("ds-1", source_sha256="a" * 64)
-        assert key == "originals/ds-1/aaaaaaaaaaaa"
+        assert key == "originals/ds-1/" + "a" * ARCHIVE_HASH_CHARS
         # No extension either: the same bytes as .tif and .tiff must not become
         # two objects (#1290 round-8 finding 1).
         assert "." not in key.rsplit("/", 1)[-1]
@@ -3486,8 +3488,8 @@ class TestInternalAssetKeysNeverReachAnyResponse:
                 "INSERT INTO catalog.dataset_assets "
                 "(dataset_id, key, href, size_bytes, media_type, title) VALUES "
                 "(:id, 'data', 'rasters/x/y/source.cog.tif', 10, 'image/tiff', 'COG'), "
-                "(:id, 'archived_original:abc123def456', "
-                "'originals/x/abc123def456-private-survey.tif', 99, 'image/tiff', "
+                "(:id, 'archived_original:a1b2c3d4e5f60718293a4b5c6d7e8f90', "
+                "'originals/x/a1b2c3d4e5f60718293a4b5c6d7e8f90', 99, 'image/tiff', "
                 "'Pre-conversion original')"
             ),
             {"id": dataset_id},
@@ -3553,7 +3555,10 @@ class TestInternalAssetKeysNeverReachAnyResponse:
         from app.platform.assets.keys import PUBLIC_ASSET_KEYS, is_public_asset_key
 
         assert is_public_asset_key("data") is True
-        assert is_public_asset_key("archived_original:abc123def456") is False
+        assert (
+            is_public_asset_key("archived_original:a1b2c3d4e5f60718293a4b5c6d7e8f90")
+            is False
+        )
         assert is_public_asset_key(None) is False
         assert not any(k.startswith("archived_original") for k in PUBLIC_ASSET_KEYS)
 
@@ -4218,3 +4223,80 @@ class TestSnapshotPrecedesTheReadInBothTails:
                 "helper, so its stamp ordering is its own to get wrong "
                 "(#1290 round-10)"
             )
+
+
+class TestArchiveIdentityIsWideEnoughToBeAnIdentity:
+    """Round 8 made the truncated hash BE the archive's identity, which is what
+    put the truncation width on the security boundary. A deliberate collision
+    at 48 bits is a ~2^24 birthday search — minutes on a laptop — and it buys
+    the attacker exactly the invariant the key protects: the later archive
+    overwrites the earlier object's only faithful original, both collapse into
+    one row, and a failed later swap leaves the live raster with its retained
+    source already gone."""
+
+    def test_digests_sharing_a_12_char_prefix_get_distinct_identities(self) -> None:
+        """The discriminator, stated exactly rather than searched for.
+
+        Both derivations take the digest as a parameter, so the collision the
+        old width admitted can be written down directly — a brute-force pair
+        would only re-derive what the parameter already lets us say, at the
+        cost of ~2^25 hashes and a multi-GB table. The 48-bit prefix is shared;
+        everything after it differs.
+        """
+        from app.processing.ingest.tasks_raster_swap import (
+            archived_original_asset_key,
+            archived_original_uri,
+        )
+
+        a = "abc123def456" + "0" * 52
+        b = "abc123def456" + "f" * 52
+        assert a[:12] == b[:12] and a != b
+
+        assert archived_original_asset_key(a) != archived_original_asset_key(b), (
+            "two different uploads share one accounting row — the later "
+            "archive's upsert collapses both and the earlier original is "
+            "orphaned (#1290 round-11 finding 1)"
+        )
+        assert archived_original_uri("ds-1", source_sha256=a) != archived_original_uri(
+            "ds-1", source_sha256=b
+        ), (
+            "two different uploads share one object key — the later archive "
+            "overwrites the earlier one's only faithful original"
+        )
+
+    def test_the_asset_key_fits_the_column_exactly(self) -> None:
+        """18-char prefix + 32-char hash = 50, which is the column. Asserted
+        against the model rather than a remembered number, so widening the hash
+        again fails here instead of at an INSERT in production."""
+        from app.processing.ingest.tasks_raster_swap import (
+            ARCHIVE_HASH_CHARS,
+            ARCHIVED_ORIGINAL_KEY_PREFIX,
+            archived_original_asset_key,
+        )
+        from app.processing.raster.models import DatasetAsset
+
+        limit = DatasetAsset.__table__.c.key.type.length
+        assert len(ARCHIVED_ORIGINAL_KEY_PREFIX) + ARCHIVE_HASH_CHARS <= limit, (
+            f"the archive asset key is longer than the {limit}-char column"
+        )
+        assert len(archived_original_asset_key("a" * 64)) <= limit
+
+    def test_both_derivations_share_one_width(self) -> None:
+        """Two widths would be two identities again, which is the thing round 8
+        removed."""
+        from app.processing.ingest.tasks_raster_swap import (
+            ARCHIVE_HASH_CHARS,
+            ARCHIVED_ORIGINAL_KEY_PREFIX,
+            archived_original_asset_key,
+            archived_original_uri,
+        )
+
+        digest = "9" * 64
+        row_suffix = archived_original_asset_key(digest).removeprefix(
+            ARCHIVED_ORIGINAL_KEY_PREFIX
+        )
+        object_suffix = archived_original_uri("ds-1", source_sha256=digest).rsplit(
+            "/", 1
+        )[-1]
+        assert row_suffix == object_suffix
+        assert len(row_suffix) == ARCHIVE_HASH_CHARS
