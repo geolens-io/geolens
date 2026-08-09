@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { DatasetResponse } from '@/types/api';
 import type { DatasetEditCapabilities } from '@/components/dataset/hooks/use-dataset-edit-capabilities';
 import type { PendingDraftField } from '@/components/dataset/hooks/use-draft-editing';
+import type { DatasetRefreshWatch } from '@/components/dataset/hooks/use-dataset';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { OverviewTab } from '../tabs/OverviewTab';
 import { MetadataTab } from '../tabs/MetadataTab';
@@ -27,6 +28,15 @@ export interface DetailPanelProps {
   onNavigateToValidationField: (field: string) => void;
   isTableExpanded?: boolean;
   onToggleTableExpand?: () => void;
+  /**
+   * fix(#1285 codex round 4): owned by the dataset page (useDatasetRefreshWatch)
+   * rather than by SourceRefreshAction itself, because the "sources" tab
+   * content unmounts on tab switch (Radix Tabs) and would otherwise drop a
+   * dispatched run's tracking mid-poll. Required — the only real caller
+   * (DatasetPage) always has one; tests that stub SourcePanel out entirely
+   * pass a static one.
+   */
+  refreshWatch: DatasetRefreshWatch;
 }
 
 export function DetailPanel(props: DetailPanelProps) {
@@ -44,6 +54,7 @@ export function DetailPanel(props: DetailPanelProps) {
     onNavigateToValidationField,
     isTableExpanded,
     onToggleTableExpand,
+    refreshWatch,
   } = props;
 
   const recordType = dataset.record_type;
@@ -147,7 +158,11 @@ export function DetailPanel(props: DetailPanelProps) {
       <TabsContent value="sources" className="space-y-6">
         <SourcePanel
           dataset={dataset}
-          actions={canEdit && canRefresh ? <SourceRefreshAction dataset={dataset} /> : undefined}
+          actions={
+            canEdit && canRefresh
+              ? <SourceRefreshAction dataset={dataset} watch={refreshWatch} />
+              : undefined
+          }
         />
       </TabsContent>
 

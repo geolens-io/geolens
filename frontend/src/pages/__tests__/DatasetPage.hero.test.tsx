@@ -40,6 +40,8 @@ vi.mock('@/components/dataset/hooks/use-dataset', () => ({
   useUpdateAttribute: () => ({ mutateAsync: vi.fn() }),
   useDatasetHistory: () => ({ data: { history: [], total: 0 }, isLoading: false }),
   useDatasetRows: () => ({ data: { rows: [], total: 0 }, isLoading: false }),
+  // fix(#1285 codex round 4): mounted at the page level now.
+  useDatasetRefreshWatch: () => ({ latestRun: undefined, isBusy: false, trackDispatchedRun: vi.fn() }),
 }));
 
 vi.mock('@/hooks/use-settings', () => ({

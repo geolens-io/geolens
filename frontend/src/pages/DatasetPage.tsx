@@ -6,7 +6,7 @@ import { AlertTriangle, ArrowLeft, Download, Trash2, Upload, Globe, GlobeLock, L
 import { toast } from 'sonner';
 import { PageShell } from '@/components/layout/PageShell';
 import { ErrorState } from '@/components/layout/ErrorState';
-import { useDataset, useUpdateDataset, useSetTargetStatus, useValidation } from '@/components/dataset/hooks/use-dataset';
+import { useDataset, useUpdateDataset, useSetTargetStatus, useValidation, useDatasetRefreshWatch } from '@/components/dataset/hooks/use-dataset';
 import { useDatasetJobStatus } from '@/components/import/hooks/use-ingest';
 import { IngestWarningsBanner } from '@/components/import/IngestWarningsBanner';
 import { useDatasetEditCapabilities, EDITABLE_FIELDS, type DatasetEditField } from '@/components/dataset/hooks/use-dataset-edit-capabilities';
@@ -173,6 +173,10 @@ export function DatasetPage() {
       return data?.raster?.status === 'regenerating' ? 5_000 : false;
     },
   });
+  // fix(#1285 codex round 4): mounted at the page level, not inside the
+  // Source tab, so a dispatched refresh's tracking survives a tab switch —
+  // the "sources" TabsContent unmounts on Radix Tabs when it isn't active.
+  const refreshWatch = useDatasetRefreshWatch(id ?? '');
   const [activeDialog, setActiveDialog] = useState<'delete' | 'reupload' | 'vrt' | 'unpublish' | null>(null);
   const setTargetStatus = useSetTargetStatus();
   const token = useAuthStore((s) => s.token);
@@ -620,6 +624,7 @@ export function DatasetPage() {
           onNavigateToValidationField={handleNavigateToValidationField}
           isTableExpanded={isDataTabExpanded}
           onToggleTableExpand={toggleDataTabExpand}
+          refreshWatch={refreshWatch}
         />
       </Suspense>
 

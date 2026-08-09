@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import {
@@ -24,6 +25,7 @@ import type {
   DatasetUpdateRequest,
   AttributeMetadataUpdate,
   ReuploadServicePreviewRequest,
+  DatasetRefreshRunResponse,
 } from '@/types/api';
 
 export function useCreateDataset() {
@@ -257,6 +259,69 @@ export function useDatasetRefreshRuns(
       return latest?.status === 'pending' || latest?.status === 'running' ? 5_000 : false;
     },
   });
+}
+
+export interface DatasetRefreshWatch {
+  latestRun: DatasetRefreshRunResponse | undefined;
+  isBusy: boolean;
+  /** Call with the run_id from a refresh dispatch's 202 response. */
+  trackDispatchedRun: (runId: string) => void;
+}
+
+/**
+ * fix(#1285 codex round 4): SourceRefreshAction used to own this tracking
+ * itself, but it lives inside the "sources" TabsContent, and Radix Tabs
+ * unmounts inactive content by default (components/ui/tabs.tsx) — switching
+ * tabs mid-refresh destroyed the dispatched-run ref AND stopped the poll, so
+ * a refresh that finished while the user was looking at another tab never
+ * got its caches invalidated. Mount this hook once at the dataset PAGE level
+ * instead, where it survives every tab switch; SourceRefreshAction only
+ * calls `trackDispatchedRun` with the run_id from its 202 and reads
+ * `latestRun`/`isBusy` back as props.
+ *
+ * On the tracked run's first observed terminal status, invalidates the full
+ * set of caches derived from this dataset's DATA (not just its metadata
+ * row) — mirroring `invalidateColumnCaches` / `invalidateFeatureDerived` in
+ * `use-features.ts`, the existing precedent for "this dataset's rows just
+ * changed": detail (freshness/health/last_refreshed_at/feature_count),
+ * versions (a successful service refresh writes one), rows (the Data tab),
+ * column value/stat caches (filter pickers), validation (quality score can
+ * move), and search summaries. A postgis refresh does not write a version
+ * and a failed run changes nothing, but invalidating unconditionally is a
+ * harmless unchanged refetch — cheaper than branching on run shape twice.
+ */
+export function useDatasetRefreshWatch(datasetId: string): DatasetRefreshWatch {
+  const queryClient = useQueryClient();
+  const [dispatchedRunId, setDispatchedRunId] = useState<string | null>(null);
+  const invalidatedRunIdRef = useRef<string | null>(null);
+
+  const { data: runsData } = useDatasetRefreshRuns(datasetId, { limit: 1 });
+  const latestRun = runsData?.runs[0];
+  const latestRunId = latestRun?.id;
+  const latestRunStatus = latestRun?.status;
+  const isBusy = latestRunStatus === 'pending' || latestRunStatus === 'running';
+
+  useEffect(() => {
+    if (!latestRunId || latestRunId !== dispatchedRunId) return;
+    if (latestRunStatus === 'pending' || latestRunStatus === 'running') return;
+    if (invalidatedRunIdRef.current === latestRunId) return;
+    invalidatedRunIdRef.current = latestRunId;
+
+    queryClient.invalidateQueries({ queryKey: queryKeys.datasets.detail(datasetId) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.datasets.versionsPrefix(datasetId) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(datasetId) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.datasets.attributes(datasetId) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.datasets.validation(datasetId) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.maps.columnValuesPrefix(datasetId) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.maps.columnStatsPrefix(datasetId) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.search.all });
+  }, [latestRunId, latestRunStatus, dispatchedRunId, datasetId, queryClient]);
+
+  const trackDispatchedRun = useCallback((runId: string) => {
+    setDispatchedRunId(runId);
+  }, []);
+
+  return { latestRun, isBusy, trackDispatchedRun };
 }
 
 export function useAttributes(datasetId: string | undefined) {

@@ -1,7 +1,16 @@
 import { render, screen } from '@/test/test-utils';
 import { buildDatasetEditCapabilities } from '@/components/dataset/hooks/use-dataset-edit-capabilities';
 import { DetailPanel } from '../panels/DetailPanel';
+import type { DatasetRefreshWatch } from '@/components/dataset/hooks/use-dataset';
 import type { DatasetResponse, RecordType } from '@/types/api';
+
+// fix(#1285 codex round 4): SourcePanel is fully mocked below and never
+// actually renders SourceRefreshAction, so this stub's values are never
+// read — it exists only to satisfy DetailPanel's required prop (owned for
+// real by the dataset page via useDatasetRefreshWatch).
+function makeRefreshWatch(): DatasetRefreshWatch {
+  return { latestRun: undefined, isBusy: false, trackDispatchedRun: vi.fn() };
+}
 
 vi.mock('@/components/dataset/tabs/OverviewTab', () => ({ OverviewTab: () => null }));
 vi.mock('@/components/dataset/tabs/MetadataTab', () => ({ MetadataTab: () => null }));
@@ -86,6 +95,7 @@ it.each<[RecordType, boolean]>([
         stagePendingDraft={vi.fn()}
         handleDraftDirtyChange={vi.fn()}
         onNavigateToValidationField={vi.fn()}
+        refreshWatch={makeRefreshWatch()}
       />,
     );
 
@@ -116,6 +126,7 @@ it.each<[string, string]>([
         stagePendingDraft={vi.fn()}
         handleDraftDirtyChange={vi.fn()}
         onNavigateToValidationField={vi.fn()}
+        refreshWatch={makeRefreshWatch()}
       />,
     );
 
@@ -135,6 +146,7 @@ it('withholds the refresh action from a reader who cannot edit, even with a reso
       stagePendingDraft={vi.fn()}
       handleDraftDirtyChange={vi.fn()}
       onNavigateToValidationField={vi.fn()}
+      refreshWatch={makeRefreshWatch()}
     />,
   );
 

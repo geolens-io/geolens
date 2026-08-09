@@ -1,4 +1,5 @@
 import { renderHook, waitFor } from '@/test/test-utils';
+import { act } from '@testing-library/react';
 import { vi } from 'vitest';
 import { useRef } from 'react';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
@@ -28,6 +29,7 @@ import {
   useReuploadCommit,
   useDeleteDataset,
   useDatasetRefreshRuns,
+  useDatasetRefreshWatch,
 } from '@/components/dataset/hooks/use-dataset';
 import { queryKeys } from '@/lib/query-keys';
 import type { DatasetRefreshRunResponse } from '@/types/api';
@@ -313,5 +315,120 @@ describe('useDatasetRefreshRuns', () => {
     renderHook(() => useDatasetRefreshRuns(''));
 
     expect(mockGetDatasetRefreshRuns).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * fix(#1285 codex round 4): this hook is the extracted "watch a dispatched
+ * refresh run" concern, meant to be mounted at the dataset PAGE level so its
+ * poll and its run-id tracking survive a tab switch away from "sources"
+ * (SourceRefreshAction used to own this and lived inside a Radix
+ * TabsContent, which unmounts inactive tabs). The invalidation set below is
+ * the full "this dataset's DATA changed" sweep — the same class of caches
+ * `invalidateColumnCaches` / `invalidateFeatureDerived` in use-features.ts
+ * already invalidate for a feature edit, plus versionsPrefix (a service
+ * refresh writes a version; a feature edit never does).
+ */
+describe('useDatasetRefreshWatch', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function makeRun(overrides: Partial<DatasetRefreshRunResponse> = {}): DatasetRefreshRunResponse {
+    return {
+      id: 'run-1',
+      dataset_id: 'ds-1',
+      dataset_version_id: null,
+      ingest_job_id: 'job-1',
+      origin_kind: 'service',
+      trigger: 'api',
+      status: 'succeeded',
+      triggered_by: null,
+      triggered_by_username: null,
+      started_at: '2026-08-05T00:00:00Z',
+      claimed_at: '2026-08-05T00:00:01Z',
+      finished_at: '2026-08-05T00:00:30Z',
+      feature_count_before: 10,
+      feature_count_after: 12,
+      schema_diff: null,
+      error_code: null,
+      error_message: null,
+      ...overrides,
+    };
+  }
+
+  const DATA_DERIVED_KEYS = [
+    queryKeys.datasets.detail('ds-1'),
+    queryKeys.datasets.versionsPrefix('ds-1'),
+    queryKeys.datasets.rowsPrefix('ds-1'),
+    queryKeys.datasets.attributes('ds-1'),
+    queryKeys.datasets.validation('ds-1'),
+    queryKeys.maps.columnValuesPrefix('ds-1'),
+    queryKeys.maps.columnStatsPrefix('ds-1'),
+    queryKeys.search.all,
+  ];
+
+  function renderWithClient() {
+    let captured: QueryClient | null = null;
+    const { result } = renderHook(() => {
+      const qc = useQueryClient();
+      const ref = useRef<QueryClient | null>(null);
+      if (ref.current === null) ref.current = qc;
+      captured = ref.current;
+      return useDatasetRefreshWatch('ds-1');
+    });
+    if (!captured) throw new Error('QueryClient capture failed');
+    return { result, qc: captured as QueryClient };
+  }
+
+  it('reports isBusy from the latest run and stays false with none', async () => {
+    mockGetDatasetRefreshRuns.mockResolvedValue({ runs: [], total: 0 });
+    const { result } = renderWithClient();
+
+    await waitFor(() => expect(result.current.latestRun).toBeUndefined());
+    expect(result.current.isBusy).toBe(false);
+  });
+
+  it('invalidates the full data-derived cache set once the tracked run is first observed terminal', async () => {
+    mockGetDatasetRefreshRuns.mockResolvedValue({
+      runs: [makeRun({ id: 'run-1', status: 'succeeded' })],
+      total: 1,
+    });
+    const { result, qc } = renderWithClient();
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+
+    await waitFor(() => expect(result.current.latestRun?.id).toBe('run-1'));
+    // Simulates SourceRefreshAction reporting its 202 response's run_id.
+    act(() => result.current.trackDispatchedRun('run-1'));
+
+    for (const queryKey of DATA_DERIVED_KEYS) {
+      await waitFor(() => expect(spy).toHaveBeenCalledWith({ queryKey }));
+    }
+  });
+
+  it('does not invalidate while the tracked run is still active', async () => {
+    mockGetDatasetRefreshRuns.mockResolvedValue({
+      runs: [makeRun({ id: 'run-1', status: 'running' })],
+      total: 1,
+    });
+    const { result, qc } = renderWithClient();
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+
+    await waitFor(() => expect(result.current.latestRun?.id).toBe('run-1'));
+    expect(result.current.isBusy).toBe(true);
+    act(() => result.current.trackDispatchedRun('run-1'));
+
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('does not invalidate for a run that was never tracked, even if it is terminal', async () => {
+    mockGetDatasetRefreshRuns.mockResolvedValue({
+      runs: [makeRun({ id: 'run-1', status: 'succeeded' })],
+      total: 1,
+    });
+    const { result, qc } = renderWithClient();
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+
+    await waitFor(() => expect(result.current.latestRun?.id).toBe('run-1'));
+    // trackDispatchedRun is never called — nothing was dispatched from here.
+    expect(spy).not.toHaveBeenCalled();
   });
 });

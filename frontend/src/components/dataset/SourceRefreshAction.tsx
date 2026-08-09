@@ -1,11 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useQueryClient } from '@tanstack/react-query';
 import { Loader2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
-import { useDatasetRefreshRuns, useRefreshDataset } from '@/components/dataset/hooks/use-dataset';
+import { useRefreshDataset } from '@/components/dataset/hooks/use-dataset';
 import { datasetOrigin } from '@/components/dataset/OriginBadge';
-import { queryKeys } from '@/lib/query-keys';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -18,6 +16,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import type { DatasetOrigin, DatasetResponse } from '@/types/api';
+import type { DatasetRefreshWatch } from '@/components/dataset/hooks/use-dataset';
 
 // fix(#1285 codex round 1): refresh-door origins. router_refresh.py routes
 // every non-postgis request through _resolve_service_origin(), which
@@ -28,28 +27,34 @@ import type { DatasetOrigin, DatasetResponse } from '@/types/api';
 // strategy) adds 'stac' when it lands — check before widening this set.
 export const REFRESHABLE_ORIGINS: ReadonlySet<DatasetOrigin> = new Set(['service', 'postgis']);
 
-function isRunActive(status: string | undefined): boolean {
-  return status === 'pending' || status === 'running';
-}
-
 interface SourceRefreshActionProps {
   dataset: DatasetResponse;
+  /**
+   * fix(#1285 codex round 4): the "sources" tab this control lives in is a
+   * Radix TabsContent, which unmounts on tab switch — so any state tracking
+   * a dispatched run (and the poll watching it) has to live somewhere that
+   * survives that unmount, or a refresh that finishes while the user is on
+   * another tab never gets its caches invalidated. Owned by the dataset page
+   * via useDatasetRefreshWatch and handed down; this component only reports
+   * a successful dispatch through `watch.trackDispatchedRun` and reads
+   * `latestRun`/`isBusy` back, rather than polling or tracking on its own.
+   */
+  watch: DatasetRefreshWatch;
 }
 
 /**
  * "Refresh from source" trigger for the Source panel (#1285).
  *
- * Self-contained: owns its own dialog, token field, and mutation, so a
- * caller only has to decide WHETHER to render it (DetailPanel gates on
- * canEdit plus REFRESHABLE_ORIGINS above) and never touches the token
- * itself. The taxonomy of 409/503/400/422 refusals from the refresh door is
- * rendered through the shared error-map (`err.message`), which already maps
- * each backend code to a distinct, actionable sentence rather than a single
- * generic failure toast — see `frontend/src/lib/error-map.ts`.
+ * Owns its own dialog, token field, and mutation, so a caller only has to
+ * decide WHETHER to render it (DetailPanel gates on canEdit plus
+ * REFRESHABLE_ORIGINS above) and supply the page-level `watch`. The taxonomy
+ * of 409/503/400/422 refusals from the refresh door is rendered through the
+ * shared error-map (`err.message`), which already maps each backend code to
+ * a distinct, actionable sentence rather than a single generic failure toast
+ * — see `frontend/src/lib/error-map.ts`.
  */
-export function SourceRefreshAction({ dataset }: SourceRefreshActionProps) {
+export function SourceRefreshAction({ dataset, watch }: SourceRefreshActionProps) {
   const { t } = useTranslation('dataset');
-  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [token, setToken] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -62,45 +67,7 @@ export function SourceRefreshAction({ dataset }: SourceRefreshActionProps) {
   // same derivation DetailPanel uses for the REFRESHABLE_ORIGINS gate.
   const origin = dataset.origin ?? datasetOrigin(dataset);
   const supportsToken = origin === 'service';
-  // Limit 1: only interested in whether the most recent run is still active,
-  // so the trigger can be disabled ahead of a 409 dataset_busy rather than
-  // only reacting to one after the click. Self-polls while active (see
-  // useDatasetRefreshRuns), so this also picks up a terminal transition
-  // without a manual refresh.
-  const { data: runsData } = useDatasetRefreshRuns(dataset.id, { limit: 1 });
-  const latestRun = runsData?.runs[0];
-  const latestRunId = latestRun?.id;
-  const latestRunStatus = latestRun?.status;
-  const isBusy = isRunActive(latestRunStatus);
-
-  // fix(#1285 codex round 1, corrected round 2): the dispatch-time
-  // invalidation in useRefreshDataset fires before the worker has done
-  // anything (the run is still "pending"), so freshness/health/
-  // last_refreshed_at only actually change once OUR dispatched run leaves
-  // pending/running. Round 1 caught that transition by comparing successive
-  // polls, but a fast strategy (postgis remeasurement can finish in ~1s)
-  // can already be terminal on the FIRST poll after dispatch — no "active"
-  // sample is ever observed, so a transition-based check never fires.
-  // Tracking the specific run_id from the 202 response instead: invalidate
-  // the first time THAT run is observed terminal, regardless of whether it
-  // was ever seen active. `invalidatedRunIdRef` makes it fire once per run.
-  const dispatchedRunIdRef = useRef<string | null>(null);
-  const invalidatedRunIdRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!latestRunId || latestRunId !== dispatchedRunIdRef.current) return;
-    if (isRunActive(latestRunStatus)) return;
-    if (invalidatedRunIdRef.current === latestRunId) return;
-    invalidatedRunIdRef.current = latestRunId;
-    queryClient.invalidateQueries({ queryKey: queryKeys.datasets.detail(dataset.id) });
-    // fix(#1285 codex round 3): a successful SERVICE refresh writes a new
-    // DatasetVersion (tasks_reupload.py) — the versions query has a 120s
-    // staleTime and nothing else refetches it, so the Source panel's
-    // version history stayed on the old list after a visibly successful
-    // refresh. A postgis refresh writes no version, but invalidating here
-    // unconditionally (not branched on origin/status) just costs a refetch
-    // that returns unchanged data — cheaper than a second run-shape check.
-    queryClient.invalidateQueries({ queryKey: queryKeys.datasets.versionsPrefix(dataset.id) });
-  }, [latestRunId, latestRunStatus, dataset.id, queryClient]);
+  const { isBusy } = watch;
 
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
@@ -125,7 +92,11 @@ export function SourceRefreshAction({ dataset }: SourceRefreshActionProps) {
         datasetId: dataset.id,
         token: submittedToken,
       });
-      dispatchedRunIdRef.current = result.run_id;
+      // Reported to the page-level watch rather than a local ref — this call
+      // is safe even if the user has already switched away from the Source
+      // tab (and this component has unmounted) by the time the 202 arrives,
+      // because `watch` is owned by the still-mounted page.
+      watch.trackDispatchedRun(result.run_id);
       setOpen(false);
       toast.success(t('sourcePanel.refresh.toastAccepted', { runId: result.run_id }));
     } catch (err) {

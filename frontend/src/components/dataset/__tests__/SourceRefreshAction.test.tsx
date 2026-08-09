@@ -1,16 +1,19 @@
-import { render as rtlRender, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render } from '@/test/test-utils';
-import { useDatasetRefreshRuns, useRefreshDataset } from '@/components/dataset/hooks/use-dataset';
+import { useRefreshDataset } from '@/components/dataset/hooks/use-dataset';
 import { ApiError } from '@/api/client';
-import { queryKeys } from '@/lib/query-keys';
 import { REFRESHABLE_ORIGINS, SourceRefreshAction } from '../SourceRefreshAction';
-import type { DatasetRefreshRunResponse, DatasetResponse } from '@/types/api';
+import type { DatasetRefreshWatch } from '@/components/dataset/hooks/use-dataset';
+import type { DatasetResponse } from '@/types/api';
 
+// fix(#1285 codex round 4): SourceRefreshAction no longer owns run-tracking
+// (that moved to useDatasetRefreshWatch, mounted at the page level so it
+// survives a tab switch away from "sources" — see use-dataset.ts). This
+// component only dispatches and reports the run_id to a `watch` prop, so
+// useDatasetRefreshRuns no longer needs mocking here at all.
 vi.mock('@/components/dataset/hooks/use-dataset', () => ({
   useRefreshDataset: vi.fn(),
-  useDatasetRefreshRuns: vi.fn(),
 }));
 
 vi.mock('sonner', () => ({
@@ -18,8 +21,8 @@ vi.mock('sonner', () => ({
 }));
 
 const mockUseRefreshDataset = vi.mocked(useRefreshDataset);
-const mockUseDatasetRefreshRuns = vi.mocked(useDatasetRefreshRuns);
 const mutateAsync = vi.fn();
+const trackDispatchedRun = vi.fn();
 
 function makeDataset(overrides: Partial<DatasetResponse> = {}): DatasetResponse {
   return {
@@ -77,35 +80,13 @@ function makeDataset(overrides: Partial<DatasetResponse> = {}): DatasetResponse 
   };
 }
 
-function makeRun(overrides: Partial<DatasetRefreshRunResponse> = {}): DatasetRefreshRunResponse {
+function makeWatch(overrides: Partial<DatasetRefreshWatch> = {}): DatasetRefreshWatch {
   return {
-    id: 'run-1',
-    dataset_id: 'dataset-1',
-    dataset_version_id: null,
-    ingest_job_id: 'job-1',
-    origin_kind: 'service',
-    trigger: 'api',
-    status: 'running',
-    triggered_by: null,
-    triggered_by_username: null,
-    started_at: '2026-08-05T00:00:00Z',
-    claimed_at: '2026-08-05T00:00:01Z',
-    finished_at: null,
-    feature_count_before: 42,
-    feature_count_after: null,
-    schema_diff: null,
-    error_code: null,
-    error_message: null,
+    latestRun: undefined,
+    isBusy: false,
+    trackDispatchedRun,
     ...overrides,
   };
-}
-
-function mockNoActiveRun() {
-  mockUseDatasetRefreshRuns.mockReturnValue({
-    data: { runs: [], total: 0 },
-    isLoading: false,
-    isError: false,
-  } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
 }
 
 async function openDialog(user: ReturnType<typeof userEvent.setup>) {
@@ -120,12 +101,11 @@ describe('SourceRefreshAction', () => {
       mutateAsync,
       isPending: false,
     } as unknown as ReturnType<typeof useRefreshDataset>);
-    mockNoActiveRun();
   });
 
   it('opens a confirm dialog with an optional token field for a service origin', async () => {
     const user = userEvent.setup();
-    render(<SourceRefreshAction dataset={makeDataset()} />);
+    render(<SourceRefreshAction dataset={makeDataset()} watch={makeWatch()} />);
 
     await openDialog(user);
 
@@ -140,7 +120,7 @@ describe('SourceRefreshAction', () => {
   // guaranteed failure, so it must not render for this origin.
   it('does not offer a token field for a postgis origin', async () => {
     const user = userEvent.setup();
-    render(<SourceRefreshAction dataset={makeDataset({ origin: 'postgis' })} />);
+    render(<SourceRefreshAction dataset={makeDataset({ origin: 'postgis' })} watch={makeWatch()} />);
 
     await openDialog(user);
 
@@ -159,7 +139,7 @@ describe('SourceRefreshAction', () => {
       message: 'Refresh queued from the registered table',
     });
     const user = userEvent.setup();
-    render(<SourceRefreshAction dataset={makeDataset({ origin: 'postgis' })} />);
+    render(<SourceRefreshAction dataset={makeDataset({ origin: 'postgis' })} watch={makeWatch()} />);
 
     await openDialog(user);
     await user.click(screen.getByRole('button', { name: 'Start refresh' }));
@@ -169,7 +149,7 @@ describe('SourceRefreshAction', () => {
     });
   });
 
-  it('dispatches the refresh, closes the dialog, and clears the token from rendered output and component state', async () => {
+  it('dispatches the refresh, closes the dialog, reports the run to the watch, and clears the token from rendered output and state', async () => {
     mutateAsync.mockResolvedValue({
       run_id: 'run-42',
       job_id: 'job-42',
@@ -180,7 +160,7 @@ describe('SourceRefreshAction', () => {
       message: 'Refresh queued from the stored source',
     });
     const user = userEvent.setup();
-    render(<SourceRefreshAction dataset={makeDataset()} />);
+    render(<SourceRefreshAction dataset={makeDataset()} watch={makeWatch()} />);
 
     await openDialog(user);
     const secretToken = 'super-secret-token-value';
@@ -192,6 +172,9 @@ describe('SourceRefreshAction', () => {
     });
 
     expect(mutateAsync).toHaveBeenCalledWith({ datasetId: 'dataset-1', token: secretToken });
+    // fix(#1285 codex round 4): the component no longer tracks the dispatched
+    // run itself — it must hand the run_id to the page-level watch instead.
+    expect(trackDispatchedRun).toHaveBeenCalledWith('run-42');
     // The token must not survive anywhere reachable from the DOM once the
     // request has been dispatched — not in a toast, not in the closed
     // dialog's last-known markup.
@@ -215,7 +198,7 @@ describe('SourceRefreshAction', () => {
       message: 'Refresh queued from the registered table',
     });
     const user = userEvent.setup();
-    render(<SourceRefreshAction dataset={makeDataset()} />);
+    render(<SourceRefreshAction dataset={makeDataset()} watch={makeWatch()} />);
 
     await openDialog(user);
     await user.click(screen.getByRole('button', { name: 'Start refresh' }));
@@ -227,13 +210,14 @@ describe('SourceRefreshAction', () => {
 
   it('clears a typed token on cancel without submitting it', async () => {
     const user = userEvent.setup();
-    render(<SourceRefreshAction dataset={makeDataset()} />);
+    render(<SourceRefreshAction dataset={makeDataset()} watch={makeWatch()} />);
 
     await openDialog(user);
     await user.type(screen.getByLabelText('Access token (optional)'), 'abandoned-token');
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
 
     expect(mutateAsync).not.toHaveBeenCalled();
+    expect(trackDispatchedRun).not.toHaveBeenCalled();
     await openDialog(user);
     expect(screen.getByLabelText('Access token (optional)')).toHaveValue('');
   });
@@ -255,7 +239,7 @@ describe('SourceRefreshAction', () => {
     const { toast } = await import('sonner');
     mutateAsync.mockRejectedValue(new ApiError(message, 409));
     const user = userEvent.setup();
-    render(<SourceRefreshAction dataset={makeDataset()} />);
+    render(<SourceRefreshAction dataset={makeDataset()} watch={makeWatch()} />);
 
     await openDialog(user);
     await user.click(screen.getByRole('button', { name: 'Start refresh' }));
@@ -265,6 +249,7 @@ describe('SourceRefreshAction', () => {
     // origin_changed) without losing the flow.
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(toast.error).not.toHaveBeenCalled();
+    expect(trackDispatchedRun).not.toHaveBeenCalled();
   });
 
   it('shows the dynamic token-policy text for invalid_service_token without a static fallback', async () => {
@@ -275,7 +260,7 @@ describe('SourceRefreshAction', () => {
       ),
     );
     const user = userEvent.setup();
-    render(<SourceRefreshAction dataset={makeDataset()} />);
+    render(<SourceRefreshAction dataset={makeDataset()} watch={makeWatch()} />);
 
     await openDialog(user);
     await user.click(screen.getByRole('button', { name: 'Start refresh' }));
@@ -287,14 +272,8 @@ describe('SourceRefreshAction', () => {
     ).toBeInTheDocument();
   });
 
-  it('disables the trigger and explains why while a run is already active', () => {
-    mockUseDatasetRefreshRuns.mockReturnValue({
-      data: { runs: [makeRun({ status: 'running' })], total: 1 },
-      isLoading: false,
-      isError: false,
-    } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
-
-    render(<SourceRefreshAction dataset={makeDataset()} />);
+  it('disables the trigger and explains why when watch.isBusy is true', () => {
+    render(<SourceRefreshAction dataset={makeDataset()} watch={makeWatch({ isBusy: true })} />);
 
     expect(screen.getByRole('button', { name: 'Refresh from source' })).toBeDisabled();
     expect(
@@ -302,150 +281,49 @@ describe('SourceRefreshAction', () => {
     ).toBeInTheDocument();
   });
 
-  // fix(#1285 codex round 2): round 1 invalidated dataset detail on an
-  // observed active→terminal TRANSITION, which never fires if the run is
-  // already terminal on the first poll after dispatch — a fast strategy
-  // (postgis remeasurement can finish in ~1s) can beat the refetch. Fixed by
-  // tracking the run_id from the 202 response and invalidating the first
-  // time THAT run is observed terminal, whether or not it was ever seen
-  // active. `dispatchRefresh` below drives the real dialog flow so
-  // dispatchedRunIdRef is populated the way production code populates it,
-  // not injected directly.
-  async function dispatchRefresh(user: ReturnType<typeof userEvent.setup>, runId: string) {
-    mutateAsync.mockResolvedValue({
-      run_id: runId,
-      job_id: 'job-x',
+  // fix(#1285 codex round 4): the whole point of lifting tracking into a
+  // page-level watch — a dispatch that resolves AFTER the user has already
+  // switched away from the Source tab (unmounting this component) must
+  // still reach the watch, since it is the caller's (not this component's)
+  // state that has to survive.
+  it('reports the dispatched run to the watch even if this component unmounts before the request resolves', async () => {
+    let resolveMutation!: (value: {
+      run_id: string;
+      job_id: string;
+      dataset_id: string;
+      origin_kind: string;
+      trigger: string;
+      status: string;
+      message: string;
+    }) => void;
+    mutateAsync.mockReturnValue(
+      new Promise((resolve) => {
+        resolveMutation = resolve;
+      }),
+    );
+    const user = userEvent.setup();
+    const { unmount } = render(<SourceRefreshAction dataset={makeDataset()} watch={makeWatch()} />);
+
+    await openDialog(user);
+    await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+
+    // Simulate a tab switch away from Source while the request is in flight.
+    unmount();
+    expect(trackDispatchedRun).not.toHaveBeenCalled();
+
+    resolveMutation({
+      run_id: 'run-slow',
+      job_id: 'job-slow',
       dataset_id: 'dataset-1',
       origin_kind: 'service',
       trigger: 'api',
       status: 'pending',
       message: 'Refresh queued from the stored source',
     });
-    await openDialog(user);
-    await user.click(screen.getByRole('button', { name: 'Start refresh' }));
-    await waitFor(() => {
-      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    });
-  }
-
-  it('re-enables the trigger and invalidates the dataset detail query once OUR dispatched run turns terminal', async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
-    const user = userEvent.setup();
-    mockNoActiveRun();
-
-    const { rerender } = rtlRender(
-      <QueryClientProvider client={queryClient}>
-        <SourceRefreshAction dataset={makeDataset()} />
-      </QueryClientProvider>,
-    );
-
-    await dispatchRefresh(user, 'run-99');
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: queryKeys.datasets.detail('dataset-1') });
-
-    // First poll after dispatch: our run shows up active.
-    mockUseDatasetRefreshRuns.mockReturnValue({
-      data: { runs: [makeRun({ id: 'run-99', status: 'running' })], total: 1 },
-      isLoading: false,
-      isError: false,
-    } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
-    rerender(
-      <QueryClientProvider client={queryClient}>
-        <SourceRefreshAction dataset={makeDataset()} />
-      </QueryClientProvider>,
-    );
-    expect(screen.getByRole('button', { name: 'Refresh from source' })).toBeDisabled();
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: queryKeys.datasets.detail('dataset-1') });
-
-    // Next poll: terminal.
-    mockUseDatasetRefreshRuns.mockReturnValue({
-      data: {
-        runs: [makeRun({ id: 'run-99', status: 'succeeded', finished_at: '2026-08-05T00:02:00Z', feature_count_after: 44 })],
-        total: 1,
-      },
-      isLoading: false,
-      isError: false,
-    } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
-    rerender(
-      <QueryClientProvider client={queryClient}>
-        <SourceRefreshAction dataset={makeDataset()} />
-      </QueryClientProvider>,
-    );
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Refresh from source' })).not.toBeDisabled();
+      expect(trackDispatchedRun).toHaveBeenCalledWith('run-slow');
     });
-    const invalidationCount = (queryKey: unknown) =>
-      invalidateSpy.mock.calls.filter(
-        ([call]) => JSON.stringify(call?.queryKey) === JSON.stringify(queryKey),
-      ).length;
-    expect(invalidationCount(queryKeys.datasets.detail('dataset-1'))).toBe(1);
-    // fix(#1285 codex round 3): a successful service refresh writes a new
-    // DatasetVersion; the 120s staleTime on the versions query means
-    // nothing else refetches it.
-    expect(invalidationCount(queryKeys.datasets.versionsPrefix('dataset-1'))).toBe(1);
-
-    // A later poll re-observing the SAME terminal run (nothing changed)
-    // must not invalidate a second time — invalidatedRunIdRef's job.
-    rerender(
-      <QueryClientProvider client={queryClient}>
-        <SourceRefreshAction dataset={makeDataset()} />
-      </QueryClientProvider>,
-    );
-    expect(invalidationCount(queryKeys.datasets.detail('dataset-1'))).toBe(1);
-    expect(invalidationCount(queryKeys.datasets.versionsPrefix('dataset-1'))).toBe(1);
-  });
-
-  it('invalidates the dataset detail query even when our dispatched run is already terminal on first observation', async () => {
-    // The exact race codex flagged: nothing ever samples this run as
-    // pending/running — the first data the component sees for run_id
-    // "run-fast" already reports it done.
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
-    const user = userEvent.setup();
-    mockNoActiveRun();
-
-    const { rerender } = rtlRender(
-      <QueryClientProvider client={queryClient}>
-        <SourceRefreshAction dataset={makeDataset()} />
-      </QueryClientProvider>,
-    );
-
-    await dispatchRefresh(user, 'run-fast');
-
-    mockUseDatasetRefreshRuns.mockReturnValue({
-      data: { runs: [makeRun({ id: 'run-fast', status: 'succeeded', feature_count_after: 44 })], total: 1 },
-      isLoading: false,
-      isError: false,
-    } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
-    rerender(
-      <QueryClientProvider client={queryClient}>
-        <SourceRefreshAction dataset={makeDataset()} />
-      </QueryClientProvider>,
-    );
-
-    await waitFor(() => {
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.datasets.detail('dataset-1') });
-    });
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.datasets.versionsPrefix('dataset-1') });
-  });
-
-  it('does not invalidate for a run this component never dispatched, even if it is already terminal on mount', () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
-    mockUseDatasetRefreshRuns.mockReturnValue({
-      data: { runs: [makeRun({ status: 'succeeded' })], total: 1 },
-      isLoading: false,
-      isError: false,
-    } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
-
-    rtlRender(
-      <QueryClientProvider client={queryClient}>
-        <SourceRefreshAction dataset={makeDataset()} />
-      </QueryClientProvider>,
-    );
-
-    expect(invalidateSpy).not.toHaveBeenCalled();
   });
 });
 
