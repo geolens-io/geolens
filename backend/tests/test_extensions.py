@@ -214,10 +214,11 @@ class TestProtocolDefaults:
         """fix(#836 / #873 review r1): the AuditExtension seam is deprecated.
 
         Its registry dispatch is gone, but the three public names must stay
-        importable while EXTENSION_API_VERSION == 2 — an overlay built against
-        v2 that imports them would otherwise ImportError into a silent
-        load_extensions() skip. Delete this test with the aliases at the next
-        version bump.
+        importable until the next EXTENSION_API_VERSION bump (removal tracked
+        in #1303) — an overlay built against v2 or any later version that
+        imports them would otherwise ImportError into a silent
+        load_extensions() skip. Delete this test with the aliases at that
+        bump.
         """
         # fix(#873 review r2): import the protocol exactly the way an overlay
         # would — from the package root, at runtime. A TYPE_CHECKING-only

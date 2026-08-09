@@ -331,10 +331,10 @@ def get_audit_extension() -> AuditExtension:
     """DEPRECATED — scheduled for removal at the next EXTENSION_API_VERSION bump.
 
     fix(#873 review r1+r3): the whole seam is deprecated (no core caller
-    consumes it and no known overlay registers the ``audit`` slot), but while
-    EXTENSION_API_VERSION == 2 the v2 surface must keep BEHAVING, not merely
-    importing — so the registry dispatch stays until the bump removes the seam
-    wholesale. An overlay registered under ``audit`` is returned; otherwise the
+    consumes it and no known overlay registers the ``audit`` slot), but until
+    the next EXTENSION_API_VERSION bump (removal tracked in #1303) the
+    deprecated surface must keep BEHAVING, not merely importing — so the
+    registry dispatch stays until that bump removes the seam wholesale. An overlay registered under ``audit`` is returned; otherwise the
     no-op community default.
     """
     ext = _extensions.get("audit")
