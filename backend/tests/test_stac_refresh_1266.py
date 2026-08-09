@@ -670,12 +670,42 @@ class TestResolution:
         self, stac_transport
     ) -> None:
         """A 404 from /search is the catalog saying there is nowhere to look,
-        which leaves the item's own 404 as the last authoritative word."""
+        which leaves the item's own 404 as the last authoritative word.
+
+        fix(#1266 review round 14): including its DETAIL. The search
+        endpoint's `not_found` describes the wrong resource — the Source
+        panel would tell a user the source was not found where it should say
+        the item was withdrawn.
+        """
         install, _ = stac_transport
         install({_ITEM: (404, None), _SEARCH: (404, None)})
         result = await _resolve(item_href=_ITEM)
         assert not result.resolved
-        assert result.health == "missing"
+        assert (result.health, result.detail) == ("missing", "item_withdrawn")
+
+    async def test_a_search_that_never_reached_the_wire_keeps_the_item_contact(
+        self, stac_transport
+    ) -> None:
+        """fix(#1266 review round 14): the item answered, so the origin WAS
+        contacted.
+
+        A search that fails before it reaches the wire — a DNS timeout, a
+        first-hop policy refusal — reports `contacted=False` about itself,
+        and copying that would erase a contact that demonstrably happened.
+        `last_checked_at` records that GeoLens reached the origin at all.
+        """
+        install, _ = stac_transport
+
+        def _handler(request: httpx.Request) -> httpx.Response:
+            if str(request.url) == _SEARCH:
+                raise SSRFError("private address")
+            return httpx.Response(404)
+
+        install(_handler)
+        result = await _resolve(item_href=_ITEM)
+        assert not result.resolved
+        assert result.health == "inaccessible"
+        assert result.contacted is True
 
     async def test_a_deleted_item_the_search_cannot_find_is_missing(
         self, stac_transport

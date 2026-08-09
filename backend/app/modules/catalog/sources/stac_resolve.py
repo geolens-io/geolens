@@ -670,11 +670,25 @@ async def _resolve_by_search(
         # writes is `missing`, and `missing` is exactly what this codebase
         # refuses to conclude from an inconclusive attempt everywhere else.
         # The item may simply have moved, which is the whole reason the
-        # search exists. So the search's own verdict stands: a timed-out or
-        # 5xx or policy-blocked search reports `inaccessible` and changes
-        # nothing, while a catalog that answers "no such search endpoint"
-        # (404) still leaves the item's own 404 as the last word.
-        return StacResolution(result.health, result.detail, contacted=result.contacted)
+        # search exists.
+        if result.health == MISSING:
+            # fix(#1266 review round 14): the catalog answered "there is no
+            # search endpoint here", which is not a fact about this item —
+            # so the ITEM's own 404 stays the last word, WITH its own
+            # detail. Returning the search endpoint's `not_found` instead
+            # would put a verdict about the wrong resource in front of the
+            # user: the Source panel would say the source was not found
+            # where it should say the item was withdrawn.
+            return _WITHDRAWN
+        # Inconclusive about where the asset is. `contacted` is True and not
+        # the search's flag (fix #1266 review round 14): this function is
+        # only reached because the ITEM answered 404/410, so the origin
+        # demonstrably responded — and a search that fails before it reaches
+        # the wire (a DNS timeout, a first-hop policy refusal) reports
+        # contacted=False about ITSELF, which must not erase a contact that
+        # already happened. `last_checked_at` records that GeoLens reached
+        # the origin at all, and it did.
+        return StacResolution(result.health, result.detail, contacted=True)
     feature = _searched_feature(
         document, item_id=wanted_id, collection_id=collection_id or ""
     )
