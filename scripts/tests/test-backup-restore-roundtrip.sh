@@ -98,6 +98,7 @@ ROTATED_RUNTIME_ROLE="geolens_bkp_rotated_app_${SUFFIX}"
 ROTATED_RUNTIME_ROLE="${ROTATED_RUNTIME_ROLE//[^a-zA-Z0-9_]/_}"
 ROTATED_RUNTIME_PASSWORD="rotated-runtime-password-947-padding"
 ROTATION_ROLLBACK_PASSWORD="rotation-rollback-password-947-padding"
+OWNERSHIP_DRIFT_PASSWORD="ownership-drift-password-947-padding"
 MIGRATION_ROLE="geolens_bkp_migrator_${SUFFIX}"
 MIGRATION_ROLE="${MIGRATION_ROLE//[^a-zA-Z0-9_]/_}"
 MIGRATION_PASSWORD="migration-owner-password-947-padding"
@@ -536,14 +537,78 @@ if env PGPASSWORD="collision-runtime-password-947-padding" \
     fail "foreign-database replacement password authenticated to the first database"
 fi
 
-# The exact database-scoped marker remains the ordinary idempotent path.
-env \
+# A marker is not perpetual proof of least privilege. Database or schema
+# ownership acquired after bootstrap must fail at the read-only preflight,
+# before the runtime password or marker changes. Restore the deliberately
+# unsafe ownership after each denial, then prove ordinary reconciliation still
+# succeeds with the unchanged credential.
+psql_admin -v ON_ERROR_STOP=1 -c \
+    "ALTER DATABASE \"${SRC_DB}\" OWNER TO \"${FRESH_RUNTIME_ROLE}\";" >/dev/null
+if env \
     GEOLENS_RUNTIME_DB_ROLE="$FRESH_RUNTIME_ROLE" \
-    GEOLENS_RUNTIME_DB_PASSWORD="$RUNTIME_PASSWORD" \
+    GEOLENS_RUNTIME_DB_PASSWORD="$OWNERSHIP_DRIFT_PASSWORD" \
     GEOLENS_MIGRATION_DB_ROLE="$PGUSER" \
     POSTGRES_HOST="$PGHOST" POSTGRES_PORT="$PGPORT" \
     POSTGRES_USER="$PGUSER" POSTGRES_DB="$SRC_DB" \
+    bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" \
+    >"${WORKDIR}/database-owner-drift.log" 2>&1; then
+    fail "marked runtime reconciled while owning the current database"
+fi
+grep -Fq "must not own or be able to assume ownership" \
+    "${WORKDIR}/database-owner-drift.log" \
+    || { cat "${WORKDIR}/database-owner-drift.log" >&2; fail "database-owner drift failed for an unexpected reason"; }
+psql_admin -v ON_ERROR_STOP=1 -c \
+    "ALTER DATABASE \"${SRC_DB}\" OWNER TO \"${PGUSER}\"; GRANT CONNECT ON DATABASE \"${SRC_DB}\" TO \"${FRESH_RUNTIME_ROLE}\";" \
+    >/dev/null
+psql_admin -d "$SRC_DB" -v ON_ERROR_STOP=1 -c \
+    "CREATE SCHEMA runtime_ownership_drift AUTHORIZATION \"${FRESH_RUNTIME_ROLE}\";" \
+    >/dev/null
+if env \
+    GEOLENS_RUNTIME_DB_ROLE="$FRESH_RUNTIME_ROLE" \
+    GEOLENS_RUNTIME_DB_PASSWORD="$OWNERSHIP_DRIFT_PASSWORD" \
+    GEOLENS_MIGRATION_DB_ROLE="$PGUSER" \
+    POSTGRES_HOST="$PGHOST" POSTGRES_PORT="$PGPORT" \
+    POSTGRES_USER="$PGUSER" POSTGRES_DB="$SRC_DB" \
+    bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" \
+    >"${WORKDIR}/schema-owner-drift.log" 2>&1; then
+    fail "marked runtime reconciled while owning a schema"
+fi
+grep -Fq "must not own or be able to assume ownership" \
+    "${WORKDIR}/schema-owner-drift.log" \
+    || { cat "${WORKDIR}/schema-owner-drift.log" >&2; fail "schema-owner drift failed for an unexpected reason"; }
+OWNERSHIP_DRIFT_MARKER="$(psql_admin -tAc \
+    "SELECT shobj_description(oid, 'pg_authid') FROM pg_roles WHERE rolname = '${FRESH_RUNTIME_ROLE}';" \
+    | tr -d '[:space:]')"
+[ "$OWNERSHIP_DRIFT_MARKER" = "$FRESH_ROLE_MARKER" ] \
+    || fail "ownership-drift rejection replaced the runtime marker"
+env PGPASSWORD="$RUNTIME_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$FRESH_RUNTIME_ROLE" -d "$SRC_DB" \
+    -Atqc "SELECT 1" | grep -qx 1 \
+    || fail "ownership-drift rejection replaced the runtime password"
+if env PGPASSWORD="$OWNERSHIP_DRIFT_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$FRESH_RUNTIME_ROLE" -d "$SRC_DB" \
+    -Atqc "SELECT 1" >/dev/null 2>&1; then
+    fail "ownership-drift replacement password authenticated"
+fi
+psql_admin -d "$SRC_DB" -v ON_ERROR_STOP=1 -c \
+    "DROP SCHEMA runtime_ownership_drift;" >/dev/null
+
+# The exact database-scoped marker remains the ordinary idempotent path. A
+# managed external migration role is visible in Compose configuration but its
+# presence-only URL marker makes the local db ignore that cluster-global name.
+env \
+    GEOLENS_RUNTIME_DB_ROLE="$FRESH_RUNTIME_ROLE" \
+    GEOLENS_RUNTIME_DB_PASSWORD="$RUNTIME_PASSWORD" \
+    GEOLENS_MIGRATION_DB_ROLE="external_migrator_not_in_local_cluster" \
+    GEOLENS_MIGRATION_DB_URL_CONFIGURED=configured \
+    POSTGRES_HOST="$PGHOST" POSTGRES_PORT="$PGPORT" \
+    POSTGRES_USER="$PGUSER" POSTGRES_DB="$SRC_DB" \
     bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" >/dev/null
+EXTERNAL_ROLE_LEAKED="$(psql_admin -tAc \
+    "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'external_migrator_not_in_local_cluster');" \
+    | tr -d '[:space:]')"
+[ "$EXTERNAL_ROLE_LEAKED" = "f" ] \
+    || fail "managed external migration role leaked into local db reconciliation"
 
 # Model a managed database where reconciliation runs as the provider admin but
 # Alembic owns future catalog objects under a distinct migration role.
@@ -951,7 +1016,28 @@ if env PGPASSWORD="$RUNTIME_PASSWORD" \
     fail "reactivated runtime accepted its pre-retirement password"
 fi
 
-# Objects later created by the actual Alembic owner must inherit runtime
+# Model Compose with a custom migration URL targeting the bundled `db`. Remove
+# the direct-host proof's defaults first, then require the explicit local flag
+# to select the URL's real owner and reinstall future table/sequence grants.
+psql_admin -d "$DST_DB" -v ON_ERROR_STOP=1 >/dev/null <<EOSQL
+SET ROLE "${MIGRATION_ROLE}";
+ALTER DEFAULT PRIVILEGES IN SCHEMA catalog
+    REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLES FROM "${RUNTIME_ROLE}";
+ALTER DEFAULT PRIVILEGES IN SCHEMA catalog
+    REVOKE USAGE, SELECT ON SEQUENCES FROM "${RUNTIME_ROLE}";
+RESET ROLE;
+EOSQL
+env \
+    GEOLENS_RUNTIME_DB_ROLE="$RUNTIME_ROLE" \
+    GEOLENS_RUNTIME_DB_PASSWORD="$RUNTIME_PASSWORD" \
+    GEOLENS_MIGRATION_DB_ROLE="$MIGRATION_ROLE" \
+    GEOLENS_MIGRATION_DB_URL_CONFIGURED=configured \
+    GEOLENS_MIGRATION_DB_LOCAL=true \
+    POSTGRES_HOST="$PGHOST" POSTGRES_PORT="$PGPORT" \
+    POSTGRES_USER="$PGUSER" POSTGRES_DB="$DST_DB" \
+    bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" >/dev/null
+
+# Objects later created by the actual bundled Alembic owner must inherit runtime
 # table/sequence access even though reconciliation used a different admin.
 env PGPASSWORD="$MIGRATION_PASSWORD" \
     psql -X -h "$PGHOST" -p "$PGPORT" -U "$MIGRATION_ROLE" -d "$DST_DB" \

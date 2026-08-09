@@ -172,6 +172,12 @@ services:
       GEOLENS_RUNTIME_DB_ROLE: "${GEOLENS_RUNTIME_DB_ROLE:-}"
       GEOLENS_RUNTIME_DB_PASSWORD: "${GEOLENS_RUNTIME_DB_PASSWORD:-}"
       GEOLENS_RUNTIME_DB_ROLE_ADOPT_EXISTING: "${GEOLENS_RUNTIME_DB_ROLE_ADOPT_EXISTING:-false}"
+      # The URL itself contains a credential and must never enter db. These
+      # presence-only markers let the reconciler ignore an external migrator
+      # name, while an explicit local flag admits a custom migrator on `db`.
+      GEOLENS_MIGRATION_DB_ROLE: "${GEOLENS_MIGRATION_DB_ROLE:-}"
+      GEOLENS_MIGRATION_DB_URL_CONFIGURED: "${MIGRATION_DATABASE_URL_OVERRIDE:+configured}${DATABASE_URL_OVERRIDE:+configured}"
+      GEOLENS_MIGRATION_DB_LOCAL: "${GEOLENS_MIGRATION_DB_LOCAL:-false}"
     ports:
       - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:

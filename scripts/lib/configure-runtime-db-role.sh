@@ -9,7 +9,12 @@ runtime_role="${GEOLENS_RUNTIME_DB_ROLE:-}"
 runtime_password="${GEOLENS_RUNTIME_DB_PASSWORD:-}"
 db_user="${POSTGRES_USER:?POSTGRES_USER is required}"
 db_name="${POSTGRES_DB:?POSTGRES_DB is required}"
-migration_role="${GEOLENS_MIGRATION_DB_ROLE:-$db_user}"
+migration_url_configured="${GEOLENS_MIGRATION_DB_URL_CONFIGURED:-}"
+migration_db_local="${GEOLENS_MIGRATION_DB_LOCAL:-false}"
+migration_role="$db_user"
+if [ -z "$migration_url_configured" ] || [ "$migration_db_local" = true ]; then
+    migration_role="${GEOLENS_MIGRATION_DB_ROLE:-$db_user}"
+fi
 adopt_existing="${GEOLENS_RUNTIME_DB_ROLE_ADOPT_EXISTING:-false}"
 
 if [ -n "$runtime_role" ] \
@@ -58,6 +63,13 @@ case "$adopt_existing" in
         exit 64
         ;;
 esac
+case "$migration_db_local" in
+    true | false) ;;
+    *)
+        echo "ERROR: GEOLENS_MIGRATION_DB_LOCAL must be true or false." >&2
+        exit 64
+        ;;
+esac
 
 if [ -n "$runtime_role" ] && [ "${#runtime_password}" -lt 32 ]; then
     echo "ERROR: GEOLENS_RUNTIME_DB_PASSWORD must contain at least 32 characters when GEOLENS_RUNTIME_DB_ROLE is set." >&2
@@ -92,8 +104,41 @@ fi
 # The reader role is required in both legacy and least-privilege deployments.
 # Keep this block here, rather than copying it into init-db.sh and restore.sh,
 # because a restore drops schema ACLs and must rebuild the exact bootstrap shape.
+export GEOLENS_RUNTIME_DB_ROLE="$runtime_role"
 psql "${psql_args[@]}" <<-'EOSQL'
+\getenv runtime_role GEOLENS_RUNTIME_DB_ROLE
 BEGIN;
+
+-- A durable marker proves GeoLens management, not continued least privilege.
+-- Re-check the adoption ownership invariant before any reader, role, password,
+-- ACL, or ownership mutation on every startup/reconciliation. pg_has_role also
+-- catches a runtime that can SET ROLE to a database/schema owner.
+SELECT NOT EXISTS (
+    SELECT 1
+    FROM pg_roles AS runtime
+    WHERE runtime.rolname = :'runtime_role'
+      AND (
+          EXISTS (
+              SELECT 1
+              FROM pg_database AS owned_database
+              WHERE pg_has_role(runtime.oid, owned_database.datdba, 'MEMBER')
+          )
+          OR EXISTS (
+              SELECT 1
+              FROM pg_namespace AS owned_schema
+              WHERE pg_has_role(runtime.oid, owned_schema.nspowner, 'MEMBER')
+          )
+      )
+) AS runtime_role_ownership_safe
+\gset
+\if :runtime_role_ownership_safe
+\else
+    DO $error$
+    BEGIN
+        RAISE EXCEPTION 'runtime role must not own or be able to assume ownership of any database or schema.';
+    END
+    $error$;
+\endif
 
 SELECT EXISTS (
     SELECT FROM pg_roles WHERE rolname = 'geolens_reader'
@@ -1330,6 +1375,16 @@ SELECT (
     )
     AND NOT has_schema_privilege(runtime.oid, 'catalog', 'CREATE')
     AND NOT has_schema_privilege(runtime.oid, 'public', 'CREATE')
+    AND NOT EXISTS (
+        SELECT 1
+        FROM pg_database AS owned_database
+        WHERE pg_has_role(runtime.oid, owned_database.datdba, 'MEMBER')
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM pg_namespace AS owned_schema
+        WHERE pg_has_role(runtime.oid, owned_schema.nspowner, 'MEMBER')
+    )
     AND NOT EXISTS (
         SELECT 1
         FROM pg_database AS database

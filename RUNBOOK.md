@@ -223,14 +223,17 @@ The credential order is load-bearing:
 2. `MIGRATION_DATABASE_URL_OVERRIDE` carries the migration identity only to the
    ordered one-shot `migrate` service. `GEOLENS_MIGRATION_DB_ROLE` names that
    URL's login, defaults to `POSTGRES_USER` in bundled mode, and tells the role
-   reconciler which object owner's default privileges to alter.
+   reconciler which object owner's default privileges to alter. If a custom
+   migration URL targets the bundled `db` service, also set
+   `GEOLENS_MIGRATION_DB_LOCAL=true`; leave it false for managed/external URLs
+   so their cluster-global role name is never reconciled in the local database.
 3. `DATABASE_URL_OVERRIDE` carries the dedicated runtime login to API and worker.
 4. `GEOLENS_API_RUN_MIGRATIONS=false` prevents the API image's migration safety
    net from attempting extension/schema DDL with the runtime login.
 5. API and worker bootstrap verify the exact live login named by
    `GEOLENS_RUNTIME_DB_ROLE` and refuse to start if it is superuser, can bypass
    RLS, create roles/databases, replicate, assume a powerful role, or create in
-   `catalog`/`public`.
+   `catalog`/`public`, or owns/can assume ownership of any database or schema.
 
 The reconciler rejects `POSTGRES_USER`, `postgres`, every `pg_*` built-in, fixed
 reader/writer/tile/tenant roles, and dynamic `geolens_{reader,writer}_t_*` names

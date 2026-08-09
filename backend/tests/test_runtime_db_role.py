@@ -27,6 +27,7 @@ def _render_compose(filename: str, overrides: dict[str, str]) -> dict:
     for key in (
         "DATABASE_URL_OVERRIDE",
         "GEOLENS_MIGRATION_DB_ROLE",
+        "GEOLENS_MIGRATION_DB_LOCAL",
         "GEOLENS_RUNTIME_DB_ROLE",
         "GEOLENS_RUNTIME_DB_PASSWORD",
         "MIGRATION_DATABASE_URL_OVERRIDE",
@@ -105,7 +106,16 @@ def test_compose_mounts_reconciler_read_only_and_scopes_the_password_to_db() -> 
         assert db["environment"]["GEOLENS_RUNTIME_DB_PASSWORD"] == (
             "${GEOLENS_RUNTIME_DB_PASSWORD:-}"
         )
-        assert "GEOLENS_MIGRATION_DB_ROLE" not in db["environment"]
+        assert db["environment"]["GEOLENS_MIGRATION_DB_ROLE"] == (
+            "${GEOLENS_MIGRATION_DB_ROLE:-}"
+        )
+        assert db["environment"]["GEOLENS_MIGRATION_DB_URL_CONFIGURED"] == (
+            "${MIGRATION_DATABASE_URL_OVERRIDE:+configured}"
+            "${DATABASE_URL_OVERRIDE:+configured}"
+        )
+        assert db["environment"]["GEOLENS_MIGRATION_DB_LOCAL"] == (
+            "${GEOLENS_MIGRATION_DB_LOCAL:-false}"
+        )
         for service_name in ("api", "worker", "migrate"):
             assert (
                 "GEOLENS_RUNTIME_DB_PASSWORD"
@@ -130,7 +140,14 @@ def test_compose_scopes_managed_migrator_role_away_from_local_db() -> None:
             },
         )["services"]
 
-        assert "GEOLENS_MIGRATION_DB_ROLE" not in services["db"]["environment"]
+        assert (
+            services["db"]["environment"]["GEOLENS_MIGRATION_DB_ROLE"]
+            == "external_migrator"
+        )
+        assert services["db"]["environment"]["GEOLENS_MIGRATION_DB_URL_CONFIGURED"] == (
+            "configuredconfigured"
+        )
+        assert services["db"]["environment"]["GEOLENS_MIGRATION_DB_LOCAL"] == ("false")
         assert services["db"]["environment"]["POSTGRES_USER"] == "local_bootstrap"
         assert (
             services["migrate"]["environment"]["GEOLENS_MIGRATION_DB_ROLE"]
@@ -148,10 +165,47 @@ def test_compose_infers_bundled_migrator_role_only_for_migrate() -> None:
             },
         )["services"]
 
-        assert "GEOLENS_MIGRATION_DB_ROLE" not in services["db"]["environment"]
+        assert services["db"]["environment"]["GEOLENS_MIGRATION_DB_ROLE"] == ""
+        assert (
+            services["db"]["environment"]["GEOLENS_MIGRATION_DB_URL_CONFIGURED"] == ""
+        )
         assert (
             services["migrate"]["environment"]["GEOLENS_MIGRATION_DB_ROLE"]
             == "local_bootstrap"
+        )
+
+
+def test_compose_passes_explicit_bundled_migration_owner_to_local_db() -> None:
+    for filename in ("docker-compose.yml", "docker-compose.prod.yml"):
+        services = _render_compose(
+            filename,
+            {
+                "DATABASE_URL_OVERRIDE": (
+                    "postgresql://geolens_app:runtime-password@db/local_geolens"
+                ),
+                "GEOLENS_MIGRATION_DB_LOCAL": "true",
+                "GEOLENS_MIGRATION_DB_ROLE": "local_migrator",
+                "GEOLENS_RUNTIME_DB_ROLE": "geolens_app",
+                "GEOLENS_RUNTIME_DB_PASSWORD": (
+                    "runtime-password-at-least-32-characters"
+                ),
+                "MIGRATION_DATABASE_URL_OVERRIDE": (
+                    "postgresql://local_migrator:migration-password@db/local_geolens"
+                ),
+            },
+        )["services"]
+
+        assert (
+            services["db"]["environment"]["GEOLENS_MIGRATION_DB_ROLE"]
+            == "local_migrator"
+        )
+        assert services["db"]["environment"]["GEOLENS_MIGRATION_DB_URL_CONFIGURED"] == (
+            "configuredconfigured"
+        )
+        assert services["db"]["environment"]["GEOLENS_MIGRATION_DB_LOCAL"] == ("true")
+        assert (
+            services["migrate"]["environment"]["GEOLENS_MIGRATION_DB_ROLE"]
+            == "local_migrator"
         )
 
 
@@ -201,6 +255,39 @@ def test_role_script_requires_managed_marker_and_targets_migration_owner() -> No
     # PostgreSQL 18's psql ignores arguments to \quit, so `\quit 1` reports
     # success and would turn a fail-closed branch into a silent pass.
     assert "\\quit 1" not in source
+
+
+def test_role_script_rechecks_database_and_schema_ownership_before_mutation() -> None:
+    source = ROLE_SCRIPT.read_text(encoding="utf-8")
+
+    ownership_preflight = "runtime_role_ownership_safe"
+    first_reader_mutation = "COMMENT ON ROLE geolens_reader IS"
+    final_gate = ") AS runtime_role_safe"
+    assert ownership_preflight in source
+    assert "FROM pg_database AS owned_database" in source
+    assert "FROM pg_namespace AS owned_schema" in source
+    assert "pg_has_role(runtime.oid, owned_database.datdba, 'MEMBER')" in source
+    assert "pg_has_role(runtime.oid, owned_schema.nspowner, 'MEMBER')" in source
+    assert source.index(ownership_preflight) < source.index(first_reader_mutation)
+    assert source.rindex("FROM pg_database AS owned_database") < source.index(
+        final_gate
+    )
+    assert source.rindex("FROM pg_namespace AS owned_schema") < source.index(final_gate)
+
+
+def test_role_script_selects_local_migration_owner_without_external_role_leak() -> None:
+    source = ROLE_SCRIPT.read_text(encoding="utf-8")
+
+    assert (
+        'migration_url_configured="${GEOLENS_MIGRATION_DB_URL_CONFIGURED:-}"' in source
+    )
+    assert 'migration_db_local="${GEOLENS_MIGRATION_DB_LOCAL:-false}"' in source
+    assert 'migration_role="$db_user"' in source
+    assert (
+        '[ -z "$migration_url_configured" ] || [ "$migration_db_local" = true ]'
+        in source
+    )
+    assert 'migration_role="${GEOLENS_MIGRATION_DB_ROLE:-$db_user}"' in source
 
 
 def test_role_script_scopes_shared_reader_to_the_current_database() -> None:

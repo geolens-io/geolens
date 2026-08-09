@@ -169,7 +169,21 @@ async def assert_multi_tenant_runtime_role(conn) -> None:
                     session_user, 'catalog', 'CREATE'
                 ) OR pg_catalog.has_schema_privilege(
                     session_user, 'public', 'CREATE'
-                ) AS can_create_in_protected_schema
+                ) AS can_create_in_protected_schema,
+                EXISTS (
+                    SELECT 1
+                    FROM pg_catalog.pg_database owned_database
+                    WHERE pg_catalog.pg_has_role(
+                        session_user, owned_database.datdba, 'MEMBER'
+                    )
+                ) AS can_assume_database_owner,
+                EXISTS (
+                    SELECT 1
+                    FROM pg_catalog.pg_namespace owned_schema
+                    WHERE pg_catalog.pg_has_role(
+                        session_user, owned_schema.nspowner, 'MEMBER'
+                    )
+                ) AS can_assume_schema_owner
             FROM pg_roles effective_role
             JOIN pg_roles login_role ON login_role.rolname = session_user
             WHERE effective_role.rolname = current_user
@@ -198,6 +212,8 @@ async def assert_multi_tenant_runtime_role(conn) -> None:
         can_assume_catalog_table_owner,
         can_assume_tenant_schema_owner,
         can_create_in_protected_schema,
+        can_assume_database_owner,
+        can_assume_schema_owner,
     ) = row
     unsafe_role = any(
         (
@@ -216,6 +232,8 @@ async def assert_multi_tenant_runtime_role(conn) -> None:
             can_assume_catalog_table_owner,
             can_assume_tenant_schema_owner,
             can_create_in_protected_schema,
+            can_assume_database_owner,
+            can_assume_schema_owner,
         )
     )
     wrong_single_tenant_role = (
@@ -232,7 +250,8 @@ async def assert_multi_tenant_runtime_role(conn) -> None:
                 "GEOLENS_RUNTIME_DB_ROLE requires the live PostgreSQL session "
                 "to use that exact dedicated LOGIN with SUPERUSER, BYPASSRLS, "
                 "CREATEROLE, CREATEDB, and REPLICATION disabled; it must not "
-                "inherit/assume a powerful role or create in catalog/public. "
+                "inherit/assume a powerful role, own a database or schema, "
+                "or create in catalog/public. "
                 f"Configured role={expected_runtime_role!r}, "
                 f"current_user={current_role_name!r}, "
                 f"session_user={session_role_name!r}. Keep migrations and "
@@ -244,7 +263,8 @@ async def assert_multi_tenant_runtime_role(conn) -> None:
             "CREATEDB, or REPLICATION and cannot assume such a role. The "
             "migrator provisioner and tile gateway must remain separate; the "
             "runtime login must not own (or be able to assume ownership of) "
-            "catalog RLS tables or tenant schemas, or have CREATE on catalog/public. "
+            "a database, schema, catalog RLS table, or tenant schema, or have "
+            "CREATE on catalog/public. "
             f"Resolved current_user={current_role_name!r}, "
             f"session_user={session_role_name!r}. Configure API and worker "
             "DATABASE_URL_OVERRIDE with a least-privilege runtime credential; "
