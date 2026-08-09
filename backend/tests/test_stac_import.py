@@ -375,6 +375,52 @@ class TestStacSearch:
             assert resp.status_code == 502
 
 
+async def _create_stac_dataset(
+    session,
+    *,
+    created_by,
+    source_url,
+    name="Existing STAC Dataset",
+    origin_uri=None,
+    origin_ref=None,
+):
+    """Insert a Dataset simulating a previously imported STAC item.
+
+    ``origin_uri``/``origin_ref`` default to unset — the shape of a row
+    migration 0036 could not backfill — so callers that want a fully-bound
+    (post-#1218) dataset, or one with a deliberately mismatched pair to
+    reproduce a respelling writer, pass both explicitly.
+    """
+    import uuid as _uuid
+
+    from app.modules.catalog.datasets.domain.models import Dataset, Record
+
+    table_name = f"stac_{_uuid.uuid4().hex[:16]}"
+    record = Record(
+        title=name,
+        summary="STAC import test",
+        visibility="private",
+        record_status="published",
+        created_by=created_by,
+        record_type="raster_dataset",
+    )
+    session.add(record)
+    await session.flush()
+    dataset = Dataset(
+        record_id=record.id,
+        table_name=table_name,
+        source_format="stac",
+        source_url=source_url,
+        source_filename="existing-item",
+        origin_uri=origin_uri,
+        origin_ref=origin_ref,
+    )
+    session.add(dataset)
+    await session.commit()
+    await session.refresh(dataset)
+    return dataset
+
+
 # ---------------------------------------------------------------------------
 # Import endpoint
 # ---------------------------------------------------------------------------
@@ -594,6 +640,12 @@ class TestStacImport:
         admin_auth_header: dict,
         mock_stac_ssrf,
     ):
+        """fix(#1286): also the never-refreshed-dataset regression test.
+
+        The first import writes ``origin_uri`` and ``origin_ref.asset_href``
+        together and nothing touches the binding afterward, so the second
+        import must be caught by the primary origin_ref-keyed branch alone.
+        """
         item_id = f"dup-test-{uuid.uuid4().hex[:8]}"
         href = f"https://example.com/data/dup-{uuid.uuid4().hex[:8]}.tif"
         payload = {
@@ -622,6 +674,97 @@ class TestStacImport:
         )
         assert resp2.json()["skipped"] == 1
         assert resp2.json()["results"][0]["status"] == "skipped"
+
+    async def test_import_catches_an_unbackfilled_dataset(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        mock_stac_ssrf,
+    ):
+        """fix(#1286): a row migration 0036 could not backfill is still caught.
+
+        Neither ``origin_uri`` nor ``origin_ref`` is set — the shape of a row
+        that predates #1218 — so the guard can only catch it through the
+        ``source_url`` fallback branch.
+        """
+        from tests.factories import get_user_id
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        href = f"https://example.com/data/unbackfilled-{uuid.uuid4().hex[:8]}.tif"
+        await _create_stac_dataset(
+            test_db_session,
+            created_by=admin_id,
+            source_url=href,
+            name="Unbackfilled STAC Row",
+        )
+
+        resp = await client.post(
+            "/services/stac/import",
+            json={
+                "url": "https://stac.example.com/v1",
+                "items": [
+                    {
+                        "id": f"unbackfilled-test-{uuid.uuid4().hex[:8]}",
+                        "title": "Should Be Skipped",
+                        "data_asset_href": href,
+                        "keywords": [],
+                    }
+                ],
+                "visibility": "private",
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.json()["skipped"] == 1
+        assert resp.json()["results"][0]["status"] == "skipped"
+
+    async def test_import_catches_a_respelled_origin_uri(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        mock_stac_ssrf,
+    ):
+        """fix(#1286): a respelled origin_uri can no longer open the hole.
+
+        ``origin_ref.asset_href`` names the canonical asset; ``origin_uri``
+        is deliberately a different spelling of the same asset (as a
+        hypothetical future writer might produce). An origin_uri-keyed guard
+        would miss this row; the origin_ref-keyed guard must not.
+        """
+        from tests.factories import get_user_id
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        href = f"https://example.com/data/respelled-{uuid.uuid4().hex[:8]}.tif"
+        await _create_stac_dataset(
+            test_db_session,
+            created_by=admin_id,
+            source_url=href,
+            name="Respelled STAC Pointer",
+            # The respelling: origin_uri drifted to a query-string variant of
+            # the same asset that origin_ref.asset_href still names exactly.
+            origin_uri=f"{href}?rebuilt=true",
+            origin_ref={"kind": "stac", "asset_href": href},
+        )
+
+        resp = await client.post(
+            "/services/stac/import",
+            json={
+                "url": "https://stac.example.com/v1",
+                "items": [
+                    {
+                        "id": f"respelled-test-{uuid.uuid4().hex[:8]}",
+                        "title": "Should Be Skipped",
+                        "data_asset_href": href,
+                        "keywords": [],
+                    }
+                ],
+                "visibility": "private",
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.json()["skipped"] == 1
+        assert resp.json()["results"][0]["status"] == "skipped"
 
     async def test_import_invalid_visibility(
         self,

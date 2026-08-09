@@ -48,6 +48,7 @@ from app.modules.catalog.sources.security import (
     make_safe_client,
     validate_url_for_ssrf,
 )
+from app.platform.dataset_origin import service_layer_identity
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE, PROBLEM_RESPONSE
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -802,20 +803,47 @@ async def preview_service_layer(
             if effective_layer_id is not None
             else base_url
         )
-        # feat(#1220) / ADR-002 Decision 6: keyed on `origin_uri`, the
-        # system-managed pointer, with `source_url` kept only as the fallback
-        # for rows migration 0036 could not backfill. `source_url` is reachable
-        # through the metadata PATCH, so keying the guard on it alone let an
-        # owner edit their way past it and register the same layer twice;
-        # `origin_uri` appears in no field map and only ingest writes it.
+        # fix(#1286): keyed on the canonical structured identity in
+        # `origin_ref` — the same (service_type, base url, layer identity)
+        # triple that `service_layer_identity` folds a refresh's arguments
+        # back into (router_refresh.py `_resolve_service_origin`) — rather
+        # than on `origin_uri`'s string spelling. PR #1277's round-11 review
+        # found that a writer producing a different spelling of the same
+        # origin (a bare base URL instead of `base_url/typename`) silently
+        # stopped an origin_uri-keyed guard from catching a duplicate.
+        # `origin_ref` round-trips through the same helper on every writer,
+        # so it cannot drift the way a hand-composed string can.
+        # `source_url` is kept only as the fallback for rows whose structured
+        # identity migration 0036 could not backfill. That is NOT simply
+        # `origin_uri IS NULL`: for a WFS/OGC row with no surviving ingest
+        # job, 0036's service backfill populates `origin_uri` from the old
+        # enriched `source_url` while leaving `origin_ref` without `url` or
+        # `layer_id` (it had no way to recover the typename). Gating the
+        # fallback on origin_uri alone would leave such a row caught by
+        # neither branch (codex review, PR #1320) — the fallback fires
+        # whenever the structured identity itself is incomplete instead.
+        # `source_url` is reachable through the metadata PATCH, so keying the
+        # guard on it alone (rather than as this narrow fallback) let an
+        # owner edit their way past it.
+        canonical_layer_id = service_layer_identity(
+            source_format, layer_id=effective_layer_id, layer_name=request.layer_name
+        )
+        origin_ref_url = Dataset.origin_ref["url"].astext
+        origin_ref_layer_id = Dataset.origin_ref["layer_id"].astext
         existing_stmt = (
             select(Dataset.id, Record.title)
             .join(Record, Dataset.record_id == Record.id)
             .where(
                 or_(
-                    Dataset.origin_uri == enriched_url,
                     and_(
-                        Dataset.origin_uri.is_(None),
+                        Dataset.origin_ref["service_type"].astext == source_format,
+                        origin_ref_url == base_url,
+                        origin_ref_layer_id.is_(None)
+                        if canonical_layer_id is None
+                        else origin_ref_layer_id == canonical_layer_id,
+                    ),
+                    and_(
+                        or_(origin_ref_url.is_(None), origin_ref_layer_id.is_(None)),
                         Dataset.source_url == enriched_url,
                     ),
                 ),
