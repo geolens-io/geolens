@@ -339,6 +339,8 @@
       "colorByCount": "Color by cluster size",
       "baseColor": "Base color",
       "atCount": "From count",
+      "atCountIndexed": "From count, stop {{index}}",
+      "colorByCountIndexed": "Color by cluster size, stop {{index}}",
       "addStop": "Add color stop",
       "removeStop": "Remove color stop"
     },
@@ -581,6 +583,8 @@
     "added": "Added",
     "addToMap": "Add to map",
     "addToMapDetails": "Add to map (details panel)",
+    "addToMapNamed": "Add to map: {{name}}",
+    "addToMapDetailsNamed": "Add to map (details panel): {{name}}",
     "dragHandle": "Drag into map",
     "catalogEmpty": "Your catalog is empty. Upload a dataset to get started.",
     "uploadCta": "Upload a file →",
@@ -762,6 +766,8 @@
       "rejectAll": "Reject all",
       "accept": "Accept",
       "reject": "Reject",
+      "acceptAction": "Accept {{action}}",
+      "rejectAction": "Reject {{action}}",
       "chipAdd": "Add \"{{name}}\"",
       "chipAddBelow": "Add \"{{name}}\" below \"{{ref}}\"",
       "chipRemove": "Remove \"{{name}}\"",
@@ -833,6 +839,7 @@
     "saved": "Saved",
     "retry": "Retry",
     "retrySave": "Retry save",
+    "saveButtonAriaLabel": "{{action}}, {{status}}",
     "description": "Description",
     "unsavedDot": "Unsaved changes",
     "untitled": "Untitled Map",
@@ -936,7 +943,18 @@
     "clusterFallback": "{{name}} is rendering as points: {{reason}}",
     "clusterTruncated": "cluster source exceeded the bounded GeoJSON limit",
     "clusterLoadError": "{{name}} is rendering as points because cluster data could not load.",
-    "tokenError": "Failed to load tile tokens — some layers may not display."
+    "tokenError": "Failed to load tile tokens — some layers may not display.",
+    "clusterReason": {
+      "missingCount": "Feature count is unavailable for bounded clustering.",
+      "tooManyFeatures": "Dataset is too large for bounded client-side clustering.",
+      "notPoint": "Only point datasets can be clustered.",
+      "notVector": "Only vector datasets can be clustered.",
+      "unsupportedRecordType": "Dataset type does not support clustering."
+    }
+  },
+  "layerMutations": {
+    "layerFallback": "Layer",
+    "duplicateName": "{{name}} rendering"
   },
   "mapCreate": {
     "title": "Create Map",
@@ -1060,6 +1078,7 @@
   },
   "ephemeralBadge": {
     "queryResult": "Result",
+    "statusLabel": "{{result}} · {{summary}}",
     "featureCount_one": "{{count, number}} feature",
     "featureCount_other": "{{count, number}} features",
     "featureCountTruncated_one": "{{count, number}} of {{total, number}} features",
@@ -1350,6 +1369,7 @@
     "breadcrumbLabel": "Back to basemap group",
     "breadcrumb": "Basemap · {{name}} ›",
     "breadcrumbUntitled": "Untitled",
+    "sublayerFallback": "Sublayer",
     "resetAction": "Reset to default",
     "casingColor": "Casing color",
     "casingLabel": "CASING",

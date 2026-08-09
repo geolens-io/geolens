@@ -28,7 +28,7 @@ export function ChangeHistory({ datasetId }: ChangeHistoryProps) {
   function formatDetails(log: AuditLogResponse): string | null {
     if (!log.details || Object.keys(log.details).length === 0) return null;
     if (log.action === 'metadata.edit') {
-      return `${t('changeHistory.changed')} ${Object.keys(log.details).join(', ')}`;
+      return t('changeHistory.changedFields', { fields: Object.keys(log.details).join(', ') });
     }
     return Object.keys(log.details).join(', ');
   }

@@ -339,6 +339,8 @@
       "colorByCount": "Colorear por tamaño de clúster",
       "baseColor": "Color base",
       "atCount": "Desde recuento",
+      "atCountIndexed": "Desde recuento, parada {{index}}",
+      "colorByCountIndexed": "Colorear por tamaño de clúster, parada {{index}}",
       "addStop": "Añadir parada de color",
       "removeStop": "Quitar parada de color"
     },
@@ -581,6 +583,8 @@
     "added": "Agregado",
     "addToMap": "Agregar al mapa",
     "addToMapDetails": "Agregar al mapa (panel de detalles)",
+    "addToMapNamed": "Agregar al mapa: {{name}}",
+    "addToMapDetailsNamed": "Agregar al mapa (panel de detalles): {{name}}",
     "dragHandle": "Arrastrar hacia el mapa",
     "catalogEmpty": "Su catálogo está vacío. Cargue un conjunto de datos para comenzar.",
     "uploadCta": "Subir un archivo →",
@@ -761,6 +765,8 @@
       "rejectAll": "Rechazar todo",
       "accept": "Aceptar",
       "reject": "Rechazar",
+      "acceptAction": "Aceptar {{action}}",
+      "rejectAction": "Rechazar {{action}}",
       "chipAdd": "Agregar \"{{name}}\"",
       "chipAddBelow": "Agregar \"{{name}}\" debajo de \"{{ref}}\"",
       "chipRemove": "Quitar \"{{name}}\"",
@@ -833,6 +839,7 @@
     "saved": "Guardado",
     "retry": "Reintentar",
     "retrySave": "Reintentar guardado",
+    "saveButtonAriaLabel": "{{action}}, {{status}}",
     "saveStatus": {
       "saved": "Guardado",
       "unsaved": "Cambios sin guardar",
@@ -936,7 +943,18 @@
     "clusterFallback": "{{name}} se renderiza como puntos: {{reason}}",
     "clusterTruncated": "la fuente agrupada superó el límite de GeoJSON acotado",
     "clusterLoadError": "{{name}} se renderiza como puntos porque no se pudieron cargar los datos agrupados.",
-    "tokenError": "No se pudieron cargar los tokens de mosaico — es posible que algunas capas no se muestren."
+    "tokenError": "No se pudieron cargar los tokens de mosaico — es posible que algunas capas no se muestren.",
+    "clusterReason": {
+      "missingCount": "El recuento de entidades no está disponible para la agrupación acotada.",
+      "tooManyFeatures": "El conjunto de datos es demasiado grande para la agrupación acotada del lado del cliente.",
+      "notPoint": "Solo los conjuntos de datos de puntos se pueden agrupar.",
+      "notVector": "Solo los conjuntos de datos vectoriales se pueden agrupar.",
+      "unsupportedRecordType": "El tipo de conjunto de datos no admite agrupación."
+    }
+  },
+  "layerMutations": {
+    "layerFallback": "Capa",
+    "duplicateName": "Renderizado de {{name}}"
   },
   "mapCreate": {
     "title": "Crear mapa",
@@ -1060,6 +1078,7 @@
   },
   "ephemeralBadge": {
     "queryResult": "Resultado",
+    "statusLabel": "{{result}} · {{summary}}",
     "featureCount_one": "{{count, number}} entidad",
     "featureCount_other": "{{count, number}} entidades",
     "dismiss": "Descartar resultado",
@@ -1346,6 +1365,7 @@
     "breadcrumbLabel": "Volver al grupo de mapa base",
     "breadcrumb": "Mapa base · {{name}} ›",
     "breadcrumbUntitled": "Sin título",
+    "sublayerFallback": "Subcapa",
     "casingColor": "Color del contorno",
     "casingLabel": "CONTORNO",
     "casingWidth": "Ancho",

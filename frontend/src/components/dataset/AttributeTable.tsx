@@ -480,7 +480,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
                   <TableHead key={`filter-${header.id}`} className="py-1">
                     {!NON_FILTERABLE_COLUMNS.has(header.column.id) ? (
                       <Input
-                        aria-label={`${t('attributes.filter')} ${header.column.id}`}
+                        aria-label={t('attributes.filterColumn', { column: header.column.id })}
                         value={columnFilters[header.column.id] ?? ''}
                         onChange={(e) => handleFilterChange(header.column.id, e.target.value)}
                         placeholder={t('attributes.filter')}

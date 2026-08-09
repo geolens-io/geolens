@@ -352,8 +352,12 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
                           data-testid="table-thumbnail-icon"
                         />
                         <span className="text-xs font-medium font-mono tabular-nums tracking-wide">
-                          {t('card.tableRows', { count: properties.feature_count ?? 0 })}
-                          {properties.column_count ? ` · ${t('card.tableCols', { count: properties.column_count })}` : ''}
+                          {properties.column_count
+                            ? t('card.tableRowsColsJoined', {
+                                rows: t('card.tableRows', { count: properties.feature_count ?? 0 }),
+                                cols: t('card.tableCols', { count: properties.column_count }),
+                              })
+                            : t('card.tableRows', { count: properties.feature_count ?? 0 })}
                         </span>
                       </div>
                     ) : quicklookBlobUrl ? (

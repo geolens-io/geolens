@@ -130,12 +130,12 @@ export function ClusterEditor({
                   value={stop.count}
                   onChange={(e) => updateStop(index, { count: Number(e.target.value) })}
                   className="h-7 w-20"
-                  aria-label={`${t('style.cluster.atCount')} ${index}`}
+                  aria-label={t('style.cluster.atCountIndexed', { index })}
                 />
                 <SwatchColorPopover
                   color={stop.color}
                   onChange={(hex) => updateStop(index, { color: hex })}
-                  label={`${t('style.cluster.colorByCount')} ${index}`}
+                  label={t('style.cluster.colorByCountIndexed', { index })}
                 />
                 <Button
                   type="button"

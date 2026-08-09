@@ -603,7 +603,7 @@ export function MapBuilderPage() {
     const presetName = presetId
       .replace(/^(openfreemap-|carto-|mapbox-|maptiler-|esri-|stamen-|stadia-)/, '')
       .replace(/-/g, ' ')
-      .replace(/\b\w/g, (c) => c.toUpperCase()) || 'Basemap';
+      .replace(/\b\w/g, (c) => c.toUpperCase()) || t('search.basemap', { defaultValue: 'Basemap' });
 
     return {
       id: 'basemap-group',
@@ -631,6 +631,12 @@ export function MapBuilderPage() {
     localLayers: layers.localLayers,
     savedLayerBaseline: layers.savedLayerBaseline,
     basemapGroup,
+    labels: {
+      settingsName: t('unifiedStack.settings', { defaultValue: 'Settings' }),
+      sublayerFallback: t('basemapSublayer.sublayerFallback', { defaultValue: 'Sublayer' }),
+      untitledFallback: t('basemapSublayer.breadcrumbUntitled', { defaultValue: 'Untitled' }),
+      basemapGroupName: (presetName) => t('basemapGroup.rowName', { name: presetName, defaultValue: 'Basemap · {{name}}' }),
+    },
   });
 
   // fix(#392): 'group' means the editor is closed (LayerEditorPanel never

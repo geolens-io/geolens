@@ -105,12 +105,26 @@ export function removePerLayerCompanions(
   }
 }
 
+export interface DuplicateRenderingLabels {
+  layerFallback: string;
+  duplicateName: (baseName: string) => string;
+}
+
+// Kept pure (no t() call) — matches the current English copy so existing
+// callers that omit `labels` see unchanged behavior. Real call sites pass
+// translated labels; see useBuilderLayers' handleDuplicateRendering.
+const DEFAULT_DUPLICATE_RENDERING_LABELS: DuplicateRenderingLabels = {
+  layerFallback: 'Layer',
+  duplicateName: (baseName) => `${baseName} rendering`,
+};
+
 export function buildDuplicateRenderingInput(
   layer: MapLayerResponse,
   // fix(#392): no longer used for the sort_order hint (kept
   // for call-site/type stability); the duplicate now anchors on the source
   // layer's own sort_order instead of scanning the full stack for its max. (audit B-004b/LM-02)
   _currentLayers: MapLayerResponse[],
+  labels: DuplicateRenderingLabels = DEFAULT_DUPLICATE_RENDERING_LABELS,
 ): MapLayerInput {
   // Place the duplicate adjacent to its source (source.sort_order + 1) instead
   // of at the stack bottom (max(sort_order)+1) — a grouped source's copy must
@@ -119,7 +133,7 @@ export function buildDuplicateRenderingInput(
   // by final local array index at splice time, and prepareLayersForPersistence
   // renumbers again by array index at save time.
   const nextSortOrder = layer.sort_order + 1;
-  const baseName = layer.display_name || layer.dataset_name || layer.dataset_table_name || 'Layer';
+  const baseName = layer.display_name || layer.dataset_name || layer.dataset_table_name || labels.layerFallback;
   return {
     dataset_id: layer.dataset_id,
     sort_order: nextSortOrder,
@@ -129,7 +143,7 @@ export function buildDuplicateRenderingInput(
     opacity: layer.opacity,
     paint: { ...(layer.paint ?? {}) },
     layout: { ...(layer.layout ?? {}) },
-    display_name: `${baseName} rendering`,
+    display_name: labels.duplicateName(baseName),
     filter: layer.filter ?? null,
     label_config: layer.label_config ?? null,
     popup_config: layer.popup_config ?? null,

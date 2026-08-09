@@ -799,7 +799,10 @@ export function useBuilderLayers(
     // terrain_config pointer, so duplicates can no longer accumulate terrain.
 
     const currentLayers = layersRef.current;
-    const data = buildDuplicateRenderingInput(layer, currentLayers);
+    const data = buildDuplicateRenderingInput(layer, currentLayers, {
+      layerFallback: t('layerMutations.layerFallback', { defaultValue: 'Layer' }),
+      duplicateName: (baseName) => t('layerMutations.duplicateName', { name: baseName, defaultValue: '{{name}} rendering' }),
+    });
     // fix(#392): carry the source's frontend-only
     // parent_group_id so a duplicate of a grouped layer stays in the group
     // instead of escaping to the stack bottom. MapLayerInput/the API cannot

@@ -144,6 +144,7 @@
     "copyToClipboard": "Copy to clipboard",
     "unknown": "Unknown",
     "original": "original: EPSG:{{srid}}",
+    "sridWithOriginal": "{{current}} ({{original}})",
     "present": "present",
     "temporalExtent": "Temporal Extent",
     "noTemporalExtent": "Not set",
@@ -200,6 +201,7 @@
     "showing": "Showing {{start}}-{{end}} of ~{{total}} rows",
     "previous": "Previous",
     "filter": "Filter...",
+    "filterColumn": "Filter {{column}}",
     "editSaved": "Cell updated",
     "editFailed": "Failed to update cell",
     "editInvalidValue": "Not a valid {{type}} value",
@@ -217,6 +219,7 @@
     "noChanges": "No changes recorded yet.",
     "system": "System",
     "changed": "Changed:",
+    "changedFields": "Changed: {{fields}}",
     "actions": {
       "metadataEdit": "Metadata updated",
       "datasetDelete": "Dataset deleted",

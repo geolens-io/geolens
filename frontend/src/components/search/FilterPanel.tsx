@@ -373,7 +373,11 @@ export function FilterPanel({
     if (datetime) {
       return (
         <FilterChip
-          label={`${t('filters.temporalExtent', { defaultValue: 'Temporal Extent' })}: ${temporalStart || '..'} - ${temporalEnd || '..'}`}
+          label={t('filters.temporalExtentRange', {
+            start: temporalStart || '..',
+            end: temporalEnd || '..',
+            defaultValue: 'Temporal Extent: {{start}} - {{end}}',
+          })}
           onRemove={() => useSearchStore.getState().setFilter('datetime', '')}
         />
       );

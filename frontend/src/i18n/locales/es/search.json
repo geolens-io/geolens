@@ -57,6 +57,7 @@
     "collection": "Colección",
     "collections": "Colecciones",
     "temporalExtent": "Extensión temporal",
+    "temporalExtentRange": "Extensión temporal: {{start}} - {{end}}",
     "keywords": "Palabras clave",
     "keywordSearch": "Buscar palabras clave...",
     "noKeywords": "No hay palabras clave disponibles",
@@ -118,6 +119,7 @@
     "tableRows_other": "{{count}} filas",
     "tableCols_one": "{{count}} col.",
     "tableCols_other": "{{count}} col.",
+    "tableRowsColsJoined": "{{rows}} · {{cols}}",
     "testData": "Datos de prueba",
     "noUpdateMetadata": "Sin metadatos de actualización",
     "status": {
@@ -197,6 +199,8 @@
     "intersects": "Interseca",
     "within": "Dentro",
     "useExtent": "Usar extensión actual del mapa",
-    "clearArea": "Borrar área"
+    "clearArea": "Borrar área",
+    "polygonSelected_one": "{{count}} polígono seleccionado",
+    "polygonSelected_other": "{{count}} polígonos seleccionados"
   }
 }

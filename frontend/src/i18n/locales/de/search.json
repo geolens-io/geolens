@@ -57,6 +57,7 @@
     "collection": "Sammlung",
     "collections": "Sammlungen",
     "temporalExtent": "Zeitliche Ausdehnung",
+    "temporalExtentRange": "Zeitliche Ausdehnung: {{start}} - {{end}}",
     "keywords": "Schlagworte",
     "keywordSearch": "Schlagworte suchen...",
     "noKeywords": "Keine Schlagworte verfügbar",
@@ -118,6 +119,7 @@
     "tableRows_other": "{{count}} Zeilen",
     "tableCols_one": "{{count}} Spalte",
     "tableCols_other": "{{count}} Spalten",
+    "tableRowsColsJoined": "{{rows}} · {{cols}}",
     "testData": "Testdaten",
     "noUpdateMetadata": "Keine Aktualisierungsmetadaten",
     "status": {
@@ -197,6 +199,8 @@
     "intersects": "Schneidet",
     "within": "Innerhalb",
     "useExtent": "Aktuellen Kartenausschnitt verwenden",
-    "clearArea": "Bereich löschen"
+    "clearArea": "Bereich löschen",
+    "polygonSelected_one": "{{count}} Polygon ausgewählt",
+    "polygonSelected_other": "{{count}} Polygone ausgewählt"
   }
 }

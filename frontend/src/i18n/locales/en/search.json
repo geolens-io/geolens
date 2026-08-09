@@ -65,6 +65,7 @@
     "collection": "Collection",
     "collections": "Collections",
     "temporalExtent": "Temporal Extent",
+    "temporalExtentRange": "Temporal Extent: {{start}} - {{end}}",
     "keywords": "Keywords",
     "keywordSearch": "Search keywords...",
     "noKeywords": "No keywords available",
@@ -118,6 +119,7 @@
     "tableRows_other": "{{count}} rows",
     "tableCols_one": "{{count}} col",
     "tableCols_other": "{{count}} cols",
+    "tableRowsColsJoined": "{{rows}} · {{cols}}",
     "testData": "Test Data",
     "noUpdateMetadata": "No update metadata",
     "status": {
@@ -152,7 +154,9 @@
     "intersects": "Intersects",
     "within": "Within",
     "useExtent": "Use current map extent",
-    "clearArea": "Clear area"
+    "clearArea": "Clear area",
+    "polygonSelected_one": "{{count}} polygon selected",
+    "polygonSelected_other": "{{count}} polygons selected"
   },
   "bbox": {
     "mapAriaLabel": "Bounding box map",

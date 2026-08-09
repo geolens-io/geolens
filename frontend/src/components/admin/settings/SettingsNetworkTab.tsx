@@ -79,7 +79,7 @@ export function SettingsNetworkTab({ settings, envOnly, onSave, onReset, isSavin
     <div className="space-y-6">
       <div className="space-y-2">
         <div className="flex items-center gap-2">
-          <Label htmlFor="cors-origins">{findSetting(settings, 'cors_allowed_origins')?.label ?? t('settings.network.corsAllowedOrigins')}</Label>
+          <Label htmlFor="cors-origins">{t('settings.network.corsAllowedOrigins')}</Label>
           <SettingSourceBadge source={findSetting(settings, 'cors_allowed_origins')?.source ?? 'default'} settingKey="cors_allowed_origins" onReset={onReset} />
         </div>
         <p className="text-sm text-muted-foreground">{t('settings.network.corsAllowedOriginsDescription')}</p>
@@ -96,7 +96,7 @@ export function SettingsNetworkTab({ settings, envOnly, onSave, onReset, isSavin
 
       <div className="space-y-2">
         <div className="flex items-center gap-2">
-          <Label htmlFor="global-rate-limit">{findSetting(settings, 'global_rate_limit')?.label ?? t('settings.network.globalRateLimit')}</Label>
+          <Label htmlFor="global-rate-limit">{t('settings.network.globalRateLimit')}</Label>
           <SettingSourceBadge source={findSetting(settings, 'global_rate_limit')?.source ?? 'default'} settingKey="global_rate_limit" onReset={onReset} />
         </div>
         <p className="text-sm text-muted-foreground">{t('settings.network.globalRateLimitDescription')}</p>
@@ -114,7 +114,7 @@ export function SettingsNetworkTab({ settings, envOnly, onSave, onReset, isSavin
 
       <div className="space-y-2">
         <div className="flex items-center gap-2">
-          <Label htmlFor="ogc-items-max-page-size">{findSetting(settings, 'ogc_items_max_page_size')?.label ?? t('settings.network.ogcItemsMaxPageSize')}</Label>
+          <Label htmlFor="ogc-items-max-page-size">{t('settings.network.ogcItemsMaxPageSize')}</Label>
           <SettingSourceBadge source={findSetting(settings, 'ogc_items_max_page_size')?.source ?? 'default'} settingKey="ogc_items_max_page_size" onReset={onReset} />
         </div>
         <p className="text-sm text-muted-foreground">{t('settings.network.ogcItemsMaxPageSizeDescription')}</p>

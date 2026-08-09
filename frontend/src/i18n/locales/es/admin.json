@@ -39,6 +39,7 @@
     "exportEmailsCsv": "Exportar correos (CSV)",
     "loading": "Cargando usuarios...",
     "errorLoading": "Error al cargar usuarios: {{message}}",
+    "searchPlaceholder": "Nombre de usuario / Correo electrónico",
     "filters": {
       "allUsers": "Todos los usuarios",
       "pending": "Pendientes",
@@ -199,6 +200,7 @@
     "title": "Registros de auditoría",
     "loading": "Cargando registros de auditoría...",
     "errorLoading": "Error al cargar registros de auditoría: {{message}}",
+    "searchPlaceholder": "Usuario / Acción",
     "filters": {
       "allActions": "Todas las acciones",
       "datasetView": "Vista de conjunto de datos",
@@ -290,6 +292,7 @@
     "labels": {
       "aiEnabled": "Chat IA habilitado",
       "sendSampleValues": "Enviar valores de ejemplo al LLM",
+      "maxAiTokensPerDay": "Máximo de tokens de IA por usuario al día (0=ilimitado)",
       "llmProvider": "Proveedor LLM",
       "model": "Modelo",
       "openaiBaseUrl": "URL base compatible con OpenAI",
@@ -745,7 +748,7 @@
     "spEntityId": "Entity ID del SP",
     "spEntityIdWarning": "Esto debe coincidir exactamente con el entityID del SP registrado con su IdP. Una vez configurado, no lo cambie.",
     "defaultRole": "Rol predeterminado",
-    "groupClaim": "Group Claim",
+    "groupClaim": "Claim de grupo",
     "groupClaimHint": "Nombre del atributo SAML que contiene las pertenencias a grupos del usuario para el mapeo automático de roles (p. ej., \"groups\", \"http://schemas.xmlsoap.org/claims/Group\").",
     "groupRoleMapping": "Mapeo de Grupos a Roles (JSON)",
     "groupRoleMappingHint": "Asigna nombres de grupos del IdP a roles de GeoLens. Formato de objeto JSON.",

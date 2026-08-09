@@ -144,6 +144,7 @@
     "copyToClipboard": "In Zwischenablage kopieren",
     "unknown": "Unbekannt",
     "original": "Original: EPSG:{{srid}}",
+    "sridWithOriginal": "{{current}} ({{original}})",
     "present": "heute",
     "recordStatus": "Datensatzstatus",
     "createdBy": "Erstellt von",
@@ -203,6 +204,7 @@
     "editFailed": "Zelle konnte nicht aktualisiert werden",
     "editInvalidValue": "Kein gültiger {{type}}-Wert",
     "filter": "Filtern...",
+    "filterColumn": "{{column}} filtern",
     "noResults": "Keine passenden Zeilen gefunden.",
     "showingExact": "{{start}}-{{end}} von {{total}} Zeilen",
     "rowsPerPage": "Zeilen pro Seite",
@@ -217,6 +219,7 @@
     "noChanges": "Noch keine Änderungen erfasst.",
     "system": "System",
     "changed": "Geändert:",
+    "changedFields": "Geändert: {{fields}}",
     "actions": {
       "metadataEdit": "Metadaten aktualisiert",
       "datasetDelete": "Datensatz gelöscht",

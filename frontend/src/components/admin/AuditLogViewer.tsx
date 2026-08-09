@@ -302,7 +302,7 @@ export function AuditLogViewer() {
           <DataTableSearch
             value={searchQuery}
             onChange={(v) => { setSearchQuery(v); setPage(0); }}
-            placeholder={t('audit.table.user') + ' / ' + t('audit.table.action')}
+            placeholder={t('audit.searchPlaceholder')}
           />
         </CardAction>
       </CardHeader>

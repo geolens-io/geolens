@@ -134,22 +134,3 @@ export function getClusterSourceKey(
     .map((layer) => `${layer.id ?? ''}|${layer.dataset_id ?? ''}|${getClusterSourceStrategy(layer).kind}`)
     .join(',');
 }
-
-export function clusterFallbackMessage(status: ClusterSourceStatus) {
-  switch (status) {
-    case 'missing-count':
-      return 'Feature count is unavailable for bounded clustering.';
-    case 'too-many-features':
-      return 'Dataset is too large for bounded client-side clustering.';
-    case 'not-point':
-      return 'Only point datasets can be clustered.';
-    case 'not-vector':
-      return 'Only vector datasets can be clustered.';
-    case 'unsupported-record-type':
-      return 'Dataset type does not support clustering.';
-    case 'not-cluster':
-    case 'eligible':
-    default:
-      return null;
-  }
-}

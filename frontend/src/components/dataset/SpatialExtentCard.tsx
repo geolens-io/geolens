@@ -15,7 +15,10 @@ function formatSrid(
 ): string {
   const current = srid ? `EPSG:${srid}` : unknownLabel;
   if (originalSrid && originalSrid !== srid) {
-    return `${current} (${t('metadata.original', { srid: originalSrid })})`;
+    return t('metadata.sridWithOriginal', {
+      current,
+      original: t('metadata.original', { srid: originalSrid }),
+    });
   }
   return current;
 }

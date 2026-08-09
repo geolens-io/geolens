@@ -339,6 +339,8 @@
       "colorByCount": "Colorer par taille de cluster",
       "baseColor": "Couleur de base",
       "atCount": "À partir du nombre",
+      "atCountIndexed": "À partir du nombre, palier {{index}}",
+      "colorByCountIndexed": "Colorer par taille de cluster, palier {{index}}",
       "addStop": "Ajouter un palier de couleur",
       "removeStop": "Supprimer le palier de couleur"
     },
@@ -581,6 +583,8 @@
     "added": "Ajouté",
     "addToMap": "Ajouter à la carte",
     "addToMapDetails": "Ajouter à la carte (panneau de détails)",
+    "addToMapNamed": "Ajouter à la carte : {{name}}",
+    "addToMapDetailsNamed": "Ajouter à la carte (panneau de détails) : {{name}}",
     "dragHandle": "Glisser dans la carte",
     "catalogEmpty": "Votre catalogue est vide. Importez un jeu de données pour commencer.",
     "uploadCta": "Téléverser un fichier →",
@@ -761,6 +765,8 @@
       "rejectAll": "Tout rejeter",
       "accept": "Accepter",
       "reject": "Rejeter",
+      "acceptAction": "Accepter {{action}}",
+      "rejectAction": "Rejeter {{action}}",
       "chipAdd": "Ajouter \"{{name}}\"",
       "chipAddBelow": "Ajouter \"{{name}}\" sous \"{{ref}}\"",
       "chipRemove": "Supprimer \"{{name}}\"",
@@ -833,6 +839,7 @@
     "saved": "Enregistré",
     "retry": "Réessayer",
     "retrySave": "Réessayer l'enregistrement",
+    "saveButtonAriaLabel": "{{action}}, {{status}}",
     "saveStatus": {
       "saved": "Enregistré",
       "unsaved": "Modifications non enregistrées",
@@ -936,7 +943,18 @@
     "clusterFallback": "{{name}} s'affiche sous forme de points : {{reason}}",
     "clusterTruncated": "la source d'agrégats dépasse la limite GeoJSON bornée",
     "clusterLoadError": "{{name}} s'affiche sous forme de points, car les données d'agrégats n'ont pas pu être chargées.",
-    "tokenError": "Impossible de charger les jetons de tuiles — certaines couches peuvent ne pas s'afficher."
+    "tokenError": "Impossible de charger les jetons de tuiles — certaines couches peuvent ne pas s'afficher.",
+    "clusterReason": {
+      "missingCount": "Le nombre d'entités est indisponible pour le clustering borné.",
+      "tooManyFeatures": "Le jeu de données est trop volumineux pour un clustering borné côté client.",
+      "notPoint": "Seuls les jeux de données ponctuels peuvent être regroupés.",
+      "notVector": "Seuls les jeux de données vectoriels peuvent être regroupés.",
+      "unsupportedRecordType": "Ce type de jeu de données ne prend pas en charge le regroupement."
+    }
+  },
+  "layerMutations": {
+    "layerFallback": "Couche",
+    "duplicateName": "Rendu de {{name}}"
   },
   "mapCreate": {
     "title": "Créer une carte",
@@ -1060,6 +1078,7 @@
   },
   "ephemeralBadge": {
     "queryResult": "Résultat",
+    "statusLabel": "{{result}} · {{summary}}",
     "featureCount_one": "{{count, number}} entité",
     "featureCount_other": "{{count, number}} entités",
     "dismiss": "Fermer le résultat",
@@ -1346,6 +1365,7 @@
     "breadcrumbLabel": "Retour au groupe de fond de carte",
     "breadcrumb": "Fond de carte · {{name}} ›",
     "breadcrumbUntitled": "Sans titre",
+    "sublayerFallback": "Sous-couche",
     "casingColor": "Couleur du contour",
     "casingLabel": "CONTOUR",
     "casingWidth": "Largeur",

@@ -10,6 +10,23 @@ export interface BuilderEditorBasemapGroup {
   sublayers: Array<{ id: string; name: string }>;
 }
 
+export interface BuilderEditorSyntheticLabels {
+  settingsName: string;
+  sublayerFallback: string;
+  untitledFallback: string;
+  basemapGroupName: (presetName: string) => string;
+}
+
+// Kept pure (no t() call) — matches the current English copy so callers that
+// omit `labels` see unchanged behavior. Real call sites (MapBuilderPage) pass
+// translated labels.
+const DEFAULT_SYNTHETIC_LABELS: BuilderEditorSyntheticLabels = {
+  settingsName: 'Settings',
+  sublayerFallback: 'Sublayer',
+  untitledFallback: 'Untitled',
+  basemapGroupName: (presetName) => `Basemap · ${presetName}`,
+};
+
 export function deriveBuilderEditorScene(
   expandedLayerId: string | null,
   editingLayer: Pick<MapLayerResponse, 'is_dem' | 'layer_type'> | null,
@@ -66,21 +83,23 @@ export function createSyntheticEditorLayer({
   editorScene,
   expandedLayerId,
   basemapGroup,
+  labels = DEFAULT_SYNTHETIC_LABELS,
 }: {
   editorScene: BuilderEditorScene;
   expandedLayerId: string | null;
   basemapGroup: BuilderEditorBasemapGroup | null;
+  labels?: BuilderEditorSyntheticLabels;
 }): MapLayerResponse | null {
   if (editorScene === 'settings') {
     return syntheticLayerBase({
       id: 'settings',
-      name: 'Settings',
+      name: labels.settingsName,
       tableName: 'settings',
     });
   }
 
   if (editorScene === 'basemap-sublayer') {
-    const sublayerName = basemapGroup?.sublayers.find((s) => s.id === expandedLayerId)?.name ?? 'Sublayer';
+    const sublayerName = basemapGroup?.sublayers.find((s) => s.id === expandedLayerId)?.name ?? labels.sublayerFallback;
     return syntheticLayerBase({
       id: expandedLayerId ?? 'basemap-group',
       name: sublayerName,
@@ -91,7 +110,7 @@ export function createSyntheticEditorLayer({
   if (editorScene === 'basemap-group') {
     return syntheticLayerBase({
       id: expandedLayerId ?? basemapGroup?.id ?? 'basemap-group',
-      name: `Basemap · ${basemapGroup?.presetName ?? 'Untitled'}`,
+      name: labels.basemapGroupName(basemapGroup?.presetName ?? labels.untitledFallback),
       tableName: 'basemap',
     });
   }
@@ -104,11 +123,13 @@ export function useBuilderEditorScene({
   localLayers,
   savedLayerBaseline,
   basemapGroup,
+  labels,
 }: {
   expandedLayerId: string | null;
   localLayers: MapLayerResponse[];
   savedLayerBaseline: MapLayerResponse[];
   basemapGroup: BuilderEditorBasemapGroup | null;
+  labels?: BuilderEditorSyntheticLabels;
 }) {
   const matchedLayer = useMemo(
     () => expandedLayerId ? localLayers.find((layer) => layer.id === expandedLayerId) ?? null : null,
@@ -133,8 +154,8 @@ export function useBuilderEditorScene({
   );
 
   const syntheticEditorLayer = useMemo(
-    () => createSyntheticEditorLayer({ editorScene, expandedLayerId, basemapGroup }),
-    [basemapGroup, editorScene, expandedLayerId],
+    () => createSyntheticEditorLayer({ editorScene, expandedLayerId, basemapGroup, labels }),
+    [basemapGroup, editorScene, expandedLayerId, labels],
   );
 
   const editorLayer = editorScene === 'group' ? null : (editingLayer ?? syntheticEditorLayer);

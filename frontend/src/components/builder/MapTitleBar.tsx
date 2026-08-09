@@ -89,9 +89,13 @@ export function MapTitleBar({
   // computation, so an sr-only status span inside the button was never
   // conveyed. Fold the status into the label itself; the role="status" region
   // below announces status CHANGES without the button needing focus.
-  const saveButtonAriaLabel = `${saveStatus === 'failed'
-    ? t('titleBar.retrySave', { defaultValue: 'Retry save' })
-    : t('tooltips.save', { shortcut: SAVE_SHORTCUT, defaultValue: `Save (${SAVE_SHORTCUT})` })}, ${saveStatusLabel}`;
+  const saveButtonAriaLabel = t('titleBar.saveButtonAriaLabel', {
+    action: saveStatus === 'failed'
+      ? t('titleBar.retrySave', { defaultValue: 'Retry save' })
+      : t('tooltips.save', { shortcut: SAVE_SHORTCUT, defaultValue: `Save (${SAVE_SHORTCUT})` }),
+    status: saveStatusLabel,
+    defaultValue: '{{action}}, {{status}}',
+  });
 
   return (
     <div className="h-10 border-b bg-background flex items-center gap-3 px-3 shrink-0">

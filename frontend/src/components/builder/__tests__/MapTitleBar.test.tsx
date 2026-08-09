@@ -3,11 +3,17 @@ import userEvent from '@testing-library/user-event';
 import { MapTitleBar, type OverflowActions } from '../MapTitleBar';
 
 // i18n mock — same defaultValue-passthrough pattern used in
-// MapToolbar.test.tsx and LayerPanel.test.tsx in this dir.
+// MapToolbar.test.tsx and LayerPanel.test.tsx in this dir, extended to
+// interpolate {{var}} placeholders (matching real i18next) since
+// saveButtonAriaLabel composes translated fragments via {{action}}/{{status}}.
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, options?: { defaultValue?: string } & Record<string, unknown>) =>
-      options?.defaultValue ?? key,
+    t: (key: string, options?: { defaultValue?: string } & Record<string, unknown>) => {
+      const template = options?.defaultValue ?? key;
+      return template.replace(/\{\{(\w+)\}\}/g, (_match, name: string) =>
+        options?.[name] != null ? String(options[name]) : '',
+      );
+    },
   }),
 }));
 
