@@ -278,6 +278,18 @@ def test_ssrf_refusal_does_not_repeat_the_stored_url(
 
 
 class TestRefreshWait:
+    @staticmethod
+    def _timeout_tracking_client():
+        class Client:
+            def __init__(self) -> None:
+                self.timeouts: list[float] = []
+
+            def with_timeout(self, timeout: float):
+                self.timeouts.append(timeout)
+                return self
+
+        return Client()
+
     def test_default_wait_survives_queue_time_beyond_120_seconds(
         self, monkeypatch
     ) -> None:
@@ -318,6 +330,7 @@ class TestRefreshWait:
         from geolens_cli.refresh import wait_for_refresh
 
         elapsed = [0.0]
+        client = self._timeout_tracking_client()
         statuses = iter(("pending", "running", "complete"))
 
         def next_status(**_kwargs):
@@ -333,7 +346,7 @@ class TestRefreshWait:
         )
 
         result = wait_for_refresh(
-            SimpleNamespace(),
+            client,
             JOB_ID,
             interval=0,
             timeout=120.0,
@@ -343,6 +356,84 @@ class TestRefreshWait:
 
         assert elapsed[0] == 122.0
         assert result.status == "timed_out"
+
+    def test_timeout_stops_before_sleeping_past_deadline_or_next_get(
+        self, monkeypatch
+    ) -> None:
+        from geolens_cli.refresh import wait_for_refresh
+
+        elapsed = [0.0]
+        requests = [0]
+        sleeps: list[float] = []
+        client = self._timeout_tracking_client()
+
+        def next_status(**_kwargs):
+            requests[0] += 1
+            if requests[0] == 1:
+                elapsed[0] += 9.75
+                status = "pending"
+            else:
+                status = "complete"
+            return SimpleNamespace(
+                status_code=HTTPStatus.OK,
+                parsed=SimpleNamespace(status=status, error_message=None),
+            )
+
+        def advance_clock(seconds: float) -> None:
+            sleeps.append(seconds)
+            elapsed[0] += seconds
+
+        monkeypatch.setattr(
+            "geolens.api.admin.get_job_status_jobs_job_id_get.sync_detailed",
+            next_status,
+        )
+
+        result = wait_for_refresh(
+            client,
+            JOB_ID,
+            interval=1.0,
+            timeout=10.0,
+            sleep=advance_clock,
+            monotonic=lambda: elapsed[0],
+        )
+
+        assert result.status == "timed_out"
+        assert requests[0] == 1
+        assert sleeps == pytest.approx([0.25])
+        assert client.timeouts == pytest.approx([10.0])
+
+    def test_each_get_uses_only_the_remaining_timeout_budget(self, monkeypatch) -> None:
+        from geolens_cli.refresh import wait_for_refresh
+
+        elapsed = [0.0]
+        client = self._timeout_tracking_client()
+        statuses = iter(("pending", "complete"))
+
+        def next_status(**_kwargs):
+            status = next(statuses)
+            if status == "pending":
+                elapsed[0] += 4.0
+            return SimpleNamespace(
+                status_code=HTTPStatus.OK,
+                parsed=SimpleNamespace(status=status, error_message=None),
+            )
+
+        monkeypatch.setattr(
+            "geolens.api.admin.get_job_status_jobs_job_id_get.sync_detailed",
+            next_status,
+        )
+
+        result = wait_for_refresh(
+            client,
+            JOB_ID,
+            interval=1.0,
+            timeout=10.0,
+            sleep=lambda seconds: elapsed.__setitem__(0, elapsed[0] + seconds),
+            monotonic=lambda: elapsed[0],
+        )
+
+        assert result.status == "complete"
+        assert client.timeouts == pytest.approx([10.0, 5.0])
 
     def test_cli_default_wait_passes_no_deadline_to_the_poller(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch

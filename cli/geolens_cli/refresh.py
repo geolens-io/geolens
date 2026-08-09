@@ -182,11 +182,25 @@ def wait_for_refresh(
 
     uuid_arg = job_id if isinstance(job_id, UUID) else UUID(str(job_id))
     deadline = monotonic() + timeout if timeout is not None else None
+    status = "pending"
     while True:
+        if deadline is None:
+            request_client = client
+        else:
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                return RefreshPollResult(
+                    status="timed_out",
+                    error_message=(
+                        f"Refresh job {job_id} is still {status}; "
+                        "check its status later."
+                    ),
+                )
+            request_client = client.with_timeout(remaining)
         response = call_sdk(
             get_job_status_jobs_job_id_get.sync_detailed,
             job_id=uuid_arg,
-            client=client,
+            client=request_client,
         )
         if int(response.status_code) != JOB_STATUS_OK:
             # ``unwrap`` preserves the CLI's standard auth/server exit mapping.
@@ -201,14 +215,18 @@ def wait_for_refresh(
                 status=status,
                 error_message=_redact_secret(str(error), token) if error else None,
             )
-        if deadline is not None and monotonic() >= deadline:
+        if deadline is None:
+            sleep(interval)
+            continue
+        remaining = deadline - monotonic()
+        if remaining <= 0:
             return RefreshPollResult(
                 status="timed_out",
                 error_message=(
                     f"Refresh job {job_id} is still {status}; check its status later."
                 ),
             )
-        sleep(interval)
+        sleep(min(interval, remaining))
 
 
 def _redact_secret(message: str, secret: str | None) -> str:

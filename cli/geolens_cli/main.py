@@ -832,11 +832,8 @@ def refresh(
 
     poll = None
     if wait:
-        poll_client = (
-            sdk.client if timeout is None else sdk.client.with_timeout(timeout)
-        )
         poll = _refresh.wait_for_refresh(
-            poll_client,
+            sdk.client,
             accepted.job_id,
             token=token,
             timeout=timeout,
