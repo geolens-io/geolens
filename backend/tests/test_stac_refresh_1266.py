@@ -41,7 +41,7 @@ from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.sources import stac_resolve
 from app.modules.catalog.sources.adapters.stac import pick_data_asset
 from app.modules.catalog.sources.origin_probe import DETAIL_CODES
-from app.modules.catalog.sources.security import SSRFError
+from app.modules.catalog.sources.security import SSRFError, SSRFResolutionError
 from app.modules.catalog.sources.stac_resolve import resolve_stac_binding
 from app.platform.dataset_origin import SOURCE_HEALTH_VALUES, build_origin_ref
 from app.platform.jobs.models import IngestJob
@@ -735,6 +735,42 @@ class TestResolution:
         install({_ITEM: (404, None), _SEARCH: (200, {"features": []})})
         empty = await _resolve(item_href=_ITEM)
         assert (empty.health, empty.detail) == ("missing", "item_withdrawn")
+
+    async def test_a_self_link_whose_hostname_does_not_resolve_is_refused(
+        self, stac_transport, monkeypatch
+    ) -> None:
+        """fix(#1266 review round 16): the gap the probe alone leaves.
+
+        The probe reports NXDOMAIN as `network_error`, indistinguishable from
+        a host that is merely down — but the DOOR raises on it, before any
+        fetch and before the search fallback can run. Storing such a pointer
+        over a working one is therefore unrecoverable, which is why the
+        door's own function is asked as well.
+        """
+        install, _ = stac_transport
+        dead_self = f"{_ROOT}/v2/collections/scenes/items/scene-1"
+        install(
+            {
+                _ITEM: (
+                    200,
+                    _item_doc(asset_href=_MOVED_ASSET, self_href=dead_self),
+                ),
+                _MOVED_ASSET: (206, None),
+            }
+        )
+
+        async def _validate(url: str) -> None:
+            if url == dead_self:
+                raise SSRFResolutionError("Could not resolve hostname")
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.stac_resolve.validate_url_for_ssrf", _validate
+        )
+        result = await _resolve(item_href=_ITEM)
+        assert result.resolved
+        assert result.asset_href == _MOVED_ASSET
+        # The asset moved; the pointer stayed the one the door still accepts.
+        assert result.item_href == _ITEM
 
     async def test_a_self_link_that_redirects_into_a_blocked_target_is_refused(
         self, stac_transport

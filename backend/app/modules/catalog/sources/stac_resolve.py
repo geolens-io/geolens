@@ -596,27 +596,35 @@ async def _storable_item_pointer(self_href: str | None, fallback: str) -> str:
     successful refresh and then permanently locked-out ones, with the usable
     pointer already overwritten.
 
-    fix(#1266 review round 15): proven through the SAFE CLIENT rather than
-    the submission-time validator. `validate_url_for_ssrf` checks the
-    hostname it is handed and nothing further, so a public URL whose first
-    hop redirects into a blocked target passes it — and Rule 2 exists because
-    that is the interesting case. Storing such a pointer would overwrite a
-    working one and then abort every later fetch at the redirect, which is
-    the unrecoverable shape: the door refuses the dataset from then on.
-    Probing exercises the per-hop revalidation and IP pinning for real, and
-    is strictly stronger than the door's check, so a link that clears it
-    clears the door too.
+    The test is "would the DOOR accept this next time", and answering it
+    takes both checks — each round of review found the gap the other leaves.
 
-    ONLY a policy refusal is disqualifying. A self link that merely 404s
-    right now is still the publisher's own word on where the item lives, and
-    adopting it costs at most one wasted fetch next time before the search
-    fallback recovers — where a policy-blocked pointer cannot be recovered
-    from at all without a re-import.
+    ``validate_url_for_ssrf`` is the door's own function, so it answers the
+    question exactly: bad scheme, missing hostname, DNS that does not
+    resolve, an address in a blocked range. fix(#1266 review round 16): a
+    self link whose hostname does not resolve is the case that matters, and
+    the probe cannot see it — it reports NXDOMAIN as ``network_error``,
+    indistinguishable from a host that is merely down. Storing one would be
+    unrecoverable: the door raises on it before any fetch, so neither the
+    old pointer nor the search fallback can ever run again.
+
+    The probe covers what the validator cannot. fix(#1266 review round 15):
+    the validator checks the hostname it is handed and nothing further, so a
+    public URL whose FIRST HOP redirects into a blocked target clears it —
+    which is the case Rule 2's per-hop revalidation exists for. Only a policy
+    refusal from the probe disqualifies: a self link that merely 404s is
+    still the publisher's own word on where the item lives, and adopting it
+    costs at most one wasted fetch before the search fallback recovers.
 
     The fallback needs no check: it is the value that got this refresh
     admitted in the first place.
     """
     if self_href is None or self_href == fallback:
+        return fallback
+    try:
+        await validate_url_for_ssrf(self_href)
+    except SSRFError:
+        logger.info("stac_self_link_refused_by_door_policy")
         return fallback
     probed = await probe_remote_uri(self_href)
     if probed.detail == BLOCKED_BY_POLICY:
