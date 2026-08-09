@@ -96,6 +96,11 @@ _ERROR_CODE_SUPERSEDED = "superseded"
 # column will accept; this one describes nothing.
 _GENERIC_GEOMETRY_TYPE = "GEOMETRY"
 
+# The record types ``service_create.py`` derives from "does this dataset have
+# geometry". Raster and VRT records carry their own modality and must never be
+# re-derived from a geometry column they do not have.
+_DERIVED_RECORD_TYPES: frozenset[str] = frozenset({"table", "vector_dataset"})
+
 
 class _Verdict(NamedTuple):
     """What one class of database failure says about the origin."""
@@ -434,6 +439,18 @@ def _apply_measurement(
         dataset.geometry_type = None
     elif declared_geometry_type != _GENERIC_GEOMETRY_TYPE:
         dataset.geometry_type = declared_geometry_type
+    # fix(#1313 review round 6): keep the derivation registration makes.
+    # `service_create.py` sets `record_type = "table" if geometry_type is None
+    # else "vector_dataset"`, and this task is the only thing that can change
+    # the answer for a registered table afterwards — an empty table registered
+    # as `table` that later gains rows, or a vector dataset whose geom column
+    # is dropped. `build_assets` reads `record_type` live, so leaving it stale
+    # means a now-spatial dataset never advertises vector tiles or OGC
+    # features, and a de-spatialized one advertises tiles it cannot serve.
+    if dataset.record.record_type in _DERIVED_RECORD_TYPES:
+        dataset.record.record_type = (
+            "table" if dataset.geometry_type is None else "vector_dataset"
+        )
     dataset.feature_count = metadata.get("feature_count")
     dataset.column_info = metadata.get("column_info") or []
     dataset.sample_values = sample_values
@@ -676,6 +693,20 @@ async def refresh_postgis(
             # waits behind this transaction (and re-measures afterwards).
             # Reading a single column keeps the statement off the joined
             # record, which PostgreSQL will not lock through an outer join.
+            #
+            # What this guard is NOT (review round 6): it does not detect the
+            # OWNER writing to the table directly, because nothing outside
+            # GeoLens bumps a catalog field. That is deliberate and not a gap
+            # this guard could close. A measurement of a relation GeoLens does
+            # not own is true as of a point in time and stale the moment the
+            # owner's next commit lands — before this write, after it, or a
+            # second later — and the only way to be atomic with an external
+            # writer is to lock a table that belongs to somebody else, which
+            # is precisely what "no data movement, serves from the live table"
+            # forbids. The catalog going stale again is the ordinary condition
+            # this whole feature exists to correct, on demand. What the guard
+            # closes is the different and fixable problem: GeoLens rolling
+            # BACK its own newer measurement.
             locked_version = await session.scalar(
                 select(Dataset.tile_cache_version)
                 .where(Dataset.id == dataset_uuid)

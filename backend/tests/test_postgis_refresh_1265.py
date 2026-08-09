@@ -995,6 +995,58 @@ class TestPostgisRefreshExecution:
         refreshed = await _reload(test_db_session, dataset.id)
         assert refreshed.geometry_type == "POLYGON"  # the stored value, kept
 
+    async def test_a_table_that_gains_geometry_becomes_a_vector_dataset(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """fix(#1313 review round 6): modality is derived, so keep deriving it.
+
+        ``service_create.py`` sets ``record_type`` from whether the dataset
+        has geometry, and this task is the only thing that can change the
+        answer afterwards — registering a spatial table while it is empty
+        classifies it as ``table``. ``build_assets`` reads ``record_type``
+        live, so without this the dataset would go on being presented as
+        tabular and would never advertise vector tiles or OGC features.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _registered_dataset(test_db_session, created_by=admin_id)
+        dataset.record.record_type = "table"
+        dataset.geometry_type = None
+        await test_db_session.commit()
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        await _execute(test_db_session, payload)
+
+        refreshed = await _reload(test_db_session, dataset.id)
+        assert refreshed.geometry_type == "POLYGON"
+        assert refreshed.record.record_type == "vector_dataset"
+
+    async def test_a_dataset_that_loses_geometry_becomes_a_table(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """The inverse, which is the one that advertises what it cannot serve.
+
+        A vector dataset whose geometry columns are dropped keeps offering
+        vector tiles and OGC features against a relation that has no geometry
+        left to serve.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _registered_dataset(test_db_session, created_by=admin_id)
+        assert dataset.record.record_type == "vector_dataset"
+        await test_db_session.execute(
+            text(  # noqa: S608
+                f"ALTER TABLE data.{dataset.table_name} "
+                f"DROP COLUMN geom, DROP COLUMN geom_4326"
+            )
+        )
+        await test_db_session.commit()
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        await _execute(test_db_session, payload)
+
+        refreshed = await _reload(test_db_session, dataset.id)
+        assert refreshed.geometry_type is None
+        assert refreshed.record.record_type == "table"
+
     async def test_a_concurrent_feature_edit_is_not_rolled_back(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ) -> None:
