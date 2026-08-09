@@ -267,6 +267,18 @@ class FakeProcessingPort:
     def compute_schema_diff(self, old_columns, new_columns, old_count, new_count):
         return {}
 
+    async def resolve_stac_binding(
+        self, *, item_href, collection_id, asset_href, asset_key
+    ):
+        # feat(#1266): the STAC refresh strategy's one crossing of this port.
+        # A fake that reached the network would make every test using this
+        # double depend on a third-party catalog, so it reports the shape and
+        # nothing else — "asked, and nothing was established" — which is the
+        # outcome that changes no stored pointer.
+        from app.modules.catalog.sources.stac_resolve import StacResolution
+
+        return StacResolution("inaccessible", "network_error")
+
     # -------------------------------------------------------------------------
     # Dataset-with-attributes loader (Plan 02)
     # -------------------------------------------------------------------------
