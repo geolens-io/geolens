@@ -61,12 +61,12 @@ function makeDataset(recordType: RecordType): DatasetResponse {
 }
 
 // feat(#1285): DetailPanel now wires the "Refresh from source" action into
-// SourcePanel's `actions` slot, gated on canEdit AND a resolvable origin —
-// the same gate the refresh door itself applies (classify_origin returns
-// null only for collection/vrt_dataset). These synthetic datasets all set
-// source_format: null, which datasetOrigin() reads as a registered-table
-// (postgis) origin for every record type except vrt_dataset, so only the
-// VRT case has nothing to refresh from.
+// SourcePanel's `actions` slot, gated on canEdit AND REFRESHABLE_ORIGINS
+// (fix, codex round 1: origin presence alone was too broad — an upload,
+// created, or STAC origin resolves just fine but the refresh door refuses
+// all three). These synthetic datasets all set source_format: null, which
+// datasetOrigin() reads as a registered-table (postgis) origin — allowlisted
+// — for every record type except vrt_dataset, which has no origin at all.
 it.each<[RecordType, boolean]>([
   ['vector_dataset', true],
   ['table', true],
@@ -95,6 +95,31 @@ it.each<[RecordType, boolean]>([
       'data-has-actions',
       String(expectsActions),
     );
+  },
+);
+
+it.each<[string, string]>([
+  ['geojson', 'upload'],
+  ['created', 'created'],
+  ['stac', 'stac'],
+])(
+  'withholds the refresh action for a %s-sourced (%s-origin) dataset the refresh door cannot serve yet',
+  (sourceFormat) => {
+    render(
+      <DetailPanel
+        dataset={{ ...makeDataset('vector_dataset'), source_format: sourceFormat }}
+        canEdit
+        capabilities={buildDatasetEditCapabilities({ isEditor: true })}
+        activeTab="sources"
+        onTabChange={vi.fn()}
+        resolveDraftValue={() => ''}
+        stagePendingDraft={vi.fn()}
+        handleDraftDirtyChange={vi.fn()}
+        onNavigateToValidationField={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('source-panel')).toHaveAttribute('data-has-actions', 'false');
   },
 );
 

@@ -1,10 +1,12 @@
-import { screen, waitFor } from '@testing-library/react';
+import { render as rtlRender, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render } from '@/test/test-utils';
 import { useDatasetRefreshRuns, useRefreshDataset } from '@/components/dataset/hooks/use-dataset';
 import { ApiError } from '@/api/client';
-import { SourceRefreshAction } from '../SourceRefreshAction';
-import type { DatasetResponse } from '@/types/api';
+import { queryKeys } from '@/lib/query-keys';
+import { REFRESHABLE_ORIGINS, SourceRefreshAction } from '../SourceRefreshAction';
+import type { DatasetRefreshRunResponse, DatasetResponse } from '@/types/api';
 
 vi.mock('@/components/dataset/hooks/use-dataset', () => ({
   useRefreshDataset: vi.fn(),
@@ -71,6 +73,29 @@ function makeDataset(): DatasetResponse {
     collections: null,
     record_type: 'vector_dataset',
     raster: null,
+  };
+}
+
+function makeRun(overrides: Partial<DatasetRefreshRunResponse> = {}): DatasetRefreshRunResponse {
+  return {
+    id: 'run-1',
+    dataset_id: 'dataset-1',
+    dataset_version_id: null,
+    ingest_job_id: 'job-1',
+    origin_kind: 'service',
+    trigger: 'api',
+    status: 'running',
+    triggered_by: null,
+    triggered_by_username: null,
+    started_at: '2026-08-05T00:00:00Z',
+    claimed_at: '2026-08-05T00:00:01Z',
+    finished_at: null,
+    feature_count_before: 42,
+    feature_count_after: null,
+    schema_diff: null,
+    error_code: null,
+    error_message: null,
+    ...overrides,
   };
 }
 
@@ -228,30 +253,7 @@ describe('SourceRefreshAction', () => {
 
   it('disables the trigger and explains why while a run is already active', () => {
     mockUseDatasetRefreshRuns.mockReturnValue({
-      data: {
-        runs: [
-          {
-            id: 'run-1',
-            dataset_id: 'dataset-1',
-            dataset_version_id: null,
-            ingest_job_id: 'job-1',
-            origin_kind: 'service',
-            trigger: 'api',
-            status: 'running',
-            triggered_by: null,
-            triggered_by_username: null,
-            started_at: '2026-08-05T00:00:00Z',
-            claimed_at: '2026-08-05T00:00:01Z',
-            finished_at: null,
-            feature_count_before: 42,
-            feature_count_after: null,
-            schema_diff: null,
-            error_code: null,
-            error_message: null,
-          },
-        ],
-        total: 1,
-      },
+      data: { runs: [makeRun({ status: 'running' })], total: 1 },
       isLoading: false,
       isError: false,
     } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
@@ -262,5 +264,80 @@ describe('SourceRefreshAction', () => {
     expect(
       screen.getByText('A refresh is already in progress. See refresh history below.'),
     ).toBeInTheDocument();
+  });
+
+  // fix(#1285 codex round 1): useDatasetRefreshRuns self-polls while the
+  // latest run is pending/running (see use-dataset.ts), which re-renders
+  // this component with fresh data — but nothing consumed that transition
+  // until now. Simulated here via a mock return value change + rerender,
+  // standing in for what the poll would deliver on a real query.
+  it('re-enables the trigger and invalidates the dataset detail query once the active run turns terminal', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+
+    mockUseDatasetRefreshRuns.mockReturnValue({
+      data: { runs: [makeRun({ status: 'running' })], total: 1 },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
+
+    const { rerender } = rtlRender(
+      <QueryClientProvider client={queryClient}>
+        <SourceRefreshAction dataset={makeDataset()} />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByRole('button', { name: 'Refresh from source' })).toBeDisabled();
+    expect(invalidateSpy).not.toHaveBeenCalled();
+
+    mockUseDatasetRefreshRuns.mockReturnValue({
+      data: {
+        runs: [makeRun({ status: 'succeeded', finished_at: '2026-08-05T00:02:00Z', feature_count_after: 44 })],
+        total: 1,
+      },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
+
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <SourceRefreshAction dataset={makeDataset()} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Refresh from source' })).not.toBeDisabled();
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.datasets.detail('dataset-1') });
+  });
+
+  it('does not invalidate on mount when the latest run is already terminal', () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    mockUseDatasetRefreshRuns.mockReturnValue({
+      data: { runs: [makeRun({ status: 'succeeded' })], total: 1 },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
+
+    rtlRender(
+      <QueryClientProvider client={queryClient}>
+        <SourceRefreshAction dataset={makeDataset()} />
+      </QueryClientProvider>,
+    );
+
+    expect(invalidateSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('REFRESHABLE_ORIGINS', () => {
+  it('mirrors the refresh door dispatch table — service and postgis only, today', () => {
+    // fix(#1285 codex round 1): router_refresh.py routes every non-postgis
+    // origin through _resolve_service_origin(), which refuses upload,
+    // created, and stac with 409 refresh_not_applicable. This is the value
+    // DetailPanel gates on; a widened set here without a matching backend
+    // strategy would put the "Refresh from source" control back where round
+    // 1 found it.
+    expect([...REFRESHABLE_ORIGINS].sort()).toEqual(['postgis', 'service']);
   });
 });

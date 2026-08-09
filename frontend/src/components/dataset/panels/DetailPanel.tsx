@@ -9,7 +9,7 @@ import { MetadataTab } from '../tabs/MetadataTab';
 import { DataTab } from '../tabs/DataTab';
 import { StructureTab } from '../tabs/StructureTab';
 import { SourcePanel } from '../SourcePanel';
-import { SourceRefreshAction } from '../SourceRefreshAction';
+import { REFRESHABLE_ORIGINS, SourceRefreshAction } from '../SourceRefreshAction';
 import { datasetOrigin } from '../OriginBadge';
 import { AccessTab } from '../tabs/AccessTab';
 
@@ -50,13 +50,15 @@ export function DetailPanel(props: DetailPanelProps) {
   const isTable = recordType === 'table';
   const isVector = recordType === 'vector_dataset' || isTable || !recordType;
 
-  // feat(#1285): the same gate the refresh door itself applies — a VRT or
-  // collection has no dataset origin to re-pull from at all (classify_origin
-  // returns None for both), so there is nothing for the control to do.
-  // `dataset.origin` is the server-computed field; datasetOrigin() is the
-  // client-side fallback for older payloads that predate it (mirrors
-  // SourcePanel's own `origin` derivation).
+  // fix(#1285 codex round 1): origin PRESENCE isn't the refresh door's gate —
+  // `dataset.origin` is the server-computed field (datasetOrigin() is the
+  // client-side fallback for older payloads that predate it), but an upload,
+  // created, or STAC origin is just as resolvable as a service or postgis
+  // one and the endpoint refuses all three with 409 refresh_not_applicable.
+  // REFRESHABLE_ORIGINS is the one place that actually mirrors the backend's
+  // dispatch table.
   const origin = dataset.origin ?? datasetOrigin(dataset);
+  const canRefresh = origin != null && REFRESHABLE_ORIGINS.has(origin);
 
   const showData = isVector;
   const showStructure = isVector;
@@ -145,7 +147,7 @@ export function DetailPanel(props: DetailPanelProps) {
       <TabsContent value="sources" className="space-y-6">
         <SourcePanel
           dataset={dataset}
-          actions={canEdit && origin ? <SourceRefreshAction dataset={dataset} /> : undefined}
+          actions={canEdit && canRefresh ? <SourceRefreshAction dataset={dataset} /> : undefined}
         />
       </TabsContent>
 

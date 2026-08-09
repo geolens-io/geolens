@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useQueryClient } from '@tanstack/react-query';
 import { Loader2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { useDatasetRefreshRuns, useRefreshDataset } from '@/components/dataset/hooks/use-dataset';
+import { queryKeys } from '@/lib/query-keys';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -14,7 +16,20 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
-import type { DatasetResponse } from '@/types/api';
+import type { DatasetOrigin, DatasetResponse } from '@/types/api';
+
+// fix(#1285 codex round 1): refresh-door origins. router_refresh.py routes
+// every non-postgis request through _resolve_service_origin(), which
+// refuses everything except `service` with 409 refresh_not_applicable — so
+// `upload`/`created`/`stac` are NOT refreshable today even though they have
+// a resolvable origin. This is the one place that fact is encoded; DetailPanel
+// imports it rather than gating on origin presence alone. #1266 (STAC refresh
+// strategy) adds 'stac' when it lands — check before widening this set.
+export const REFRESHABLE_ORIGINS: ReadonlySet<DatasetOrigin> = new Set(['service', 'postgis']);
+
+function isRunActive(status: string | undefined): boolean {
+  return status === 'pending' || status === 'running';
+}
 
 interface SourceRefreshActionProps {
   dataset: DatasetResponse;
@@ -25,8 +40,7 @@ interface SourceRefreshActionProps {
  *
  * Self-contained: owns its own dialog, token field, and mutation, so a
  * caller only has to decide WHETHER to render it (DetailPanel gates on
- * canEdit plus a resolvable origin — VRTs and collections have neither a
- * source to refresh from nor this control) and never touches the token
+ * canEdit plus REFRESHABLE_ORIGINS above) and never touches the token
  * itself. The taxonomy of 409/503/400/422 refusals from the refresh door is
  * rendered through the shared error-map (`err.message`), which already maps
  * each backend code to a distinct, actionable sentence rather than a single
@@ -34,16 +48,36 @@ interface SourceRefreshActionProps {
  */
 export function SourceRefreshAction({ dataset }: SourceRefreshActionProps) {
   const { t } = useTranslation('dataset');
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [token, setToken] = useState('');
   const [error, setError] = useState<string | null>(null);
   const refreshMutation = useRefreshDataset();
   // Limit 1: only interested in whether the most recent run is still active,
   // so the trigger can be disabled ahead of a 409 dataset_busy rather than
-  // only reacting to one after the click.
+  // only reacting to one after the click. Self-polls while active (see
+  // useDatasetRefreshRuns), so this also picks up a terminal transition
+  // without a manual refresh.
   const { data: runsData } = useDatasetRefreshRuns(dataset.id, { limit: 1 });
   const latestRun = runsData?.runs[0];
-  const isBusy = latestRun?.status === 'pending' || latestRun?.status === 'running';
+  const isBusy = isRunActive(latestRun?.status);
+
+  // fix(#1285 codex round 1): the dispatch-time invalidation in
+  // useRefreshDataset fires before the worker has done anything: the run is
+  // still "pending", so re-fetching the dataset there is a no-op. Freshness,
+  // health, and last_refreshed_at only actually change once the run leaves
+  // pending/running — catch that transition here, once, and invalidate then.
+  // Keyed on the ref rather than derived state so it fires exactly once per
+  // transition, not on every render where the run happens to already be
+  // terminal (e.g. first mount after a refresh finished elsewhere).
+  const wasActiveRef = useRef(false);
+  useEffect(() => {
+    const active = isRunActive(latestRun?.status);
+    if (wasActiveRef.current && !active) {
+      queryClient.invalidateQueries({ queryKey: queryKeys.datasets.detail(dataset.id) });
+    }
+    wasActiveRef.current = active;
+  }, [latestRun?.status, dataset.id, queryClient]);
 
   const handleOpenChange = (next: boolean) => {
     setOpen(next);

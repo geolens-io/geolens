@@ -216,7 +216,7 @@ export function useRefreshDataset() {
 
 export function useDatasetRefreshRuns(
   datasetId: string,
-  params: { skip?: number; limit?: number; refetchInterval?: number | false } = {},
+  params: { skip?: number; limit?: number } = {},
 ) {
   const skip = params.skip ?? 0;
   const limit = params.limit ?? 10;
@@ -226,7 +226,19 @@ export function useDatasetRefreshRuns(
     enabled: !!datasetId,
     placeholderData: keepPreviousData,
     staleTime: 15_000,
-    refetchInterval: params.refetchInterval,
+    // fix(#1285 codex round 1): the dispatch-time invalidation above fires
+    // one refetch that lands as "pending", and the app disables
+    // refetch-on-focus (see auth-recovery notes), so without this the run
+    // sits "active" in the mounted page forever — SourceRefreshAction's busy
+    // gate never re-enables and this section's status never updates once the
+    // worker actually finishes. Self-referential like useJobStatus: poll
+    // while the newest run is still in flight, stop once it lands on a
+    // terminal status. Shared by both consumers (the trigger's gate and this
+    // history section), so both pick up the transition from one poll.
+    refetchInterval: (query) => {
+      const status = query.state.data?.runs[0]?.status;
+      return status === 'pending' || status === 'running' ? 5_000 : false;
+    },
   });
 }
 
