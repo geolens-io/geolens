@@ -260,6 +260,24 @@ def test_runtime_can_only_read_alembic_version_table() -> None:
     assert source.index(default_dml) < source.rindex(revoke_dml)
 
 
+def test_data_routines_are_runtime_owned_before_execute_grants() -> None:
+    source = ROLE_SCRIPT.read_text(encoding="utf-8")
+
+    transfer_owner = "'ALTER %s %I.%I(%s) OWNER TO %I'"
+    ownership_gate = "data_routine_owners_supported"
+    revoke_public = "FROM PUBLIC"
+    grant_runtime = "'GRANT EXECUTE ON %s %I.%I(%s) TO %I'"
+    assert transfer_owner in source
+    assert ownership_gate in source
+    assert "function.prokind IN ('f', 'p', 'w')" in source
+    assert grant_runtime in source
+    transfer_index = source.index(transfer_owner)
+    gate_index = source.index(ownership_gate, transfer_index)
+    grant_index = source.index(grant_runtime, gate_index)
+    assert transfer_index < gate_index < grant_index
+    assert revoke_public in source[gate_index:grant_index]
+
+
 def test_embedding_definer_is_created_as_the_validated_migration_owner() -> None:
     source = ROLE_SCRIPT.read_text(encoding="utf-8")
 

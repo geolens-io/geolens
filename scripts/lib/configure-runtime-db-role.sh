@@ -796,6 +796,11 @@ SELECT current_setting('server_version_num')::integer >= 160000
     \endif
 \endif
 
+-- REASSIGN OWNED must be able to move runtime-owned routines during a role-name
+-- rotation. Admit the replacement to data before that operation; the grant is
+-- still inside this transaction and rolls back with any later ownership gate.
+SELECT format('GRANT USAGE, CREATE ON SCHEMA data TO %I', :'runtime_role')\gexec
+
 -- A role-name rotation must not leave the prior database-scoped login active.
 -- Collect only this database's exact active markers; cluster-global roles for
 -- other databases are deliberately out of scope. REASSIGN plus DROP OWNED
@@ -1062,10 +1067,6 @@ SELECT NOT EXISTS (
 
 -- Transfer only data-schema runtime relations, never the migration-owned
 -- catalog schema or its tables.
-SELECT format('GRANT USAGE, CREATE ON SCHEMA data TO %I', :'runtime_role')\gexec
-SELECT format(
-    'GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA data TO %I', :'runtime_role'
-)\gexec
 SELECT format('GRANT geolens_reader TO %I', :'runtime_role')\gexec
 SELECT format(
     'ALTER %s %I.%I OWNER TO %I',
@@ -1090,9 +1091,194 @@ WHERE n.nspname = 'data'
 ORDER BY CASE c.relkind WHEN 'S' THEN 2 ELSE 1 END, c.relname
 \gexec
 
+-- A runtime can create routines in data. A --no-owner/--no-acl restore
+-- recreates those routines as the privileged restore login and restores the
+-- default PUBLIC EXECUTE ACL. Treat only the validated migration owner and the
+-- current restore/reconciliation login as trusted restore sources. Migration-
+-- owned routines need a temporary SET-capable path to the runtime target;
+-- preserve any existing membership shape exactly as for relation ownership.
+SELECT EXISTS (
+    SELECT 1
+    FROM pg_proc AS function
+    JOIN pg_namespace AS namespace ON namespace.oid = function.pronamespace
+    JOIN pg_roles AS owner_role ON owner_role.oid = function.proowner
+    WHERE namespace.nspname = 'data'
+      AND function.prokind IN ('f', 'p', 'w')
+      AND owner_role.rolname = :'migration_role'
+      AND owner_role.rolname <> :'runtime_role'
+) AS migration_owned_data_routines_exist
+\gset
+
+\set revoke_temporary_migration_runtime_membership false
+\if :migration_owned_data_routines_exist
+    \if :membership_options_supported
+        SELECT
+            pg_has_role(migration.oid, runtime.oid, 'SET')
+                AS migration_can_set_runtime,
+            EXISTS (
+                SELECT 1
+                FROM pg_auth_members AS membership
+                WHERE membership.roleid = runtime.oid
+                  AND membership.member = migration.oid
+                  AND membership.grantor = reconciler.oid
+            ) AS migration_has_reconciler_granted_runtime_membership
+        FROM pg_roles AS migration
+        CROSS JOIN pg_roles AS runtime
+        CROSS JOIN pg_roles AS reconciler
+        WHERE migration.rolname = :'migration_role'
+          AND runtime.rolname = :'runtime_role'
+          AND reconciler.rolname = current_user
+        \gset
+    \else
+        SELECT
+            EXISTS (
+                SELECT 1
+                FROM pg_auth_members AS membership
+                WHERE membership.roleid = runtime.oid
+                  AND membership.member = migration.oid
+            ) AS migration_can_set_runtime,
+            false AS migration_has_reconciler_granted_runtime_membership
+        FROM pg_roles AS migration
+        CROSS JOIN pg_roles AS runtime
+        WHERE migration.rolname = :'migration_role'
+          AND runtime.rolname = :'runtime_role'
+        \gset
+    \endif
+
+    \if :migration_can_set_runtime
+    \else
+        \if :migration_has_reconciler_granted_runtime_membership
+            DO $error$
+            BEGIN
+                RAISE EXCEPTION 'existing reconciler-granted migration/runtime membership is not SET-capable; refusing to overwrite its options.';
+            END
+            $error$;
+        \else
+            \if :membership_options_supported
+                SELECT format(
+                    'GRANT %I TO %I WITH INHERIT FALSE, SET TRUE',
+                    :'runtime_role', :'migration_role'
+                )\gexec
+            \else
+                SELECT format(
+                    'GRANT %I TO %I', :'runtime_role', :'migration_role'
+                )\gexec
+            \endif
+            \set revoke_temporary_migration_runtime_membership true
+        \endif
+    \endif
+
+    SELECT format('SET LOCAL ROLE %I', :'migration_role')\gexec
+    SELECT format(
+        'ALTER %s %I.%I(%s) OWNER TO %I',
+        CASE function.prokind
+            WHEN 'p' THEN 'PROCEDURE'
+            ELSE 'FUNCTION'
+        END,
+        namespace.nspname,
+        function.proname,
+        pg_get_function_identity_arguments(function.oid),
+        :'runtime_role'
+    )
+    FROM pg_proc AS function
+    JOIN pg_namespace AS namespace ON namespace.oid = function.pronamespace
+    JOIN pg_roles AS owner_role ON owner_role.oid = function.proowner
+    WHERE namespace.nspname = 'data'
+      AND function.prokind IN ('f', 'p', 'w')
+      AND owner_role.rolname = current_user
+    \gexec
+    RESET ROLE;
+\endif
+
+-- The reconciliation login owns functions recreated by --no-owner restore.
+-- The temporary runtime membership established above permits this bounded
+-- owner transfer; any other owner remains untouched for the gate below.
+SELECT format(
+    'ALTER %s %I.%I(%s) OWNER TO %I',
+    CASE function.prokind
+        WHEN 'p' THEN 'PROCEDURE'
+        ELSE 'FUNCTION'
+    END,
+    namespace.nspname,
+    function.proname,
+    pg_get_function_identity_arguments(function.oid),
+    :'runtime_role'
+)
+FROM pg_proc AS function
+JOIN pg_namespace AS namespace ON namespace.oid = function.pronamespace
+JOIN pg_roles AS owner_role ON owner_role.oid = function.proowner
+WHERE namespace.nspname = 'data'
+  AND function.prokind IN ('f', 'p', 'w')
+  AND owner_role.rolname = current_user
+  AND owner_role.rolname <> :'runtime_role'
+\gexec
+
+\if :revoke_temporary_migration_runtime_membership
+    \if :membership_options_supported
+        SELECT format(
+            'REVOKE %I FROM %I GRANTED BY %I',
+            :'runtime_role', :'migration_role', current_user
+        )\gexec
+    \else
+        SELECT format(
+            'REVOKE %I FROM %I', :'runtime_role', :'migration_role'
+        )\gexec
+    \endif
+\endif
+
+SELECT NOT EXISTS (
+    SELECT 1
+    FROM pg_proc AS function
+    JOIN pg_namespace AS namespace ON namespace.oid = function.pronamespace
+    JOIN pg_roles AS owner_role ON owner_role.oid = function.proowner
+    WHERE namespace.nspname = 'data'
+      AND function.prokind IN ('f', 'p', 'w')
+      AND owner_role.rolname <> :'runtime_role'
+) AS data_routine_owners_supported
+\gset
+\if :data_routine_owners_supported
+\else
+    DO $error$
+    BEGIN
+        RAISE EXCEPTION 'data routines include an owner other than the runtime, reconciler, or GEOLENS_MIGRATION_DB_ROLE.';
+    END
+    $error$;
+\endif
+
 -- Ownership checks for the remaining relation grants run as the new owner,
 -- not through INHERIT. RESET ROLE before revoking the temporary SET grant.
 SELECT format('SET LOCAL ROLE %I', :'runtime_role')\gexec
+SELECT format(
+    'REVOKE ALL ON %s %I.%I(%s) FROM PUBLIC',
+    CASE function.prokind
+        WHEN 'p' THEN 'PROCEDURE'
+        ELSE 'FUNCTION'
+    END,
+    namespace.nspname,
+    function.proname,
+    pg_get_function_identity_arguments(function.oid)
+)
+FROM pg_proc AS function
+JOIN pg_namespace AS namespace ON namespace.oid = function.pronamespace
+WHERE namespace.nspname = 'data'
+  AND function.prokind IN ('f', 'p', 'w')
+\gexec
+SELECT format(
+    'GRANT EXECUTE ON %s %I.%I(%s) TO %I',
+    CASE function.prokind
+        WHEN 'p' THEN 'PROCEDURE'
+        ELSE 'FUNCTION'
+    END,
+    namespace.nspname,
+    function.proname,
+    pg_get_function_identity_arguments(function.oid),
+    :'runtime_role'
+)
+FROM pg_proc AS function
+JOIN pg_namespace AS namespace ON namespace.oid = function.pronamespace
+WHERE namespace.nspname = 'data'
+  AND function.prokind IN ('f', 'p', 'w')
+\gexec
 SELECT format(
     'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA data TO %I',
     :'runtime_role'
@@ -1169,6 +1355,26 @@ SELECT (
         WHERE namespace.nspname = 'data'
           AND relation.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
           AND relation.relowner <> runtime.oid
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM pg_proc AS function
+        JOIN pg_namespace AS namespace ON namespace.oid = function.pronamespace
+        WHERE namespace.nspname = 'data'
+          AND function.prokind IN ('f', 'p', 'w')
+          AND function.proowner <> runtime.oid
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM pg_proc AS function
+        JOIN pg_namespace AS namespace ON namespace.oid = function.pronamespace
+        JOIN LATERAL aclexplode(
+            COALESCE(function.proacl, acldefault('f', function.proowner))
+        ) AS acl ON true
+        WHERE namespace.nspname = 'data'
+          AND function.prokind IN ('f', 'p', 'w')
+          AND acl.grantee = 0
+          AND acl.privilege_type = 'EXECUTE'
     )
 ) AS runtime_role_safe
 FROM pg_roles AS runtime

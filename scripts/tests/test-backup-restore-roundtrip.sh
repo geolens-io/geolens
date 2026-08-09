@@ -220,6 +220,88 @@ CREATE INDEX ix_record_embeddings_hnsw
 EOSQL
 fi
 
+# A role name alone is not proof that a cluster-global identity belongs to
+# GeoLens. Before fresh bootstrap creates the reader, reproduce an unrelated
+# privileged collision and prove reconciliation refuses it before changing any
+# attribute, marker, or password. Then replace it with migration 0007's exact
+# legacy NOLOGIN shape so the ordinary bundled-upgrade adoption path runs.
+if [ "$READER_EXISTED_AT_START" = "f" ]; then
+    UNSAFE_READER_PASSWORD="unsafe-reader-collision-password-947-padding"
+    psql_admin -v ON_ERROR_STOP=1 -c \
+        "CREATE ROLE geolens_reader LOGIN SUPERUSER PASSWORD '${UNSAFE_READER_PASSWORD}';" \
+        >/dev/null
+    if env \
+        GEOLENS_RUNTIME_DB_ROLE="" GEOLENS_RUNTIME_DB_PASSWORD="" \
+        GEOLENS_MIGRATION_DB_ROLE="" \
+        POSTGRES_HOST="$PGHOST" POSTGRES_PORT="$PGPORT" \
+        POSTGRES_USER="$PGUSER" POSTGRES_DB="$SRC_DB" \
+        bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" \
+        >"${WORKDIR}/unsafe-reader.log" 2>&1; then
+        fail "unsafe unmarked geolens_reader collision was altered or adopted"
+    fi
+    grep -Fq "existing geolens_reader role is not safe to adopt" \
+        "${WORKDIR}/unsafe-reader.log" \
+        || fail "unsafe reader collision did not use the fail-closed marker contract"
+    UNSAFE_READER_STATE="$(psql_admin -tAc \
+        "SELECT rolcanlogin || '|' || rolsuper || '|' ||
+                COALESCE(shobj_description(oid, 'pg_authid'), '')
+           FROM pg_roles WHERE rolname = 'geolens_reader';" \
+        | tr -d '[:space:]')"
+    [ "$UNSAFE_READER_STATE" = "true|true|" ] \
+        || fail "rejected reader collision was mutated: ${UNSAFE_READER_STATE}"
+    env PGPASSWORD="$UNSAFE_READER_PASSWORD" \
+        psql -X -h "$PGHOST" -p "$PGPORT" -U geolens_reader -d "$SRC_DB" \
+        -Atqc "SELECT 1" | grep -qx 1 \
+        || fail "rejected reader collision password was replaced"
+    psql_admin -v ON_ERROR_STOP=1 >/dev/null <<'EOSQL'
+DROP ROLE geolens_reader;
+CREATE ROLE geolens_reader NOLOGIN;
+EOSQL
+fi
+
+# Fresh bootstrap creates the dedicated runtime before application writes.
+# Model a runtime-authored definer and ordinary routine in data, with PUBLIC
+# explicitly revoked at source. The --no-acl logical restore below deliberately
+# loses that REVOKE and recreates both routines as the privileged restore login.
+env \
+    GEOLENS_RUNTIME_DB_ROLE="$FRESH_RUNTIME_ROLE" \
+    GEOLENS_RUNTIME_DB_PASSWORD="$RUNTIME_PASSWORD" \
+    GEOLENS_MIGRATION_DB_ROLE="$PGUSER" \
+    POSTGRES_HOST="$PGHOST" POSTGRES_PORT="$PGPORT" \
+    POSTGRES_USER="$PGUSER" POSTGRES_DB="$SRC_DB" \
+    bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" >/dev/null
+env PGPASSWORD="$RUNTIME_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$FRESH_RUNTIME_ROLE" \
+    -d "$SRC_DB" -v ON_ERROR_STOP=1 >/dev/null <<'EOSQL'
+CREATE FUNCTION data.runtime_definer_probe() RETURNS text
+    LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog
+    AS 'SELECT current_user::text';
+CREATE FUNCTION data.runtime_invoker_probe(probe integer) RETURNS text
+    LANGUAGE sql SECURITY INVOKER SET search_path = pg_catalog
+    AS 'SELECT current_user::text || '':'' || probe::text';
+CREATE PROCEDURE data.runtime_procedure_probe(INOUT observed_role text)
+    LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
+    AS 'BEGIN observed_role := current_user::text; END';
+REVOKE ALL ON FUNCTION data.runtime_definer_probe() FROM PUBLIC;
+REVOKE ALL ON FUNCTION data.runtime_invoker_probe(integer) FROM PUBLIC;
+REVOKE ALL ON PROCEDURE data.runtime_procedure_probe(text) FROM PUBLIC;
+EOSQL
+SOURCE_DATA_ROUTINE_STATE="$(psql_admin -d "$SRC_DB" -tAc \
+    "SELECT pg_get_userbyid(definer.proowner) || '|' ||
+            EXISTS (
+                SELECT 1
+                  FROM aclexplode(
+                      COALESCE(definer.proacl, acldefault('f', definer.proowner))
+                  ) AS acl
+                 WHERE acl.grantee = 0
+                   AND acl.privilege_type = 'EXECUTE'
+            )
+       FROM pg_proc AS definer
+      WHERE definer.oid = 'data.runtime_definer_probe()'::regprocedure;" \
+    | tr -d '[:space:]')"
+[ "$SOURCE_DATA_ROUTINE_STATE" = "${FRESH_RUNTIME_ROLE}|false" ] \
+    || fail "source runtime routine fixture is unsafe: ${SOURCE_DATA_ROUTINE_STATE}"
+
 SRC_RECORDS="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC_DB" -tAc "SELECT COUNT(*) FROM catalog.records;")"
 SRC_DATASETS="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC_DB" -tAc "SELECT COUNT(*) FROM catalog.datasets;")"
 echo "      source counts: records=${SRC_RECORDS} datasets=${SRC_DATASETS}"
@@ -300,45 +382,15 @@ RESTORED_PUBLIC_EXECUTE="$(psql_admin -d "$DST_DB" -tAc \
     | tr -d '[:space:]')"
 [ "$RESTORED_PUBLIC_EXECUTE" = "t" ] \
     || fail "restore fixture did not reproduce default PUBLIC function execution"
-
-# A role name alone is not proof that a cluster-global identity belongs to
-# GeoLens. On an otherwise fresh cluster, reproduce an unrelated privileged
-# collision and prove reconciliation refuses it before changing any attribute,
-# marker, or password. Then replace it with migration 0007's exact legacy
-# NOLOGIN shape so the ordinary bundled-upgrade adoption path is exercised.
-if [ "$READER_EXISTED_AT_START" = "f" ]; then
-    UNSAFE_READER_PASSWORD="unsafe-reader-collision-password-947-padding"
-    psql_admin -v ON_ERROR_STOP=1 -c \
-        "CREATE ROLE geolens_reader LOGIN SUPERUSER PASSWORD '${UNSAFE_READER_PASSWORD}';" \
-        >/dev/null
-    if env \
-        GEOLENS_RUNTIME_DB_ROLE="" GEOLENS_RUNTIME_DB_PASSWORD="" \
-        GEOLENS_MIGRATION_DB_ROLE="" \
-        POSTGRES_HOST="$PGHOST" POSTGRES_PORT="$PGPORT" \
-        POSTGRES_USER="$PGUSER" POSTGRES_DB="$DST_DB" \
-        bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" \
-        >"${WORKDIR}/unsafe-reader.log" 2>&1; then
-        fail "unsafe unmarked geolens_reader collision was altered or adopted"
-    fi
-    grep -Fq "existing geolens_reader role is not safe to adopt" \
-        "${WORKDIR}/unsafe-reader.log" \
-        || fail "unsafe reader collision did not use the fail-closed marker contract"
-    UNSAFE_READER_STATE="$(psql_admin -tAc \
-        "SELECT rolcanlogin || '|' || rolsuper || '|' ||
-                COALESCE(shobj_description(oid, 'pg_authid'), '')
-           FROM pg_roles WHERE rolname = 'geolens_reader';" \
-        | tr -d '[:space:]')"
-    [ "$UNSAFE_READER_STATE" = "true|true|" ] \
-        || fail "rejected reader collision was mutated: ${UNSAFE_READER_STATE}"
-    env PGPASSWORD="$UNSAFE_READER_PASSWORD" \
-        psql -X -h "$PGHOST" -p "$PGPORT" -U geolens_reader -d "$DST_DB" \
-        -Atqc "SELECT 1" | grep -qx 1 \
-        || fail "rejected reader collision password was replaced"
-    psql_admin -v ON_ERROR_STOP=1 >/dev/null <<'EOSQL'
-DROP ROLE geolens_reader;
-CREATE ROLE geolens_reader NOLOGIN;
-EOSQL
-fi
+RESTORED_DATA_DEFINER_STATE="$(psql_admin -d "$DST_DB" -tAc \
+    "SELECT pg_get_userbyid(definer.proowner) || '|' ||
+            has_function_privilege('${LEGACY_UNTRUSTED_ROLE}',
+                'data.runtime_definer_probe()', 'EXECUTE')
+       FROM pg_proc AS definer
+      WHERE definer.oid = 'data.runtime_definer_probe()'::regprocedure;" \
+    | tr -d '[:space:]')"
+[ "$RESTORED_DATA_DEFINER_STATE" = "${PGUSER}|true" ] \
+    || fail "restore fixture did not reproduce privileged data definer: ${RESTORED_DATA_DEFINER_STATE}"
 
 env \
     GEOLENS_RUNTIME_DB_ROLE="" GEOLENS_RUNTIME_DB_PASSWORD="" \
@@ -383,12 +435,15 @@ fi
 OWNER_EXECUTE="$(psql_admin -d "$DST_DB" -tAc \
     "SELECT catalog.geolens_rebuild_embedding_column(768);" \
     | tr -d '[:space:]')"
-[ "$OWNER_EXECUTE" = "t" ] \
+EXPECTED_OWNER_EXECUTE="f"
+[ "$PGVECTOR_AVAILABLE" = "t" ] && EXPECTED_OWNER_EXECUTE="t"
+[ "$OWNER_EXECUTE" = "$EXPECTED_OWNER_EXECUTE" ] \
     || fail "privileged function owner lost embedding rebuild execution"
 echo "      legacy rollback ACL OK — untrusted EXECUTE denied; privileged owner retained."
 
-# Preserve the original fresh-install proof: an absent safe target is created,
-# marked, and reconciled without the adoption escape hatch.
+# The absent-target bootstrap was exercised before the dump. Reconcile its
+# exact database-scoped marker again to prove the steady-state path is
+# idempotent without the adoption escape hatch.
 env \
     GEOLENS_RUNTIME_DB_ROLE="$FRESH_RUNTIME_ROLE" \
     GEOLENS_RUNTIME_DB_PASSWORD="$RUNTIME_PASSWORD" \
@@ -535,6 +590,93 @@ RESTORE_MARKER="$(psql_admin -tAc \
     | tr -d '[:space:]')"
 [ "$RESTORE_MARKER" = "geolens-managed-runtime-role:v2:database=${DST_DB}" ] \
     || fail "explicit restore/rename adoption did not bind the current database"
+RESTORED_DATA_ROUTINE_STATE="$(psql_admin -d "$DST_DB" -tAc \
+    "SELECT string_agg(
+                function.proname || ':' || function.prokind::text || ':' ||
+                pg_get_userbyid(function.proowner) || ':' || EXISTS (
+                    SELECT 1
+                      FROM aclexplode(COALESCE(
+                          function.proacl,
+                          acldefault('f', function.proowner)
+                      )) AS acl
+                     WHERE acl.grantee = 0
+                       AND acl.privilege_type = 'EXECUTE'
+                ),
+                ',' ORDER BY function.proname
+            )
+       FROM pg_proc AS function
+       JOIN pg_namespace AS namespace ON namespace.oid = function.pronamespace
+      WHERE namespace.nspname = 'data'
+        AND function.proname IN (
+            'runtime_definer_probe', 'runtime_invoker_probe',
+            'runtime_procedure_probe'
+        );" \
+    | tr -d '[:space:]')"
+[ "$RESTORED_DATA_ROUTINE_STATE" = \
+    "runtime_definer_probe:f:${RESTORE_ROLE}:false,runtime_invoker_probe:f:${RESTORE_ROLE}:false,runtime_procedure_probe:p:${RESTORE_ROLE}:false" ] \
+    || fail "no-owner restore data definer remained privileged/public: ${RESTORED_DATA_ROUTINE_STATE}"
+if env PGPASSWORD="$LEGACY_UNTRUSTED_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$LEGACY_UNTRUSTED_ROLE" \
+    -d "$DST_DB" -v ON_ERROR_STOP=1 -Atqc \
+    "SET ROLE geolens_reader; SELECT data.runtime_definer_probe();" \
+    >/dev/null 2>&1; then
+    fail "explicitly admitted reader invoked a restored runtime definer"
+fi
+RESTORED_DEFINER_RESULT="$(env PGPASSWORD="$RESTORE_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$RESTORE_ROLE" -d "$DST_DB" \
+    -v ON_ERROR_STOP=1 -Atqc "SELECT data.runtime_definer_probe();")"
+[ "$RESTORED_DEFINER_RESULT" = "$RESTORE_ROLE" ] \
+    || fail "restored data definer executes as ${RESTORED_DEFINER_RESULT}, expected runtime"
+RESTORED_INVOKER_RESULT="$(env PGPASSWORD="$RESTORE_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$RESTORE_ROLE" -d "$DST_DB" \
+    -v ON_ERROR_STOP=1 -Atqc "SELECT data.runtime_invoker_probe(947);")"
+[ "$RESTORED_INVOKER_RESULT" = "${RESTORE_ROLE}:947" ] \
+    || fail "ordinary restored data function stopped working for runtime"
+RESTORED_PROCEDURE_RESULT="$(env PGPASSWORD="$RESTORE_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$RESTORE_ROLE" -d "$DST_DB" \
+    -v ON_ERROR_STOP=1 -Atqc \
+    "CALL data.runtime_procedure_probe(NULL);")"
+[ "$RESTORED_PROCEDURE_RESULT" = "$RESTORE_ROLE" ] \
+    || fail "restored data procedure executes as ${RESTORED_PROCEDURE_RESULT}"
+
+# A same-schema routine owned by neither the runtime, validated migration role,
+# nor current restore login is not safe to adopt. The whole reconciliation must
+# fail without rewriting that owner or the active runtime marker.
+psql_admin -d "$DST_DB" -v ON_ERROR_STOP=1 >/dev/null <<EOSQL
+GRANT USAGE, CREATE ON SCHEMA data TO "${UNMANAGED_ROLE}";
+CREATE FUNCTION data.unrelated_owner_probe(probe integer) RETURNS integer
+    LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog
+    AS 'SELECT probe';
+ALTER FUNCTION data.unrelated_owner_probe(integer) OWNER TO "${UNMANAGED_ROLE}";
+REVOKE ALL ON FUNCTION data.unrelated_owner_probe(integer) FROM PUBLIC;
+REVOKE USAGE, CREATE ON SCHEMA data FROM "${UNMANAGED_ROLE}";
+EOSQL
+if env \
+    GEOLENS_RUNTIME_DB_ROLE="$RESTORE_ROLE" \
+    GEOLENS_RUNTIME_DB_PASSWORD="$RESTORE_PASSWORD" \
+    GEOLENS_MIGRATION_DB_ROLE="$MIGRATION_ROLE" \
+    POSTGRES_HOST="$PGHOST" POSTGRES_PORT="$PGPORT" \
+    POSTGRES_USER="$PGUSER" POSTGRES_DB="$DST_DB" \
+    bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" \
+    >"${WORKDIR}/unrelated-routine-owner.log" 2>&1; then
+    fail "reconciler adopted an unrelated data routine owner"
+fi
+grep -Fq "data routines include an owner other than" \
+    "${WORKDIR}/unrelated-routine-owner.log" \
+    || { cat "${WORKDIR}/unrelated-routine-owner.log" >&2; fail "unrelated routine owner failed for an unexpected reason"; }
+UNRELATED_ROUTINE_STATE="$(psql_admin -d "$DST_DB" -tAc \
+    "SELECT pg_get_userbyid(function.proowner) || '|' ||
+            shobj_description(runtime.oid, 'pg_authid')
+       FROM pg_proc AS function
+       CROSS JOIN pg_roles AS runtime
+      WHERE function.oid = 'data.unrelated_owner_probe(integer)'::regprocedure
+        AND runtime.rolname = '${RESTORE_ROLE}';" | tr -d '[:space:]')"
+[ "$UNRELATED_ROUTINE_STATE" = \
+    "${UNMANAGED_ROLE}|geolens-managed-runtime-role:v2:database=${DST_DB}" ] \
+    || fail "failed routine reconciliation partially mutated state: ${UNRELATED_ROUTINE_STATE}"
+psql_admin -d "$DST_DB" -v ON_ERROR_STOP=1 -c \
+    "DROP FUNCTION data.unrelated_owner_probe(integer);" >/dev/null
+
 RESTORED_EMBEDDING_FUNCTION_OWNER="$(psql_admin -d "$DST_DB" -tAc \
     "SELECT pg_get_userbyid(function.proowner)
        FROM pg_proc AS function
@@ -710,6 +852,12 @@ ROTATED_DATA_OWNER="$(psql_admin -d "$SRC_DB" -tAc \
     | tr -d '[:space:]')"
 [ "$ROTATED_DATA_OWNER" = "$ROTATED_RUNTIME_ROLE" ] \
     || fail "rotation left data.ci_probe owned by ${ROTATED_DATA_OWNER}"
+ROTATED_DATA_ROUTINE_RESULT="$(env PGPASSWORD="$ROTATED_RUNTIME_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$ROTATED_RUNTIME_ROLE" \
+    -d "$SRC_DB" -v ON_ERROR_STOP=1 -Atqc \
+    "SELECT data.runtime_definer_probe();")"
+[ "$ROTATED_DATA_ROUTINE_RESULT" = "$ROTATED_RUNTIME_ROLE" ] \
+    || fail "rotation left data definer executing as ${ROTATED_DATA_ROUTINE_RESULT}"
 
 # Both future-grant directions must point only at the replacement: Alembic's
 # catalog defaults and the runtime owner's data-reader defaults.
@@ -785,6 +933,12 @@ ROLLBACK_ROLE_STATE="$(psql_admin -d "$SRC_DB" -tAc \
         AND probe.oid = 'data.ci_probe'::regclass;" | tr -d '[:space:]')"
 [ "$ROLLBACK_ROLE_STATE" = "true|geolens-managed-runtime-role:v2:database=${SRC_DB}|false|geolens-retired-runtime-role:v1:database=${SRC_DB}|${FRESH_RUNTIME_ROLE}" ] \
     || fail "inverse role rotation did not restore the retired target: ${ROLLBACK_ROLE_STATE}"
+ROLLBACK_DATA_ROUTINE_RESULT="$(env PGPASSWORD="$ROTATION_ROLLBACK_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$FRESH_RUNTIME_ROLE" \
+    -d "$SRC_DB" -v ON_ERROR_STOP=1 -Atqc \
+    "SELECT data.runtime_definer_probe();")"
+[ "$ROLLBACK_DATA_ROUTINE_RESULT" = "$FRESH_RUNTIME_ROLE" ] \
+    || fail "inverse rotation left data definer executing as ${ROLLBACK_DATA_ROUTINE_RESULT}"
 env PGPASSWORD="$ROTATION_ROLLBACK_PASSWORD" \
     psql -X -h "$PGHOST" -p "$PGPORT" -U "$FRESH_RUNTIME_ROLE" -d "$SRC_DB" \
     -v ON_ERROR_STOP=1 -Atqc \
@@ -896,6 +1050,21 @@ CREATE SCHEMA catalog;
 CREATE SCHEMA data;
 CREATE TABLE data.provider_probe (id bigint PRIMARY KEY);
 EOSQL
+env PGPASSWORD="$RECONCILER_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$RECONCILER_ROLE" \
+    -d "$PROVIDER_DB" -v ON_ERROR_STOP=1 >/dev/null <<EOSQL
+GRANT USAGE, CREATE ON SCHEMA data TO "${MIGRATION_ROLE}";
+SET ROLE "${MIGRATION_ROLE}";
+CREATE FUNCTION data.migration_owned_provider_probe(probe integer)
+RETURNS text LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog
+AS 'SELECT current_user::text || '':'' || probe::text';
+CREATE PROCEDURE data.migration_owned_provider_procedure(INOUT observed_role text)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
+AS 'BEGIN observed_role := current_user::text; END';
+REVOKE ALL ON FUNCTION data.migration_owned_provider_probe(integer) FROM PUBLIC;
+REVOKE ALL ON PROCEDURE data.migration_owned_provider_procedure(text) FROM PUBLIC;
+RESET ROLE;
+EOSQL
 if [ "$PGVECTOR_AVAILABLE" = "t" ]; then
     psql_admin -d "$PROVIDER_DB" -v ON_ERROR_STOP=1 >/dev/null <<EOSQL
 CREATE EXTENSION IF NOT EXISTS vector;
@@ -926,6 +1095,61 @@ env \
     GEOLENS_RUNTIME_DB_ROLE="$PROVIDER_RUNTIME_ROLE" \
     GEOLENS_RUNTIME_DB_PASSWORD="$PROVIDER_RUNTIME_PASSWORD" \
     bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" >/dev/null
+PROVIDER_DATA_ROUTINE_STATE="$(psql_admin -d "$PROVIDER_DB" -tAc \
+    "SELECT pg_get_userbyid(function.proowner) || '|' || EXISTS (
+                SELECT 1
+                  FROM aclexplode(COALESCE(
+                      function.proacl,
+                      acldefault('f', function.proowner)
+                  )) AS acl
+                 WHERE acl.grantee = 0
+                   AND acl.privilege_type = 'EXECUTE'
+            ) || '|' || EXISTS (
+                SELECT 1
+                  FROM pg_auth_members AS membership
+                 WHERE membership.roleid = (
+                           SELECT oid FROM pg_roles
+                            WHERE rolname = '${PROVIDER_RUNTIME_ROLE}'
+                       )
+                   AND membership.member = (
+                           SELECT oid FROM pg_roles
+                            WHERE rolname = '${MIGRATION_ROLE}'
+                       )
+            )
+       FROM pg_proc AS function
+      WHERE function.oid =
+            'data.migration_owned_provider_probe(integer)'::regprocedure;" \
+    | tr -d '[:space:]')"
+[ "$PROVIDER_DATA_ROUTINE_STATE" = "${PROVIDER_RUNTIME_ROLE}|false|false" ] \
+    || fail "managed migration-owned data routine was not safely transferred: ${PROVIDER_DATA_ROUTINE_STATE}"
+PROVIDER_DATA_ROUTINE_RESULT="$(env PGPASSWORD="$PROVIDER_RUNTIME_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$PROVIDER_RUNTIME_ROLE" \
+    -d "$PROVIDER_DB" -v ON_ERROR_STOP=1 -Atqc \
+    "SELECT data.migration_owned_provider_probe(948);")"
+[ "$PROVIDER_DATA_ROUTINE_RESULT" = "${PROVIDER_RUNTIME_ROLE}:948" ] \
+    || fail "managed data routine executes as ${PROVIDER_DATA_ROUTINE_RESULT}"
+PROVIDER_DATA_PROCEDURE_STATE="$(psql_admin -d "$PROVIDER_DB" -tAc \
+    "SELECT pg_get_userbyid(function.proowner) || '|' || EXISTS (
+                SELECT 1
+                  FROM aclexplode(COALESCE(
+                      function.proacl,
+                      acldefault('f', function.proowner)
+                  )) AS acl
+                 WHERE acl.grantee = 0
+                   AND acl.privilege_type = 'EXECUTE'
+            )
+       FROM pg_proc AS function
+      WHERE function.oid =
+            'data.migration_owned_provider_procedure(text)'::regprocedure;" \
+    | tr -d '[:space:]')"
+[ "$PROVIDER_DATA_PROCEDURE_STATE" = "${PROVIDER_RUNTIME_ROLE}|false" ] \
+    || fail "managed migration-owned procedure was not safely transferred: ${PROVIDER_DATA_PROCEDURE_STATE}"
+PROVIDER_DATA_PROCEDURE_RESULT="$(env PGPASSWORD="$PROVIDER_RUNTIME_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$PROVIDER_RUNTIME_ROLE" \
+    -d "$PROVIDER_DB" -v ON_ERROR_STOP=1 -Atqc \
+    "CALL data.migration_owned_provider_procedure(NULL);")"
+[ "$PROVIDER_DATA_PROCEDURE_RESULT" = "$PROVIDER_RUNTIME_ROLE" ] \
+    || fail "managed data procedure executes as ${PROVIDER_DATA_PROCEDURE_RESULT}"
 PROVIDER_EMBEDDING_FUNCTION_OWNER="$(psql_admin -d "$PROVIDER_DB" -tAc \
     "SELECT pg_get_userbyid(proowner)
        FROM pg_proc

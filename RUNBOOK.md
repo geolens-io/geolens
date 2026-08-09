@@ -250,6 +250,13 @@ configuration/comment, and is not a member of another role. Any same-named
 login or administrative/unrelated role fails before `ALTER ROLE`. The runtime
 role never receives blanket catalog-function execution: tenant provisioning
 remains exclusive to `geolens_tenant_control`.
+Functions and procedures in `data` follow the opposite ownership boundary:
+they must be runtime-owned because the application can create them there. The
+reconciler transfers routines owned by the current restore login or validated
+migration owner, rejects every unrelated owner, revokes `PUBLIC EXECUTE`, and
+then admits only the runtime. This prevents a `--no-owner --no-acl` restore from
+turning a runtime-authored `SECURITY DEFINER` routine into a bootstrap-privilege
+escalation path.
 Catalog default grants are installed for the validated
 `GEOLENS_MIGRATION_DB_ROLE`, so later Alembic objects remain usable even when a
 managed provider admin performed reconciliation. The migrate service then
