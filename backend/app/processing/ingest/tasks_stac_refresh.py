@@ -294,6 +294,18 @@ async def _repoint_remote_asset(
             is_dem=is_dem_candidate(
                 described.get("band_count"), described.get("dtype")
             ),
+            # fix(#1266 review round 6): a moved member has to make the VRTs
+            # built on it look stale, and for one class of parent this stamp
+            # is the only signal that can. A VRT with `built_from` recorded is
+            # judged by state — what the member IS against what the published
+            # mosaic was built FROM — and the URI change above is enough. A
+            # VRT built before that column existed falls back to comparing
+            # this timestamp against its own build time, so leaving it alone
+            # would let the member probe healthy while the published VRT still
+            # embeds the old, possibly dead URL. The raster replace path
+            # restamps it when it swaps a pointer for the same reason; this
+            # swaps a pointer too.
+            ingested_at=datetime.now(timezone.utc),
         )
     )
 

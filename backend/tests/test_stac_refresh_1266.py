@@ -231,6 +231,7 @@ async def _stac_dataset(
             asset_uri=asset_href or "",
             storage_backend="remote",
             cog_status="verified",
+            ingested_at=datetime.now(timezone.utc) - timedelta(days=30),
         )
     )
     await session.commit()
@@ -1314,6 +1315,7 @@ class TestWorker:
             test_db_session, created_by=admin_id, source_health="missing"
         )
         before_version = dataset.tile_cache_version
+        before_ingested = (await _raster_asset(dataset.id)).ingested_at
 
         payload = await _dispatch(client, admin_auth_header, dataset.id)
         await _execute(test_db_session, payload)
@@ -1336,6 +1338,11 @@ class TestWorker:
         assert described.band_info == [{"min": 0, "max": 4095, "mean": 1200}]
         # One integer band is imagery, not elevation.
         assert described.is_dem is False
+        # A moved member has to read as newer than any VRT built on it: a
+        # mosaic that recorded no `built_from` is judged by this stamp alone,
+        # and it still embeds the old URL.
+        assert described.ingested_at is not None
+        assert described.ingested_at > before_ingested
         # The tile URL has to change too, or browser and CDN caches keep
         # serving the old bytes.
         assert refreshed.tile_cache_version != before_version
