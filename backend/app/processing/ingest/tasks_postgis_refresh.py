@@ -34,7 +34,9 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Iterator
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Any, NamedTuple
 
 import structlog
@@ -191,14 +193,49 @@ def _inconclusive_verdict(code: str | None) -> _Verdict:
     )
 
 
+def _chained_sqlstates(exc: BaseException) -> Iterator[str]:
+    """Every SQLSTATE on an exception's chain, outermost first.
+
+    fix(#1313 review): the outermost code is not always the informative one.
+    ``extract_metadata``'s spatial fast path catches every exception and
+    immediately retries its per-helper queries — inside the transaction the
+    first failure has already aborted. So a table dropped or revoked between
+    two statements of the measurement surfaces here as ``25P02``
+    (in_failed_sql_transaction) with the real ``42P01`` or ``42501`` sitting
+    in ``__context__``, because Python records the exception being handled
+    when a new one is raised inside an ``except`` block.
+
+    Classifying only the outermost code would report exactly the mid-flight
+    race this classifier exists to cover as inconclusive, and leave the
+    dataset unmarked. ``25P02`` says "something earlier in this transaction
+    failed" and carries no information of its own, so the honest answer is
+    the earlier code — which is what walking the chain finds.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, DBAPIError):
+            code = sqlstate(current)
+            if code:
+                yield code
+        current = current.__cause__ or current.__context__
+
+
 def _classify_db_failure(exc: DBAPIError) -> PostgisRefreshError:
     """Turn a driver error from the live table into a refresh verdict."""
-    code = sqlstate(exc)
-    verdict = _VERDICT_BY_SQLSTATE.get(code or "")
-    if verdict is None and code is not None and code[:2] == _CONNECTION_CLASS:
-        verdict = _CONNECTION_VERDICT
+    codes = list(_chained_sqlstates(exc))
+    verdict: _Verdict | None = None
+    for code in codes:
+        verdict = _VERDICT_BY_SQLSTATE.get(code)
+        if verdict is None and code[:2] == _CONNECTION_CLASS:
+            verdict = _CONNECTION_VERDICT
+        if verdict is not None:
+            break
     if verdict is None:
-        verdict = _inconclusive_verdict(code)
+        # The outermost code, because that is the one an operator correlating
+        # against their own logs will see.
+        verdict = _inconclusive_verdict(codes[0] if codes else None)
     return PostgisRefreshError(
         verdict.message,
         error_code=verdict.error_code,
@@ -433,10 +470,24 @@ async def refresh_postgis(
             await session.commit()
 
         # ----------------------------------------------------------------- #
-        # Phase 2: measure the live table and write the result. One session
-        # and one transaction, so the numbers that get stored are the numbers
-        # that were read — a recount committed apart from the extent it was
-        # measured with would describe no state the table was ever in.
+        # Phase 2: MEASURE, under one snapshot, writing nothing.
+        #
+        # fix(#1313 review): the measurement is four separate reads of a table
+        # somebody else is writing to, and the session's default isolation is
+        # READ COMMITTED — where every statement takes its own snapshot. One
+        # transaction was therefore never one state: the count, the extent,
+        # the samples and the validity score could each describe a different
+        # instant, and the catalog would store a combination the table was
+        # never in. REPEATABLE READ makes the transaction the unit of
+        # consistency, which is what this phase was already claiming to be.
+        #
+        # The writes are in phase 3 rather than here, and that split is what
+        # makes the snapshot safe to take: the heartbeat renews this job's row
+        # from its own session throughout, so finalizing the job inside a
+        # REPEATABLE READ transaction would collide with it and abort the run
+        # with a serialization failure. READ ONLY states the intent and makes
+        # a future write from this phase fail loudly rather than silently
+        # under a snapshot it should not hold.
         # ----------------------------------------------------------------- #
         from app.processing.ingest.metadata import (
             compute_quality_score,
@@ -448,6 +499,12 @@ async def refresh_postgis(
         schema = _current_tenant_schema()
 
         async with async_session() as session:
+            # Must be the transaction's FIRST statement — PostgreSQL refuses
+            # SET TRANSACTION once a query has taken a snapshot. Transaction
+            # scoped, so nothing leaks onto the pooled connection.
+            await session.execute(
+                text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+            )
             dataset = (
                 await session.execute(
                     select(Dataset)
@@ -477,6 +534,23 @@ async def refresh_postgis(
                     metadata.get("column_info") or [],
                     schema=schema,
                 )
+                # Scored against the measurement, not the values it replaces:
+                # the CRS and geometry dimensions read `srid` and
+                # `geometry_type` off the object they are handed. A stand-in
+                # rather than the loaded row because this transaction is READ
+                # ONLY — mutating the ORM instance here would let an autoflush
+                # attempt a write under a snapshot that must not hold one.
+                quality_detail = await compute_quality_score(
+                    session,
+                    table_name,
+                    metadata.get("column_info") or [],
+                    SimpleNamespace(
+                        record=dataset.record,
+                        srid=metadata.get("srid"),
+                        geometry_type=metadata.get("geometry_type"),
+                    ),
+                    schema=schema,
+                )
             except DBAPIError as exc:
                 # Every read of the origin is inside this block, and the
                 # explicit existence check is not the only thing that can
@@ -485,6 +559,28 @@ async def refresh_postgis(
                 # which, so the verdict is read off the driver rather than
                 # inferred from the check that had just passed.
                 raise _classify_db_failure(exc) from exc
+            await session.rollback()
+
+        feature_count = metadata.get("feature_count")
+
+        # ----------------------------------------------------------------- #
+        # Phase 3: WRITE what phase 2 measured, at the ordinary isolation
+        # level. The dataset is re-loaded rather than carried over: the phase
+        # 2 instance belongs to a transaction that is gone, and the row this
+        # phase writes has to be one attached to the session doing the
+        # writing.
+        # ----------------------------------------------------------------- #
+        async with async_session() as session:
+            dataset = (
+                await session.execute(
+                    select(Dataset)
+                    .options(joinedload(Dataset.record))
+                    .where(Dataset.id == dataset_uuid)
+                )
+            ).scalar_one_or_none()
+            if dataset is None:
+                logger.warning("Dataset not found, skipping", dataset_id=dataset_id)
+                return
 
             # Measured against the values still stored, before the writes
             # below overwrite them — the same ordering rule the swap paths
@@ -496,10 +592,8 @@ async def refresh_postgis(
                 dataset.column_info or [],
                 metadata.get("column_info") or [],
                 dataset.feature_count,
-                metadata.get("feature_count"),
+                feature_count,
             )
-            count_before = dataset.feature_count
-            feature_count = metadata.get("feature_count")
 
             _apply_measurement(dataset, metadata, sample_values)
             await refresh_attribute_metadata(
@@ -509,16 +603,7 @@ async def refresh_postgis(
                 geometry_type=metadata.get("geometry_type"),
                 sample_values=sample_values,
             )
-            # After the field writes: the score reads dataset.geometry_type
-            # and dataset.srid, and scoring the old ones would report on a
-            # measurement that no longer exists.
-            dataset.quality_detail = await compute_quality_score(
-                session,
-                table_name,
-                metadata.get("column_info") or [],
-                dataset,
-                schema=schema,
-            )
+            dataset.quality_detail = quality_detail
 
             now = datetime.now(timezone.utc)
             # The measurement succeeded, so the relation demonstrably exists
@@ -559,13 +644,17 @@ async def refresh_postgis(
             await session.commit()
 
         await invalidate_catalog_cache()
-        # A recount that moved is proof the table's contents changed under
-        # the cache, and the MVT cache key has no content-version dimension —
-        # so cached tiles would keep being 304-served against rows that are
-        # gone. Nothing else on this path touches tiles: GeoLens did not
-        # replace this table's data, it discovered that somebody else did.
-        if feature_count != count_before:
-            await invalidate_tile_cache_for_table(live_table_name)
+        # fix(#1313 review): unconditionally, not only when the recount moved.
+        # The MVT cache key has no content-version dimension, so cached tiles
+        # are 304-served until they expire — and an owner who edits geometry,
+        # rewrites attributes, or deletes and reinserts the same number of
+        # rows changes every tile while leaving the count identical. Gating on
+        # the count made the common case the one that silently kept serving
+        # stale bytes. Nothing else on this path touches tiles: GeoLens did
+        # not replace this table's data, it discovered that somebody else did,
+        # and a refresh is an explicit request to stop describing the old
+        # state.
+        await invalidate_tile_cache_for_table(live_table_name)
 
         # Non-fatal, and for the same reason the reupload paths do it: the
         # embedding is built from the column names and sample values this run

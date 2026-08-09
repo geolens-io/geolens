@@ -38,6 +38,7 @@ from app.modules.catalog.datasets.domain.models import Dataset
 from app.platform.dataset_origin import set_dataset_origin, set_postgis_origin
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
+from app.processing.ingest import metadata as tasks_postgis_refresh_metadata
 from app.processing.ingest import tasks_postgis_refresh
 from app.processing.ingest.tasks_postgis_refresh import refresh_postgis
 from tests.factories import create_dataset as _create_dataset, get_user_id
@@ -261,6 +262,52 @@ def test_a_slow_query_is_not_reported_as_a_broken_table() -> None:
         "inaccessible",
         "network_error",
     )
+
+
+def test_the_verdict_survives_an_aborted_transaction_wrapper() -> None:
+    """fix(#1313 review): the outermost SQLSTATE is not always the real one.
+
+    ``extract_metadata``'s spatial fast path catches every exception and
+    immediately retries its per-helper queries inside the transaction the
+    first failure already aborted. A table dropped between two statements of
+    the measurement therefore arrives here as ``25P02`` with the real
+    ``42P01`` in ``__context__`` — and classifying only the outer code would
+    report the exact mid-flight race the classifier exists to cover as
+    inconclusive, leaving the dataset unmarked.
+
+    Staged as a chained exception rather than by racing a real DROP: a
+    REPEATABLE READ transaction that has already read the table holds an
+    ACCESS SHARE lock on it, so a concurrent DROP blocks instead of
+    interleaving. What has to hold is the classifier's rule, and the chain is
+    that rule's whole input.
+    """
+
+    def _raised_while_handling(outer: str, inner: str) -> DBAPIError:
+        try:
+            raise _pg_error(inner)
+        except DBAPIError:
+            try:
+                raise _pg_error(outer)
+            except DBAPIError as exc:
+                return exc
+
+    aborted = _raised_while_handling("25P02", "42P01")
+    assert aborted.__context__ is not None
+    verdict = tasks_postgis_refresh._classify_db_failure(aborted)
+    assert (verdict.health, verdict.detail) == ("missing", "not_found")
+    assert verdict.error_code == "source_missing"
+
+    revoked = _raised_while_handling("25P02", "42501")
+    denied = tasks_postgis_refresh._classify_db_failure(revoked)
+    assert (denied.health, denied.detail) == ("inaccessible", "unauthorized")
+
+    # A chain with nothing informative anywhere on it stays inconclusive, and
+    # reports the OUTERMOST code — the one an operator sees in their own logs.
+    opaque = tasks_postgis_refresh._classify_db_failure(
+        _raised_while_handling("25P02", "57014")
+    )
+    assert opaque.health is None
+    assert "25P02" in str(opaque)
 
 
 # ---------------------------------------------------------------------------
@@ -514,6 +561,90 @@ class TestPostgisRefreshExecution:
 
         job = await _job_for(test_db_session, uuid.UUID(payload["job_id"]))
         assert job.status == "complete"
+
+    async def test_the_measurement_runs_under_one_read_only_snapshot(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """fix(#1313 review): one transaction is not one state by default.
+
+        The session's default isolation is READ COMMITTED, where every
+        statement takes its own snapshot — so the count, the extent, the
+        samples and the validity score could each describe a different
+        instant of a table somebody else is writing to, and the catalog would
+        store a combination that never existed. READ ONLY is asserted too: it
+        is what keeps a future write from being added to a phase holding a
+        snapshot it must not hold, and it is why the job and run finalization
+        live in a separate transaction (the heartbeat renews the same job row
+        throughout, and would collide).
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _registered_dataset(test_db_session, created_by=admin_id)
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+
+        seen: dict[str, str] = {}
+        real_extract = tasks_postgis_refresh_metadata.extract_metadata
+
+        async def _record_isolation(session, table_name, **kwargs):
+            row = (
+                await session.execute(
+                    text(
+                        "SELECT current_setting('transaction_isolation'), "
+                        "current_setting('transaction_read_only')"
+                    )
+                )
+            ).one()
+            seen["isolation"], seen["read_only"] = row
+            return await real_extract(session, table_name, **kwargs)
+
+        with patch(
+            "app.processing.ingest.metadata.extract_metadata", _record_isolation
+        ):
+            await _execute(test_db_session, payload)
+
+        assert seen == {"isolation": "repeatable read", "read_only": "on"}
+
+        # And the write still landed, from the phase that is allowed to write.
+        refreshed = await _reload(test_db_session, dataset.id)
+        assert refreshed.last_refreshed_at is not None
+        run = await _run_for(test_db_session, dataset.id)
+        assert run is not None and run.status == "succeeded"
+
+    async def test_tiles_are_purged_even_when_the_count_is_unchanged(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """fix(#1313 review): the count is not a proxy for "the tiles are fine".
+
+        Editing geometry, rewriting attributes, or deleting and reinserting
+        the same number of rows changes every tile while leaving the total
+        identical — and the MVT cache key has no content-version dimension,
+        so gating the purge on a changed count made the common case the one
+        that kept serving stale bytes until expiry.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _registered_dataset(
+            test_db_session, created_by=admin_id, rows=2, stored_feature_count=2
+        )
+        # Same row count, different geometry — the shape a tile cache cares
+        # about and a recount cannot see.
+        await test_db_session.execute(
+            text(  # noqa: S608
+                f"UPDATE data.{dataset.table_name} SET "
+                f"geom = ST_GeomFromText('{_FAR_SQUARE}', 4326), "
+                f"geom_4326 = ST_GeomFromText('{_FAR_SQUARE}', 4326)"
+            )
+        )
+        await test_db_session.commit()
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        purge = AsyncMock()
+        with patch.object(
+            tasks_postgis_refresh, "invalidate_tile_cache_for_table", purge
+        ):
+            await _execute(test_db_session, payload)
+
+        refreshed = await _reload(test_db_session, dataset.id)
+        assert refreshed.feature_count == 2  # unchanged, which is the point
+        purge.assert_awaited_once_with(dataset.table_name)
 
     async def test_a_matching_table_records_no_drift(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
