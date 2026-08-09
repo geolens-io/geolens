@@ -1745,7 +1745,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # shape as its reupload_file/reupload_service siblings. The reupload
         # commit door picks the executor by record type and reaches all three
         # through the port.
-        "backend/app/platform/extensions/defaults_catalog_port.py": 435,
+        # feat(#1265): +5 — the registered-PostGIS refresh task delegation,
+        # same three-line shape again. The refresh door now picks its executor
+        # by origin kind and reaches this one the same way it reaches
+        # reupload_service.
+        "backend/app/platform/extensions/defaults_catalog_port.py": 440,
         # feat(#683): +58 — run_analysis_preview carries a clip mask DATASET
         # now, which costs a widened signature (one param per line once ruff
         # wraps it) plus the mask's shape and size gates. Those live here on
@@ -2302,7 +2306,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # count out to whichever caller owns the commit (the admin path passes
     # commit=False), and the comment at the second commit site.
     # Cap 1580 -> 1605, exact.
-    "backend/app/platform/jobs/router.py": 1605,
+    # feat(#1265): +10 — a `refresh` branch in `_retry_capability`. A
+    # registered-PostGIS refresh job carries neither a file path nor a source
+    # URL, so it fell through to the import copy and told the user their
+    # source was gone for a dataset that was never imported from one. Most of
+    # the lines are the comment recording why the branch sits AFTER the
+    # reupload check: a service refresh job carries both markers, and moving
+    # this one first would silently reword an existing message.
+    # Cap 1605 -> 1615, exact.
+    "backend/app/platform/jobs/router.py": 1615,
     # fix(second-opinion review on #1236 review r3): first entry — crossed
     # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
     # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side

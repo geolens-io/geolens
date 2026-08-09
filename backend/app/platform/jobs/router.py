@@ -1273,6 +1273,16 @@ async def _retry_capability(job: IngestJob) -> tuple[bool, str | None]:
             False,
             "Dataset replacement jobs cannot be replayed as ordinary imports. Start the reupload again.",
         )
+    if bool((job.user_metadata or {}).get("refresh")):
+        # feat(#1265): a registered-PostGIS refresh job carries no file and no
+        # URL, so without this it fell through to the import copy below and
+        # told the user their "source" was gone — for a dataset that was never
+        # imported from one. Deliberately AFTER the reupload check: a service
+        # refresh job carries both markers and keeps its existing wording.
+        return (
+            False,
+            "Refresh runs cannot be replayed as imports. Refresh the dataset again from its source panel.",
+        )
     if bool((job.user_metadata or {}).get("service_auth_required")):
         return (
             False,

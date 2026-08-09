@@ -303,9 +303,16 @@ def test_only_the_commit_handler_creates_a_run() -> None:
     # `create_pending_run` rather than a second admission path so the partial
     # unique index referees both doors. The preview handlers beside it still
     # write nothing, which is the part that must not change.
+    #
+    # feat(#1265): `_dispatch_postgis_refresh` is the second execution
+    # strategy behind that same door, not a third door — `refresh_dataset` is
+    # its only caller, after the one Rule 1 gate, and it reserves through the
+    # same function. A strategy that grew its own admission path is precisely
+    # what this assertion would catch, so the entry is per-strategy rather
+    # than a wildcard on the module.
     assert callers == {
         "router_reupload.py": {"reupload_commit"},
-        "router_refresh.py": {"refresh_dataset"},
+        "router_refresh.py": {"refresh_dataset", "_dispatch_postgis_refresh"},
     }, f"A refresh run row may only be created by a dispatch handler. Found: {callers}"
 
 

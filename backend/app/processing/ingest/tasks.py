@@ -64,3 +64,8 @@ from app.processing.ingest.tasks_reupload import (  # noqa: F401
 from app.processing.ingest.tasks_raster_replace import (  # noqa: F401
     reupload_raster,
 )
+
+# -- Registered-PostGIS refresh (feat #1265) --
+from app.processing.ingest.tasks_postgis_refresh import (  # noqa: F401
+    refresh_postgis,
+)
