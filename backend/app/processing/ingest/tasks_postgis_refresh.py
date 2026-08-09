@@ -617,6 +617,14 @@ async def refresh_postgis(
             # what dates it. `last_checked_at` is stamped by the run
             # finalizer below, from contacted_origin.
             dataset.last_refreshed_at = now
+            # fix(#1313 review round 3): the other half of the tile story, and
+            # the half the Valkey purge below cannot do. That purge clears the
+            # SERVER cache; the `_v=` parameter in the tile URL is what busts
+            # browser and CDN caches, and nothing else can reach them. In the
+            # write transaction, beside the content change it describes, which
+            # is the contract on the method and what every other tile-content
+            # mutation does.
+            dataset.bump_tile_cache_version()
 
             await require_ingest_job_update(
                 session,

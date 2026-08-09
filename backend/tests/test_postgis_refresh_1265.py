@@ -634,6 +634,7 @@ class TestPostgisRefreshExecution:
             )
         )
         await test_db_session.commit()
+        before_version = (await _reload(test_db_session, dataset.id)).tile_cache_version
 
         payload = await _dispatch(client, admin_auth_header, dataset.id)
         purge = AsyncMock()
@@ -645,6 +646,10 @@ class TestPostgisRefreshExecution:
         refreshed = await _reload(test_db_session, dataset.id)
         assert refreshed.feature_count == 2  # unchanged, which is the point
         purge.assert_awaited_once_with(dataset.table_name)
+        # fix(#1313 review round 3): and the half the purge cannot do. The
+        # Valkey purge clears the server cache; `_v=` in the tile URL is the
+        # only thing that reaches a browser or a CDN.
+        assert (refreshed.tile_cache_version or 1) > (before_version or 1)
 
     async def test_a_matching_table_records_no_drift(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
