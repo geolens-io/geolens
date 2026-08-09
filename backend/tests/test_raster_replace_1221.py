@@ -339,6 +339,54 @@ async def _run_regeneration(session, *, parent, user_id) -> None:
     )
 
 
+async def _run_vrt_creation(session, storage, *, member, user_id):
+    """Drive the real ``ingest_vrt`` once. Returns (dataset_id, record_id).
+
+    Exercises the CREATION tail, which round 10 found had no snapshot instant
+    at all — so a member replaced during the first build was masked exactly as
+    it was on regenerate.
+    """
+    import json as _json
+    from pathlib import Path as _P
+
+    from app.processing.ingest.tasks_vrt import ingest_vrt, resolve_vrt_source_path
+
+    # gdalbuildvrt reads through resolve_vrt_source_path, which resolves
+    # against the staging dir rather than this fixture's provider root.
+    member_path = _P(resolve_vrt_source_path(member.asset.asset_uri, tenant_id=None))
+    member_path.parent.mkdir(parents=True, exist_ok=True)
+    member_path.write_bytes(_geotiff_bytes(seed=1))
+
+    job = IngestJob(
+        source_filename="mosaic.vrt",
+        created_by=user_id,
+        status="pending",
+        user_metadata={"title": "Mosaic", "visibility": "public"},
+    )
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+    await ingest_vrt.func(
+        job_id=str(job.id),
+        source_dataset_ids=_json.dumps([str(member.dataset.id)]),
+        user_id=str(user_id),
+        attempt_id=str(job.attempt_id),
+        vrt_type="mosaic",
+        resolution_strategy="finest",
+    )
+    row = (
+        await session.execute(
+            text(
+                "SELECT d.id, d.record_id FROM catalog.datasets d "
+                "JOIN catalog.records r ON r.id = d.record_id "
+                "WHERE r.record_type = 'vrt_dataset' "
+                "ORDER BY r.created_at DESC LIMIT 1"
+            )
+        )
+    ).one()
+    return row[0], row[1]
+
+
 async def _purge_vrt(session, *, ids) -> None:
     """``ids`` is (parent_dataset, parent_record, member_dataset, member_record).
 
@@ -4007,3 +4055,166 @@ class TestVrtStampNamesTheStateItWasBuiltFrom:
             )
         finally:
             await _purge_vrt(test_db_session, ids=ids)
+
+
+# ---------------------------------------------------------------------------
+# 16. Round-10 review findings (#1290)
+# ---------------------------------------------------------------------------
+
+
+class TestSnapshotPrecedesTheReadInBothTails:
+    """FINDINGS 1 and 2. Round 9 got the stamp's MEANING right and its position
+    wrong, and only fixed one tail. Both tails read their members through one
+    helper that stamps first, so the ordering cannot drift per-tail."""
+
+    async def test_the_stamp_predates_the_member_read_on_regenerate(
+        self, test_db_session, raster_storage, monkeypatch
+    ) -> None:
+        """FINDING 2. The stamp sat AFTER the member query, so a replacement
+        committing in the read→stamp interval left the old URI in the build set
+        while `ingested_at` landed EARLIER than the stamp — still healthy,
+        still vouching for a broken parent."""
+        from app.processing.ingest import tasks_vrt
+
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        member = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        parent = await _make_vrt_parent(
+            test_db_session, raster_storage, created_by=admin_id, member=member
+        )
+        ids = (
+            parent.dataset.id,
+            parent.dataset.record_id,
+            member.dataset.id,
+            member.dataset.record_id,
+        )
+        read_at: list[datetime] = []
+        real_snapshot = tasks_vrt.snapshot_member_sources
+
+        async def _observed(session, dataset_ids, **kw):
+            stamp, assets = await real_snapshot(session, dataset_ids, **kw)
+            read_at.append(datetime.now(timezone.utc))
+            return stamp, assets
+
+        monkeypatch.setattr(
+            tasks_vrt, "snapshot_member_sources", _observed, raising=True
+        )
+
+        try:
+            await _run_regeneration(test_db_session, parent=parent, user_id=admin_id)
+            test_db_session.expire_all()
+            stamped = (
+                await test_db_session.execute(
+                    text(
+                        "SELECT last_regenerated_at FROM catalog.raster_assets "
+                        "WHERE dataset_id = :id"
+                    ),
+                    {"id": ids[0]},
+                )
+            ).scalar_one()
+            assert read_at, "the member read never ran"
+            assert stamped < read_at[0], (
+                f"last_regenerated_at ({stamped}) is not earlier than the "
+                f"member read ({read_at[0]}) — a replacement committing in "
+                "that interval leaves the old URI in the build set while its "
+                "ingested_at predates the stamp, and the parent still reports "
+                "healthy (#1290 round-10 finding 2)"
+            )
+        finally:
+            await _purge_vrt(test_db_session, ids=ids)
+
+    async def test_a_member_replaced_during_the_initial_build_reads_stale(
+        self, client, admin_auth_header, test_db_session, raster_storage, monkeypatch
+    ) -> None:
+        """FINDING 1. The creation tail had no snapshot at all, so a member
+        replaced during the FIRST build was masked the same way — the status
+        comparison falls back to the parent's `ingested_at`, stamped at
+        publish."""
+        from app.processing.ingest import tasks_vrt
+
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        member = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        mid_build: list[datetime] = []
+        real_build = tasks_vrt.build_vrt
+
+        def _slow_build(vrt_type, source_paths, vrt_path, resolution_strategy):
+            import time
+
+            time.sleep(0.2)
+            mid_build.append(datetime.now(timezone.utc))
+            time.sleep(0.2)
+            return real_build(vrt_type, source_paths, vrt_path, resolution_strategy)
+
+        monkeypatch.setattr(tasks_vrt, "build_vrt", _slow_build, raising=True)
+
+        parent_ids = await _run_vrt_creation(
+            test_db_session, raster_storage, member=member, user_id=admin_id
+        )
+        ids = (
+            parent_ids[0],
+            parent_ids[1],
+            member.dataset.id,
+            member.dataset.record_id,
+        )
+        try:
+            # The replacement committed mid-build.
+            await test_db_session.execute(
+                text(
+                    "UPDATE catalog.raster_assets SET ingested_at = :ts "
+                    "WHERE dataset_id = :id"
+                ),
+                {"ts": mid_build[0], "id": ids[2]},
+            )
+            await test_db_session.commit()
+
+            resp = await client.get(
+                f"/datasets/{ids[0]}/vrt/status/", headers=admin_auth_header
+            )
+            assert resp.status_code == 200, resp.text
+            statuses = [s["status"] for s in resp.json()["source_health"]]
+            assert statuses == ["stale"], (
+                f"a freshly CREATED VRT reports {statuses} for a member "
+                "replaced during its first build — the creation tail records "
+                "no snapshot instant, so the comparison falls back to a "
+                "publish-time stamp (#1290 round-10 finding 1)"
+            )
+        finally:
+            await _purge_vrt(test_db_session, ids=ids)
+
+    def test_both_tails_read_members_through_the_one_helper(self) -> None:
+        """Secondary to the discriminators, but cheap: neither tail may issue
+        its own member query, because that is how the ordering drifted."""
+        import ast
+        import inspect
+
+        from app.processing.ingest import tasks_vrt
+
+        tree = ast.parse(inspect.getsource(tasks_vrt))
+        for task_name in ("ingest_vrt", "regenerate_vrt"):
+            fn = next(
+                n
+                for n in ast.walk(tree)
+                if isinstance(n, (ast.AsyncFunctionDef, ast.FunctionDef))
+                and n.name == task_name
+            )
+            names = {
+                n.func.id
+                for n in ast.walk(fn)
+                if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+            }
+            assert "snapshot_member_sources" in names, (
+                f"{task_name} does not read its members through the shared "
+                "helper, so its stamp ordering is its own to get wrong "
+                "(#1290 round-10)"
+            )
