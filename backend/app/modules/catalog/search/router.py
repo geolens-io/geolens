@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
+from app.platform.assets.keys import is_public_asset_key
 from app.platform.extensions import get_catalog_port
 from app.modules.auth.dependencies import get_optional_user
 from app.modules.catalog.authorization import (
@@ -1221,6 +1222,11 @@ async def get_collection_item(
             "description": da.description,
         }
         for da in await get_catalog_port().get_dataset_assets(db, record_id)
+        # fix(#1290 review): filtered where the rows are FETCHED, so internal
+        # keys never enter a payload structure at all. The downstream builder
+        # applies the same boundary; having it here too means this module
+        # answers the pin on its own terms rather than by trusting a caller.
+        if is_public_asset_key(da.key)
     ]
 
     # Fetch raster metadata for STAC property enrichment (best-effort —
@@ -1316,6 +1322,10 @@ async def _bulk_fetch_dataset_metadata(
                 for da in await get_catalog_port().list_dataset_assets(
                     inner_db, all_dataset_ids
                 ):
+                    # fix(#1290 review): same boundary, same reason as the
+                    # item endpoint above.
+                    if not is_public_asset_key(da.key):
+                        continue
                     ds_key = str(da.dataset_id)
                     stac_assets.setdefault(ds_key, []).append(
                         {

@@ -211,13 +211,38 @@ async def archive_lossy_original(
         dataset_id, source_sha256=source_sha256, filename=filename
     )
     physical_key = resolve_current_storage_key(logical_key)
+    # fix(#1290 review): an INDETERMINATE probe must never make a pre-existing
+    # archive eligible for failure cleanup. Treating a transient `exists()`
+    # error as "did not exist" put the key into `written_storage_keys`, and a
+    # later swap failure then deleted an archive that belonged to an EARLIER
+    # SUCCESSFUL replacement — the last faithful original of a raster still
+    # being served.
+    #
+    # So the two answers are separated. `existed` stays None when the store
+    # could not say, and the write proceeds regardless: the key is
+    # content-derived, so writing the same bytes over the same key is
+    # effectively idempotent whether or not something was there. What does NOT
+    # happen is the key joining the reap set. The worst case is that a
+    # genuinely-new archive from a failed attempt leaks one bounded object,
+    # reclaimed when the dataset is deleted. That is the correct side to err
+    # on: a leaked object costs storage, a wrong delete costs the only
+    # lossless copy of someone's data.
+    #
+    # Considered and rejected: falling back to retain-in-place (skip the
+    # archive, keep the staged upload). It trades a bounded leak for a
+    # different unbounded one — the staged copy then survives in `staging/`,
+    # where the retention purge is entitled to remove it, so a probe blip
+    # would silently downgrade a permanent guarantee to a windowed one.
+    existed: bool | None
     try:
         existed = await get_storage().exists(physical_key)
     except Exception:  # broad: an unreadable store must not claim prior state
         logger.warning(
-            "archive_precheck_failed", dataset_id=str(dataset_id), key=logical_key
+            "archive_precheck_indeterminate",
+            dataset_id=str(dataset_id),
+            key=logical_key,
         )
-        existed = False
+        existed = None
 
     archived = await _archive_original_file(
         session,
@@ -234,7 +259,10 @@ async def archive_lossy_original(
         True,
         logical_key,
         os.path.getsize(file_path),
-        None if existed else physical_key,
+        # Only a probe that AFFIRMATIVELY said "absent" licenses reaping this
+        # key on failure. `None` — the store could not answer — declines, the
+        # same as `True`.
+        physical_key if existed is False else None,
     )
 
 
@@ -255,7 +283,7 @@ async def upsert_archived_original_row(
     that would drift, and it is cleaned by the same ``delete_dataset`` that
     already clears the object prefix.
 
-    The key is internal: ``PUBLIC_ASSET_KEYS`` in the search serializer keeps it
+    The key is internal: ``app.platform.assets.keys`` keeps it
     out of STAC responses, because the kept original is the higher-fidelity copy
     the operator chose not to serve.
 

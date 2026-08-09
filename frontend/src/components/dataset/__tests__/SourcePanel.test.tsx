@@ -3,7 +3,7 @@ import { useDatasetVersions } from '@/components/dataset/hooks/use-dataset';
 import { useVrtGenerations, useVrtSources, useVrtStatus } from '@/components/import/hooks/use-vrt';
 import { useAuthStore } from '@/stores/auth-store';
 import { SourcePanel } from '../SourcePanel';
-import type { DatasetResponse } from '@/types/api';
+import type { DatasetResponse, VrtSourceHealth } from '@/types/api';
 
 vi.mock('@/components/dataset/hooks/use-dataset', () => ({
   useDatasetVersions: vi.fn(),
@@ -415,5 +415,66 @@ describe('SourcePanel', () => {
     expect(useVrtSources).toHaveBeenCalledWith('');
     expect(useVrtStatus).toHaveBeenCalledWith('', false);
     expect(useVrtGenerations).toHaveBeenCalledWith('');
+  });
+
+  it('labels a VRT member whose own raster was replaced after the last build', () => {
+    // fix(#1290 review): `stale` is a real status the backend returns, and
+    // SourcePanel imports the HAND-MAINTAINED mirror in types/api.ts rather
+    // than the generated types — so the mirror has to learn the value or the
+    // UI cannot branch on it. The rendered label also proves the i18n key
+    // added in 939b155de is reachable rather than falling through as a raw key.
+    useAuthStore.setState({ token: 'test-token' });
+    // Annotated, NOT cast. The surrounding mocks go through
+    // `as unknown as ReturnType<...>`, which defeats type checking entirely —
+    // so a bare literal here would have proved nothing about the mirror. This
+    // binding is what makes `npm run typecheck` fail when types/api.ts does not
+    // know the value, which is this test's failing-first evidence.
+    const staleMember: VrtSourceHealth = {
+      dataset_id: 'member-1',
+      title: 'Elevation tile',
+      status: 'stale',
+    };
+    vi.mocked(useVrtSources).mockReturnValue({
+      data: {
+        sources: [{
+          dataset_id: 'member-1',
+          title: 'Elevation tile',
+          position: 0,
+          band_count: 1,
+          resolution_x: 0.25,
+          resolution_y: 0.25,
+          crs_epsg: 4326,
+          extent_bbox: null,
+        }],
+      },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useVrtSources>);
+    vi.mocked(useVrtStatus).mockReturnValue({
+      data: {
+        status: 'ready',
+        last_generation_at: '2026-08-02T00:00:00Z',
+        source_count: 1,
+        active_generation: null,
+        source_health: [staleMember],
+      },
+    } as unknown as ReturnType<typeof useVrtStatus>);
+    vi.mocked(useVrtGenerations).mockReturnValue({
+      data: { generations: [] },
+    } as unknown as ReturnType<typeof useVrtGenerations>);
+
+    render(
+      <SourcePanel
+        dataset={makeDataset({
+          origin: null,
+          origin_ref: null,
+          record_type: 'vrt_dataset',
+          raster: null,
+        })}
+      />,
+    );
+
+    expect(screen.getByText('Outdated')).toBeInTheDocument();
+    expect(screen.queryByText(/memberHealth\.stale/)).not.toBeInTheDocument();
   });
 });

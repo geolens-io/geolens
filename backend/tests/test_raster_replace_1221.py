@@ -2625,10 +2625,8 @@ class TestArchivedOriginalsAreCounted:
         turns a row into a live presigned download — so a counted row for the
         kept original would have handed every viewer the HIGHER-fidelity copy
         the operator chose not to serve."""
-        from app.modules.catalog.search.service_records import (
-            PUBLIC_ASSET_KEYS,
-            _build_stac_assets,
-        )
+        from app.modules.catalog.search.service_records import _build_stac_assets
+        from app.platform.assets.keys import PUBLIC_ASSET_KEYS
 
         rows = [
             {
@@ -3265,5 +3263,205 @@ class TestArchiveKeyIsDerivedFromANormalizedFilename:
                 "finding 3)"
             )
             assert "folder" not in href
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
+
+# ---------------------------------------------------------------------------
+# 13. Round-7 review findings (#1290)
+# ---------------------------------------------------------------------------
+
+
+class TestInternalAssetKeysNeverReachAnyResponse:
+    """FINDING 1. The allowlist guarded the search/STAC serializer only, so
+    `GET /datasets/{id}` — which builds its assets straight off the ORM rows —
+    leaked the archived original's href, filename and size to any viewer of a
+    public dataset. Enumerate the paths, then one boundary they all cross."""
+
+    async def test_dataset_detail_hides_the_archived_original(
+        self, client, admin_auth_header, test_db_session, raster_storage
+    ) -> None:
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+        await test_db_session.execute(
+            text(
+                "INSERT INTO catalog.dataset_assets "
+                "(dataset_id, key, href, size_bytes, media_type, title) VALUES "
+                "(:id, 'data', 'rasters/x/y/source.cog.tif', 10, 'image/tiff', 'COG'), "
+                "(:id, 'archived_original:abc123def456', "
+                "'originals/x/abc123def456-private-survey.tif', 99, 'image/tiff', "
+                "'Pre-conversion original')"
+            ),
+            {"id": dataset_id},
+        )
+        await test_db_session.commit()
+
+        try:
+            resp = await client.get(
+                f"/datasets/{dataset_id}", headers=admin_auth_header
+            )
+            assert resp.status_code == 200, resp.text
+            body = resp.text
+            assets = resp.json().get("stac_assets") or {}
+
+            leaked = [k for k in assets if k.startswith("archived_original")]
+            assert leaked == [], (
+                f"GET /datasets/{{id}} published internal asset keys {leaked} "
+                "(#1290 round-7 finding 1)"
+            )
+            # The filename is the part that leaks something about the owner
+            # even if the href is unresolvable.
+            assert "private-survey.tif" not in body
+            assert "data" in assets, "the public asset must still be served"
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
+    def test_every_dataset_asset_consumer_crosses_the_boundary(self) -> None:
+        """The structural pin, because three paths exist and a fourth is a
+        normal thing to add. Any module that fetches DatasetAsset rows must
+        either apply the allowlist itself or delegate to the one builder that
+        does — nothing may iterate rows into a payload on its own terms."""
+        import ast
+        from pathlib import Path as _P
+
+        root = _P("app")
+        offenders = []
+        for path in root.rglob("*.py"):
+            src = path.read_text()
+            if "get_dataset_assets" not in src and "list_dataset_assets" not in src:
+                continue
+            # The port itself and its default implementation are the fetch
+            # seam, not a serialization path.
+            if path.name in {"catalog_port.py", "defaults_catalog_port.py"}:
+                continue
+            names = {
+                node.id
+                for node in ast.walk(ast.parse(src))
+                if isinstance(node, ast.Name)
+            } | {
+                node.attr
+                for node in ast.walk(ast.parse(src))
+                if isinstance(node, ast.Attribute)
+            }
+            if not names & {"is_public_asset_key", "_build_stac_assets"}:
+                offenders.append(str(path))
+        assert offenders == [], (
+            "these modules turn dataset_assets rows into payloads without "
+            f"crossing the public-key boundary: {offenders} — add the filter or "
+            "route through _build_stac_assets (#1290 round-7 finding 1)"
+        )
+
+    def test_the_allowlist_lives_in_one_place(self) -> None:
+        from app.platform.assets.keys import PUBLIC_ASSET_KEYS, is_public_asset_key
+
+        assert is_public_asset_key("data") is True
+        assert is_public_asset_key("archived_original:abc123def456") is False
+        assert is_public_asset_key(None) is False
+        assert not any(k.startswith("archived_original") for k in PUBLIC_ASSET_KEYS)
+
+
+class TestIndeterminateProbeNeverArmsTheReap:
+    """FINDING 2. Treating a transient `exists()` error as "did not exist" put
+    the archive key into the failure-reap set, so a later swap failure deleted
+    an archive belonging to an EARLIER SUCCESSFUL replacement."""
+
+    async def test_a_probe_failure_does_not_make_an_archive_reapable(
+        self, test_db_session, raster_storage, tmp_path, monkeypatch
+    ) -> None:
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+        payload = _geotiff_bytes(seed=251)
+
+        try:
+            # 1. A successful lossy replace archives these bytes.
+            first = tmp_path / "p1" / "scene.tif"
+            first.parent.mkdir()
+            first.write_bytes(payload)
+            job = await _queue_replace_job(
+                test_db_session,
+                dataset_id=dataset_id,
+                user_id=admin_id,
+                file_path=str(first),
+            )
+            job.user_metadata = {**(job.user_metadata or {}), "compression": "JPEG"}
+            await test_db_session.commit()
+            await reupload_raster.func(
+                job_id=str(job.id),
+                dataset_id=str(dataset_id),
+                file_path=str(first),
+                user_id=str(admin_id),
+                attempt_id=str(job.attempt_id),
+            )
+            kept = await raster_storage.list(f"originals/{dataset_id}/")
+            assert len(kept) == 1
+            good_key = kept[0]
+
+            # 2. A second attempt with the SAME bytes, whose existence probe
+            #    blows up and whose swap then fails.
+            second = tmp_path / "p2" / "scene.tif"
+            second.parent.mkdir()
+            second.write_bytes(payload)
+            job2 = await _queue_replace_job(
+                test_db_session,
+                dataset_id=dataset_id,
+                user_id=admin_id,
+                file_path=str(second),
+            )
+            job2.user_metadata = {
+                **(job2.user_metadata or {}),
+                "compression": "JPEG",
+            }
+            await test_db_session.commit()
+
+            real_exists = raster_storage.exists
+
+            async def _flaky_exists(key):
+                if "originals/" in key:
+                    raise RuntimeError("object store had a moment")
+                return await real_exists(key)
+
+            monkeypatch.setattr(raster_storage, "exists", _flaky_exists)
+
+            async def _die(*args, **kwargs):
+                raise RuntimeError("swap died after the archive")
+
+            monkeypatch.setattr(
+                "app.processing.ingest.tasks_raster_replace.record_refresh_success",
+                _die,
+                raising=True,
+            )
+            with pytest.raises(RuntimeError, match="died after the archive"):
+                await reupload_raster.func(
+                    job_id=str(job2.id),
+                    dataset_id=str(dataset_id),
+                    file_path=str(second),
+                    user_id=str(admin_id),
+                    attempt_id=str(job2.attempt_id),
+                )
+
+            monkeypatch.setattr(raster_storage, "exists", real_exists)
+            assert await raster_storage.exists(good_key), (
+                "an indeterminate exists() probe armed the failure reap and it "
+                "deleted the archive of an earlier SUCCESSFUL replacement — the "
+                "last faithful original of a raster still being served "
+                "(#1290 round-7 finding 2)"
+            )
+            assert await raster_storage.get(good_key) == payload
         finally:
             await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)

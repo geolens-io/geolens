@@ -141,20 +141,6 @@ def build_assets(
     return assets
 
 
-# fix(#1290 review): an ALLOWLIST, not a denylist. `_build_stac_assets` used to
-# publish every `dataset_assets` row it was handed, so adding any internal key
-# would have advertised it — and on a published S3 deployment `resolve_asset_url`
-# turns an asset row into a live presigned download. The first internal key is
-# `archived_original`: the pre-conversion upload kept when a conversion was
-# lossy, which is the HIGHER-fidelity copy the operator chose not to serve.
-# Publishing it would hand every viewer the original the COG deliberately
-# replaced. Listing what is public rather than what is not means the next
-# internal key is private by default instead of by memory.
-PUBLIC_ASSET_KEYS: frozenset[str] = frozenset(
-    {"data", "vrt", "thumbnail", "overview", "metadata"}
-)
-
-
 def _build_stac_assets(
     asset_rows: list[dict] | None,
     *,
@@ -169,9 +155,14 @@ def _build_stac_assets(
 
     from app.platform.assets.urls import resolve_asset_url
 
+    from app.platform.assets.keys import is_public_asset_key
+
     result = {}
     for row in asset_rows:
-        if row["key"] not in PUBLIC_ASSET_KEYS:
+        # fix(#1290 review): the one shared boundary — see
+        # app/platform/assets/keys.py for why it is an allowlist and which
+        # paths cross it.
+        if not is_public_asset_key(row["key"]):
             continue
         resolved_href = resolve_asset_url(
             row["href"],

@@ -1691,7 +1691,12 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # from naming a source or mask layer the requester cannot open. The
         # list builder takes the batch form deliberately: one visibility query
         # for the page rather than one per row. Cap 404 -> 419, no headroom.
-        "backend/app/modules/catalog/datasets/domain/service_query.py": 419,
+        # fix(#1290 review): +7 — the public-asset-key boundary. Rows are
+        # filtered where they are FETCHED so an internal key never enters a
+        # payload structure; `GET /datasets/{id}` had been building its assets
+        # straight off the ORM rows and leaked the archived original's href and
+        # filename to every viewer. Cap 419 -> 426, exact.
+        "backend/app/modules/catalog/datasets/domain/service_query.py": 426,
         # Phase 276 CODE-02: chat_*.py sub-modules are all under the 350
         # default (largest is chat_actions.py at ~245 LOC). No explicit
         # per-file overrides needed; default applies.
@@ -2618,7 +2623,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # check_dataset_access_or_anonymous already resolved; the list endpoint
     # takes the batch form, one visibility query per page. Cap 1427 -> 1440,
     # still exact.
-    "backend/app/modules/catalog/search/router.py": 1440,
+    # fix(#1290 review): +10 — the public-asset-key boundary. Rows are
+    # filtered where they are FETCHED so an internal key never enters a
+    # payload structure; `GET /datasets/{id}` had been building its assets
+    # straight off the ORM rows and leaked the archived original's href and
+    # filename to every viewer. Cap 1440 -> 1450, exact.
+    "backend/app/modules/catalog/search/router.py": 1450,
     # fix(#474): negotiate localized STAC record text; fix(#475) adds the
     # unassigned Collection and matching HTTP Link navigation. fix(#506): keep
     # validated STAC item responses wire-compatible with serializer output.

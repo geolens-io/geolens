@@ -214,7 +214,7 @@ class DatasetAsset(Base):
         makes the key per-archive, so every kept original is counted rather
         than only the newest. INTERNAL — it exists so the per-user storage sum
         can see those bytes, and it is deliberately not published as a STAC
-        asset; see ``PUBLIC_ASSET_KEYS``.
+        asset; see ``app.platform.assets.keys``.
     """
 
     __tablename__ = "dataset_assets"
