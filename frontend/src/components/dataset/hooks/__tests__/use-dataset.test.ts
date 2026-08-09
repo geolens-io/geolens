@@ -364,6 +364,12 @@ describe('useDatasetRefreshWatch', () => {
     queryKeys.maps.columnValuesPrefix('ds-1'),
     queryKeys.maps.columnStatsPrefix('ds-1'),
     queryKeys.search.all,
+    // fix(#1285 codex round 5): staleTime Infinity, feeds the persistent
+    // ingest-warnings banner (mirrors useReuploadCommit's own invalidation).
+    queryKeys.ingest.jobStatusByDataset('ds-1'),
+    // fix(#1285 codex round 5): the joined related-record rows a mounted
+    // RelatedRecordsPanel section renders — stale after a data replace.
+    queryKeys.relationships.recordsPrefix('ds-1'),
   ];
 
   function renderWithClient() {
@@ -419,7 +425,11 @@ describe('useDatasetRefreshWatch', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it('does not invalidate for a run that was never tracked, even if it is terminal', async () => {
+  it('does not invalidate for a run that is ALREADY terminal on the very first observation and was never dispatched from here', async () => {
+    // Distinct from the "fast dispatch" case below: nothing was cached
+    // before this run completed from this hook's perspective (a fresh
+    // mount/page load), so there is nothing stale to invalidate — and
+    // trackDispatchedRun is never called, so rule (b) can't fire either.
     mockGetDatasetRefreshRuns.mockResolvedValue({
       runs: [makeRun({ id: 'run-1', status: 'succeeded' })],
       total: 1,
@@ -428,7 +438,46 @@ describe('useDatasetRefreshWatch', () => {
     const spy = vi.spyOn(qc, 'invalidateQueries');
 
     await waitFor(() => expect(result.current.latestRun?.id).toBe('run-1'));
-    // trackDispatchedRun is never called — nothing was dispatched from here.
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  // fix(#1285 codex round 5): the core round-5 bug. Round 4 gated the whole
+  // invalidation effect on `latestRunId === dispatchedRunId`, so a run this
+  // hook never dispatched — the CLI, another editor's session, or one
+  // already active when this hook mounted — could transition all the way to
+  // terminal under this hook's OWN continuous polling and invalidate
+  // nothing. dispatchedRunId stays null for the hook's entire lifetime here.
+  it('invalidates everything when an OBSERVED run transitions active -> terminal, even though this hook never dispatched it', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mockGetDatasetRefreshRuns.mockResolvedValue({
+        runs: [makeRun({ id: 'run-external', status: 'running' })],
+        total: 1,
+      });
+      const { result, qc } = renderWithClient();
+      const spy = vi.spyOn(qc, 'invalidateQueries');
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(result.current.latestRun?.id).toBe('run-external');
+      expect(result.current.isBusy).toBe(true);
+      expect(spy).not.toHaveBeenCalled();
+
+      // useDatasetRefreshRuns polls every 5s while the latest run is active.
+      mockGetDatasetRefreshRuns.mockResolvedValue({
+        runs: [makeRun({ id: 'run-external', status: 'succeeded' })],
+        total: 1,
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6_000);
+      });
+
+      for (const queryKey of DATA_DERIVED_KEYS) {
+        expect(spy).toHaveBeenCalledWith({ queryKey });
+      }
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

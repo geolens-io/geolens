@@ -389,6 +389,12 @@ describe('queryKeys factory', () => {
         'related-records', 'abc', 42, 'rel1',
       ]);
     });
+
+    it('recordsPrefix is a prefix of records for any featureGid/relationshipId', () => {
+      expect(queryKeys.relationships.recordsPrefix('abc')).toEqual(['related-records', 'abc']);
+      const full = queryKeys.relationships.records('abc', 42, 'rel1');
+      expect(full.slice(0, 2)).toEqual(queryKeys.relationships.recordsPrefix('abc'));
+    });
   });
 
   // -------------------------------------------------------------------------

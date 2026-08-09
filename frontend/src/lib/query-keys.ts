@@ -293,6 +293,11 @@ export const queryKeys = {
     list: (datasetId: string) => ['dataset-relationships', datasetId] as const,
     records: (datasetId: string, featureGid: number, relationshipId: string) =>
       ['related-records', datasetId, featureGid, relationshipId] as const,
+    // fix(#1285 codex round 5): records() is parameterized by featureGid and
+    // relationshipId, neither of which a dataset-level cache sweep has — this
+    // is the prefix that invalidates every cached related-record entry for
+    // the dataset regardless of which feature/relationship it was fetched for.
+    recordsPrefix: (datasetId: string) => ['related-records', datasetId] as const,
   },
 
   // -------------------------------------------------------------------------

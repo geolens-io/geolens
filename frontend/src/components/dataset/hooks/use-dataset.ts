@@ -268,6 +268,10 @@ export interface DatasetRefreshWatch {
   trackDispatchedRun: (runId: string) => void;
 }
 
+function isRunActive(status: string | undefined): boolean {
+  return status === 'pending' || status === 'running';
+}
+
 /**
  * fix(#1285 codex round 4): SourceRefreshAction used to own this tracking
  * itself, but it lives inside the "sources" TabsContent, and Radix Tabs
@@ -279,34 +283,98 @@ export interface DatasetRefreshWatch {
  * calls `trackDispatchedRun` with the run_id from its 202 and reads
  * `latestRun`/`isBusy` back as props.
  *
- * On the tracked run's first observed terminal status, invalidates the full
- * set of caches derived from this dataset's DATA (not just its metadata
- * row) — mirroring `invalidateColumnCaches` / `invalidateFeatureDerived` in
- * `use-features.ts`, the existing precedent for "this dataset's rows just
- * changed": detail (freshness/health/last_refreshed_at/feature_count),
- * versions (a successful service refresh writes one), rows (the Data tab),
- * column value/stat caches (filter pickers), validation (quality score can
- * move), and search summaries. A postgis refresh does not write a version
- * and a failed run changes nothing, but invalidating unconditionally is a
- * harmless unchanged refetch — cheaper than branching on run shape twice.
+ * fix(#1285 codex round 5): round 4 gated the whole invalidation effect on
+ * `latestRunId === dispatchedRunId`, so a run this hook never dispatched —
+ * kicked off from the CLI, another editor's tab, or already in flight when
+ * this hook mounted (a page navigation, a reload) — could transition all
+ * the way to terminal under continuous polling and invalidate nothing. This
+ * hook's job is "keep the page consistent with refresh activity for this
+ * dataset", not "track my own dispatch", so the transition check below no
+ * longer requires having dispatched anything. `dispatchedRunId` is kept for
+ * exactly one remaining case: a strategy fast enough to already be terminal
+ * on the very FIRST observation (round 3 — a postgis remeasurement can
+ * finish in under a second), where no active→terminal transition is ever
+ * observed to catch. Two independent triggers, either one fires the same
+ * invalidation, and `invalidatedRunIdRef` makes it idempotent per run id:
+ *   (a) wasActive && !isActive  — any run this hook watched go active→terminal,
+ *       regardless of who dispatched it;
+ *   (b) latestRunId === dispatchedRunId && !isActive — OUR dispatch, terminal
+ *       on the first poll that ever saw it, never observed active.
  */
 export function useDatasetRefreshWatch(datasetId: string): DatasetRefreshWatch {
   const queryClient = useQueryClient();
   const [dispatchedRunId, setDispatchedRunId] = useState<string | null>(null);
+  const wasActiveRef = useRef(false);
   const invalidatedRunIdRef = useRef<string | null>(null);
 
   const { data: runsData } = useDatasetRefreshRuns(datasetId, { limit: 1 });
   const latestRun = runsData?.runs[0];
   const latestRunId = latestRun?.id;
   const latestRunStatus = latestRun?.status;
-  const isBusy = latestRunStatus === 'pending' || latestRunStatus === 'running';
+  const isBusy = isRunActive(latestRunStatus);
 
   useEffect(() => {
-    if (!latestRunId || latestRunId !== dispatchedRunId) return;
-    if (latestRunStatus === 'pending' || latestRunStatus === 'running') return;
+    const active = isRunActive(latestRunStatus);
+    const wasActive = wasActiveRef.current;
+    wasActiveRef.current = active;
+
+    if (!latestRunId || active) return;
+    const transitionedToTerminal = wasActive;
+    const ourDispatchTerminalOnFirstObservation = latestRunId === dispatchedRunId;
+    if (!transitionedToTerminal && !ourDispatchTerminalOnFirstObservation) return;
     if (invalidatedRunIdRef.current === latestRunId) return;
     invalidatedRunIdRef.current = latestRunId;
 
+    // fix(#1285 codex round 5): the full sweep of caches derived from this
+    // dataset's DATA. query-keys.ts's own header notes there is no single
+    // shared root across dataset-scoped keys ("Some domains use different
+    // roots for list vs detail"), confirmed by walking every entry in the
+    // file — so this is an EXHAUSTIVE enumeration, not a prefix shortcut.
+    //
+    // Included, and why:
+    //   - detail: freshness/health/last_refreshed_at/feature_count/extent.
+    //   - versionsPrefix: a successful SERVICE refresh writes a version
+    //     (tasks_reupload.py); a postgis run does not, but invalidating
+    //     unconditionally just costs an unchanged refetch.
+    //   - rowsPrefix: the Data tab's table.
+    //   - attributes: data_type/example_values/is_nullable are computed
+    //     from the live columns and can move on schema drift.
+    //   - validation: the quality score is computed from the data.
+    //   - maps.columnValuesPrefix / columnStatsPrefix: filter-picker caches
+    //     over the live column distribution (mirrors invalidateColumnCaches
+    //     in use-features.ts, the same-class precedent for "this dataset's
+    //     rows changed").
+    //   - search.all: catalog search result summaries.
+    //   - ingest.jobStatusByDataset: staleTime Infinity, feeds the
+    //     persistent ingest-warnings banner (mirrors useReuploadCommit's own
+    //     onSuccess a few lines up — a refresh is an ingest-adjacent
+    //     operation on this dataset exactly like a reupload).
+    //   - relationships.recordsPrefix: the actual joined related-record
+    //     ROWS a RelatedRecordsPanel section renders, fetched by feature —
+    //     genuinely stale after a data replace.
+    //
+    // Considered and excluded, and why:
+    //   - refreshRunsPrefix: this IS the query driving this effect; already
+    //     the freshest data there is, nothing to invalidate.
+    //   - datasets.history: an AUDIT LOG of metadata edits (getDatasetHistory
+    //     -> AuditLogListResponse), not touched by a source-data refresh.
+    //   - datasets.related / datasets.maps: declared dataset-to-dataset
+    //     relationships and map-membership lists — not recomputed from row
+    //     data. datasets.all exists only to alias these two under the
+    //     shared 'datasets' root (see useUpdateDataset), so it adds nothing
+    //     once both are excluded.
+    //   - relationships.list: the relationship DEFINITION (source/target
+    //     column) is user-configured, not recomputed by a refresh.
+    //   - search.facets / search.summary: different root than search.all
+    //     (['facets', params] / ['catalog-summary'], not ['search', ...]) —
+    //     confirmed no existing "this dataset's data changed" mutation in
+    //     this codebase touches them either (invalidateFeatureDerived does
+    //     not), so this does not invent a wider net than that precedent.
+    //   - tileTokens.*: the credential doesn't change; the backend already
+    //     busts tile caches with a version-bumped URL carried on the (already
+    //     invalidated) detail response.
+    //   - vrt.* / ogcRecords.* / collections.* / admin.* / settings.* /
+    //     everything else in query-keys.ts: different domain entirely.
     queryClient.invalidateQueries({ queryKey: queryKeys.datasets.detail(datasetId) });
     queryClient.invalidateQueries({ queryKey: queryKeys.datasets.versionsPrefix(datasetId) });
     queryClient.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(datasetId) });
@@ -315,6 +383,8 @@ export function useDatasetRefreshWatch(datasetId: string): DatasetRefreshWatch {
     queryClient.invalidateQueries({ queryKey: queryKeys.maps.columnValuesPrefix(datasetId) });
     queryClient.invalidateQueries({ queryKey: queryKeys.maps.columnStatsPrefix(datasetId) });
     queryClient.invalidateQueries({ queryKey: queryKeys.search.all });
+    queryClient.invalidateQueries({ queryKey: queryKeys.ingest.jobStatusByDataset(datasetId) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.relationships.recordsPrefix(datasetId) });
   }, [latestRunId, latestRunStatus, dispatchedRunId, datasetId, queryClient]);
 
   const trackDispatchedRun = useCallback((runId: string) => {
