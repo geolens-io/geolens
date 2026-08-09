@@ -1591,9 +1591,15 @@ Decision 7).
 Two things about a conversion can make the COG an unfaithful copy, and either
 one causes the upload to be kept.
 
-**Compression.** The import form lets the uploader choose. Three options are
-lossless — **DEFLATE** (the default), **LZW**, **ZSTD** — and three discard
-image detail to save space: **JPEG**, **WEBP**, **LERC**.
+**Compression.** The import form lets the uploader choose. Four options are
+lossless — **DEFLATE** (the default), **LZW**, **ZSTD**, **LERC** — and two
+discard image detail to save space: **JPEG** and **WEBP**.
+
+LERC is lossless here because GeoLens never sets an error bound on it. LERC can
+be tuned to throw away precision, but that is the GDAL creation option
+`MAX_Z_ERROR`, its default is zero, and the conversion pipeline does not pass
+it. So a LERC upload keeps its exact sample values and is treated like any other
+lossless conversion.
 
 **Reprojection.** Supplying a CRS override reprojects the raster, which
 resamples every pixel onto a new grid. The output is a faithful *rendering* but

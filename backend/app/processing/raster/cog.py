@@ -30,10 +30,24 @@ _WRAP_PROBE_MIN_DEGREES = 1.0
 # the worker straight off `RasterCommitRequest` with no server-side vocabulary
 # check, so a value nothing here recognises has to fall on the "assume lossy,
 # keep the original" side. Getting that backwards deletes the only lossless
-# copy of a raster. The import UI currently offers three of these plus JPEG,
-# WEBP and LERC, which are exactly the ones that must NOT appear here.
+# copy of a raster. The import UI currently offers four of these plus JPEG and
+# WEBP, which are the two that must NOT appear here.
+#
+# LERC is here on a condition, and the condition is a fact about our own argv
+# rather than about the codec. LERC's error bound is the GTiff creation option
+# MAX_Z_ERROR, whose default is 0 — exact — and `convert_to_cog` never passes
+# it, so a LERC conversion reproduces the base samples bit for bit. Verified
+# three ways: the GDAL docs
+# (https://gdal.org/en/stable/drivers/raster/gtiff.html#creation-options), the
+# deployed GDAL 3.10.3's own declaration (`gdalinfo --format GTiff` reports
+# MAX_Z_ERROR and MAX_Z_ERROR_OVERVIEW with default="0"), and a float32
+# round-trip through this module's exact argv, which came back identical.
+# The moment someone passes a nonzero MAX_Z_ERROR this entry is wrong, so it
+# is pinned: `test_lerc_stays_lossless_only_while_no_error_bound_is_set` fails
+# on that edit rather than leaving it to be discovered after an original has
+# already been deleted.
 LOSSLESS_COG_COMPRESSIONS: frozenset[str] = frozenset(
-    {"NONE", "DEFLATE", "LZW", "ZSTD", "PACKBITS", "LZMA"}
+    {"NONE", "DEFLATE", "LZW", "ZSTD", "PACKBITS", "LZMA", "LERC"}
 )
 
 
@@ -53,7 +67,10 @@ def cog_preserves_source(
     The audit of everything ``convert_to_cog`` can apply, so the next reader
     does not have to redo it:
 
-    - **compression** — JPEG, WEBP and LERC discard detail. Sample-altering.
+    - **compression** — JPEG and WEBP discard detail. Sample-altering. LERC
+      does not, at the zero error bound this pipeline leaves in place; the
+      condition that keeps that true is spelled out on
+      ``LOSSLESS_COG_COMPRESSIONS``.
     - **assign_crs** — runs ``gdalwarp -t_srs``, which resamples the raster
       onto a new grid. Every output pixel is interpolated from neighbours, so
       the source's samples are gone even under DEFLATE. Sample-altering, and

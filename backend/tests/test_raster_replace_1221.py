@@ -1210,23 +1210,103 @@ class TestVrtMemberStaleness:
 class TestLossyConversionRetainsSource:
     """FINDING 1. Decision 7 licenses deleting the upload because "conversion is
     lossless" — a claim about the profile that ran, not about conversion. The
-    import UI offers JPEG, WEBP and LERC alongside the lossless three, and under
-    those the COG has discarded detail the upload carried, which makes the
-    upload the only lossless original that ever existed."""
+    import UI offers JPEG and WEBP alongside the lossless four, and under those
+    the COG has discarded detail the upload carried, which makes the upload the
+    only lossless original that ever existed."""
 
     @pytest.mark.parametrize(
-        "compression", ["DEFLATE", "deflate", "LZW", "ZSTD", "NONE"]
+        "compression", ["DEFLATE", "deflate", "LZW", "ZSTD", "NONE", "LERC", "lerc"]
     )
     def test_lossless_profiles_supersede_the_upload(self, compression: str) -> None:
         from app.processing.raster.cog import cog_preserves_source
 
         assert cog_preserves_source("converted", compression) is True
 
-    @pytest.mark.parametrize("compression", ["JPEG", "WEBP", "LERC", "jpeg"])
+    @pytest.mark.parametrize("compression", ["JPEG", "WEBP", "jpeg"])
     def test_lossy_profiles_do_not(self, compression: str) -> None:
         from app.processing.raster.cog import cog_preserves_source
 
         assert cog_preserves_source("converted", compression) is False
+
+    def test_lerc_is_judged_on_the_error_bound_we_actually_use(self) -> None:
+        """fix(#1290 review): LERC was on the lossy side out of caution, and the
+        caution was misplaced. LERC only discards precision when it is given an
+        error bound, that bound is the GTiff creation option ``MAX_Z_ERROR``,
+        its default is 0, and ``convert_to_cog`` passes nothing — so the base
+        samples survive the conversion exactly. Charging a LERC upload for a
+        second permanent copy (and rejecting large ones whose quota fits one
+        copy but not two) was paying for a loss that never happened.
+        """
+        from app.processing.raster.cog import (
+            LOSSLESS_COG_COMPRESSIONS,
+            cog_preserves_source,
+        )
+
+        assert "LERC" in LOSSLESS_COG_COMPRESSIONS
+        assert cog_preserves_source("converted", "LERC") is True
+        # The two that genuinely do throw detail away stay put.
+        assert "JPEG" not in LOSSLESS_COG_COMPRESSIONS
+        assert "WEBP" not in LOSSLESS_COG_COMPRESSIONS
+
+    def test_reprojected_lerc_still_keeps_the_original(self) -> None:
+        """The codec is one of two independent ways to lose the source, and
+        this change touches only the codec. A warp resamples every pixel
+        whatever it is then compressed with.
+        """
+        from app.processing.raster.cog import cog_preserves_source
+
+        assert cog_preserves_source("converted", "LERC", reprojected=True) is False
+
+    def test_lerc_stays_lossless_only_while_no_error_bound_is_set(self) -> None:
+        """LERC's place on the allowlist is conditional on our own argv.
+
+        ``MAX_Z_ERROR`` is what turns LERC lossy, and GDAL's default of 0 is the
+        entire reason LERC can sit in ``LOSSLESS_COG_COMPRESSIONS``. A docstring
+        saying so is a checklist someone may not read, so the classification is
+        bound here to the fact it depends on: add the knob and this fails,
+        instead of the pipeline quietly deleting originals it just degraded.
+
+        Non-docstring string literals only — ``cog.py`` names the option in
+        prose deliberately, and a text grep would fire on that.
+        """
+        import ast
+        import inspect
+
+        from app.processing.raster import cog
+
+        tree = ast.parse(inspect.getsource(cog))
+        docstrings = {
+            id(node.body[0].value)
+            for node in ast.walk(tree)
+            if isinstance(
+                node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+            )
+            and node.body
+            and isinstance(node.body[0], ast.Expr)
+            and isinstance(node.body[0].value, ast.Constant)
+            and isinstance(node.body[0].value.value, str)
+        }
+        # f-string pieces are Constants under a JoinedStr, so an interpolated
+        # `f"MAX_Z_ERROR={x}"` is caught by the same walk.
+        offenders = sorted(
+            node.value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and id(node) not in docstrings
+            and "MAX_Z_ERROR" in node.value
+        )
+        if "LERC" not in cog.LOSSLESS_COG_COMPRESSIONS:
+            return  # LERC is treated as lossy again; the error bound is free.
+        assert not offenders, (
+            f"cog.py sets a LERC error bound ({', '.join(offenders)}) while LERC is "
+            "in LOSSLESS_COG_COMPRESSIONS. Both cannot be true: a nonzero "
+            "MAX_Z_ERROR makes the conversion lossy, and the allowlist then "
+            "licenses deleting the only faithful copy of the upload. Either leave "
+            "the bound at GDAL's default of 0 and pass nothing, or drop LERC from "
+            "LOSSLESS_COG_COMPRESSIONS so it archives the original the way JPEG "
+            "and WEBP do."
+        )
 
     def test_unrecognised_profile_is_treated_as_lossy(self) -> None:
         """The allowlist's direction is the point: `compression` reaches the
