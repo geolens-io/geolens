@@ -15,6 +15,9 @@ import type {
   ReuploadCommitRequest,
   ReuploadCommitResponse,
   DatasetVersionListResponse,
+  DatasetRefreshRequest,
+  DatasetRefreshResponse,
+  DatasetRefreshRunListResponse,
   AttributeMetadataListResponse,
   AttributeMetadataResponse,
   AttributeMetadataUpdate,
@@ -277,6 +280,28 @@ export async function getDatasetVersions(
   if (params.limit !== undefined) query.set('limit', String(params.limit));
   const qs = query.toString();
   return apiFetch<DatasetVersionListResponse>(`/datasets/${datasetId}/versions/${qs ? `?${qs}` : ''}`);
+}
+
+export async function refreshDataset(
+  datasetId: string,
+  token?: string,
+): Promise<DatasetRefreshResponse> {
+  const payload: DatasetRefreshRequest = { token: token ?? null };
+  return apiFetch<DatasetRefreshResponse>(`/datasets/${datasetId}/refresh`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getDatasetRefreshRuns(
+  datasetId: string,
+  params: { skip?: number; limit?: number } = {},
+): Promise<DatasetRefreshRunListResponse> {
+  const query = new URLSearchParams();
+  if (params.skip !== undefined) query.set('skip', String(params.skip));
+  if (params.limit !== undefined) query.set('limit', String(params.limit));
+  const qs = query.toString();
+  return apiFetch<DatasetRefreshRunListResponse>(`/datasets/${datasetId}/refresh-runs${qs ? `?${qs}` : ''}`);
 }
 
 export async function listAttributes(datasetId: string): Promise<AttributeMetadataListResponse> {

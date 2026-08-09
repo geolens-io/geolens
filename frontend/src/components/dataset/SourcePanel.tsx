@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { AlertCircle, Loader2 } from 'lucide-react';
-import { useDatasetVersions } from '@/components/dataset/hooks/use-dataset';
+import { useDatasetRefreshRuns, useDatasetVersions } from '@/components/dataset/hooks/use-dataset';
 import { OriginBadge, datasetOrigin } from '@/components/dataset/OriginBadge';
 import { useVrtGenerations, useVrtSources, useVrtStatus } from '@/components/import/hooks/use-vrt';
 import { Badge } from '@/components/ui/badge';
@@ -17,7 +17,12 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { formatDateTimeSmart, formatNumber } from '@/lib/format';
-import { healthDotColors, semanticBadgeColors, vrtGenerationColors } from '@/lib/status-colors';
+import {
+  healthDotColors,
+  refreshRunStatusColors,
+  semanticBadgeColors,
+  vrtGenerationColors,
+} from '@/lib/status-colors';
 import { useAuthStore } from '@/stores/auth-store';
 import type {
   DatasetOrigin,
@@ -31,7 +36,9 @@ import type {
 
 export interface SourcePanelProps {
   dataset: DatasetResponse;
-  /** Reserved for a future source action. The read-only #1225 integration passes nothing. */
+  /** Injected by the caller (DetailPanel wires the #1285 "Refresh from
+   *  source" action here, gated on canEdit and a resolvable origin). The
+   *  read-only #1225 integration passed nothing. */
   actions?: ReactNode;
 }
 
@@ -251,6 +258,64 @@ function SourceHistory({ dataset }: { dataset: DatasetResponse }) {
                     })}`
                   : ''}
               </p>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Read-only history of refresh attempts (#1285), including failures — the
+ * durable record `SourceRefreshAction` dispatches into via `POST .../refresh`
+ * and that its dataset_busy gating reads back from. Visible to anyone who can
+ * see the dataset at all; the backend redacts triggered_by/error detail for
+ * non-owner, non-admin readers rather than hiding the section outright.
+ */
+function RefreshRunHistory({ dataset }: { dataset: DatasetResponse }) {
+  const { t, i18n } = useTranslation('dataset');
+  const { data, isLoading, isError } = useDatasetRefreshRuns(dataset.id, { limit: 5 });
+  const runs = data?.runs ?? [];
+
+  return (
+    <section aria-labelledby="refresh-history-heading" className="space-y-3">
+      <h2 id="refresh-history-heading" className="text-base font-semibold">
+        {t('sourcePanel.refresh.history.title')}
+      </h2>
+      {isLoading ? (
+        <div className="space-y-2" aria-label={t('sourcePanel.refresh.history.loading')}>
+          <Skeleton className="h-14 w-full" />
+        </div>
+      ) : isError ? (
+        <p className="text-sm text-muted-foreground">{t('sourcePanel.refresh.history.loadFailed')}</p>
+      ) : runs.length === 0 ? (
+        <p className="text-sm text-muted-foreground">{t('sourcePanel.refresh.history.empty')}</p>
+      ) : (
+        <ol className="space-y-3">
+          {runs.map((run) => (
+            <li key={run.id} className="border-s-2 border-muted ps-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className={refreshRunStatusColors[run.status] ?? ''}>
+                  {t(`sourcePanel.refresh.history.status.${run.status}`, { defaultValue: run.status })}
+                </Badge>
+                <Badge variant="secondary">{run.origin_kind}</Badge>
+              </div>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {formatDateTimeSmart(run.started_at)}
+                {run.feature_count_before != null && run.feature_count_after != null
+                  ? ` · ${t('sourcePanel.refresh.history.featureDelta', {
+                      before: run.feature_count_before.toLocaleString(i18n.language),
+                      after: run.feature_count_after.toLocaleString(i18n.language),
+                    })}`
+                  : ''}
+                {run.triggered_by_username
+                  ? ` · ${t('sourcePanel.refresh.history.triggeredBy', { username: run.triggered_by_username })}`
+                  : ''}
+              </p>
+              {run.status === 'failed' && run.error_message && (
+                <p className="mt-1 text-xs text-destructive">{run.error_message}</p>
+              )}
             </li>
           ))}
         </ol>
@@ -502,7 +567,12 @@ export function SourcePanel({ dataset, actions }: SourcePanelProps) {
       {isVrt ? (
         <VrtSection dataset={dataset} isAuthenticated={isAuthenticated} />
       ) : (
-        <SourceHistory dataset={dataset} />
+        <>
+          <SourceHistory dataset={dataset} />
+          {/* Gated the same way SourceRefreshAction is: no origin, nothing
+              could ever have been refreshed, so no history to show. */}
+          {origin && <RefreshRunHistory dataset={dataset} />}
+        </>
       )}
     </div>
   );

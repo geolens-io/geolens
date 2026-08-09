@@ -61,6 +61,17 @@ export const vrtGenerationColors: Record<string, string> = {
   failed: semanticBadgeColors.destructive,
 };
 
+/** Dataset refresh run outcome (#1285). `status` is a plain string on the
+ *  wire (see DatasetRefreshRunResponse), so an unrecognized future value
+ *  falls through to the neutral "cancelled" treatment via `?? ''`. */
+export const refreshRunStatusColors: Record<string, string> = {
+  pending: semanticBadgeColors.warning,
+  running: semanticBadgeColors.info,
+  succeeded: semanticBadgeColors.success,
+  failed: semanticBadgeColors.destructive,
+  cancelled: 'border-border bg-muted text-muted-foreground',
+};
+
 export const activeDotColor = {
   true:  'bg-success',
   false: 'bg-destructive',

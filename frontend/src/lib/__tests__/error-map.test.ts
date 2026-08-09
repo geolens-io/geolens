@@ -59,6 +59,65 @@ describe('API error localization boundary', () => {
     );
   });
 
+  it('collapses the refresh door refusal taxonomy to one key per code, regardless of call site', () => {
+    // Two different resolvers (service vs. postgis) word refresh_not_applicable
+    // differently; both must land on the same user-facing message.
+    expect(
+      classifyApiError(
+        {
+          code: 'refresh_not_applicable',
+          message: 'This dataset has no remote service origin to refresh from. Replace its data through re-upload instead.',
+        },
+        409,
+      ),
+    ).toEqual({ key: 'errors.refreshNotApplicable' });
+    expect(
+      classifyApiError(
+        {
+          code: 'refresh_not_applicable',
+          message: 'This dataset is not backed by a registered table, so there is nothing to re-measure.',
+        },
+        409,
+      ),
+    ).toEqual({ key: 'errors.refreshNotApplicable' });
+
+    expect(
+      classifyApiError(
+        {
+          code: 'dataset_busy',
+          message: 'A refresh is already running for this dataset. Wait for it to finish, then try again.',
+        },
+        409,
+      ),
+    ).toEqual({ key: 'errors.refreshDatasetBusy' });
+  });
+
+  it('interpolates the dynamic token policy for invalid_service_token without a static key', () => {
+    const detail = {
+      code: 'invalid_service_token',
+      message: 'This service requires a base64url token (letters, digits, "-", "_").',
+    };
+
+    expect(classifyApiError(detail, 422)).toEqual({
+      key: 'errors.refreshInvalidServiceToken',
+      values: { message: detail.message },
+    });
+    expect(translateApiErrorDetail(detail, 422)).toBe(
+      'The token was rejected: This service requires a base64url token (letters, digits, "-", "_").',
+    );
+  });
+
+  it('drops the dynamic SSRF diagnostic suffix from the refresh URL refusal', () => {
+    expect(
+      translateApiErrorDetail(
+        "This dataset's stored source URL is not reachable: DNS resolved to a private address",
+        400,
+      ),
+    ).toBe(
+      "This dataset's stored source URL failed a safety check and can't be refreshed automatically. Contact an administrator.",
+    );
+  });
+
   it('localizes FastAPI missing-field validation with field context', () => {
     const detail = [
       { type: 'missing', loc: ['body', 'display_name'], msg: 'Field required' },

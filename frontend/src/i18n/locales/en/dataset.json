@@ -752,6 +752,36 @@
       "features_other": "{{formattedCount}} features",
       "features_many": "{{formattedCount}} features"
     },
+    "refresh": {
+      "action": "Refresh from source",
+      "busyHint": "A refresh is already in progress. See refresh history below.",
+      "featureEditBlockedHint": "Finish editing or deselect the feature before refreshing.",
+      "dialogTitle": "Refresh from source",
+      "dialogDescription": "Re-pull this dataset's data from where it was originally imported. The dataset keeps serving its current data until the new data is ready.",
+      "tokenLabel": "Access token (optional)",
+      "tokenPlaceholder": "Only needed for a protected source",
+      "tokenHint": "Used once for this refresh and never stored.",
+      "confirm": "Start refresh",
+      "toastAccepted": "Refresh started (run {{runId}}).",
+      "errors": {
+        "unknown": "Refresh failed. Try again."
+      },
+      "history": {
+        "title": "Refresh history",
+        "loading": "Loading refresh history",
+        "loadFailed": "Refresh history could not be loaded.",
+        "empty": "No refresh runs yet.",
+        "featureDelta": "{{before}} → {{after}} features",
+        "triggeredBy": "Started by {{username}}",
+        "status": {
+          "pending": "Queued",
+          "running": "Running",
+          "succeeded": "Succeeded",
+          "failed": "Failed",
+          "cancelled": "Cancelled"
+        }
+      }
+    },
     "vrt": {
       "title": "VRT members",
       "description": "This VRT is assembled from the raster datasets below.",

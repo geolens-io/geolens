@@ -45,6 +45,9 @@ export const queryKeys = {
     versions: (id: string, skip: number, limit: number) =>
       ['dataset-versions', id, skip, limit] as const,
     versionsPrefix: (id: string) => ['dataset-versions', id] as const,
+    refreshRuns: (id: string, skip: number, limit: number) =>
+      ['dataset-refresh-runs', id, skip, limit] as const,
+    refreshRunsPrefix: (id: string) => ['dataset-refresh-runs', id] as const,
     attributes: (id: string | undefined) => ['attributes', id] as const,
     validation: (id: string | undefined) => ['validation', id] as const,
     related: (id: string) => ['datasets', id, 'related'] as const,
@@ -290,6 +293,11 @@ export const queryKeys = {
     list: (datasetId: string) => ['dataset-relationships', datasetId] as const,
     records: (datasetId: string, featureGid: number, relationshipId: string) =>
       ['related-records', datasetId, featureGid, relationshipId] as const,
+    // fix(#1285 codex round 5): records() is parameterized by featureGid and
+    // relationshipId, neither of which a dataset-level cache sweep has — this
+    // is the prefix that invalidates every cached related-record entry for
+    // the dataset regardless of which feature/relationship it was fetched for.
+    recordsPrefix: (datasetId: string) => ['related-records', datasetId] as const,
   },
 
   // -------------------------------------------------------------------------

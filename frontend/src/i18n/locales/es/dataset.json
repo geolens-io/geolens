@@ -801,6 +801,36 @@
       "features_other": "{{formattedCount}} entidades",
       "features_many": "{{formattedCount}} entidades"
     },
+    "refresh": {
+      "action": "Actualizar desde la fuente",
+      "busyHint": "Ya hay una actualización en curso. Consulta el historial de actualizaciones más abajo.",
+      "featureEditBlockedHint": "Termina la edición o deselecciona la entidad antes de actualizar.",
+      "dialogTitle": "Actualizar desde la fuente",
+      "dialogDescription": "Vuelve a extraer los datos de este conjunto desde donde se importaron originalmente. El conjunto de datos sigue sirviendo sus datos actuales hasta que los nuevos estén listos.",
+      "tokenLabel": "Token de acceso (opcional)",
+      "tokenPlaceholder": "Solo necesario para una fuente protegida",
+      "tokenHint": "Se usa una sola vez para esta actualización y nunca se almacena.",
+      "confirm": "Iniciar actualización",
+      "toastAccepted": "Actualización iniciada (ejecución {{runId}}).",
+      "errors": {
+        "unknown": "La actualización falló. Inténtalo de nuevo."
+      },
+      "history": {
+        "title": "Historial de actualizaciones",
+        "loading": "Cargando historial de actualizaciones",
+        "loadFailed": "No se pudo cargar el historial de actualizaciones.",
+        "empty": "Todavía no hay actualizaciones.",
+        "featureDelta": "{{before}} → {{after}} entidades",
+        "triggeredBy": "Iniciado por {{username}}",
+        "status": {
+          "pending": "En cola",
+          "running": "En curso",
+          "succeeded": "Correcta",
+          "failed": "Fallida",
+          "cancelled": "Cancelada"
+        }
+      }
+    },
     "vrt": {
       "title": "Miembros VRT",
       "description": "Este VRT se compone de los conjuntos de datos ráster siguientes.",
