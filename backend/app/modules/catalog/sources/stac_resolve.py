@@ -161,6 +161,14 @@ _UNVERIFIABLE = StacResolution(INACCESSIBLE, UNEXPECTED_STATUS, contacted=False)
 # probe describe the same upstream event with the same code.
 _WITHDRAWN = StacResolution(MISSING, ITEM_WITHDRAWN)
 
+# "The item publishes assets and none of them is provably this dataset's."
+# Reached when a binding recorded no asset key and the href it did record has
+# moved — nothing left to recognise the asset by. Not a health verdict: the
+# origin is fine and nothing was deleted, GeoLens just will not guess which
+# asset a dataset serves. One refresh while the href still resolves records
+# the key and the dataset never lands here again.
+_ASSET_UNIDENTIFIED = StacResolution(INACCESSIBLE, UNEXPECTED_STATUS)
+
 # "The item is there and no longer publishes an asset this dataset can use."
 # Authoritative — the publisher answered — and distinct from a withdrawal,
 # because the item itself is still on the catalog.
@@ -328,28 +336,27 @@ def states_verifiable_identity(
 def _bound_asset_key(
     assets: dict[str, Any], *, asset_href: str | None, asset_key: str | None
 ) -> str | None:
-    """WHICH asset in this item is the one the dataset is bound to.
+    """WHICH asset in this item is the one the dataset is bound to, or None.
 
-    Three ways to recognise it, strongest first, and the order is the whole
-    of the correctness argument:
+    Two ways to recognise it, and both are identity rather than inference:
 
     1. the stored ``asset_key`` — identity by name, and the reason the key is
        written back on every successful resolve;
     2. the asset whose href still equals the stored one — identity by value.
-       This is also the unchanged case, and it recovers the key for datasets
-       imported before ``asset_key`` was ever written;
-    3. ``pick_data_asset`` — no identity left, so re-run the exact choice the
-       import made. Weakest, and last: an item that renamed its key AND moved
-       its href is indistinguishable from a fresh import, and this is what a
-       fresh import would pick.
+       This is also the unchanged case, and it is what recovers the key for a
+       dataset imported before ``asset_key`` was recorded: one refresh while
+       the href still resolves and the binding is named from then on.
 
-    Identity is settled here, ALONE, and specifically before the href is
-    looked at. Choosing the first candidate with a usable href instead would
-    mean a bound asset whose href GeoLens may not store (a publisher who
-    started signing URLs) silently demoted the dataset onto whatever the
-    import default happens to be today — a different band, published as a
-    successful refresh. Which asset this dataset serves is not something a
-    refresh gets to change.
+    fix(#1266 review round 11): there is deliberately no third way. Re-running
+    ``pick_data_asset`` — the import's own priority list — used to be the
+    fallback, and for a keyless binding whose href has ALREADY moved it is a
+    guess wearing the clothes of a rule: an item imported from ``visual`` that
+    has since gained a ``data`` asset would be switched to ``data``, served as
+    that, and recorded as that. Reported as a successful refresh. The failure
+    nobody notices.
+
+    Identity is settled here alone, and the caller refuses when it comes back
+    None. Which asset a dataset serves is not something a refresh may decide.
     """
     if asset_key and isinstance(assets.get(asset_key), dict):
         return asset_key
@@ -357,8 +364,7 @@ def _bound_asset_key(
         for key, asset in assets.items():
             if isinstance(asset, dict) and asset.get("href") == asset_href:
                 return key
-    picked = pick_data_asset(assets)
-    return picked[0] if picked else None
+    return None
 
 
 def _contradicts_stored_identity(
@@ -442,7 +448,15 @@ async def _resolve_from_item(
         return _NOT_THIS_ITEM
     key = _bound_asset_key(assets, asset_href=asset_href, asset_key=asset_key)
     if key is None:
-        return _ASSET_GONE
+        # Two different facts, and they read differently to whoever acts on
+        # them. An item that publishes no usable data asset at all has lost
+        # the asset — authoritative, and `missing` is the honest verdict. An
+        # item that publishes one GeoLens cannot prove is this dataset's has
+        # lost nothing; GeoLens has simply run out of ways to identify it,
+        # which is a refusal rather than a verdict about the origin.
+        if pick_data_asset(assets) is None:
+            return _ASSET_GONE
+        return _ASSET_UNIDENTIFIED
 
     # fix(#1266 review): the item's OWN address is the base for its relative
     # hrefs, and it is resolved first because the asset resolution depends on

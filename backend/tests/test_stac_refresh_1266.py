@@ -124,6 +124,20 @@ def _routes(mapping: dict[str, tuple[int, object | None]]):
     return _handler
 
 
+async def _resolve(**kwargs):
+    """Resolve a binding shaped the way an import writes one today.
+
+    Every field an import records is defaulted here, so a test that leaves one
+    out is saying "this is the ordinary case" rather than silently exercising
+    a legacy binding. Tests about legacy shapes pass the field explicitly.
+    """
+    kwargs.setdefault("item_id", "scene-1")
+    kwargs.setdefault("collection_id", "scenes")
+    kwargs.setdefault("asset_href", _ASSET)
+    kwargs.setdefault("asset_key", "data")
+    return await resolve_stac_binding(**kwargs)
+
+
 @pytest.fixture(autouse=True)
 def cog_info(monkeypatch):
     """Titiler's reading of a moved COG, which the resolver requires.
@@ -204,7 +218,7 @@ async def _stac_dataset(
     item_href: str | None = _ITEM,
     item_id: str | None = "scene-1",
     asset_href: str | None = _ASSET,
-    asset_key: str | None = None,
+    asset_key: str | None = "data",
     collection_id: str | None = "scenes",
     source_health: str | None = None,
 ) -> Dataset:
@@ -448,7 +462,7 @@ class TestAssetSelection:
                 resolved: (206, None),
             }
         )
-        result = await resolve_stac_binding(item_href=_ITEM, collection_id="scenes")
+        result = await _resolve(item_href=_ITEM)
         assert (result.asset_key, result.asset_href) == ("data", resolved)
 
     @pytest.mark.parametrize(
@@ -483,7 +497,7 @@ class TestAssetSelection:
                 )
             }
         )
-        result = await resolve_stac_binding(
+        result = await _resolve(
             item_href=_ITEM, collection_id="scenes", asset_href=_ASSET, asset_key="B04"
         )
         assert not result.resolved
@@ -548,8 +562,8 @@ class TestResolution:
                 _MOVED_ASSET: (206, None),
             }
         )
-        result = await resolve_stac_binding(
-            item_href=_ITEM, collection_id="scenes", asset_href=_ASSET, asset_key=None
+        result = await _resolve(
+            item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
         )
         assert result.resolved
         assert result.asset_href == _MOVED_ASSET
@@ -580,8 +594,8 @@ class TestResolution:
                 _MOVED_ASSET: (206, None),
             }
         )
-        result = await resolve_stac_binding(
-            item_href=_ITEM, collection_id="scenes", asset_href=_ASSET, asset_key=None
+        result = await _resolve(
+            item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
         )
         assert result.resolved
         assert result.asset_href == _MOVED_ASSET
@@ -604,7 +618,7 @@ class TestResolution:
                 _SEARCH: (200, {"features": [_item_doc(item_id="some-other-scene")]}),
             }
         )
-        result = await resolve_stac_binding(
+        result = await _resolve(
             item_href=_ITEM, collection_id="scenes", asset_href=_ASSET, asset_key=None
         )
         assert not result.resolved
@@ -615,7 +629,7 @@ class TestResolution:
     ) -> None:
         install, _ = stac_transport
         install({_ITEM: (410, None), _SEARCH: (200, {"features": []})})
-        result = await resolve_stac_binding(
+        result = await _resolve(
             item_href=_ITEM, collection_id="scenes", asset_href=_ASSET, asset_key=None
         )
         assert not result.resolved
@@ -630,7 +644,7 @@ class TestResolution:
         install, recorded = stac_transport
         odd_href = "https://origin.test/items/scene-1"
         install({odd_href: (404, None)})
-        result = await resolve_stac_binding(
+        result = await _resolve(
             item_href=odd_href,
             item_id="scene-1",
             collection_id="scenes",
@@ -649,7 +663,7 @@ class TestResolution:
         still published."""
         install, recorded = stac_transport
         install({_ITEM: (code, None)})
-        result = await resolve_stac_binding(
+        result = await _resolve(
             item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
         )
         assert not result.resolved
@@ -664,7 +678,7 @@ class TestResolution:
     ) -> None:
         install, _ = stac_transport
         install({_ITEM: (200, {"type": "FeatureCollection", "features": []})})
-        result = await resolve_stac_binding(
+        result = await _resolve(
             item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
         )
         assert not result.resolved
@@ -707,7 +721,7 @@ class TestResolution:
                 )
             }
         )
-        result = await resolve_stac_binding(
+        result = await _resolve(
             item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
         )
         assert not result.resolved
@@ -720,7 +734,7 @@ class TestResolution:
         doc = _item_doc(asset_href=_MOVED_ASSET)
         doc["collection"] = "some-other-collection"
         install({_ITEM: (200, doc)})
-        result = await resolve_stac_binding(
+        result = await _resolve(
             item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
         )
         assert not result.resolved
@@ -747,7 +761,7 @@ class TestResolution:
                 )
             }
         )
-        result = await resolve_stac_binding(
+        result = await _resolve(
             item_href=odd_href,
             item_id="scene-1",
             collection_id="scenes",
@@ -769,7 +783,7 @@ class TestResolution:
                 _MOVED_ASSET: (206, None),
             }
         )
-        result = await resolve_stac_binding(
+        result = await _resolve(
             item_href=_ITEM, item_id=None, collection_id="scenes", asset_href=_ASSET
         )
         assert result.resolved
@@ -790,7 +804,7 @@ class TestResolution:
         install, recorded = stac_transport
         permalink = "https://origin.test/stac/permalink/abc123"
         install({permalink: (200, _item_doc(item_id="somebody-elses-scene"))})
-        result = await resolve_stac_binding(
+        result = await _resolve(
             item_href=permalink, item_id=None, collection_id="scenes", asset_href=_ASSET
         )
         assert not result.resolved
@@ -815,7 +829,7 @@ class TestResolution:
                 _MOVED_ASSET: (206, None),
             }
         )
-        result = await resolve_stac_binding(
+        result = await _resolve(
             item_href=odd_href,
             item_id="scene-1",
             collection_id="scenes",
@@ -856,7 +870,7 @@ class TestResolution:
                 moved_relative: (206, None),
             }
         )
-        result = await resolve_stac_binding(
+        result = await _resolve(
             item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
         )
         assert result.resolved
@@ -882,7 +896,7 @@ class TestResolution:
                 _MOVED_ASSET: (206, None),
             }
         )
-        result = await resolve_stac_binding(
+        result = await _resolve(
             item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
         )
         # The asset still resolves — the document IS this item by its own id —
@@ -902,7 +916,7 @@ class TestResolution:
                 _MOVED_ASSET: (206, None),
             }
         )
-        result = await resolve_stac_binding(
+        result = await _resolve(
             item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
         )
         assert result.item_href == _ITEM
@@ -921,7 +935,7 @@ class TestResolution:
                 _MOVED_ASSET: (206, None),
             }
         )
-        result = await resolve_stac_binding(
+        result = await _resolve(
             item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
         )
         assert result.item_href == permalink
@@ -949,7 +963,7 @@ class TestResolution:
             return httpx.Response(200, json=_item_doc(asset_href=blocked))
 
         install(_handler)
-        result = await resolve_stac_binding(
+        result = await _resolve(
             item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
         )
         assert not result.resolved
@@ -984,7 +998,7 @@ class TestResolution:
                 ),
             }
         )
-        result = await resolve_stac_binding(
+        result = await _resolve(
             item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
         )
         assert not result.resolved
@@ -1006,7 +1020,7 @@ class TestResolution:
                 _MOVED_ASSET: (206, None),
             }
         )
-        result = await resolve_stac_binding(
+        result = await _resolve(
             item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
         )
         assert result.resolved
@@ -1035,7 +1049,7 @@ class TestResolution:
         monkeypatch.setattr(
             "app.modules.catalog.sources.stac_resolve.fetch_cog_info", _unreadable
         )
-        result = await resolve_stac_binding(
+        result = await _resolve(
             item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
         )
         assert not result.resolved
@@ -1051,7 +1065,7 @@ class TestResolution:
         _described, calls = cog_info
         install, _ = stac_transport
         install({_ITEM: (200, _item_doc()), _ASSET: (206, None)})
-        result = await resolve_stac_binding(
+        result = await _resolve(
             item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
         )
         assert result.resolved
@@ -1071,7 +1085,7 @@ class TestResolution:
         install, _ = stac_transport
         long_href = "https://origin.test/tiles/" + ("a" * 2000) + ".tif"
         install({_ITEM: (200, _item_doc(asset_href=long_href)), long_href: (206, None)})
-        result = await resolve_stac_binding(
+        result = await _resolve(
             item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
         )
         assert not result.resolved
@@ -1107,13 +1121,80 @@ class TestResolution:
         monkeypatch.setattr(
             "app.modules.catalog.sources.stac_resolve.validate_url_for_ssrf", _validate
         )
-        result = await resolve_stac_binding(
+        result = await _resolve(
             item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
         )
         assert result.resolved
         assert result.asset_href == _MOVED_ASSET
         # The asset moved; the item pointer stayed the one that still works.
         assert result.item_href == _ITEM
+
+    async def test_a_keyless_binding_whose_href_moved_refuses_to_guess(
+        self, stac_transport
+    ) -> None:
+        """fix(#1266 review round 11): the last place a guess was dressed as
+        a rule.
+
+        With no recorded key and an href that has already moved, re-running
+        the import's priority list is not identification — an item imported
+        from `visual` that has since gained a `data` asset would be switched
+        to `data`, served as that, recorded as that, and reported as a
+        successful refresh. Which asset a dataset serves is not something a
+        refresh may decide.
+        """
+        install, _ = stac_transport
+        install(
+            {
+                _ITEM: (
+                    200,
+                    _item_doc(
+                        assets={
+                            "data": {"href": _MOVED_ASSET, "roles": ["data"]},
+                            "visual": {"href": "https://origin.test/v2/vis.tif"},
+                        }
+                    ),
+                )
+            }
+        )
+        result = await _resolve(
+            item_href=_ITEM, collection_id="scenes", asset_href=_ASSET, asset_key=None
+        )
+        assert not result.resolved
+        assert (result.health, result.detail) == ("inaccessible", "unexpected_status")
+
+    async def test_a_keyed_binding_follows_the_move_it_could_not_guess(
+        self, stac_transport
+    ) -> None:
+        """The same item, the same move, with the key recorded: resolved.
+
+        This is what the refusal above costs and what recording the key buys
+        — and one refresh while the href still resolves is enough to record
+        it, so a dataset only sits in the refused state until its first
+        successful refresh.
+        """
+        install, _ = stac_transport
+        install(
+            {
+                _ITEM: (
+                    200,
+                    _item_doc(
+                        assets={
+                            "data": {"href": "https://origin.test/v2/data.tif"},
+                            "visual": {"href": _MOVED_ASSET},
+                        }
+                    ),
+                ),
+                _MOVED_ASSET: (206, None),
+            }
+        )
+        result = await _resolve(
+            item_href=_ITEM,
+            collection_id="scenes",
+            asset_href=_ASSET,
+            asset_key="visual",
+        )
+        assert result.resolved
+        assert (result.asset_key, result.asset_href) == ("visual", _MOVED_ASSET)
 
     async def test_a_live_item_that_dropped_the_asset_is_missing(
         self, stac_transport
@@ -1129,7 +1210,7 @@ class TestResolution:
                 )
             }
         )
-        result = await resolve_stac_binding(
+        result = await _resolve(
             item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
         )
         assert not result.resolved
@@ -1150,7 +1231,7 @@ class TestResolution:
                 _MOVED_ASSET: (404, None),
             }
         )
-        result = await resolve_stac_binding(
+        result = await _resolve(
             item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
         )
         assert result.resolved
@@ -1193,12 +1274,12 @@ class TestAssetKeyCapture:
         assert storable_asset_key("k" * (MAX_ASSET_KEY_CHARS + 1)) is None
         assert storable_asset_key(None) is None
 
-    async def test_an_over_long_key_still_resolves_the_asset(
+    async def test_an_over_long_key_still_resolves_an_unmoved_asset(
         self, stac_transport
     ) -> None:
-        """Identity is settled before the bound is applied, so the asset is
-        still found — the binding just carries no key, which is the state
-        every dataset was in before this feature."""
+        """Identity is settled by the href before the bound is applied, so the
+        asset is still found — the binding just carries no key, which is the
+        state every dataset was in before this feature."""
         from app.modules.catalog.sources.adapters.stac import MAX_ASSET_KEY_CHARS
 
         install, _ = stac_transport
@@ -1207,18 +1288,16 @@ class TestAssetKeyCapture:
             {
                 _ITEM: (
                     200,
-                    _item_doc(
-                        assets={long_key: {"href": _MOVED_ASSET, "roles": ["data"]}}
-                    ),
+                    _item_doc(assets={long_key: {"href": _ASSET, "roles": ["data"]}}),
                 ),
-                _MOVED_ASSET: (206, None),
+                _ASSET: (206, None),
             }
         )
-        result = await resolve_stac_binding(
+        result = await _resolve(
             item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
         )
         assert result.resolved
-        assert result.asset_href == _MOVED_ASSET
+        assert result.asset_href == _ASSET
         assert result.asset_key is None
 
     async def test_import_records_the_key_search_supplied(
