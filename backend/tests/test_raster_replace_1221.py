@@ -3001,3 +3001,269 @@ class TestEveryKeptOriginalIsCounted:
             assert len(await raster_storage.list(f"originals/{dataset_id}/")) == 1
         finally:
             await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
+
+# ---------------------------------------------------------------------------
+# 12. Round-6 review findings (#1290)
+# ---------------------------------------------------------------------------
+
+
+class TestCreditIsOnlyTheSupersededDataRow:
+    """FINDING 1. A replacement supersedes the `data` row and nothing else —
+    the archives persist and stay billed. Crediting them too let each
+    successive lossy replace reserve roughly nothing while adding another
+    permanent object, which is the unbounded growth the counted rows exist to
+    stop."""
+
+    async def test_a_second_lossy_replace_is_charged_for_its_own_original(
+        self, test_db_session, raster_storage, tmp_path
+    ) -> None:
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+
+        reserved: list[int] = []
+
+        async def _spy(session, user_id, incoming_bytes):
+            reserved.append(incoming_bytes)
+
+        payloads = [_geotiff_bytes(seed=221), _geotiff_bytes(seed=222)]
+        try:
+            for i, payload in enumerate(payloads):
+                source = tmp_path / f"c{i}" / "scene.tif"
+                source.parent.mkdir()
+                source.write_bytes(payload)
+                job = await _queue_replace_job(
+                    test_db_session,
+                    dataset_id=dataset_id,
+                    user_id=admin_id,
+                    file_path=str(source),
+                )
+                job.user_metadata = {
+                    **(job.user_metadata or {}),
+                    "compression": "JPEG",
+                }
+                await test_db_session.commit()
+                with patch("app.modules.quota.service.reserve_storage_bytes", new=_spy):
+                    await reupload_raster.func(
+                        job_id=str(job.id),
+                        dataset_id=str(dataset_id),
+                        file_path=str(source),
+                        user_id=str(admin_id),
+                        attempt_id=str(job.attempt_id),
+                    )
+
+            assert len(reserved) == 2, reserved
+            # The second replace supersedes the first COG, so the COG half nets
+            # out — but its own original is NEW and must be charged in full.
+            # A credit that also subtracted the first original would leave this
+            # at or below zero, and the reservation would never fire.
+            assert reserved[1] >= len(payloads[1]), (
+                f"second replace reserved {reserved[1]} but its kept original "
+                f"alone is {len(payloads[1])} bytes — the credit is "
+                "subtracting archives a replacement does not supersede "
+                "(#1290 round-6 finding 1)"
+            )
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
+    async def test_the_second_replace_is_refused_when_its_original_will_not_fit(
+        self, test_db_session, raster_storage, tmp_path
+    ) -> None:
+        """The consequence, end to end: a cap that admits the first lossy
+        replace must refuse the second, because the second adds a permanent
+        object on top of everything the first left behind."""
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+        payloads = [_geotiff_bytes(seed=231), _geotiff_bytes(seed=232)]
+
+        async def _replace(path, payload):
+            path.parent.mkdir(exist_ok=True)
+            path.write_bytes(payload)
+            job = await _queue_replace_job(
+                test_db_session,
+                dataset_id=dataset_id,
+                user_id=admin_id,
+                file_path=str(path),
+            )
+            job.user_metadata = {**(job.user_metadata or {}), "compression": "JPEG"}
+            await test_db_session.commit()
+            await reupload_raster.func(
+                job_id=str(job.id),
+                dataset_id=str(dataset_id),
+                file_path=str(path),
+                user_id=str(admin_id),
+                attempt_id=str(job.attempt_id),
+            )
+
+        try:
+            await _replace(tmp_path / "d0" / "scene.tif", payloads[0])
+            test_db_session.expire_all()
+            from app.modules.quota.service import get_user_quota_usage
+
+            after_first = await get_user_quota_usage(test_db_session, admin_id)
+            # Room for what exists, but not for another kept original.
+            cap = after_first.bytes_used + (len(payloads[1]) // 2)
+
+            with patch(
+                "app.modules.quota.service.MAX_STORAGE_BYTES_PER_USER.get",
+                new_callable=AsyncMock,
+                return_value=cap,
+            ):
+                with pytest.raises(Exception, match="[Ss]torage quota"):
+                    await _replace(tmp_path / "d1" / "scene.tif", payloads[1])
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
+
+class TestBothTailsReserveBeforeTheyUpsert:
+    """FINDING 2. The reservation adds its argument to a LIVE recount, so it
+    has to run before the row it is about to write exists — otherwise the
+    recount already holds those bytes and they are charged twice."""
+
+    def test_both_tails_reserve_before_they_upsert(self) -> None:
+        """Structural, because the ordering is invisible to any single-tail
+        behaviour test that happens to sit below the cap. This is the pin the
+        drift class has earned: the swap module states the rule in a docstring
+        and the other tail broke it anyway."""
+        import ast
+        import inspect
+
+        from app.processing.ingest import tasks_raster, tasks_raster_replace
+
+        for module, task_name, reserve_names in (
+            (tasks_raster, "ingest_raster", {"reserve_storage_bytes"}),
+            (
+                tasks_raster_replace,
+                "reupload_raster",
+                {"reserve_replacement_bytes"},
+            ),
+        ):
+            tree = ast.parse(inspect.getsource(module))
+            task = next(
+                node
+                for node in ast.walk(tree)
+                if isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef))
+                and node.name == task_name
+            )
+            reserve_lines = [
+                node.lineno
+                for node in ast.walk(task)
+                if isinstance(node, ast.Call)
+                and getattr(node.func, "id", None) in reserve_names
+            ]
+            upsert_lines = [
+                node.lineno
+                for node in ast.walk(task)
+                if isinstance(node, ast.Call)
+                and getattr(node.func, "id", None)
+                in {"upsert_archived_original_row", "_upsert_managed_asset_rows"}
+            ]
+            assert reserve_lines, f"{task_name} never reserves"
+            assert upsert_lines, f"{task_name} never upserts an asset row"
+            assert max(reserve_lines) < min(upsert_lines), (
+                f"{task_name} reserves at line {max(reserve_lines)} but upserts "
+                f"from {min(upsert_lines)} — the reservation must precede every "
+                "asset-row write or the live recount double-counts it "
+                "(#1290 round-6 finding 2)"
+            )
+
+
+class TestArchiveKeyIsDerivedFromANormalizedFilename:
+    """FINDING 3. A filename carrying path separators split the derivation: the
+    logical URI kept the directory while the write basenamed it, so the counted
+    row pointed at nothing and cleanup tracked a key nobody wrote."""
+
+    def test_path_components_are_stripped_at_the_single_source(self) -> None:
+        from app.processing.ingest.tasks_raster_swap import archived_original_uri
+
+        nested = archived_original_uri(
+            "ds-1", source_sha256="a" * 64, filename="folder/scene.tif"
+        )
+        flat = archived_original_uri(
+            "ds-1", source_sha256="a" * 64, filename="scene.tif"
+        )
+        assert nested == flat
+        assert nested.count("/") == 2, f"a path component survived: {nested}"
+
+    def test_it_matches_the_upload_paths_own_policy(self) -> None:
+        """One policy, not two. The upload path basenames filenames to strip
+        traversal; the archive key uses the same helper rather than a second
+        rule that can drift from it."""
+        from app.processing.ingest.service import safe_upload_basename
+
+        assert safe_upload_basename("folder/scene.tif") == "scene.tif"
+        assert safe_upload_basename("../../etc/passwd") == "passwd"
+        assert safe_upload_basename(None) == "upload"
+        assert safe_upload_basename("") == "upload"
+
+    async def test_a_nested_filename_archives_where_the_row_says_it_did(
+        self, test_db_session, raster_storage, tmp_path
+    ) -> None:
+        """The consequence: the counted row must name an object that exists,
+        and cleanup must see the same key."""
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+
+        source = tmp_path / "scene.tif"
+        source.write_bytes(_geotiff_bytes(seed=241))
+        job = await _queue_replace_job(
+            test_db_session,
+            dataset_id=dataset_id,
+            user_id=admin_id,
+            file_path=str(source),
+        )
+        # What a client can send: a filename carrying a directory component.
+        job.source_filename = "folder/scene.tif"
+        job.user_metadata = {**(job.user_metadata or {}), "compression": "JPEG"}
+        await test_db_session.commit()
+
+        try:
+            await reupload_raster.func(
+                job_id=str(job.id),
+                dataset_id=str(dataset_id),
+                file_path=str(source),
+                user_id=str(admin_id),
+                attempt_id=str(job.attempt_id),
+            )
+
+            href = (
+                await test_db_session.execute(
+                    text(
+                        "SELECT href FROM catalog.dataset_assets "
+                        "WHERE dataset_id = :id AND key LIKE 'archived_original:%'"
+                    ),
+                    {"id": dataset_id},
+                )
+            ).scalar_one()
+            assert await raster_storage.exists(href), (
+                f"the counted row points at {href}, which does not exist — the "
+                "URI kept a path component the write stripped (#1290 round-6 "
+                "finding 3)"
+            )
+            assert "folder" not in href
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)

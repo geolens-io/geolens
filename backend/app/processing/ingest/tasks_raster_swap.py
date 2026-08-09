@@ -146,10 +146,22 @@ def archived_original_uri(
     fix(#1290 review): content-derived so a same-named replacement cannot
     overwrite the original belonging to a raster that is still live, and so an
     identical re-upload collides into an idempotent rewrite. One function
-    because three callers need to agree on it: the archiver, the failure reap,
-    and the counted asset row.
+    because four consumers have to agree on it: the archiver, the failure reap,
+    the counted asset row, and the storage write itself.
+
+    The filename is normalized to a basename FIRST, through the same helper the
+    upload path uses. Deriving from the raw value let `folder/scene.tif` produce
+    a logical URI carrying the directory while the actual write basenamed it —
+    so the row pointed at an object that did not exist, cleanup tracked a key
+    nobody had written, and a different-content upload sharing the basename
+    could land on the retained original. Normalizing at the single source is
+    what keeps all four consumers on one string.
     """
-    return f"originals/{dataset_id}/{source_sha256[:12]}-{filename or 'upload'}"
+    from app.processing.ingest.service import safe_upload_basename
+
+    return (
+        f"originals/{dataset_id}/{source_sha256[:12]}-{safe_upload_basename(filename)}"
+    )
 
 
 async def archive_lossy_original(
@@ -289,6 +301,7 @@ async def reserve_replacement_bytes(
     owner_id: uuid.UUID,
     new_size: int,
     archived_bytes: int = 0,
+    archived_asset_key: str | None = None,
 ) -> None:
     """Reserve the replacement's NET byte increase under the owner's quota lock.
 
@@ -320,21 +333,40 @@ async def reserve_replacement_bytes(
 
     from app.modules.quota.service import reserve_storage_bytes
 
-    counted = await session.scalar(
+    # fix(#1290 review): the credit is the SUPERSEDED `data` row and nothing
+    # else. Crediting every archive too was far too generous: archives persist
+    # and stay billed, so subtracting them let each successive lossy replace
+    # reserve roughly nothing while adding another permanent object — the exact
+    # unbounded growth the counted rows were introduced to stop.
+    counted_data = await session.scalar(
         text(
             "SELECT COALESCE(SUM(size_bytes), 0)::bigint "
             "FROM catalog.dataset_assets "
-            "WHERE dataset_id = :dataset_id "
-            "AND (key = 'data' OR key LIKE 'archived_original:%')"
+            "WHERE dataset_id = :dataset_id AND key = 'data'"
         ),
         {"dataset_id": dataset_id},
     )
-    # fix(#1290 review): the archived original is part of the post-swap total,
-    # so it belongs in the same delta. It is added rather than superseded — the
-    # `data` row is what the swap replaces — and the credit above already
-    # includes any archive row this dataset carried before, so re-archiving
-    # identical bytes nets to zero on its own.
-    delta = (new_size + archived_bytes) - int(counted or 0)
+    # What this attempt ADDS in archive bytes: the new original, minus whatever
+    # a row under the same key already contributes. Keyed off the ROW rather
+    # than the object-exists check, because the row is what the quota sums —
+    # they agree in every normal case, and where they differ (an object
+    # archived before the counted rows existed) the row is the honest answer.
+    # An identical re-upload falls out with no arithmetic of its own: same key,
+    # same size, contributes zero.
+    existing_archive = 0
+    if archived_asset_key is not None:
+        existing_archive = int(
+            await session.scalar(
+                text(
+                    "SELECT COALESCE(SUM(size_bytes), 0)::bigint "
+                    "FROM catalog.dataset_assets "
+                    "WHERE dataset_id = :dataset_id AND key = :key"
+                ),
+                {"dataset_id": dataset_id, "key": archived_asset_key},
+            )
+            or 0
+        )
+    delta = (new_size - int(counted_data or 0)) + (archived_bytes - existing_archive)
     if delta <= 0:
         return
     await reserve_storage_bytes(session, owner_id, delta)

@@ -541,21 +541,28 @@ async def ingest_raster(
             )
             if new_archive_key is not None:
                 written_storage_keys.append(new_archive_key)
-            await upsert_archived_original_row(
-                session,
-                dataset_id=dataset.id,
-                logical_key=archived_key,
-                asset_key=(
-                    archived_original_asset_key(source_sha256) if archived_key else None
-                ),
-                size_bytes=archived_bytes,
+            _archive_asset_key = (
+                archived_original_asset_key(source_sha256) if archived_key else None
             )
-            # First ingest reserved only the COG's bytes; the kept original is
-            # additional and has to be admitted too, under the same lock.
+            # fix(#1290 review): BEFORE the upsert, not after.
+            # `create_raster_dataset` reserved only the COG; the kept original
+            # is additional and has to be admitted too. Reserving AFTER the row
+            # was written made the live recount already contain those bytes, so
+            # adding them again double-charged and falsely refused an ingest
+            # that fits. This is the ordering rule the swap module's own
+            # docstring states, violated in the other tail —
+            # `test_both_tails_reserve_before_they_upsert` pins it now.
             if archived_bytes:
                 from app.modules.quota.service import reserve_storage_bytes
 
                 await reserve_storage_bytes(session, uuid.UUID(user_id), archived_bytes)
+            await upsert_archived_original_row(
+                session,
+                dataset_id=dataset.id,
+                logical_key=archived_key,
+                asset_key=_archive_asset_key,
+                size_bytes=archived_bytes,
+            )
 
             # 12. Finalize job.
             # REMED-02 / ingest-audit P2-07: stamp terminal progress

@@ -555,6 +555,9 @@ async def reupload_raster(
                 owner_id=dataset.record.created_by,
                 new_size=cog_size,
                 archived_bytes=archived_bytes,
+                archived_asset_key=(
+                    archived_original_asset_key(source_sha256) if archived_key else None
+                ),
             )
             await upsert_archived_original_row(
                 session,

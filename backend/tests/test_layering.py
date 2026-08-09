@@ -2391,7 +2391,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # NULL on the ORM instance because the insert trigger fills that column in
     # the database. The comment records why, so nobody "simplifies" it back to
     # reading the row. Cap 1051 -> 1059, exact.
-    "backend/app/processing/ingest/service.py": 1059,
+    # fix(#1290 review): +14 — safe_upload_basename, extracted from the two
+    # inline `Path(x).name` copies inside save_upload_file so the
+    # archived-original key derives from the SAME normalization the upload path
+    # applies. Deriving from the raw filename split the key: the logical URI
+    # kept a path component the write stripped, so the counted row pointed at
+    # nothing. Cap 1059 -> 1073, exact.
+    "backend/app/processing/ingest/service.py": 1073,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.
