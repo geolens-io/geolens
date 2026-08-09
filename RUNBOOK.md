@@ -358,8 +358,14 @@ All five capability booleans must be `f`. Also confirm API and worker are
 healthy. To roll back the connection change, clear `GEOLENS_RUNTIME_DB_ROLE`,
 `GEOLENS_RUNTIME_DB_PASSWORD`, and `MIGRATION_DATABASE_URL_OVERRIDE`, restore
 the previous `DATABASE_URL_OVERRIDE`/migration-toggle values, then recreate API
-and worker. Leave the role in place during rollback: dropping it before
-re-owning `data.*` relations is destructive and unnecessary.
+and worker. The legacy reconciler also revokes database `CONNECT` from `PUBLIC`
+because `geolens_reader` is cluster-global. Before running it with a managed
+legacy app or tile login that differs from `POSTGRES_USER`, explicitly admit
+each required login, for example `GRANT CONNECT ON DATABASE geolens TO
+legacy_app`; the reconciler preserves named grants but cannot safely infer
+which identities previously relied on `PUBLIC`. Leave the role in place during
+rollback: dropping it before re-owning `data.*` relations is destructive and
+unnecessary.
 
 For managed/external PostgreSQL, run privileged migrations first, then run
 `scripts/lib/configure-runtime-db-role.sh` from the host with `POSTGRES_HOST`,
@@ -373,8 +379,15 @@ manage the target database's `CONNECT` ACL (normally by owning that database or
 through equivalent provider authority). A role-name rotation additionally
 requires SET/admin authority for each old and replacement runtime role plus
 ADMIN OPTION on every role membership held by the old login; missing authority
-fails the transaction rather than leaving a partially retired credential. On
-PostgreSQL 18,
+fails the transaction rather than leaving a partially retired credential. When
+the provider admin differs from `GEOLENS_MIGRATION_DB_ROLE`, it also needs SET
+authority on that actual migration role; `INHERIT` and `ADMIN` are unnecessary.
+The reconciler creates the bounded embedding `SECURITY DEFINER` function while
+set to that owner, so the provider admin gains no direct catalog access. After
+a `--no-owner` logical restore, an existing copy and its bounded
+`catalog.record_embeddings` DDL target owned by the restore login are
+transferred to the validated migration role before replacement; a third-party
+owner fails closed. On PostgreSQL 18,
 the provider admin also needs ADMIN OPTION on a pre-existing
 `geolens_reader`; an admin that created it during initial reconciliation
 already has PostgreSQL's automatic ADMIN-only membership. The reconciler uses

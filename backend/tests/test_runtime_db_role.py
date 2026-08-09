@@ -169,13 +169,15 @@ def test_role_script_keeps_password_out_of_argv_and_catalog_ownership() -> None:
         "REVOKE ALL ON FUNCTION catalog.geolens_rebuild_embedding_column(integer)"
         in source
     )
-    assert source.index(
+    legacy_start = source.index('if [ -z "$runtime_role" ]')
+    legacy_exit = source.index("    exit 0", legacy_start)
+    legacy_block = source[legacy_start:legacy_exit]
+    assert (
         "SELECT 'REVOKE ALL ON FUNCTION "
-        "catalog.geolens_rebuild_embedding_column(integer) FROM PUBLIC'"
-    ) < source.index('if [ -z "$runtime_role" ]')
-    assert "OWNER TO" not in "\n".join(
-        line for line in source.splitlines() if "catalog" in line.lower()
+        "catalog.geolens_rebuild_embedding_column(integer) FROM PUBLIC'" in legacy_block
     )
+    assert "ALTER TABLE catalog.record_embeddings OWNER TO %I" in source
+    assert "ALTER SCHEMA catalog" not in source
 
 
 def test_role_script_requires_managed_marker_and_targets_migration_owner() -> None:
@@ -208,7 +210,10 @@ def test_role_script_scopes_shared_reader_to_the_current_database() -> None:
         "'GRANT CONNECT ON DATABASE %I TO %I', current_database(), :'runtime_role'"
     )
     grant_reader = "'GRANT geolens_reader TO %I'"
-    assert revoke_public in source
+    legacy_start = source.index('if [ -z "$runtime_role" ]')
+    legacy_exit = source.index("    exit 0", legacy_start)
+    assert revoke_public in source[legacy_start:legacy_exit]
+    assert source.count(revoke_public) == 2
     assert (
         "'GRANT CONNECT ON DATABASE %I TO %I', current_database(), current_user"
         in source
@@ -223,12 +228,31 @@ def test_role_script_scopes_shared_reader_to_the_current_database() -> None:
     assert "database_acl.privilege_type = 'CONNECT'" in source
 
 
+def test_embedding_definer_is_created_as_the_validated_migration_owner() -> None:
+    source = ROLE_SCRIPT.read_text(encoding="utf-8")
+
+    adopt_owner = (
+        "'ALTER FUNCTION catalog.geolens_rebuild_embedding_column(integer) OWNER TO %I'"
+    )
+    set_migration = "SELECT format('SET LOCAL ROLE %I', :'migration_role')"
+    create_function = (
+        "CREATE OR REPLACE FUNCTION "
+        "catalog.geolens_rebuild_embedding_column(new_dims integer)"
+    )
+    assert adopt_owner in source
+    assert set_migration in source
+    assert source.index(adopt_owner) < source.index(set_migration)
+    assert source.index(set_migration) < source.index(create_function)
+    assert source.index(create_function) < source.index("RESET ROLE;")
+
+
 def test_role_script_atomically_retires_superseded_database_roles() -> None:
     source = ROLE_SCRIPT.read_text(encoding="utf-8")
 
     collect_roles = "CREATE TEMP TABLE pg_temp.geolens_superseded_runtime_roles"
     reassign = "'REASSIGN OWNED BY %I TO %I'"
     drop_owned = "'DROP OWNED BY %I'"
+    revoke_migrator_acl = "'REVOKE ALL PRIVILEGES ON TABLE %I.%I FROM %I'"
     revoke_connect = "'REVOKE CONNECT ON DATABASE %I FROM %I'"
     disable_login = "'ALTER ROLE %I NOLOGIN NOINHERIT'"
     retired_marker = "geolens-retired-runtime-role:v1:database="
@@ -237,15 +261,21 @@ def test_role_script_atomically_retires_superseded_database_roles() -> None:
     assert "runtime.rolname <> :'runtime_role'" in source
     assert reassign in source
     assert drop_owned in source
+    assert revoke_migrator_acl in source
+    assert "aclexplode(relation.relacl)" in source
     assert revoke_connect in source
     assert disable_login in source
     assert retired_marker in source
     assert "superseded_roles_retired" in source
     assert "pg_default_acl" in source
     assert source.index(collect_roles) < source.index(reassign)
+    assert source.index(collect_roles) < source.index(revoke_migrator_acl)
+    assert source.index(revoke_migrator_acl) < source.index(drop_owned)
     assert source.index(reassign) < source.index(drop_owned)
     assert source.index(drop_owned) < source.index(disable_login)
-    assert source.index(disable_login) < source.index("COMMIT;")
+    assert source.index(disable_login) < source.index(
+        "COMMIT;", source.index(collect_roles)
+    )
     # Managed-provider compatibility must not require pg_signal_backend.
     assert "pg_terminate_backend" not in source
 

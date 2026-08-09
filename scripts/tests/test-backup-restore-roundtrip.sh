@@ -158,9 +158,19 @@ createdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" "$SRC_DB"
 
 # Mirror the app's catalog schema shape just enough to be representative.
 psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC_DB" -v ON_ERROR_STOP=1 >/dev/null <<'EOSQL'
+CREATE EXTENSION IF NOT EXISTS vector;
 CREATE SCHEMA IF NOT EXISTS catalog;
 CREATE TABLE catalog.records  (id serial PRIMARY KEY, name text NOT NULL);
 CREATE TABLE catalog.datasets (id serial PRIMARY KEY, slug text NOT NULL);
+CREATE TABLE catalog.record_embeddings (
+    id bigint PRIMARY KEY,
+    embedding public.vector(3) NOT NULL
+);
+INSERT INTO catalog.record_embeddings VALUES (1, '[1,2,3]');
+CREATE INDEX ix_record_embeddings_hnsw
+    ON catalog.record_embeddings USING hnsw
+    (embedding public.vector_cosine_ops)
+    WITH (m=16, ef_construction=64);
 CREATE FUNCTION catalog.provision_tenant_data_schema(uuid) RETURNS void
     LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
     AS 'BEGIN NULL; END';
@@ -253,6 +263,11 @@ psql_admin -v ON_ERROR_STOP=1 -c \
 psql_admin -d "$DST_DB" -v ON_ERROR_STOP=1 -c \
     "GRANT USAGE ON SCHEMA catalog TO \"${LEGACY_UNTRUSTED_ROLE}\";" \
     >/dev/null
+# An operator-managed login with an explicit database ACL must survive the
+# legacy reconciler closing PUBLIC CONNECT after a restore.
+psql_admin -v ON_ERROR_STOP=1 -c \
+    "GRANT CONNECT ON DATABASE \"${DST_DB}\" TO \"${LEGACY_UNTRUSTED_ROLE}\";" \
+    >/dev/null
 RESTORED_PUBLIC_EXECUTE="$(psql_admin -d "$DST_DB" -tAc \
     "SELECT has_function_privilege('${LEGACY_UNTRUSTED_ROLE}', 'catalog.geolens_rebuild_embedding_column(integer)', 'EXECUTE');" \
     | tr -d '[:space:]')"
@@ -265,6 +280,28 @@ env \
     POSTGRES_HOST="$PGHOST" POSTGRES_PORT="$PGPORT" \
     POSTGRES_USER="$PGUSER" POSTGRES_DB="$DST_DB" \
     bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" >/dev/null
+
+LEGACY_PUBLIC_CONNECT="$(psql_admin -tAc \
+    "SELECT EXISTS (
+         SELECT 1
+           FROM pg_database AS database
+           CROSS JOIN LATERAL aclexplode(
+               COALESCE(database.datacl, acldefault('d', database.datdba))
+           ) AS database_acl
+          WHERE database.datname = '${DST_DB}'
+            AND database_acl.grantee = 0
+            AND database_acl.privilege_type = 'CONNECT'
+     );" | tr -d '[:space:]')"
+[ "$LEGACY_PUBLIC_CONNECT" = "f" ] \
+    || fail "legacy restored database retained PUBLIC CONNECT"
+psql_admin -v ON_ERROR_STOP=1 -c \
+    "GRANT geolens_reader TO \"${LEGACY_UNTRUSTED_ROLE}\";" >/dev/null
+env PGPASSWORD="$LEGACY_UNTRUSTED_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$LEGACY_UNTRUSTED_ROLE" \
+    -d "$DST_DB" -v ON_ERROR_STOP=1 -Atqc \
+    "SET ROLE geolens_reader; SELECT name FROM data.ci_probe;" \
+    | grep -qx "runtime-ownership-probe" \
+    || fail "explicitly admitted legacy app cannot use the tile reader after hardening"
 
 LEGACY_CAN_EXECUTE="$(psql_admin -d "$DST_DB" -tAc \
     "SELECT has_function_privilege('${LEGACY_UNTRUSTED_ROLE}', 'catalog.geolens_rebuild_embedding_column(integer)', 'EXECUTE');" \
@@ -293,6 +330,17 @@ env \
     POSTGRES_HOST="$PGHOST" POSTGRES_PORT="$PGPORT" \
     POSTGRES_USER="$PGUSER" POSTGRES_DB="$SRC_DB" \
     bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" >/dev/null
+
+# Mixed clusters must preserve the same connection boundary: a split runtime
+# from database A is a member of the cluster-global reader role, but database
+# B's legacy reconciliation must still prevent that login from connecting.
+if env PGPASSWORD="$RUNTIME_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$FRESH_RUNTIME_ROLE" -d "$DST_DB" \
+    -v ON_ERROR_STOP=1 -Atqc \
+    "SET ROLE geolens_reader; SELECT name FROM data.ci_probe;" \
+    >/dev/null 2>&1; then
+    fail "split runtime crossed into a legacy database through geolens_reader"
+fi
 FRESH_ROLE_MARKER="$(psql_admin -tAc \
     "SELECT shobj_description(oid, 'pg_authid') FROM pg_roles WHERE rolname = '${FRESH_RUNTIME_ROLE}';" \
     | tr -d '[:space:]')"
@@ -384,6 +432,22 @@ RESTORE_MARKER="$(psql_admin -tAc \
     | tr -d '[:space:]')"
 [ "$RESTORE_MARKER" = "geolens-managed-runtime-role:v2:database=${DST_DB}" ] \
     || fail "explicit restore/rename adoption did not bind the current database"
+RESTORED_EMBEDDING_OWNERS="$(psql_admin -d "$DST_DB" -tAc \
+    "SELECT pg_get_userbyid(function.proowner) || '|' ||
+            pg_get_userbyid(relation.relowner)
+       FROM pg_proc AS function
+       CROSS JOIN pg_class AS relation
+      WHERE function.oid = 'catalog.geolens_rebuild_embedding_column(integer)'::regprocedure
+        AND relation.oid = 'catalog.record_embeddings'::regclass;" \
+    | tr -d '[:space:]')"
+[ "$RESTORED_EMBEDDING_OWNERS" = "${MIGRATION_ROLE}|${MIGRATION_ROLE}" ] \
+    || fail "no-owner restore embedding surface was not transferred to the validated migrator"
+RESTORED_REBUILD_RESULT="$(env PGPASSWORD="$RESTORE_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$RESTORE_ROLE" -d "$DST_DB" \
+    -v ON_ERROR_STOP=1 -Atqc \
+    "SELECT catalog.geolens_rebuild_embedding_column(4);")"
+[ "$RESTORED_REBUILD_RESULT" = "t" ] \
+    || fail "restored runtime could not execute the migrator-owned embedding rebuild"
 
 # An unmarked existing identity must fail before ALTER ROLE or password reset.
 if env \
@@ -700,6 +764,12 @@ fi
 psql_admin -v ON_ERROR_STOP=1 >/dev/null <<EOSQL
 CREATE ROLE "${RECONCILER_ROLE}" LOGIN NOSUPERUSER NOCREATEDB CREATEROLE
     INHERIT NOREPLICATION NOBYPASSRLS PASSWORD '${RECONCILER_PASSWORD}';
+-- The provider admin may reconcile roles without inheriting the distinct
+-- Alembic owner's catalog privileges. SET-only authority is enough to create
+-- and own the bounded SECURITY DEFINER function as that validated owner.
+GRANT "${MIGRATION_ROLE}" TO "${RECONCILER_ROLE}" WITH ADMIN FALSE;
+GRANT "${MIGRATION_ROLE}" TO "${RECONCILER_ROLE}" WITH INHERIT FALSE;
+GRANT "${MIGRATION_ROLE}" TO "${RECONCILER_ROLE}" WITH SET TRUE;
 -- PostgreSQL 18 gives the CREATEROLE identity that originally creates a role
 -- an ADMIN-only membership. This shared test cluster's reader was created by
 -- the superuser in an earlier leg, so reproduce the managed first-bootstrap
@@ -717,15 +787,77 @@ CREATE SCHEMA catalog;
 CREATE SCHEMA data;
 CREATE TABLE data.provider_probe (id bigint PRIMARY KEY);
 EOSQL
+psql_admin -d "$PROVIDER_DB" -v ON_ERROR_STOP=1 >/dev/null <<EOSQL
+CREATE EXTENSION IF NOT EXISTS vector;
+GRANT USAGE, CREATE ON SCHEMA catalog TO "${MIGRATION_ROLE}";
+SET ROLE "${MIGRATION_ROLE}";
+CREATE TABLE catalog.record_embeddings (
+    id bigint PRIMARY KEY,
+    embedding public.vector(3) NOT NULL
+);
+INSERT INTO catalog.record_embeddings VALUES (1, '[1,2,3]');
+CREATE INDEX ix_record_embeddings_hnsw
+    ON catalog.record_embeddings USING hnsw
+    (embedding public.vector_cosine_ops)
+    WITH (m=16, ef_construction=64);
+RESET ROLE;
+EOSQL
 env \
     PGPASSWORD="$RECONCILER_PASSWORD" \
     POSTGRES_PASSWORD="$RECONCILER_PASSWORD" \
     POSTGRES_HOST="$PGHOST" POSTGRES_PORT="$PGPORT" \
     POSTGRES_USER="$RECONCILER_ROLE" POSTGRES_DB="$PROVIDER_DB" \
-    GEOLENS_MIGRATION_DB_ROLE="$RECONCILER_ROLE" \
+    GEOLENS_MIGRATION_DB_ROLE="$MIGRATION_ROLE" \
     GEOLENS_RUNTIME_DB_ROLE="$PROVIDER_RUNTIME_ROLE" \
     GEOLENS_RUNTIME_DB_PASSWORD="$PROVIDER_RUNTIME_PASSWORD" \
     bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" >/dev/null
+PROVIDER_EMBEDDING_FUNCTION_OWNER="$(psql_admin -d "$PROVIDER_DB" -tAc \
+    "SELECT pg_get_userbyid(proowner)
+       FROM pg_proc
+      WHERE oid = 'catalog.geolens_rebuild_embedding_column(integer)'::regprocedure;" \
+    | tr -d '[:space:]')"
+[ "$PROVIDER_EMBEDDING_FUNCTION_OWNER" = "$MIGRATION_ROLE" ] \
+    || fail "embedding rebuild owner is ${PROVIDER_EMBEDDING_FUNCTION_OWNER}, expected ${MIGRATION_ROLE}"
+PROVIDER_REBUILD_RESULT="$(env PGPASSWORD="$PROVIDER_RUNTIME_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$PROVIDER_RUNTIME_ROLE" \
+    -d "$PROVIDER_DB" -v ON_ERROR_STOP=1 -Atqc \
+    "SELECT catalog.geolens_rebuild_embedding_column(4);")"
+[ "$PROVIDER_REBUILD_RESULT" = "t" ] \
+    || fail "distinct-owner embedding rebuild did not report a change"
+PROVIDER_EMBEDDING_STATE="$(psql_admin -d "$PROVIDER_DB" -tAc \
+    "SELECT (SELECT count(*) FROM catalog.record_embeddings) || '|' ||
+            format_type(attribute.atttypid, attribute.atttypmod) || '|' ||
+            (to_regclass('catalog.ix_record_embeddings_hnsw') IS NOT NULL)::text
+       FROM pg_attribute AS attribute
+      WHERE attribute.attrelid = 'catalog.record_embeddings'::regclass
+        AND attribute.attname = 'embedding';" \
+    | tr -d '[:space:]')"
+[ "$PROVIDER_EMBEDDING_STATE" = "0|vector(4)|true" ] \
+    || fail "embedding rebuild did not complete DELETE/type/index DDL: ${PROVIDER_EMBEDDING_STATE}"
+PROVIDER_MIGRATOR_MEMBERSHIP_FLAGS="$(psql_admin -tAc \
+    "SELECT admin_option || '|' || inherit_option || '|' || set_option
+       FROM pg_auth_members
+      WHERE roleid = (SELECT oid FROM pg_roles WHERE rolname = '${MIGRATION_ROLE}')
+        AND member = (SELECT oid FROM pg_roles WHERE rolname = '${RECONCILER_ROLE}');" \
+    | tr -d '[:space:]')"
+[ "$PROVIDER_MIGRATOR_MEMBERSHIP_FLAGS" = "false|false|true" ] \
+    || fail "provider admin's SET-only migrator membership changed: ${PROVIDER_MIGRATOR_MEMBERSHIP_FLAGS}"
+PROVIDER_RECONCILER_CATALOG_ACCESS="$(psql_admin -d "$PROVIDER_DB" -tAc \
+    "SELECT pg_get_userbyid(relation.relowner) = '${RECONCILER_ROLE}' OR
+            has_table_privilege('${RECONCILER_ROLE}', relation.oid,
+                'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+       FROM pg_class AS relation
+      WHERE relation.oid = 'catalog.record_embeddings'::regclass;" \
+    | tr -d '[:space:]')"
+[ "$PROVIDER_RECONCILER_CATALOG_ACCESS" = "f" ] \
+    || fail "provider reconciler retained direct catalog table authority"
+if env PGPASSWORD="$PROVIDER_RUNTIME_PASSWORD" \
+    psql -X -h "$PGHOST" -p "$PGPORT" -U "$PROVIDER_RUNTIME_ROLE" \
+    -d "$PROVIDER_DB" -v ON_ERROR_STOP=1 \
+    -c "ALTER TABLE catalog.record_embeddings ADD COLUMN forbidden integer" \
+    >/dev/null 2>&1; then
+    fail "provider runtime gained direct catalog DDL authority"
+fi
 PROVIDER_OWNER="$(psql_admin -d "$PROVIDER_DB" -tAc \
     "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'data.provider_probe'::regclass;" \
     | tr -d '[:space:]')"
@@ -748,7 +880,7 @@ env \
     POSTGRES_PASSWORD="$RECONCILER_PASSWORD" \
     POSTGRES_HOST="$PGHOST" POSTGRES_PORT="$PGPORT" \
     POSTGRES_USER="$RECONCILER_ROLE" POSTGRES_DB="$PROVIDER_DB" \
-    GEOLENS_MIGRATION_DB_ROLE="$RECONCILER_ROLE" \
+    GEOLENS_MIGRATION_DB_ROLE="$MIGRATION_ROLE" \
     GEOLENS_RUNTIME_DB_ROLE="$PROVIDER_ROTATED_ROLE" \
     GEOLENS_RUNTIME_DB_PASSWORD="$PROVIDER_ROTATED_PASSWORD" \
     bash "${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh" >/dev/null
@@ -760,10 +892,12 @@ PROVIDER_ROTATED_OWNER="$(psql_admin -d "$PROVIDER_DB" -tAc \
 PROVIDER_OLD_STATE="$(psql_admin -d "$PROVIDER_DB" -tAc \
     "SELECT rolcanlogin || '|' ||
             has_database_privilege(oid, current_database(), 'CONNECT') || '|' ||
-            pg_has_role(oid, 'geolens_reader', 'MEMBER')
+            pg_has_role(oid, 'geolens_reader', 'MEMBER') || '|' ||
+            has_table_privilege(oid, 'catalog.record_embeddings',
+                'SELECT,INSERT,UPDATE,DELETE')
        FROM pg_roles WHERE rolname = '${PROVIDER_RUNTIME_ROLE}';" \
     | tr -d '[:space:]')"
-[ "$PROVIDER_OLD_STATE" = "false|false|false" ] \
+[ "$PROVIDER_OLD_STATE" = "false|false|false|false" ] \
     || fail "provider rotation left old role active: ${PROVIDER_OLD_STATE}"
 PROVIDER_ROTATED_MEMBERSHIP_FLAGS="$(psql_admin -tAc \
     "SELECT admin_option || '|' || inherit_option || '|' || set_option

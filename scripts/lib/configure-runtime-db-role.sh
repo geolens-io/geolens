@@ -132,11 +132,30 @@ WHERE rolname = 'geolens_reader'
         NOLOGIN NOCREATEROLE NOINHERIT;
 \endif
 GRANT USAGE ON SCHEMA data TO geolens_reader;
+EOSQL
+
+if [ -z "$runtime_role" ]; then
+    # In legacy mode the reconciliation login still owns data relations. In
+    # split-runtime mode these grants must wait until the transactional block
+    # transfers ownership; a non-superuser provider admin cannot grant across
+    # an old runtime owner's objects during role rotation.
+    psql "${psql_args[@]}" <<-'EOSQL'
+BEGIN;
+
+-- geolens_reader is cluster-global even when the application still uses the
+-- legacy database login. Close the database boundary before granting reader
+-- access so a split runtime from another database cannot connect and SET ROLE.
+-- REVOKE FROM PUBLIC preserves every explicit per-login CONNECT grant.
+SELECT format(
+    'REVOKE CONNECT ON DATABASE %I FROM PUBLIC', current_database()
+)\gexec
+SELECT format(
+    'GRANT CONNECT ON DATABASE %I TO %I', current_database(), current_user
+)\gexec
 
 -- Logical backups intentionally omit ACLs, which makes restored functions
--- regain PostgreSQL's default PUBLIC EXECUTE. Repair every privileged function
--- that may already exist before the legacy-mode early exit; absent functions
--- are expected on a fresh volume before Alembic runs.
+-- regain PostgreSQL's default PUBLIC EXECUTE. The legacy login remains the
+-- privileged owner, so repair the functions before completing reconciliation.
 SELECT 'REVOKE ALL ON FUNCTION catalog.provision_tenant_data_schema(uuid) FROM PUBLIC'
 WHERE to_regprocedure('catalog.provision_tenant_data_schema(uuid)') IS NOT NULL
 \gexec
@@ -154,17 +173,11 @@ WHERE to_regprocedure('catalog.deprovision_tenant_data_schema(uuid)') IS NOT NUL
 SELECT 'REVOKE ALL ON FUNCTION catalog.geolens_rebuild_embedding_column(integer) FROM PUBLIC'
 WHERE to_regprocedure('catalog.geolens_rebuild_embedding_column(integer)') IS NOT NULL
 \gexec
-EOSQL
 
-if [ -z "$runtime_role" ]; then
-    # In legacy mode the reconciliation login still owns data relations. In
-    # split-runtime mode these grants must wait until the transactional block
-    # transfers ownership; a non-superuser provider admin cannot grant across
-    # an old runtime owner's objects during role rotation.
-    psql "${psql_args[@]}" <<-'EOSQL'
 GRANT SELECT ON ALL TABLES IN SCHEMA data TO geolens_reader;
 ALTER DEFAULT PRIVILEGES IN SCHEMA data
     GRANT SELECT ON TABLES TO geolens_reader;
+COMMIT;
 EOSQL
     echo "GEOLENS_RUNTIME_DB_ROLE is unset; kept the legacy PostgreSQL runtime credential and reconciled geolens_reader only."
     exit 0
@@ -405,14 +418,131 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 SELECT format('REVOKE CREATE ON SCHEMA catalog FROM %I', :'runtime_role')\gexec
 
 SELECT format('GRANT USAGE ON SCHEMA catalog TO %I', :'runtime_role')\gexec
+
+-- Releases before this ownership contract created the embedding definer as the
+-- reconciliation login. Adopt only the three known privileged functions when
+-- that login still owns them; an unrelated owner remains a hard failure. This
+-- also repairs --no-owner restores run by the same reconciliation identity.
 SELECT format(
-    'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA catalog TO %I',
-    :'runtime_role'
-)\gexec
+    'ALTER FUNCTION catalog.provision_tenant_data_schema(uuid) OWNER TO %I',
+    :'migration_role'
+)
+WHERE to_regprocedure('catalog.provision_tenant_data_schema(uuid)') IS NOT NULL
+  AND pg_get_userbyid(
+      (SELECT proowner FROM pg_proc
+       WHERE oid = to_regprocedure('catalog.provision_tenant_data_schema(uuid)'))
+  ) = current_user
+  AND current_user <> :'migration_role'
+\gexec
 SELECT format(
-    'GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA catalog TO %I',
-    :'runtime_role'
-)\gexec
+    'ALTER FUNCTION catalog.deprovision_tenant_data_schema(uuid) OWNER TO %I',
+    :'migration_role'
+)
+WHERE to_regprocedure('catalog.deprovision_tenant_data_schema(uuid)') IS NOT NULL
+  AND pg_get_userbyid(
+      (SELECT proowner FROM pg_proc
+       WHERE oid = to_regprocedure('catalog.deprovision_tenant_data_schema(uuid)'))
+  ) = current_user
+  AND current_user <> :'migration_role'
+\gexec
+SELECT format(
+    'ALTER FUNCTION catalog.geolens_rebuild_embedding_column(integer) OWNER TO %I',
+    :'migration_role'
+)
+WHERE to_regprocedure('catalog.geolens_rebuild_embedding_column(integer)') IS NOT NULL
+  AND pg_get_userbyid(
+      (SELECT proowner FROM pg_proc
+       WHERE oid = to_regprocedure('catalog.geolens_rebuild_embedding_column(integer)'))
+  ) = current_user
+  AND current_user <> :'migration_role'
+\gexec
+
+-- The bounded definer must also own the one catalog relation it alters. A
+-- --no-owner restore makes the restore login its owner; transfer only that
+-- known DDL surface when the current reconciler can prove ownership.
+SELECT format(
+    'ALTER TABLE catalog.record_embeddings OWNER TO %I', :'migration_role'
+)
+WHERE to_regclass('catalog.record_embeddings') IS NOT NULL
+  AND pg_get_userbyid(
+      (SELECT relowner FROM pg_class
+       WHERE oid = to_regclass('catalog.record_embeddings'))
+  ) = current_user
+  AND current_user <> :'migration_role'
+\gexec
+
+-- Restores may leave other catalog relations owned by the reconciliation
+-- login while future Alembic relations belong to migration_role. Grant only
+-- as each validated owner; any unrelated catalog owner fails closed.
+SELECT NOT EXISTS (
+    SELECT 1
+    FROM pg_class AS relation
+    JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+    JOIN pg_roles AS owner_role ON owner_role.oid = relation.relowner
+    WHERE namespace.nspname = 'catalog'
+      AND relation.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
+      AND owner_role.rolname NOT IN (current_user, :'migration_role')
+) AS catalog_relation_owners_supported
+\gset
+\if :catalog_relation_owners_supported
+\else
+    DO $error$
+    BEGIN
+        RAISE EXCEPTION 'catalog relations include an owner other than the reconciler or GEOLENS_MIGRATION_DB_ROLE.';
+    END
+    $error$;
+\endif
+
+SELECT format(
+    'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %I.%I TO %I',
+    namespace.nspname, relation.relname, :'runtime_role'
+)
+FROM pg_class AS relation
+JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+JOIN pg_roles AS owner_role ON owner_role.oid = relation.relowner
+WHERE namespace.nspname = 'catalog'
+  AND relation.relkind IN ('r', 'p', 'v', 'm', 'f')
+  AND owner_role.rolname = current_user
+\gexec
+SELECT format(
+    'GRANT USAGE, SELECT ON SEQUENCE %I.%I TO %I',
+    namespace.nspname, relation.relname, :'runtime_role'
+)
+FROM pg_class AS relation
+JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+JOIN pg_roles AS owner_role ON owner_role.oid = relation.relowner
+WHERE namespace.nspname = 'catalog'
+  AND relation.relkind = 'S'
+  AND owner_role.rolname = current_user
+\gexec
+
+-- Catalog grants and SECURITY DEFINER privileges must come from the actual
+-- migration owner, not the login that happens to run reconciliation. SET LOCAL
+-- proves the provider admin's authority without granting inherited access.
+SELECT format('SET LOCAL ROLE %I', :'migration_role')\gexec
+
+SELECT format(
+    'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %I.%I TO %I',
+    namespace.nspname, relation.relname, :'runtime_role'
+)
+FROM pg_class AS relation
+JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+JOIN pg_roles AS owner_role ON owner_role.oid = relation.relowner
+WHERE namespace.nspname = 'catalog'
+  AND relation.relkind IN ('r', 'p', 'v', 'm', 'f')
+  AND owner_role.rolname = current_user
+\gexec
+SELECT format(
+    'GRANT USAGE, SELECT ON SEQUENCE %I.%I TO %I',
+    namespace.nspname, relation.relname, :'runtime_role'
+)
+FROM pg_class AS relation
+JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+JOIN pg_roles AS owner_role ON owner_role.oid = relation.relowner
+WHERE namespace.nspname = 'catalog'
+  AND relation.relkind = 'S'
+  AND owner_role.rolname = current_user
+\gexec
 
 -- Future Alembic objects are owned by this privileged reconciliation/migration
 -- identity. The runtime role receives DML/sequence rights, never DDL. Catalog
@@ -430,6 +560,21 @@ SELECT format(
     'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA catalog REVOKE EXECUTE ON FUNCTIONS FROM %I',
     :'migration_role', :'runtime_role'
 )\gexec
+
+SELECT 'REVOKE ALL ON FUNCTION catalog.provision_tenant_data_schema(uuid) FROM PUBLIC'
+WHERE to_regprocedure('catalog.provision_tenant_data_schema(uuid)') IS NOT NULL
+\gexec
+SELECT 'REVOKE ALL ON FUNCTION catalog.deprovision_tenant_data_schema(uuid) FROM PUBLIC'
+WHERE to_regprocedure('catalog.deprovision_tenant_data_schema(uuid)') IS NOT NULL
+\gexec
+SELECT 'GRANT EXECUTE ON FUNCTION catalog.provision_tenant_data_schema(uuid) TO geolens_tenant_control'
+WHERE to_regprocedure('catalog.provision_tenant_data_schema(uuid)') IS NOT NULL
+  AND EXISTS (SELECT FROM pg_roles WHERE rolname = 'geolens_tenant_control')
+\gexec
+SELECT 'GRANT EXECUTE ON FUNCTION catalog.deprovision_tenant_data_schema(uuid) TO geolens_tenant_control'
+WHERE to_regprocedure('catalog.deprovision_tenant_data_schema(uuid)') IS NOT NULL
+  AND EXISTS (SELECT FROM pg_roles WHERE rolname = 'geolens_tenant_control')
+\gexec
 
 -- Reconcile installs that previously ran the broad EXECUTE recipe. On a fresh
 -- volume these functions do not exist until Alembic runs, so the conditional
@@ -501,6 +646,7 @@ SELECT format(
     'GRANT EXECUTE ON FUNCTION catalog.geolens_rebuild_embedding_column(integer) TO %I',
     :'runtime_role'
 )\gexec
+RESET ROLE;
 
 -- Single-tenant ingest and editing create and alter relations in data. Existing
 -- relations were created by the old superuser runtime (or by pg_restore with
@@ -624,6 +770,82 @@ SELECT format('GRANT %I TO %I', superseded.role_name, current_user)
 FROM pg_temp.geolens_superseded_runtime_roles AS superseded
 WHERE superseded.revoke_temporary_membership
 \gexec
+
+-- DROP OWNED can revoke only ACL entries issued by the active grantor. Catalog
+-- grants come from migration_role, so remove its direct and default grants
+-- while SET to that owner before the reconciler performs the broad cleanup.
+-- This prevents a retired login's already-open session retaining catalog DML.
+SELECT format(
+    'GRANT SELECT ON TABLE pg_temp.geolens_superseded_runtime_roles TO %I',
+    :'migration_role'
+)\gexec
+SELECT format('SET LOCAL ROLE %I', :'migration_role')\gexec
+
+SELECT format(
+    'REVOKE ALL PRIVILEGES ON TABLE %I.%I FROM %I',
+    namespace.nspname, relation.relname, superseded.role_name
+)
+FROM pg_temp.geolens_superseded_runtime_roles AS superseded
+JOIN pg_roles AS retired ON retired.rolname = superseded.role_name
+JOIN pg_class AS relation ON true
+JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+JOIN pg_roles AS owner_role ON owner_role.oid = relation.relowner
+JOIN LATERAL aclexplode(relation.relacl) AS acl
+  ON acl.grantee = retired.oid
+WHERE relation.relkind IN ('r', 'p', 'v', 'm', 'f')
+  AND owner_role.rolname = current_user
+\gexec
+SELECT format(
+    'REVOKE ALL PRIVILEGES ON SEQUENCE %I.%I FROM %I',
+    namespace.nspname, relation.relname, superseded.role_name
+)
+FROM pg_temp.geolens_superseded_runtime_roles AS superseded
+JOIN pg_roles AS retired ON retired.rolname = superseded.role_name
+JOIN pg_class AS relation ON relation.relkind = 'S'
+JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+JOIN pg_roles AS owner_role ON owner_role.oid = relation.relowner
+JOIN LATERAL aclexplode(relation.relacl) AS acl
+  ON acl.grantee = retired.oid
+WHERE owner_role.rolname = current_user
+\gexec
+SELECT format(
+    'REVOKE ALL PRIVILEGES ON FUNCTION %I.%I(%s) FROM %I',
+    namespace.nspname,
+    function.proname,
+    pg_get_function_identity_arguments(function.oid),
+    superseded.role_name
+)
+FROM pg_temp.geolens_superseded_runtime_roles AS superseded
+JOIN pg_roles AS retired ON retired.rolname = superseded.role_name
+JOIN pg_proc AS function ON true
+JOIN pg_namespace AS namespace ON namespace.oid = function.pronamespace
+JOIN pg_roles AS owner_role ON owner_role.oid = function.proowner
+JOIN LATERAL aclexplode(function.proacl) AS acl
+  ON acl.grantee = retired.oid
+WHERE owner_role.rolname = current_user
+\gexec
+SELECT format(
+    'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I REVOKE ALL PRIVILEGES ON %s FROM %I',
+    current_user,
+    namespace.nspname,
+    CASE defaults.defaclobjtype
+        WHEN 'r' THEN 'TABLES'
+        WHEN 'S' THEN 'SEQUENCES'
+        WHEN 'f' THEN 'FUNCTIONS'
+    END,
+    superseded.role_name
+)
+FROM pg_temp.geolens_superseded_runtime_roles AS superseded
+JOIN pg_roles AS retired ON retired.rolname = superseded.role_name
+JOIN pg_default_acl AS defaults
+  ON defaults.defaclrole = (SELECT oid FROM pg_roles WHERE rolname = current_user)
+JOIN pg_namespace AS namespace ON namespace.oid = defaults.defaclnamespace
+JOIN LATERAL aclexplode(defaults.defaclacl) AS acl
+  ON acl.grantee = retired.oid
+WHERE defaults.defaclobjtype IN ('r', 'S', 'f')
+\gexec
+RESET ROLE;
+
 SELECT format(
     'REASSIGN OWNED BY %I TO %I', superseded.role_name, :'runtime_role'
 )
@@ -690,6 +912,30 @@ SELECT NOT EXISTS (
            SELECT 1
            FROM pg_proc AS function
            WHERE function.proowner = retired.oid
+       )
+       OR EXISTS (
+           SELECT 1
+           FROM pg_class AS relation
+           JOIN LATERAL aclexplode(relation.relacl) AS acl ON true
+           WHERE acl.grantee = retired.oid
+       )
+       OR EXISTS (
+           SELECT 1
+           FROM pg_attribute AS attribute
+           JOIN LATERAL aclexplode(attribute.attacl) AS acl ON true
+           WHERE acl.grantee = retired.oid
+       )
+       OR EXISTS (
+           SELECT 1
+           FROM pg_namespace AS namespace
+           JOIN LATERAL aclexplode(namespace.nspacl) AS acl ON true
+           WHERE acl.grantee = retired.oid
+       )
+       OR EXISTS (
+           SELECT 1
+           FROM pg_proc AS function
+           JOIN LATERAL aclexplode(function.proacl) AS acl ON true
+           WHERE acl.grantee = retired.oid
        )
        OR EXISTS (
            SELECT 1
