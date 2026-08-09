@@ -26,6 +26,7 @@ from . import export_stac as _export_stac
 from . import manifest_apply as _manifest_apply
 from . import output as _output
 from . import publish as _publish
+from . import refresh as _refresh
 from . import scan as _scan
 from ._sdk_helpers import EXIT_AUTH, EXIT_GENERIC, EXIT_USAGE, call_sdk, unwrap
 
@@ -498,6 +499,33 @@ def whoami(ctx: typer.Context) -> None:
         state.output.success(f"{email} @ {instance}")
 
 
+@app.command()
+def status(
+    ctx: typer.Context,
+    dataset_id: Annotated[
+        str,
+        typer.Argument(help="Dataset UUID"),
+    ],
+) -> None:
+    """Show a dataset's catalog and source status."""
+    state: AppState = ctx.obj
+    try:
+        from uuid import UUID
+
+        dataset_uuid = UUID(dataset_id)
+    except ValueError as exc:
+        raise typer.BadParameter(
+            "Dataset id must be a UUID", param_hint="dataset_id"
+        ) from exc
+
+    dataset = _refresh.fetch_dataset_status(state.sdk().client, dataset_uuid)
+    payload = _refresh.dataset_status_payload(dataset)
+    if state.json_mode:
+        state.output.json(payload)
+    elif not state.quiet:
+        _refresh.render_dataset_status(state.output.console_stdout, payload)
+
+
 # Stub subcommands so `geolens --help` lists them and exit-code tests can run
 # before Plans 03-05 fill them in. Each raises Exit(2) (EXIT_USAGE) with
 # "not yet implemented" — replaced atomically when its plan lands.
@@ -736,6 +764,102 @@ def publish(
         for failure in extras_failures:
             state.output.warn(f"Dataset created, but: {failure}")
     if extras_failures:
+        raise typer.Exit(EXIT_GENERIC)
+
+
+@app.command()
+def refresh(
+    ctx: typer.Context,
+    dataset_id: Annotated[str, typer.Argument(help="Dataset UUID")],
+    token: Annotated[
+        Optional[str],
+        typer.Option(
+            "--token",
+            prompt="Service token",
+            prompt_required=False,
+            hide_input=True,
+            help=(
+                "Transient protected-service token. Pass --token with no value "
+                "for a hidden prompt; an explicit value may be visible in shell history."
+            ),
+        ),
+    ] = None,
+    wait: Annotated[
+        bool,
+        typer.Option("--wait/--no-wait", help="Wait for the refresh job to finish"),
+    ] = False,
+    timeout: Annotated[
+        Optional[float],
+        typer.Option(
+            "--timeout",
+            help=(
+                "Seconds to wait before giving up (only with --wait; default: "
+                "until the job finishes)"
+            ),
+        ),
+    ] = None,
+) -> None:
+    """Re-pull a dataset from its server-stored source binding.
+
+    Queue time has no upper bound, so ``--wait`` follows the job to a terminal
+    state by default. Pass ``--timeout`` when automation needs a finite bound.
+    """
+    state: AppState = ctx.obj
+    try:
+        from uuid import UUID
+
+        dataset_uuid = UUID(dataset_id)
+    except ValueError as exc:
+        raise typer.BadParameter(
+            "Dataset id must be a UUID", param_hint="dataset_id"
+        ) from exc
+    if timeout is not None and (timeout <= 0 or not math.isfinite(timeout)):
+        state.output.error("--timeout must be a finite number greater than 0")
+        raise typer.Exit(EXIT_USAGE)
+    if not wait and timeout is not None:
+        state.output.error("--timeout requires --wait")
+        raise typer.Exit(EXIT_USAGE)
+    if token == "":
+        state.output.error("Service token must not be empty")
+        raise typer.Exit(EXIT_USAGE)
+
+    sdk = state.sdk()
+    try:
+        accepted = _refresh.start_refresh(sdk.client, dataset_uuid, token)
+    except _refresh.RefreshRequestError as exc:
+        state.output.error(exc.message)
+        raise typer.Exit(exc.exit_code)
+
+    poll = None
+    if wait:
+        poll = _refresh.wait_for_refresh(
+            sdk.client,
+            accepted.job_id,
+            token=token,
+            timeout=timeout,
+        )
+
+    payload = _refresh.refresh_payload(accepted, poll)
+    if state.json_mode:
+        state.output.json(payload)
+    elif poll is None:
+        state.output.success(
+            f"Refresh queued for dataset {payload['dataset_id']} "
+            f"(job {payload['job_id']}, run {payload['run_id']}; "
+            f"origin={payload['origin_kind']}, trigger={payload['trigger']}, "
+            f"status={payload['status']})"
+        )
+        state.output.info(str(payload["message"]))
+    elif poll.succeeded:
+        state.output.success(
+            f"Refresh complete for dataset {payload['dataset_id']} "
+            f"(job {payload['job_id']}, run {payload['run_id']})"
+        )
+    else:
+        message = poll.error_message or f"Refresh job ended with status {poll.status}."
+        state.output.error(message)
+
+    if poll is not None and not poll.succeeded:
         raise typer.Exit(EXIT_GENERIC)
 
 
