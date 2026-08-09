@@ -1613,7 +1613,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # downloadable asset — a presigned URL on published S3. An allowlist
         # rather than a skip-list so the next internal key is private by
         # default. Cap 500 -> 505, exact.
-        "backend/app/modules/catalog/search/service_records.py": 505,
+        # feat(#1281): +7 — project origin health and freshness timestamps
+        # through the visibility-filtered OGC search representation, including
+        # JSON-safe datetime serialization for the OGC and STAC response paths.
+        # Cap 505 -> 512, exact.
+        "backend/app/modules/catalog/search/service_records.py": 512,
         # fix(#448): +~40 LOC — query-embedding hot-path deadline (asyncio.wait_for
         # wrapper) + the gated/approximated vector-only match COUNT in
         # _run_rrf_merge (perf audit 2026-07-10 §2d). Cap 350 → 390

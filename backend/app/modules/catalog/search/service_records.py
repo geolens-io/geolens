@@ -389,8 +389,17 @@ def dataset_to_ogc_record(
             # wire spelling of an unprobed health state aligned with dataset
             # detail responses while preserving nullable timestamps.
             "source_health": project_unknown(dataset.source_health),
-            "last_checked_at": dataset.last_checked_at,
-            "last_refreshed_at": dataset.last_refreshed_at,
+            # ``dataset_to_ogc_record`` also feeds JSONResponse-backed OGC
+            # item and STAC routes, so these must be wire values rather than
+            # raw ORM datetimes (Pydantic does not encode this plain dict).
+            "last_checked_at": (
+                dataset.last_checked_at.isoformat() if dataset.last_checked_at else None
+            ),
+            "last_refreshed_at": (
+                dataset.last_refreshed_at.isoformat()
+                if dataset.last_refreshed_at
+                else None
+            ),
             "constraints": (
                 {"usage": record.usage_constraints, "access": record.access_constraints}
                 if record.usage_constraints or record.access_constraints
