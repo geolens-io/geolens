@@ -1334,6 +1334,8 @@ class TestWorker:
         assert described.dtype == "uint16"
         assert described.nodata == "0"
         assert described.band_info == [{"min": 0, "max": 4095, "mean": 1200}]
+        # One integer band is imagery, not elevation.
+        assert described.is_dem is False
         # The tile URL has to change too, or browser and CDN caches keep
         # serving the old bytes.
         assert refreshed.tile_cache_version != before_version
@@ -1345,6 +1347,41 @@ class TestWorker:
         run = await _run_for(dataset.id)
         assert run.status == "succeeded"
         assert run.error_code is None
+
+    async def test_a_move_to_an_elevation_raster_reclassifies_it(
+        self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
+    ) -> None:
+        """fix(#1266 review round 6): the tile proxy branches on `is_dem`
+        BEFORE it looks at band metadata, so a stale flag renders a new
+        elevation raster as ordinary imagery — and the reverse case requests
+        RGB with algorithm=terrainrgb.
+
+        Re-derived by the same rule every other raster path uses, over an
+        owner's PATCH of the flag, with the precedent the raster replace path
+        set: the classification describes the object, and the object is what
+        just changed.
+        """
+        install, _ = stac_transport
+        install(
+            {
+                _ITEM: (200, _item_doc(asset_href=_MOVED_ASSET)),
+                _MOVED_ASSET: (206, None),
+            }
+        )
+
+        async def _elevation(url: str):
+            return {"band_count": 1, "dtype": "float32", "band_info": None}
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.stac_resolve.fetch_cog_info", _elevation
+        )
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        await _execute(test_db_session, payload)
+
+        assert (await _raster_asset(dataset.id)).is_dem is True
 
     async def test_an_unchanged_item_dates_the_refresh_without_rebinding(
         self, client, admin_auth_header, test_db_session, stac_transport

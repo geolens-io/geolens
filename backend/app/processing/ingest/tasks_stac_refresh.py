@@ -260,6 +260,7 @@ async def _repoint_remote_asset(
     it at an external href would tell every consumer to treat a managed key
     as a URL.
     """
+    from app.processing.raster.cog import is_dem_candidate
     from app.processing.raster.models import RasterAsset
 
     described = metadata or {}
@@ -278,6 +279,21 @@ async def _repoint_remote_asset(
             height=described.get("height"),
             nodata=str(nodata) if nodata is not None else None,
             band_info=described.get("band_info"),
+            # fix(#1266 review round 6): the DEM flag is derived from the same
+            # two fields, by the same rule every other raster path uses, and
+            # it has to move with them: `raster_tile_proxy` branches on this
+            # BEFORE it looks at band metadata, so an RGB replacement left
+            # flagged as elevation is requested with algorithm=terrainrgb and
+            # a new elevation raster is rendered as ordinary imagery.
+            #
+            # It re-derives over an owner's PATCH of the flag, deliberately
+            # and with precedent: `_write_swapped_fields` does the same on a
+            # raster replace, because the classification describes the object
+            # and the object is what just changed. An annotation made about
+            # bytes that are gone is not a setting worth preserving.
+            is_dem=is_dem_candidate(
+                described.get("band_count"), described.get("dtype")
+            ),
         )
     )
 
