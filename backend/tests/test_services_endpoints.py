@@ -1208,3 +1208,54 @@ class TestDuplicateSourceDetection:
         )
         assert resp.status_code == 409
         assert resp.json()["detail"]["code"] == "duplicate_source"
+
+    async def test_preview_catches_a_partially_backfilled_dataset(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        mock_validate_ssrf,
+        mock_build_gdal_source,
+        mock_run_preview,
+        mock_fetch_arcgis_preview,
+    ):
+        """fix(#1286 codex review, PR #1320): an incomplete origin_ref still
+        falls through to the source_url fallback.
+
+        Migration 0036's service backfill can populate ``origin_uri`` from
+        the legacy enriched ``source_url`` while leaving ``origin_ref``
+        without ``url``/``layer_id`` — a WFS/OGC row with no surviving
+        ingest job to recover the typename from. Gating the fallback on
+        ``origin_uri IS NULL`` alone would miss this row entirely: it is
+        matched by neither the (incomplete) structured identity nor an
+        origin_uri-null fallback. The fallback keys off an incomplete
+        structured identity instead.
+        """
+        from tests.factories import get_user_id
+
+        base = f"{_ARCGIS_BASE.replace('TestService', 'PartiallyBackfilledService')}"
+        admin_id = await get_user_id(test_db_session, "admin")
+        await _create_arcgis_dataset(
+            test_db_session,
+            created_by=admin_id,
+            source_url=f"{base}/0",
+            name="Partially Backfilled Row",
+            origin_uri=f"{base}/0",
+            # Migration 0036's degraded shape: kind + service_type only, no
+            # url or layer_id — jsonb_strip_nulls dropped both because no
+            # surviving ingest job could supply the base/typename.
+            origin_ref={"kind": "service", "service_type": "arcgis_featureserver"},
+        )
+
+        resp = await client.post(
+            "/services/preview/",
+            json={
+                "url": base,
+                "service_type": "ArcGIS:FeatureServer",
+                "layer_name": "0",
+                "layer_id": 0,
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 409
+        assert resp.json()["detail"]["code"] == "duplicate_source"
