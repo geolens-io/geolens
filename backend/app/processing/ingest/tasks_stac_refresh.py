@@ -235,6 +235,7 @@ async def _repoint_remote_asset(
     dataset_uuid: uuid.UUID,
     href: str,
     metadata: dict[str, Any] | None,
+    epsg: int | None,
 ) -> None:
     """Move the raster row the tiler actually reads, and re-describe it.
 
@@ -306,6 +307,22 @@ async def _repoint_remote_asset(
             # restamps it when it swaps a pointer for the same reason; this
             # swaps a pointer too.
             ingested_at=datetime.now(timezone.utc),
+            # fix(#1266 review round 7): the georeferencing moves too. This
+            # field is emitted as STAC `proj:code` and read by the VRT
+            # compatibility checks, so a reprojected replacement described by
+            # the previous object's EPSG is a wrong answer served to both.
+            # The value comes from the item's projection extension, which is
+            # where the IMPORT path reads it — one source, so the two cannot
+            # disagree — and None is written when the item declares none,
+            # because that is the same "unknown" a fresh import would store.
+            #
+            # `crs_wkt`, `res_x` and `res_y` are deliberately not in this
+            # list: nothing on a remote-asset row has ever set them (the STAC
+            # import does not, and only the managed-COG path does), so they
+            # are NULL here by construction and there is nothing stale to
+            # correct. Writing a derived value into them would be inventing
+            # georeferencing rather than refreshing it.
+            epsg=epsg,
         )
     )
 
@@ -474,7 +491,13 @@ async def refresh_stac(
                     dataset_uuid,
                     resolution.asset_href,
                     resolution.asset_metadata,
+                    resolution.epsg,
                 )
+                # The dataset-level mirror of the same fact. The STAC import
+                # writes both from one value; a refresh that moved one and
+                # left the other would leave the catalog disagreeing with
+                # itself about the projection it serves.
+                dataset.srid = resolution.epsg
                 # The other half of the tile story, and the half a server-side
                 # purge cannot do: the `_v=` parameter in the tile URL is what
                 # busts browser and CDN caches. In the write transaction,

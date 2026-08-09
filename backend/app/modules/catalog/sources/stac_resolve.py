@@ -71,6 +71,7 @@ import structlog
 
 from app.modules.catalog.sources.adapters.stac import (
     pick_data_asset,
+    projection_epsg,
     self_link_href,
     storable_href,
 )
@@ -130,6 +131,13 @@ class StacResolution:
     # parameters. Populated only when the href moved, which is the only time
     # anything is adopted.
     asset_metadata: dict[str, Any] | None = None
+    # fix(#1266 review round 7): the moved object's declared projection, read
+    # from the item that publishes it rather than from the object. That is
+    # where the import path reads it too — the STAC projection extension —
+    # so the two agree by construction, and a reprojected replacement stops
+    # being described by the previous object's EPSG. Populated beside
+    # ``asset_metadata`` and written with it.
+    epsg: int | None = None
 
     @property
     def resolved(self) -> bool:
@@ -490,6 +498,7 @@ async def _resolve_from_item(
             # binding stays exactly as it is and a retry can succeed.
             return _ASSET_UNREADABLE
 
+    properties = item.get("properties")
     return StacResolution(
         health=probed.health,
         detail=probed.detail,
@@ -498,6 +507,7 @@ async def _resolve_from_item(
         asset_href=href,
         asset_key=key,
         asset_metadata=metadata,
+        epsg=projection_epsg(properties if isinstance(properties, dict) else {}),
     )
 
 

@@ -81,6 +81,7 @@ def _item_doc(
         "type": "Feature",
         "id": item_id,
         "collection": "scenes",
+        "properties": {"proj:code": "EPSG:32633"},
         "links": (
             [{"rel": "self", "href": self_href}] if self_href is not None else []
         ),
@@ -213,6 +214,7 @@ async def _stac_dataset(
         name=f"STAC Scene {uuid.uuid4().hex[:6]}",
         source_format="stac",
         source_filename="scene-1",
+        srid=4326,
     )
     dataset.record.record_type = "raster_dataset"
     dataset.origin_uri = asset_href
@@ -231,6 +233,7 @@ async def _stac_dataset(
             asset_uri=asset_href or "",
             storage_backend="remote",
             cog_status="verified",
+            epsg=4326,
             ingested_at=datetime.now(timezone.utc) - timedelta(days=30),
         )
     )
@@ -1343,6 +1346,10 @@ class TestWorker:
         # and it still embeds the old URL.
         assert described.ingested_at is not None
         assert described.ingested_at > before_ingested
+        # The georeferencing moves with the object, from the item that
+        # publishes it — the same source the import path reads.
+        assert described.epsg == 32633
+        assert refreshed.srid == 32633
         # The tile URL has to change too, or browser and CDN caches keep
         # serving the old bytes.
         assert refreshed.tile_cache_version != before_version
