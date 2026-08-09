@@ -74,6 +74,7 @@ from app.modules.catalog.sources.adapters.stac import (
     self_link_href,
     storable_href,
 )
+from app.modules.catalog.sources.cog_info import fetch_cog_info
 from app.modules.catalog.sources.origin_probe import (
     BLOCKED_BY_POLICY,
     INACCESSIBLE,
@@ -85,8 +86,18 @@ from app.modules.catalog.sources.origin_probe import (
     fetch_json_document,
     probe_remote_uri,
 )
+from app.modules.catalog.sources.security import SSRFError, validate_url_for_ssrf
 
 logger = structlog.get_logger(__name__)
+
+# fix(#1266 review round 5): `datasets.origin_uri` is String(2000) and the
+# adopted asset href lands there. The storable-href gate above it mirrors the
+# IMPORT MODEL's 4096 cap, which is the right bar for `origin_ref` (JSONB,
+# unbounded) and one the column cannot hold — so a 2050-character href would
+# clear every check and then abort the success transaction, failing a refresh
+# that had actually resolved. Refusing it up front turns that into a verdict
+# the run can explain.
+_MAX_STORED_URI_CHARS = 2000
 
 
 @dataclass(frozen=True)
@@ -110,6 +121,15 @@ class StacResolution:
     item_href: str | None = None
     asset_href: str | None = None
     asset_key: str | None = None
+    # fix(#1266 review round 5): the moved object's OWN structural metadata.
+    # A moved asset is not the same asset — a re-tiled scene can change its
+    # band count, dtype, nodata and the statistics every rescale is computed
+    # from — and the tile proxy builds `bidx`, rescale and nodata parameters
+    # from what the catalog stored. Adopting the new href while keeping the
+    # old object's description renders the new raster through the old one's
+    # parameters. Populated only when the href moved, which is the only time
+    # anything is adopted.
+    asset_metadata: dict[str, Any] | None = None
 
     @property
     def resolved(self) -> bool:
@@ -139,6 +159,11 @@ _ASSET_UNUSABLE = StacResolution(INACCESSIBLE, UNAUTHORIZED)
 # one. Declining beats composing a path under the search URL and hoping
 # nothing is served there.
 _ASSET_UNADDRESSABLE = StacResolution(INACCESSIBLE, UNEXPECTED_STATUS)
+
+# "The publisher named a new asset and GeoLens could not read it." The item
+# is fine, the address is allowed, and the object behind it did not answer as
+# a COG — inconclusive, so nothing is adopted and a retry can succeed.
+_ASSET_UNREADABLE = StacResolution(INACCESSIBLE, UNEXPECTED_STATUS)
 
 # "The publisher moved the asset somewhere GeoLens is not allowed to fetch."
 # Not adopted, and this is a security property rather than a health one: the
@@ -410,12 +435,16 @@ async def _resolve_from_item(
         # vocabulary, and it is emphatically not `missing`: nothing was
         # deleted and the stored pointer may well still serve.
         return _ASSET_UNUSABLE
+    if len(href) > _MAX_STORED_URI_CHARS:
+        return _ASSET_UNADDRESSABLE
+
     # The item's CURRENT self link, so a re-search that found the item at a
     # new address updates the pointer that failed. Falls back to the pointer
     # already stored: a catalog that publishes no self link has told GeoLens
     # nothing better to point at, and inventing an address from the search
     # endpoint would store one no reader could resolve.
-    resolved_item_href = self_href or fallback_item_href
+    resolved_item_href = await _storable_item_pointer(self_href, fallback_item_href)
+
     probed = await probe_remote_uri(href)
     if probed.detail == BLOCKED_BY_POLICY:
         # fix(#1266 review round 4): refused, not merely reported. Every other
@@ -428,6 +457,39 @@ async def _resolve_from_item(
         # the inside, so adopting this href would put an address past the only
         # guard that ever checks it.
         return _ASSET_BLOCKED
+
+    metadata: dict[str, Any] | None = None
+    if href != asset_href:
+        # fix(#1266 review round 5): the moved object describes itself, and
+        # the catalog has to be re-told. A re-tiled scene can change its band
+        # count, dtype, nodata and per-band statistics, and the tile proxy
+        # builds `bidx`, rescale and nodata from what was stored — so a new
+        # single-band COG served through the old three-band description
+        # renders wrong or fails outright.
+        #
+        # Read only when the href MOVED, which is the only time anything is
+        # adopted. An object replaced in place at an unchanged URL is the
+        # raster twin of the registered-table case: the owner rewrote what
+        # GeoLens points at, no pointer changed, and re-reading on every
+        # refresh would buy a Titiler round trip per refresh for it.
+        #
+        # Gate 1 of `fetch_cog_info`'s documented dual gate: the URL is
+        # SSRF-validated by its CALLER before Titiler is handed it. The probe
+        # above already refused a blocked address, and this is the explicit
+        # standalone call that contract asks for.
+        try:
+            await validate_url_for_ssrf(href)
+        except SSRFError:
+            return _ASSET_BLOCKED
+        metadata = await fetch_cog_info(href)
+        if metadata is None:
+            # Do not publish a pointer to an object GeoLens could not read.
+            # Same discipline as the raster replace path's read-back: a
+            # publisher's document saying where the asset is, is not the same
+            # fact as that asset being openable. Inconclusive, so the stored
+            # binding stays exactly as it is and a retry can succeed.
+            return _ASSET_UNREADABLE
+
     return StacResolution(
         health=probed.health,
         detail=probed.detail,
@@ -435,7 +497,33 @@ async def _resolve_from_item(
         item_href=resolved_item_href,
         asset_href=href,
         asset_key=key,
+        asset_metadata=metadata,
     )
+
+
+async def _storable_item_pointer(self_href: str | None, fallback: str) -> str:
+    """The item pointer to store: the new self link, or the one already held.
+
+    fix(#1266 review round 5): a self link is not storable just because it is
+    well-formed and states the right identity. It also has to be an address
+    the refresh door will accept next time — that door SSRF-validates
+    ``origin_ref.item_href`` before it will queue anything. A publisher that
+    starts advertising a self link on a private host would otherwise get one
+    successful refresh and then permanently locked-out ones, with the usable
+    pointer already overwritten.
+
+    Validated with the door's own function so the two cannot disagree. This
+    resolves DNS and issues no request; the fallback needs no check, because
+    it is the value that got this refresh admitted in the first place.
+    """
+    if self_href is None or self_href == fallback:
+        return fallback
+    try:
+        await validate_url_for_ssrf(self_href)
+    except SSRFError:
+        logger.info("stac_self_link_blocked_by_policy")
+        return fallback
+    return self_href
 
 
 def _feature_by_id(document: Any, item_id: str) -> dict[str, Any] | None:

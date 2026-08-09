@@ -123,6 +123,34 @@ def _routes(mapping: dict[str, tuple[int, object | None]]):
     return _handler
 
 
+@pytest.fixture(autouse=True)
+def cog_info(monkeypatch):
+    """Titiler's reading of a moved COG, which the resolver requires.
+
+    Nothing is adopted without it — a pointer to an object GeoLens could not
+    read is exactly what the strategy refuses — so it is stubbed by default
+    and overridden where the failure itself is the subject.
+    """
+    described = {
+        "band_count": 1,
+        "dtype": "uint16",
+        "width": 512,
+        "height": 512,
+        "nodata": 0,
+        "band_info": [{"min": 0, "max": 4095, "mean": 1200}],
+    }
+    calls: list[str] = []
+
+    async def _fake(url: str):
+        calls.append(url)
+        return described
+
+    monkeypatch.setattr(
+        "app.modules.catalog.sources.stac_resolve.fetch_cog_info", _fake
+    )
+    return described, calls
+
+
 @pytest.fixture
 def stac_transport(monkeypatch):
     """Install a mock transport for every outbound byte this feature sends.
@@ -133,6 +161,15 @@ def stac_transport(monkeypatch):
     the fact that no second patch is needed to silence the network.
     """
     recorded: list[httpx.Request] = []
+
+    # The resolver validates a replacement item pointer and the adopted asset
+    # href with the door's own SSRF function, which resolves DNS for real
+    # against names nothing answers for. Policy refusal has its own test,
+    # driven by raising from this stub.
+    monkeypatch.setattr(
+        "app.modules.catalog.sources.stac_resolve.validate_url_for_ssrf",
+        AsyncMock(),
+    )
 
     def install(routes) -> None:
         """Install a URL table, or a handler for the failure shapes."""
@@ -279,6 +316,15 @@ async def _asset_uri(dataset_id: uuid.UUID) -> str:
                 select(RasterAsset.asset_uri).where(
                     RasterAsset.dataset_id == dataset_id
                 )
+            )
+        ).scalar_one()
+
+
+async def _raster_asset(dataset_id: uuid.UUID) -> RasterAsset:
+    async with _fresh_session() as session:
+        return (
+            await session.execute(
+                select(RasterAsset).where(RasterAsset.dataset_id == dataset_id)
             )
         ).scalar_one()
 
@@ -885,6 +931,106 @@ class TestResolution:
         # held, dead as it is — the next refresh searches again.
         assert result.item_href == _ITEM
 
+    async def test_a_moved_asset_that_cannot_be_read_is_not_adopted(
+        self, stac_transport, monkeypatch
+    ) -> None:
+        """fix(#1266 review round 5): a publisher's document saying where the
+        asset is, is not the same fact as that asset being openable. Same
+        discipline as the raster replace path's read-back of its own COG."""
+        install, _ = stac_transport
+        install(
+            {
+                _ITEM: (200, _item_doc(asset_href=_MOVED_ASSET)),
+                _MOVED_ASSET: (206, None),
+            }
+        )
+
+        async def _unreadable(url: str):
+            return None
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.stac_resolve.fetch_cog_info", _unreadable
+        )
+        result = await resolve_stac_binding(
+            item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
+        )
+        assert not result.resolved
+        assert result.health == "inaccessible"
+
+    async def test_an_unchanged_asset_is_not_re_read_from_titiler(
+        self, stac_transport, cog_info
+    ) -> None:
+        """The read is for the ADOPTION, so it happens only when something is
+        adopted. An object replaced in place at an unchanged URL is the raster
+        twin of the registered-table case, and re-reading every refresh would
+        buy a Titiler round trip per refresh for it."""
+        _described, calls = cog_info
+        install, _ = stac_transport
+        install({_ITEM: (200, _item_doc()), _ASSET: (206, None)})
+        result = await resolve_stac_binding(
+            item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
+        )
+        assert result.resolved
+        assert result.asset_metadata is None
+        assert calls == []
+
+    async def test_an_asset_href_too_long_for_the_column_is_refused(
+        self, stac_transport
+    ) -> None:
+        """fix(#1266 review round 5): `datasets.origin_uri` is String(2000).
+
+        The storable-href gate mirrors the import model's 4096 cap, which is
+        right for `origin_ref` (JSONB) and more than the column can hold — so
+        without this a 2050-character href would clear every check and then
+        abort the success transaction, failing a refresh that had resolved.
+        """
+        install, _ = stac_transport
+        long_href = "https://origin.test/tiles/" + ("a" * 2000) + ".tif"
+        install({_ITEM: (200, _item_doc(asset_href=long_href)), long_href: (206, None)})
+        result = await resolve_stac_binding(
+            item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
+        )
+        assert not result.resolved
+        assert result.health == "inaccessible"
+
+    async def test_a_self_link_the_policy_blocks_is_not_stored(
+        self, stac_transport, monkeypatch
+    ) -> None:
+        """fix(#1266 review round 5): a pointer has to be one the DOOR will
+        accept next time.
+
+        The refresh door SSRF-validates `origin_ref.item_href` before it
+        queues anything, so storing a self link on a blocked host would buy
+        one successful refresh and then permanent 400s — with the usable
+        pointer already overwritten.
+        """
+        install, _ = stac_transport
+        blocked_item = f"{_ROOT}/v2/collections/scenes/items/scene-1"
+        install(
+            {
+                _ITEM: (
+                    200,
+                    _item_doc(asset_href=_MOVED_ASSET, self_href=blocked_item),
+                ),
+                _MOVED_ASSET: (206, None),
+            }
+        )
+
+        async def _validate(url: str) -> None:
+            if url == blocked_item:
+                raise SSRFError("private address")
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.stac_resolve.validate_url_for_ssrf", _validate
+        )
+        result = await resolve_stac_binding(
+            item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
+        )
+        assert result.resolved
+        assert result.asset_href == _MOVED_ASSET
+        # The asset moved; the item pointer stayed the one that still works.
+        assert result.item_href == _ITEM
+
     async def test_a_live_item_that_dropped_the_asset_is_missing(
         self, stac_transport
     ) -> None:
@@ -1180,8 +1326,14 @@ class TestWorker:
         assert refreshed.origin_ref["asset_key"] == "data"
         assert refreshed.origin_ref["item_href"] == _ITEM
         assert refreshed.origin_ref["collection_id"] == "scenes"
-        # What actually serves.
+        # What actually serves — the address AND the description of what is
+        # at it, because the tile proxy builds its parameters from the latter.
         assert await _asset_uri(dataset.id) == _MOVED_ASSET
+        described = await _raster_asset(dataset.id)
+        assert described.band_count == 1
+        assert described.dtype == "uint16"
+        assert described.nodata == "0"
+        assert described.band_info == [{"min": 0, "max": 4095, "mean": 1200}]
         # The tile URL has to change too, or browser and CDN caches keep
         # serving the old bytes.
         assert refreshed.tile_cache_version != before_version

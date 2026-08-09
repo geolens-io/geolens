@@ -231,14 +231,28 @@ def _rebind(dataset: Any, resolution: Any, *, collection_id: str | None) -> None
 
 
 async def _repoint_remote_asset(
-    session: Any, dataset_uuid: uuid.UUID, href: str
+    session: Any,
+    dataset_uuid: uuid.UUID,
+    href: str,
+    metadata: dict[str, Any] | None,
 ) -> None:
-    """Move the raster row the tiler actually reads.
+    """Move the raster row the tiler actually reads, and re-describe it.
 
     ``origin_ref`` is provenance; THIS is what serves. The tile router
     resolves an open path from ``RasterAsset.asset_uri``, so a refresh that
     updated only the binding would report a moved asset and go on serving
     tiles from the dead href.
+
+    fix(#1266 review round 5): the structural columns move WITH the URI, in
+    the same statement. A moved asset is not the same object — a re-tiled
+    scene can change its band count, dtype, nodata and the statistics every
+    rescale is computed from — and ``raster_tile_proxy`` builds ``bidx``,
+    rescale and nodata parameters out of exactly these fields. Updating the
+    address alone would serve the new raster through the old one's
+    description, which for a single-band COG requested as RGB is not a
+    cosmetic error. The resolver reads them off the new object before
+    anything is adopted, so a row can never carry one object's URI beside
+    another's shape.
 
     Scoped to ``storage_backend='remote'`` rows: a raster whose bytes GeoLens
     now owns (a #1290 replace writes a managed key and flips the backend to
@@ -248,13 +262,23 @@ async def _repoint_remote_asset(
     """
     from app.processing.raster.models import RasterAsset
 
+    described = metadata or {}
+    nodata = described.get("nodata")
     await session.execute(
         update(RasterAsset)
         .where(
             RasterAsset.dataset_id == dataset_uuid,
             RasterAsset.storage_backend == "remote",
         )
-        .values(asset_uri=href)
+        .values(
+            asset_uri=href,
+            band_count=described.get("band_count"),
+            dtype=described.get("dtype"),
+            width=described.get("width"),
+            height=described.get("height"),
+            nodata=str(nodata) if nodata is not None else None,
+            band_info=described.get("band_info"),
+        )
     )
 
 
@@ -418,7 +442,10 @@ async def refresh_stac(
                 _rebind(dataset, resolution, collection_id=collection_id)
             if moved:
                 await _repoint_remote_asset(
-                    session, dataset_uuid, resolution.asset_href
+                    session,
+                    dataset_uuid,
+                    resolution.asset_href,
+                    resolution.asset_metadata,
                 )
                 # The other half of the tile story, and the half a server-side
                 # purge cannot do: the `_v=` parameter in the tile URL is what
