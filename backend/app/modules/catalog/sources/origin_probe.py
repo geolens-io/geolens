@@ -47,7 +47,9 @@ incapable of leaking, which "remember to redact" is not.
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass
+from typing import Any
 
 import httpx
 
@@ -66,6 +68,13 @@ INACCESSIBLE = "inaccessible"
 
 # Seconds. Matches the timeout the VRT member probe has always used.
 PROBE_TIMEOUT_SECONDS = 10.0
+
+# feat(#1266): the ceiling on a document body this module will hold in memory.
+# The only caller reads STAC item documents, which run to a few kilobytes in
+# practice — a Sentinel-2 item carrying every band is well under 100 KB — so
+# this is generous for a real catalog and small enough that a hostile origin
+# streaming an endless body cannot walk a refresh worker out of memory.
+MAX_DOCUMENT_BYTES = 2 * 1024 * 1024
 
 # The closed detail vocabulary. Every value is GeoLens's own word for a class
 # of outcome; none is derived from anything the origin sent us.
@@ -223,6 +232,111 @@ async def probe_remote_uri(
         return OriginProbeResult(INACCESSIBLE, detail, contacted=contacted)
 
     return _status_result(status_code)
+
+
+# "The origin answered, and what it said is not something GeoLens can act
+# on." One verdict for both shapes of that, because they are one fact to the
+# person reading it and neither is a transport failure.
+_OVERSIZED_OR_UNREADABLE = OriginProbeResult(INACCESSIBLE, UNEXPECTED_STATUS)
+
+
+async def fetch_json_document(
+    uri: str,
+    *,
+    method: str = "GET",
+    json_body: Any | None = None,
+    timeout: float = PROBE_TIMEOUT_SECONDS,
+    max_bytes: int = MAX_DOCUMENT_BYTES,
+) -> tuple[OriginProbeResult, Any | None, str]:
+    """Fetch *uri* and return its verdict, its parsed body, and its final URL.
+
+    feat(#1266). :func:`probe_remote_uri` asks whether a pointer still
+    resolves and deliberately throws the body away. Re-resolving a moved STAC
+    item asks the same question and then needs the answer's CONTENT — the
+    item document names where its assets live now. This is that request:
+    the same safe client, the same closed detail vocabulary, the same status
+    mapping, with the body kept.
+
+    It lives here rather than beside its caller for the reason the module
+    docstring already gives for the probe: everything outbound goes through
+    :func:`make_safe_client`, which is Rule 2's only sanctioned door, and a
+    second fetch written elsewhere is a second place for the SSRF contract
+    and the health mapping to rot apart. Nothing in the refresh strategy
+    constructs an HTTP client of its own.
+
+    The body is returned ONLY for a sub-400 response, and only when it parses
+    as JSON inside ``max_bytes``. Anything else — an oversized stream, a body
+    that is not JSON, a 4xx or 5xx — yields ``None`` beside a verdict, so a
+    caller cannot accidentally read half a document. An unparseable or
+    oversized body reports ``unexpected_status``: the origin answered, and
+    what it answered with is not something GeoLens can act on. That is a
+    member of the closed vocabulary rather than a new code, because
+    ``source_health_detail`` is persisted and served, and widening the set
+    costs every consumer that enumerates it.
+
+    The third element is the URL the document actually CAME from, after any
+    redirect, falling back to the requested one. STAC hrefs are legally
+    relative, and resolving them against the address that was asked for
+    rather than the one that answered would point a redirected catalog's
+    assets at the wrong host. ``search_stac_items`` reads ``resp.url`` for
+    the same reason; the SSRF transport restores the hostname after each
+    pinned hop, so this is the logical URL and never the pinned IP.
+    """
+    responded = False
+    final_url = uri
+
+    async def _mark_responded(_response: httpx.Response) -> None:
+        nonlocal responded
+        responded = True
+
+    raw = bytearray()
+    try:
+        # The same doubled hard deadline probe_remote_uri takes, and for the
+        # same reason: httpx's phase timeouts do not cover the guard
+        # transport's DNS resolution.
+        async with asyncio.timeout(timeout * 2):
+            async with make_safe_client(timeout=timeout) as client:
+                if hasattr(client, "event_hooks"):
+                    hooks = client.event_hooks
+                    hooks["response"] = [_mark_responded, *hooks.get("response", [])]
+                    client.event_hooks = hooks
+                async with client.stream(
+                    method,
+                    uri,
+                    json=json_body,
+                    headers={"Accept": "application/geo+json, application/json"},
+                ) as response:
+                    status_code = response.status_code
+                    final_url = str(response.url)
+                    if status_code < 400:
+                        async for chunk in response.aiter_bytes():
+                            raw.extend(chunk)
+                            if len(raw) > max_bytes:
+                                # Stop reading rather than stop the request:
+                                # leaving the context manager closes the
+                                # response, so nothing keeps arriving.
+                                return _OVERSIZED_OR_UNREADABLE, None, final_url
+    except (
+        Exception
+    ) as exc:  # broad: every transport failure means "could not determine"
+        detail, contacted = _classify_failure(exc, responded=responded)
+        return (
+            OriginProbeResult(INACCESSIBLE, detail, contacted=contacted),
+            None,
+            final_url,
+        )
+
+    result = _status_result(status_code)
+    if not result.ok:
+        return result, None, final_url
+    try:
+        return result, json.loads(raw), final_url
+    except ValueError:
+        # Deliberately not folded into the handler above: a body that is not
+        # JSON is not a transport failure, and classifying it as one would
+        # report `network_error` for an origin that answered perfectly well
+        # with an HTML error page.
+        return _OVERSIZED_OR_UNREADABLE, None, final_url
 
 
 async def remote_asset_exists(asset_uri: str) -> bool:

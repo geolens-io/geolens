@@ -875,6 +875,72 @@ async def _run_staging_pipeline(
     )
 
 
+async def stamp_failed_origin_health(
+    session,
+    dataset_cls: Any,
+    dataset_uuid: uuid.UUID,
+    *,
+    health: str | None,
+    detail: str | None,
+    bound: tuple | None,
+) -> None:
+    """Persist what a failed refresh learned about its origin, if anything.
+
+    Two writers, one record each, the same split ``reupload_service`` uses:
+    this owns the dataset-side verdict, ``record_refresh_failure`` owns the
+    run row, and the caller passes ``contacted_origin=False`` there so the run
+    finalizer does not write the dataset a second, weaker way.
+
+    Guarded on the ``(origin_uri, origin_ref, source_format)`` triple the
+    failing attempt read. A refresh that failed against an origin the dataset
+    is no longer bound to must not mark the NEW binding missing — and for a
+    rebind to an upload, nothing would ever correct it, because uploads have
+    no probe and no refresh. Losing the race is a silent skip; there is
+    nobody to tell from a background task, and the rebind's own commit
+    already stated what is true now.
+
+    ``health=None`` writes nothing at all. A failure that established nothing
+    about the origin — a statement timeout, a search that could not be
+    carried out — must leave the last conclusive verdict standing rather than
+    replacing it with a guess.
+
+    feat(#1266): lives here rather than in one strategy because the second
+    strategy needs precisely this write. It arrived with #1313's registered-
+    PostGIS refresh as a private helper; a copy in the STAC strategy would be
+    a third spelling of the guard beside ``_record_failed_origin_contact``,
+    and a guard with three spellings is a guard one of whose spellings is
+    eventually wrong.
+    """
+    if health is None or bound is None:
+        return
+    from sqlalchemy import update as sa_update
+
+    bound_uri, bound_ref, bound_format = bound
+    outcome = await session.execute(
+        sa_update(dataset_cls)
+        .where(
+            dataset_cls.id == dataset_uuid,
+            dataset_cls.origin_uri.is_not_distinct_from(bound_uri),
+            dataset_cls.origin_ref.is_not_distinct_from(bound_ref),
+            dataset_cls.source_format.is_not_distinct_from(bound_format),
+        )
+        .values(
+            source_health=health,
+            source_health_detail=detail,
+            # The attempt reached the origin and got an answer — a dropped
+            # relation and a withdrawn item both ARE answers, the same way
+            # the probe dates a 404. That is the whole meaning of the column.
+            last_checked_at=datetime.now(timezone.utc),
+        )
+    )
+    await session.commit()
+    if outcome.rowcount:
+        # GET /datasets/ serves these fields from a 60s cache; every other
+        # writer invalidates it, and a lost guard race changed nothing worth
+        # invalidating for.
+        await invalidate_catalog_cache()
+
+
 async def _cleanup_staging_on_failure(
     session,
     *,

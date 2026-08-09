@@ -2299,12 +2299,15 @@ export interface paths {
          *     complete, so a refresh that fails leaves the live table and its freshness
          *     exactly as they were.
          *
-         *     A dataset registered from an existing PostGIS table takes the other
-         *     execution strategy (#1265): its origin IS the table it serves from, so
-         *     there is nothing to pull and nothing to swap, and the refresh re-measures
-         *     the live relation instead — recounting features, recomputing the extent,
-         *     and rebuilding the column schema snapshot and statistics. Admission, the
-         *     run row and the history it writes are identical either way.
+         *     Two origin kinds take their own execution strategy, and neither moves any
+         *     data. A dataset registered from an existing PostGIS table (#1265) has an
+         *     origin that IS the table it serves from, so its refresh re-measures the
+         *     live relation — recounting features, recomputing the extent, rebuilding
+         *     the column schema snapshot and statistics. A dataset imported from a STAC
+         *     item (#1266) is nothing but a pointer at somebody else's COG, so its
+         *     refresh re-reads the item document and follows the asset if the publisher
+         *     moved it. Admission, the run row and the history they write are identical
+         *     across all three.
          *
          *     Refuses with 409 ``dataset_busy`` while another refresh or re-upload is
          *     active for this dataset — v1 rejects rather than queues (Decision 5b), and

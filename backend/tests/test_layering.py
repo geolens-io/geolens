@@ -1753,7 +1753,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # same three-line shape again. The refresh door now picks its executor
         # by origin kind and reaches this one the same way it reaches
         # reupload_service.
-        "backend/app/platform/extensions/defaults_catalog_port.py": 440,
+        # feat(#1266): +5 — the STAC re-resolution task delegation, the third
+        # instance of that same three-line shape. Cap 440 -> 445.
+        "backend/app/platform/extensions/defaults_catalog_port.py": 445,
         # feat(#683): +58 — run_analysis_preview carries a clip mask DATASET
         # now, which costs a widened signature (one param per line once ruff
         # wraps it) plus the mask's shape and size gates. Those live here on
@@ -1761,7 +1763,14 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # applies, and putting them at the port gives every caller the same
         # refusal instead of an empty preview or an unbounded mask subdivide.
         # Cap 406 → 470 (~6 headroom).
-        "backend/app/platform/extensions/defaults_processing_port.py": 470,
+        # feat(#1266): +11 — resolve_stac_binding. The STAC refresh strategy
+        # re-reads the item document its asset was published in, and every
+        # byte of that goes through Rule 2's safe client and the #1222 health
+        # classifier, both of which live in the catalog domain. Routing the
+        # ANSWER across the port is what keeps processing/ from importing
+        # catalog for it (the burn-down list's own instruction) and leaves the
+        # worker holding no HTTP client at all. Cap 470 -> 481.
+        "backend/app/platform/extensions/defaults_processing_port.py": 481,
         # fix(#929): +2 over the 350 default — the creator exemption on the
         # restricted branch of filter_visible/can_access_dataset plus its
         # rationale comments. fix(#930): +20 — the internal branch on the same
@@ -2201,7 +2210,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the durable copy exists) rather than a breadcrumb, and `file_path` is a
     # temp download on object storage so the name had to come from the caller.
     # Cap 1889 -> 1902, exact.
-    "backend/app/processing/ingest/tasks_common.py": 1902,
+    # feat(#1266): +66 — stamp_failed_origin_health, the guarded dataset-side
+    # health write a failed refresh makes. It arrived with #1313 as a private
+    # helper inside the registered-PostGIS strategy; the STAC strategy needs
+    # precisely the same write, and a copy would have been a THIRD spelling of
+    # the binding guard beside _record_failed_origin_contact in
+    # tasks_reupload. Moved here rather than duplicated, so the two strategies
+    # share one implementation and #1313's file shrank by the same lines.
+    # Cap 1902 -> 1968, exact.
+    "backend/app/processing/ingest/tasks_common.py": 1968,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -2237,6 +2254,19 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # in place rather than raising a replacement (the class is load-bearing for
     # the error-code mapping below it). Cap 1125 -> 1139, exact.
     "backend/app/processing/ingest/tasks_reupload.py": 1139,
+    # --- entered by the inclusion rule, feat(#1266) -----------------------
+    # The refresh door crossed 1000 when it gained its third execution
+    # strategy. Two thirds of the addition is the STAC dispatcher, which is
+    # the service door's ordering with the steps a remote ITEM does not need
+    # removed (no credential, no prior-ingest settings) — the shape is
+    # deliberately the same because the ordering is what keeps a re-upload
+    # that commits mid-admission from having its rebind dispatched from a
+    # pre-swap snapshot. The rest is _resolve_stac_origin and the binding
+    # dataclass, whose comments carry the one asymmetry that decides this
+    # strategy: the asset href says whether the COG is still there, and only
+    # the ITEM href can say where the publisher moved it to. Entered at its
+    # measured size.
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1089,
     # --- entered by the inclusion rule, fix(#958) -------------------------
     # These five were the ungated modules at or above _RATCHET_INCLUSION_LOC
     # when the rule was written. They arrive at their measured size with no

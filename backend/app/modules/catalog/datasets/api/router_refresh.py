@@ -429,6 +429,230 @@ async def _dispatch_postgis_refresh(
     )
 
 
+@dataclass(frozen=True)
+class _StacOrigin:
+    """The STAC item a remote-asset dataset was published in.
+
+    ``item_href`` is the only field this strategy cannot work without, and
+    the reason is the asymmetry ``origin_ref``'s comment already records: the
+    asset href answers "is the COG still there", the item href answers "where
+    does the publisher say the COG is now". Only the second can follow a
+    move, so only the second is required here.
+
+    The other three are the identity the worker re-resolves WITH — the
+    collection scopes the fallback search, and the key and the previous href
+    are how the right asset is recognised in the item that comes back.
+    """
+
+    item_href: str
+    collection_id: str | None
+    asset_href: str | None
+    asset_key: str | None
+
+
+def _resolve_stac_origin(dataset) -> _StacOrigin:
+    """Unpack a STAC dataset's binding, or explain why it cannot refresh.
+
+    The same two refusals, with the same distinction, as the two resolvers
+    above: ``refresh_not_applicable`` for a kind with no origin of this
+    shape, ``origin_unavailable`` for a STAC dataset whose binding records no
+    item href — imported before #1222 taught search to capture the
+    ``rel=self`` link, or from a catalog that publishes none. The second is
+    recoverable by re-importing the item; the first is not recoverable at
+    all, and telling them apart is the difference between useful advice and a
+    shrug.
+    """
+    origin_kind = classify_origin(dataset.source_format, dataset.record.record_type)
+    if origin_kind != "stac":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "refresh_not_applicable",
+                "message": (
+                    "This dataset was not imported from a STAC item, so there "
+                    "is no item to re-resolve."
+                ),
+                "origin_kind": origin_kind,
+            },
+        )
+    ref = dataset.origin_ref or {}
+    item_href = ref.get("item_href")
+    if not item_href:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "origin_unavailable",
+                "message": (
+                    "This dataset's source binding does not record the STAC "
+                    "item its asset was published in, so GeoLens cannot ask "
+                    "the catalog where that asset is now. Re-import it from "
+                    "the STAC catalog to record one."
+                ),
+                "origin_kind": "stac",
+            },
+        )
+    return _StacOrigin(
+        item_href=item_href,
+        collection_id=ref.get("collection_id"),
+        asset_href=ref.get("asset_href"),
+        asset_key=ref.get("asset_key"),
+    )
+
+
+async def _dispatch_stac_refresh(
+    db: AsyncSession,
+    *,
+    dataset,
+    dataset_id: uuid.UUID,
+    user: Identity,
+    token: str | None,
+) -> DatasetRefreshResponse:
+    """Admit and dispatch a re-resolution of a STAC item and its asset.
+
+    The service path's ordering, for the service path's reasons (see the long
+    note in :func:`refresh_dataset`): eligibility and SSRF on a pre-check
+    binding before the reservation, then every dispatched value re-read once
+    the reservation exists. What differs is only what is unpacked and which
+    task is deferred.
+    """
+    candidate = _resolve_stac_origin(dataset)
+
+    if token:
+        # Refused rather than ignored, as on the registered-table path.
+        # Nothing here could use a credential — the item document is fetched
+        # unauthenticated and a credentialed href is refused at import — and
+        # answering 202 to a request that handed GeoLens a secret it silently
+        # dropped leaves the caller no way to learn their token went nowhere.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "credential_not_applicable",
+                "message": (
+                    "Refreshing a STAC dataset re-reads a public item "
+                    "document and needs no credential. Send the request "
+                    "without a token."
+                ),
+            },
+        )
+
+    # Rule 2: the item href is ours, but "ours" is not a safety property — it
+    # was a catalog's when import stored it, and DNS moves. Before the
+    # reservation, so resolving it never happens while an uncommitted run row
+    # is held; the worker's fetch revalidates per hop through the safe client.
+    try:
+        await validate_url_for_ssrf(candidate.item_href)
+    except SSRFError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"This dataset's stored STAC item URL is not reachable: {exc}",
+        ) from exc
+
+    job = IngestJob(
+        dataset_id=dataset_id,
+        created_by=user.id,
+        status="pending",
+        # Deliberately NOT `reupload: True`, for the reason the postgis door
+        # gives: that marker means "a task is replacing this dataset's data",
+        # and two pieces of shared SQL key off it to reason about swaps this
+        # task never performs.
+        user_metadata={
+            "refresh": True,
+            "dataset_id": str(dataset_id),
+            "origin_kind": "stac",
+        },
+    )
+    db.add(job)
+    await db.flush()
+
+    try:
+        run = await create_pending_run(
+            db,
+            dataset_id=dataset_id,
+            origin_kind="stac",
+            trigger="api",
+            triggered_by=user.id,
+            ingest_job_id=job.id,
+            feature_count_before=dataset.feature_count,
+        )
+    except DatasetBusyError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "dataset_busy",
+                "message": (
+                    "A refresh is already running for this dataset. "
+                    "Wait for it to finish, then try again."
+                ),
+            },
+        ) from exc
+
+    await db.refresh(
+        dataset,
+        ["origin_uri", "origin_ref", "source_format", "source_filename"],
+    )
+    try:
+        origin = _resolve_stac_origin(dataset)
+    except HTTPException:
+        # Rebound to something this strategy cannot refresh while we were
+        # reserving — a raster replace of the same dataset, most likely.
+        # Release the reservation before answering, or the leaked run row
+        # refuses every later refresh until the sweep cancels it.
+        await db.rollback()
+        raise
+    if origin != candidate:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "origin_changed",
+                "message": (
+                    "This dataset's source changed while the refresh was "
+                    "being queued, so it was not started. Check the new "
+                    "source and try again."
+                ),
+            },
+        )
+
+    # The job carries no source pointer of its own — the worker reads the
+    # binding, the same way this handler does. The filename slot is what the
+    # job list renders, and the item id is the only name this operation has.
+    job.source_filename = dataset.source_filename
+
+    job_id = job.id
+    attempt_id = job.attempt_id
+    run_id = run.id
+    await db.commit()
+
+    rollback = make_refresh_run_failed_rollback(
+        make_ingest_job_failed_rollback(
+            job, message_prefix="Failed to queue refresh task"
+        ),
+        db=db,
+        ingest_job_id=job_id,
+    )
+
+    async def _defer_refresh() -> None:
+        await defer_async_with_tenant(
+            get_catalog_port().refresh_stac_task(),
+            job_id=str(job_id),
+            attempt_id=str(attempt_id),
+            dataset_id=str(dataset_id),
+        )
+
+    await defer_with_orphan_guard(_defer_refresh, rollback=rollback, db=db)
+
+    return DatasetRefreshResponse(
+        run_id=run_id,
+        job_id=job_id,
+        dataset_id=dataset_id,
+        origin_kind="stac",
+        trigger="api",
+        status="pending",
+        message="Refresh queued from the stored STAC item",
+    )
+
+
 async def _prior_service_ingest_settings(
     db: AsyncSession, dataset_id: uuid.UUID
 ) -> tuple[str | None, str | None]:
@@ -479,12 +703,15 @@ async def refresh_dataset(
     complete, so a refresh that fails leaves the live table and its freshness
     exactly as they were.
 
-    A dataset registered from an existing PostGIS table takes the other
-    execution strategy (#1265): its origin IS the table it serves from, so
-    there is nothing to pull and nothing to swap, and the refresh re-measures
-    the live relation instead — recounting features, recomputing the extent,
-    and rebuilding the column schema snapshot and statistics. Admission, the
-    run row and the history it writes are identical either way.
+    Two origin kinds take their own execution strategy, and neither moves any
+    data. A dataset registered from an existing PostGIS table (#1265) has an
+    origin that IS the table it serves from, so its refresh re-measures the
+    live relation — recounting features, recomputing the extent, rebuilding
+    the column schema snapshot and statistics. A dataset imported from a STAC
+    item (#1266) is nothing but a pointer at somebody else's COG, so its
+    refresh re-reads the item document and follows the asset if the publisher
+    moved it. Admission, the run row and the history they write are identical
+    across all three.
 
     Refuses with 409 ``dataset_busy`` while another refresh or re-upload is
     active for this dataset — v1 rejects rather than queues (Decision 5b), and
@@ -505,11 +732,20 @@ async def refresh_dataset(
 
     # The strategy split. `classify_origin` is the derivation ADR-002
     # Decision 2 keeps pure, so this dispatch cannot disagree with the
-    # `origin` the API reports for the same dataset. Everything that is not a
-    # registered table falls through to the service path, whose resolver
-    # answers `refresh_not_applicable` for the kinds with no origin at all.
-    if classify_origin(dataset.source_format, dataset.record.record_type) == "postgis":
+    # `origin` the API reports for the same dataset. Everything it does not
+    # name falls through to the service path, whose resolver answers
+    # `refresh_not_applicable` for the kinds with no origin at all.
+    origin_kind = classify_origin(dataset.source_format, dataset.record.record_type)
+    if origin_kind == "postgis":
         return await _dispatch_postgis_refresh(
+            db,
+            dataset=dataset,
+            dataset_id=dataset_id,
+            user=user,
+            token=body.token,
+        )
+    if origin_kind == "stac":
+        return await _dispatch_stac_refresh(
             db,
             dataset=dataset,
             dataset_id=dataset_id,

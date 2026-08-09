@@ -41,7 +41,7 @@ import httpx
 import pytest
 from httpx import AsyncClient
 
-from app.modules.catalog.sources.adapters.stac import _self_link_href
+from app.modules.catalog.sources.adapters.stac import self_link_href
 from app.modules.catalog.sources.origin_probe import (
     BLOCKED_BY_POLICY,
     DETAIL_CODES,
@@ -373,7 +373,7 @@ class TestStacItemHrefCapture:
                 {"rel": "self", "href": _ITEM},
             ]
         }
-        assert _self_link_href(feature, _SEARCH_URL) == _ITEM
+        assert self_link_href(feature, _SEARCH_URL) == _ITEM
 
     def test_relative_self_link_resolves_against_the_search_url(self) -> None:
         """fix(#1271 review): a relative self href is legal STAC. Dropping it
@@ -381,7 +381,7 @@ class TestStacItemHrefCapture:
         even after the item was withdrawn."""
         feature = {"links": [{"rel": "self", "href": "/collections/c/items/scene"}]}
         assert (
-            _self_link_href(feature, _SEARCH_URL)
+            self_link_href(feature, _SEARCH_URL)
             == "https://origin.test/collections/c/items/scene"
         )
 
@@ -421,16 +421,16 @@ class TestStacItemHrefCapture:
         ],
     )
     def test_unusable_self_links_yield_none(self, links: list) -> None:
-        assert _self_link_href({"links": links}, _SEARCH_URL) is None
+        assert self_link_href({"links": links}, _SEARCH_URL) is None
 
     def test_missing_links_key_yields_none(self) -> None:
-        assert _self_link_href({}, _SEARCH_URL) is None
+        assert self_link_href({}, _SEARCH_URL) is None
 
     @pytest.mark.parametrize("links", [1, "self", {"rel": "self"}, None])
     def test_non_list_links_value_yields_none(self, links) -> None:
         """A malformed scalar links value costs only this optional field,
         never a 502 for the whole search (fix #1271 review)."""
-        assert _self_link_href({"links": links}, _SEARCH_URL) is None
+        assert self_link_href({"links": links}, _SEARCH_URL) is None
 
 
 class TestPinnedUrlRestoration:

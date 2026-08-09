@@ -43,7 +43,71 @@ def _projection_epsg(properties: dict[str, Any]) -> int | None:
     return None
 
 
-def _self_link_href(feature: dict[str, Any], base_url: str) -> str | None:
+# The keys a published COG hides behind, in the order the import flow has
+# always tried them. `data` and `visual` are the STAC-common spellings,
+# `image` is the older one, and `B04` is Sentinel-2's red band — the asset a
+# single-band import of that collection wants.
+_PREFERRED_ASSET_KEYS: tuple[str, ...] = ("data", "visual", "image", "B04")
+
+
+def pick_data_asset(assets: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
+    """The item's primary data asset, as ``(key, asset)``, or None.
+
+    feat(#1266): extracted from ``search_stac_items`` when the refresh
+    strategy needed the same choice. Import picks an asset out of a searched
+    item; a refresh re-picks it out of the SAME item fetched again later, and
+    the two have to agree or a refresh would quietly re-point a dataset at a
+    different band. One implementation is what makes them agree.
+
+    The KEY comes back as well as the asset because it is the durable name for
+    "which asset this dataset was imported from" — hrefs move, which is the
+    whole subject of #1266, and the key is what survives the move.
+
+    Non-dict entries are skipped rather than trusted. The inline version read
+    ``.get("roles")`` off every value, so a malformed catalog answering with a
+    scalar asset raised inside search; here it simply does not match.
+    """
+    if not isinstance(assets, dict):
+        return None
+    for key in _PREFERRED_ASSET_KEYS:
+        asset = assets.get(key)
+        if isinstance(asset, dict) and asset:
+            return key, asset
+    for key, asset in assets.items():
+        if isinstance(asset, dict) and "data" in (asset.get("roles") or []):
+            return key, asset
+    return None
+
+
+def storable_href(href: Any, base_url: str) -> str | None:
+    """Resolve *href* against *base_url*, or None if it may not be STORED.
+
+    feat(#1266): lifted out of :func:`self_link_href` when the refresh
+    strategy needed the identical gate for an item's ASSET href. Both end up
+    in ``origin_ref``, so both have to clear the same bar, and the bar is not
+    a matter of taste: pydantic's ``HttpUrl`` is what the import request model
+    applies, the 4096 cap is that model's field limit, and the credential
+    refusal is ADR-002 invariant 4 — a signed URL must never reach the source
+    binding. Writing the check twice is how one copy ends up laxer than the
+    model it is supposed to mirror.
+
+    A relative href is legal STAC, so resolution happens BEFORE any check;
+    otherwise ``//user:pw@host/x`` would smuggle userinfo past a scan of the
+    raw value.
+    """
+    if not isinstance(href, str) or not href.strip():
+        return None
+    try:
+        resolved = urljoin(base_url, href)
+        HttpUrl(resolved)
+    except ValueError:
+        return None
+    if len(resolved) > 4096 or has_url_credentials(resolved):
+        return None
+    return resolved
+
+
+def self_link_href(feature: dict[str, Any], base_url: str) -> str | None:
     """The item's own canonical href, from its ``rel="self"`` link.
 
     feat(#1222): search is the ONE place GeoLens ever holds a STAC item
@@ -76,24 +140,14 @@ def _self_link_href(feature: dict[str, Any], base_url: str) -> str | None:
     for link in links if isinstance(links, list) else []:
         if not isinstance(link, dict) or link.get("rel") != "self":
             continue
-        href = link.get("href")
-        if not isinstance(href, str) or not href.strip():
-            continue
         # fix(#1271 review): a malformed href must be dropped, not surfaced —
         # item_href is optional, and the frontend echoes search results into
         # the import request, where StacImportItem applies HttpUrl, the
         # credential refusal, and a 4096 cap. Surfacing anything that gate
         # rejects turns one broken link into a 422 for the caller's whole
-        # batch. So the capture runs the SAME checks: pydantic's HttpUrl
-        # (not a hand-rolled approximation of it — every predicate written
-        # here so far had a counterexample), the credential check, and the
-        # import field's length cap.
-        try:
-            resolved = urljoin(base_url, href)
-            HttpUrl(resolved)
-        except ValueError:
-            continue
-        if len(resolved) <= 4096 and not has_url_credentials(resolved):
+        # batch. `storable_href` IS that gate.
+        resolved = storable_href(link.get("href"), base_url)
+        if resolved is not None:
             return resolved
     return None
 
@@ -247,17 +301,10 @@ async def search_stac_items(
         props = f.get("properties", {})
         assets = f.get("assets", {})
 
-        # Find the primary data asset (COG)
-        data_asset = (
-            assets.get("data")
-            or assets.get("visual")
-            or assets.get("image")
-            or assets.get("B04")  # Sentinel-2 common band
-            or next(
-                (a for a in assets.values() if "data" in (a.get("roles") or [])),
-                None,
-            )
-        )
+        # Find the primary data asset (COG), through the same choice the
+        # refresh strategy re-makes later (feat #1266).
+        picked = pick_data_asset(assets)
+        data_asset = picked[1] if picked else None
 
         # Find thumbnail
         thumbnail = assets.get("thumbnail") or next(
@@ -284,7 +331,7 @@ async def search_stac_items(
                 # transport restores the hostname after each pinned hop
                 # (see _SSRFGuardTransport), so relative self links resolve
                 # against the host the caller addressed, never the pinned IP.
-                "item_href": _self_link_href(f, str(resp.url)),
+                "item_href": self_link_href(f, str(resp.url)),
                 "bbox": f.get("bbox"),
                 "datetime": dt,
                 "datetime_start": dt_start,
