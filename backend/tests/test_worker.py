@@ -105,7 +105,13 @@ def _make_mock_session(*result_lists):
     """Create a mock async session that returns different results per execute call.
 
     The first execute call is the advisory lock query (returns True to proceed).
-    Subsequent arguments are lists of mock jobs (running jobs first, pending second).
+    Subsequent arguments are lists of mock jobs (running jobs first, pending
+    second, then the GAP-002/#1267 VRT sweep's 3 calls: VrtGeneration UPDATE
+    (.all()), then the composition-preserving and composition-changed
+    RasterAsset UPDATEs (.scalars()) — fix(#1322 review round 3) split what
+    used to be one asset UPDATE into two. Every caller in this file passes
+    empty lists for those, so setting both accessors on every result is a
+    safe no-op regardless of which one the code under test actually calls.
     """
     # First result: advisory lock — scalar() returns True (lock acquired)
     lock_result = MagicMock()
@@ -115,6 +121,7 @@ def _make_mock_session(*result_lists):
     for job_list in result_lists:
         mock_result = MagicMock()
         mock_result.scalars.return_value = job_list
+        mock_result.all.return_value = job_list
         results.append(mock_result)
 
     mock_session = AsyncMock()
@@ -143,7 +150,7 @@ async def test_recover_stale_jobs_marks_running_as_failed():
 
     # Two extra empty results for the GAP-002 VRT stale sweep
     # (stale regenerating RasterAssets, stale VrtGeneration rows).
-    mock_session = _make_mock_session([fake_job], [], [], [])
+    mock_session = _make_mock_session([fake_job], [], [], [], [])
 
     with patch("app.core.db.async_session", return_value=mock_session):
         await recover_stale_jobs()
@@ -166,7 +173,7 @@ async def test_recover_stale_jobs_marks_orphaned_pending_as_failed():
     fake_job.completed_at = None
 
     # Two extra empty results for the GAP-002 VRT stale sweep.
-    mock_session = _make_mock_session([], [fake_job], [], [])
+    mock_session = _make_mock_session([], [fake_job], [], [], [])
 
     with patch("app.core.db.async_session", return_value=mock_session):
         await recover_stale_jobs()
@@ -196,7 +203,7 @@ async def test_recover_stale_jobs_rolling_deploy_survives_6min_ingest():
     six_min_old_job.completed_at = None
 
     # The database query excludes the fresh heartbeat, so no job is returned.
-    mock_session = _make_mock_session([], [], [], [])
+    mock_session = _make_mock_session([], [], [], [], [])
 
     with patch("app.core.db.async_session", return_value=mock_session):
         await recover_stale_jobs()
@@ -234,7 +241,7 @@ async def test_recover_stale_jobs_logs_individual_job_ids():
     job2.started_at = None
 
     # Two extra empty results for the GAP-002 VRT stale sweep.
-    mock_session = _make_mock_session([job1, job2], [], [], [])
+    mock_session = _make_mock_session([job1, job2], [], [], [], [])
 
     with patch("app.core.db.async_session", return_value=mock_session):
         with patch("app.platform.jobs.worker.log") as mock_log:

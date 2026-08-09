@@ -628,6 +628,47 @@ async def _reap_stale_generation_storage(keys: tuple[str, ...]) -> None:
     await _cleanup_orphaned_storage_keys(list(keys), job_id="vrt-stale-sweep")
 
 
+# fix(#1322 review round 3): does the PUBLISHED VRT's member set (built_from's
+# keys — feat(#1290 review): "what the published VRT was assembled FROM")
+# still equal the CATALOG's current member set (vrt_source_links)? A bare
+# fragment, not a full statement, so it can be embedded as-is in one UPDATE's
+# WHERE and wrapped in NOT(...) for its mirror — see sweep_stale_vrt_assets.
+#
+# Count-match + one-directional subset (every built_from key has a live
+# link) proves full set equality: a JSONB object cannot repeat a key, and
+# uq_vsl_vrt_source forbids vrt_source_links from repeating a
+# (vrt_dataset_id, source_dataset_id) pair, so neither side can inflate its
+# own count to fake a subset match.
+#
+# jsonb_typeof(...) = 'object', not built_from IS NOT NULL — a real-DB test
+# caught the difference: SQLAlchemy's plain JSONB type (no none_as_null=True)
+# serializes a Python None to the JSON scalar `null`, not SQL NULL, so
+# "IS NOT NULL" alone is TRUE for a column holding JSON null and
+# jsonb_object_keys() raises "cannot call jsonb_object_keys on a scalar" —
+# turning the conservative branch into a 500 instead of a safe fallback.
+# jsonb_typeof() returns SQL NULL for a genuinely NULL column and 'null' (a
+# string, not a match) for a JSON-null scalar, so both forms — and any other
+# non-object value — fail the `= 'object'` test the same safe way. A legacy
+# VRT predating the built_from column cannot answer the question at all,
+# and the unanswerable case must fall to the SAME conservative branch as a
+# proven mismatch.
+_COMPOSITION_PRESERVED_SQL = """
+    jsonb_typeof(built_from) = 'object'
+    AND (SELECT COUNT(*) FROM jsonb_object_keys(built_from)) = (
+        SELECT COUNT(*) FROM catalog.vrt_source_links vsl
+        WHERE vsl.vrt_dataset_id = dataset_id
+    )
+    AND NOT EXISTS (
+        SELECT 1 FROM jsonb_object_keys(built_from) AS built_from_key
+        WHERE NOT EXISTS (
+            SELECT 1 FROM catalog.vrt_source_links vsl2
+            WHERE vsl2.vrt_dataset_id = dataset_id
+              AND vsl2.source_dataset_id::text = built_from_key
+        )
+    )
+"""
+
+
 async def sweep_stale_vrt_assets(
     db: AsyncSession,
     stale_cutoff: datetime,
@@ -646,27 +687,43 @@ async def sweep_stale_vrt_assets(
     generation_heartbeat`` renews every 30s while the worker is alive, so a
     live job's row never crosses the cutoff and this sweep never touches it.
 
-    Recovery status: ``'ready'``, not ``'failed'``. ``regenerate_vrt`` only
-    overwrites the asset's published pointer (``asset_uri``, ``sha256``, ...)
-    in the SAME transaction that clears ``current_generation_id`` on success
-    — a dead attempt never reaches that transaction, so those fields still
-    describe the last-good VRT the asset was serving before this attempt
-    started. Restoring ``'ready'`` reflects that: the VRT keeps serving
-    exactly what it served before, and only the dead attempt's own
-    ``VrtGeneration`` row (marked ``'failed'`` below) records that it did not
-    finish. An operator or retry call can re-trigger regeneration.
+    Recovery status: ``'ready'`` for a COMPOSITION-PRESERVING dead attempt,
+    ``'failed'`` otherwise (fix(#1322 review round 3) — see
+    ``_COMPOSITION_PRESERVED_SQL``). ``regenerate_vrt`` only overwrites the
+    asset's published pointer (``asset_uri``, ``sha256``, ...) in the SAME
+    transaction that clears ``current_generation_id`` on success — a dead
+    attempt never reaches that transaction, so those fields still describe
+    the last-good VRT the asset was serving before this attempt started.
+    That is sufficient to restore ``'ready'`` when nothing about the
+    dataset's declared MEMBERSHIP changed underneath the attempt. It is
+    NOT sufficient when it did: ``add_vrt_source``/``remove_vrt_source``
+    commit their ``vrt_source_links`` mutation in the same transaction that
+    flips the asset to ``'regenerating'``, BEFORE the regeneration itself
+    ever runs, so a dead attempt of THAT kind leaves the catalog's stated
+    composition already ahead of the served bytes. Restoring ``'ready'``
+    there would erase the only visible signal of that drift — the status
+    endpoint reads the link set, not the served VRT, and would report a
+    reduced (or expanded) source list as fully healthy while stale
+    composition keeps being served. The degraded branch keeps
+    ``current_generation_id`` cleared (a retry can still be triggered) but
+    leaves ``status='failed'``, matching the ordinary explicit-failure path.
 
-    There is no "first-ever generation" case where 'ready' would be wrong.
+    Either branch marks the dead attempt's own ``VrtGeneration`` row
+    ``'failed'`` below; an operator or retry call can re-trigger
+    regeneration regardless of which branch fired.
+
+    There is no "first-ever generation, no built_from to compare" gap.
     ``status='regenerating'`` is reachable from exactly three call sites
     (``regenerate_vrt_endpoint``, ``add_vrt_source``, ``remove_vrt_source``),
     and all three 404 unless a VRT dataset already exists — which means its
     ``RasterAsset`` row was already created, and the only constructor of that
     row (``create_vrt_dataset``, run inside ``ingest_vrt``) sets
-    ``status='ready'`` with a real ``asset_uri`` in the same flush the row
-    first becomes queryable. No code path ever inserts a ``RasterAsset`` row
-    pre-set to ``'regenerating'``. A dead FIRST regeneration therefore still
-    restores to a row whose pointer describes the dataset's original publish,
-    not a still-empty one.
+    ``status='ready'`` with a real ``asset_uri`` AND a real ``built_from`` in
+    the same flush the row first becomes queryable. No code path ever
+    inserts a ``RasterAsset`` row pre-set to ``'regenerating'``, and no VRT
+    created after ``built_from`` shipped (#1290) ever has a NULL value for
+    it — only a legacy pre-#1290 row can, and that case is exactly the
+    "cannot answer, so don't guess ready" branch above.
 
     Also resolves the dead attempt's own generation-scoped storage keys for
     the caller to reap, but does NOT delete anything itself — the caller must
@@ -682,8 +739,10 @@ async def sweep_stale_vrt_assets(
             this timestamp is considered stale.
 
     Returns:
-        ``(assets_recovered, gens_failed, storage_keys)`` — ``storage_keys``
-        are resolved, not yet deleted.
+        ``(assets_recovered, gens_failed, storage_keys)`` — ``assets_
+        recovered`` counts BOTH branches (restored to ready and kept
+        failed; both are a resolved outcome for a dead attempt).
+        ``storage_keys`` are resolved, not yet deleted.
     """
     from app.processing.raster.models import RasterAsset, VrtGeneration
 
@@ -748,23 +807,68 @@ async def sweep_stale_vrt_assets(
     # failed. A newer regeneration has a different current_generation_id and
     # is fenced — same CAS discipline as the failure-handler path in
     # tasks_vrt.regenerate_vrt.
-    stale_asset_result = await db.execute(
+    #
+    # fix(#1322 review round 3): 'ready' is only honest for a COMPOSITION-
+    # PRESERVING attempt. add_vrt_source / remove_vrt_source commit their
+    # vrt_source_links mutation in the SAME transaction that flips the asset
+    # to 'regenerating' — BEFORE the regeneration itself ever runs. If that
+    # attempt then dies, the catalog's link set already reflects the NEW
+    # composition while the published asset_uri (untouched by the dead
+    # attempt) still serves the OLD one. Restoring 'ready' would erase the
+    # only visible signal of that drift: the status endpoint reads the link
+    # set, not the served bytes, and would report the new (reduced) source
+    # list as fully healthy while stale data keeps being served.
+    #
+    # There is no stored "attempt type" to key off — VrtGeneration.
+    # triggered_by holds a user id on every call site, not a kind, and
+    # source_count is populated post-mutation on both. So this asks the
+    # question the drift itself is about, from state rather than provenance:
+    # does the PUBLISHED composition (built_from's key set — what the served
+    # VRT was actually assembled from, feat(#1290 review)) still equal the
+    # CATALOG's current composition (vrt_source_links)? Count-match plus a
+    # one-directional subset check proves set equality here because neither
+    # side can hold a duplicate id (a JSONB object key is unique by
+    # construction; vrt_source_links carries uq_vsl_vrt_source).
+    #
+    # NULL built_from (a pre-#1290 VRT with no recorded build set) cannot
+    # answer the question at all, and falls to the same conservative branch
+    # as a genuine mismatch — matching the "unknown answers unknown, not
+    # fresh" posture in source_freshness.py, not the other one.
+    _asset_composition = (
+        *asset_scope,
+        RasterAsset.status == "regenerating",
+        RasterAsset.current_generation_id.in_(stale_generation_ids),
+    )
+    ready_result = await db.execute(
         update(RasterAsset)
-        .where(
-            *asset_scope,
-            RasterAsset.status == "regenerating",
-            RasterAsset.current_generation_id.in_(stale_generation_ids),
-        )
+        .where(*_asset_composition, text(_COMPOSITION_PRESERVED_SQL))
         .values(status="ready", current_generation_id=None)
         .returning(RasterAsset.dataset_id)
     )
-    stale_asset_ids = list(stale_asset_result.scalars())
-    for dataset_id in stale_asset_ids:
+    ready_ids = list(ready_result.scalars())
+    for dataset_id in ready_ids:
         log.warning(
             "Reconciled abandoned VRT regeneration, restored to ready",
             dataset_id=str(dataset_id),
             stale_cutoff=str(stale_cutoff),
         )
+
+    degraded_result = await db.execute(
+        update(RasterAsset)
+        .where(*_asset_composition, text(f"NOT ({_COMPOSITION_PRESERVED_SQL})"))
+        .values(status="failed", current_generation_id=None)
+        .returning(RasterAsset.dataset_id)
+    )
+    degraded_ids = list(degraded_result.scalars())
+    for dataset_id in degraded_ids:
+        log.warning(
+            "Reconciled abandoned VRT regeneration, kept failed — "
+            "composition changed since the published build",
+            dataset_id=str(dataset_id),
+            stale_cutoff=str(stale_cutoff),
+        )
+
+    stale_asset_ids = ready_ids + degraded_ids
 
     storage_keys = (
         _stale_generation_storage_keys(stale_generations) if stale_generations else ()

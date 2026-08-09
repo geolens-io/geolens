@@ -2342,7 +2342,24 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fail_stale_jobs path, and directly in worker.py's startup recovery
     # path. Most of the lines are the docstrings recording why the ordering
     # is load-bearing on both call sites. Cap 1692 -> 1770, exact.
-    "backend/app/platform/jobs/router.py": 1770,
+    # fix(#1322 review round 3): +104 — restoring 'ready' was only honest for
+    # a composition-PRESERVING dead attempt. add_vrt_source/remove_vrt_source
+    # commit their vrt_source_links mutation before the (now-dead)
+    # regeneration ever runs, so a dead attempt of that kind leaves the
+    # catalog's stated composition already ahead of the served bytes;
+    # restoring 'ready' there erased the only visible signal of that drift.
+    # The RasterAsset UPDATE split into two — composition-preserving (->
+    # 'ready') and composition-changed (-> 'failed', the same conservative
+    # outcome a NULL/non-object built_from also falls to) — discriminated by
+    # a shared SQL fragment (_COMPOSITION_PRESERVED_SQL) comparing
+    # built_from's key set against the live vrt_source_links set, reused
+    # verbatim and negated for the mirror statement. Most of the lines are
+    # the docstrings recording why this reads stored state rather than
+    # attempt provenance (no such field exists) and the jsonb_typeof(...) =
+    # 'object' guard a real-DB test proved necessary over a bare IS NOT NULL
+    # (SQLAlchemy's plain JSONB serializes Python None to the JSON scalar
+    # null, not SQL NULL). Cap 1770 -> 1874, exact.
+    "backend/app/platform/jobs/router.py": 1874,
     # fix(second-opinion review on #1236 review r3): first entry — crossed
     # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
     # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side
