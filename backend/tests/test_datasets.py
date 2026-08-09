@@ -1951,3 +1951,63 @@ class TestBulkDeleteDatasets:
         assert data["deleted"] == 0
         assert data["errors"] == 1
         assert "does not match" in data["results"][0]["detail"]
+
+    async def test_bulk_delete_unexpected_exception_hides_detail(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """fix(#1297): an unexpected exception's message must never reach the client.
+
+        `DependentVrtError`/`ValueError` messages stay public (asserted by the
+        two tests above); anything else — an asyncpg error, a storage SDK
+        error — must collapse to a fixed string while the full exception still
+        goes to the server log.
+        """
+        import structlog
+
+        from app.modules.catalog.datasets.api import router as datasets_router
+
+        user_id = await _get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session, created_by=user_id, name="Bulk Leak Check"
+        )
+
+        sentinel = (
+            "relation catalog.secret_table failed; "
+            "path=/var/lib/geolens/staging/leak.tif; password=fake-sentinel"
+        )
+
+        async def _boom(db, dataset_id, confirm_title):
+            raise RuntimeError(sentinel)
+
+        monkeypatch.setattr(datasets_router, "delete_dataset", _boom)
+
+        with structlog.testing.capture_logs() as captured:
+            resp = await client.post(
+                "/datasets/bulk-delete/",
+                json={
+                    "datasets": [
+                        {"dataset_id": str(ds.id), "confirm_title": "Bulk Leak Check"},
+                    ]
+                },
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 200
+        assert "secret_table" not in resp.text
+        assert "leak.tif" not in resp.text
+        assert "fake-sentinel" not in resp.text
+
+        data = resp.json()
+        assert data["deleted"] == 0
+        assert data["errors"] == 1
+        assert data["results"][0]["detail"] == "Dataset deletion failed unexpectedly"
+
+        assert any(
+            record.get("event") == "Unexpected error during bulk delete"
+            and record.get("dataset_id") == str(ds.id)
+            for record in captured
+        ), f"expected the exception to be logged server-side; got: {captured}"
