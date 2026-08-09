@@ -2370,7 +2370,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # regenerate tail captured one after its query; putting the order inside
     # the only function that does the read makes the wrong order unwritable
     # rather than merely discouraged. Cap 1106 -> 1118, exact.
-    "backend/app/processing/ingest/tasks_vrt.py": 1118,
+    # fix(#1290 review, round 12): +22 — built_from_map plus its persistence in
+    # both tails. Staleness stopped being a timestamp comparison and became a
+    # state one: the published VRT records the member URIs it was assembled
+    # from, and health compares what-is against what-was-built-from. Postgres
+    # cannot stamp commit time from inside a transaction, so no clock scheme
+    # could express "committed after my snapshot" — three rounds of timestamp
+    # fixes each left a window. Cap 1118 -> 1140, exact.
+    "backend/app/processing/ingest/tasks_vrt.py": 1140,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
     # reaper never touched the key the client's PUT URL can still recreate.

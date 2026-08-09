@@ -97,6 +97,19 @@ async def snapshot_member_sources(
     return snapshot_at, ordered
 
 
+def built_from_map(ordered_assets) -> dict:
+    """``{dataset_id: asset_uri}`` for the members a build is assembling.
+
+    fix(#1290 review). This is what makes staleness a STATE question. The
+    health endpoint compares each member's current committed ``asset_uri``
+    against the entry recorded here, so "the stored VRT references a superseded
+    COG" is answered by comparing what-is to what-was-built-from rather than by
+    racing two clocks. Derived from the same ``ordered_assets`` the build reads,
+    so the recorded set is by construction the set that was used.
+    """
+    return {str(a.dataset_id): a.asset_uri for a in ordered_assets}
+
+
 async def create_vrt_dataset(
     session,
     *,
@@ -113,6 +126,7 @@ async def create_vrt_dataset(
     source_dataset_ids: list[uuid.UUID],
     record_status: str = "published",
     snapshot_at: datetime | None = None,
+    built_from: dict | None = None,
 ) -> tuple:
     """Create Record + Dataset + RasterAsset records for a VRT dataset.
 
@@ -196,6 +210,9 @@ async def create_vrt_dataset(
         # manifest-VRT caller has no snapshot of its own; the build path always
         # supplies it.
         last_regenerated_at=snapshot_at,
+        # fix(#1290 review): the authoritative staleness input. The timestamp
+        # above stays for legacy rows that have no built-from set.
+        built_from=built_from,
         crs_wkt=meta.get("crs_wkt"),
         epsg=meta.get("epsg"),
         band_count=meta.get("band_count"),
@@ -412,6 +429,7 @@ async def ingest_vrt(
                 record, dataset, raster_asset = await create_vrt_dataset(
                     session,
                     snapshot_at=snapshot_at,
+                    built_from=built_from_map(ordered_assets),
                     meta=meta,
                     asset_sha256=asset_sha256,
                     vrt_size=vrt_size,
@@ -959,6 +977,10 @@ async def regenerate_vrt(
                 # capture site in phase 1 for why the field names the state the
                 # artifact was built from.
                 vrt_asset.last_regenerated_at = snapshot_at
+                # fix(#1290 review): recorded from the SAME ordered_assets the
+                # build used, in the publish transaction, so the stored set and
+                # the stored VRT always describe each other.
+                vrt_asset.built_from = built_from_map(ordered_assets)
                 vrt_asset.current_generation_id = None
                 if vrt_asset_snapshot is not None:
                     vrt_asset_snapshot.status = vrt_asset.status

@@ -35,6 +35,7 @@ block, because this suite runs against the shared dev Postgres.
 from __future__ import annotations
 
 import io
+import json as _json
 import re
 import uuid
 from datetime import datetime, timezone
@@ -4039,10 +4040,21 @@ class TestVrtStampNamesTheStateItWasBuiltFrom:
             # window between the snapshot and the publish.
             await test_db_session.execute(
                 text(
-                    "UPDATE catalog.raster_assets SET ingested_at = :ts "
+                    "UPDATE catalog.raster_assets "
+                    "SET asset_uri = :uri, ingested_at = :ts "
                     "WHERE dataset_id = :id"
                 ),
-                {"ts": mid_build[0], "id": ids[2]},
+                {
+                    "uri": "rasters/replaced/newsha/source.cog.tif",
+                    "ts": mid_build[0],
+                    "id": ids[2],
+                },
+            )
+            # The replacement's new COG exists — the member itself is fine.
+            # What is broken is the PARENT, whose stored VRT still names the
+            # superseded object, and that is what `stale` has to say.
+            await raster_storage.put(
+                "rasters/replaced/newsha/source.cog.tif", io.BytesIO(b"new")
             )
             await test_db_session.commit()
 
@@ -4176,10 +4188,21 @@ class TestSnapshotPrecedesTheReadInBothTails:
             # The replacement committed mid-build.
             await test_db_session.execute(
                 text(
-                    "UPDATE catalog.raster_assets SET ingested_at = :ts "
+                    "UPDATE catalog.raster_assets "
+                    "SET asset_uri = :uri, ingested_at = :ts "
                     "WHERE dataset_id = :id"
                 ),
-                {"ts": mid_build[0], "id": ids[2]},
+                {
+                    "uri": "rasters/replaced/newsha/source.cog.tif",
+                    "ts": mid_build[0],
+                    "id": ids[2],
+                },
+            )
+            # The replacement's new COG exists — the member itself is fine.
+            # What is broken is the PARENT, whose stored VRT still names the
+            # superseded object, and that is what `stale` has to say.
+            await raster_storage.put(
+                "rasters/replaced/newsha/source.cog.tif", io.BytesIO(b"new")
             )
             await test_db_session.commit()
 
@@ -4300,3 +4323,132 @@ class TestArchiveIdentityIsWideEnoughToBeAnIdentity:
         )[-1]
         assert row_suffix == object_suffix
         assert len(row_suffix) == ARCHIVE_HASH_CHARS
+
+
+class TestStalenessIsStateNotTime:
+    """ROUND 12 FINDING 1. The interleaving no clock can answer: a replacement
+    assigns `ingested_at` at T1 inside its transaction and commits at T2; a
+    rebuild snapshotting at T_s with T1 < T_s < T2 cannot see the uncommitted
+    swap under read-committed, so it builds from the OLD uri — and afterwards
+    the member's stamp PRECEDES the parent's, so every timestamp scheme reports
+    healthy. Postgres exposes no commit-time stamp from inside a transaction
+    (`now()` is txn start, `clock_timestamp()` is statement time), so this is
+    not a tuning problem.
+    """
+
+    async def test_a_commit_after_the_snapshot_still_reads_stale(
+        self, client, admin_auth_header, test_db_session, raster_storage
+    ) -> None:
+        """Simulated at the visibility layer rather than with two live
+        sessions: what the build READ is the old uri (the parent's built_from
+        records it), while the member's committed uri is the new one and its
+        `ingested_at` is EARLIER than the parent's stamp — the exact
+        post-commit state codex's interleaving produces. A timestamp comparison
+        calls this healthy; a state comparison cannot.
+        """
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        member = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        parent = await _make_vrt_parent(
+            test_db_session, raster_storage, created_by=admin_id, member=member
+        )
+        ids = (
+            parent.dataset.id,
+            parent.dataset.record_id,
+            member.dataset.id,
+            member.dataset.record_id,
+        )
+        old_uri = member.asset.asset_uri
+        new_uri = "rasters/replaced/committed-late/source.cog.tif"
+        await raster_storage.put(new_uri, io.BytesIO(b"replacement"))
+
+        try:
+            # The parent was built from the OLD uri, and its stamp is LATER
+            # than the member's — the shape a late commit leaves behind.
+            await test_db_session.execute(
+                text(
+                    "UPDATE catalog.raster_assets SET built_from = CAST(:bf AS jsonb), "
+                    "last_regenerated_at = now() WHERE dataset_id = :id"
+                ),
+                {"bf": _json.dumps({str(ids[2]): old_uri}), "id": ids[0]},
+            )
+            await test_db_session.execute(
+                text(
+                    "UPDATE catalog.raster_assets SET asset_uri = :uri, "
+                    "ingested_at = now() - interval '1 hour' WHERE dataset_id = :id"
+                ),
+                {"uri": new_uri, "id": ids[2]},
+            )
+            await test_db_session.commit()
+
+            resp = await client.get(
+                f"/datasets/{ids[0]}/vrt/status/", headers=admin_auth_header
+            )
+            assert resp.status_code == 200, resp.text
+            statuses = [s["status"] for s in resp.json()["source_health"]]
+            assert statuses == ["stale"], (
+                f"the parent reports {statuses} for a member whose committed "
+                "uri differs from what the VRT was built from, but whose "
+                "ingested_at predates the parent's stamp — no clock can catch "
+                "this, which is why staleness is a state comparison "
+                "(#1290 round-12 finding 1)"
+            )
+        finally:
+            await _purge_vrt(test_db_session, ids=ids)
+
+    async def test_a_legacy_vrt_without_built_from_falls_back_to_timestamps(
+        self, client, admin_auth_header, test_db_session, raster_storage
+    ) -> None:
+        """NULL means "built before this column existed". Those rows keep the
+        legacy comparison — it is the best answer available for an artifact
+        that never recorded its inputs, and it is what every pre-existing VRT
+        has."""
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        member = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        parent = await _make_vrt_parent(
+            test_db_session, raster_storage, created_by=admin_id, member=member
+        )
+        ids = (
+            parent.dataset.id,
+            parent.dataset.record_id,
+            member.dataset.id,
+            member.dataset.record_id,
+        )
+        try:
+            await test_db_session.execute(
+                text(
+                    "UPDATE catalog.raster_assets SET built_from = NULL, "
+                    "last_regenerated_at = now() - interval '1 hour' "
+                    "WHERE dataset_id = :id"
+                ),
+                {"id": ids[0]},
+            )
+            await test_db_session.execute(
+                text(
+                    "UPDATE catalog.raster_assets SET ingested_at = now() "
+                    "WHERE dataset_id = :id"
+                ),
+                {"id": ids[2]},
+            )
+            await test_db_session.commit()
+
+            resp = await client.get(
+                f"/datasets/{ids[0]}/vrt/status/", headers=admin_auth_header
+            )
+            assert [s["status"] for s in resp.json()["source_health"]] == ["stale"], (
+                "a legacy VRT lost its staleness signal when built_from became "
+                "authoritative — NULL must fall back, not go quiet"
+            )
+        finally:
+            await _purge_vrt(test_db_session, ids=ids)

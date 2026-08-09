@@ -1566,9 +1566,17 @@ you are not surprised later by what a restore does and does not contain.
 
 | Upload | Where the data ends up | The uploaded file |
 | --- | --- | --- |
-| Vector (Shapefile, GPKG, GeoJSON, CSV, …) | PostGIS table | Deleted after a successful ingest |
+| Vector (Shapefile, GPKG, GeoJSON, CSV, …) | PostGIS table | **Archived to `originals/`**, and the staging copy deleted |
 | Raster (GeoTIFF) | A Cloud-Optimized GeoTIFF in object storage | Deleted after a **lossless** conversion; archived to `originals/` otherwise |
 | Raster replace (re-upload onto an existing raster dataset) | The dataset's COG is swapped for the new one | Deleted after a **lossless** conversion; archived to `originals/` otherwise |
+
+Vector uploads are archived rather than discarded: after a successful ingest
+the file is copied to `originals/<dataset-id>/<filename>` and only the staging
+copy is removed. That archive is best-effort — if the copy fails the ingest
+still succeeds, because the data is already in PostGIS, and the job records an
+`archive_failed` flag you can see on the admin Jobs page. So treat a vector
+original as present-but-not-guaranteed, and check the flag if you are relying
+on one.
 
 A raster dataset **is** its COG. When the conversion is lossless the converted
 asset carries everything the upload did, and every re-processing case an
@@ -1693,6 +1701,8 @@ that does and does not recover depends on which case put the file there.
 | Case | In the staging tar? |
 | --- | --- |
 | Failed upload, still inside the retention window | Yes |
+| **Vector original, local storage** | **Yes** — archived under `originals/` in that volume |
+| Vector original, object-storage install | No — in your bucket under `originals/` |
 | **Retained original from a lossy or reprojected ingest, local storage** | **Yes** — it lives under `originals/` inside that same volume |
 | Retained original, object-storage install | No — it is in your bucket under `originals/`, covered by whatever backs up the bucket, not by this tar |
 | Successfully ingested original from a **lossless** conversion | No — deleted before the backup ran |

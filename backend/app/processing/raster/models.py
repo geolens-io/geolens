@@ -96,6 +96,14 @@ class RasterAsset(Base):
     last_regenerated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # fix(#1290 review): what the published VRT was assembled FROM, as
+    # {dataset_id: asset_uri}. Member staleness is a state comparison against
+    # this — what a member IS versus what the artifact was built from — because
+    # no timestamp can express "committed after my snapshot" (Postgres has no
+    # commit-time stamp available inside the transaction). NULL means the VRT
+    # predates this column and the health endpoint falls back to the legacy
+    # timestamp comparison for it.
+    built_from: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     def to_stac_properties(self) -> dict:
         """Extract STAC-compatible properties from raster metadata."""
