@@ -17,6 +17,7 @@ from uuid import UUID
 from rich.table import Table
 
 from ._sdk_helpers import (
+    DeadlineTimeout,
     EXIT_AUTH,
     EXIT_GENERIC,
     EXIT_SERVER,
@@ -198,11 +199,23 @@ def wait_for_refresh(
                         ),
                     )
                 transport.timeout = remaining
-            response = call_sdk(
-                get_job_status_jobs_job_id_get.sync_detailed,
-                job_id=uuid_arg,
-                client=client,
-            )
+            try:
+                response = call_sdk(
+                    get_job_status_jobs_job_id_get.sync_detailed,
+                    deadline_expired=lambda: (
+                        deadline is not None and monotonic() >= deadline
+                    ),
+                    job_id=uuid_arg,
+                    client=client,
+                )
+            except DeadlineTimeout:
+                return RefreshPollResult(
+                    status="timed_out",
+                    error_message=(
+                        f"Refresh job {job_id} is still {status}; "
+                        "check its status later."
+                    ),
+                )
             if int(response.status_code) != JOB_STATUS_OK:
                 # ``unwrap`` preserves the CLI's standard auth/server exit mapping.
                 unwrap(response, expected=JOB_STATUS_OK)

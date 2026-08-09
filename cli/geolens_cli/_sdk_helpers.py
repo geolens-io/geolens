@@ -29,6 +29,10 @@ EXIT_NETWORK = 4
 EXIT_SERVER = 5
 
 
+class DeadlineTimeout(Exception):
+    """An SDK request consumed the caller's operation deadline."""
+
+
 def unwrap(resp: Any, *, expected: int = 200) -> Any:
     """Translate an SDK Response into either parsed model or typer.Exit.
 
@@ -64,13 +68,20 @@ def unwrap(resp: Any, *, expected: int = 200) -> Any:
     raise typer.Exit(EXIT_GENERIC)
 
 
-def call_sdk(fn: Callable[..., Any], **kwargs: Any) -> Any:
+def call_sdk(
+    fn: Callable[..., Any],
+    *,
+    deadline_expired: Callable[[], bool] | None = None,
+    **kwargs: Any,
+) -> Any:
     """Run a sync_detailed call, mapping httpx exceptions to exit codes."""
     import httpx  # lazy — only for exception types
 
     try:
         return fn(**kwargs)
     except httpx.TimeoutException:
+        if deadline_expired is not None and deadline_expired():
+            raise DeadlineTimeout from None
         typer.secho("Request timed out", fg="red", err=True)
         raise typer.Exit(EXIT_NETWORK)
     except httpx.NetworkError as exc:

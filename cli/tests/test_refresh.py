@@ -457,6 +457,76 @@ class TestRefreshWait:
         assert client.timeouts == []
         assert client.transport.timeout is None
 
+    def test_request_timeout_at_deadline_returns_timed_out_json(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        import httpx
+
+        from geolens_cli.main import app
+        from geolens_cli.refresh import wait_for_refresh
+
+        _seed_login(mock_keyring)
+        _patch_refresh_endpoint(monkeypatch, _accepted())
+        elapsed = [0.0]
+
+        def exhaust_request_budget(**_kwargs):
+            elapsed[0] = 10.0
+            raise httpx.ReadTimeout("request consumed the deadline budget")
+
+        def wait_with_clock(client, job_id, **kwargs):
+            return wait_for_refresh(
+                client,
+                job_id,
+                **kwargs,
+                sleep=lambda seconds: elapsed.__setitem__(0, elapsed[0] + seconds),
+                monotonic=lambda: elapsed[0],
+            )
+
+        monkeypatch.setattr(
+            "geolens.api.admin.get_job_status_jobs_job_id_get.sync_detailed",
+            exhaust_request_budget,
+        )
+        monkeypatch.setattr("geolens_cli.refresh.wait_for_refresh", wait_with_clock)
+
+        result = runner.invoke(
+            app,
+            ["--json", "refresh", str(DATASET_ID), "--wait", "--timeout", "10"],
+        )
+
+        assert result.exit_code == 1, result.output
+        payload = json.loads(result.output)
+        assert payload["status"] == "timed_out"
+        assert "check its status later" in payload["error_message"]
+
+    def test_request_timeout_before_deadline_remains_a_network_error(
+        self, monkeypatch
+    ) -> None:
+        import httpx
+        import typer
+
+        from geolens_cli._sdk_helpers import EXIT_NETWORK
+        from geolens_cli.refresh import wait_for_refresh
+
+        client = self._timeout_tracking_client()
+
+        def timeout_before_deadline(**_kwargs):
+            raise httpx.ReadTimeout("upstream stalled before the CLI deadline")
+
+        monkeypatch.setattr(
+            "geolens.api.admin.get_job_status_jobs_job_id_get.sync_detailed",
+            timeout_before_deadline,
+        )
+
+        with pytest.raises(typer.Exit) as exc_info:
+            wait_for_refresh(
+                client,
+                JOB_ID,
+                timeout=10.0,
+                monotonic=lambda: 0.0,
+            )
+
+        assert exc_info.value.exit_code == EXIT_NETWORK
+
     def test_cli_default_wait_passes_no_deadline_to_the_poller(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
