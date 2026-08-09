@@ -144,6 +144,7 @@
     "copyToClipboard": "Copier dans le presse-papiers",
     "unknown": "Inconnu",
     "original": "original : EPSG:{{srid}}",
+    "sridWithOriginal": "{{current}} ({{original}})",
     "present": "présent",
     "recordStatus": "Statut de l'enregistrement",
     "createdBy": "Créé par",
@@ -203,6 +204,7 @@
     "editFailed": "Échec de la mise à jour de la cellule",
     "editInvalidValue": "Valeur {{type}} non valide",
     "filter": "Filtrer...",
+    "filterColumn": "Filtrer {{column}}",
     "noResults": "Aucune ligne correspondante trouvée.",
     "showingExact": "Affichage {{start}}-{{end}} sur {{total}} lignes",
     "rowsPerPage": "Lignes par page",
@@ -217,6 +219,7 @@
     "noChanges": "Aucune modification enregistrée.",
     "system": "Système",
     "changed": "Modifié :",
+    "changedFields": "Modifié : {{fields}}",
     "actions": {
       "metadataEdit": "Métadonnées mises à jour",
       "datasetDelete": "Jeu de données supprimé",

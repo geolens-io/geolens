@@ -144,6 +144,7 @@
     "copyToClipboard": "Copiar al portapapeles",
     "unknown": "Desconocido",
     "original": "original: EPSG:{{srid}}",
+    "sridWithOriginal": "{{current}} ({{original}})",
     "present": "presente",
     "recordStatus": "Estado del registro",
     "createdBy": "Creado por",
@@ -203,6 +204,7 @@
     "editFailed": "Error al actualizar celda",
     "editInvalidValue": "No es un valor {{type}} válido",
     "filter": "Filtrar...",
+    "filterColumn": "Filtrar {{column}}",
     "noResults": "No se encontraron filas coincidentes.",
     "showingExact": "Mostrando {{start}}-{{end}} de {{total}} filas",
     "rowsPerPage": "Filas por página",
@@ -217,6 +219,7 @@
     "noChanges": "Aún no se han registrado cambios.",
     "system": "Sistema",
     "changed": "Cambiado:",
+    "changedFields": "Cambiado: {{fields}}",
     "actions": {
       "metadataEdit": "Metadatos actualizados",
       "datasetDelete": "Conjunto de datos eliminado",

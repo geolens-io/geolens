@@ -234,7 +234,7 @@ export function UserList() {
             <DataTableSearch
               value={searchQuery}
               onChange={(v) => { setSearchQuery(v); setPage(0); }}
-              placeholder={t('users.table.username') + ' / ' + t('users.table.email')}
+              placeholder={t('users.searchPlaceholder')}
             />
             <FilterSelect
               label=""

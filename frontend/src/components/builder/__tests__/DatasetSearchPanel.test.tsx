@@ -219,7 +219,7 @@ describe('DatasetSearchPanel', () => {
     fireEvent.click(within(roadsRow as HTMLElement).getByRole('button', { name: 'another rendering' }));
     expect(onDuplicateRendering).toHaveBeenCalledWith('roads-layer');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add to map Population' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add to map: Population' }));
     expect(onAddDataset).toHaveBeenCalledWith('population');
   });
 
@@ -231,7 +231,7 @@ describe('DatasetSearchPanel', () => {
 
     expect(screen.getByText('Population description')).toBeInTheDocument();
     expect(screen.getByText('Count')).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: 'Add to map Population' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: 'Add to map: Population' }).length).toBeGreaterThan(0);
     expect(screen.getByRole('link', { name: 'Import data...' })).toHaveAttribute('href', '/import');
   });
 

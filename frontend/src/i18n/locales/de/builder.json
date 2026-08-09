@@ -339,6 +339,8 @@
       "colorByCount": "Nach Clustergröße einfärben",
       "baseColor": "Grundfarbe",
       "atCount": "Ab Anzahl",
+      "atCountIndexed": "Ab Anzahl, Stufe {{index}}",
+      "colorByCountIndexed": "Nach Clustergröße einfärben, Stufe {{index}}",
       "addStop": "Farbstufe hinzufügen",
       "removeStop": "Farbstufe entfernen"
     },
@@ -581,6 +583,8 @@
     "added": "Hinzugefügt",
     "addToMap": "Zur Karte hinzufügen",
     "addToMapDetails": "Zur Karte hinzufügen (Detailbereich)",
+    "addToMapNamed": "Zur Karte hinzufügen: {{name}}",
+    "addToMapDetailsNamed": "Zur Karte hinzufügen (Detailbereich): {{name}}",
     "dragHandle": "In die Karte ziehen",
     "catalogEmpty": "Ihr Katalog ist leer. Laden Sie einen Datensatz hoch, um zu beginnen.",
     "uploadCta": "Datei hochladen →",
@@ -761,6 +765,8 @@
       "rejectAll": "Alle verwerfen",
       "accept": "Übernehmen",
       "reject": "Verwerfen",
+      "acceptAction": "{{action}} übernehmen",
+      "rejectAction": "{{action}} verwerfen",
       "chipAdd": "\"{{name}}\" hinzufügen",
       "chipAddBelow": "\"{{name}}\" unter \"{{ref}}\" hinzufügen",
       "chipRemove": "\"{{name}}\" entfernen",
@@ -833,6 +839,7 @@
     "saved": "Gespeichert",
     "retry": "Erneut versuchen",
     "retrySave": "Speichern erneut versuchen",
+    "saveButtonAriaLabel": "{{action}}, {{status}}",
     "saveStatus": {
       "saved": "Gespeichert",
       "unsaved": "Ungespeicherte Änderungen",
@@ -936,7 +943,18 @@
     "clusterFallback": "{{name}} wird als Punkte dargestellt: {{reason}}",
     "clusterTruncated": "die Cluster-Quelle hat das begrenzte GeoJSON-Limit überschritten",
     "clusterLoadError": "{{name}} wird als Punkte dargestellt, weil die Cluster-Daten nicht geladen werden konnten.",
-    "tokenError": "Kachel-Tokens konnten nicht geladen werden — einige Ebenen werden eventuell nicht angezeigt."
+    "tokenError": "Kachel-Tokens konnten nicht geladen werden — einige Ebenen werden eventuell nicht angezeigt.",
+    "clusterReason": {
+      "missingCount": "Für begrenztes Clustering ist keine Objektanzahl verfügbar.",
+      "tooManyFeatures": "Der Datensatz ist für begrenztes clientseitiges Clustering zu groß.",
+      "notPoint": "Nur Punktdatensätze können gruppiert werden.",
+      "notVector": "Nur Vektordatensätze können gruppiert werden.",
+      "unsupportedRecordType": "Dieser Datensatztyp unterstützt kein Clustering."
+    }
+  },
+  "layerMutations": {
+    "layerFallback": "Layer",
+    "duplicateName": "Rendering von {{name}}"
   },
   "mapCreate": {
     "title": "Karte erstellen",
@@ -1060,6 +1078,7 @@
   },
   "ephemeralBadge": {
     "queryResult": "Ergebnis",
+    "statusLabel": "{{result}} · {{summary}}",
     "featureCount_one": "{{count, number}} Feature",
     "featureCount_other": "{{count, number}} Features",
     "dismiss": "Ergebnis verwerfen",
@@ -1346,6 +1365,7 @@
     "breadcrumbLabel": "Zurück zur Basiskarten-Gruppe",
     "breadcrumb": "Basiskarte · {{name}} ›",
     "breadcrumbUntitled": "Ohne Titel",
+    "sublayerFallback": "Subebene",
     "casingColor": "Umrandungsfarbe",
     "casingLabel": "UMRANDUNG",
     "casingWidth": "Breite",

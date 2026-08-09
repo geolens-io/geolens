@@ -463,7 +463,7 @@ export function SamlProvidersSection() {
                 }
                 placeholder={
                   editingProvider
-                    ? '(leave blank to keep existing certificate)'
+                    ? `(${t('saml.idpCertificateKeep')})`
                     : '-----BEGIN CERTIFICATE-----\nMIIC...\n-----END CERTIFICATE-----'
                 }
               />

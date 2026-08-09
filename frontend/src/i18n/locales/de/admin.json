@@ -39,6 +39,7 @@
     "exportEmailsCsv": "E-Mails exportieren (CSV)",
     "loading": "Benutzer werden geladen...",
     "errorLoading": "Benutzer konnten nicht geladen werden: {{message}}",
+    "searchPlaceholder": "Benutzername / E-Mail",
     "filters": {
       "allUsers": "Alle Benutzer",
       "pending": "Ausstehend",
@@ -199,6 +200,7 @@
     "title": "Protokoll",
     "loading": "Protokolleinträge werden geladen...",
     "errorLoading": "Protokolleinträge konnten nicht geladen werden: {{message}}",
+    "searchPlaceholder": "Benutzer / Aktion",
     "filters": {
       "allActions": "Alle Aktionen",
       "datasetView": "Datensatz angesehen",
@@ -290,6 +292,7 @@
     "labels": {
       "aiEnabled": "KI-Chat aktiviert",
       "sendSampleValues": "Beispielwerte an LLM senden",
+      "maxAiTokensPerDay": "Max. KI-Tokens pro Nutzer und Tag (0=unbegrenzt)",
       "llmProvider": "LLM-Anbieter",
       "model": "Modell",
       "openaiBaseUrl": "OpenAI-kompatible Basis-URL",
@@ -745,7 +748,7 @@
     "spEntityId": "SP Entity ID",
     "spEntityIdWarning": "Dies muss exakt mit der bei Ihrem IdP registrierten SP entityID übereinstimmen. Nach der Konfiguration nicht mehr ändern.",
     "defaultRole": "Standardrolle",
-    "groupClaim": "Group Claim",
+    "groupClaim": "Gruppen-Claim",
     "groupClaimHint": "SAML-Attributname mit Gruppenmitgliedschaften der Benutzer für automatisches Rollenmapping (z. B. \"groups\", \"http://schemas.xmlsoap.org/claims/Group\").",
     "groupRoleMapping": "Group-Rollen-Mapping (JSON)",
     "groupRoleMappingHint": "Ordnet IdP-Gruppennamen GeoLens-Rollen zu. JSON-Objektformat.",

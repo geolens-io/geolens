@@ -1352,7 +1352,7 @@ export function ChatPanel({
                       variant="default"
                       className="h-7 text-xs"
                       onClick={() => void staging.acceptOne(idx)}
-                      aria-label={`${t('chat.staging.accept')} ${fullText}`}
+                      aria-label={t('chat.staging.acceptAction', { action: fullText })}
                     >
                       {t('chat.staging.accept')}
                     </Button>
@@ -1361,7 +1361,7 @@ export function ChatPanel({
                       variant="outline"
                       className="h-7 text-xs border-destructive/50 text-destructive hover:bg-destructive/10"
                       onClick={() => staging.rejectOne(idx)}
-                      aria-label={`${t('chat.staging.reject')} ${fullText}`}
+                      aria-label={t('chat.staging.rejectAction', { action: fullText })}
                     >
                       {t('chat.staging.reject')}
                     </Button>

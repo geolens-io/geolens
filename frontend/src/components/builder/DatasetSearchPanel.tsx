@@ -399,8 +399,8 @@ export function DatasetSearchPanel({
         // "Add to map <name>" buttons in one result row.
         aria-label={
           compact
-            ? `${t('search.addToMapDetails', { defaultValue: 'Add to map (details panel)' })} ${record.properties.title}`
-            : `${t('search.addToMap', { defaultValue: 'Add to map' })} ${record.properties.title}`
+            ? t('search.addToMapDetailsNamed', { name: record.properties.title, defaultValue: 'Add to map (details panel): {{name}}' })
+            : t('search.addToMapNamed', { name: record.properties.title, defaultValue: 'Add to map: {{name}}' })
         }
       >
         {addingDatasetId === record.id ? (

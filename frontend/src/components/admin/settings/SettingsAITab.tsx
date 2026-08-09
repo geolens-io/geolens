@@ -178,7 +178,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, sa
         <div className="flex items-center justify-between max-w-md">
           <div className="space-y-0.5">
             <div className="flex items-center gap-2">
-              <Label htmlFor="ai-toggle">{findSetting(settings, 'ai_enabled')?.label ?? t('ai.labels.aiEnabled')}</Label>
+              <Label htmlFor="ai-toggle">{t('ai.labels.aiEnabled')}</Label>
               <SettingSourceBadge source={findSetting(settings, 'ai_enabled')?.source ?? 'default'} settingKey="ai_enabled" onReset={onReset} />
             </div>
             <p className="text-sm text-muted-foreground">{t('settings.general.aiFeaturesDescription')}</p>
@@ -194,7 +194,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, sa
         <div className="flex items-center justify-between max-w-md">
           <div className="space-y-0.5">
             <div className="flex items-center gap-2">
-              <Label htmlFor="sample-values-toggle">{findSetting(settings, 'ai_send_sample_values')?.label ?? t('ai.labels.sendSampleValues')}</Label>
+              <Label htmlFor="sample-values-toggle">{t('ai.labels.sendSampleValues')}</Label>
               <SettingSourceBadge source={findSetting(settings, 'ai_send_sample_values')?.source ?? 'default'} settingKey="ai_send_sample_values" onReset={onReset} />
             </div>
             <p className="text-sm text-muted-foreground">{t('ai.sendSampleValuesDescription')}</p>
@@ -210,8 +210,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, sa
         <div className="space-y-2 max-w-md">
           <div className="flex items-center gap-2">
             <Label htmlFor="max-ai-tokens-per-day">
-              {findSetting(settings, 'max_ai_tokens_per_user_per_day')?.label ??
-                'Max AI Tokens per User per Day (0=unlimited)'}
+              {t('ai.labels.maxAiTokensPerDay')}
             </Label>
             <SettingSourceBadge
               source={findSetting(settings, 'max_ai_tokens_per_user_per_day')?.source ?? 'default'}
@@ -233,7 +232,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, sa
 
       <div className="space-y-2">
         <div className="flex items-center gap-2">
-          <Label htmlFor="llm-provider">{findSetting(settings, 'llm_provider')?.label ?? t('ai.labels.llmProvider')}</Label>
+          <Label htmlFor="llm-provider">{t('ai.labels.llmProvider')}</Label>
           <SettingSourceBadge source={findSetting(settings, 'llm_provider')?.source ?? 'default'} settingKey="llm_provider" onReset={onReset} />
         </div>
         <Select value={llmProvider} onValueChange={setters.llm_provider} disabled={envOnly}>
@@ -250,7 +249,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, sa
 
       <div className="space-y-2">
         <div className="flex items-center gap-2">
-          <Label htmlFor="llm-model">{findSetting(settings, 'llm_model')?.label ?? t('ai.labels.model')}</Label>
+          <Label htmlFor="llm-model">{t('ai.labels.model')}</Label>
           <SettingSourceBadge source={findSetting(settings, 'llm_model')?.source ?? 'default'} settingKey="llm_model" onReset={onReset} />
         </div>
         <Input
@@ -268,7 +267,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, sa
       {llmProvider === 'openai_compatible' && (
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <Label htmlFor="openai-base-url">{findSetting(settings, 'openai_base_url')?.label ?? t('ai.labels.openaiBaseUrl')}</Label>
+            <Label htmlFor="openai-base-url">{t('ai.labels.openaiBaseUrl')}</Label>
             <SettingSourceBadge source={findSetting(settings, 'openai_base_url')?.source ?? 'default'} settingKey="openai_base_url" onReset={onReset} />
           </div>
           <Input
@@ -310,7 +309,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, sa
           {/* Embedding model config */}
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <Label htmlFor="embedding-model">{findSetting(settings, 'embedding_model')?.label ?? t('ai.labels.embeddingModel')}</Label>
+              <Label htmlFor="embedding-model">{t('ai.labels.embeddingModel')}</Label>
               <SettingSourceBadge source={findSetting(settings, 'embedding_model')?.source ?? 'default'} settingKey="embedding_model" onReset={onReset} />
             </div>
             <Input
@@ -328,7 +327,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, sa
           {/* Embedding base URL */}
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <Label htmlFor="embedding-base-url">{findSetting(settings, 'embedding_base_url')?.label ?? t('ai.labels.embeddingBaseUrl')}</Label>
+              <Label htmlFor="embedding-base-url">{t('ai.labels.embeddingBaseUrl')}</Label>
               <SettingSourceBadge source={findSetting(settings, 'embedding_base_url')?.source ?? 'default'} settingKey="embedding_base_url" onReset={onReset} />
             </div>
             <Input
@@ -345,7 +344,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, sa
 
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <Label htmlFor="embedding-dims">{findSetting(settings, 'embedding_dims')?.label ?? t('ai.labels.embeddingDims')}</Label>
+              <Label htmlFor="embedding-dims">{t('ai.labels.embeddingDims')}</Label>
               <SettingSourceBadge source={findSetting(settings, 'embedding_dims')?.source ?? 'default'} settingKey="embedding_dims" onReset={onReset} />
             </div>
             <div className="flex items-center gap-3">

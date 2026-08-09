@@ -34,7 +34,7 @@ import {
 } from '@/components/map/cluster-interactions';
 import { substitutePopupTemplate } from '@/lib/popup-template';
 import { MapCoordReadout } from '@/components/map/MapCoordReadout';
-import { clusterFallbackMessage, getClusterSourceEligibility, getClusterSourceKey, getClusterSourceStrategy, isClusterRenderMode, shouldFetchClusterGeoJson } from './cluster-source';
+import { getClusterSourceEligibility, getClusterSourceKey, getClusterSourceStrategy, isClusterRenderMode, shouldFetchClusterGeoJson, type ClusterSourceStatus } from './cluster-source';
 import type { VectorTileSource } from 'maplibre-gl';
 import {
   toSyncInput,
@@ -166,6 +166,21 @@ function visibleLayerBoundsKey(bounds: VisibleLayerBounds | null): string {
   return bounds
     ? `${bounds[0][0]},${bounds[0][1]},${bounds[1][0]},${bounds[1][1]}`
     : '';
+}
+
+// The five statuses that leave a cluster layer rendering as points, mapped to
+// their builderMap.clusterReason.* translation key. 'not-cluster' and
+// 'eligible' never reach getClusterFallbackReasonKey's caller below.
+const CLUSTER_FALLBACK_REASON_KEYS: Partial<Record<ClusterSourceStatus, string>> = {
+  'missing-count': 'builderMap.clusterReason.missingCount',
+  'too-many-features': 'builderMap.clusterReason.tooManyFeatures',
+  'not-point': 'builderMap.clusterReason.notPoint',
+  'not-vector': 'builderMap.clusterReason.notVector',
+  'unsupported-record-type': 'builderMap.clusterReason.unsupportedRecordType',
+};
+
+function getClusterFallbackReasonKey(status: ClusterSourceStatus): string | null {
+  return CLUSTER_FALLBACK_REASON_KEYS[status] ?? null;
 }
 
 /**
@@ -422,14 +437,14 @@ export const BuilderMap = memo(function BuilderMap({
           return;
         }
         if (!shouldFetchClusterGeoJson(layer)) {
-          const message = clusterFallbackMessage(eligibility.status);
+          const reasonKey = getClusterFallbackReasonKey(eligibility.status);
           const key = `${layer.id}:${eligibility.status}:${eligibility.featureCount ?? 'unknown'}`;
-          if (message && !clusterFallbackNotifiedRef.current.has(key)) {
+          if (reasonKey && !clusterFallbackNotifiedRef.current.has(key)) {
             clusterFallbackNotifiedRef.current.add(key);
             toast.warning(t('builderMap.clusterFallback', {
               defaultValue: '{{name}} is rendering as points: {{reason}}',
               name: layerName,
-              reason: message,
+              reason: t(reasonKey),
             }));
           }
           return;

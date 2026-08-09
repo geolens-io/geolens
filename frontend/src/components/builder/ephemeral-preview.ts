@@ -81,7 +81,11 @@ export function ephemeralCountLabel(
  * announce the same thing.
  */
 export function ephemeralStatusLabel(t: BuilderTranslator, input: EphemeralCountInput): string {
-  return `${t('ephemeralBadge.queryResult')} · ${ephemeralCountLabel(t, input)}`;
+  return t('ephemeralBadge.statusLabel', {
+    result: t('ephemeralBadge.queryResult'),
+    summary: ephemeralCountLabel(t, input),
+    defaultValue: '{{result}} · {{summary}}',
+  });
 }
 
 /**

@@ -39,6 +39,7 @@
     "exportEmailsCsv": "Export emails (CSV)",
     "loading": "Loading users...",
     "errorLoading": "Failed to load users: {{message}}",
+    "searchPlaceholder": "Username / Email",
     "filters": {
       "allUsers": "All Users",
       "pending": "Pending",
@@ -199,6 +200,7 @@
     "title": "Audit Logs",
     "loading": "Loading audit logs...",
     "errorLoading": "Failed to load audit logs: {{message}}",
+    "searchPlaceholder": "User / Action",
     "filters": {
       "allActions": "All Actions",
       "datasetView": "Dataset View",
@@ -320,6 +322,7 @@
     "labels": {
       "aiEnabled": "AI Chat Enabled",
       "sendSampleValues": "Send Sample Values to LLM",
+      "maxAiTokensPerDay": "Max AI Tokens per User per Day (0=unlimited)",
       "llmProvider": "LLM Provider",
       "model": "Model",
       "openaiBaseUrl": "OpenAI-Compatible Base URL",
