@@ -609,6 +609,67 @@ class TestPostgisRefreshExecution:
         run = await _run_for(test_db_session, dataset.id)
         assert run is not None and run.status == "succeeded"
 
+    async def test_the_snapshot_survives_a_query_at_transaction_begin(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """fix(#1313 review round 4): the multi-tenant shape, in single-tenant.
+
+        ``tenant_session._on_begin`` issues ``SELECT set_config('app.
+        current_tenant', ...)`` the instant a multi-tenant transaction starts,
+        and PostgreSQL refuses ``SET TRANSACTION`` once any query has run
+        (25001). The first version of this phase used that statement, so it
+        passed here — where the hook is a hard no-op — and would have failed
+        every registered-table refresh on a multi-tenant deployment.
+
+        Rather than flipping tenancy mode (which would also repoint the schema
+        at a ``data_t_*`` that does not exist here and fail for an unrelated
+        reason), this installs its own begin-time query on the test engine.
+        That is the whole of the hostile condition, and ``SELECT 1`` is enough
+        to reproduce it: PostgreSQL's refusal is triggered by a query having
+        run, not by which query it was. Standing in with a real
+        ``set_config('app.current_tenant', ...)`` would additionally arm the
+        tenant stamping triggers and fail this test on unrelated writes.
+        """
+        from sqlalchemy import event
+
+        import app.core.db as db_module
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _registered_dataset(test_db_session, created_by=admin_id)
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+
+        seen: dict[str, str] = {}
+        real_extract = tasks_postgis_refresh_metadata.extract_metadata
+
+        async def _record_isolation(session, table_name, **kwargs):
+            row = (
+                await session.execute(
+                    text(
+                        "SELECT current_setting('transaction_isolation'), "
+                        "current_setting('transaction_read_only')"
+                    )
+                )
+            ).one()
+            seen["isolation"], seen["read_only"] = row
+            return await real_extract(session, table_name, **kwargs)
+
+        def _query_on_begin(conn) -> None:
+            conn.execute(text("SELECT 1"))
+
+        engine = db_module.async_session.kw["bind"]
+        event.listen(engine.sync_engine, "begin", _query_on_begin)
+        try:
+            with patch(
+                "app.processing.ingest.metadata.extract_metadata", _record_isolation
+            ):
+                await _execute(test_db_session, payload)
+        finally:
+            event.remove(engine.sync_engine, "begin", _query_on_begin)
+
+        assert seen == {"isolation": "repeatable read", "read_only": "on"}
+        run = await _run_for(test_db_session, dataset.id)
+        assert run is not None and run.status == "succeeded"
+
     async def test_tiles_are_purged_even_when_the_count_is_unchanged(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ) -> None:

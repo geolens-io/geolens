@@ -499,11 +499,29 @@ async def refresh_postgis(
         schema = _current_tenant_schema()
 
         async with async_session() as session:
-            # Must be the transaction's FIRST statement — PostgreSQL refuses
-            # SET TRANSACTION once a query has taken a snapshot. Transaction
-            # scoped, so nothing leaks onto the pooled connection.
-            await session.execute(
-                text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+            # fix(#1313 review round 4): established on the CONNECTION, before
+            # the transaction opens — not with a SET TRANSACTION statement
+            # inside it.
+            #
+            # PostgreSQL refuses SET TRANSACTION once any query has run in the
+            # transaction (25001), and this engine carries a `begin` hook:
+            # `tenant_session._on_begin` issues `SELECT set_config('app.
+            # current_tenant', ...)` the instant a multi-tenant transaction
+            # starts. So the in-transaction spelling worked in single-tenant,
+            # where that hook is a hard no-op, and would have failed EVERY
+            # registered-table refresh on a multi-tenant deployment — before
+            # the dataset was even loaded. A single-tenant test suite cannot
+            # see that, which is why the regression test installs its own
+            # begin-time query rather than trusting the default.
+            #
+            # The execution option is applied to the BEGIN itself, so it lands
+            # ahead of any hook, and SQLAlchemy restores the connection's
+            # default when it returns to the pool.
+            await session.connection(
+                execution_options={
+                    "isolation_level": "REPEATABLE READ",
+                    "postgresql_readonly": True,
+                }
             )
             dataset = (
                 await session.execute(
