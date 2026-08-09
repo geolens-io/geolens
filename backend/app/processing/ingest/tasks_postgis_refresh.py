@@ -315,6 +315,60 @@ async def _relation_exists(session: Any, *, schema: str, table: str) -> bool:
     )
 
 
+def _effective_geometry_type(
+    *, measured: str | None, declared: str | None, stored: str | None
+) -> str | None:
+    """The geometry type this measurement establishes, from the best evidence.
+
+    One rule in one place: the write applies it and the quality score is
+    computed under it, and a second spelling of this precedence is how those
+    two end up describing different datasets.
+
+    - a sampled row is what the data actually is;
+    - no rows but a specific declared column type is what the column accepts;
+    - no rows and a generic ``geometry`` column establishes only that the
+      relation is spatial, so the catalog keeps what it last measured;
+    - no ``geom`` column at all is genuinely not spatial, and the only case
+      that yields None.
+    """
+    if measured is not None:
+        return measured
+    if declared is None:
+        return None
+    if declared != _GENERIC_GEOMETRY_TYPE:
+        return declared
+    return stored
+
+
+def _derived_record_type(current: str | None, geometry_type: str | None) -> str | None:
+    """``record_type`` as ``service_create.py`` derives it, for the two it owns."""
+    if current not in _DERIVED_RECORD_TYPES:
+        return current
+    return "table" if geometry_type is None else "vector_dataset"
+
+
+class _RecordAs:
+    """The record as the measurement implies it, for scoring only.
+
+    fix(#1313 review round 7): ``compute_quality_score`` branches on
+    ``record_type`` to choose which dimensions apply, and the loaded record
+    still carries the PRE-refresh modality. Scoring a table that has just
+    gained geometry under the tabular branch drops the geometry and CRS
+    dimensions from a score that is then persisted beside a
+    ``vector_dataset`` record — the mismatch is stored, not transient.
+
+    Delegates everything else to the real record, because the metadata
+    dimension reads a dozen of its fields and its id.
+    """
+
+    def __init__(self, record: Any, record_type: str | None) -> None:
+        self._record = record
+        self.record_type = record_type
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._record, name)
+
+
 async def _declared_geometry_type(
     session: Any, *, schema: str, table: str
 ) -> str | None:
@@ -401,22 +455,14 @@ def _apply_measurement(
     metadata: dict,
     sample_values: Any,
     *,
-    declared_geometry_type: str | None,
+    effective_geometry_type: str | None,
 ) -> None:
     """Write one measurement of the live table onto the catalog row.
 
-    ``geometry_type`` is the one field a row-based measurement is not allowed
-    to clear on its own — see :func:`_declared_geometry_type`. Three cases,
-    and each writes the best fact available:
-
-    - rows to sample: the sampled type, which is what the data actually is;
-    - no rows but a specific declared column type: that type, which is what
-      the column will accept;
-    - no rows and a generic ``geometry`` column: keep what the catalog
-      already knew, because an empty generic column establishes nothing.
-
-    A relation with no ``geom`` column at all is the only case that writes
-    None, and there it is the truth rather than an artifact.
+    ``effective_geometry_type`` is resolved by :func:`_effective_geometry_type`
+    in the measure phase rather than here, so the value written and the value
+    the quality score was computed under are the same value rather than two
+    derivations of it.
 
     ``spatial_extent`` is CLEARED when the table has no extent, which is where
     this deliberately parts from ``_apply_reupload_swap`` (it only ever writes
@@ -432,13 +478,7 @@ def _apply_measurement(
     column accepts.
     """
     dataset.srid = metadata.get("srid")
-    measured_geometry_type = metadata.get("geometry_type")
-    if measured_geometry_type is not None:
-        dataset.geometry_type = measured_geometry_type
-    elif declared_geometry_type is None:
-        dataset.geometry_type = None
-    elif declared_geometry_type != _GENERIC_GEOMETRY_TYPE:
-        dataset.geometry_type = declared_geometry_type
+    dataset.geometry_type = effective_geometry_type
     # fix(#1313 review round 6): keep the derivation registration makes.
     # `service_create.py` sets `record_type = "table" if geometry_type is None
     # else "vector_dataset"`, and this task is the only thing that can change
@@ -447,10 +487,9 @@ def _apply_measurement(
     # is dropped. `build_assets` reads `record_type` live, so leaving it stale
     # means a now-spatial dataset never advertises vector tiles or OGC
     # features, and a de-spatialized one advertises tiles it cannot serve.
-    if dataset.record.record_type in _DERIVED_RECORD_TYPES:
-        dataset.record.record_type = (
-            "table" if dataset.geometry_type is None else "vector_dataset"
-        )
+    dataset.record.record_type = _derived_record_type(
+        dataset.record.record_type, effective_geometry_type
+    )
     dataset.feature_count = metadata.get("feature_count")
     dataset.column_info = metadata.get("column_info") or []
     dataset.sample_values = sample_values
@@ -637,25 +676,41 @@ async def refresh_postgis(
                     metadata.get("column_info") or [],
                     schema=schema,
                 )
+                declared_geometry_type = await _declared_geometry_type(
+                    session, schema=schema, table=table_name
+                )
+                # Resolved BEFORE the score, because the score depends on it:
+                # an emptied spatial table whose type comes from the declared
+                # column is still spatial, and scoring it off the sampled
+                # None would drop the geometry and CRS dimensions.
+                effective_geometry_type = _effective_geometry_type(
+                    measured=metadata.get("geometry_type"),
+                    declared=declared_geometry_type,
+                    stored=dataset.geometry_type,
+                )
                 # Scored against the measurement, not the values it replaces:
                 # the CRS and geometry dimensions read `srid` and
-                # `geometry_type` off the object they are handed. A stand-in
-                # rather than the loaded row because this transaction is READ
-                # ONLY — mutating the ORM instance here would let an autoflush
-                # attempt a write under a snapshot that must not hold one.
+                # `geometry_type` off the object they are handed, and the
+                # modality branch reads `record_type` off its record. A
+                # stand-in rather than the loaded row because this transaction
+                # is READ ONLY — mutating the ORM instance here would let an
+                # autoflush attempt a write under a snapshot that must not
+                # hold one.
                 quality_detail = await compute_quality_score(
                     session,
                     table_name,
                     metadata.get("column_info") or [],
                     SimpleNamespace(
-                        record=dataset.record,
+                        record=_RecordAs(
+                            dataset.record,
+                            _derived_record_type(
+                                dataset.record.record_type, effective_geometry_type
+                            ),
+                        ),
                         srid=metadata.get("srid"),
-                        geometry_type=metadata.get("geometry_type"),
+                        geometry_type=effective_geometry_type,
                     ),
                     schema=schema,
-                )
-                declared_geometry_type = await _declared_geometry_type(
-                    session, schema=schema, table=table_name
                 )
             except DBAPIError as exc:
                 # Every read of the origin is inside this block, and the
@@ -747,15 +802,33 @@ async def refresh_postgis(
                 dataset,
                 metadata,
                 sample_values,
-                declared_geometry_type=declared_geometry_type,
+                effective_geometry_type=effective_geometry_type,
             )
             await refresh_attribute_metadata(
                 session,
                 dataset.id,
                 metadata.get("column_info") or [],
-                geometry_type=metadata.get("geometry_type"),
+                geometry_type=effective_geometry_type,
                 sample_values=sample_values,
             )
+            # fix(#1313 review round 7): the one row that helper will not
+            # retire. It touches the synthetic `geom` attribute only when
+            # `geometry_type` is non-null, and excludes `geom` from the
+            # removed-column sweep by name — reasonable for every caller that
+            # replaces a table's contents, and wrong for the one caller whose
+            # relation can lose its geometry column while keeping its
+            # identity. Left alone, the attributes API and the validation
+            # service go on advertising a geometry field that is gone.
+            if effective_geometry_type is None:
+                AttributeMetadata = port.get_attribute_metadata_orm_class()
+                await session.execute(
+                    update(AttributeMetadata)
+                    .where(
+                        AttributeMetadata.dataset_id == dataset.id,
+                        AttributeMetadata.field_name == "geom",
+                    )
+                    .values(is_current=False)
+                )
             dataset.quality_detail = quality_detail
 
             now = datetime.now(timezone.utc)

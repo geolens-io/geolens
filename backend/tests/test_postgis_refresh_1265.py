@@ -1032,6 +1032,24 @@ class TestPostgisRefreshExecution:
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _registered_dataset(test_db_session, created_by=admin_id)
         assert dataset.record.record_type == "vector_dataset"
+
+        # A first refresh while the table is still spatial, so the synthetic
+        # `geom` attribute row exists to be retired. Without it the assertion
+        # below passes against a dataset that simply never had one.
+        await _execute(
+            test_db_session, await _dispatch(client, admin_auth_header, dataset.id)
+        )
+        assert (
+            await test_db_session.scalar(
+                text(
+                    "SELECT is_current FROM catalog.attribute_metadata "
+                    "WHERE dataset_id = :did AND field_name = 'geom'"
+                ),
+                {"did": dataset.id},
+            )
+            is True
+        )
+
         await test_db_session.execute(
             text(  # noqa: S608
                 f"ALTER TABLE data.{dataset.table_name} "
@@ -1046,6 +1064,49 @@ class TestPostgisRefreshExecution:
         refreshed = await _reload(test_db_session, dataset.id)
         assert refreshed.geometry_type is None
         assert refreshed.record.record_type == "table"
+
+        # fix(#1313 review round 7): refresh_attribute_metadata touches the
+        # synthetic `geom` row only when geometry_type is non-null, and
+        # excludes it from the removed-column sweep by name — so without an
+        # explicit retirement the attributes API would go on advertising a
+        # geometry field that no longer exists.
+        geom_current = await test_db_session.scalar(
+            text(
+                "SELECT is_current FROM catalog.attribute_metadata "
+                "WHERE dataset_id = :did AND field_name = 'geom'"
+            ),
+            {"did": refreshed.id},
+        )
+        assert geom_current is False
+
+    async def test_the_quality_score_uses_the_measured_modality(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """fix(#1313 review round 7): the score and the record must agree.
+
+        ``compute_quality_score`` branches on ``record_type`` to choose which
+        dimensions apply, and the loaded record still carries the pre-refresh
+        modality. A table that has just gained geometry would be scored under
+        the tabular branch — geometry and CRS omitted — and that score is then
+        persisted beside a ``vector_dataset`` record. The mismatch is stored,
+        not transient.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _registered_dataset(test_db_session, created_by=admin_id)
+        dataset.record.record_type = "table"
+        dataset.geometry_type = None
+        await test_db_session.commit()
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        await _execute(test_db_session, payload)
+
+        refreshed = await _reload(test_db_session, dataset.id)
+        assert refreshed.record.record_type == "vector_dataset"
+        # The tabular branch returns None for both of these; the spatial
+        # branch scores them. Their presence IS the assertion that the score
+        # was computed under the modality that got stored.
+        assert refreshed.quality_detail["geometry_validity"] is not None
+        assert refreshed.quality_detail["crs_defined"] is not None
 
     async def test_a_concurrent_feature_edit_is_not_rolled_back(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
