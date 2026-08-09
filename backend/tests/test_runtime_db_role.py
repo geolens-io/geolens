@@ -15,6 +15,7 @@ from tests.repo_paths import repo_root
 
 ROOT = repo_root(__file__)
 ROLE_SCRIPT = ROOT / "scripts" / "lib" / "configure-runtime-db-role.sh"
+ROUNDTRIP_SCRIPT = ROOT / "scripts" / "tests" / "test-backup-restore-roundtrip.sh"
 
 
 def _compose(filename: str) -> dict:
@@ -244,6 +245,18 @@ def test_embedding_definer_is_created_as_the_validated_migration_owner() -> None
     assert source.index(adopt_owner) < source.index(set_migration)
     assert source.index(set_migration) < source.index(create_function)
     assert source.index(create_function) < source.index("RESET ROLE;")
+
+
+def test_roundtrip_gates_only_vector_specific_proof_on_extension_availability() -> None:
+    source = ROUNDTRIP_SCRIPT.read_text(encoding="utf-8")
+
+    vector_guard = 'if [ "$PGVECTOR_AVAILABLE" = "t" ]; then'
+    create_vector = "CREATE EXTENSION IF NOT EXISTS vector;"
+    assert "pg_available_extensions WHERE name = 'vector'" in source
+    assert "SKIP [pgvector]: extension unavailable" in source
+    assert source.count(vector_guard) >= 4
+    assert source.index(vector_guard) < source.index(create_vector)
+    assert "function ownership and ACL checks still run" in source
 
 
 def test_role_script_atomically_retires_superseded_database_roles() -> None:

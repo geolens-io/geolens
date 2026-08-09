@@ -65,6 +65,19 @@ if ! psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$ADMIN_DB" -tAc "SELECT 1" 
     exit 0
 fi
 
+# The generic CI service is postgis/postgis and intentionally has no pgvector.
+# Keep the backup/restore and role-isolation proof portable there, while the
+# project DB image/local stack must exercise the complete embedding DDL path.
+PGVECTOR_AVAILABLE="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" \
+    -d "$ADMIN_DB" -tAc \
+    "SELECT EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector');" \
+    | tr -d '[:space:]')"
+if [ "$PGVECTOR_AVAILABLE" = "t" ]; then
+    echo "pgvector available — embedding-definer DDL subproof enabled."
+else
+    echo "SKIP [pgvector]: extension unavailable; vector-specific embedding-definer DDL subproof disabled (function ownership and ACL checks still run)."
+fi
+
 # --- Throwaway names (unique suffix avoids colliding with anything else) ------
 SUFFIX="$$_$(date +%s)"
 SRC_DB="geolens_bkp_src_${SUFFIX}"
@@ -158,19 +171,9 @@ createdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" "$SRC_DB"
 
 # Mirror the app's catalog schema shape just enough to be representative.
 psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC_DB" -v ON_ERROR_STOP=1 >/dev/null <<'EOSQL'
-CREATE EXTENSION IF NOT EXISTS vector;
 CREATE SCHEMA IF NOT EXISTS catalog;
 CREATE TABLE catalog.records  (id serial PRIMARY KEY, name text NOT NULL);
 CREATE TABLE catalog.datasets (id serial PRIMARY KEY, slug text NOT NULL);
-CREATE TABLE catalog.record_embeddings (
-    id bigint PRIMARY KEY,
-    embedding public.vector(3) NOT NULL
-);
-INSERT INTO catalog.record_embeddings VALUES (1, '[1,2,3]');
-CREATE INDEX ix_record_embeddings_hnsw
-    ON catalog.record_embeddings USING hnsw
-    (embedding public.vector_cosine_ops)
-    WITH (m=16, ef_construction=64);
 CREATE FUNCTION catalog.provision_tenant_data_schema(uuid) RETURNS void
     LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
     AS 'BEGIN NULL; END';
@@ -192,6 +195,21 @@ INSERT INTO catalog.datasets (slug)
     SELECT 'dataset-' || g FROM generate_series(1, 42) g;
 INSERT INTO data.ci_probe (name) VALUES ('runtime-ownership-probe');
 EOSQL
+if [ "$PGVECTOR_AVAILABLE" = "t" ]; then
+    psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC_DB" \
+        -v ON_ERROR_STOP=1 >/dev/null <<'EOSQL'
+CREATE EXTENSION IF NOT EXISTS vector;
+CREATE TABLE catalog.record_embeddings (
+    id bigint PRIMARY KEY,
+    embedding public.vector(3) NOT NULL
+);
+INSERT INTO catalog.record_embeddings VALUES (1, '[1,2,3]');
+CREATE INDEX ix_record_embeddings_hnsw
+    ON catalog.record_embeddings USING hnsw
+    (embedding public.vector_cosine_ops)
+    WITH (m=16, ef_construction=64);
+EOSQL
+fi
 
 SRC_RECORDS="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC_DB" -tAc "SELECT COUNT(*) FROM catalog.records;")"
 SRC_DATASETS="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC_DB" -tAc "SELECT COUNT(*) FROM catalog.datasets;")"
@@ -432,22 +450,28 @@ RESTORE_MARKER="$(psql_admin -tAc \
     | tr -d '[:space:]')"
 [ "$RESTORE_MARKER" = "geolens-managed-runtime-role:v2:database=${DST_DB}" ] \
     || fail "explicit restore/rename adoption did not bind the current database"
-RESTORED_EMBEDDING_OWNERS="$(psql_admin -d "$DST_DB" -tAc \
-    "SELECT pg_get_userbyid(function.proowner) || '|' ||
-            pg_get_userbyid(relation.relowner)
+RESTORED_EMBEDDING_FUNCTION_OWNER="$(psql_admin -d "$DST_DB" -tAc \
+    "SELECT pg_get_userbyid(function.proowner)
        FROM pg_proc AS function
-       CROSS JOIN pg_class AS relation
-      WHERE function.oid = 'catalog.geolens_rebuild_embedding_column(integer)'::regprocedure
-        AND relation.oid = 'catalog.record_embeddings'::regclass;" \
+      WHERE function.oid = 'catalog.geolens_rebuild_embedding_column(integer)'::regprocedure;" \
     | tr -d '[:space:]')"
-[ "$RESTORED_EMBEDDING_OWNERS" = "${MIGRATION_ROLE}|${MIGRATION_ROLE}" ] \
-    || fail "no-owner restore embedding surface was not transferred to the validated migrator"
-RESTORED_REBUILD_RESULT="$(env PGPASSWORD="$RESTORE_PASSWORD" \
-    psql -X -h "$PGHOST" -p "$PGPORT" -U "$RESTORE_ROLE" -d "$DST_DB" \
-    -v ON_ERROR_STOP=1 -Atqc \
-    "SELECT catalog.geolens_rebuild_embedding_column(4);")"
-[ "$RESTORED_REBUILD_RESULT" = "t" ] \
-    || fail "restored runtime could not execute the migrator-owned embedding rebuild"
+[ "$RESTORED_EMBEDDING_FUNCTION_OWNER" = "$MIGRATION_ROLE" ] \
+    || fail "no-owner restore embedding function was not transferred to the validated migrator"
+if [ "$PGVECTOR_AVAILABLE" = "t" ]; then
+    RESTORED_EMBEDDING_RELATION_OWNER="$(psql_admin -d "$DST_DB" -tAc \
+        "SELECT pg_get_userbyid(relowner)
+           FROM pg_class
+          WHERE oid = 'catalog.record_embeddings'::regclass;" \
+        | tr -d '[:space:]')"
+    [ "$RESTORED_EMBEDDING_RELATION_OWNER" = "$MIGRATION_ROLE" ] \
+        || fail "no-owner restore embedding relation was not transferred to the validated migrator"
+    RESTORED_REBUILD_RESULT="$(env PGPASSWORD="$RESTORE_PASSWORD" \
+        psql -X -h "$PGHOST" -p "$PGPORT" -U "$RESTORE_ROLE" -d "$DST_DB" \
+        -v ON_ERROR_STOP=1 -Atqc \
+        "SELECT catalog.geolens_rebuild_embedding_column(4);")"
+    [ "$RESTORED_REBUILD_RESULT" = "t" ] \
+        || fail "restored runtime could not execute the migrator-owned embedding rebuild"
+fi
 
 # An unmarked existing identity must fail before ALTER ROLE or password reset.
 if env \
@@ -787,7 +811,8 @@ CREATE SCHEMA catalog;
 CREATE SCHEMA data;
 CREATE TABLE data.provider_probe (id bigint PRIMARY KEY);
 EOSQL
-psql_admin -d "$PROVIDER_DB" -v ON_ERROR_STOP=1 >/dev/null <<EOSQL
+if [ "$PGVECTOR_AVAILABLE" = "t" ]; then
+    psql_admin -d "$PROVIDER_DB" -v ON_ERROR_STOP=1 >/dev/null <<EOSQL
 CREATE EXTENSION IF NOT EXISTS vector;
 GRANT USAGE, CREATE ON SCHEMA catalog TO "${MIGRATION_ROLE}";
 SET ROLE "${MIGRATION_ROLE}";
@@ -802,6 +827,11 @@ CREATE INDEX ix_record_embeddings_hnsw
     WITH (m=16, ef_construction=64);
 RESET ROLE;
 EOSQL
+else
+    psql_admin -d "$PROVIDER_DB" -v ON_ERROR_STOP=1 -c \
+        "GRANT USAGE, CREATE ON SCHEMA catalog TO \"${MIGRATION_ROLE}\";" \
+        >/dev/null
+fi
 env \
     PGPASSWORD="$RECONCILER_PASSWORD" \
     POSTGRES_PASSWORD="$RECONCILER_PASSWORD" \
@@ -818,22 +848,20 @@ PROVIDER_EMBEDDING_FUNCTION_OWNER="$(psql_admin -d "$PROVIDER_DB" -tAc \
     | tr -d '[:space:]')"
 [ "$PROVIDER_EMBEDDING_FUNCTION_OWNER" = "$MIGRATION_ROLE" ] \
     || fail "embedding rebuild owner is ${PROVIDER_EMBEDDING_FUNCTION_OWNER}, expected ${MIGRATION_ROLE}"
-PROVIDER_REBUILD_RESULT="$(env PGPASSWORD="$PROVIDER_RUNTIME_PASSWORD" \
-    psql -X -h "$PGHOST" -p "$PGPORT" -U "$PROVIDER_RUNTIME_ROLE" \
-    -d "$PROVIDER_DB" -v ON_ERROR_STOP=1 -Atqc \
-    "SELECT catalog.geolens_rebuild_embedding_column(4);")"
-[ "$PROVIDER_REBUILD_RESULT" = "t" ] \
-    || fail "distinct-owner embedding rebuild did not report a change"
-PROVIDER_EMBEDDING_STATE="$(psql_admin -d "$PROVIDER_DB" -tAc \
-    "SELECT (SELECT count(*) FROM catalog.record_embeddings) || '|' ||
-            format_type(attribute.atttypid, attribute.atttypmod) || '|' ||
-            (to_regclass('catalog.ix_record_embeddings_hnsw') IS NOT NULL)::text
-       FROM pg_attribute AS attribute
-      WHERE attribute.attrelid = 'catalog.record_embeddings'::regclass
-        AND attribute.attname = 'embedding';" \
+PROVIDER_EMBEDDING_FUNCTION_ACL="$(psql_admin -d "$PROVIDER_DB" -tAc \
+    "SELECT has_function_privilege(
+                '${PROVIDER_RUNTIME_ROLE}',
+                'catalog.geolens_rebuild_embedding_column(integer)',
+                'EXECUTE'
+            ) || '|' ||
+            has_function_privilege(
+                '${RECONCILER_ROLE}',
+                'catalog.geolens_rebuild_embedding_column(integer)',
+                'EXECUTE'
+            );" \
     | tr -d '[:space:]')"
-[ "$PROVIDER_EMBEDDING_STATE" = "0|vector(4)|true" ] \
-    || fail "embedding rebuild did not complete DELETE/type/index DDL: ${PROVIDER_EMBEDDING_STATE}"
+[ "$PROVIDER_EMBEDDING_FUNCTION_ACL" = "true|false" ] \
+    || fail "embedding rebuild function ACL is not runtime-only: ${PROVIDER_EMBEDDING_FUNCTION_ACL}"
 PROVIDER_MIGRATOR_MEMBERSHIP_FLAGS="$(psql_admin -tAc \
     "SELECT admin_option || '|' || inherit_option || '|' || set_option
        FROM pg_auth_members
@@ -842,21 +870,39 @@ PROVIDER_MIGRATOR_MEMBERSHIP_FLAGS="$(psql_admin -tAc \
     | tr -d '[:space:]')"
 [ "$PROVIDER_MIGRATOR_MEMBERSHIP_FLAGS" = "false|false|true" ] \
     || fail "provider admin's SET-only migrator membership changed: ${PROVIDER_MIGRATOR_MEMBERSHIP_FLAGS}"
-PROVIDER_RECONCILER_CATALOG_ACCESS="$(psql_admin -d "$PROVIDER_DB" -tAc \
-    "SELECT pg_get_userbyid(relation.relowner) = '${RECONCILER_ROLE}' OR
-            has_table_privilege('${RECONCILER_ROLE}', relation.oid,
-                'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-       FROM pg_class AS relation
-      WHERE relation.oid = 'catalog.record_embeddings'::regclass;" \
-    | tr -d '[:space:]')"
-[ "$PROVIDER_RECONCILER_CATALOG_ACCESS" = "f" ] \
-    || fail "provider reconciler retained direct catalog table authority"
-if env PGPASSWORD="$PROVIDER_RUNTIME_PASSWORD" \
-    psql -X -h "$PGHOST" -p "$PGPORT" -U "$PROVIDER_RUNTIME_ROLE" \
-    -d "$PROVIDER_DB" -v ON_ERROR_STOP=1 \
-    -c "ALTER TABLE catalog.record_embeddings ADD COLUMN forbidden integer" \
-    >/dev/null 2>&1; then
-    fail "provider runtime gained direct catalog DDL authority"
+if [ "$PGVECTOR_AVAILABLE" = "t" ]; then
+    PROVIDER_REBUILD_RESULT="$(env PGPASSWORD="$PROVIDER_RUNTIME_PASSWORD" \
+        psql -X -h "$PGHOST" -p "$PGPORT" -U "$PROVIDER_RUNTIME_ROLE" \
+        -d "$PROVIDER_DB" -v ON_ERROR_STOP=1 -Atqc \
+        "SELECT catalog.geolens_rebuild_embedding_column(4);")"
+    [ "$PROVIDER_REBUILD_RESULT" = "t" ] \
+        || fail "distinct-owner embedding rebuild did not report a change"
+    PROVIDER_EMBEDDING_STATE="$(psql_admin -d "$PROVIDER_DB" -tAc \
+        "SELECT (SELECT count(*) FROM catalog.record_embeddings) || '|' ||
+                format_type(attribute.atttypid, attribute.atttypmod) || '|' ||
+                (to_regclass('catalog.ix_record_embeddings_hnsw') IS NOT NULL)::text
+           FROM pg_attribute AS attribute
+          WHERE attribute.attrelid = 'catalog.record_embeddings'::regclass
+            AND attribute.attname = 'embedding';" \
+        | tr -d '[:space:]')"
+    [ "$PROVIDER_EMBEDDING_STATE" = "0|vector(4)|true" ] \
+        || fail "embedding rebuild did not complete DELETE/type/index DDL: ${PROVIDER_EMBEDDING_STATE}"
+    PROVIDER_RECONCILER_CATALOG_ACCESS="$(psql_admin -d "$PROVIDER_DB" -tAc \
+        "SELECT pg_get_userbyid(relation.relowner) = '${RECONCILER_ROLE}' OR
+                has_table_privilege('${RECONCILER_ROLE}', relation.oid,
+                    'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+           FROM pg_class AS relation
+          WHERE relation.oid = 'catalog.record_embeddings'::regclass;" \
+        | tr -d '[:space:]')"
+    [ "$PROVIDER_RECONCILER_CATALOG_ACCESS" = "f" ] \
+        || fail "provider reconciler retained direct catalog table authority"
+    if env PGPASSWORD="$PROVIDER_RUNTIME_PASSWORD" \
+        psql -X -h "$PGHOST" -p "$PGPORT" -U "$PROVIDER_RUNTIME_ROLE" \
+        -d "$PROVIDER_DB" -v ON_ERROR_STOP=1 \
+        -c "ALTER TABLE catalog.record_embeddings ADD COLUMN forbidden integer" \
+        >/dev/null 2>&1; then
+        fail "provider runtime gained direct catalog DDL authority"
+    fi
 fi
 PROVIDER_OWNER="$(psql_admin -d "$PROVIDER_DB" -tAc \
     "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'data.provider_probe'::regclass;" \
@@ -893,8 +939,14 @@ PROVIDER_OLD_STATE="$(psql_admin -d "$PROVIDER_DB" -tAc \
     "SELECT rolcanlogin || '|' ||
             has_database_privilege(oid, current_database(), 'CONNECT') || '|' ||
             pg_has_role(oid, 'geolens_reader', 'MEMBER') || '|' ||
-            has_table_privilege(oid, 'catalog.record_embeddings',
-                'SELECT,INSERT,UPDATE,DELETE')
+            COALESCE(
+                has_table_privilege(
+                    oid,
+                    to_regclass('catalog.record_embeddings'),
+                    'SELECT,INSERT,UPDATE,DELETE'
+                ),
+                false
+            )
        FROM pg_roles WHERE rolname = '${PROVIDER_RUNTIME_ROLE}';" \
     | tr -d '[:space:]')"
 [ "$PROVIDER_OLD_STATE" = "false|false|false|false" ] \
