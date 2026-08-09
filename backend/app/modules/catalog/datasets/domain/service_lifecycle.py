@@ -24,10 +24,21 @@ logger = structlog.stdlib.get_logger(__name__)
 
 
 __all__ = [
+    "DatasetTitleMismatchError",
     "DependentVrtError",
     "delete_dataset",
     "get_dataset_versions",
 ]
+
+
+class DatasetTitleMismatchError(ValueError):
+    """Raised when confirm_title does not match the dataset's stored title.
+
+    A ValueError subclass so existing broad `except ValueError` callers are
+    unaffected; a distinct type so callers that need to tell this expected,
+    public-safe case apart from other ValueErrors (e.g. a malformed
+    persisted table name) can do so by type rather than by message content.
+    """
 
 
 class DependentVrtError(Exception):
@@ -64,7 +75,7 @@ async def delete_dataset(
         raise ValueError("Dataset not found")
 
     if dataset.record.title != confirm_title:
-        raise ValueError("Dataset title does not match confirmation")
+        raise DatasetTitleMismatchError("Dataset title does not match confirmation")
 
     table_name = dataset.table_name
     if not SAFE_TABLE_NAME_RE.match(table_name):

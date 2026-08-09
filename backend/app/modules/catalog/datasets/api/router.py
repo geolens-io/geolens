@@ -52,6 +52,7 @@ from app.platform.cache.provider import get_tile_cache
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.modules.catalog.collections.service import get_dataset_collections
 from app.modules.catalog.datasets.domain.service import (
+    DatasetTitleMismatchError,
     DependentVrtError,
     create_empty_dataset,
     delete_dataset,
@@ -459,16 +460,19 @@ async def bulk_delete_datasets_endpoint(
             deleted += 1
         except Exception as exc:  # broad: per-item bulk-delete is isolated — any failure is recorded per-item without aborting the batch
             await db.rollback()
-            if not isinstance(exc, (DependentVrtError, ValueError)):
+            if isinstance(exc, (DependentVrtError, DatasetTitleMismatchError)):
+                detail = str(exc)
+            else:
                 logger.exception(
                     "Unexpected error during bulk delete",
                     dataset_id=str(item.dataset_id),
                 )
+                detail = "Dataset deletion failed unexpectedly"
             results.append(
                 BulkDeleteResultItem(
                     dataset_id=item.dataset_id,
                     status="error",
-                    detail=str(exc),
+                    detail=detail,
                 )
             )
 
