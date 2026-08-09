@@ -266,20 +266,37 @@ describe('SourceRefreshAction', () => {
     ).toBeInTheDocument();
   });
 
-  // fix(#1285 codex round 1): useDatasetRefreshRuns self-polls while the
-  // latest run is pending/running (see use-dataset.ts), which re-renders
-  // this component with fresh data — but nothing consumed that transition
-  // until now. Simulated here via a mock return value change + rerender,
-  // standing in for what the poll would deliver on a real query.
-  it('re-enables the trigger and invalidates the dataset detail query once the active run turns terminal', async () => {
+  // fix(#1285 codex round 2): round 1 invalidated dataset detail on an
+  // observed active→terminal TRANSITION, which never fires if the run is
+  // already terminal on the first poll after dispatch — a fast strategy
+  // (postgis remeasurement can finish in ~1s) can beat the refetch. Fixed by
+  // tracking the run_id from the 202 response and invalidating the first
+  // time THAT run is observed terminal, whether or not it was ever seen
+  // active. `dispatchRefresh` below drives the real dialog flow so
+  // dispatchedRunIdRef is populated the way production code populates it,
+  // not injected directly.
+  async function dispatchRefresh(user: ReturnType<typeof userEvent.setup>, runId: string) {
+    mutateAsync.mockResolvedValue({
+      run_id: runId,
+      job_id: 'job-x',
+      dataset_id: 'dataset-1',
+      origin_kind: 'service',
+      trigger: 'api',
+      status: 'pending',
+      message: 'Refresh queued from the stored source',
+    });
+    await openDialog(user);
+    await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+  }
+
+  it('re-enables the trigger and invalidates the dataset detail query once OUR dispatched run turns terminal', async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
-
-    mockUseDatasetRefreshRuns.mockReturnValue({
-      data: { runs: [makeRun({ status: 'running' })], total: 1 },
-      isLoading: false,
-      isError: false,
-    } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
+    const user = userEvent.setup();
+    mockNoActiveRun();
 
     const { rerender } = rtlRender(
       <QueryClientProvider client={queryClient}>
@@ -287,18 +304,32 @@ describe('SourceRefreshAction', () => {
       </QueryClientProvider>,
     );
 
-    expect(screen.getByRole('button', { name: 'Refresh from source' })).toBeDisabled();
-    expect(invalidateSpy).not.toHaveBeenCalled();
+    await dispatchRefresh(user, 'run-99');
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: queryKeys.datasets.detail('dataset-1') });
 
+    // First poll after dispatch: our run shows up active.
+    mockUseDatasetRefreshRuns.mockReturnValue({
+      data: { runs: [makeRun({ id: 'run-99', status: 'running' })], total: 1 },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <SourceRefreshAction dataset={makeDataset()} />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByRole('button', { name: 'Refresh from source' })).toBeDisabled();
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: queryKeys.datasets.detail('dataset-1') });
+
+    // Next poll: terminal.
     mockUseDatasetRefreshRuns.mockReturnValue({
       data: {
-        runs: [makeRun({ status: 'succeeded', finished_at: '2026-08-05T00:02:00Z', feature_count_after: 44 })],
+        runs: [makeRun({ id: 'run-99', status: 'succeeded', finished_at: '2026-08-05T00:02:00Z', feature_count_after: 44 })],
         total: 1,
       },
       isLoading: false,
       isError: false,
     } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
-
     rerender(
       <QueryClientProvider client={queryClient}>
         <SourceRefreshAction dataset={makeDataset()} />
@@ -308,10 +339,56 @@ describe('SourceRefreshAction', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Refresh from source' })).not.toBeDisabled();
     });
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.datasets.detail('dataset-1') });
+    const detailInvalidations = () =>
+      invalidateSpy.mock.calls.filter(
+        ([call]) => JSON.stringify(call?.queryKey) === JSON.stringify(queryKeys.datasets.detail('dataset-1')),
+      ).length;
+    expect(detailInvalidations()).toBe(1);
+
+    // A later poll re-observing the SAME terminal run (nothing changed)
+    // must not invalidate a second time — invalidatedRunIdRef's job.
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <SourceRefreshAction dataset={makeDataset()} />
+      </QueryClientProvider>,
+    );
+    expect(detailInvalidations()).toBe(1);
   });
 
-  it('does not invalidate on mount when the latest run is already terminal', () => {
+  it('invalidates the dataset detail query even when our dispatched run is already terminal on first observation', async () => {
+    // The exact race codex flagged: nothing ever samples this run as
+    // pending/running — the first data the component sees for run_id
+    // "run-fast" already reports it done.
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    const user = userEvent.setup();
+    mockNoActiveRun();
+
+    const { rerender } = rtlRender(
+      <QueryClientProvider client={queryClient}>
+        <SourceRefreshAction dataset={makeDataset()} />
+      </QueryClientProvider>,
+    );
+
+    await dispatchRefresh(user, 'run-fast');
+
+    mockUseDatasetRefreshRuns.mockReturnValue({
+      data: { runs: [makeRun({ id: 'run-fast', status: 'succeeded', feature_count_after: 44 })], total: 1 },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <SourceRefreshAction dataset={makeDataset()} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.datasets.detail('dataset-1') });
+    });
+  });
+
+  it('does not invalidate for a run this component never dispatched, even if it is already terminal on mount', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
     mockUseDatasetRefreshRuns.mockReturnValue({

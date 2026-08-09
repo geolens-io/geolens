@@ -11,22 +11,32 @@ vi.mock('@/api/datasets', async (importOriginal) => {
     getDatasetRows: vi.fn(),
     reuploadCommit: vi.fn(),
     deleteDataset: vi.fn(),
+    getDatasetRefreshRuns: vi.fn(),
   };
 });
 
-import { getDataset, getDatasetRows, reuploadCommit, deleteDataset } from '@/api/datasets';
+import {
+  getDataset,
+  getDatasetRows,
+  reuploadCommit,
+  deleteDataset,
+  getDatasetRefreshRuns,
+} from '@/api/datasets';
 import {
   useDataset,
   useDatasetRows,
   useReuploadCommit,
   useDeleteDataset,
+  useDatasetRefreshRuns,
 } from '@/components/dataset/hooks/use-dataset';
 import { queryKeys } from '@/lib/query-keys';
+import type { DatasetRefreshRunResponse } from '@/types/api';
 
 const mockGetDataset = vi.mocked(getDataset);
 const mockGetDatasetRows = vi.mocked(getDatasetRows);
 const mockReuploadCommit = vi.mocked(reuploadCommit);
 const mockDeleteDataset = vi.mocked(deleteDataset);
+const mockGetDatasetRefreshRuns = vi.mocked(getDatasetRefreshRuns);
 
 describe('useDataset', () => {
   beforeEach(() => {
@@ -233,5 +243,75 @@ describe('useDeleteDataset', () => {
     // Everything else under the prefix still refetches.
     expect(predicate({ queryKey: queryKeys.datasets.all } as never)).toBe(true);
     expect(predicate({ queryKey: queryKeys.datasets.related('ds-2') } as never)).toBe(true);
+  });
+});
+
+/**
+ * fix(#1285 codex round 2): `placeholderData: keepPreviousData` shows the
+ * last successful result for ANY new query invocation, not just a re-fetch
+ * of the same dataset's runs — so navigating straight from one
+ * /datasets/:id to another briefly serves the PRIOR dataset's runs under
+ * the new query key. SourceHistory already filters `versions` by
+ * `dataset_id === dataset.id` for the identical reason; this hook does the
+ * same for `runs` so both consumers (SourceRefreshAction's busy gate and
+ * SourcePanel's Refresh history section) are fixed from one place.
+ */
+describe('useDatasetRefreshRuns', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function makeRun(overrides: Partial<DatasetRefreshRunResponse> = {}): DatasetRefreshRunResponse {
+    return {
+      id: 'run-1',
+      dataset_id: 'ds-1',
+      dataset_version_id: null,
+      ingest_job_id: 'job-1',
+      origin_kind: 'service',
+      trigger: 'api',
+      status: 'succeeded',
+      triggered_by: null,
+      triggered_by_username: null,
+      started_at: '2026-08-05T00:00:00Z',
+      claimed_at: '2026-08-05T00:00:01Z',
+      finished_at: '2026-08-05T00:00:30Z',
+      feature_count_before: 10,
+      feature_count_after: 12,
+      schema_diff: null,
+      error_code: null,
+      error_message: null,
+      ...overrides,
+    };
+  }
+
+  it('drops a run whose dataset_id does not match the requested dataset', async () => {
+    mockGetDatasetRefreshRuns.mockResolvedValueOnce({
+      runs: [
+        makeRun({ id: 'run-stale', dataset_id: 'ds-PREVIOUS' }),
+        makeRun({ id: 'run-current', dataset_id: 'ds-1' }),
+      ],
+      total: 2,
+    });
+
+    const { result } = renderHook(() => useDatasetRefreshRuns('ds-1'));
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.runs.map((run) => run.id)).toEqual(['run-current']);
+  });
+
+  it('returns every run unfiltered when they all belong to the requested dataset', async () => {
+    mockGetDatasetRefreshRuns.mockResolvedValueOnce({
+      runs: [makeRun({ id: 'run-a' }), makeRun({ id: 'run-b' })],
+      total: 2,
+    });
+
+    const { result } = renderHook(() => useDatasetRefreshRuns('ds-1'));
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.runs.map((run) => run.id)).toEqual(['run-a', 'run-b']);
+  });
+
+  it('does not fetch when datasetId is empty', () => {
+    renderHook(() => useDatasetRefreshRuns(''));
+
+    expect(mockGetDatasetRefreshRuns).not.toHaveBeenCalled();
   });
 });

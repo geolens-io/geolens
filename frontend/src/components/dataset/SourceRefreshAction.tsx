@@ -60,24 +60,30 @@ export function SourceRefreshAction({ dataset }: SourceRefreshActionProps) {
   // without a manual refresh.
   const { data: runsData } = useDatasetRefreshRuns(dataset.id, { limit: 1 });
   const latestRun = runsData?.runs[0];
-  const isBusy = isRunActive(latestRun?.status);
+  const latestRunId = latestRun?.id;
+  const latestRunStatus = latestRun?.status;
+  const isBusy = isRunActive(latestRunStatus);
 
-  // fix(#1285 codex round 1): the dispatch-time invalidation in
-  // useRefreshDataset fires before the worker has done anything: the run is
-  // still "pending", so re-fetching the dataset there is a no-op. Freshness,
-  // health, and last_refreshed_at only actually change once the run leaves
-  // pending/running — catch that transition here, once, and invalidate then.
-  // Keyed on the ref rather than derived state so it fires exactly once per
-  // transition, not on every render where the run happens to already be
-  // terminal (e.g. first mount after a refresh finished elsewhere).
-  const wasActiveRef = useRef(false);
+  // fix(#1285 codex round 1, corrected round 2): the dispatch-time
+  // invalidation in useRefreshDataset fires before the worker has done
+  // anything (the run is still "pending"), so freshness/health/
+  // last_refreshed_at only actually change once OUR dispatched run leaves
+  // pending/running. Round 1 caught that transition by comparing successive
+  // polls, but a fast strategy (postgis remeasurement can finish in ~1s)
+  // can already be terminal on the FIRST poll after dispatch — no "active"
+  // sample is ever observed, so a transition-based check never fires.
+  // Tracking the specific run_id from the 202 response instead: invalidate
+  // the first time THAT run is observed terminal, regardless of whether it
+  // was ever seen active. `invalidatedRunIdRef` makes it fire once per run.
+  const dispatchedRunIdRef = useRef<string | null>(null);
+  const invalidatedRunIdRef = useRef<string | null>(null);
   useEffect(() => {
-    const active = isRunActive(latestRun?.status);
-    if (wasActiveRef.current && !active) {
-      queryClient.invalidateQueries({ queryKey: queryKeys.datasets.detail(dataset.id) });
-    }
-    wasActiveRef.current = active;
-  }, [latestRun?.status, dataset.id, queryClient]);
+    if (!latestRunId || latestRunId !== dispatchedRunIdRef.current) return;
+    if (isRunActive(latestRunStatus)) return;
+    if (invalidatedRunIdRef.current === latestRunId) return;
+    invalidatedRunIdRef.current = latestRunId;
+    queryClient.invalidateQueries({ queryKey: queryKeys.datasets.detail(dataset.id) });
+  }, [latestRunId, latestRunStatus, dataset.id, queryClient]);
 
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
@@ -102,6 +108,7 @@ export function SourceRefreshAction({ dataset }: SourceRefreshActionProps) {
         datasetId: dataset.id,
         token: submittedToken,
       });
+      dispatchedRunIdRef.current = result.run_id;
       setOpen(false);
       toast.success(t('sourcePanel.refresh.toastAccepted', { runId: result.run_id }));
     } catch (err) {

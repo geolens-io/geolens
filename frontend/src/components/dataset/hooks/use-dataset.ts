@@ -226,6 +226,19 @@ export function useDatasetRefreshRuns(
     enabled: !!datasetId,
     placeholderData: keepPreviousData,
     staleTime: 15_000,
+    // fix(#1285 codex round 2): keepPreviousData shows the LAST successful
+    // result as a placeholder for ANY new query invocation, not just a
+    // paged re-fetch of the same dataset — so navigating straight from one
+    // /datasets/:id to another briefly serves the PRIOR dataset's runs under
+    // the new query key. Neither consumer checked `run.dataset_id ===
+    // datasetId` (SourceHistory already does this for versions, same root
+    // cause), so the new page could flash the previous dataset's triggered-by
+    // identity, error text, or active-run disabled state. Filtering here
+    // fixes every consumer at once rather than duplicating the check.
+    select: (data) => ({
+      ...data,
+      runs: data.runs.filter((run) => run.dataset_id === datasetId),
+    }),
     // fix(#1285 codex round 1): the dispatch-time invalidation above fires
     // one refetch that lands as "pending", and the app disables
     // refetch-on-focus (see auth-recovery notes), so without this the run
@@ -235,9 +248,13 @@ export function useDatasetRefreshRuns(
     // while the newest run is still in flight, stop once it lands on a
     // terminal status. Shared by both consumers (the trigger's gate and this
     // history section), so both pick up the transition from one poll.
+    //
+    // `query.state.data` here is the RAW cached response (select runs at the
+    // observer, not against the cache), so this re-applies the same
+    // dataset_id filter rather than trusting index 0 belongs to `datasetId`.
     refetchInterval: (query) => {
-      const status = query.state.data?.runs[0]?.status;
-      return status === 'pending' || status === 'running' ? 5_000 : false;
+      const latest = query.state.data?.runs.find((run) => run.dataset_id === datasetId);
+      return latest?.status === 'pending' || latest?.status === 'running' ? 5_000 : false;
     },
   });
 }
