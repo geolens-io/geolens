@@ -1700,7 +1700,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # payload structure; `GET /datasets/{id}` had been building its assets
         # straight off the ORM rows and leaked the archived original's href and
         # filename to every viewer. Cap 419 -> 426, exact.
-        "backend/app/modules/catalog/datasets/domain/service_query.py": 426,
+        # feat(#1316): +12 — the list and detail builders each now resolve
+        # can_view_dataset_provenance(record, user, user_roles) and pass it
+        # into dataset_to_response, so origin_uri/origin_ref are nulled for
+        # every reader but the owner or an admin. Cap 426 -> 438, exact.
+        "backend/app/modules/catalog/datasets/domain/service_query.py": 438,
         # Phase 276 CODE-02: chat_*.py sub-modules are all under the 350
         # default (largest is chat_actions.py at ~245 LOC). No explicit
         # per-file overrides needed; default applies.
@@ -2557,7 +2561,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # comment is the value: the member probes healthy and it is the PARENT
     # that needs regenerating, which is the opposite of where `inaccessible`
     # sends the reader. Cap 1435 -> 1440, exact.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1440,
+    # feat(#1316): +14 — origin_uri/origin_ref descriptions now state the
+    # owner-or-admin redaction inline (the same fact the field-level
+    # description already carries for every other gated field in this
+    # module), and DatasetVersionResponse gained a docstring for the same
+    # reason on file_hash/uploaded_by. Cap 1440 -> 1454, exact.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1454,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch

@@ -15,6 +15,7 @@ from app.core.identity import Identity
 from app.modules.auth.dependencies import get_optional_user, require_permission
 from app.modules.auth.models import User
 from app.modules.catalog.authorization import (
+    can_view_dataset_provenance,
     check_datasets_access_bulk,
     get_user_roles,
     visible_lineage_summaries,
@@ -443,7 +444,13 @@ async def get_collection_datasets_endpoint(
     return DatasetListResponse(
         datasets=[
             dataset_to_response(
-                d, actors_by_id=actor_map, lineage_summary=lineage[d.record_id]
+                d,
+                actors_by_id=actor_map,
+                lineage_summary=lineage[d.record_id],
+                # feat(#1316): per-row, same reasoning as the plain dataset list.
+                can_view_provenance=can_view_dataset_provenance(
+                    d.record, user, user_roles
+                ),
             )
             for d in datasets
         ],

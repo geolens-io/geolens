@@ -456,6 +456,27 @@ async def visible_lineage_summary(
     return (await visible_lineage_summaries(db, [record], user, user_roles))[record.id]
 
 
+def can_view_dataset_provenance(
+    record: Any, user: Identity | None, user_roles: set[str]
+) -> bool:
+    """Owner-or-admin predicate for the provenance projection (#1316).
+
+    Decided 2026-08-09 (ADR-002 amendment): the refresh-runs redaction model
+    (Decision 4e) is the single provenance projection for every surface that
+    carries it — dataset reads (single, list, collection), ``/versions/``,
+    and refresh-runs itself. The dataset's owner and any admin see raw
+    provenance in full (``origin_uri``, ``origin_ref``, ``uploaded_by``,
+    ``file_hash``); every other reader of an accessible dataset, named or
+    anonymous, gets those fields nulled and keeps only the capability summary
+    (origin kind, ``source_freshness``, ``source_health``,
+    ``last_refreshed_at``, ``last_checked_at``).
+
+    Extracted from the inline check refresh-runs used before this decision so
+    every surface applies the same rule rather than a hand-copied one.
+    """
+    return bool(user and (record.created_by == user.id or "admin" in user_roles))
+
+
 async def check_dataset_write_access(
     db: AsyncSession,
     dataset: Any,

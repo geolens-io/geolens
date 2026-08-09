@@ -133,6 +133,11 @@ def sync_detailed(
     well as an anonymous reader; a requester-scoped check that only exercises
     the anonymous case reads as complete and is not.
 
+    The owner-or-admin predicate (`can_view_dataset_provenance`) was extracted
+    to `authorization.py` under #1316, which applies the same rule to dataset
+    reads and `/versions/` — this endpoint's redaction is no longer the odd
+    one out among the three.
+
     Args:
         dataset_id (UUID):
         skip (int | Unset):  Default: 0.
@@ -182,6 +187,11 @@ def sync(
     well as an anonymous reader; a requester-scoped check that only exercises
     the anonymous case reads as complete and is not.
 
+    The owner-or-admin predicate (`can_view_dataset_provenance`) was extracted
+    to `authorization.py` under #1316, which applies the same rule to dataset
+    reads and `/versions/` — this endpoint's redaction is no longer the odd
+    one out among the three.
+
     Args:
         dataset_id (UUID):
         skip (int | Unset):  Default: 0.
@@ -225,6 +235,11 @@ async def asyncio_detailed(
     strings. The redaction is tested against a NAMED signed-in third party as
     well as an anonymous reader; a requester-scoped check that only exercises
     the anonymous case reads as complete and is not.
+
+    The owner-or-admin predicate (`can_view_dataset_provenance`) was extracted
+    to `authorization.py` under #1316, which applies the same rule to dataset
+    reads and `/versions/` — this endpoint's redaction is no longer the odd
+    one out among the three.
 
     Args:
         dataset_id (UUID):
@@ -272,6 +287,11 @@ async def asyncio(
     strings. The redaction is tested against a NAMED signed-in third party as
     well as an anonymous reader; a requester-scoped check that only exercises
     the anonymous case reads as complete and is not.
+
+    The owner-or-admin predicate (`can_view_dataset_provenance`) was extracted
+    to `authorization.py` under #1316, which applies the same rule to dataset
+    reads and `/versions/` — this endpoint's redaction is no longer the odd
+    one out among the three.
 
     Args:
         dataset_id (UUID):

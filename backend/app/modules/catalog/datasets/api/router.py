@@ -24,6 +24,7 @@ from app.modules.auth.dependencies import (
     require_permission,
 )
 from app.modules.catalog.authorization import (
+    can_view_dataset_provenance,
     check_dataset_access_or_anonymous,
     check_dataset_write_access,
     get_user_roles,
@@ -156,6 +157,8 @@ async def create_empty_dataset_endpoint(
         lineage_summary=await visible_lineage_summary(
             db, dataset.record, user, await get_user_roles(db, user)
         ),
+        # feat(#1316): the caller is the dataset's own creator — always owner.
+        can_view_provenance=True,
     )
 
 
@@ -389,6 +392,9 @@ async def update_dataset_metadata(
         lineage_summary=await visible_lineage_summary(
             db, dataset.record, user, user_roles
         ),
+        # feat(#1316): reached only after check_dataset_write_access, which is
+        # the owner-or-admin gate itself.
+        can_view_provenance=True,
     )
     if metadata_warnings:
         response.metadata_warnings = metadata_warnings
@@ -616,6 +622,11 @@ async def list_dataset_refresh_runs(
     strings. The redaction is tested against a NAMED signed-in third party as
     well as an anonymous reader; a requester-scoped check that only exercises
     the anonymous case reads as complete and is not.
+
+    The owner-or-admin predicate (`can_view_dataset_provenance`) was extracted
+    to `authorization.py` under #1316, which applies the same rule to dataset
+    reads and `/versions/` — this endpoint's redaction is no longer the odd
+    one out among the three.
     """
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
@@ -625,9 +636,7 @@ async def list_dataset_refresh_runs(
         )
 
     user_roles = await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
-    can_view_detail = bool(
-        user and (dataset.record.created_by == user.id or "admin" in user_roles)
-    )
+    can_view_detail = can_view_dataset_provenance(dataset.record, user, user_roles)
 
     runs, total = await list_runs_for_dataset(db, dataset_id, skip=skip, limit=limit)
     actors = (

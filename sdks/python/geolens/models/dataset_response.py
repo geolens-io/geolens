@@ -74,9 +74,11 @@ class DatasetResponse:
             their own.
         origin_uri (None | str | Unset): Machine-readable pointer back to the origin, written only by ingest and
             refresh. Distinct from source_url, which is editable descriptive metadata. Null for uploads and created
-            datasets.
+            datasets. feat(#1316): also null for any reader who is neither the dataset's owner nor an admin — origin (above)
+            and the freshness/health fields below are not gated and still describe the dataset's capabilities.
         origin_ref (DatasetResponseOriginRefType0 | None | Unset): Typed per-origin payload with a `kind` discriminator,
             e.g. {"kind": "service", "service_type": "wfs", "url": "...", "layer_id": "0"}. Never contains credentials.
+            feat(#1316): owner-or-admin only, same redaction as origin_uri.
         last_refreshed_at (datetime.datetime | None | Unset): Last committed successful refresh — not the last attempt
         last_checked_at (datetime.datetime | None | Unset): Last time GeoLens contacted the origin at all, whether the
             attempt succeeded or failed
