@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { LayerLegend } from '../LayerLegend';
+import { LayerLegend, viewerSwatchStyle } from '../LayerLegend';
 import type { MapTerrainConfig, SharedLayerResponse } from '@/types/api';
 
 function layer(overrides: Partial<SharedLayerResponse> = {}): SharedLayerResponse {
@@ -439,5 +439,40 @@ describe('LayerLegend terrain consistency (Fix 1)', () => {
     const synthetic = screen.getByTestId('legend-terrain-synthetic');
     expect(within(synthetic).getByText('◬')).toBeInTheDocument();
     expect(screen.getByText('⛰')).toBeInTheDocument();
+  });
+});
+
+// fix(#1288 codex): a stroke the user turned off through the builder can leave
+// paint's _stroke-disabled/_outline-width unchanged — the viewer legend swatch
+// must prefer builder state, same as extractStyleHints/getSwatchStyleFromPaint.
+describe('viewerSwatchStyle — builder stroke precedence (fix #1288)', () => {
+  it('prefers builder.strokeDisabled over a stale paint mirror', () => {
+    const style = viewerSwatchStyle(layer({
+      geometry_type: 'POLYGON',
+      paint: { 'fill-opacity': 0, '_outline-color': '#ec4b7f' },
+      style_config: { mode: 'categorical', builder: { strokeDisabled: true, outlineColor: '#ec4b7f' } } as SharedLayerResponse['style_config'],
+    }));
+    expect(style.strokeDisabled).toBe(true);
+  });
+
+  it('treats an explicit builder.outlineWidth of 0 as a disabled stroke', () => {
+    const style = viewerSwatchStyle(layer({
+      geometry_type: 'POLYGON',
+      paint: { 'fill-opacity': 0, '_outline-color': '#ec4b7f', '_outline-width': 2 },
+      style_config: { mode: 'categorical', builder: { outlineWidth: 0, outlineColor: '#ec4b7f' } } as SharedLayerResponse['style_config'],
+    }));
+    expect(style.strokeDisabled).toBe(true);
+    expect(style.strokeWidth).toBe(0);
+  });
+
+  it('leaves a normal visible outline unchanged', () => {
+    const style = viewerSwatchStyle(layer({
+      geometry_type: 'POLYGON',
+      paint: { 'fill-opacity': 0.5, '_outline-color': '#ec4b7f', '_outline-width': 2 },
+      style_config: { mode: 'categorical' } as SharedLayerResponse['style_config'],
+    }));
+    expect(style.strokeDisabled).toBe(false);
+    expect(style.outlineColor).toBe('#ec4b7f');
+    expect(style.strokeWidth).toBe(2);
   });
 });

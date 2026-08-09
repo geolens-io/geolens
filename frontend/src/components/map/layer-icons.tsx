@@ -102,7 +102,15 @@ export function extractStyleHints(
   hints.fillPatternColor = fillPatternTint(paint, styleConfig?.builder);
 
   if (gt.includes('POINT')) {
-    if (!strokeDisabled) {
+    // fix(#1288 codex): an explicit circle-stroke-width of 0 draws nothing on
+    // the map (no builder mirror exists for it, unlike the polygon outline
+    // width, so this reads paint directly) — treat it as a disabled stroke,
+    // same as the polygon outline-width fix above.
+    const csw = paint['circle-stroke-width'];
+    const pointStrokeDisabled = strokeDisabled || (typeof csw === 'number' && csw === 0);
+    if (pointStrokeDisabled) {
+      hints.strokeDisabled = true;
+    } else {
       const sc = paint['circle-stroke-color'];
       if (typeof sc === 'string') hints.strokeColor = sc;
     }

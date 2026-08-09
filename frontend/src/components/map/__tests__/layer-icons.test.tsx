@@ -380,4 +380,17 @@ describe('stroke-only polygon swatch (fix #1288)', () => {
     expect(hints.strokeDisabled).toBe(true);
     expect(hints.strokeColor).toBeUndefined();
   });
+
+  // fix(#1288 codex): a retained circle-stroke-color with an explicit
+  // circle-stroke-width of 0 draws nothing on the map — the point swatch must
+  // not draw ShapeIcon's fixed-width stroke for it regardless.
+  it('extractStyleHints treats an explicit zero circle stroke width as a disabled stroke', () => {
+    const hints = extractStyleHints(
+      { 'circle-opacity': 0, 'circle-stroke-color': '#ec4b7f', 'circle-stroke-width': 0 },
+      {},
+      'POINT',
+    );
+    expect(hints.strokeDisabled).toBe(true);
+    expect(hints.strokeColor).toBeUndefined();
+  });
 });

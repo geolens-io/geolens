@@ -51,20 +51,39 @@ function viewerLegendEntryName(layer: SharedLayerResponse): string {
 }
 
 /** Build SwatchStyle from viewer layer paint for consistent legend rendering. */
-function viewerSwatchStyle(layer: SharedLayerResponse): SwatchStyle {
+export function viewerSwatchStyle(layer: SharedLayerResponse): SwatchStyle {
+  const gt = (layer.geometry_type ?? '').toUpperCase();
+  const isPoint = gt.includes('POINT');
+  const builder = layer.style_config?.builder;
+
+  const rawStrokeW = isPoint
+    ? layer.paint?.['circle-stroke-width']
+    : (builder?.outlineWidth ?? layer.paint?.['_outline-width']);
+  const strokeWidth = typeof rawStrokeW === 'number' ? rawStrokeW : undefined;
+
+  // fix(#1288 codex): builder.strokeDisabled/outlineWidth win over the paint
+  // mirror, matching extractStyleHints/getSwatchStyleFromPaint — a stroke the
+  // user turned off through the builder can leave paint's
+  // _stroke-disabled/_outline-width unchanged, and a zero-width outline draws
+  // nothing on the map either way.
+  const strokeDisabled = isPoint
+    ? !!layer.paint?.['_stroke-disabled']
+    : Boolean(builder?.strokeDisabled ?? layer.paint?.['_stroke-disabled']) || strokeWidth === 0;
+
   // fix(#1288): builder.outlineColor wins over the flat paint mirror, which can
   // go stale — the map itself renders from style_config.builder.
-  const rawOutline = layer.style_config?.builder?.outlineColor ?? layer.paint?.['_outline-color'];
+  const rawOutline = isPoint
+    ? layer.paint?.['circle-stroke-color']
+    : (builder?.outlineColor ?? layer.paint?.['_outline-color']);
   const outlineColor = typeof rawOutline === 'string' ? rawOutline : undefined;
-  const rawStrokeW = layer.paint?.['circle-stroke-width'] ?? layer.paint?.['_outline-width'];
-  const strokeWidth = typeof rawStrokeW === 'number' ? rawStrokeW : undefined;
-  const gt = (layer.geometry_type ?? '').toUpperCase();
-  const rawFillOp = gt.includes('POINT')
+
+  const rawFillOp = isPoint
     ? layer.paint?.['circle-opacity']
     : gt.includes('LINE') ? layer.paint?.['line-opacity'] : layer.paint?.['fill-opacity'];
   const fillOpacity = typeof rawFillOp === 'number' ? rawFillOp : undefined;
   return {
     outlineColor,
+    strokeDisabled,
     opacity: layer.opacity ?? 1,
     fillOpacity,
     strokeWidth,
