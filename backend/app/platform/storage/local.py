@@ -162,28 +162,30 @@ class LocalStorageProvider:
 
     async def list(self, prefix: str) -> list[str]:
         """List keys matching a prefix, relative to base_dir."""
-        base_dir = self.base_dir
-        prefix_str = prefix
+        # SEC-026: resolve the caller-supplied prefix before touching the
+        # filesystem.  Keeping this check outside the worker also ensures a
+        # rejected key never reaches exists(), rglob(), or glob().
+        resolved_prefix = self._resolve_contained(prefix)
+        resolved_base = self.base_dir.resolve()
 
         def _list() -> list[str]:
-            if prefix_str.endswith("/"):
+            if not prefix or prefix.endswith("/") or resolved_prefix == resolved_base:
                 # Directory prefix: list all files recursively under it
-                search_dir = base_dir / prefix_str
+                search_dir = resolved_prefix
                 if not search_dir.exists():
                     return []
                 return [
-                    str(p.relative_to(base_dir))
+                    str(p.relative_to(resolved_base))
                     for p in search_dir.rglob("*")
                     if p.is_file()
                 ]
             # File prefix: glob in the parent directory
-            prefix_path = base_dir / prefix_str
-            parent = prefix_path.parent
+            parent = resolved_prefix.parent
             if not parent.exists():
                 return []
-            pattern = prefix_path.name + "*"
+            pattern = resolved_prefix.name + "*"
             return [
-                str(p.relative_to(base_dir))
+                str(p.relative_to(resolved_base))
                 for p in parent.glob(pattern)
                 if p.is_file()
             ]
