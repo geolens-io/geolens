@@ -25,23 +25,35 @@ import { resolveTerrainSourceLayer } from '@/components/builder/map-stack';
 import type { PluginContext } from '../types';
 
 /** Extract swatch style properties from layer paint based on geometry type. */
-function getSwatchStyleFromPaint(
+export function getSwatchStyleFromPaint(
   paint: Record<string, unknown> | undefined,
   geometryType: string | null | undefined,
   masterOpacity: number,
   // fix(#914): the builder block carries the fill-pattern tint stash.
-  builder?: { fillColorSaved?: string },
+  // fix(#1288): also carries outlineColor/strokeDisabled/outlineWidth — the map
+  // renders from builder state, so the legend must prefer it over the paint
+  // mirror below, which can go stale (toggling a stroke off leaves paint's
+  // _stroke-disabled/_outline-width unchanged).
+  builder?: { fillColorSaved?: string; outlineColor?: string; strokeDisabled?: boolean; outlineWidth?: number },
 ): SwatchStyle {
   const gt = (inferGeometryType(paint, geometryType) ?? '').toUpperCase();
-  const strokeDisabled = !!paint?.['_stroke-disabled'];
+  const isPoint = gt.includes('POINT');
 
-  const rawOutline = gt.includes('POINT') ? paint?.['circle-stroke-color'] : paint?.['_outline-color'];
-  const outlineColor = typeof rawOutline === 'string' ? rawOutline : undefined;
-
-  const rawStrokeW = gt.includes('POINT') ? paint?.['circle-stroke-width'] : paint?.['_outline-width'];
+  const rawStrokeW = isPoint ? paint?.['circle-stroke-width'] : (builder?.outlineWidth ?? paint?.['_outline-width']);
   const strokeWidth = typeof rawStrokeW === 'number' ? rawStrokeW : undefined;
 
-  const rawFillOp = gt.includes('POINT')
+  // fix(#1288 codex): an explicit zero-width outline draws nothing on the map,
+  // same "treat explicit zero as disabled" precedence as extractStyleHints.
+  const strokeDisabled = isPoint
+    ? !!paint?.['_stroke-disabled']
+    : Boolean(builder?.strokeDisabled ?? paint?.['_stroke-disabled']) || strokeWidth === 0;
+
+  const rawOutline = isPoint
+    ? paint?.['circle-stroke-color']
+    : (builder?.outlineColor ?? paint?.['_outline-color']);
+  const outlineColor = typeof rawOutline === 'string' ? rawOutline : undefined;
+
+  const rawFillOp = isPoint
     ? paint?.['circle-opacity']
     : gt.includes('LINE')
       ? paint?.['line-opacity']

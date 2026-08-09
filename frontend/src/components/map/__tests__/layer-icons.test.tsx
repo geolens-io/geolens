@@ -179,7 +179,9 @@ describe('patterned polygon swatch (fix #951)', () => {
       />,
     );
     expect(container.querySelector('.lucide-pentagon')).toBeNull();
-    const chip = container.firstElementChild as HTMLElement;
+    // fix(#1288 codex): the pattern now lives on a nested span so its opacity
+    // can be dimmed independently of the border — assert on that inner span.
+    const chip = container.firstElementChild!.firstElementChild as HTMLElement;
     expect(chip.style.backgroundImage).toContain('radial-gradient');
     expect(chip.style.color).toBe('rgb(255, 90, 95)');
   });
@@ -194,7 +196,26 @@ describe('patterned polygon swatch (fix #951)', () => {
         styleHints={{ fillPattern: 'geolens-fill-dots', fillPatternColor: '#1d4ed8' }}
       />,
     );
-    expect((container.firstElementChild as HTMLElement).style.color).toBe('rgb(29, 78, 216)');
+    const chip = container.firstElementChild!.firstElementChild as HTMLElement;
+    expect(chip.style.color).toBe('rgb(29, 78, 216)');
+  });
+
+  // fix(#1288 codex): a partially-transparent patterned fill (fillOpacity < 1)
+  // must dim the pattern pixels without touching the border.
+  it('applies fillOpacity to the pattern layer only, not the border', () => {
+    const { container } = render(
+      <ColorizedGeometryIcon
+        geometryType="POLYGON"
+        colors={['#ff5a5f']}
+        layerId="x"
+        styleHints={{ fillPattern: 'geolens-fill-dots', fillOpacity: 0, strokeColor: '#ec4b7f' }}
+      />,
+    );
+    const outer = container.firstElementChild as HTMLElement;
+    const inner = outer.firstElementChild as HTMLElement;
+    expect(outer.style.opacity).toBe('');
+    expect(outer.style.borderColor).toBe('rgb(236, 75, 127)');
+    expect(inner.style.opacity).toBe('0');
   });
 
   it('extractStyleHints resolves the tint from the fillColorSaved stash', () => {
@@ -259,5 +280,134 @@ describe('patterned polygon swatch (fix #951)', () => {
       <ColorizedGeometryIcon geometryType="POLYGON" colors={['#ff5a5f']} layerId="x" />,
     );
     expect(container.querySelector('.lucide-pentagon')).not.toBeNull();
+  });
+});
+
+// fix(#1288): a stroke-only polygon (fill-opacity: 0, visible outline) used to
+// render an invisible swatch — element-level opacity hid the outline along with
+// the fill it was meant to suppress. fillOpacity now lands on the SVG fill only.
+describe('stroke-only polygon swatch (fix #1288)', () => {
+  it('renders a visible outline when fill-opacity is 0', () => {
+    const { container } = render(
+      <ColorizedGeometryIcon
+        geometryType="POLYGON"
+        colors={['#3b82f6']}
+        layerId="x"
+        styleHints={{ fillOpacity: 0, strokeColor: '#ec4b7f' }}
+      />,
+    );
+    const span = container.firstElementChild as HTMLElement;
+    expect(span.style.opacity).toBe('');
+    const icon = container.querySelector('.lucide-pentagon') as SVGElement;
+    expect(icon.getAttribute('fill-opacity')).toBe('0');
+    expect(icon.getAttribute('stroke')).toBe('#ec4b7f');
+  });
+
+  it('leaves a normal filled polygon unchanged', () => {
+    const { container } = render(
+      <ColorizedGeometryIcon geometryType="POLYGON" colors={['#3b82f6']} layerId="x" />,
+    );
+    const span = container.firstElementChild as HTMLElement;
+    expect(span.style.opacity).toBe('');
+    const icon = container.querySelector('.lucide-pentagon') as SVGElement;
+    expect(icon.getAttribute('fill')).toBe('#3b82f6');
+    expect(icon.getAttribute('fill-opacity')).toBeNull();
+  });
+
+  it('still applies layer-level opacity to the whole swatch', () => {
+    const { container } = render(
+      <ColorizedGeometryIcon
+        geometryType="POLYGON"
+        colors={['#3b82f6']}
+        layerId="x"
+        styleHints={{ opacity: 0.4 }}
+      />,
+    );
+    const span = container.firstElementChild as HTMLElement;
+    expect(span.style.opacity).toBe('0.4');
+  });
+
+  it('extractStyleHints prefers builder.outlineColor over a stale paint mirror', () => {
+    // The renderer draws from style_config.builder, so a swatch reading only the
+    // flat paint mirror can show a color the map no longer draws.
+    const hints = extractStyleHints(
+      { 'fill-opacity': 0, '_outline-color': '#0058ac' },
+      {},
+      'POLYGON',
+      1,
+      { builder: { outlineColor: '#ec4b7f' } },
+    );
+    expect(hints.strokeColor).toBe('#ec4b7f');
+    expect(hints.fillOpacity).toBe(0);
+  });
+
+  // fix(#1288 codex): with fill-opacity now revealing the outline instead of
+  // hiding the whole swatch, a stroke the user turned off via the builder (which
+  // can leave a stale/absent paint['_stroke-disabled']) must not draw as visible.
+  it('extractStyleHints prefers builder.strokeDisabled over a stale paint mirror', () => {
+    const hints = extractStyleHints(
+      { 'fill-opacity': 0, '_outline-color': '#ec4b7f' },
+      {},
+      'POLYGON',
+      1,
+      { builder: { strokeDisabled: true, outlineColor: '#ec4b7f' } },
+    );
+    expect(hints.strokeDisabled).toBe(true);
+    expect(hints.strokeColor).toBeUndefined();
+  });
+
+  // fix(#1288 codex): an explicit outline width of 0 draws nothing on the map
+  // (distinct from strokeDisabled, which is a separate private flag) — the
+  // swatch must not draw ShapeIcon's fixed-width outline for it regardless.
+  it('extractStyleHints treats an explicit zero outline width as a disabled stroke', () => {
+    const hints = extractStyleHints(
+      { 'fill-opacity': 0, '_outline-color': '#ec4b7f', '_outline-width': 0 },
+      {},
+      'POLYGON',
+    );
+    expect(hints.strokeDisabled).toBe(true);
+    expect(hints.strokeColor).toBeUndefined();
+  });
+
+  it('extractStyleHints prefers builder.outlineWidth over a stale paint mirror', () => {
+    const hints = extractStyleHints(
+      { 'fill-opacity': 0, '_outline-color': '#ec4b7f', '_outline-width': 2 },
+      {},
+      'POLYGON',
+      1,
+      { builder: { outlineWidth: 0, outlineColor: '#ec4b7f' } },
+    );
+    expect(hints.strokeDisabled).toBe(true);
+    expect(hints.strokeColor).toBeUndefined();
+  });
+
+  // fix(#1288 codex): a retained circle-stroke-color with an explicit
+  // circle-stroke-width of 0 draws nothing on the map — the point swatch must
+  // not draw ShapeIcon's fixed-width stroke for it regardless.
+  it('extractStyleHints treats an explicit zero circle stroke width as a disabled stroke', () => {
+    const hints = extractStyleHints(
+      { 'circle-opacity': 0, 'circle-stroke-color': '#ec4b7f', 'circle-stroke-width': 0 },
+      {},
+      'POINT',
+    );
+    expect(hints.strokeDisabled).toBe(true);
+    expect(hints.strokeColor).toBeUndefined();
+  });
+
+  // fix(#1288 codex): circle-adapter.ts (the real point renderer) applies
+  // circle paint properties directly and never reads style_config.builder — a
+  // stale builder.strokeDisabled left over from before an Advanced JSON/API
+  // edit restored a real circle-stroke-width must not suppress a stroke the
+  // map still draws. Builder precedence is polygon-only.
+  it('extractStyleHints ignores builder.strokeDisabled for points with a real stroke width', () => {
+    const hints = extractStyleHints(
+      { 'circle-opacity': 1, 'circle-stroke-color': '#ec4b7f', 'circle-stroke-width': 3 },
+      {},
+      'POINT',
+      1,
+      { builder: { strokeDisabled: true } },
+    );
+    expect(hints.strokeDisabled).toBeUndefined();
+    expect(hints.strokeColor).toBe('#ec4b7f');
   });
 });

@@ -24,10 +24,16 @@ export interface SwatchStyle {
   fillPatternColor?: string;
 }
 
-/** Compute compound opacity style from swatch style. */
+/**
+ * Compute element-level opacity style from swatch style — LAYER opacity only.
+ * fix(#1288): fillOpacity used to be folded in here and applied to the whole
+ * swatch, so a stroke-only style (fill-opacity: 0) hid its own outline along
+ * with the fill. fillOpacity is now applied per-element (SVG fill-opacity /
+ * stroke-opacity, or an alpha-blended background) by each renderer below.
+ */
 function swatchOpacityStyle(s?: SwatchStyle): React.CSSProperties | undefined {
-  const compoundOpacity = (s?.opacity ?? 1) * (s?.fillOpacity ?? 1);
-  return compoundOpacity < 1 ? { opacity: compoundOpacity } : undefined;
+  const opacity = s?.opacity ?? 1;
+  return opacity < 1 ? { opacity } : undefined;
 }
 
 /* ── Geometry-aware swatch ─────────────────────────── */
@@ -49,6 +55,7 @@ export function GeometrySwatch({ geometryType, color, style: s }: GeometrySwatch
         <circle
           cx="7" cy="7" r="5"
           fill={color}
+          fillOpacity={s?.fillOpacity}
           stroke={s?.outlineColor ?? MAP_COLORS.legendOutline}
           strokeWidth={s?.strokeDisabled ? 0 : (s?.strokeWidth ?? 1)}
         />
@@ -63,6 +70,7 @@ export function GeometrySwatch({ geometryType, color, style: s }: GeometrySwatch
         <line
           x1="1" y1="7" x2="13" y2="7"
           stroke={color}
+          strokeOpacity={s?.fillOpacity}
           strokeWidth={2.5}
           strokeLinecap="round"
         />
@@ -74,24 +82,36 @@ export function GeometrySwatch({ geometryType, color, style: s }: GeometrySwatch
   // carries a fill-pattern, since MapLibre draws the pattern INSTEAD of the fill
   // (fix(#951): the chip used to show a solid block that appeared nowhere on the map).
   const borderColor = !s?.strokeDisabled ? (s?.outlineColor ?? MAP_COLORS.legendOutline) : undefined;
-  const style: React.CSSProperties = {
-    ...(s?.fillPattern
-      ? {
-          color: s.fillPatternColor ?? color,
-          backgroundColor: 'transparent',
-          ...patternPreviewStyle(s.fillPattern),
-        }
-      : { backgroundColor: color }),
-    ...(borderColor ? { borderColor } : {}),
-    ...(s?.strokeWidth ? { borderWidth: s.strokeWidth } : {}),
-    ...opacityStyle,
-  };
+  const fillStyle: React.CSSProperties = s?.fillPattern
+    ? {
+        color: s.fillPatternColor ?? color,
+        backgroundColor: 'transparent',
+        ...patternPreviewStyle(s.fillPattern),
+      }
+    : { backgroundColor: color };
+  // fix(#1288 codex): fillOpacity dims the fill LAYER only, rendered as a
+  // nested element behind the border. Plain CSS opacity works for every CSS
+  // color format (hex3/4/6/8, rgb()/hsl(), named colors) with no parsing, and
+  // never touches the border, which must stay fully opaque for a stroke-only
+  // style (fillOpacity 0) to remain visible.
+  if (s?.fillOpacity !== undefined && s.fillOpacity < 1) {
+    fillStyle.opacity = s.fillOpacity;
+  }
   return (
     <div
-      className={cn('w-3.5 h-3.5 rounded-sm shrink-0', !s?.strokeDisabled && 'border')}
-      style={style}
+      className={cn('relative w-3.5 h-3.5 rounded-sm shrink-0 overflow-hidden', !s?.strokeDisabled && 'border')}
+      style={{
+        ...(borderColor ? { borderColor } : {}),
+        // fix(#1288 codex): a truthy check drops an EXPLICIT strokeWidth of 0,
+        // falling back to the default 1px border — the map draws no outline at
+        // width 0, so the swatch must not either.
+        ...(s?.strokeWidth !== undefined ? { borderWidth: s.strokeWidth } : {}),
+        ...opacityStyle,
+      }}
       aria-hidden="true"
-    />
+    >
+      <div className="absolute inset-0" style={fillStyle} />
+    </div>
   );
 }
 
@@ -160,6 +180,7 @@ export const GraduatedRadiusLegend = memo(function GraduatedRadiusLegend({ sizes
               cx="12" cy="12"
               r={Math.min(size, 12)}
               fill={safeColors?.[Math.min(i, safeColors.length - 1)] ?? circleColor}
+              fillOpacity={s?.fillOpacity}
               stroke={s?.outlineColor ?? MAP_COLORS.legendOutline}
               strokeWidth={s?.strokeDisabled ? 0 : (s?.strokeWidth ?? 1)}
             />
@@ -187,7 +208,7 @@ export const GraduatedWidthLegend = memo(function GraduatedWidthLegend({ sizes, 
       {sizes.map((size, i) => (
         <li key={i} className="flex items-center gap-1.5">
           <svg width="24" height="16" className="shrink-0" style={opacityStyle}>
-            <line x1="0" y1="8" x2="24" y2="8" stroke={lineColor} strokeWidth={Math.min(size, 8)} strokeLinecap="round" />
+            <line x1="0" y1="8" x2="24" y2="8" stroke={lineColor} strokeOpacity={s?.fillOpacity} strokeWidth={Math.min(size, 8)} strokeLinecap="round" />
           </svg>
           <span className="text-muted-foreground truncate">{breakLabel(i, breaks)}</span>
         </li>

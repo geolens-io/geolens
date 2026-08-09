@@ -37,7 +37,14 @@ export function extractStyleHints(
   geometryType: string | null,
   opacity?: number,
   // fix(#914): `builder` is read for the fill-pattern tint stash.
-  styleConfig?: { render_mode?: string; builder?: { fillColorSaved?: string } } | null,
+  // fix(#1288): also read for outlineColor and strokeDisabled — the renderer
+  // draws from builder state, so the swatch must prefer it over the paint
+  // mirror below, which can go stale (paint keeps the color/flag a layer had
+  // before its last edit).
+  styleConfig?: {
+    render_mode?: string;
+    builder?: { fillColorSaved?: string; outlineColor?: string; strokeDisabled?: boolean; outlineWidth?: number };
+  } | null,
 ): StyleHints {
   const gt = (geometryType ?? '').toUpperCase();
   const hints: StyleHints = {};
@@ -50,7 +57,18 @@ export function extractStyleHints(
     hints.opacity = opacity;
   }
 
-  if (paint['_stroke-disabled']) {
+  // fix(#1288 codex): builder.strokeDisabled wins over the paint mirror ONLY
+  // where the real map renderer also consults builder state — fill-adapter.ts
+  // (polygons and the mixed GEOMETRY adapter's fill sublayer). circle-adapter.ts
+  // (points) applies circle paint properties directly and never reads
+  // style_config.builder, so a point must resolve purely from paint below —
+  // otherwise a stale builder.strokeDisabled (e.g. after an Advanced JSON/API
+  // edit restored a real stroke) would hide a stroke the map still draws.
+  const isPoint = gt.includes('POINT');
+  const strokeDisabled = isPoint
+    ? !!paint['_stroke-disabled']
+    : Boolean(styleConfig?.builder?.strokeDisabled ?? paint['_stroke-disabled']);
+  if (strokeDisabled) {
     hints.strokeDisabled = true;
   }
 
@@ -64,8 +82,18 @@ export function extractStyleHints(
     const lo = paint['line-opacity'];
     if (typeof lo === 'number' && lo < 1) hints.fillOpacity = lo;
   } else if (gt.includes('POLYGON')) {
-    if (!paint['_stroke-disabled']) {
-      const oc = paint['_outline-color'];
+    // fix(#1288 codex): an explicit zero-width outline draws nothing on the
+    // map — builder.outlineWidth wins over the paint mirror, same precedence
+    // as outlineColor/strokeDisabled — so treat it as a disabled stroke
+    // instead of drawing ShapeIcon's fixed-width outline for a layer that
+    // renders none.
+    const ow = styleConfig?.builder?.outlineWidth ?? paint['_outline-width'];
+    const outlineDisabled = strokeDisabled || (typeof ow === 'number' && ow === 0);
+    if (outlineDisabled) {
+      hints.strokeDisabled = true;
+    } else {
+      // fix(#1288): builder.outlineColor wins over the flat paint mirror.
+      const oc = styleConfig?.builder?.outlineColor ?? paint['_outline-color'];
       if (typeof oc === 'string') hints.strokeColor = oc;
     }
     const fo = paint['fill-opacity'];
@@ -80,8 +108,16 @@ export function extractStyleHints(
   // default while the map tints from the stash — resolve the map's colour here.
   hints.fillPatternColor = fillPatternTint(paint, styleConfig?.builder);
 
-  if (gt.includes('POINT')) {
-    if (!paint['_stroke-disabled']) {
+  if (isPoint) {
+    // fix(#1288 codex): an explicit circle-stroke-width of 0 draws nothing on
+    // the map (no builder mirror exists for it, unlike the polygon outline
+    // width, so this reads paint directly) — treat it as a disabled stroke,
+    // same as the polygon outline-width fix above.
+    const csw = paint['circle-stroke-width'];
+    const pointStrokeDisabled = strokeDisabled || (typeof csw === 'number' && csw === 0);
+    if (pointStrokeDisabled) {
+      hints.strokeDisabled = true;
+    } else {
       const sc = paint['circle-stroke-color'];
       if (typeof sc === 'string') hints.strokeColor = sc;
     }
@@ -175,7 +211,7 @@ function LineIcon({ colors, layerId, opacityStyle, styleHints, discrete }: IconS
             </linearGradient>
           </defs>
         )}
-        <line x1="1" y1="7" x2="13" y2="7" stroke={strokeColor} strokeWidth={svgStrokeWidth} strokeLinecap="round" strokeDasharray={dashArray} />
+        <line x1="1" y1="7" x2="13" y2="7" stroke={strokeColor} strokeOpacity={styleHints?.fillOpacity} strokeWidth={svgStrokeWidth} strokeLinecap="round" strokeDasharray={dashArray} />
       </svg>
     </span>
   );
@@ -195,17 +231,28 @@ function ShapeIcon({ colors, layerId, opacityStyle, styleHints, isPoint, discret
   // the pentagon glyph has no fill we can pattern without duplicating all five
   // patterns as SVG defs.
   if (!isPoint && styleHints?.fillPattern) {
+    // fix(#1288 codex): fillOpacity dims the PATTERN only, as a nested layer —
+    // plain CSS opacity, so it works for `color` in any format the pattern's
+    // `currentColor` resolves to — and never the border, which must stay fully
+    // opaque for a stroke-only style (fillOpacity 0) to remain visible.
+    const patternFillStyle: React.CSSProperties = {
+      color: styleHints.fillPatternColor ?? colors[0] ?? MAP_COLORS.icon.fallback,
+      ...patternPreviewStyle(styleHints.fillPattern),
+    };
+    if (styleHints.fillOpacity !== undefined && styleHints.fillOpacity < 1) {
+      patternFillStyle.opacity = styleHints.fillOpacity;
+    }
     return (
       <span
-        className="inline-block h-3.5 w-3.5 shrink-0 rounded-sm border"
+        className="relative inline-block h-3.5 w-3.5 shrink-0 overflow-hidden rounded-sm border"
         style={{
-          color: styleHints.fillPatternColor ?? colors[0] ?? MAP_COLORS.icon.fallback,
           borderColor: showOutline ? (styleHints.strokeColor ?? MAP_COLORS.icon.outline) : 'transparent',
-          ...patternPreviewStyle(styleHints.fillPattern),
           ...opacityStyle,
         }}
         aria-hidden="true"
-      />
+      >
+        <span className="absolute inset-0" style={patternFillStyle} />
+      </span>
     );
   }
 
@@ -218,7 +265,9 @@ function ShapeIcon({ colors, layerId, opacityStyle, styleHints, isPoint, discret
         : { strokeWidth: 0 };
     return (
       <span style={opacityStyle} className="inline-flex">
-        <Icon className={sizeClass} fill={color} {...stroke} />
+        {/* fix(#1288): fillOpacity on the SVG fill, not the span — a stroke-only
+            style (fill-opacity: 0) must leave the outline (stroke above) visible. */}
+        <Icon className={sizeClass} fill={color} fillOpacity={styleHints?.fillOpacity} {...stroke} />
       </span>
     );
   }
@@ -240,7 +289,7 @@ function ShapeIcon({ colors, layerId, opacityStyle, styleHints, isPoint, discret
             </linearGradient>
           </defs>
         </svg>
-        <Icon className={sizeClass} fill={`url(#${gradientId})`} {...stroke} />
+        <Icon className={sizeClass} fill={`url(#${gradientId})`} fillOpacity={styleHints?.fillOpacity} {...stroke} />
       </span>
     </span>
   );
@@ -266,8 +315,12 @@ export function ColorizedGeometryIcon({
   if (layerType === 'raster') return <Grid3x3 className="h-3.5 w-3.5 text-muted-foreground" />;
 
   const gt = (geometryType ?? '').toUpperCase();
-  const compoundOpacity = (styleHints?.opacity ?? 1) * (styleHints?.fillOpacity ?? 1);
-  const opacityStyle: React.CSSProperties | undefined = compoundOpacity < 1 ? { opacity: compoundOpacity } : undefined;
+  // fix(#1288): element-level opacity is for the LAYER opacity only. fillOpacity
+  // (paint's fill-/circle-/line-opacity) is a per-element hint the sub-icons
+  // apply to the specific SVG attribute (fill-opacity or stroke-opacity) so a
+  // stroke-only style (fill-opacity: 0) doesn't hide the outline it's drawn with.
+  const layerOpacity = styleHints?.opacity ?? 1;
+  const opacityStyle: React.CSSProperties | undefined = layerOpacity < 1 ? { opacity: layerOpacity } : undefined;
   const sub: IconSubProps = { colors, layerId, opacityStyle, styleHints, discrete };
 
   if (styleHints?.isHeatmap && colors.length > 1) return <HeatmapIcon {...sub} />;
