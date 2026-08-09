@@ -5,7 +5,7 @@ This test is DELIBERATELY slow and real:
 - Creates real PostGIS rows (Record, Dataset, RasterAsset, VrtGeneration, IngestJob, vrt_source_links)
 - Invokes gdalbuildvrt as a subprocess
 - Writes the result via a real LocalStorageProvider
-- Reads back and asserts on 15 state mutations
+- Reads back and asserts on 16 state mutations
 
 Phase 219 extracts 3 helpers from regenerate_vrt. Any drift in behavior will
 fail this test — that is the whole point of shipping this phase first.
@@ -284,7 +284,7 @@ async def test_regenerate_vrt_happy_path_end_to_end(
     quicklook_stub,  # fixture stubs generate_quicklook
     clean_tables,  # opt-in truncate after test (Research Open Question #1)
 ):
-    """Full integration test: invoke regenerate_vrt and assert on 15 state mutations.
+    """Full integration test: invoke regenerate_vrt and assert on 16 state mutations.
 
     This is the behavioral anchor for Phase 219's refactor. Any drift in the
     observable outcome of regenerate_vrt will fail this test — that's the
@@ -293,7 +293,7 @@ async def test_regenerate_vrt_happy_path_end_to_end(
     The 15 assertions cover every DB + storage mutation that regenerate_vrt
     performs in the happy path. See CONTEXT.md D-03 for the enumerated list.
     """
-    from app.modules.catalog.datasets.domain.models import Record
+    from app.modules.catalog.datasets.domain.models import Dataset, Record
     from app.processing.ingest.tasks import regenerate_vrt
     from app.platform.jobs.models import IngestJob
     from app.processing.raster.models import RasterAsset, VrtGeneration
@@ -335,7 +335,12 @@ async def test_regenerate_vrt_happy_path_end_to_end(
     )
     vrt_record = record_result.scalar_one()
 
-    # --- ASSERTIONS (the 15 anchor mutations) ------------------------------
+    vrt_dataset_result = await session.execute(
+        select(Dataset).where(Dataset.id == uuid.UUID(vrt_db_state["vrt_dataset_id"]))
+    )
+    vrt_dataset = vrt_dataset_result.scalar_one()
+
+    # --- ASSERTIONS (the 16 anchor mutations) ------------------------------
 
     storage = local_storage  # the LocalStorageProvider from the fixture
     old_vrt_key = vrt_db_state["expected_vrt_key"]
@@ -419,6 +424,12 @@ async def test_regenerate_vrt_happy_path_end_to_end(
     # spatial_extent is a Geometry column; its post-load value is a WKB string or
     # a geoalchemy2 Geometry element. Just assert non-None.
     assert vrt_record.spatial_extent is not None
+
+    # [16] feat(#1267): the owning dataset's last_refreshed_at is stamped in
+    # the same transaction as the generation swap, at the generation's own
+    # completed_at instant — not a separate now() call.
+    assert vrt_dataset.last_refreshed_at is not None
+    assert vrt_dataset.last_refreshed_at == generation.completed_at
 
     # --- BONUS: Rasterio re-open + bounds sanity check ---------------------
     # (per CONTEXT.md Claude's Discretion + RESEARCH.md recommendation)

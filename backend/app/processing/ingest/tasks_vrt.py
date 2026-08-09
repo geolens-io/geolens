@@ -1004,10 +1004,20 @@ async def regenerate_vrt(
                     select(Dataset).where(Dataset.id == vrt_id)
                 )
                 vrt_dataset = dataset_result.scalar_one_or_none()
-                if vrt_dataset is not None and meta.get("bbox_wkt"):
-                    vrt_dataset.record.spatial_extent = func.ST_GeomFromText(
-                        meta["bbox_wkt"], 4326
-                    )
+                if vrt_dataset is not None:
+                    # feat(#1267) / ADR-002 Decision 5a: project the
+                    # generation's completion instant into last_refreshed_at,
+                    # in the SAME transaction as the generation swap, so
+                    # source_freshness (#1224) reads a live signal for a NULL
+                    # origin (VRT) instead of the creation-time floor forever.
+                    # Same instant as generation.completed_at, not a fresh
+                    # now() — one swap, one timestamp, no clock skew between
+                    # the two records of it.
+                    vrt_dataset.last_refreshed_at = generation.completed_at
+                    if meta.get("bbox_wkt"):
+                        vrt_dataset.record.spatial_extent = func.ST_GeomFromText(
+                            meta["bbox_wkt"], 4326
+                        )
 
                 # Keep download/STAC references aligned with the newly published
                 # immutable generation keys in the same transaction.

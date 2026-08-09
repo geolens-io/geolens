@@ -2318,7 +2318,19 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # reupload check: a service refresh job carries both markers, and moving
     # this one first would silently reword an existing message.
     # Cap 1605 -> 1615, exact.
-    "backend/app/platform/jobs/router.py": 1615,
+    # feat(#1267): +77 — sweep_stale_vrt_assets now restores 'ready' instead
+    # of 'failed' (the dead attempt never touched the published pointer, so
+    # the VRT keeps serving what it served before), the VrtGeneration
+    # RETURNING widened to (id, vrt_dataset_id) so the pairing survives to a
+    # new _reap_stale_generation_storage helper, and that helper best-effort
+    # reaps the dead attempt's own generation-scoped storage objects via the
+    # existing _cleanup_orphaned_storage_keys, keyed through current_tenant_var
+    # the same way regenerate_vrt itself resolves those keys. Most of the
+    # lines are the docstring recording why 'ready' is the correct restore
+    # target and why the pairing cannot come from the asset UPDATE's own
+    # RETURNING (its current_generation_id is nulled in the same statement).
+    # Cap 1615 -> 1692, exact.
+    "backend/app/platform/jobs/router.py": 1692,
     # fix(second-opinion review on #1236 review r3): first entry — crossed
     # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
     # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side
@@ -2407,7 +2419,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # cannot stamp commit time from inside a transaction, so no clock scheme
     # could express "committed after my snapshot" — three rounds of timestamp
     # fixes each left a window. Cap 1118 -> 1140, exact.
-    "backend/app/processing/ingest/tasks_vrt.py": 1140,
+    # feat(#1267): +10 — the dataset's last_refreshed_at is stamped at the
+    # generation's own completed_at instant, in the same transaction as the
+    # generation swap, so source_freshness (#1224) reads a live signal for a
+    # VRT instead of the creation-time floor forever. Most of the lines are
+    # the comment recording why it reuses generation.completed_at rather than
+    # a fresh now() call. Cap 1140 -> 1150, exact.
+    "backend/app/processing/ingest/tasks_vrt.py": 1150,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
     # reaper never touched the key the client's PUT URL can still recreate.

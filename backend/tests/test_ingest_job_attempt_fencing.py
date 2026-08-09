@@ -116,7 +116,9 @@ async def test_vrt_generation_heartbeat_fences_stale_recovery(test_db_session):
     await test_db_session.refresh(generation)
     await test_db_session.refresh(asset)
     assert generation.status == "failed"
-    assert asset.status == "failed"
+    # feat(#1267): restored to 'ready' — the dead attempt never touched the
+    # asset's published pointer, so it keeps serving what it served before.
+    assert asset.status == "ready"
     assert asset.current_generation_id is None
 
 

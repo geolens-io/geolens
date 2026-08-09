@@ -523,29 +523,88 @@ async def _reap_committed_staged_paths(
     )
 
 
+async def _reap_stale_generation_storage(
+    stale_generations: list[tuple[uuid.UUID, uuid.UUID]],
+) -> None:
+    """Best-effort delete of a dead regeneration attempt's immutable objects.
+
+    feat(#1267): ``regenerate_vrt`` writes its rebuilt VRT + quicklooks to an
+    immutable ``rasters/{vrt_dataset_id}/generations/{generation_id}/...`` key
+    (the full generation UUID, unset by attempt-fencing convention A3 —
+    mirroring ``attempt_scoped_staging_table``'s full-hex rule for staging
+    tables) BEFORE the phase-2 transaction that would otherwise clean them up
+    via ``_cleanup_orphaned_storage_keys``. A worker killed between that write
+    and the commit leaves the objects with no reference anywhere — this sweep
+    is the only remaining owner of the key, so it reaps them the same way.
+
+    A dead attempt may have written none, some, or all three objects before
+    the worker died; deleting a key that was never written is a documented
+    no-op on every StorageProvider.
+
+    ``current_tenant_var`` carries the right tenant because both callers of
+    ``sweep_stale_vrt_assets`` (the startup recovery pass and the periodic
+    sweep) run this inside ``tenant_job_context`` per tenant in multi-tenant
+    mode — the same context ``regenerate_vrt`` itself reads to resolve these
+    same keys. A missing tenant context in multi-tenant mode skips cleanup
+    rather than raising: the asset/generation reconciliation above already
+    landed regardless of whether this best-effort pass can find the bytes.
+    """
+    from app.core.tenancy import is_multi_tenant
+    from app.core.db.tenant_session import current_tenant_var
+    from app.platform.storage.titiler_url import resolve_storage_key
+
+    tenant_id = current_tenant_var.get()
+    if is_multi_tenant() and tenant_id is None:
+        return
+
+    keys = [
+        resolve_storage_key(
+            f"rasters/{vrt_dataset_id}/generations/{generation_id}/{suffix}",
+            tenant_id=tenant_id,
+        )
+        for generation_id, vrt_dataset_id in stale_generations
+        for suffix in ("source.vrt", "quicklook_256.png", "quicklook_512.png")
+    ]
+
+    # Function-local: mirrors the deferred processing-import convention
+    # already used for RasterAsset/VrtGeneration below (D-17,
+    # test_platform_processing_imports_stay_deferred) — the exact same helper
+    # regenerate_vrt itself uses to reap its own orphaned writes.
+    from app.processing.ingest.tasks_raster import _cleanup_orphaned_storage_keys
+
+    await _cleanup_orphaned_storage_keys(keys, job_id="vrt-stale-sweep")
+
+
 async def sweep_stale_vrt_assets(
     db: AsyncSession,
     stale_cutoff: datetime,
 ) -> tuple[int, int]:
-    """Reset RasterAsset rows stuck in status='regenerating' past ``stale_cutoff``.
+    """Reconcile RasterAsset rows stuck in status='regenerating' past ``stale_cutoff``.
 
-    GAP-002: a worker crash mid-regeneration leaves the VRT asset permanently
-    stuck in ``status='regenerating'``, causing all future link/regenerate
-    calls to 409. This helper mirrors the IngestJob stale-recovery pattern and
-    uses the same ``stale_cutoff = now - JOB_TIMEOUT_SECONDS`` threshold.
+    GAP-002 / feat(#1267): a worker crash mid-regeneration leaves the VRT
+    asset permanently stuck in ``status='regenerating'``, causing all future
+    link/regenerate calls to 409. This helper mirrors the IngestJob
+    stale-recovery pattern and uses the same
+    ``stale_cutoff = now - JOB_TIMEOUT_SECONDS`` threshold.
 
-    Staleness is measured via the associated ``VrtGeneration.started_at`` for
-    the asset's ``current_generation_id``, falling back to querying all
-    ``VrtGeneration`` rows whose ``started_at`` predates the cutoff and whose
-    ``status`` is still pending/running.
+    Staleness is measured via ``VrtGeneration.heartbeat_at`` (falling back to
+    ``started_at`` for a generation whose worker died before its first
+    renewal) — the same self-reported liveness signal ``maintain_vrt_
+    generation_heartbeat`` renews every 30s while the worker is alive, so a
+    live job's row never crosses the cutoff and this sweep never touches it.
 
-    Recovery status: ``'failed'`` — mirrors the explicit failure-handler path
-    in ``tasks_vrt.regenerate_vrt`` (which sets ``status='failed'`` on any
-    exception). The regeneration did not finish; an operator or retry call
-    can re-trigger it.
+    Recovery status: ``'ready'``, not ``'failed'``. ``regenerate_vrt`` only
+    overwrites the asset's published pointer (``asset_uri``, ``sha256``, ...)
+    in the SAME transaction that clears ``current_generation_id`` on success
+    — a dead attempt never reaches that transaction, so those fields still
+    describe the last-good VRT the asset was serving before this attempt
+    started. Restoring ``'ready'`` reflects that: the VRT keeps serving
+    exactly what it served before, and only the dead attempt's own
+    ``VrtGeneration`` row (marked ``'failed'`` below) records that it did not
+    finish. An operator or retry call can re-trigger regeneration.
 
-    Also marks orphaned ``VrtGeneration`` rows (status pending/running past
-    the cutoff) as ``'failed'`` so the generation table stays consistent.
+    Also reaps the dead attempt's own generation-scoped storage objects
+    (best-effort — see ``_reap_stale_generation_storage``).
 
     Args:
         db: The active async session (must NOT be committed before returning
@@ -583,6 +642,12 @@ async def sweep_stale_vrt_assets(
     # Fail generation leases atomically. The status + liveness predicates are
     # re-evaluated by PostgreSQL at UPDATE time, so a heartbeat racing the
     # sweep wins and the generation remains live.
+    #
+    # RETURNING carries vrt_dataset_id alongside id (feat(#1267)): the
+    # generation-scoped storage key each dead attempt wrote to is keyed on
+    # BOTH, and the asset UPDATE below cannot supply that pairing back — its
+    # own current_generation_id is nulled in the same statement, so RETURNING
+    # it would report the value AFTER the SET, not the attempt being reaped.
     stale_gen_result = await db.execute(
         update(VrtGeneration)
         .where(
@@ -598,12 +663,21 @@ async def sweep_stale_vrt_assets(
                 f"Stale: regeneration running for over {JOB_TIMEOUT_SECONDS // 60} minutes"
             ),
         )
-        .returning(VrtGeneration.id)
+        .returning(VrtGeneration.id, VrtGeneration.vrt_dataset_id)
     )
-    stale_generation_ids = list(stale_gen_result.scalars())
+    # Tuple-unpack the Row objects directly (matches the RETURNING pattern
+    # used for the retention purge above) rather than attribute access, so a
+    # lightweight test double can stand in with plain tuples.
+    stale_generations = [
+        (generation_id, vrt_dataset_id)
+        for generation_id, vrt_dataset_id in stale_gen_result.all()
+    ]
+    stale_generation_ids = [generation_id for generation_id, _ in stale_generations]
 
-    # Clear an asset only if it still points at the generation just failed.
-    # A newer regeneration has a different current_generation_id and is fenced.
+    # Restore the asset only if it still points at the generation just
+    # failed. A newer regeneration has a different current_generation_id and
+    # is fenced — same CAS discipline as the failure-handler path in
+    # tasks_vrt.regenerate_vrt.
     stale_asset_result = await db.execute(
         update(RasterAsset)
         .where(
@@ -611,16 +685,19 @@ async def sweep_stale_vrt_assets(
             RasterAsset.status == "regenerating",
             RasterAsset.current_generation_id.in_(stale_generation_ids),
         )
-        .values(status="failed", current_generation_id=None)
+        .values(status="ready", current_generation_id=None)
         .returning(RasterAsset.dataset_id)
     )
     stale_asset_ids = list(stale_asset_result.scalars())
     for dataset_id in stale_asset_ids:
         log.warning(
-            "Recovered stale regenerating VRT asset",
+            "Reconciled abandoned VRT regeneration, restored to ready",
             dataset_id=str(dataset_id),
             stale_cutoff=str(stale_cutoff),
         )
+
+    if stale_generations:
+        await _reap_stale_generation_storage(stale_generations)
 
     return len(stale_asset_ids), len(stale_generation_ids)
 

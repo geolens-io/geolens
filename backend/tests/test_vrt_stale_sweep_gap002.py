@@ -1,9 +1,13 @@
-"""GAP-002: VRT regenerating-status stale sweep.
+"""GAP-002 / feat(#1267): VRT regenerating-status stale sweep.
 
 Tests that RasterAsset rows stuck in status='regenerating' past the
-JOB_TIMEOUT_SECONDS threshold are recovered (reset to 'failed') by the
-shared sweep helper, called from BOTH recover_stale_jobs (startup) and
-fail_stale_jobs (periodic).
+JOB_TIMEOUT_SECONDS threshold are reconciled by the shared sweep helper,
+called from BOTH recover_stale_jobs (startup) and fail_stale_jobs (periodic).
+
+feat(#1267): reconciliation restores the asset to 'ready' (not 'failed') —
+the dead attempt never touched the published pointer (asset_uri, sha256,
+...), so the VRT is still serving exactly what it served before the attempt
+started. Only the attempt's own VrtGeneration row is marked 'failed'.
 
 RED → GREEN: fails pre-fix (no sweep exists), passes post-fix.
 """
@@ -43,10 +47,12 @@ def _make_vrt_generation(
     *,
     status: str = "running",
     started_at: datetime | None = None,
+    vrt_dataset_id: uuid.UUID | None = None,
 ) -> MagicMock:
     """Build a mock VrtGeneration-like object."""
     gen = MagicMock()
     gen.id = uuid4()
+    gen.vrt_dataset_id = vrt_dataset_id or uuid4()
     gen.status = status
     gen.started_at = started_at
     gen.completed_at = None
@@ -68,7 +74,7 @@ def _make_mock_session_for_recover(
       1. advisory lock query → scalar() returns lock_acquired
       2. stale running IngestJobs → scalars() returns list
       3. orphaned pending IngestJobs → scalars() returns list
-      4. stale VrtGeneration UPDATE → scalars() returns generation ids
+      4. stale VrtGeneration UPDATE → all() returns (id, vrt_dataset_id) pairs
       5. stale regenerating RasterAsset UPDATE → scalars() returns dataset ids
     """
     lock_result = MagicMock()
@@ -84,13 +90,18 @@ def _make_mock_session_for_recover(
         mock_result.scalars.return_value = job_list
         results.append(mock_result)
 
-    for returned_ids in [
-        [generation.id for generation in (stale_vrt_generations or [])],
-        [asset.dataset_id for asset in (stale_vrt_assets or [])],
-    ]:
-        mock_result = MagicMock()
-        mock_result.scalars.return_value = returned_ids
-        results.append(mock_result)
+    gen_result = MagicMock()
+    gen_result.all.return_value = [
+        (generation.id, generation.vrt_dataset_id)
+        for generation in (stale_vrt_generations or [])
+    ]
+    results.append(gen_result)
+
+    asset_result = MagicMock()
+    asset_result.scalars.return_value = [
+        asset.dataset_id for asset in (stale_vrt_assets or [])
+    ]
+    results.append(asset_result)
 
     mock_session = AsyncMock()
     mock_session.__aenter__ = AsyncMock(return_value=mock_session)
@@ -115,7 +126,7 @@ def _make_mock_db_for_fail_stale(
       1. stale UNBOUND pending IngestJobs (1h) → scalars() returns list
       2. stale BOUND pending IngestJobs (24h, fix(#1234)) → empty here
       3. stale running IngestJobs → scalars() returns list
-      3. stale VrtGeneration UPDATE → scalars() returns generation ids
+      3. stale VrtGeneration UPDATE → all() returns (id, vrt_dataset_id) pairs
       4. stale regenerating RasterAsset UPDATE → scalars() returns dataset ids
       4b. abandoned dataset_refresh_runs UPDATE (feat(#1219)) → scalars()
          returns cancelled run ids. Empty in these fixtures; the sweep has
@@ -136,7 +147,21 @@ def _make_mock_db_for_fail_stale(
         # fixtures exercise the first, so the second returns nothing.
         [],
         stale_jobs_running or [],
-        [generation.id for generation in (stale_vrt_generations or [])],
+    ]:
+        mock_result = MagicMock()
+        mock_result.scalars.return_value = returned_ids
+        results.append(mock_result)
+
+    # feat(#1267): RETURNING widened to (id, vrt_dataset_id) — the storage
+    # cleanup helper needs the pairing, so .all() replaces .scalars() here.
+    gen_result = MagicMock()
+    gen_result.all.return_value = [
+        (generation.id, generation.vrt_dataset_id)
+        for generation in (stale_vrt_generations or [])
+    ]
+    results.append(gen_result)
+
+    for returned_ids in [
         [asset.dataset_id for asset in (stale_vrt_assets or [])],
         # feat(#1219): the refresh-run sweep, between the VRT sweep and the
         # retention purge — TWO statements since fix(#1274 review): the
@@ -183,11 +208,11 @@ def _make_mock_db_for_fail_stale(
 
 @pytest.mark.asyncio
 async def test_recover_stale_jobs_resets_stale_regenerating_vrt_asset():
-    """GAP-002 RED→GREEN: a stale regenerating VRT asset is reset to 'failed' at startup.
+    """GAP-002 RED→GREEN: a stale regenerating VRT asset is reconciled at startup.
 
     Pre-fix: recover_stale_jobs only sweeps IngestJob — the stale RasterAsset
     stays in status='regenerating' forever. Post-fix: the shared helper also
-    sweeps RasterAssets.
+    sweeps RasterAssets, restoring 'ready' (feat(#1267)).
     """
     from app.platform.jobs.worker import recover_stale_jobs
 
@@ -294,7 +319,9 @@ async def test_fail_stale_jobs_detailed_outcome_counts_every_cleanup_surface(
     from app.platform.jobs.router import StaleCleanupOutcome, fail_stale_jobs
 
     stale_asset = _make_raster_asset(status="regenerating")
-    stale_gen = _make_vrt_generation(status="running")
+    stale_gen = _make_vrt_generation(
+        status="running", vrt_dataset_id=stale_asset.dataset_id
+    )
     local_file = tmp_path / "retained-upload.geojson"
     local_file.write_text("{}")
     storage_key = "staging/job-id/retained-upload.geojson"
@@ -328,7 +355,20 @@ async def test_fail_stale_jobs_detailed_outcome_counts_every_cleanup_surface(
     assert result.total_cleaned == 2
     assert result.total_affected == 8
     assert not local_file.exists()
-    storage.delete.assert_awaited_once_with(storage_key)
+
+    # feat(#1267): the reconciled generation's own storage objects are
+    # reaped best-effort alongside the retention-purge key — 3 more calls,
+    # one per object regenerate_vrt could have written before the worker
+    # died (source.vrt + 2 quicklooks), deleted even though none exist here.
+    generation_base = f"rasters/{stale_gen.vrt_dataset_id}/generations/{stale_gen.id}"
+    expected_keys = {
+        storage_key,
+        f"{generation_base}/source.vrt",
+        f"{generation_base}/quicklook_256.png",
+        f"{generation_base}/quicklook_512.png",
+    }
+    called_keys = {call.args[0] for call in storage.delete.await_args_list}
+    assert called_keys == expected_keys
 
 
 @pytest.mark.asyncio
@@ -601,7 +641,7 @@ async def test_sweep_stale_vrt_assets_returns_count():
 
     # Two atomic UPDATEs: generation first, then the asset still pointing to it.
     gen_result = MagicMock()
-    gen_result.scalars.return_value = [stale_gen.id]
+    gen_result.all.return_value = [(stale_gen.id, stale_gen.vrt_dataset_id)]
     asset_result = MagicMock()
     asset_result.scalars.return_value = [stale_asset.dataset_id]
 
@@ -611,6 +651,10 @@ async def test_sweep_stale_vrt_assets_returns_count():
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(hours=1)
 
+    # No tenant context is bound in this unit test, so the multi-tenant
+    # storage-cleanup pass (current_tenant_var.get() is None) is a documented
+    # skip — it never issues a 3rd db.execute() call, keeping this test's
+    # 2-call contract intact.
     with patch("app.core.tenancy.is_multi_tenant", return_value=True):
         result = await sweep_stale_vrt_assets(mock_session, cutoff)
 
@@ -635,7 +679,7 @@ async def test_sweep_stale_vrt_assets_preserves_single_tenant_sql_shape():
     from app.platform.jobs.router import sweep_stale_vrt_assets
 
     gen_result = MagicMock()
-    gen_result.scalars.return_value = []
+    gen_result.all.return_value = []
     asset_result = MagicMock()
     asset_result.scalars.return_value = []
     session = AsyncMock()
@@ -649,6 +693,95 @@ async def test_sweep_stale_vrt_assets_preserves_single_tenant_sql_shape():
     statements = [str(call.args[0]) for call in session.execute.await_args_list]
     assert "SELECT catalog.datasets.id" not in statements[0]
     assert "SELECT catalog.datasets.id" not in statements[1]
+
+
+# ---------------------------------------------------------------------------
+# feat(#1267): reconciliation restores 'ready', not 'failed', and reaps the
+# dead attempt's own generation-scoped storage objects.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sweep_stale_vrt_assets_restores_ready_not_failed():
+    """feat(#1267): the compiled UPDATE sets status='ready', mirroring the
+    values a live worker never got to write — the dead attempt's own
+    VrtGeneration row is what records the failure, not the asset."""
+    from app.platform.jobs.router import sweep_stale_vrt_assets
+
+    gen_result = MagicMock()
+    gen_result.all.return_value = []
+    asset_result = MagicMock()
+    asset_result.scalars.return_value = []
+    session = AsyncMock()
+    session.execute = AsyncMock(side_effect=[gen_result, asset_result])
+
+    await sweep_stale_vrt_assets(
+        session, datetime.now(timezone.utc) - timedelta(hours=1)
+    )
+
+    asset_update_stmt = session.execute.await_args_list[1].args[0]
+    compiled = asset_update_stmt.compile(compile_kwargs={"literal_binds": True})
+    where_sql = str(compiled)
+    assert "status='ready'" in where_sql or "status = 'ready'" in where_sql
+    assert "'failed'" not in where_sql
+
+
+@pytest.mark.asyncio
+async def test_sweep_stale_vrt_assets_reaps_dead_attempt_storage():
+    """feat(#1267): a swept generation's immutable objects are best-effort
+    deleted — the dead attempt is the only thing that could have written
+    them, and nothing else will ever reference that generation-scoped key."""
+    from app.platform.jobs.router import sweep_stale_vrt_assets
+
+    stale_gen_id = uuid4()
+    stale_dataset_id = uuid4()
+
+    gen_result = MagicMock()
+    gen_result.all.return_value = [(stale_gen_id, stale_dataset_id)]
+    asset_result = MagicMock()
+    asset_result.scalars.return_value = [stale_dataset_id]
+    session = AsyncMock()
+    session.execute = AsyncMock(side_effect=[gen_result, asset_result])
+
+    storage = MagicMock()
+    storage.delete = AsyncMock()
+
+    with patch("app.platform.storage.get_storage", return_value=storage):
+        result = await sweep_stale_vrt_assets(
+            session, datetime.now(timezone.utc) - timedelta(hours=1)
+        )
+
+    assert result == (1, 1)
+    base = f"rasters/{stale_dataset_id}/generations/{stale_gen_id}"
+    called_keys = {call.args[0] for call in storage.delete.await_args_list}
+    assert called_keys == {
+        f"{base}/source.vrt",
+        f"{base}/quicklook_256.png",
+        f"{base}/quicklook_512.png",
+    }
+
+
+@pytest.mark.asyncio
+async def test_sweep_stale_vrt_assets_storage_failure_never_masks_reconciliation():
+    """A storage backend that is unreachable must not stop the sweep from
+    restoring the asset and failing the generation — cleanup is best-effort,
+    reconciliation is not."""
+    from app.platform.jobs.router import sweep_stale_vrt_assets
+
+    gen_result = MagicMock()
+    gen_result.all.return_value = [(uuid4(), uuid4())]
+    asset_result = MagicMock()
+    asset_result.scalars.return_value = [uuid4()]
+    session = AsyncMock()
+    session.execute = AsyncMock(side_effect=[gen_result, asset_result])
+
+    # No storage patch — get_storage() raises RuntimeError (uninitialized),
+    # which _cleanup_orphaned_storage_keys swallows.
+    result = await sweep_stale_vrt_assets(
+        session, datetime.now(timezone.utc) - timedelta(hours=1)
+    )
+
+    assert result == (1, 1)
 
 
 @pytest.mark.rls
@@ -771,7 +904,10 @@ async def test_sweep_stale_vrt_assets_cannot_mutate_another_tenant(
                 ).all()
             )
         assert generations == {generation_a: "failed", generation_b: "running"}
-        assert assets == {asset_a: "failed", asset_b: "regenerating"}
+        # feat(#1267): restored to 'ready', not 'failed' — tenant a's asset
+        # never had its published pointer touched by the dead attempt, so it
+        # keeps serving what it served before regeneration started.
+        assert assets == {asset_a: "ready", asset_b: "regenerating"}
     finally:
         async with engine.begin() as conn:
             await conn.execute(
