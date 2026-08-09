@@ -43,7 +43,7 @@ export function extractStyleHints(
   // before its last edit).
   styleConfig?: {
     render_mode?: string;
-    builder?: { fillColorSaved?: string; outlineColor?: string; strokeDisabled?: boolean };
+    builder?: { fillColorSaved?: string; outlineColor?: string; strokeDisabled?: boolean; outlineWidth?: number };
   } | null,
 ): StyleHints {
   const gt = (geometryType ?? '').toUpperCase();
@@ -75,7 +75,16 @@ export function extractStyleHints(
     const lo = paint['line-opacity'];
     if (typeof lo === 'number' && lo < 1) hints.fillOpacity = lo;
   } else if (gt.includes('POLYGON')) {
-    if (!strokeDisabled) {
+    // fix(#1288 codex): an explicit zero-width outline draws nothing on the
+    // map — builder.outlineWidth wins over the paint mirror, same precedence
+    // as outlineColor/strokeDisabled — so treat it as a disabled stroke
+    // instead of drawing ShapeIcon's fixed-width outline for a layer that
+    // renders none.
+    const ow = styleConfig?.builder?.outlineWidth ?? paint['_outline-width'];
+    const outlineDisabled = strokeDisabled || (typeof ow === 'number' && ow === 0);
+    if (outlineDisabled) {
+      hints.strokeDisabled = true;
+    } else {
       // fix(#1288): builder.outlineColor wins over the flat paint mirror.
       const oc = styleConfig?.builder?.outlineColor ?? paint['_outline-color'];
       if (typeof oc === 'string') hints.strokeColor = oc;

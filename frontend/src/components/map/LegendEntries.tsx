@@ -102,7 +102,10 @@ export function GeometrySwatch({ geometryType, color, style: s }: GeometrySwatch
       className={cn('relative w-3.5 h-3.5 rounded-sm shrink-0 overflow-hidden', !s?.strokeDisabled && 'border')}
       style={{
         ...(borderColor ? { borderColor } : {}),
-        ...(s?.strokeWidth ? { borderWidth: s.strokeWidth } : {}),
+        // fix(#1288 codex): a truthy check drops an EXPLICIT strokeWidth of 0,
+        // falling back to the default 1px border — the map draws no outline at
+        // width 0, so the swatch must not either.
+        ...(s?.strokeWidth !== undefined ? { borderWidth: s.strokeWidth } : {}),
         ...opacityStyle,
       }}
       aria-hidden="true"

@@ -355,4 +355,29 @@ describe('stroke-only polygon swatch (fix #1288)', () => {
     expect(hints.strokeDisabled).toBe(true);
     expect(hints.strokeColor).toBeUndefined();
   });
+
+  // fix(#1288 codex): an explicit outline width of 0 draws nothing on the map
+  // (distinct from strokeDisabled, which is a separate private flag) — the
+  // swatch must not draw ShapeIcon's fixed-width outline for it regardless.
+  it('extractStyleHints treats an explicit zero outline width as a disabled stroke', () => {
+    const hints = extractStyleHints(
+      { 'fill-opacity': 0, '_outline-color': '#ec4b7f', '_outline-width': 0 },
+      {},
+      'POLYGON',
+    );
+    expect(hints.strokeDisabled).toBe(true);
+    expect(hints.strokeColor).toBeUndefined();
+  });
+
+  it('extractStyleHints prefers builder.outlineWidth over a stale paint mirror', () => {
+    const hints = extractStyleHints(
+      { 'fill-opacity': 0, '_outline-color': '#ec4b7f', '_outline-width': 2 },
+      {},
+      'POLYGON',
+      1,
+      { builder: { outlineWidth: 0, outlineColor: '#ec4b7f' } },
+    );
+    expect(hints.strokeDisabled).toBe(true);
+    expect(hints.strokeColor).toBeUndefined();
+  });
 });

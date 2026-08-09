@@ -150,4 +150,19 @@ describe('GeometrySwatch — stroke-only polygons (fix #1288)', () => {
     const swatch = container.querySelector('[aria-hidden="true"]') as HTMLElement;
     expect(swatch.style.opacity).toBe('0.5');
   });
+
+  // fix(#1288 codex): a truthy check on strokeWidth dropped an EXPLICIT 0,
+  // falling back to the default 1px border even though the map draws no
+  // outline at width 0.
+  it('honors an explicit zero-width outline as no border', () => {
+    const { container } = render(
+      <CategoricalLegend
+        geometryType="Polygon"
+        categories={[{ value: 'a', label: 'A', color: '#3b82f6' }]}
+        style={{ strokeWidth: 0, outlineColor: '#ec4b7f' }}
+      />,
+    );
+    const swatch = container.querySelector('[aria-hidden="true"]') as HTMLElement;
+    expect(swatch.style.borderWidth).toBe('0px');
+  });
 });
