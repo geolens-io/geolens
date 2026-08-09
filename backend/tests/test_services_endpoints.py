@@ -835,9 +835,21 @@ _ARCGIS_LAYER_1_URL = f"{_ARCGIS_BASE}/1"
 
 
 async def _create_arcgis_dataset(
-    session, *, created_by, source_url, name="Test ArcGIS Dataset"
+    session,
+    *,
+    created_by,
+    source_url,
+    name="Test ArcGIS Dataset",
+    origin_uri=None,
+    origin_ref=None,
 ):
-    """Insert a Dataset simulating a previously registered ArcGIS FeatureServer layer."""
+    """Insert a Dataset simulating a previously registered ArcGIS FeatureServer layer.
+
+    ``origin_uri``/``origin_ref`` default to unset, which is the shape of a
+    row migration 0036 could not backfill (the un-backfilled fallback case);
+    callers that want to simulate a fully-bound (post-#1218) dataset pass
+    both explicitly.
+    """
     import uuid as _uuid
     from app.modules.catalog.datasets.domain.models import Dataset, Record
 
@@ -861,6 +873,8 @@ async def _create_arcgis_dataset(
         source_format="arcgis_featureserver",
         source_filename="TestService",
         source_url=source_url,
+        origin_uri=origin_uri,
+        origin_ref=origin_ref,
     )
     session.add(dataset)
     await session.commit()
@@ -881,7 +895,13 @@ class TestDuplicateSourceDetection:
         mock_build_gdal_source,
         mock_run_preview,
     ):
-        """POST /services/preview/ with same source_url+format+user returns 409."""
+        """POST /services/preview/ with same source_url+format+user returns 409.
+
+        fix(#1286): also the un-backfilled-row regression test for the
+        origin_ref re-key — the dataset below carries neither ``origin_uri``
+        nor ``origin_ref`` (a row migration 0036 could not backfill), so the
+        guard can only catch it through the ``source_url`` fallback branch.
+        """
         from tests.factories import get_user_id
 
         admin_id = await get_user_id(test_db_session, "admin")
@@ -997,13 +1017,13 @@ class TestDuplicateSourceDetection:
         mock_run_preview,
         mock_fetch_arcgis_preview,
     ):
-        """feat(#1220) / ADR-002 Decision 6: the guard keys on ``origin_uri``.
+        """fix(#1286): the guard keys on ``origin_ref``, not ``origin_uri``.
 
         ``source_url`` is reachable through the metadata PATCH, so keying the
         guard on it alone let an owner edit their way past it and register the
-        same layer a second time. ``origin_uri`` appears in no field map and
-        only ingest writes it, which is what makes it the honest key. The
-        preceding tests keep the ``source_url`` fallback honest for rows
+        same layer a second time. ``origin_ref`` appears in no field map and
+        only ingest/refresh write it, which is what makes it the honest key.
+        The preceding tests keep the ``source_url`` fallback honest for rows
         migration 0036 could not backfill.
         """
         from tests.factories import get_user_id
@@ -1019,8 +1039,14 @@ class TestDuplicateSourceDetection:
             created_by=admin_id,
             source_url=f"{base}/0",
             name="Bulletin Table",
+            origin_uri=f"{base}/0",
+            origin_ref={
+                "kind": "service",
+                "service_type": "arcgis_featureserver",
+                "url": base,
+                "layer_id": "0",
+            },
         )
-        existing.origin_uri = f"{base}/0"
         existing.source_url = "https://example.invalid/edited-by-the-owner"
         await test_db_session.commit()
 
@@ -1081,3 +1107,104 @@ class TestDuplicateSourceDetection:
         message = resp.json()["detail"]["message"]
         assert "refresh that dataset" in message
         assert "delete the existing dataset" not in message
+
+    async def test_preview_catches_a_never_refreshed_dataset_bound_via_origin_ref(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        mock_validate_ssrf,
+        mock_build_gdal_source,
+        mock_run_preview,
+        mock_fetch_arcgis_preview,
+    ):
+        """fix(#1286): a fully-bound, never-refreshed dataset is still caught.
+
+        ``origin_uri`` and ``origin_ref`` agree (the ordinary post-#1218
+        shape — no writer has touched the binding since import), so the
+        primary origin_ref-keyed branch must match on its own, with no help
+        from the source_url fallback.
+        """
+        from tests.factories import get_user_id
+
+        base = f"{_ARCGIS_BASE.replace('TestService', 'NeverRefreshedService')}"
+        admin_id = await get_user_id(test_db_session, "admin")
+        await _create_arcgis_dataset(
+            test_db_session,
+            created_by=admin_id,
+            source_url=f"{base}/0",
+            name="Never Refreshed",
+            origin_uri=f"{base}/0",
+            origin_ref={
+                "kind": "service",
+                "service_type": "arcgis_featureserver",
+                "url": base,
+                "layer_id": "0",
+            },
+        )
+
+        resp = await client.post(
+            "/services/preview/",
+            json={
+                "url": base,
+                "service_type": "ArcGIS:FeatureServer",
+                "layer_name": "0",
+                "layer_id": 0,
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 409
+        assert resp.json()["detail"]["code"] == "duplicate_source"
+
+    async def test_preview_catches_a_respelled_origin_uri(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        mock_validate_ssrf,
+        mock_build_gdal_source,
+        mock_run_preview,
+        mock_fetch_arcgis_preview,
+    ):
+        """fix(#1286): a respelled origin_uri can no longer open the hole.
+
+        Reproduces the PR #1277 round-11 class of bug: a writer (e.g. a
+        refresh) rewrites ``origin_uri`` to a different spelling of the same
+        origin — here a bare base URL instead of ``base_url/layer_id`` —
+        while ``origin_ref`` still names the identical (service_type, url,
+        layer_id) triple. An ``origin_uri``-keyed guard stops matching this
+        row; the origin_ref-keyed guard must not, because the canonical
+        identity never changed.
+        """
+        from tests.factories import get_user_id
+
+        base = f"{_ARCGIS_BASE.replace('TestService', 'RespelledUriService')}"
+        admin_id = await get_user_id(test_db_session, "admin")
+        await _create_arcgis_dataset(
+            test_db_session,
+            created_by=admin_id,
+            source_url=f"{base}/0",
+            name="Respelled Pointer",
+            # The respelling: origin_uri drifted to the bare base URL, with
+            # no /0 layer suffix, even though this row is still layer 0.
+            origin_uri=base,
+            origin_ref={
+                "kind": "service",
+                "service_type": "arcgis_featureserver",
+                "url": base,
+                "layer_id": "0",
+            },
+        )
+
+        resp = await client.post(
+            "/services/preview/",
+            json={
+                "url": base,
+                "service_type": "ArcGIS:FeatureServer",
+                "layer_name": "0",
+                "layer_id": 0,
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 409
+        assert resp.json()["detail"]["code"] == "duplicate_source"

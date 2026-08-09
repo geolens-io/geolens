@@ -512,20 +512,25 @@ async def stac_import(
 
     # Batch duplicate check — single query instead of N individual SELECTs.
     #
-    # feat(#1220) / ADR-002 Decision 6: keyed on `origin_uri`, which the STAC
-    # import sets to the asset href, with `source_url` kept as the fallback
-    # for rows migration 0036 could not backfill — the re-key #1218's comment
-    # at the `set_dataset_origin` call below anticipated. `source_url` is
-    # PATCHable, so an owner who edited it could re-import the same asset as a
-    # second dataset; `origin_uri` is system-managed and reaches no field map.
+    # fix(#1286): keyed on `origin_ref`'s `asset_href`, the structured
+    # pointer, rather than on `origin_uri`'s string spelling — the same
+    # re-key applied to the service-preview guard in
+    # `catalog/sources/router.py`, so any future writer that produces a
+    # different spelling of the same asset can no longer degrade this guard
+    # without failing a test. `source_url` is kept as the fallback for rows
+    # migration 0036 could not backfill; it is PATCHable, so an owner who
+    # edited it could otherwise re-import the same asset as a second dataset.
     hrefs = [i.data_asset_href for i in request.items]
     existing_hrefs: set[str] = {
-        row.origin_uri or row.source_url
+        row.asset_href or row.source_url
         for row in (
             await db.execute(
-                select(Dataset.origin_uri, Dataset.source_url).where(
+                select(
+                    Dataset.origin_ref["asset_href"].astext.label("asset_href"),
+                    Dataset.source_url,
+                ).where(
                     or_(
-                        Dataset.origin_uri.in_(hrefs),
+                        Dataset.origin_ref["asset_href"].astext.in_(hrefs),
                         and_(
                             Dataset.origin_uri.is_(None),
                             Dataset.source_url.in_(hrefs),
@@ -535,7 +540,7 @@ async def stac_import(
                 )
             )
         ).all()
-        if (row.origin_uri or row.source_url) is not None
+        if (row.asset_href or row.source_url) is not None
     }
 
     # Pre-filter importable items and SSRF-validate, then fetch COG info
@@ -638,9 +643,9 @@ async def stac_import(
                     last_refreshed_at=datetime.now(timezone.utc),
                 )
                 # feat(#1218): system-managed origin pointer. The asset href is
-                # also what the duplicate-source guard keys on, so pointing
-                # origin_uri at it keeps that guard identical when ADR-002
-                # Decision 6 re-keys it off the PATCHable source_url.
+                # also what the duplicate-source guard keys on (fix #1286: via
+                # origin_ref.asset_href, not the origin_uri string), so
+                # writing it here keeps both in agreement by construction.
                 # feat(#1222): item_href joins the payload now that search
                 # surfaces it. It is the only stored value that can answer
                 # "was this item withdrawn from the catalog?" — the asset href
