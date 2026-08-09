@@ -151,6 +151,11 @@ class StacResolution:
         return self.asset_href is not None
 
 
+# "The search endpoint answered, and not about what was asked." A page that
+# ignores the filters — or a body that is not a feature list — proves nothing
+# about this item, and specifically not its absence.
+_SEARCH_UNUSABLE = StacResolution(INACCESSIBLE, UNEXPECTED_STATUS)
+
 # "GeoLens cannot tell this item from another one the same URL might serve."
 # Nothing is fetched and nothing is written — see `states_verifiable_identity`
 # for why this refusal exists and why it is not a health verdict.
@@ -591,15 +596,30 @@ async def _storable_item_pointer(self_href: str | None, fallback: str) -> str:
     successful refresh and then permanently locked-out ones, with the usable
     pointer already overwritten.
 
-    Validated with the door's own function so the two cannot disagree. This
-    resolves DNS and issues no request; the fallback needs no check, because
-    it is the value that got this refresh admitted in the first place.
+    fix(#1266 review round 15): proven through the SAFE CLIENT rather than
+    the submission-time validator. `validate_url_for_ssrf` checks the
+    hostname it is handed and nothing further, so a public URL whose first
+    hop redirects into a blocked target passes it — and Rule 2 exists because
+    that is the interesting case. Storing such a pointer would overwrite a
+    working one and then abort every later fetch at the redirect, which is
+    the unrecoverable shape: the door refuses the dataset from then on.
+    Probing exercises the per-hop revalidation and IP pinning for real, and
+    is strictly stronger than the door's check, so a link that clears it
+    clears the door too.
+
+    ONLY a policy refusal is disqualifying. A self link that merely 404s
+    right now is still the publisher's own word on where the item lives, and
+    adopting it costs at most one wasted fetch next time before the search
+    fallback recovers — where a policy-blocked pointer cannot be recovered
+    from at all without a re-import.
+
+    The fallback needs no check: it is the value that got this refresh
+    admitted in the first place.
     """
     if self_href is None or self_href == fallback:
         return fallback
-    try:
-        await validate_url_for_ssrf(self_href)
-    except SSRFError:
+    probed = await probe_remote_uri(self_href)
+    if probed.detail == BLOCKED_BY_POLICY:
         logger.info("stac_self_link_blocked_by_policy")
         return fallback
     return self_href
@@ -693,9 +713,19 @@ async def _resolve_by_search(
         document, item_id=wanted_id, collection_id=collection_id or ""
     )
     if feature is None:
-        # The catalog answered, and does not have this item in this
-        # collection. Authoritative, and the one case that earns `missing`.
-        return _WITHDRAWN
+        # fix(#1266 review round 15): an EMPTY result is the catalog saying
+        # it has no such item, which is authoritative and the one case that
+        # earns `missing`. A NON-empty result that does not match is the
+        # opposite: the request asked for one id in one collection and got
+        # something else back, so the endpoint is not honouring the filters
+        # and its answer establishes nothing about this item — least of all
+        # its absence, since `limit: 1` means an unrelated first row is all
+        # it ever had room to return. A body that is not a feature list says
+        # as little.
+        features = document.get("features") if isinstance(document, dict) else None
+        if isinstance(features, list) and not features:
+            return _WITHDRAWN
+        return _SEARCH_UNUSABLE
     return await _resolve_from_item(
         feature,
         # No item base: the search endpoint is not the item's address. Only

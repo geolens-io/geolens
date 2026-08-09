@@ -622,7 +622,9 @@ class TestResolution:
             item_href=_ITEM, collection_id="scenes", asset_href=_ASSET, asset_key=None
         )
         assert not result.resolved
-        assert (result.health, result.detail) == ("missing", "item_withdrawn")
+        # Non-empty and non-matching: the endpoint answered a different
+        # question, so it establishes nothing — including absence.
+        assert result.health == "inaccessible"
 
     async def test_a_search_that_ignores_the_collection_filter_binds_nothing(
         self, stac_transport
@@ -644,7 +646,9 @@ class TestResolution:
             install({_ITEM: (404, None), _SEARCH: (200, {"features": [feature]})})
             result = await _resolve(item_href=_ITEM)
             assert not result.resolved
-            assert (result.health, result.detail) == ("missing", "item_withdrawn")
+            # Bound to nothing, and inconclusive rather than withdrawn: a page
+            # that does not honour the filters has not reported an absence.
+            assert result.health == "inaccessible"
 
     @pytest.mark.parametrize("code", [500, 503, 403])
     async def test_a_search_that_could_not_be_carried_out_is_not_a_withdrawal(
@@ -706,6 +710,64 @@ class TestResolution:
         assert not result.resolved
         assert result.health == "inaccessible"
         assert result.contacted is True
+
+    async def test_a_search_page_that_ignores_the_filters_proves_nothing(
+        self, stac_transport
+    ) -> None:
+        """fix(#1266 review round 15): non-empty and non-matching is not
+        absence.
+
+        The request asks for one id in one collection with `limit: 1`, so an
+        endpoint that ignores the filters has only ever had room to return an
+        unrelated first row — which says nothing about whether this item
+        still exists somewhere in the catalog, least of all that it does not.
+        An EMPTY page is the catalog answering the question; a mismatched one
+        is it answering a different question.
+        """
+        install, _ = stac_transport
+        stranger = _item_doc(item_id="some-other-scene", asset_href=_MOVED_ASSET)
+        install({_ITEM: (404, None), _SEARCH: (200, {"features": [stranger]})})
+        result = await _resolve(item_href=_ITEM)
+        assert not result.resolved
+        assert result.health == "inaccessible"
+
+        # ...while an empty page still earns the withdrawal verdict.
+        install({_ITEM: (404, None), _SEARCH: (200, {"features": []})})
+        empty = await _resolve(item_href=_ITEM)
+        assert (empty.health, empty.detail) == ("missing", "item_withdrawn")
+
+    async def test_a_self_link_that_redirects_into_a_blocked_target_is_refused(
+        self, stac_transport
+    ) -> None:
+        """fix(#1266 review round 15): the submission-time validator checks
+        the hostname it is handed and nothing further.
+
+        A public self link whose first hop redirects into a blocked target
+        clears it, gets stored over a working pointer, and then aborts every
+        later fetch at the redirect — the unrecoverable shape, because the
+        door refuses the dataset from then on. The replacement is proven
+        through the safe client, which does the per-hop revalidation.
+        """
+        install, _ = stac_transport
+        moved_self = f"{_ROOT}/v2/collections/scenes/items/scene-1"
+
+        def _handler(request: httpx.Request) -> httpx.Response:
+            url = str(request.url)
+            if url == moved_self:
+                # Public first hop, blocked target — what the per-hop hook
+                # raises on and the submission-time check cannot see.
+                raise SSRFError("redirect target is private")
+            if url == _ITEM:
+                return httpx.Response(
+                    200, json=_item_doc(asset_href=_ASSET, self_href=moved_self)
+                )
+            return httpx.Response(206)
+
+        install(_handler)
+        result = await _resolve(item_href=_ITEM)
+        assert result.resolved
+        # The asset still resolves; the pointer stays the one that works.
+        assert result.item_href == _ITEM
 
     async def test_a_deleted_item_the_search_cannot_find_is_missing(
         self, stac_transport
@@ -1200,23 +1262,24 @@ class TestResolution:
         """
         install, _ = stac_transport
         blocked_item = f"{_ROOT}/v2/collections/scenes/items/scene-1"
-        install(
-            {
-                _ITEM: (
-                    200,
-                    _item_doc(asset_href=_MOVED_ASSET, self_href=blocked_item),
-                ),
-                _MOVED_ASSET: (206, None),
-            }
-        )
 
-        async def _validate(url: str) -> None:
+        # fix(#1266 review round 15): refused through the SAFE CLIENT now, so
+        # the block is driven from the transport rather than by stubbing the
+        # submission-time validator. This is the first-hop shape; the
+        # redirect shape, which only the per-hop hook can catch, has its own
+        # test above.
+        def _handler(request: httpx.Request) -> httpx.Response:
+            url = str(request.url)
             if url == blocked_item:
                 raise SSRFError("private address")
+            if url == _ITEM:
+                return httpx.Response(
+                    200,
+                    json=_item_doc(asset_href=_MOVED_ASSET, self_href=blocked_item),
+                )
+            return httpx.Response(206)
 
-        monkeypatch.setattr(
-            "app.modules.catalog.sources.stac_resolve.validate_url_for_ssrf", _validate
-        )
+        install(_handler)
         result = await _resolve(
             item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
         )
