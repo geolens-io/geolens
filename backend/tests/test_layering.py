@@ -2390,7 +2390,24 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Phase-1 claim before anything can fail) and from a claim-starved
     # 'pending' row swept as its own dead attempt (same "never ran" fact,
     # consistently excluded either way). Cap 1942 -> 1971, exact.
-    "backend/app/platform/jobs/router.py": 1971,
+    # fix(#1322 review round 6): +45 — the timeout predicate for a 'pending'
+    # VrtGeneration lacked the same live-Procrastinate-job exclusion
+    # stale_pending_clauses already applies to IngestJob's pending sweep, for
+    # the identical reason: queue waits are unbounded, so started_at age
+    # alone cannot tell a genuine orphan from a regeneration still sitting
+    # in a sustained worker backlog. Split the staleness check by status —
+    # 'running' keeps the heartbeat-only proof (sufficient on its own, and
+    # required: a crashed worker can leave its procrastinate_jobs row
+    # reading 'doing' until the separate stalled-queue sweep prunes it, so a
+    # live-job requirement there would make a genuinely-dead running
+    # generation unsweepable until that other sweep runs); 'pending' now
+    # additionally requires _NO_LIVE_GENERATION_JOB_SQL, correlated via the
+    # `generation_id` kwarg every dispatch site passes (mirrors
+    # _ABANDONED_RUN_SQL's `args->>'job_id'` correlation in
+    # platform/refresh/service.py). Most of the lines are the docstring
+    # distinguishing the two branches' proof requirements. Cap 1971 -> 2016,
+    # exact.
+    "backend/app/platform/jobs/router.py": 2016,
     # fix(second-opinion review on #1236 review r3): first entry — crossed
     # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
     # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side

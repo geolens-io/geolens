@@ -745,6 +745,22 @@ _READY_WORTHY_SQL = (
     f"({_COMPOSITION_PRESERVED_SQL}) AND ({_PRIOR_ATTEMPT_WAS_READY_SQL})"
 )
 
+# fix(#1322 review round 6): the proven-dead proof for a 'pending'
+# VrtGeneration — mirrors _ABANDONED_RUN_SQL's `catalog.procrastinate_jobs`
+# correlation in platform/refresh/service.py, keyed on `generation_id`
+# instead of `ingest_job_id` because that is the kwarg every regenerate_vrt
+# dispatch site (regenerate_vrt_endpoint, add_vrt_source, remove_vrt_source)
+# actually passes — there is no ingest_job_id column on VrtGeneration to
+# correlate through. `'todo'`/`'doing'` is Procrastinate's own live-job
+# vocabulary, same two statuses stale_pending_clauses excludes for IngestJob.
+_NO_LIVE_GENERATION_JOB_SQL = """
+    NOT EXISTS (
+        SELECT 1 FROM catalog.procrastinate_jobs pj
+        WHERE pj.args->>'generation_id' = vrt_generations.id::text
+          AND pj.status IN ('todo', 'doing')
+    )
+"""
+
 
 async def sweep_stale_vrt_assets(
     db: AsyncSession,
@@ -863,6 +879,26 @@ async def sweep_stale_vrt_assets(
     # re-evaluated by PostgreSQL at UPDATE time, so a heartbeat racing the
     # sweep wins and the generation remains live.
     #
+    # fix(#1322 review round 6): 'running' and 'pending' need DIFFERENT
+    # proof, mirroring the split this file already applies to IngestJob
+    # (the running-job sweep just above trusts a stale heartbeat outright;
+    # stale_pending_clauses additionally requires no_live_procrastinate_job
+    # because queue waits are unbounded). A 'running' generation's
+    # heartbeat_at is the worker's own, actively-renewed liveness signal —
+    # stale on it is proof enough, independent of what Procrastinate's OWN
+    # bookkeeping currently shows (a crashed worker can leave its
+    # procrastinate_jobs row reading 'doing' until the separate stalled-
+    # queue sweep prunes it, so requiring "no live row" here would make a
+    # genuinely-dead running generation UNSWEEPABLE until that other sweep
+    # runs). A 'pending' generation has no such signal — nothing has
+    # claimed it yet, so its `started_at` age alone cannot distinguish
+    # "orphaned" from "sitting in a sustained worker backlog, still queued
+    # and will run" — so it additionally requires proof no live
+    # Procrastinate row still references it, correlated via `generation_id`
+    # in `args` (the same kwarg all three dispatch call sites pass), the
+    # exact fact stale_pending_clauses checks for IngestJob and for the
+    # identical reason.
+    #
     # RETURNING carries vrt_dataset_id alongside id (feat(#1267)): the
     # generation-scoped storage key each dead attempt wrote to is keyed on
     # BOTH, and the asset UPDATE below cannot supply that pairing back — its
@@ -872,9 +908,18 @@ async def sweep_stale_vrt_assets(
         update(VrtGeneration)
         .where(
             *generation_scope,
-            VrtGeneration.status.in_(["pending", "running"]),
-            func.coalesce(VrtGeneration.heartbeat_at, VrtGeneration.started_at)
-            < stale_cutoff,
+            or_(
+                and_(
+                    VrtGeneration.status == "running",
+                    func.coalesce(VrtGeneration.heartbeat_at, VrtGeneration.started_at)
+                    < stale_cutoff,
+                ),
+                and_(
+                    VrtGeneration.status == "pending",
+                    VrtGeneration.started_at < stale_cutoff,
+                    text(_NO_LIVE_GENERATION_JOB_SQL),
+                ),
+            ),
         )
         .values(
             status="failed",

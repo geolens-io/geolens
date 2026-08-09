@@ -1310,6 +1310,140 @@ async def test_sweep_restores_ready_when_prior_attempt_never_ran(test_db_session
     assert enqueue_failed_generation.heartbeat_at is None
 
 
+# ---------------------------------------------------------------------------
+# fix(#1322 review round 6): PROVEN-DEAD FIRST for a 'pending' generation
+# specifically. started_at age alone cannot distinguish an orphan from a
+# regeneration still legitimately sitting in Procrastinate's queue through a
+# sustained worker backlog — queue waits are unbounded, the same reason
+# stale_pending_clauses requires no_live_procrastinate_job for IngestJob. A
+# 'running' generation's own heartbeat is sufficient proof on its own
+# (covered by the existing tests above) and is NOT re-tested here.
+# ---------------------------------------------------------------------------
+
+
+async def _insert_live_procrastinate_job(session, *, generation_id) -> None:
+    """A minimal 'todo' procrastinate_jobs row referencing a generation,
+    mirroring the INSERT shape test_dataset_refresh_runs.py already uses for
+    the identical class of live-job proof."""
+    from sqlalchemy import text as sa_text
+
+    await session.execute(sa_text("SET LOCAL search_path TO catalog, public"))
+    await session.execute(
+        sa_text(
+            "INSERT INTO catalog.procrastinate_jobs "
+            "(queue_name, task_name, args, status) "
+            "VALUES ('raster', 'app.ingest.tasks.regenerate_vrt', "
+            "jsonb_build_object('generation_id', CAST(:generation_id AS text)), "
+            "'todo')"
+        ),
+        {"generation_id": str(generation_id)},
+    )
+
+
+async def test_sweep_leaves_pending_generation_alone_while_its_job_is_still_queued(
+    test_db_session,
+):
+    """The exact scenario from the finding: a 'pending' generation with an
+    old started_at (a sustained worker backlog, not an orphan) whose task is
+    still genuinely queued in Procrastinate. Sweeping it would let the
+    queued task's own Phase-1 claim (tasks_vrt.py) fail against a
+    generation the sweep already flipped to 'failed', losing a valid
+    regeneration that was always going to run."""
+    from app.platform.jobs.router import sweep_stale_vrt_assets
+    from app.processing.raster.models import RasterAsset, VrtGeneration
+    from tests.factories import create_dataset, get_user_id
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    vrt_dataset = await create_dataset(test_db_session, created_by=admin_id)
+
+    now = datetime.now(timezone.utc)
+    queued_generation = VrtGeneration(
+        vrt_dataset_id=vrt_dataset.id,
+        status="pending",
+        started_at=now - timedelta(hours=2),  # old — a real backlog, not fresh
+        heartbeat_at=None,  # never claimed — nothing has run yet
+    )
+    test_db_session.add(queued_generation)
+    await test_db_session.flush()
+
+    asset = RasterAsset(
+        dataset_id=vrt_dataset.id,
+        asset_uri=f"rasters/{vrt_dataset.id}/source.vrt",
+        status="regenerating",
+        current_generation_id=queued_generation.id,
+        built_from={},
+    )
+    test_db_session.add(asset)
+    await _insert_live_procrastinate_job(
+        test_db_session, generation_id=queued_generation.id
+    )
+    await test_db_session.commit()
+
+    cutoff = now - timedelta(hours=1)
+    assets_recovered, gens_failed, _keys = await sweep_stale_vrt_assets(
+        test_db_session, cutoff
+    )
+    await test_db_session.commit()
+
+    assert (assets_recovered, gens_failed) == (0, 0), (
+        "a generation whose task is still queued must never be reconciled"
+    )
+    await test_db_session.refresh(queued_generation)
+    await test_db_session.refresh(asset)
+    assert queued_generation.status == "pending"
+    assert asset.status == "regenerating"
+    assert asset.current_generation_id == queued_generation.id
+
+
+async def test_sweep_reaps_pending_generation_once_its_job_is_proven_gone(
+    test_db_session,
+):
+    """Companion coverage: the same old, never-claimed 'pending' generation
+    IS swept once there is no live Procrastinate row for it at all — the
+    genuinely-orphaned case (create-then-defer death, or a purged/expired
+    queue row) this reconciliation exists to compensate for."""
+    from app.platform.jobs.router import sweep_stale_vrt_assets
+    from app.processing.raster.models import RasterAsset, VrtGeneration
+    from tests.factories import create_dataset, get_user_id
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    vrt_dataset = await create_dataset(test_db_session, created_by=admin_id)
+
+    now = datetime.now(timezone.utc)
+    orphaned_generation = VrtGeneration(
+        vrt_dataset_id=vrt_dataset.id,
+        status="pending",
+        started_at=now - timedelta(hours=2),
+        heartbeat_at=None,
+    )
+    test_db_session.add(orphaned_generation)
+    await test_db_session.flush()
+
+    asset = RasterAsset(
+        dataset_id=vrt_dataset.id,
+        asset_uri=f"rasters/{vrt_dataset.id}/source.vrt",
+        status="regenerating",
+        current_generation_id=orphaned_generation.id,
+        built_from={},
+    )
+    test_db_session.add(asset)
+    # No procrastinate_jobs row at all — no live job to prove.
+    await test_db_session.commit()
+
+    cutoff = now - timedelta(hours=1)
+    assets_recovered, gens_failed, _keys = await sweep_stale_vrt_assets(
+        test_db_session, cutoff
+    )
+    await test_db_session.commit()
+
+    assert (assets_recovered, gens_failed) == (1, 1)
+    await test_db_session.refresh(orphaned_generation)
+    await test_db_session.refresh(asset)
+    assert orphaned_generation.status == "failed"
+    assert asset.status == "ready"  # built_from={} matches the empty link set
+    assert asset.current_generation_id is None
+
+
 @pytest.mark.rls
 async def test_sweep_stale_vrt_assets_cannot_mutate_another_tenant(
     multi_tenant_rls,
@@ -1341,6 +1475,15 @@ async def test_sweep_stale_vrt_assets_cannot_mutate_another_tenant(
             # role catching up, not a production grant gap.
             await conn.execute(
                 sa.text("GRANT SELECT ON catalog.vrt_source_links TO geolens_reader")
+            )
+            # fix(#1322 review round 6): the pending-generation proven-dead
+            # check reads catalog.procrastinate_jobs — same "minimal test
+            # role catching up" rationale as above; the query text references
+            # the table even for these status='running' fixture rows, so
+            # Postgres checks the privilege at plan time regardless of which
+            # OR-branch actually matches.
+            await conn.execute(
+                sa.text("GRANT SELECT ON catalog.procrastinate_jobs TO geolens_reader")
             )
             for record_id, dataset_id, tenant_id, suffix in (
                 (record_a, dataset_a, ctx.tenant_a, "a"),
@@ -1461,5 +1604,10 @@ async def test_sweep_stale_vrt_assets_cannot_mutate_another_tenant(
             )
             await conn.execute(
                 sa.text("REVOKE SELECT ON catalog.vrt_source_links FROM geolens_reader")
+            )
+            await conn.execute(
+                sa.text(
+                    "REVOKE SELECT ON catalog.procrastinate_jobs FROM geolens_reader"
+                )
             )
         await engine.dispose()
