@@ -19,14 +19,26 @@ import {
 import type { DatasetOrigin, DatasetResponse } from '@/types/api';
 import type { DatasetRefreshWatch } from '@/components/dataset/hooks/use-dataset';
 
-// fix(#1285 codex round 1): refresh-door origins. router_refresh.py routes
-// every non-postgis request through _resolve_service_origin(), which
-// refuses everything except `service` with 409 refresh_not_applicable — so
-// `upload`/`created`/`stac` are NOT refreshable today even though they have
-// a resolvable origin. This is the one place that fact is encoded; DetailPanel
-// imports it rather than gating on origin presence alone. #1266 (STAC refresh
-// strategy) adds 'stac' when it lands — check before widening this set.
-export const REFRESHABLE_ORIGINS: ReadonlySet<DatasetOrigin> = new Set(['service', 'postgis']);
+// fix(#1285 codex round 1): refresh-door origins. router_refresh.py dispatches
+// by origin kind and routes everything it does not name through
+// _resolve_service_origin(), which refuses with 409 refresh_not_applicable —
+// so `upload` and `created` are NOT refreshable even though they have a
+// resolvable origin. This is the one place that fact is encoded; DetailPanel
+// imports it rather than gating on origin presence alone.
+//
+// feat(#1266): `stac` joins them. Its strategy re-reads the item document the
+// asset was published in and follows the asset if the publisher moved it. One
+// caveat this set cannot express: a STAC binding whose item identity cannot be
+// verified — recorded before item ids were stored, on a catalog whose item
+// URLs carry none — is refused by the door with 409 origin_unavailable. That
+// is a per-dataset fact rather than a per-kind one, so it stays a refusal the
+// error-map renders rather than a hidden control; a user who cannot refresh
+// that dataset is told why and what to do about it.
+export const REFRESHABLE_ORIGINS: ReadonlySet<DatasetOrigin> = new Set([
+  'service',
+  'postgis',
+  'stac',
+]);
 
 interface SourceRefreshActionProps {
   dataset: DatasetResponse;
