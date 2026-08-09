@@ -738,6 +738,31 @@ async def regenerate_vrt(
                 resolve_vrt_source_path(a.asset_uri, tenant_id=current_tenant_var.get())
                 for a in ordered_assets
             ]
+            # fix(#1290 review): the instant this snapshot was READ, which is
+            # what `last_regenerated_at` has to name. Stamping it at publish
+            # time described when the write happened rather than what the
+            # artifact was built FROM, and the build in between takes real
+            # GDAL time. A member replaced during that window then had
+            # `ingested_at` EARLIER than the parent's stamp, so the health
+            # endpoint reported a parent whose stored VRT references a COG the
+            # replacement had already reaped as `healthy` — the broken state
+            # actively vouched for.
+            #
+            # Snapshot-time stamping collapses the race into the stale case
+            # that already exists: the member's `ingested_at` postdates this
+            # instant, the parent honestly reports `stale`, and the operator
+            # regenerates exactly as they would for any stale member. No new
+            # state, no recheck at publish, no retry loop.
+            #
+            # Clock authority, checked rather than assumed: this and the
+            # replace swap's `ingested_at` are both `datetime.now(timezone.utc)`
+            # taken app-side, so the comparison is already one authority and
+            # needs no DB round trip. Both tasks run on the `raster` queue, so
+            # in the shipping single-worker topology it is literally one clock.
+            # If these two ever need to survive multi-host skew, BOTH sides
+            # move to database time together — moving one is what would
+            # actually break it.
+            snapshot_at = datetime.now(timezone.utc)
 
             # Snapshot the VRT asset's invariant config for phase 2
             # (the existing storage key + quicklook keys + VRT type/strategy).
@@ -918,7 +943,10 @@ async def regenerate_vrt(
 
                 # 12. Status transitions
                 vrt_asset.status = "ready"
-                vrt_asset.last_regenerated_at = datetime.now(timezone.utc)
+                # fix(#1290 review): the snapshot instant, NOT now(). See the
+                # capture site in phase 1 for why the field names the state the
+                # artifact was built from.
+                vrt_asset.last_regenerated_at = snapshot_at
                 vrt_asset.current_generation_id = None
                 if vrt_asset_snapshot is not None:
                     vrt_asset_snapshot.status = vrt_asset.status

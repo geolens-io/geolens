@@ -2356,7 +2356,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python
     # datetime and not func.now(). Cap 1071 -> 1078, exact.
-    "backend/app/processing/ingest/tasks_vrt.py": 1078,
+    # fix(#1290 review): +28 — `last_regenerated_at` is stamped with the instant
+    # the member snapshot was READ rather than the instant the VRT was
+    # published. Most of the added lines are the comment: the field names the
+    # state the artifact was built FROM, so a member replaced during the build
+    # now reports stale instead of being vouched for as healthy, and the
+    # clock-authority finding (both sides are app-side UTC, so no DB round trip
+    # is needed and moving one side alone would break it) has to be written
+    # down where the next reader will look. Cap 1078 -> 1106, exact.
+    "backend/app/processing/ingest/tasks_vrt.py": 1106,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
     # reaper never touched the key the client's PUT URL can still recreate.

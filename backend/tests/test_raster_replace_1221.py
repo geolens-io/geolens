@@ -37,6 +37,7 @@ from __future__ import annotations
 import io
 import re
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -229,6 +230,134 @@ async def _make_live_raster(session, storage, *, created_by: uuid.UUID) -> _Live
     await storage.put(asset.quicklook_256_uri, io.BytesIO(b"old-ql-256"))
     await storage.put(asset.quicklook_512_uri, io.BytesIO(b"old-ql-512"))
     return _LiveRaster(dataset, asset, cog_key)
+
+
+async def _make_vrt_parent(session, storage, *, created_by, member) -> _LiveRaster:
+    """A VRT dataset with one member, ready to regenerate.
+
+    Shaped the way `ingest_vrt` leaves one: a vrt_dataset record, a RasterAsset
+    whose asset_uri is the VRT object, and a vrt_source_links row.
+    """
+    from app.processing.raster.models import VrtSourceLink
+
+    record = Record(
+        title="Mosaic",
+        record_type="vrt_dataset",
+        visibility="public",
+        record_status="published",
+        created_by=created_by,
+        updated_by=created_by,
+        theme_category=["test"],
+    )
+    session.add(record)
+    await session.flush()
+    dataset = Dataset(
+        record_id=record.id,
+        table_name=f"raster_{record.id.hex[:16]}",
+        source_format=None,
+        srid=4326,
+    )
+    session.add(dataset)
+    await session.flush()
+
+    vrt_key = f"rasters/{dataset.id}/vrtsha/source.vrt"
+    asset = RasterAsset(
+        dataset_id=dataset.id,
+        asset_uri=vrt_key,
+        storage_backend="local",
+        vrt_type="mosaic",
+        resolution_strategy="finest",
+        status="ready",
+        epsg=4326,
+        band_count=1,
+        dtype="uint8",
+        ingested_at=datetime.now(timezone.utc),
+    )
+    session.add(asset)
+    session.add(
+        VrtSourceLink(
+            vrt_dataset_id=dataset.id,
+            source_dataset_id=member.dataset.id,
+            position=0,
+        )
+    )
+    await session.commit()
+    await storage.put(vrt_key, io.BytesIO(b"<VRTDataset></VRTDataset>"))
+
+    # gdalbuildvrt reads the member through `resolve_vrt_source_path`, which
+    # resolves against the staging dir rather than this fixture's provider
+    # root — so the member's COG has to exist THERE for a real build to run.
+    from pathlib import Path as _P
+
+    from app.processing.ingest.tasks_vrt import resolve_vrt_source_path
+
+    member_path = _P(resolve_vrt_source_path(member.asset.asset_uri, tenant_id=None))
+    member_path.parent.mkdir(parents=True, exist_ok=True)
+    member_path.write_bytes(_geotiff_bytes(seed=1))
+    return _LiveRaster(dataset, asset, vrt_key)
+
+
+async def _run_regeneration(session, *, parent, user_id) -> None:
+    """Drive the real ``regenerate_vrt`` task once, end to end."""
+    import uuid as _uuid
+
+    from app.processing.ingest.tasks_vrt import regenerate_vrt
+    from app.processing.raster.models import VrtGeneration
+
+    generation_id = _uuid.uuid4()
+    job = IngestJob(
+        dataset_id=parent.dataset.id,
+        source_filename="regen",
+        created_by=user_id,
+        status="pending",
+        user_metadata={"vrt_regenerate": True},
+    )
+    session.add(job)
+    session.add(
+        VrtGeneration(
+            id=generation_id,
+            vrt_dataset_id=parent.dataset.id,
+            status="pending",
+            started_at=datetime.now(timezone.utc),
+        )
+    )
+    await session.execute(
+        text(
+            "UPDATE catalog.raster_assets "
+            "SET current_generation_id = :gen, status = 'regenerating' "
+            "WHERE dataset_id = :id"
+        ),
+        {"gen": generation_id, "id": parent.dataset.id},
+    )
+    await session.commit()
+    await session.refresh(job)
+    await regenerate_vrt.func(
+        job_id=str(job.id),
+        vrt_dataset_id=str(parent.dataset.id),
+        attempt_id=str(job.attempt_id),
+        generation_id=str(generation_id),
+    )
+
+
+async def _purge_vrt(session, *, ids) -> None:
+    """``ids`` is (parent_dataset, parent_record, member_dataset, member_record).
+
+    Explicit ids rather than the ORM objects: callers expire the session before
+    asserting, and reading an expired attribute lazy-loads, which under AnyIO
+    raises MissingGreenlet instead of returning a value.
+    """
+    from app.processing.raster.models import VrtGeneration, VrtSourceLink
+
+    parent_ds, parent_rec, member_ds, member_rec = ids
+    await session.execute(
+        delete(VrtSourceLink).where(VrtSourceLink.vrt_dataset_id == parent_ds)
+    )
+    await session.execute(
+        delete(VrtGeneration).where(VrtGeneration.vrt_dataset_id == parent_ds)
+    )
+    await session.commit()
+    await _purge(session, dataset_id=parent_ds, record_id=parent_rec)
+    await _purge(session, dataset_id=member_ds, record_id=member_rec)
 
 
 async def _queue_replace_job(
@@ -3715,3 +3844,166 @@ class TestCompletionAdmitsReplacementsAsReplacements:
         assert "replacing_dataset_id" in inspect.getsource(router_reupload), (
             "the reupload door does not tell the finalizer this is a replacement"
         )
+
+
+# ---------------------------------------------------------------------------
+# 15. Round-9 review finding (#1290)
+# ---------------------------------------------------------------------------
+
+
+class TestVrtStampNamesTheStateItWasBuiltFrom:
+    """FINDING. `regenerate_vrt` snapshots member paths, builds (real GDAL
+    time), then stamped `last_regenerated_at` at PUBLISH time. A member
+    replacement committing inside that window left the stored VRT referencing a
+    COG the replacement then reaped — and because the publish-time stamp
+    POSTDATES the member's `ingested_at`, the health endpoint reported the
+    broken parent as `healthy`. The stale mechanism vouching for exactly the
+    state it exists to surface.
+
+    Stamping the snapshot instant collapses the race into the already-handled
+    stale case. These tests pin that the stamp names the state the artifact was
+    built FROM, and that the health verdict follows.
+    """
+
+    async def test_the_stamp_predates_the_build_it_describes(
+        self, test_db_session, raster_storage, monkeypatch
+    ) -> None:
+        """The property, measured. If the stamp is snapshot-time it lands
+        BEFORE the build finished; if it is publish-time it lands after. A
+        deliberately slow build separates the two instants."""
+        import asyncio as _asyncio
+        from datetime import datetime, timezone
+
+        from app.processing.ingest import tasks_vrt
+
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        member = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        parent = await _make_vrt_parent(
+            test_db_session, raster_storage, created_by=admin_id, member=member
+        )
+        # Captured before any expire_all(): reading them off an expired ORM
+        # instance lazy-loads, which under AnyIO is MissingGreenlet.
+        ids = (
+            parent.dataset.id,
+            parent.dataset.record_id,
+            member.dataset.id,
+            member.dataset.record_id,
+        )
+        build_finished: list[datetime] = []
+        real_build = tasks_vrt.build_vrt
+
+        def _slow_build(vrt_type, source_paths, vrt_path, resolution_strategy):
+            import time
+
+            time.sleep(0.35)
+            result = real_build(vrt_type, source_paths, vrt_path, resolution_strategy)
+            build_finished.append(datetime.now(timezone.utc))
+            return result
+
+        monkeypatch.setattr(tasks_vrt, "build_vrt", _slow_build, raising=True)
+
+        try:
+            await _run_regeneration(test_db_session, parent=parent, user_id=admin_id)
+            await _asyncio.sleep(0)
+            test_db_session.expire_all()
+            stamped = (
+                await test_db_session.execute(
+                    text(
+                        "SELECT last_regenerated_at FROM catalog.raster_assets "
+                        "WHERE dataset_id = :id"
+                    ),
+                    {"id": ids[0]},
+                )
+            ).scalar_one()
+
+            assert build_finished, "the patched build never ran"
+            assert stamped < build_finished[0], (
+                f"last_regenerated_at ({stamped}) postdates the build that "
+                f"finished at {build_finished[0]} — it names when the write "
+                "happened, not the state the VRT was built from, so a member "
+                "replaced during the build is masked as healthy "
+                "(#1290 round-9 finding)"
+            )
+        finally:
+            await _purge_vrt(test_db_session, ids=ids)
+
+    async def test_a_member_replaced_during_the_build_reads_stale(
+        self, client, admin_auth_header, test_db_session, raster_storage, monkeypatch
+    ) -> None:
+        """The consequence at the health endpoint, which is the discriminator.
+
+        The member's `ingested_at` is placed INSIDE the build window — exactly
+        where a replacement committing mid-build would put it. With a
+        snapshot-time stamp the parent reports `stale`; with a publish-time
+        stamp it reports `healthy` and vouches for a VRT whose source object
+        has been reaped.
+        """
+        from datetime import datetime, timezone
+
+        from app.processing.ingest import tasks_vrt
+
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        member = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        parent = await _make_vrt_parent(
+            test_db_session, raster_storage, created_by=admin_id, member=member
+        )
+        # Captured before any expire_all(): reading them off an expired ORM
+        # instance lazy-loads, which under AnyIO is MissingGreenlet.
+        ids = (
+            parent.dataset.id,
+            parent.dataset.record_id,
+            member.dataset.id,
+            member.dataset.record_id,
+        )
+        mid_build: list[datetime] = []
+        real_build = tasks_vrt.build_vrt
+
+        def _slow_build(vrt_type, source_paths, vrt_path, resolution_strategy):
+            import time
+
+            time.sleep(0.2)
+            mid_build.append(datetime.now(timezone.utc))
+            time.sleep(0.2)
+            return real_build(vrt_type, source_paths, vrt_path, resolution_strategy)
+
+        monkeypatch.setattr(tasks_vrt, "build_vrt", _slow_build, raising=True)
+
+        try:
+            await _run_regeneration(test_db_session, parent=parent, user_id=admin_id)
+            # The replacement committed mid-build: its ingested_at lands in the
+            # window between the snapshot and the publish.
+            await test_db_session.execute(
+                text(
+                    "UPDATE catalog.raster_assets SET ingested_at = :ts "
+                    "WHERE dataset_id = :id"
+                ),
+                {"ts": mid_build[0], "id": ids[2]},
+            )
+            await test_db_session.commit()
+
+            resp = await client.get(
+                f"/datasets/{ids[0]}/vrt/status/",
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 200, resp.text
+            statuses = [s["status"] for s in resp.json()["source_health"]]
+            assert statuses == ["stale"], (
+                f"the parent reports {statuses} for a member replaced DURING "
+                "its build — the stored VRT references a COG the replacement "
+                "reaped, and the health endpoint is vouching for it "
+                "(#1290 round-9 finding)"
+            )
+        finally:
+            await _purge_vrt(test_db_session, ids=ids)
