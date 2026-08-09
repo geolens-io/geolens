@@ -135,13 +135,31 @@ def raster_storage(tmp_path, monkeypatch):
     return storage
 
 
-async def _archived_originals(storage, dataset_id) -> list[str]:
-    """The uploaded filenames archived under ``originals/<dataset_id>/``.
+async def _archived_names(session, dataset_id) -> list[str]:
+    """The uploaded filenames of a dataset's kept originals.
 
-    Keys carry a content-hash prefix (#1290 round-4 finding 3) so a same-named
-    replacement cannot overwrite the previous original. Tests care about which
-    uploads are retained, not about the hash, so strip it back to the filename.
+    Read from the counted rows' ``description``, because object keys are pure
+    content hashes since #1290 round 8 — the filename left object identity so
+    two names for the same bytes could not become two objects.
     """
+    rows = (
+        (
+            await session.execute(
+                text(
+                    "SELECT description FROM catalog.dataset_assets "
+                    "WHERE dataset_id = :id AND key LIKE 'archived_original:%'"
+                ),
+                {"id": dataset_id},
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return sorted(r for r in rows if r)
+
+
+async def _archived_originals(storage, dataset_id) -> list[str]:
+    """The object keys archived under ``originals/<dataset_id>/``, basenamed."""
     keys = await storage.list(f"originals/{dataset_id}/")
     # Strip exactly a 12-hex-char prefix. A blunt split("-", 1) would also eat
     # the first segment of a hyphenated filename like `local-original.tif`.
@@ -1120,7 +1138,7 @@ class TestLossyConversionRetainsSource:
                 "the staged copy must not survive either way — it is either "
                 "redundant or relocated"
             )
-            durable = await _archived_originals(raster_storage, dataset_id)
+            durable = await _archived_names(test_db_session, dataset_id)
             assert (durable == ["replacement.tif"]) is source_survives, (
                 f"{compression}: a durable original should "
                 f"{'exist' if source_survives else 'not exist'} under originals/"
@@ -1764,7 +1782,7 @@ class TestLocalStorageHonoursTheRetentionPromise:
                 "the staged local copy goes in both cases — it is either "
                 "redundant or already relocated"
             )
-            durable = await _archived_originals(raster_storage, dataset_id)
+            durable = await _archived_names(test_db_session, dataset_id)
             assert (durable == ["local-original.tif"]) is source_survives, (
                 f"{compression}: a durable original should "
                 f"{'exist' if source_survives else 'not exist'} under "
@@ -1871,7 +1889,7 @@ class TestReprojectionCountsAsSampleAltering:
                 user_id=str(admin_id),
                 attempt_id=str(job.attempt_id),
             )
-            assert await _archived_originals(raster_storage, dataset_id) == [
+            assert await _archived_names(test_db_session, dataset_id) == [
                 "reprojected.tif"
             ], (
                 "a reprojected replace deleted its only un-resampled copy — "
@@ -1931,9 +1949,7 @@ class TestRetainedOriginalLivesOutsideThePurgesDomain:
                 "retention purge will reap it once a newer job supersedes this "
                 "one, and the RUNBOOK calls the copy permanent"
             )
-            assert await _archived_originals(raster_storage, dataset_id) == [
-                "scene.tif"
-            ]
+            assert await _archived_names(test_db_session, dataset_id) == ["scene.tif"]
         finally:
             await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
 
@@ -1979,7 +1995,7 @@ class TestRetainedOriginalLivesOutsideThePurgesDomain:
                     attempt_id=str(job.attempt_id),
                 )
 
-            assert await _archived_originals(raster_storage, dataset_id) == [
+            assert await _archived_names(test_db_session, dataset_id) == [
                 "first.tif",
                 "second.tif",
             ]
@@ -3182,33 +3198,29 @@ class TestBothTailsReserveBeforeTheyUpsert:
             )
 
 
-class TestArchiveKeyIsDerivedFromANormalizedFilename:
-    """FINDING 3. A filename carrying path separators split the derivation: the
-    logical URI kept the directory while the write basenamed it, so the counted
-    row pointed at nothing and cleanup tracked a key nobody wrote."""
+class TestArchiveKeyIsDerivedFromContentAlone:
+    """Round 6 normalized the filename inside the key; round 8 removed the
+    filename from the key entirely, which is the stronger form of the same
+    property — there is no longer an input that could need normalizing."""
 
-    def test_path_components_are_stripped_at_the_single_source(self) -> None:
+    def test_the_key_ignores_the_filename_completely(self) -> None:
         from app.processing.ingest.tasks_raster_swap import archived_original_uri
 
-        nested = archived_original_uri(
-            "ds-1", source_sha256="a" * 64, filename="folder/scene.tif"
-        )
-        flat = archived_original_uri(
-            "ds-1", source_sha256="a" * 64, filename="scene.tif"
-        )
-        assert nested == flat
-        assert nested.count("/") == 2, f"a path component survived: {nested}"
+        key = archived_original_uri("ds-1", source_sha256="a" * 64)
+        assert key == "originals/ds-1/aaaaaaaaaaaa"
+        # No extension either: the same bytes as .tif and .tiff must not become
+        # two objects (#1290 round-8 finding 1).
+        assert "." not in key.rsplit("/", 1)[-1]
 
-    def test_it_matches_the_upload_paths_own_policy(self) -> None:
-        """One policy, not two. The upload path basenames filenames to strip
-        traversal; the archive key uses the same helper rather than a second
-        rule that can drift from it."""
+    def test_the_upload_paths_normalization_still_exists_for_staging(self) -> None:
+        """`safe_upload_basename` lost a consumer rather than gaining one — the
+        archive no longer touches filenames — but the staging path still needs
+        it, so it stays and stays tested."""
         from app.processing.ingest.service import safe_upload_basename
 
         assert safe_upload_basename("folder/scene.tif") == "scene.tif"
         assert safe_upload_basename("../../etc/passwd") == "passwd"
         assert safe_upload_basename(None) == "upload"
-        assert safe_upload_basename("") == "upload"
 
     async def test_a_nested_filename_archives_where_the_row_says_it_did(
         self, test_db_session, raster_storage, tmp_path
@@ -3258,11 +3270,12 @@ class TestArchiveKeyIsDerivedFromANormalizedFilename:
                 )
             ).scalar_one()
             assert await raster_storage.exists(href), (
-                f"the counted row points at {href}, which does not exist — the "
-                "URI kept a path component the write stripped (#1290 round-6 "
-                "finding 3)"
+                f"the counted row points at {href}, which does not exist"
             )
             assert "folder" not in href
+            assert "scene" not in href, (
+                "the filename leaked into object identity (#1290 round-8 finding 1)"
+            )
         finally:
             await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
 
@@ -3465,3 +3478,240 @@ class TestIndeterminateProbeNeverArmsTheReap:
             assert await raster_storage.get(good_key) == payload
         finally:
             await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
+
+# ---------------------------------------------------------------------------
+# 14. Round-8 review findings (#1290)
+# ---------------------------------------------------------------------------
+
+
+class TestArchiveIdentityIsContentOnly:
+    """FINDING 1. The counted row keyed on content while the object keyed on
+    content AND filename, so the two answered "same archive?" differently. Same
+    bytes under two names produced one row and two objects: the reservation
+    credited the row and charged nothing, the upsert repointed it at the newer
+    object, and the older one was orphaned and uncounted — unbounded storage
+    past the cap, one rename at a time."""
+
+    async def test_same_bytes_two_filenames_is_one_object_and_one_charge(
+        self, test_db_session, raster_storage, tmp_path
+    ) -> None:
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+        payload = _geotiff_bytes(seed=261)
+
+        reserved: list[int] = []
+
+        async def _spy(session, user_id, incoming_bytes):
+            reserved.append(incoming_bytes)
+
+        try:
+            for name in ("survey-a.tif", "survey-b.tif"):
+                source = tmp_path / name
+                source.write_bytes(payload)
+                job = await _queue_replace_job(
+                    test_db_session,
+                    dataset_id=dataset_id,
+                    user_id=admin_id,
+                    file_path=str(source),
+                )
+                job.source_filename = name
+                job.user_metadata = {
+                    **(job.user_metadata or {}),
+                    "compression": "JPEG",
+                }
+                await test_db_session.commit()
+                with patch("app.modules.quota.service.reserve_storage_bytes", new=_spy):
+                    await reupload_raster.func(
+                        job_id=str(job.id),
+                        dataset_id=str(dataset_id),
+                        file_path=str(source),
+                        user_id=str(admin_id),
+                        attempt_id=str(job.attempt_id),
+                    )
+
+            objects = await _archived_originals(raster_storage, dataset_id)
+            assert len(objects) == 1, (
+                f"identical bytes under two names produced {len(objects)} "
+                "objects — the second is orphaned and uncounted "
+                "(#1290 round-8 finding 1)"
+            )
+            rows = (
+                await test_db_session.execute(
+                    text(
+                        "SELECT count(*) FROM catalog.dataset_assets "
+                        "WHERE dataset_id = :id AND key LIKE 'archived_original:%'"
+                    ),
+                    {"id": dataset_id},
+                )
+            ).scalar_one()
+            assert rows == 1, "one archive, one row"
+
+            # Identical bytes reserve NOTHING the second time: same COG hash,
+            # same archive key, same sizes, so the delta is zero and the
+            # reservation never fires. One call, from the first replace.
+            assert len(reserved) == 1, (
+                f"reservations {reserved} — the second replace charged for "
+                "bytes already billed, which is the identity split showing up "
+                "in the arithmetic"
+            )
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
+    def test_extension_cannot_split_identity_either(self) -> None:
+        """`.tif` and `.tiff` over the same bytes would be the same bug with a
+        smaller blast radius, which is the worst kind to leave in."""
+        from app.processing.ingest.tasks_raster_swap import archived_original_uri
+
+        assert archived_original_uri(
+            "ds-1", source_sha256="b" * 64
+        ) == archived_original_uri("ds-1", source_sha256="b" * 64)
+        assert archived_original_uri("ds-1", source_sha256="b" * 64).endswith(
+            "bbbbbbbbbbbb"
+        )
+
+    def test_the_operator_can_still_read_the_uploaded_name(self) -> None:
+        """Removing the filename from identity must not lose it. It moves to
+        the counted row, which is internal, so an operator can read it and no
+        equality depends on it."""
+        import ast
+        import inspect
+
+        from app.processing.ingest import tasks_raster_swap
+
+        src = inspect.getsource(tasks_raster_swap)
+        fn = next(
+            n
+            for n in ast.walk(ast.parse(src))
+            if isinstance(n, (ast.AsyncFunctionDef, ast.FunctionDef))
+            and n.name == "upsert_archived_original_row"
+        )
+        keys = {
+            k.value
+            for node in ast.walk(fn)
+            if isinstance(node, ast.Dict)
+            for k in node.keys
+            if isinstance(k, ast.Constant)
+        }
+        assert "description" in keys, (
+            "the uploaded filename has nowhere to live now that the key is "
+            "content-only (#1290 round-8 finding 1)"
+        )
+
+
+class TestCompletionAdmitsReplacementsAsReplacements:
+    """FINDING 2. Completion is the third admission point and it was still
+    creation-shaped, so an owner at the dataset-count cap passed the
+    request-time door, uploaded the bytes, and was refused at the finalizer."""
+
+    async def test_presigned_completion_admits_an_owner_at_the_dataset_cap(
+        self, client, admin_auth_header, test_db_session, raster_storage, monkeypatch
+    ) -> None:
+        from app.core.config import settings
+
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+
+        monkeypatch.setattr(settings, "storage_provider", "s3")
+        monkeypatch.setattr(
+            "app.modules.catalog.datasets.api.router_reupload.get_storage",
+            lambda: raster_storage,
+            raising=False,
+        )
+        # The local provider refuses to presign; the flow under test is the
+        # ADMISSION at completion, not the signing, so a stub URL is enough.
+        monkeypatch.setattr(
+            raster_storage,
+            "generate_presigned_put_url",
+            lambda key, content_type, expiration=3600: f"https://s3.invalid/{key}",
+            raising=False,
+        )
+        payload = _geotiff_bytes(seed=271)
+
+        try:
+            with patch(
+                "app.modules.quota.service.MAX_DATASETS_PER_USER.get",
+                new_callable=AsyncMock,
+                return_value=1,
+            ):
+                resp = await client.post(
+                    f"/datasets/{dataset_id}/reupload/presigned",
+                    json={
+                        "filename": "replacement.tif",
+                        "file_size": len(payload),
+                        "content_type": "image/tiff",
+                    },
+                    headers=admin_auth_header,
+                )
+                assert resp.status_code == 201, resp.text
+                body = resp.json()
+                await raster_storage.put(body["s3_key"], io.BytesIO(payload))
+
+                done = await client.post(
+                    f"/datasets/{dataset_id}/reupload/presigned/"
+                    f"{body['job_id']}/complete",
+                    json={},
+                    headers=admin_auth_header,
+                )
+            assert done.status_code == 200, (
+                "the request-time door admitted the replacement and the "
+                "FINALIZER refused it on the dataset-count cap — the bytes are "
+                "already uploaded at that point (#1290 round-8 finding 2): "
+                f"{done.status_code} {done.text}"
+            )
+        finally:
+            await test_db_session.execute(
+                delete(IngestJob).where(IngestJob.dataset_id == dataset_id)
+            )
+            await test_db_session.commit()
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
+    def test_no_admission_point_in_a_reupload_flow_is_creation_shaped(self) -> None:
+        """The round-3 parity pin walked reupload HANDLERS only, so the
+        finalizer sat outside it. Widened to the whole reachable flow: the
+        reupload router and the presigned module it delegates completion to.
+        Either may call the creation check ONLY behind a branch that also
+        offers the replacement one."""
+        import ast
+        import inspect
+
+        from app.modules.catalog.datasets.api import router_reupload
+        from app.processing.ingest import presigned
+
+        # The router must never reach the creation-shaped check at all.
+        router_names = {
+            node.func.id
+            for node in ast.walk(ast.parse(inspect.getsource(router_reupload)))
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        assert "check_upload_quota" not in router_names
+        assert "check_replacement_quota" in router_names
+
+        # The finalizer is shared with the create-upload door, so it may keep
+        # the creation check — but it must ALSO be able to admit a replacement,
+        # and the reupload door must be able to say which it is.
+        presigned_src = inspect.getsource(presigned)
+        assert "check_replacement_quota" in presigned_src, (
+            "the presigned finalizer cannot admit a replacement, so completion "
+            "refuses what the door already accepted (#1290 round-8 finding 2)"
+        )
+        assert "replacing_dataset_id" in presigned_src
+        assert "replacing_dataset_id" in inspect.getsource(router_reupload), (
+            "the reupload door does not tell the finalizer this is a replacement"
+        )

@@ -562,6 +562,7 @@ async def ingest_raster(
                 logical_key=archived_key,
                 asset_key=_archive_asset_key,
                 size_bytes=archived_bytes,
+                source_filename=source_filename,
             )
 
             # 12. Finalize job.

@@ -2346,7 +2346,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # requester to the replacement admission, which is the identity the worker
     # reserves against. Wrapped across lines by the formatter.
     # Cap 1135 -> 1143, exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1143,
+    # fix(#1290 review): +6 — the presigned completion door names the dataset
+    # it is replacing, so the finalizer runs replacement-aware admission. It was
+    # the third admission point and still creation-shaped, so an owner at the
+    # dataset-count cap passed the request-time door, uploaded the bytes, and
+    # was refused at completion. Cap 1143 -> 1149, exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1149,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python

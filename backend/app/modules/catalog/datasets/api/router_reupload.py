@@ -1111,8 +1111,14 @@ async def complete_presigned_reupload(
             logical_key=s3_key,
             expected_size=um.get("expected_size"),
             filename=job.source_filename or "",
-            user_id=user.id,
+            user_id=dataset.record.created_by,
             request=http_request,
+            # fix(#1290 review): completion is the THIRD admission point, and
+            # it was still creation-shaped — an owner at the dataset-count cap
+            # passed the request-time door, uploaded, and was refused here.
+            # Naming the dataset makes the finalizer admit this as a
+            # replacement, against the owner, like the other two.
+            replacing_dataset_id=dataset_id,
         )
     except HTTPException as exc:
         # Surface-local taxonomy: this door's sibling DIRECT door stamps a

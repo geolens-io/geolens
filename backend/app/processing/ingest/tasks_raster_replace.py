@@ -567,6 +567,7 @@ async def reupload_raster(
                     archived_original_asset_key(source_sha256) if archived_key else None
                 ),
                 size_bytes=archived_bytes,
+                source_filename=source_filename,
             )
             await _upsert_managed_asset_rows(
                 session,

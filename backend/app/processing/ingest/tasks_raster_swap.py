@@ -138,30 +138,28 @@ def archived_original_asset_key(source_sha256: str) -> str:
     return f"{ARCHIVED_ORIGINAL_KEY_PREFIX}{source_sha256[:12]}"
 
 
-def archived_original_uri(
-    dataset_id, *, source_sha256: str, filename: str | None
-) -> str:
-    """The logical key a kept original lives at.
+def archived_original_uri(dataset_id, *, source_sha256: str) -> str:
+    """The logical key a kept original lives at. Content, and nothing else.
 
-    fix(#1290 review): content-derived so a same-named replacement cannot
-    overwrite the original belonging to a raster that is still live, and so an
-    identical re-upload collides into an idempotent rewrite. One function
-    because four consumers have to agree on it: the archiver, the failure reap,
-    the counted asset row, and the storage write itself.
+    fix(#1290 review): the key used to carry the uploaded filename too, which
+    split the archive's identity in half. The counted row is keyed on content
+    alone (``archived_original:<hash>``), so byte-identical uploads under two
+    different names produced ONE row and TWO objects — the reservation credited
+    the existing row and charged nothing, the upsert repointed it at the newer
+    object, and the older one was left orphaned and uncounted. Repeat with a
+    third name and storage grows without limit past the cap.
 
-    The filename is normalized to a basename FIRST, through the same helper the
-    upload path uses. Deriving from the raw value let `folder/scene.tif` produce
-    a logical URI carrying the directory while the actual write basenamed it —
-    so the row pointed at an object that did not exist, cleanup tracked a key
-    nobody had written, and a different-content upload sharing the basename
-    could land on the retained original. Normalizing at the single source is
-    what keeps all four consumers on one string.
+    One identity, derived solely from content, makes that unreachable rather
+    than merely unlikely: same bytes means same key means an idempotent
+    rewrite and a zero delta, whatever the file was called.
+
+    No extension either, deliberately. The same bytes uploaded as ``.tif`` and
+    as ``.tiff`` would otherwise be two objects again — the identical bug with
+    a smaller blast radius, which is the worst kind to leave in. The
+    human-readable name is not lost; it rides on the counted row's description,
+    where an operator can read it and no equality depends on it.
     """
-    from app.processing.ingest.service import safe_upload_basename
-
-    return (
-        f"originals/{dataset_id}/{source_sha256[:12]}-{safe_upload_basename(filename)}"
-    )
+    return f"originals/{dataset_id}/{source_sha256[:12]}"
 
 
 async def archive_lossy_original(
@@ -190,6 +188,11 @@ async def archive_lossy_original(
     is nothing to keep and every return value is empty. It lives here rather
     than at the call site so both raster tails ask one question once.
 
+    ``filename`` no longer participates in the key (fix(#1290 review) — see
+    ``archived_original_uri``). It survives as the operator-facing label on the
+    counted row, which is the only place a human-readable name belongs once
+    identity is content.
+
     fix(#1290 review), the trap: the key is content-derived, so a failed
     attempt can archive bytes identical to an archive an EARLIER successful
     replace already wrote — the same key. Adding it to the failure-reap set
@@ -207,9 +210,7 @@ async def archive_lossy_original(
     if not needed:
         return False, None, 0, None
 
-    logical_key = archived_original_uri(
-        dataset_id, source_sha256=source_sha256, filename=filename
-    )
+    logical_key = archived_original_uri(dataset_id, source_sha256=source_sha256)
     physical_key = resolve_current_storage_key(logical_key)
     # fix(#1290 review): an INDETERMINATE probe must never make a pre-existing
     # archive eligible for failure cleanup. Treating a transient `exists()`
@@ -251,6 +252,9 @@ async def archive_lossy_original(
         file_path=file_path,
         log_message=log_message,
         commit=False,
+        # Just the hash: `_archive_original_file` rebuilds
+        # `originals/<dataset_id>/<name>`, so handing it the basename of the
+        # logical key reproduces exactly that key.
         archive_name=logical_key.rsplit("/", 1)[-1],
     )
     if not archived:
@@ -273,6 +277,7 @@ async def upsert_archived_original_row(
     logical_key: str | None,
     asset_key: str | None,
     size_bytes: int,
+    source_filename: str | None = None,
 ) -> None:
     """Give the kept original a counted row so storage quota can see it.
 
@@ -310,6 +315,11 @@ async def upsert_archived_original_row(
         "href": logical_key,
         "media_type": "image/tiff",
         "title": "Pre-conversion original",
+        # fix(#1290 review): the uploaded name lives here now that the object
+        # key is pure content. Internal row — `app.platform.assets.keys` keeps
+        # it out of every response — so this is for the operator reading the
+        # table, not for a client.
+        "description": source_filename,
         "roles": ["archive"],
         "size_bytes": size_bytes,
     }

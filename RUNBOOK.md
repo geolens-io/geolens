@@ -1596,17 +1596,26 @@ will ever exist, so GeoLens keeps it.
 
 ### Where the kept original lives, and for how long
 
-It is copied to `originals/<dataset-id>/<hash>-<filename>` — the same place
-vector ingests archive their sources. On an object-storage install that is a
-prefix in your bucket; on a local install it is `originals/` inside the
-`upload_staging` volume. One location, both shapes.
+It is copied to `originals/<dataset-id>/<hash>` — the same place vector ingests
+archive their sources. On an object-storage install that is a prefix in your
+bucket; on a local install it is `originals/` inside the `upload_staging`
+volume. One location, both shapes.
 
-The `<hash>` is the first twelve characters of the uploaded file's SHA-256. It
-is there so two uploads that happen to share a filename cannot overwrite each
-other: a replacement is archived before its swap is committed, and if that swap
-then fails, the dataset keeps serving the previous raster — whose original must
-still be sitting there untouched. The filename is kept alongside it so the
-prefix stays readable when you list it.
+The `<hash>` is the first twelve characters of the uploaded file's SHA-256, and
+it is the whole name: **no filename, no extension**. The object is identified by
+its content and nothing else, so the same bytes are the same object however they
+were named — upload `survey.tif` and `survey-final.tif` with identical content
+and you get one stored copy, not two. That also means two uploads sharing a
+filename cannot overwrite each other, which matters because a replacement is
+archived before its swap commits: if the swap then fails, the dataset keeps
+serving the previous raster, whose original must still be sitting there
+untouched.
+
+**To find out what a stored original was called**, read the dataset's asset
+table rather than the object name — each kept original has a row whose
+description is the filename it was uploaded under. Listing the `originals/`
+prefix shows hashes by design; the names live where they cannot affect which
+object is which.
 
 That location is deliberate. The copy is **not** left under `staging/`, because
 staging is for transient files and the retention purge is entitled to clean it:
