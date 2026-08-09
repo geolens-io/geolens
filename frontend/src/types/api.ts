@@ -1850,7 +1850,14 @@ export interface VrtMutationResponse {
 export interface VrtSourceHealth {
   dataset_id: string;
   title: string;
-  status: 'healthy' | 'missing' | 'inaccessible';
+  /**
+   * fix(#1290 review): `stale` means the member's own raster was replaced after
+   * the parent VRT was last built — the member is fine, the PARENT needs
+   * regenerating. This is the hand-maintained mirror, which SourcePanel imports
+   * instead of the generated types, so it has to be updated alongside the
+   * backend Literal or the UI cannot branch on the new state.
+   */
+  status: 'healthy' | 'missing' | 'inaccessible' | 'stale';
 }
 
 export interface VrtActiveGeneration {

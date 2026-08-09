@@ -1606,7 +1606,14 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # token — and the count never exceeds 1, per the partial unique index).
         # Cap 914 -> 983, exact.
         "backend/app/modules/catalog/maps/service_public.py": 983,
-        "backend/app/modules/catalog/search/service_records.py": 500,
+        # fix(#1290 review): +5 — PUBLIC_ASSET_KEYS and the guard that reads it.
+        # _build_stac_assets published every dataset_assets row it was handed,
+        # so the first INTERNAL key (archived_original, the pre-conversion
+        # upload kept after a lossy conversion) would have been advertised as a
+        # downloadable asset — a presigned URL on published S3. An allowlist
+        # rather than a skip-list so the next internal key is private by
+        # default. Cap 500 -> 505, exact.
+        "backend/app/modules/catalog/search/service_records.py": 505,
         # fix(#448): +~40 LOC — query-embedding hot-path deadline (asyncio.wait_for
         # wrapper) + the gated/approximated vector-only match COUNT in
         # _run_rrf_merge (perf audit 2026-07-10 §2d). Cap 350 → 390
@@ -1684,7 +1691,12 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # from naming a source or mask layer the requester cannot open. The
         # list builder takes the batch form deliberately: one visibility query
         # for the page rather than one per row. Cap 404 -> 419, no headroom.
-        "backend/app/modules/catalog/datasets/domain/service_query.py": 419,
+        # fix(#1290 review): +7 — the public-asset-key boundary. Rows are
+        # filtered where they are FETCHED so an internal key never enters a
+        # payload structure; `GET /datasets/{id}` had been building its assets
+        # straight off the ORM rows and leaked the archived original's href and
+        # filename to every viewer. Cap 419 -> 426, exact.
+        "backend/app/modules/catalog/datasets/domain/service_query.py": 426,
         # Phase 276 CODE-02: chat_*.py sub-modules are all under the 350
         # default (largest is chat_actions.py at ~245 LOC). No explicit
         # per-file overrides needed; default applies.
@@ -1725,7 +1737,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # fix(#1235 review r8): +5 — the sign-with-deadline delegation. The
         # reupload door hands this to a worker thread, so the whole callable
         # has to cross the port rather than just the lifetime number.
-        "backend/app/platform/extensions/defaults_catalog_port.py": 430,
+        # feat(#1221): +5 — the raster-replace task delegation, same three-line
+        # shape as its reupload_file/reupload_service siblings. The reupload
+        # commit door picks the executor by record type and reaches all three
+        # through the port.
+        "backend/app/platform/extensions/defaults_catalog_port.py": 435,
         # feat(#683): +58 — run_analysis_preview carries a clip mask DATASET
         # now, which costs a widened signature (one param per line once ruff
         # wraps it) plus the mask's shape and size gates. Those live here on
@@ -2166,7 +2182,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # has to say why the redaction belongs here rather than at each of them,
     # and why the exception itself is left unmodified for callers that
     # dispatch on its type. Cap 1880 -> 1889, exact.
-    "backend/app/processing/ingest/tasks_common.py": 1889,
+    # fix(#1290 review): +13 — _archive_original_file reports whether the
+    # archive landed and accepts the uploaded filename. The raster tails call
+    # it to satisfy ADR-002 Decision 7 when a conversion was lossy, so for them
+    # the outcome is a decision input (do not delete the staged upload unless
+    # the durable copy exists) rather than a breadcrumb, and `file_path` is a
+    # temp download on object storage so the name had to come from the caller.
+    # Cap 1889 -> 1902, exact.
+    "backend/app/processing/ingest/tasks_common.py": 1902,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -2304,12 +2327,57 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # STRING, which the queue-time is-None check cannot see, and the stale
     # reservation it left blocked every refresh for the bound-job timeout.
     # Cap 1027 -> 1046, exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1046,
+    # feat(#1221): +79 — raster replace. The eligibility gate stops refusing
+    # raster_dataset outright and instead constrains it to raster payloads
+    # (plus a service-preview refusal, since nothing fetches a GeoTIFF from a
+    # feature service); the schema-preview endpoint gains an explicit refusal
+    # because a raster has no attribute schema and the ogrinfo call below it
+    # would fail as if the upload were broken; and _dispatch_reupload_task
+    # extracts the three-way defer out of reupload_commit, which the raster
+    # branch pushed past the McCabe gate. Most of the added lines are the
+    # extraction's docstring and the raster branch's comment on why it stays
+    # off the priority queue. Cap 1046 -> 1125, exact.
+    # fix(#1290 review): +10 — both doors swap the creation-shaped
+    # check_upload_quota for check_replacement_quota, which needs the
+    # dataset_id and gets a comment explaining that a replacement creates no
+    # dataset, so refusing it at the count cap locked owners out of replacing
+    # what they already own. Cap 1125 -> 1135, exact.
+    # fix(#1290 review): +8 — both doors pass the dataset OWNER rather than the
+    # requester to the replacement admission, which is the identity the worker
+    # reserves against. Wrapped across lines by the formatter.
+    # Cap 1135 -> 1143, exact.
+    # fix(#1290 review): +6 — the presigned completion door names the dataset
+    # it is replacing, so the finalizer runs replacement-aware admission. It was
+    # the third admission point and still creation-shaped, so an owner at the
+    # dataset-count cap passed the request-time door, uploaded the bytes, and
+    # was refused at completion. Cap 1143 -> 1149, exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1149,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python
     # datetime and not func.now(). Cap 1071 -> 1078, exact.
-    "backend/app/processing/ingest/tasks_vrt.py": 1078,
+    # fix(#1290 review): +28 — `last_regenerated_at` is stamped with the instant
+    # the member snapshot was READ rather than the instant the VRT was
+    # published. Most of the added lines are the comment: the field names the
+    # state the artifact was built FROM, so a member replaced during the build
+    # now reports stale instead of being vouched for as healthy, and the
+    # clock-authority finding (both sides are app-side UTC, so no DB round trip
+    # is needed and moving one side alone would break it) has to be written
+    # down where the next reader will look. Cap 1078 -> 1106, exact.
+    # fix(#1290 review, round 10): +12 net — snapshot_member_sources extracted
+    # so BOTH VRT tails read their members through one function that stamps
+    # before it reads. The creation tail had no snapshot at all and the
+    # regenerate tail captured one after its query; putting the order inside
+    # the only function that does the read makes the wrong order unwritable
+    # rather than merely discouraged. Cap 1106 -> 1118, exact.
+    # fix(#1290 review, round 12): +22 — built_from_map plus its persistence in
+    # both tails. Staleness stopped being a timestamp comparison and became a
+    # state one: the published VRT records the member URIs it was assembled
+    # from, and health compares what-is against what-was-built-from. Postgres
+    # cannot stamp commit time from inside a transaction, so no clock scheme
+    # could express "committed after my snapshot" — three rounds of timestamp
+    # fixes each left a window. Cap 1118 -> 1140, exact.
+    "backend/app/processing/ingest/tasks_vrt.py": 1140,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
     # reaper never touched the key the client's PUT URL can still recreate.
@@ -2354,7 +2422,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # NULL on the ORM instance because the insert trigger fills that column in
     # the database. The comment records why, so nobody "simplifies" it back to
     # reading the row. Cap 1051 -> 1059, exact.
-    "backend/app/processing/ingest/service.py": 1059,
+    # fix(#1290 review): +14 — safe_upload_basename, extracted from the two
+    # inline `Path(x).name` copies inside save_upload_file so the
+    # archived-original key derives from the SAME normalization the upload path
+    # applies. Deriving from the raw filename split the key: the logical URI
+    # kept a path component the write stripped, so the counted row pointed at
+    # nothing. Cap 1059 -> 1073, exact.
+    "backend/app/processing/ingest/service.py": 1073,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.
@@ -2452,7 +2526,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # response carries the run id alongside the job id, and says why — the
     # run is the durable history row that outlives the job the retention
     # purge removes. Cap 1396 -> 1435, exact.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1435,
+    # feat(#1221): +5 — `stale` joins VrtSourceHealth.status, for a member
+    # whose own raster was replaced after the parent VRT was last built. The
+    # comment is the value: the member probes healthy and it is the PARENT
+    # that needs regenerating, which is the opposite of where `inaccessible`
+    # sends the reader. Cap 1435 -> 1440, exact.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1440,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch
@@ -2570,7 +2649,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # check_dataset_access_or_anonymous already resolved; the list endpoint
     # takes the batch form, one visibility query per page. Cap 1427 -> 1440,
     # still exact.
-    "backend/app/modules/catalog/search/router.py": 1440,
+    # fix(#1290 review): +10 — the public-asset-key boundary. Rows are
+    # filtered where they are FETCHED so an internal key never enters a
+    # payload structure; `GET /datasets/{id}` had been building its assets
+    # straight off the ORM rows and leaked the archived original's href and
+    # filename to every viewer. Cap 1440 -> 1450, exact.
+    "backend/app/modules/catalog/search/router.py": 1450,
     # fix(#474): negotiate localized STAC record text; fix(#475) adds the
     # unassigned Collection and matching HTTP Link navigation. fix(#506): keep
     # validated STAC item responses wire-compatible with serializer output.

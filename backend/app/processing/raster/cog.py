@@ -25,6 +25,112 @@ _LON_DEGENERATE_TOL = 1e-9
 _WRAP_PROBE_MIN_DEGREES = 1.0
 
 
+# fix(#1290 review): compression profiles that reproduce every input sample
+# exactly. An ALLOWLIST, and the direction is the point: `compression` reaches
+# the worker straight off `RasterCommitRequest` with no server-side vocabulary
+# check, so a value nothing here recognises has to fall on the "assume lossy,
+# keep the original" side. Getting that backwards deletes the only lossless
+# copy of a raster. The import UI currently offers four of these plus JPEG and
+# WEBP, which are the two that must NOT appear here.
+#
+# LERC is here on a condition, and the condition is a fact about our own argv
+# rather than about the codec. LERC's error bound is the GTiff creation option
+# MAX_Z_ERROR, whose default is 0 — exact — and `convert_to_cog` never passes
+# it, so a LERC conversion reproduces the base samples bit for bit. Verified
+# three ways: the GDAL docs
+# (https://gdal.org/en/stable/drivers/raster/gtiff.html#creation-options), the
+# deployed GDAL 3.10.3's own declaration (`gdalinfo --format GTiff` reports
+# MAX_Z_ERROR and MAX_Z_ERROR_OVERVIEW with default="0"), and a float32
+# round-trip through this module's exact argv, which came back identical.
+# The moment someone passes a nonzero MAX_Z_ERROR this entry is wrong, so it
+# is pinned: `test_lerc_stays_lossless_only_while_no_error_bound_is_set` fails
+# on that edit rather than leaving it to be discovered after an original has
+# already been deleted.
+LOSSLESS_COG_COMPRESSIONS: frozenset[str] = frozenset(
+    {"NONE", "DEFLATE", "LZW", "ZSTD", "PACKBITS", "LZMA", "LERC"}
+)
+
+
+def cog_preserves_source(
+    cog_status: str | None,
+    compression: str | None,
+    *,
+    reprojected: bool = False,
+) -> bool:
+    """True when the stored COG carries the samples the uploaded file did.
+
+    fix(#1290 review). ADR-002 Decision 7 licenses deleting the pre-conversion
+    upload on the stated grounds that "conversion is lossless". That is a claim
+    about what the conversion DID, and there is more than one way for it to be
+    false.
+
+    The audit of everything ``convert_to_cog`` can apply, so the next reader
+    does not have to redo it:
+
+    - **compression** — JPEG and WEBP discard detail. Sample-altering. LERC
+      does not, at the zero error bound this pipeline leaves in place; the
+      condition that keeps that true is spelled out on
+      ``LOSSLESS_COG_COMPRESSIONS``.
+    - **assign_crs** — runs ``gdalwarp -t_srs``, which resamples the raster
+      onto a new grid. Every output pixel is interpolated from neighbours, so
+      the source's samples are gone even under DEFLATE. Sample-altering, and
+      the case round 2 missed by looking only at the codec.
+    - **resampling** — feeds ``gdaladdo`` (overviews are additional data, the
+      base band is untouched) and ``gdalwarp -r``. It only alters samples
+      through the warp, which ``reprojected`` already covers.
+    - **nodata** — ``gdal_translate -a_nodata`` writes a metadata tag. Pixel
+      values are byte-identical, so this is not sample-altering; it changes how
+      the samples are interpreted, not what they are.
+    - **overviews / tiling / COPY_SRC_OVERVIEWS** — add or rearrange, never
+      discard.
+
+    So the predicate is "no lossy codec AND no warp". Anything not proven
+    sample-preserving must return False: the cost of a wrong True is the
+    permanent loss of the only faithful copy, and the cost of a wrong False is
+    some retained bytes.
+
+    ``cog_status == "verified"`` short-circuits because nothing ran at all —
+    the bytes written to storage ARE the uploaded bytes, whatever codec they
+    already carried. A warp cannot coexist with it: ``check_and_prepare_cog``
+    treats any ``assign_crs`` as a custom option and always converts.
+    """
+    if cog_status == "verified":
+        return True
+    if reprojected:
+        return False
+    return (compression or "").upper() in LOSSLESS_COG_COMPRESSIONS
+
+
+def resolve_crs_assignment(
+    *, crs_wkt: str | None, srid_override: int | None
+) -> int | None:
+    """The EPSG code the conversion must apply, or None to keep the source's.
+
+    fix(#1290 review): an override applies whenever the caller supplies one,
+    not only when the source declares nothing. ``RasterCommitRequest``
+    documents this field as "EPSG code to use when source CRS is missing **or
+    incorrect**", and correcting a wrong declaration was precisely the case the
+    old ``if crs_missing`` guard dropped on the floor — the conversion ran
+    without the override and published a raster still carrying the CRS the
+    caller had just told us was wrong, with no error to say so.
+
+    Shared by first ingest and replace deliberately. The two tails held
+    identical copies of the old predicate and were wrong in identical ways;
+    leaving them as two copies is how the next fix lands on one of them.
+
+    Raises ``ValueError`` when the source declares no CRS and no override was
+    given — the one case where the pipeline genuinely cannot proceed.
+    """
+    if srid_override:
+        return srid_override
+    if not crs_wkt:
+        raise ValueError(
+            "Missing CRS: raster has no coordinate reference system. "
+            "Provide a CRS override (EPSG code) at import time."
+        )
+    return None
+
+
 def _is_float_dtype(dtype: str) -> bool:
     """Check if a raster dtype string represents a floating-point type."""
     return any(f in dtype.lower() for f in _FLOAT_DTYPES)

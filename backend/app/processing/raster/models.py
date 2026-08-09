@@ -96,6 +96,14 @@ class RasterAsset(Base):
     last_regenerated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # fix(#1290 review): what the published VRT was assembled FROM, as
+    # {dataset_id: asset_uri}. Member staleness is a state comparison against
+    # this — what a member IS versus what the artifact was built from — because
+    # no timestamp can express "committed after my snapshot" (Postgres has no
+    # commit-time stamp available inside the transaction). NULL means the VRT
+    # predates this column and the health endpoint falls back to the legacy
+    # timestamp comparison for it.
+    built_from: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     def to_stac_properties(self) -> dict:
         """Extract STAC-compatible properties from raster metadata."""
@@ -209,13 +217,20 @@ class DatasetAsset(Base):
       - 'thumbnail': 256px quicklook
       - 'overview': 512px quicklook
       - 'metadata': sidecar metadata JSON
+      - 'archived_original:<hash>': one row per pre-conversion upload kept
+        when the COG conversion was lossy (ADR-002 Decision 7). The hash suffix
+        makes the key per-archive, so every kept original is counted rather
+        than only the newest. INTERNAL — it exists so the per-user storage sum
+        can see those bytes, and it is deliberately not published as a STAC
+        asset; see ``app.platform.assets.keys``.
     """
 
     __tablename__ = "dataset_assets"
     __table_args__ = (
         UniqueConstraint("dataset_id", "key", name="uq_dataset_assets_key"),
         CheckConstraint(
-            "key IN ('data', 'vrt', 'thumbnail', 'overview', 'metadata')",
+            "key IN ('data', 'vrt', 'thumbnail', 'overview', 'metadata') "
+            "OR key LIKE 'archived_original:%'",
             name="chk_dataset_assets_key",
         ),
         {"schema": "catalog"},

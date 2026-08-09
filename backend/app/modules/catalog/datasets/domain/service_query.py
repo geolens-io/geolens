@@ -26,6 +26,7 @@ from app.modules.catalog.datasets.domain.models import (
     DatasetGrant,
     Record,
 )
+from app.platform.assets.keys import is_public_asset_key
 from app.platform.extensions import get_catalog_port
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -248,6 +249,12 @@ async def get_dataset_detail(
     dataset_asset_rows = results["da"]
     stac_assets_dict = {}
     for da in dataset_asset_rows:
+        # fix(#1290 review): this path built its assets straight off the ORM
+        # rows and never consulted the allowlist, so an internal key leaked
+        # its href, filename and size to every viewer of a public dataset.
+        # Same boundary the STAC/search builder crosses.
+        if not is_public_asset_key(da.key):
+            continue
         stac_assets_dict[da.key] = StacAsset(
             href=da.href,
             type=da.media_type,

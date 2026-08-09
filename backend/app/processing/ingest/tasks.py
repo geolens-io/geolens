@@ -59,3 +59,8 @@ from app.processing.ingest.tasks_reupload import (  # noqa: F401
     reupload_file,
     reupload_service,
 )
+
+# -- Raster replace (feat #1221) --
+from app.processing.ingest.tasks_raster_replace import (  # noqa: F401
+    reupload_raster,
+)

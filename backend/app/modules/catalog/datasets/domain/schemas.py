@@ -907,7 +907,12 @@ class VrtSourceListResponse(BaseModel):
 class VrtSourceHealth(BaseModel):
     dataset_id: uuid.UUID
     title: str
-    status: Literal["healthy", "missing", "inaccessible"]
+    # feat(#1221): `stale` means the member's own raster was replaced after the
+    # parent VRT was last built. The member is fine — it is the parent's stored
+    # VRT that still names the superseded COG, so the fix is a regenerate, not
+    # anything done to the source. Distinct from `inaccessible`, which is about
+    # the member itself and sends the reader somewhere else entirely.
+    status: Literal["healthy", "missing", "inaccessible", "stale"]
 
 
 class VrtActiveGeneration(BaseModel):

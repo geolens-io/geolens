@@ -35,14 +35,20 @@ class TestServiceTypeGuard:
         assert "VRT" in exc.value.detail or "vrt" in exc.value.detail.lower()
 
     def test_raster_dataset_rejected_for_wfs(self):
-        """All supported service types are vector — reject for raster_dataset."""
+        """All supported service types are vector — reject for raster_dataset.
+
+        feat(#1221): raster reupload is supported now, but only from a file.
+        A service refresh stays refused because nothing fetches a GeoTIFF from
+        a feature service, so the refusal message changed while the status did
+        not.
+        """
         with pytest.raises(HTTPException) as exc:
             _assert_compatible_record_type(
                 _ds("raster_dataset"), None, service_type="WFS 2.0.0"
             )
         assert exc.value.status_code == 400
         assert "raster" in exc.value.detail.lower()
-        assert "not supported" in exc.value.detail.lower()
+        assert "remote service" in exc.value.detail.lower()
 
     def test_raster_dataset_rejected_for_arcgis(self):
         with pytest.raises(HTTPException) as exc:
@@ -91,16 +97,17 @@ class TestFilePathStillWorks:
         assert exc.value.status_code == 400
         assert "standalone vrt" in exc.value.detail.lower()
 
-    def test_raster_reupload_is_rejected_even_for_tif(self):
-        with pytest.raises(HTTPException) as exc:
-            _assert_compatible_record_type(_ds("raster_dataset"), "landcover.tif")
-        assert exc.value.status_code == 400
-        assert "not supported" in exc.value.detail.lower()
+    def test_raster_accepts_tif(self):
+        """feat(#1221): the gate this issue relaxed. A raster dataset takes a
+        raster replacement — that is the whole point of the replace path."""
+        _assert_compatible_record_type(_ds("raster_dataset"), "landcover.tif")
+        _assert_compatible_record_type(_ds("raster_dataset"), "landcover.TIFF")
 
     def test_raster_rejects_geojson(self):
         with pytest.raises(HTTPException) as exc:
             _assert_compatible_record_type(_ds("raster_dataset"), "places.geojson")
         assert exc.value.status_code == 400
+        assert "cross-record-type" in exc.value.detail.lower()
 
     def test_vrt_rejected_regardless_of_filename(self):
         with pytest.raises(HTTPException) as exc:
@@ -109,7 +116,7 @@ class TestFilePathStillWorks:
 
 
 def test_raster_worker_rejects_standalone_vrt_jobs():
-    from app.processing.ingest.tasks_raster import _reject_raw_vrt_job
+    from app.processing.ingest.tasks_raster_common import _reject_raw_vrt_job
 
     with pytest.raises(ValueError, match="Standalone VRT"):
         _reject_raw_vrt_job("unsafe.vrt")

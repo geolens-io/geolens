@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import MIN_SIGNABLE_JOB_LIFETIME_SECONDS, settings
 from app.core.persistent_config import UPLOAD_MAX_SIZE_MB
 from app.core.async_io import await_draining, run_in_thread_draining
-from app.modules.quota.service import check_upload_quota
+from app.modules.quota.service import check_replacement_quota, check_upload_quota
 from app.platform.storage import StorageProvider
 from app.platform.storage.titiler_url import resolve_current_storage_key
 from app.processing.ingest.validation import HEADER_READ_SIZE, validate_file_content
@@ -190,8 +190,20 @@ async def verify_completed_presigned_upload(
     user_id: uuid.UUID,
     request: Request,
     job_id: uuid.UUID,
+    replacing_dataset_id: uuid.UUID | None = None,
 ) -> int:
-    """Verify a completed direct-to-object-storage upload before accepting it."""
+    """Verify a completed direct-to-object-storage upload before accepting it.
+
+    fix(#1290 review): completion is an ADMISSION POINT, and it was running the
+    creation-shaped check. An owner at the dataset-count cap therefore passed
+    the request-time door — which learned about replacements — uploaded the
+    bytes, and was refused here because the finalizer still treated a
+    replacement as a new dataset. Replacement-aware admission has to hold at
+    every admission point or the class just moves to the next one.
+
+    ``replacing_dataset_id`` is the reupload doors' way of saying which it is.
+    None means a genuine creation and keeps the original check.
+    """
     actual_size = await storage.size(key)
     max_size_mb = await UPLOAD_MAX_SIZE_MB.get(db)
 
@@ -217,7 +229,12 @@ async def verify_completed_presigned_upload(
             )
 
     try:
-        await check_upload_quota(db, user_id, actual_size, request)
+        if replacing_dataset_id is not None:
+            await check_replacement_quota(
+                db, user_id, actual_size, request, dataset_id=replacing_dataset_id
+            )
+        else:
+            await check_upload_quota(db, user_id, actual_size, request)
     except HTTPException:
         await _cleanup_presigned_object(storage, key, job_id)
         raise
@@ -412,6 +429,7 @@ async def finalize_presigned_object(
     filename: str,
     user_id: uuid.UUID,
     request: Request,
+    replacing_dataset_id: uuid.UUID | None = None,
 ) -> str:
     """Freeze, verify and validate a completed presigned upload.
 
@@ -513,6 +531,7 @@ async def finalize_presigned_object(
             user_id=user_id,
             request=request,
             job_id=job_id,
+            replacing_dataset_id=replacing_dataset_id,
         )
         await validate_presigned_content(
             storage,

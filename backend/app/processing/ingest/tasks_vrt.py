@@ -62,6 +62,54 @@ def _prior_generation_storage_keys_to_reap(
     return [resolve_storage_key(key, tenant_id=tenant_id) for key in logical_keys]
 
 
+async def snapshot_member_sources(
+    session, dataset_ids, *, raster_asset_cls, dataset_cls
+):
+    """Stamp the instant, THEN read the members. Returns ``(snapshot_at, assets)``.
+
+    fix(#1290 review). ``last_regenerated_at`` names the state a VRT was built
+    FROM, and that only works if the instant predates the read it describes.
+    Both VRT tails need that ordering and neither could be trusted to keep it:
+    the creation tail had no snapshot at all, and the regenerate tail captured
+    one AFTER its member query. So the ordering lives here, inside the only
+    function that does the read, where writing it the wrong way round is not
+    possible rather than merely discouraged. Third instance of the two-tails
+    class on this PR — after reserve-before-upsert and the COG policy — and the
+    durable fix each time was one authority both tails must cross.
+
+    The direction of the remaining error is the point. Stamping BEFORE the read
+    means a replacement landing in the (tiny) stamp→read window is already
+    visible to the read, so the build uses the NEW URI while ``ingested_at``
+    postdates the stamp: the parent reports ``stale`` when it is in fact fine,
+    and an operator regenerates once for nothing. Stamping after the read
+    inverts that into a parent whose stored VRT references a reaped COG being
+    reported ``healthy``. A needless regenerate is cheap and self-correcting; a
+    masked broken mosaic is neither.
+    """
+    snapshot_at = datetime.now(timezone.utc)
+    result = await session.execute(
+        select(raster_asset_cls)
+        .join(dataset_cls, raster_asset_cls.dataset_id == dataset_cls.id)
+        .where(dataset_cls.id.in_(dataset_ids))
+    )
+    asset_map = {a.dataset_id: a for a in result.scalars().all()}
+    ordered = [asset_map[sid] for sid in dataset_ids if sid in asset_map]
+    return snapshot_at, ordered
+
+
+def built_from_map(ordered_assets) -> dict:
+    """``{dataset_id: asset_uri}`` for the members a build is assembling.
+
+    fix(#1290 review). This is what makes staleness a STATE question. The
+    health endpoint compares each member's current committed ``asset_uri``
+    against the entry recorded here, so "the stored VRT references a superseded
+    COG" is answered by comparing what-is to what-was-built-from rather than by
+    racing two clocks. Derived from the same ``ordered_assets`` the build reads,
+    so the recorded set is by construction the set that was used.
+    """
+    return {str(a.dataset_id): a.asset_uri for a in ordered_assets}
+
+
 async def create_vrt_dataset(
     session,
     *,
@@ -77,6 +125,8 @@ async def create_vrt_dataset(
     resolution_strategy: str,
     source_dataset_ids: list[uuid.UUID],
     record_status: str = "published",
+    snapshot_at: datetime | None = None,
+    built_from: dict | None = None,
 ) -> tuple:
     """Create Record + Dataset + RasterAsset records for a VRT dataset.
 
@@ -154,6 +204,15 @@ async def create_vrt_dataset(
         driver="VRT",
         storage_backend="local",
         ingested_at=datetime.now(timezone.utc),
+        # fix(#1290 review): the instant the members were READ, so a
+        # never-regenerated parent does not fall back to a publish-time
+        # `ingested_at` in the staleness comparison. Optional only because the
+        # manifest-VRT caller has no snapshot of its own; the build path always
+        # supplies it.
+        last_regenerated_at=snapshot_at,
+        # fix(#1290 review): the authoritative staleness input. The timestamp
+        # above stays for legacy rows that have no built-from set.
+        built_from=built_from,
         crs_wkt=meta.get("crs_wkt"),
         epsg=meta.get("epsg"),
         band_count=meta.get("band_count"),
@@ -290,17 +349,15 @@ async def ingest_vrt(
             # 2. Parse source dataset IDs
             ids = [uuid.UUID(sid) for sid in _json.loads(source_dataset_ids)]
 
-            # 3. Load RasterAsset rows for source datasets
-            asset_result = await session.execute(
-                select(RasterAsset)
-                .join(Dataset, RasterAsset.dataset_id == Dataset.id)
-                .where(Dataset.id.in_(ids))
+            # 3. Load RasterAsset rows for source datasets, stamped first.
+            # fix(#1290 review): the creation tail had NO snapshot instant, so
+            # a member replaced during the initial build was masked exactly as
+            # it was on regenerate — the status comparison falls back to the
+            # parent's `ingested_at` when `last_regenerated_at` is NULL, and
+            # that was stamped at publish.
+            snapshot_at, ordered_assets = await snapshot_member_sources(
+                session, ids, raster_asset_cls=RasterAsset, dataset_cls=Dataset
             )
-            asset_map = {
-                asset.dataset_id: asset for asset in asset_result.scalars().all()
-            }
-            # Preserve insertion order
-            ordered_assets = [asset_map[sid] for sid in ids if sid in asset_map]
 
             # 4. Resolve paths (snapshot to plain strings before closing session)
             from app.core.db.tenant_session import current_tenant_var
@@ -371,6 +428,8 @@ async def ingest_vrt(
                 title = um.get("title") or f"vrt_{vrt_type}"
                 record, dataset, raster_asset = await create_vrt_dataset(
                     session,
+                    snapshot_at=snapshot_at,
+                    built_from=built_from_map(ordered_assets),
                     meta=meta,
                     asset_sha256=asset_sha256,
                     vrt_size=vrt_size,
@@ -725,13 +784,9 @@ async def regenerate_vrt(
             )
 
             # 4. Load source RasterAsset rows and resolve paths
-            source_assets_result = await session.execute(
-                select(RasterAsset)
-                .join(Dataset, RasterAsset.dataset_id == Dataset.id)
-                .where(Dataset.id.in_(source_ids))
+            snapshot_at, ordered_assets = await snapshot_member_sources(
+                session, source_ids, raster_asset_cls=RasterAsset, dataset_cls=Dataset
             )
-            asset_map = {a.dataset_id: a for a in source_assets_result.scalars().all()}
-            ordered_assets = [asset_map[sid] for sid in source_ids if sid in asset_map]
             from app.core.db.tenant_session import current_tenant_var
 
             source_paths = [
@@ -918,7 +973,14 @@ async def regenerate_vrt(
 
                 # 12. Status transitions
                 vrt_asset.status = "ready"
-                vrt_asset.last_regenerated_at = datetime.now(timezone.utc)
+                # fix(#1290 review): the snapshot instant, NOT now(). See the
+                # capture site in phase 1 for why the field names the state the
+                # artifact was built from.
+                vrt_asset.last_regenerated_at = snapshot_at
+                # fix(#1290 review): recorded from the SAME ordered_assets the
+                # build used, in the publish transaction, so the stored set and
+                # the stored VRT always describe each other.
+                vrt_asset.built_from = built_from_map(ordered_assets)
                 vrt_asset.current_generation_id = None
                 if vrt_asset_snapshot is not None:
                     vrt_asset_snapshot.status = vrt_asset.status

@@ -18,7 +18,7 @@ import io
 import pytest
 
 from app.platform.storage.local import LocalStorageProvider
-from app.processing.ingest.tasks_raster import _cleanup_orphaned_storage_keys
+from app.processing.ingest.tasks_raster_common import _cleanup_orphaned_storage_keys
 
 
 @pytest.fixture

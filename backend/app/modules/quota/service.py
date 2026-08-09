@@ -27,7 +27,8 @@ async def get_user_quota_usage(
 ) -> UserQuotaUsage:
     """Return current bytes-used and dataset-count for a user in one SQL round-trip.
 
-    Joins catalog.records → catalog.datasets → catalog.dataset_assets (key='data')
+    Joins catalog.records → catalog.datasets → catalog.dataset_assets
+    (key='data' or 'archived_original:*')
     to sum the byte size of the user's owned dataset files.  Only dataset record
     types are counted (maps, services, and collections are excluded).
 
@@ -52,7 +53,8 @@ async def get_user_quota_usage(
         FROM   catalog.records r
         LEFT JOIN catalog.datasets d  ON d.record_id = r.id
         LEFT JOIN catalog.dataset_assets da
-               ON da.dataset_id = d.id AND da.key = 'data'
+               ON da.dataset_id = d.id
+              AND (da.key = 'data' OR da.key LIKE 'archived_original:%')
         WHERE  r.created_by = :user_id
           AND  r.record_type IN (
                    'vector_dataset', 'raster_dataset', 'vrt_dataset', 'table'
@@ -102,7 +104,8 @@ async def get_user_quota_usage_bulk(
         FROM   catalog.records r
         LEFT JOIN catalog.datasets d  ON d.record_id = r.id
         LEFT JOIN catalog.dataset_assets da
-               ON da.dataset_id = d.id AND da.key = 'data'
+               ON da.dataset_id = d.id
+              AND (da.key = 'data' OR da.key LIKE 'archived_original:%')
         WHERE  r.created_by = ANY(CAST(:user_ids AS uuid[]))
           AND  r.record_type IN (
                    'vector_dataset', 'raster_dataset', 'vrt_dataset', 'table'
@@ -180,6 +183,80 @@ async def check_upload_quota(
     # QUOTA-03: EntitlementPort cloud extension seam (OSS/Enterprise = no-op)
     await enforce_limit(request, "storage_bytes", usage.bytes_used + incoming_bytes)
     await enforce_limit(request, "dataset_count", usage.dataset_count + 1)
+
+
+async def check_replacement_quota(
+    db: AsyncSession,
+    owner_id: uuid.UUID | None,
+    incoming_bytes: int,
+    request: Request,
+    *,
+    dataset_id: uuid.UUID,
+) -> None:
+    """Admit a REPLACEMENT at the door, where ``check_upload_quota`` cannot.
+
+    fix(#1290 review). ``check_upload_quota`` is creation-shaped: it refuses at
+    ``dataset_count >= count_cap`` and charges the incoming file on top of
+    everything the user already stores. Applied to a replacement both halves
+    are wrong, and the first is a feature lockout rather than protection — an
+    owner sitting at their permitted dataset limit could not replace a dataset
+    they already own, because replacing creates no dataset.
+
+    So: no count check, and the byte check credits what the replacement
+    SUPERSEDES — the ``data`` row, read from ``dataset_assets`` because that is
+    what ``bytes_used`` sums. It is read from the row rather than the raster
+    asset because the two diverge for a STAC-imported dataset, which has an
+    asset but no counted row, and crediting bytes the quota never counted would
+    admit an upload that overshoots. Archived originals are deliberately NOT
+    credited: a replacement does not supersede them, they persist and stay
+    counted.
+
+    This is the EARLY bound and deliberately approximate: the door sees the
+    uploaded file, not the COG it converts into, which can be larger. The
+    authoritative check is ``reserve_storage_bytes`` at publish time, under the
+    per-user advisory lock, against the real converted size. Shared by both
+    reupload doors and by every record type — the vector path had the identical
+    lockout.
+
+    fix(#1290 review): the identity is the dataset's OWNER, not the requester.
+    Storage belongs to the owner and the worker reserves against
+    ``dataset.record.created_by``, so checking the requester let an admin
+    replacing someone else's dataset be admitted or refused on their own usage
+    with the owner's credit subtracted — a projection that could go negative,
+    and admissions the worker's authoritative reserve then failed. One identity,
+    one authority, no disagreement possible.
+
+    ``owner_id`` may be None for a legacy ownerless dataset. That is not
+    special-cased, deliberately: ``get_user_quota_usage`` filters
+    ``records.created_by = :user_id``, which matches nothing for NULL, so usage
+    reads zero and the cap is effectively unenforced — exactly what
+    ``reserve_storage_bytes`` does with the same value at publish time. Mirrored
+    rather than corrected so the two cannot diverge; changing the policy means
+    changing both.
+    """
+    usage = await get_user_quota_usage(db, owner_id)
+    counted = await db.scalar(
+        text(
+            "SELECT COALESCE(SUM(size_bytes), 0)::bigint "
+            "FROM catalog.dataset_assets "
+            "WHERE dataset_id = :dataset_id AND key = 'data'"
+        ),
+        {"dataset_id": dataset_id},
+    )
+    projected = usage.bytes_used - int(counted or 0) + incoming_bytes
+
+    if usage.storage_cap > 0 and projected > usage.storage_cap:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=(
+                f"Storage quota exceeded: used {usage.bytes_used} of "
+                f"{usage.storage_cap} bytes (replacing {int(counted or 0)} "
+                f"bytes with {incoming_bytes} bytes)"
+            ),
+        )
+
+    # No dataset_count seam call: a replacement does not create one.
+    await enforce_limit(request, "storage_bytes", projected)
 
 
 class DatasetQuotaExceededError(Exception):

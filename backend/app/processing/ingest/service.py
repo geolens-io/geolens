@@ -175,6 +175,20 @@ async def get_job_or_404(
     return job
 
 
+def safe_upload_basename(filename: str | None) -> str:
+    """The filename stripped to a basename, which is the only form safe to key on.
+
+    fix(#1290 review): this was two inline `Path(x).name` copies inside
+    ``save_upload_file``, and a third consumer (the archived-original key)
+    derived from the RAW filename instead. A name carrying path separators then
+    split the derivation — the logical URI kept the directory while the actual
+    write basenamed it — so the counted row pointed at a nonexistent object and
+    cleanup tracked a key nobody had written. One policy, one function, every
+    consumer.
+    """
+    return Path(filename or "").name or "upload"
+
+
 async def save_upload_file(
     file: UploadFile,
     job_id: str,
@@ -217,7 +231,7 @@ async def save_upload_file(
         from app.platform.storage import get_storage
 
         storage = get_storage()
-        safe_name = Path(file.filename).name  # strip path traversal
+        safe_name = safe_upload_basename(file.filename)  # strip path traversal
         s3_key = f"staging/{job_id}/{safe_name}"
         physical_s3_key = resolve_current_storage_key(s3_key)
         put_started = False
@@ -277,7 +291,7 @@ async def save_upload_file(
     staging_dir = Path(settings.upload_staging_dir)
     staging_dir.mkdir(parents=True, exist_ok=True)
 
-    safe_name = Path(file.filename).name  # strip path traversal
+    safe_name = safe_upload_basename(file.filename)  # strip path traversal
     dest = staging_dir / f"{job_id}_{safe_name}"
 
     total = 0

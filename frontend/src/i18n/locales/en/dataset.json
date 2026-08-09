@@ -769,6 +769,7 @@
         "healthy": "Healthy",
         "missing": "Missing",
         "inaccessible": "Inaccessible",
+        "stale": "Outdated",
         "unknown": "Unknown"
       },
       "history": "Generation history",

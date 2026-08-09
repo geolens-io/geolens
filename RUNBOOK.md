@@ -21,6 +21,7 @@ documentation.
 6. [Major PostgreSQL version upgrade (17 → 18)](#6-major-postgresql-version-upgrade-17--18)
 7. [Schema rollback](#7-schema-rollback)
 8. [Audit log retention](#8-audit-log-retention)
+9. [Uploaded source-file retention](#9-uploaded-source-file-retention)
 
 ---
 
@@ -1552,3 +1553,178 @@ ability to answer "who did X on day Y" for anything older than the window.
 That is the intended tradeoff of retention; keep the exported archive (offsite,
 per §1's guidance on the primary backup) if you need to answer that question
 later without re-enabling unbounded storage in the live table.
+
+---
+
+## 9. Uploaded source-file retention
+
+When someone uploads a file, GeoLens keeps the uploaded bytes only as long as it
+needs them to build the dataset. This section says what survives the ingest, so
+you are not surprised later by what a restore does and does not contain.
+
+### What is deleted, and when
+
+| Upload | Where the data ends up | The uploaded file |
+| --- | --- | --- |
+| Vector (Shapefile, GPKG, GeoJSON, CSV, …) | PostGIS table | **Archived to `originals/`**, and the staging copy deleted |
+| Raster (GeoTIFF) | A Cloud-Optimized GeoTIFF in object storage | Deleted after a **lossless** conversion; archived to `originals/` otherwise |
+| Raster replace (re-upload onto an existing raster dataset) | The dataset's COG is swapped for the new one | Deleted after a **lossless** conversion; archived to `originals/` otherwise |
+
+Vector uploads are archived rather than discarded: after a successful ingest
+the file is copied to `originals/<dataset-id>/<filename>` and only the staging
+copy is removed. That archive is best-effort — if the copy fails the ingest
+still succeeds, because the data is already in PostGIS, and the job records an
+`archive_failed` flag you can see on the admin Jobs page. So treat a vector
+original as present-but-not-guaranteed, and check the flag if you are relying
+on one.
+
+A raster dataset **is** its COG. When the conversion is lossless the converted
+asset carries everything the upload did, and every re-processing case an
+operator actually has — different overview levels, different compression,
+different internal tiling — starts from the COG just as well as from the
+original. Keeping a second copy of every raster ever uploaded bought nothing and
+cost object storage forever, so in that case it is no longer kept (ADR-002
+Decision 7).
+
+### When the conversion is lossy, the upload is kept
+
+Two things about a conversion can make the COG an unfaithful copy, and either
+one causes the upload to be kept.
+
+**Compression.** The import form lets the uploader choose. Four options are
+lossless — **DEFLATE** (the default), **LZW**, **ZSTD**, **LERC** — and two
+discard image detail to save space: **JPEG** and **WEBP**.
+
+LERC is lossless here because GeoLens never sets an error bound on it. LERC can
+be tuned to throw away precision, but that is the GDAL creation option
+`MAX_Z_ERROR`, its default is zero, and the conversion pipeline does not pass
+it. So a LERC upload keeps its exact sample values and is treated like any other
+lossless conversion.
+
+**Reprojection.** Supplying a CRS override reprojects the raster, which
+resamples every pixel onto a new grid. The output is a faithful *rendering* but
+not the original measurements, so this counts as lossy even under DEFLATE.
+
+In either case the uploaded file is the only copy of the original samples that
+will ever exist, so GeoLens keeps it.
+
+### Where the kept original lives, and for how long
+
+It is copied to `originals/<dataset-id>/<hash>` — the same place vector ingests
+archive their sources. On an object-storage install that is a prefix in your
+bucket; on a local install it is `originals/` inside the `upload_staging`
+volume. One location, both shapes.
+
+The `<hash>` is the first 32 characters of the uploaded file's SHA-256, and it
+is the whole name: **no filename, no extension**. The object is identified by
+its content and nothing else, so the same bytes are the same object however they
+were named — upload `survey.tif` and `survey-final.tif` with identical content
+and you get one stored copy, not two. That also means two uploads sharing a
+filename cannot overwrite each other, which matters because a replacement is
+archived before its swap commits: if the swap then fails, the dataset keeps
+serving the previous raster, whose original must still be sitting there
+untouched.
+
+**To find out what a stored original was called**, read the dataset's asset
+table rather than the object name — each kept original has a row whose
+description is the filename it was uploaded under. Listing the `originals/`
+prefix shows hashes by design; the names live where they cannot affect which
+object is which.
+
+That location is deliberate. The copy is **not** left under `staging/`, because
+staging is for transient files and the retention purge is entitled to clean it:
+the purge keeps only each dataset's most recent completed job, so a kept
+original would have been deleted the next time that dataset was ingested or
+replaced. Under `originals/` no purge touches it.
+
+Its lifetime is therefore tied to the dataset, not to a job:
+
+| Event | What happens to the kept original |
+| --- | --- |
+| The dataset is replaced again with a lossy conversion | The new original is kept alongside it. Every upload with distinct content persists, whatever it is called; re-uploading a byte-identical file rewrites the same object rather than adding a second copy. |
+| The dataset is replaced with a **lossless** conversion | Nothing new is kept. Earlier originals stay — they are still the only copy of what those uploads contained. |
+| The dataset is **deleted** | Removed with it. Deleting a raster dataset clears the whole `originals/<dataset-id>/` prefix. |
+| The `ingest_jobs` retention window passes | Nothing. This copy is not a job artifact. |
+
+**It counts against the owner's storage quota.** Every kept original gets its
+own row in the dataset's asset table, so `MAX_STORAGE_BYTES_PER_USER` sees
+those bytes and a lossy replacement is admitted only if the COG *and* the
+original fit. That includes superseded originals: the cap exists to bound your
+storage by policy, so nothing that persists is left uncounted. Re-uploading a
+byte-identical file does not double-count — it is the same object and the same
+row.
+
+Those rows are internal. They are not published as downloadable assets in
+search or STAC responses, because the original is the higher-fidelity copy the
+conversion deliberately replaced.
+
+**If the archive cannot be written, the ingest fails.** A durable copy of the
+original is a precondition of a lossy conversion, not a nice-to-have: the
+conversion's success is what licenses deleting the uploaded file, so if the
+detail the COG cannot carry is not yet safely stored, GeoLens refuses to
+publish. The dataset keeps whatever it was serving, the uploaded file is
+retained with the failed job, and the job's error says so. Retry once object
+storage is healthy. That retention is the FAILED-job window —
+`INGEST_JOBS_RETENTION_DAYS`, default 30 — not the permanent one, so do not
+leave a failed lossy ingest sitting for a month before retrying it.
+
+> **If you delete an original object by hand, its row stays.** There is no
+> reconciliation between storage and the asset table, so the owner's usage will
+> overstate by the size of whatever you removed until the dataset itself is
+> deleted (which clears both). If you need the quota back immediately, delete
+> the dataset rather than the object — or accept the overstatement until then.
+
+The practical consequences:
+
+- Expect storage for lossily-converted rasters to hold roughly the COG plus the
+  original, not the COG alone. If storage growth surprises you, list the
+  `originals/` prefix — that is usually where it is.
+- Those originals are safe to delete yourself if you accept losing the only
+  faithful copy. Nothing in GeoLens reads them; they exist so the choice stays
+  yours.
+- If you want the smaller footprint and do not need the original, ingest with a
+  lossless compression and no CRS override, and accept the larger COG.
+
+Provenance is still recorded: the dataset's `source_filename` and the
+`file_hash` in `origin_ref` identify exactly which bytes were ingested. What is
+gone is the ability to hand those bytes back.
+
+> **If your workflow depends on re-downloading the file a user uploaded,
+> archive it before it reaches GeoLens.** GeoLens is a catalog, not an archive
+> of submissions, and the download endpoints serve the COG, not the original.
+
+### The other case where the original is kept
+
+If COG conversion **fails**, the uploaded file is retained. At that point it is
+the only copy in the system and it is what you need to diagnose the failure —
+open it with `gdalinfo`, check the driver, check the CRS.
+
+That retention is bounded, not permanent. The failed `ingest_jobs` row and its
+staged file are removed by the periodic purge once the row is older than
+`INGEST_JOBS_RETENTION_DAYS` (default 30; `0` disables the purge and keeps
+everything). So the practical rule is: **you have the retention window to
+retrieve a failed upload's source file, and after that it is gone.**
+
+Failed uploads are visible on the admin Jobs page with their error message.
+The files themselves live under `staging/<job-id>/` — in the `upload_staging`
+volume on local storage, or under that prefix in your bucket on S3/MinIO.
+
+### Interaction with backups
+
+§1's `staging-<timestamp>.tar.gz` archives the `upload_staging` volume. What
+that does and does not recover depends on which case put the file there.
+
+| Case | In the staging tar? |
+| --- | --- |
+| Failed upload, still inside the retention window | Yes |
+| **Vector original, local storage** | **Yes** — archived under `originals/` in that volume |
+| Vector original, object-storage install | No — in your bucket under `originals/` |
+| **Retained original from a lossy or reprojected ingest, local storage** | **Yes** — it lives under `originals/` inside that same volume |
+| Retained original, object-storage install | No — it is in your bucket under `originals/`, covered by whatever backs up the bucket, not by this tar |
+| Successfully ingested original from a **lossless** conversion | No — deleted before the backup ran |
+
+The last row is the only one that is genuinely unrecoverable, and it is the
+case where the COG carries the same samples anyway. Retained originals are
+recoverable on a local install, so if you are restoring one and need the
+pre-conversion files back, extract the staging archive as §2 describes and the
+`originals/` tree comes with it.

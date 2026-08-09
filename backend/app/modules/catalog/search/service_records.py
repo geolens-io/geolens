@@ -155,8 +155,15 @@ def _build_stac_assets(
 
     from app.platform.assets.urls import resolve_asset_url
 
+    from app.platform.assets.keys import is_public_asset_key
+
     result = {}
     for row in asset_rows:
+        # fix(#1290 review): the one shared boundary — see
+        # app/platform/assets/keys.py for why it is an allowlist and which
+        # paths cross it.
+        if not is_public_asset_key(row["key"]):
+            continue
         resolved_href = resolve_asset_url(
             row["href"],
             storage_backend=storage_backend,

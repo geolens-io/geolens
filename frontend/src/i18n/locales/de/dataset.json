@@ -818,6 +818,7 @@
         "healthy": "Verfügbar",
         "missing": "Fehlt",
         "inaccessible": "Nicht erreichbar",
+        "stale": "Veraltet",
         "unknown": "Unbekannt"
       },
       "history": "Erzeugungsverlauf",

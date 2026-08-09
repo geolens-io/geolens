@@ -228,7 +228,8 @@ async def get_vrt_status(
                 r.title,
                 d.id AS ds_id,
                 ra.asset_uri,
-                ra.storage_backend
+                ra.storage_backend,
+                ra.ingested_at
             FROM catalog.vrt_source_links vsl
             LEFT JOIN catalog.datasets d ON d.id = vsl.source_dataset_id
             LEFT JOIN catalog.records r ON r.id = d.record_id
@@ -286,12 +287,45 @@ async def get_vrt_status(
                 for row in sources_to_check
             )
         )
+        # feat(#1221): a member whose own raster was replaced (#1221's replace
+        # path restamps `ingested_at` when it swaps the pointer) leaves this
+        # parent's stored VRT naming a COG that no longer exists. The member
+        # itself probes healthy — it is the parent that needs regenerating —
+        # so surface that as its own state rather than letting a working
+        # source read as fine while the mosaic is broken.
+        # fix(#1290 review): staleness is a STATE comparison now — what the
+        # member IS versus what the published VRT was built FROM. Timestamps
+        # could not answer it: a replacement assigns `ingested_at` inside its
+        # transaction and commits later, so a rebuild snapshotting in between
+        # reads the OLD uri (read committed) and afterwards finds the member's
+        # stamp EARLIER than its own. Healthy, and wrong. Postgres exposes no
+        # commit-time stamp from inside the transaction, so no clock scheme
+        # could have closed it.
+        #
+        # `built_from` is NULL for VRTs built before it existed; those fall
+        # back to the legacy timestamp comparison, which is the best available
+        # answer for a row that never recorded its inputs.
+        built_from = vrt_asset.built_from or None
+        built_at = vrt_asset.last_regenerated_at or vrt_asset.ingested_at
         for row, file_exists in zip(sources_to_check, exists_results):
+            if not file_exists:
+                member_status = "inaccessible"
+            elif built_from is not None:
+                recorded = built_from.get(str(row.source_dataset_id))
+                member_status = "healthy" if recorded == row.asset_uri else "stale"
+            elif (
+                built_at is not None
+                and row.ingested_at is not None
+                and row.ingested_at > built_at
+            ):
+                member_status = "stale"
+            else:
+                member_status = "healthy"
             source_health_list.append(
                 VrtSourceHealth(
                     dataset_id=row.source_dataset_id,
                     title=row.title or "Unknown",
-                    status="healthy" if file_exists else "inaccessible",
+                    status=member_status,
                 )
             )
 

@@ -2,14 +2,12 @@
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any
 
 import structlog
 
 from app.core.db.tenant_session import current_tenant_var, tenant_task
 from app.core.tenancy import is_multi_tenant
 from app.platform.cache.tiles import invalidate_catalog_cache
-from app.platform.dataset_origin import set_dataset_origin
 from app.platform.jobs.heartbeat import (
     claim_job_attempt_and_start_heartbeat,
     require_ingest_job_update,
@@ -17,306 +15,41 @@ from app.platform.jobs.heartbeat import (
     stop_ingest_job_heartbeat,
     update_ingest_job_for_attempt,
 )
-from app.platform.storage.titiler_url import resolve_current_storage_key
 from app.processing.raster.cog import (
     _scratch_dir,
     check_and_prepare_cog,
-    check_cog_compliance,
+    cog_preserves_source,
     extract_raster_metadata,
+    resolve_crs_assignment,
     sha256_file,
 )
 from app.processing.raster.quicklook import generate_quicklook
 
 from app.platform.jobs.models import owned_presigned_staging_key
+from app.processing.ingest.tasks_raster_swap import (
+    archive_lossy_original,
+    archived_original_asset_key,
+    upsert_archived_original_row,
+)
+from app.processing.ingest.tasks_raster_common import (
+    _build_dataset_asset_rows,
+    _cleanup_orphaned_storage_keys,
+    _enforce_strict_cog,
+    _is_manifest_vrt_job,
+    _reject_raw_vrt_job,
+    _resolve_managed_raster_storage_keys,
+    create_raster_dataset,
+)
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
     _emit_billing_event,
     _job_phase_session,
     _parse_temporal_fields,
     _validate_upload_file_safety,
+    reap_downloaded_staging_source,
     reap_presigned_staging_object,
     task_app,
 )
-
-
-def _is_manifest_vrt_job(job: Any) -> bool:
-    """Return true when a raster queue job represents a manifest VRT source."""
-    metadata = job.user_metadata or {}
-    source_filename = (job.source_filename or "").lower()
-    return metadata.get("manifest_source_type") == "vrt" or source_filename.endswith(
-        ".vrt"
-    )
-
-
-def _reject_raw_vrt_job(source_filename: str | None) -> None:
-    """Worker-side backstop for jobs created outside current HTTP routes."""
-    if (source_filename or "").lower().endswith(".vrt"):
-        raise ValueError(
-            "Standalone VRT ingest is not supported; managed VRTs must be "
-            "created from catalog-tracked raster sources"
-        )
-
-
-async def _enforce_strict_cog(
-    file_path: str,
-    *,
-    expected_compression: str | None,
-    is_manifest_vrt: bool,
-    strict_cog: bool,
-) -> None:
-    """Strict-mode COG gate for ING-07 / P2-09.
-
-    When the user opted in via ``RasterCommitRequest.strict_cog=True``,
-    reject non-COG TIFFs here instead of silently routing through
-    ``check_and_prepare_cog`` conversion.
-
-    Manifest-VRT jobs are excluded (VRTs are XML, not TIFFs — the COG
-    compliance check would fail for unrelated reasons).
-
-    On non-compliance, raises ``ValueError`` whose message contains the
-    compliance reason. The existing ``ingest_raster`` outer
-    ``except Exception`` handler writes the failure to the job via
-    ``_job_phase_session("error_write")``.
-    """
-    import asyncio
-
-    if not strict_cog or is_manifest_vrt:
-        return
-
-    compliant, reason = await asyncio.to_thread(
-        check_cog_compliance, file_path, expected_compression=expected_compression
-    )
-    if not compliant:
-        raise ValueError(
-            f"Strict-COG mode rejected upload: {reason}. "
-            "Disable strict_cog or upload a COG-compliant TIFF."
-        )
-
-
-async def create_raster_dataset(
-    session,
-    *,
-    meta: dict,
-    source_sha256: str,
-    asset_sha256: str,
-    cog_status: str,
-    cog_size: int,
-    source_filename: str | None,
-    created_by: uuid.UUID,
-    title: str,
-    summary: str | None,
-    visibility: str,
-    record_status: str = "published",
-) -> tuple:
-    """Create Record + Dataset + RasterAsset records for a raster ingest.
-
-    Returns (record, dataset, raster_asset).
-    """
-    from sqlalchemy import func
-
-    from app.platform.extensions import get_processing_port
-    from app.processing.raster.models import RasterAsset
-
-    _port = get_processing_port()
-    Dataset = _port.get_dataset_orm_class()
-    Record = _port.get_record_orm_class()
-
-    # fix(#302): authoritative count-cap check in the same transaction that
-    # inserts the Record (the upload-time pre-check is not atomic).
-    # fix(#430 BA-23): same for the byte cap — recount under the per-user advisory
-    # lock so concurrent raster uploads can't overshoot max_storage_bytes_per_user.
-    from app.modules.quota.service import (
-        reserve_dataset_slot,
-        reserve_storage_bytes,
-    )
-
-    await reserve_dataset_slot(session, created_by)
-    await reserve_storage_bytes(session, created_by, cog_size)
-
-    # Mirror the vector ingest path (datasets/service.py
-    # `create_dataset_record`) which commits directly to `published`.
-    # Without this the raster stayed in `draft` and the anonymous public
-    # tile-access check at tiles/router.py `_resolve_raster_access`
-    # returned 404 for every raster tile fetch, so every public demo map
-    # containing a raster layer (Earth as Seen from Space, Global
-    # Bathymetry, …) was broken for anonymous users.
-    record = Record(
-        title=title,
-        summary=summary,
-        record_type="raster_dataset",
-        visibility=visibility,
-        record_status=record_status,
-        # fix(#302): created_by was never set on raster records, leaving them
-        # NULL and invisible to the per-user quota count and owner checks.
-        created_by=created_by,
-        updated_by=created_by,
-    )
-    if meta.get("bbox_wkt"):
-        record.spatial_extent = func.ST_GeomFromText(meta["bbox_wkt"], 4326)
-    session.add(record)
-    await session.flush()
-
-    table_name = f"raster_{record.id.hex[:16]}"
-    dataset = Dataset(
-        record_id=record.id,
-        table_name=table_name,
-        source_format="geotiff",
-        source_filename=source_filename,
-        srid=meta.get("epsg"),
-        # fix(#1218 review): see create_dataset — every creation path stamps
-        # this, or post-migration rows report null while backfilled ones do
-        # not. Python value, not func.now(): a SQL expression leaves the
-        # attribute expired and the next read lazy-loads.
-        last_refreshed_at=datetime.now(timezone.utc),
-    )
-    # feat(#1218): a raster dataset IS the COG; the pre-conversion upload is a
-    # transient input, so the origin is the uploaded file and there is no
-    # remote URI to point at (ADR-002 Decision 7).
-    set_dataset_origin(dataset, "upload", filename=source_filename)
-    session.add(dataset)
-    await session.flush()
-
-    nodata_val = meta.get("nodata")
-    nodata_str = str(nodata_val) if nodata_val is not None else None
-
-    raster_asset = RasterAsset(
-        dataset_id=dataset.id,
-        asset_uri="",  # updated after storage put
-        sha256=asset_sha256,
-        size_bytes=cog_size,
-        driver=meta.get("driver"),
-        storage_backend="local",
-        ingested_at=datetime.now(timezone.utc),
-        crs_wkt=meta.get("crs_wkt"),
-        epsg=meta.get("epsg"),
-        band_count=meta.get("band_count"),
-        dtype=meta.get("dtype"),
-        nodata=nodata_str,
-        res_x=meta.get("res_x"),
-        res_y=meta.get("res_y"),
-        width=meta.get("width"),
-        height=meta.get("height"),
-        compression=meta.get("compression"),
-        source_sha256=source_sha256,
-        cog_status=cog_status,
-        band_info=meta.get("band_info"),
-        is_rotated=meta.get("is_rotated", False),
-        is_dem=meta.get("is_dem_candidate", False),
-    )
-    session.add(raster_asset)
-    await session.flush()
-
-    return record, dataset, raster_asset
-
-
-# Media types for the STAC-aligned dataset_assets rows (BUG-041).
-_COG_MEDIA_TYPE = "image/tiff; application=geotiff; profile=cloud-optimized"
-_VRT_MEDIA_TYPE = "application/x-vrt+xml"
-_PNG_MEDIA_TYPE = "image/png"
-
-
-def _build_dataset_asset_rows(
-    *,
-    dataset_id: uuid.UUID,
-    cog_key: str,
-    ql256_key: str,
-    ql512_key: str,
-    cog_size: int | None,
-    is_manifest_vrt: bool,
-) -> list[dict]:
-    """Build STAC-aligned ``dataset_assets`` rows for a freshly ingested raster.
-
-    BUG-041: ``dataset_assets`` is read by the search/STAC/OGC asset-output path
-    but was never written by ingest, so STAC item assets were never advertised.
-    This produces the rows the read path expects, using the stable keys defined
-    on ``DatasetAsset``:
-
-      - ``data`` / ``vrt``: the primary COG (or VRT) source
-      - ``thumbnail``: 256px quicklook
-      - ``overview``: 512px quicklook
-
-    hrefs are storage keys (storage-relative); ``resolve_asset_url`` turns them
-    into presigned/public URLs at read time (or omits them on local storage per
-    GAP-031).
-    """
-    primary_key = "vrt" if is_manifest_vrt else "data"
-    primary_media = _VRT_MEDIA_TYPE if is_manifest_vrt else _COG_MEDIA_TYPE
-    primary_title = (
-        "GDAL Virtual Raster" if is_manifest_vrt else "Cloud-Optimized GeoTIFF"
-    )
-
-    rows: list[dict] = [
-        {
-            "dataset_id": dataset_id,
-            "key": primary_key,
-            "href": cog_key,
-            "media_type": primary_media,
-            "title": primary_title,
-            "roles": ["data"],
-            "size_bytes": cog_size,
-        },
-        {
-            "dataset_id": dataset_id,
-            "key": "thumbnail",
-            "href": ql256_key,
-            "media_type": _PNG_MEDIA_TYPE,
-            "title": "Quicklook (256px)",
-            "roles": ["thumbnail"],
-        },
-        {
-            "dataset_id": dataset_id,
-            "key": "overview",
-            "href": ql512_key,
-            "media_type": _PNG_MEDIA_TYPE,
-            "title": "Quicklook (512px)",
-            "roles": ["overview"],
-        },
-    ]
-    return rows
-
-
-def _resolve_managed_raster_storage_keys(
-    cog_key: str,
-    quicklook_256_key: str,
-    quicklook_512_key: str,
-) -> tuple[str, str, str]:
-    """Resolve logical raster asset keys for the active tenant.
-
-    The returned keys are provider-facing. Catalog ``asset_uri`` fields retain
-    the logical inputs. Hosted workers fail closed when their tenant context
-    is absent; single-tenant workers receive each input byte-for-byte.
-    """
-    return (
-        resolve_current_storage_key(cog_key),
-        resolve_current_storage_key(quicklook_256_key),
-        resolve_current_storage_key(quicklook_512_key),
-    )
-
-
-async def _cleanup_orphaned_storage_keys(keys: list[str], *, job_id: str) -> None:
-    """Best-effort delete storage keys written before a failed/rolled-back commit.
-
-    GAP-017: raster ingest puts COG/quicklook bytes to storage BEFORE the
-    terminal DB commit. If the commit (or any later step) fails, the dataset row
-    is rolled back and ``delete_dataset`` never runs for it, orphaning the bytes.
-    This reaps exactly the keys that were written. Failures here are swallowed —
-    cleanup must never mask the original ingest error.
-    """
-    from app.platform.storage import get_storage
-
-    try:
-        storage = get_storage()
-    except Exception:  # broad: storage may be unavailable; nothing to clean then
-        return
-    for key in keys:
-        try:
-            await storage.delete(key)
-        except Exception:  # broad: best-effort per-key cleanup, keep going
-            structlog.get_logger().warning(
-                "Failed to clean up orphaned raster asset",
-                job_id=job_id,
-                storage_key=key,
-            )
 
 
 @task_app.task(queue="raster", retry=0, aliases=["app.ingest.tasks.ingest_raster"])
@@ -374,6 +107,14 @@ async def ingest_raster(
     tmp_dir: str | None = None
     original_file_path = file_path
     final_status: str = "pending"
+    # fix(#1290 review): False until a conversion is known to have kept every
+    # sample. Decision 7's delete is licensed by that fact and nothing else, so
+    # the default has to be the one that retains.
+    source_preserved_in_cog: bool = False
+    # fix(#1290 review): set when a lossy conversion's original has been copied
+    # to the durable `originals/` prefix. Until it is true the staged upload is
+    # the only faithful copy and nothing may delete it.
+    lossy_original_archived: bool = False
     # fix(#1202 review r5): captured in phase 1, swept in the finally.
     owned_staging_key: str | None = None
     # GAP-017: storage keys written BEFORE the terminal DB commit. base_key
@@ -449,7 +190,18 @@ async def ingest_raster(
                     },
                 )
                 await session.commit()
-                _Path(file_path).unlink(missing_ok=True)
+                # fix(#1290 review): NO unlink here. This exit used to delete
+                # the local file unconditionally, which on a local-storage
+                # install is the durable original — so a worker-side validation
+                # failure (canonically: UPLOAD_MAX_SIZE_MB lowered while the job
+                # sat queued) destroyed the only copy of a file the job then
+                # recorded as failed, with nothing to diagnose from. The
+                # object-storage shape was already right because the thing it
+                # deletes is a downloaded scratch copy.
+                #
+                # The terminal `finally` already knows that distinction, and it
+                # runs on this return, so the correct fix is to have ONE exit
+                # decide rather than teach a second one the same rule.
                 final_status = "failed"
                 # EVENT-03: notify on ingest failed (non-fatal, after commit — deferred import).
                 # status="failed" is already committed so a notification error cannot
@@ -489,8 +241,10 @@ async def ingest_raster(
         # 4. Hash source file
         source_sha256 = await asyncio.to_thread(sha256_file, file_path)
 
-        # 5. Extract metadata
-        meta = await asyncio.to_thread(extract_raster_metadata, file_path)
+        # 5. Extract metadata from the SOURCE. Only two things come from this
+        # read now (fix(#1290 review)): whether a CRS assignment is needed, and
+        # `original_srid`. Everything the catalog stores describes the COG.
+        source_meta = await asyncio.to_thread(extract_raster_metadata, file_path)
 
         # Read GDAL options from user_metadata (set at commit time)
         assign_crs = um.get("srid_override")
@@ -500,17 +254,18 @@ async def ingest_raster(
         # fix(#1186): derive this from the raster, not from an upload-time
         # stamp. `user_metadata["crs_missing"]` was written only by the
         # non-presigned upload endpoint, so it was absent for every S3
-        # (presigned) upload — and `assign_crs` below is gated on it, meaning
+        # (presigned) upload — and `assign_crs` below was gated on it, meaning
         # a user-supplied srid_override was silently dropped and the COG came
         # out with no CRS. `meta` is read from the file itself, which is the
         # authority the flag was standing in for.
-        crs_missing = not meta.get("crs_wkt")
-
-        if crs_missing and not assign_crs:
-            raise ValueError(
-                "Missing CRS: raster has no coordinate reference system. "
-                "Provide a CRS override (EPSG code) at import time."
-            )
+        #
+        # fix(#1290 review): the missing-CRS gate and the override decision are
+        # one rule now, shared with the replace tail. It also answers the
+        # override differently: a supplied EPSG applies even when the source
+        # declares a CRS, which is what the field's own description promises.
+        assign_crs = resolve_crs_assignment(
+            crs_wkt=source_meta.get("crs_wkt"), srid_override=assign_crs
+        )
 
         # ING-07 / P2-09: strict-mode COG gating. When the user opted in via
         # RasterCommitRequest.strict_cog=True, reject non-COG TIFFs here
@@ -570,9 +325,25 @@ async def ingest_raster(
                 compression=user_compression,
                 resampling=user_resampling,
                 nodata=user_nodata,
-                assign_crs=assign_crs if assign_crs and crs_missing else None,
+                assign_crs=assign_crs,
             )
         assert local_cog_path is not None  # check_and_prepare_cog always returns a path
+        # fix(#1290 review): resolved state, not the request field — the branch
+        # above can reach this line without converting at all, and a verified
+        # COG loses nothing whatever codec it carries. Read in the terminal
+        # `finally` to decide whether the uploaded file is still needed.
+        source_preserved_in_cog = cog_preserves_source(
+            cog_status, user_compression, reprojected=assign_crs is not None
+        )
+
+        # fix(#1290 review): read the artifact that will actually serve. The
+        # round-1 CRS fix made first ingest warp declared-CRS sources, so
+        # persisting the pre-conversion read described a file this dataset does
+        # not have — the same defect the replace tail fixed one round earlier,
+        # left behind because that dispatch was scoped to replace only. The
+        # source read keeps exactly two jobs: the CRS decision above, and
+        # `original_srid` below.
+        cog_meta = await asyncio.to_thread(extract_raster_metadata, local_cog_path)
 
         # 7. Hash COG
         asset_sha256 = await asyncio.to_thread(sha256_file, local_cog_path)
@@ -626,7 +397,7 @@ async def ingest_raster(
 
                 record, dataset, raster_asset = await create_vrt_dataset(
                     session,
-                    meta=meta,
+                    meta=cog_meta,
                     asset_sha256=asset_sha256,
                     vrt_size=cog_size,
                     source_filename=source_filename,
@@ -642,7 +413,8 @@ async def ingest_raster(
             else:
                 record, dataset, raster_asset = await create_raster_dataset(
                     session,
-                    meta=meta,
+                    meta=cog_meta,
+                    original_srid=source_meta.get("epsg"),
                     source_sha256=source_sha256,
                     asset_sha256=asset_sha256,
                     cog_status=cog_status,
@@ -657,7 +429,8 @@ async def ingest_raster(
 
             # 9b. Set temporal fields on Record (N5 extraction to _parse_temporal_fields).
             parsed_start, parsed_end, temporal_errors = _parse_temporal_fields(
-                temporal_start=um.get("temporal_start") or meta.get("temporal_start"),
+                temporal_start=um.get("temporal_start")
+                or source_meta.get("temporal_start"),
                 temporal_end=um.get("temporal_end"),
             )
             if parsed_start is not None:
@@ -752,6 +525,58 @@ async def ingest_raster(
                 url=cog_key,
             )
             session.add(distribution)
+
+            # fix(#1290 review): same policy as the replace tail, through the
+            # same helper. ADR-002 Decision 7's retained original lives under
+            # `originals/<dataset_id>/` — the prefix the vector tails have
+            # archived to since #430, which `delete_dataset` reaps and no purge
+            # touches — and it now carries a counted `dataset_assets` row so
+            # per-user storage can see the bytes it consumes.
+            (
+                lossy_original_archived,
+                archived_key,
+                archived_bytes,
+                new_archive_key,
+            ) = await archive_lossy_original(
+                session,
+                job=job,
+                dataset_id=dataset.id,
+                file_path=file_path,
+                source_sha256=source_sha256,
+                filename=source_filename,
+                log_message=(
+                    "Failed to archive the lossy ingest original; the staged "
+                    "upload will be retained in place instead"
+                ),
+                needed=not source_preserved_in_cog,
+                written_storage_keys=written_storage_keys,
+            )
+            # fix(#1290 review): the helper registers the key itself, BEFORE
+            # the cancellable write — appending here as well would double-add,
+            # and appending here INSTEAD would restore the cancellation hole.
+            _archive_asset_key = (
+                archived_original_asset_key(source_sha256) if archived_key else None
+            )
+            # fix(#1290 review): BEFORE the upsert, not after.
+            # `create_raster_dataset` reserved only the COG; the kept original
+            # is additional and has to be admitted too. Reserving AFTER the row
+            # was written made the live recount already contain those bytes, so
+            # adding them again double-charged and falsely refused an ingest
+            # that fits. This is the ordering rule the swap module's own
+            # docstring states, violated in the other tail —
+            # `test_both_tails_reserve_before_they_upsert` pins it now.
+            if archived_bytes:
+                from app.modules.quota.service import reserve_storage_bytes
+
+                await reserve_storage_bytes(session, uuid.UUID(user_id), archived_bytes)
+            await upsert_archived_original_row(
+                session,
+                dataset_id=dataset.id,
+                logical_key=archived_key,
+                asset_key=_archive_asset_key,
+                size_bytes=archived_bytes,
+                source_filename=source_filename,
+            )
 
             # 12. Finalize job.
             # REMED-02 / ingest-audit P2-07: stamp terminal progress
@@ -881,9 +706,22 @@ async def ingest_raster(
         if tmp_dir:
             shutil.rmtree(tmp_dir, ignore_errors=True)
         # Clean up local staging file
-        if final_status == "complete":
+        # fix(#1290 review): the local file is one of two different things and
+        # only one of them is Decision 7's business. When it differs from
+        # `original_file_path` it is a scratch copy this task downloaded from
+        # object storage, and the durable copy is the object — always safe to
+        # remove. When they are equal this IS the durable original: local-mode
+        # uploads land in `settings.upload_staging_dir`, which is the named
+        # `upload_staging` volume (not tmpfs), survives restarts and is what the
+        # backup container archives. So on a local install it is the only
+        # lossless copy, and it gets the same gate as the object-store reaper —
+        # otherwise the RUNBOOK's retention promise held on S3 and quietly
+        # failed on every local deployment.
+        if file_path != original_file_path:
             _Path(file_path).unlink(missing_ok=True)
-        elif file_path != original_file_path:
+        elif final_status == "complete" and (
+            source_preserved_in_cog or lossy_original_archived
+        ):
             _Path(file_path).unlink(missing_ok=True)
         # fix(#1202 review r5): sweep the presigned staging key. Raster has no
         # equivalent of the vector tail's #430 BA-09 block, so before this
@@ -895,3 +733,30 @@ async def ingest_raster(
         await reap_presigned_staging_object(
             job_id, owned_staging_key, final_status=final_status
         )
+        # fix(#1210), ADR-002 Decision 7: the pre-conversion source object.
+        # This is the vector tail's #430 BA-09 block, which raster never had —
+        # so every raster ever ingested kept its uploaded bytes forever beside
+        # a COG that already contains them losslessly. `final_status ==
+        # "complete"` is reached only after the COG was written, read (metadata
+        # + both quicklooks come off it) and its row committed, so the delete
+        # can never race the verification it depends on.
+        #
+        # fix(#1290 review): "losslessly" is a claim about the profile that ran,
+        # not about conversion. Under JPEG or WEBP — both offered by the import
+        # UI — the COG has discarded detail the upload carried, which makes the
+        # upload the only lossless copy in existence and deleting it data loss.
+        # So the delete is gated on the resolved conversion, and the retention
+        # purge owns the retained object exactly as it does on the failure path.
+        #
+        # failed_source_replayable=True is Decision 7's other exception: a
+        # failed conversion leaves those bytes as the operator's only diagnostic
+        # copy. It is now redundant with the gate (a failure never sets the flag)
+        # and kept because it states the intent independently. RUNBOOK.md
+        # section 9 states both windows for operators.
+        if source_preserved_in_cog or lossy_original_archived:
+            await reap_downloaded_staging_source(
+                job_id,
+                original_file_path=original_file_path,
+                final_status=final_status,
+                failed_source_replayable=True,
+            )
