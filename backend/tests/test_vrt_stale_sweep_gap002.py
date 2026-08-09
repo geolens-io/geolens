@@ -1109,10 +1109,15 @@ async def test_sweep_keeps_failed_when_prior_attempt_was_failed(test_db_session)
     now = datetime.now(timezone.utc)
     # Generation 1: the ORIGINAL attempt, genuinely failed (e.g. a real GDAL
     # error) — not swept, not abandoned; explicitly terminal already.
+    # heartbeat_at is set: fix(#1322 review round 5) — this is what
+    # distinguishes a genuine build failure (the task claimed and ran) from
+    # an enqueue failure (never reached the worker at all); see
+    # test_sweep_restores_ready_when_prior_attempt_never_ran for that case.
     failed_generation = VrtGeneration(
         vrt_dataset_id=vrt_dataset.id,
         status="failed",
         started_at=now - timedelta(hours=5),
+        heartbeat_at=now - timedelta(hours=4, minutes=56),
         completed_at=now - timedelta(hours=4, minutes=55),
         error_message="Simulated GDAL failure, unrelated to any crash",
     )
@@ -1184,6 +1189,7 @@ async def test_sweep_restores_ready_when_prior_attempt_completed(test_db_session
         vrt_dataset_id=vrt_dataset.id,
         status="completed",
         started_at=now - timedelta(hours=5),
+        heartbeat_at=now - timedelta(hours=4, minutes=56),
         completed_at=now - timedelta(hours=4, minutes=55),
     )
     test_db_session.add(completed_generation)
@@ -1223,6 +1229,85 @@ async def test_sweep_restores_ready_when_prior_attempt_completed(test_db_session
     await test_db_session.refresh(asset)
     assert asset.status == "ready"
     assert asset.current_generation_id is None
+
+
+async def test_sweep_restores_ready_when_prior_attempt_never_ran(test_db_session):
+    """fix(#1322 review round 5): a generation's status='failed' does not by
+    itself mean the asset was not ready. regenerate_vrt_endpoint's own
+    orphan-guard rollback marks a just-created generation 'failed' when the
+    Procrastinate ENQUEUE itself throws — the task never reached a worker,
+    and the SAME rollback reverts the asset to whatever it already was
+    (commonly 'ready'). That generation's heartbeat_at is NULL forever: it
+    is set in exactly one place, tasks_vrt.regenerate_vrt's Phase-1 claim,
+    which an enqueue failure never reaches. A LATER, genuinely-run dead
+    attempt must not read that unrelated enqueue failure as proof the
+    asset was not ready."""
+    from app.platform.jobs.router import sweep_stale_vrt_assets
+    from app.processing.raster.models import RasterAsset, VrtGeneration, VrtSourceLink
+    from tests.factories import create_dataset, get_user_id
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    source = await create_dataset(test_db_session, created_by=admin_id)
+    vrt_dataset = await create_dataset(test_db_session, created_by=admin_id)
+
+    now = datetime.now(timezone.utc)
+    # The enqueue failure: status='failed', but heartbeat_at was NEVER set —
+    # the row was created and immediately failed by the SAME synchronous
+    # request, without a worker ever claiming it.
+    enqueue_failed_generation = VrtGeneration(
+        vrt_dataset_id=vrt_dataset.id,
+        status="failed",
+        started_at=now - timedelta(hours=5),
+        heartbeat_at=None,
+        completed_at=now - timedelta(hours=5),
+        error_message="Failed to queue VRT regeneration: connection refused",
+    )
+    test_db_session.add(enqueue_failed_generation)
+    await test_db_session.flush()
+
+    # A later attempt that DID actually run (heartbeat_at set) and is now
+    # dead — the one being reconciled.
+    dead_generation = VrtGeneration(
+        vrt_dataset_id=vrt_dataset.id,
+        status="running",
+        started_at=now - timedelta(hours=2),
+        heartbeat_at=now - timedelta(hours=2),
+    )
+    test_db_session.add(dead_generation)
+    await test_db_session.flush()
+
+    asset = RasterAsset(
+        dataset_id=vrt_dataset.id,
+        asset_uri=f"rasters/{vrt_dataset.id}/source.vrt",
+        status="regenerating",
+        current_generation_id=dead_generation.id,
+        built_from={str(source.id): "irrelevant"},
+    )
+    test_db_session.add(asset)
+    test_db_session.add(
+        VrtSourceLink(
+            vrt_dataset_id=vrt_dataset.id, source_dataset_id=source.id, position=0
+        )
+    )
+    await test_db_session.commit()
+
+    cutoff = now - timedelta(hours=1)
+    assets_recovered, gens_failed, _keys = await sweep_stale_vrt_assets(
+        test_db_session, cutoff
+    )
+    await test_db_session.commit()
+
+    assert (assets_recovered, gens_failed) == (1, 1)
+    await test_db_session.refresh(asset)
+    assert asset.status == "ready", (
+        "an enqueue failure that never reached a worker must not be read "
+        "as proof the asset was not ready"
+    )
+    assert asset.current_generation_id is None
+    # The unrelated enqueue-failure row is untouched by this sweep.
+    await test_db_session.refresh(enqueue_failed_generation)
+    assert enqueue_failed_generation.status == "failed"
+    assert enqueue_failed_generation.heartbeat_at is None
 
 
 @pytest.mark.rls

@@ -702,11 +702,40 @@ _COMPOSITION_PRESERVED_SQL = """
 # never claims 'ready' the moment there is any doubt, at the cost of
 # occasionally staying 'failed' one cycle longer than strictly necessary,
 # which self-corrects the moment an operator retries and it succeeds.
+#
+# fix(#1322 review round 5): raw `status` alone over-counts what "failed"
+# means. regenerate_vrt_endpoint's own orphan guard (_rollback,
+# lines ~507-520) marks the just-created VrtGeneration 'failed' when
+# Procrastinate's ENQUEUE itself throws — a dispatch failure the task never
+# reached — and in the SAME rollback reverts the asset to whatever it was
+# (commonly 'ready'). That generation row genuinely never ran: nothing
+# about its outcome describes the asset's state, only that it could not be
+# queued. Reading its 'failed' status here as "the asset was not ready"
+# would be wrong in exactly the direction this predicate exists to avoid —
+# not a false 'ready', but a false 'failed' for an asset that never had a
+# real attempt run against it.
+#
+# `heartbeat_at IS NOT NULL` is the fact that separates them: it is set in
+# exactly one place in this codebase, `tasks_vrt.regenerate_vrt`'s Phase-1
+# claim (either the CAS `UPDATE ... status='pending' -> 'running'`, or the
+# equivalent field on a freshly-created legacy-pointer generation) — the
+# first thing the TASK does once a worker actually picks it up, never
+# anything the ENDPOINT touches at creation. A synchronous enqueue failure
+# never reaches that line, so its generation keeps heartbeat_at NULL
+# forever; the same is true of a generation stuck 'pending' because no
+# worker ever claimed it before this sweep's own cutoff — which is the
+# same "never actually ran" fact, so excluding it here is consistent with,
+# not a special case against, its own eventual sweep as a dead attempt.
+# Filtering to `heartbeat_at IS NOT NULL` therefore finds the most recent
+# OTHER generation that a worker actually claimed and ran, skipping past
+# any number of enqueue-failures or claim-starved rows in between — those
+# never touched the asset's state, so they carry no information about it.
 _PRIOR_ATTEMPT_WAS_READY_SQL = """
     (
         SELECT g.status FROM catalog.vrt_generations g
         WHERE g.vrt_dataset_id = dataset_id
           AND g.id <> current_generation_id
+          AND g.heartbeat_at IS NOT NULL
         ORDER BY g.started_at DESC
         LIMIT 1
     ) IS DISTINCT FROM 'failed'

@@ -2376,7 +2376,21 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # 'failed' one cycle longer than strictly necessary — the safe direction
     # for a reconciler that must never manufacture a resolution that didn't
     # happen. Cap 1874 -> 1942, exact.
-    "backend/app/platform/jobs/router.py": 1942,
+    # fix(#1322 review round 5): +29 — the prior-ready marker read raw
+    # generation STATUS, but regenerate_vrt_endpoint's orphan-guard rollback
+    # marks a generation 'failed' on a synchronous ENQUEUE failure (the task
+    # never reached a worker) while reverting the asset to whatever it
+    # already was — so that row's 'failed' status says nothing about the
+    # asset. Added `heartbeat_at IS NOT NULL` to the marker's subquery:
+    # heartbeat_at is set in exactly one place (tasks_vrt.regenerate_vrt's
+    # Phase-1 claim), so its absence proves a generation never actually ran,
+    # and excluding those rows finds the nearest OTHER generation that did.
+    # Most of the lines are the docstring distinguishing this from a
+    # genuine build failure (which always sets heartbeat_at during its own
+    # Phase-1 claim before anything can fail) and from a claim-starved
+    # 'pending' row swept as its own dead attempt (same "never ran" fact,
+    # consistently excluded either way). Cap 1942 -> 1971, exact.
+    "backend/app/platform/jobs/router.py": 1971,
     # fix(second-opinion review on #1236 review r3): first entry — crossed
     # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
     # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side
