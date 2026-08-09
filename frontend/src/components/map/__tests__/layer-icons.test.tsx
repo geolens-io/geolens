@@ -393,4 +393,21 @@ describe('stroke-only polygon swatch (fix #1288)', () => {
     expect(hints.strokeDisabled).toBe(true);
     expect(hints.strokeColor).toBeUndefined();
   });
+
+  // fix(#1288 codex): circle-adapter.ts (the real point renderer) applies
+  // circle paint properties directly and never reads style_config.builder — a
+  // stale builder.strokeDisabled left over from before an Advanced JSON/API
+  // edit restored a real circle-stroke-width must not suppress a stroke the
+  // map still draws. Builder precedence is polygon-only.
+  it('extractStyleHints ignores builder.strokeDisabled for points with a real stroke width', () => {
+    const hints = extractStyleHints(
+      { 'circle-opacity': 1, 'circle-stroke-color': '#ec4b7f', 'circle-stroke-width': 3 },
+      {},
+      'POINT',
+      1,
+      { builder: { strokeDisabled: true } },
+    );
+    expect(hints.strokeDisabled).toBeUndefined();
+    expect(hints.strokeColor).toBe('#ec4b7f');
+  });
 });

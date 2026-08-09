@@ -57,10 +57,17 @@ export function extractStyleHints(
     hints.opacity = opacity;
   }
 
-  // fix(#1288 codex): builder.strokeDisabled wins over the paint mirror, the
-  // same precedence the map adapters and the builder's own style preview use
-  // (stylePreviewStyle). Computed once so every branch below agrees on it.
-  const strokeDisabled = Boolean(styleConfig?.builder?.strokeDisabled ?? paint['_stroke-disabled']);
+  // fix(#1288 codex): builder.strokeDisabled wins over the paint mirror ONLY
+  // where the real map renderer also consults builder state — fill-adapter.ts
+  // (polygons and the mixed GEOMETRY adapter's fill sublayer). circle-adapter.ts
+  // (points) applies circle paint properties directly and never reads
+  // style_config.builder, so a point must resolve purely from paint below —
+  // otherwise a stale builder.strokeDisabled (e.g. after an Advanced JSON/API
+  // edit restored a real stroke) would hide a stroke the map still draws.
+  const isPoint = gt.includes('POINT');
+  const strokeDisabled = isPoint
+    ? !!paint['_stroke-disabled']
+    : Boolean(styleConfig?.builder?.strokeDisabled ?? paint['_stroke-disabled']);
   if (strokeDisabled) {
     hints.strokeDisabled = true;
   }
@@ -101,7 +108,7 @@ export function extractStyleHints(
   // default while the map tints from the stash — resolve the map's colour here.
   hints.fillPatternColor = fillPatternTint(paint, styleConfig?.builder);
 
-  if (gt.includes('POINT')) {
+  if (isPoint) {
     // fix(#1288 codex): an explicit circle-stroke-width of 0 draws nothing on
     // the map (no builder mirror exists for it, unlike the polygon outline
     // width, so this reads paint directly) — treat it as a disabled stroke,
