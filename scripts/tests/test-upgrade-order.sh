@@ -623,6 +623,92 @@ else
   bad "external database mode still probed the bundled db"
 fi
 
+# #947: the single-tenant runtime role ALSO uses DATABASE_URL_OVERRIDE, but its
+# database is still the bundled volume. It must not inherit the external-DB
+# exemption and accidentally cross a PostgreSQL major.
+seed_prod_env
+cat >> "$FAKE/.env" <<'ENV'
+DATABASE_URL_OVERRIDE=postgresql://geolens_app:runtime@db:5432/geolens
+GEOLENS_RUNTIME_DB_ROLE=geolens_app
+ENV
+PG_NUM=170005 TARGET_PG=18 run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" != "0" ] && [ -n "$(pos_of probe_pg)" ]; then
+  ok "bundled runtime-role mode keeps the PostgreSQL major guard"
+else
+  bad "bundled runtime-role mode was misclassified as external (exit=$(cat "$WORK/code.txt"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+
+# libpq also supports a query-string-only host when the URL authority has
+# credentials but no hostname. Settings accepts this exact shape, so upgrade
+# classification must resolve host=db before applying the external-DB bypass.
+seed_prod_env
+cat >> "$FAKE/.env" <<'ENV'
+DATABASE_URL_OVERRIDE=postgresql://geolens_app:runtime@/geolens?host=db
+GEOLENS_RUNTIME_DB_ROLE=geolens_app
+ENV
+PG_NUM=170005 TARGET_PG=18 run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" != "0" ] && [ -n "$(pos_of probe_pg)" ]; then
+  ok "query-host bundled runtime mode keeps the PostgreSQL major guard"
+else
+  bad "query-host bundled runtime mode was misclassified as external (exit=$(cat "$WORK/code.txt"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+
+# Query ordering and percent-encoding do not change the host Settings sees.
+seed_prod_env
+cat >> "$FAKE/.env" <<'ENV'
+DATABASE_URL_OVERRIDE=postgresql://geolens_app:runtime@/geolens?sslmode=disable&host=%64%62&port=5432
+GEOLENS_RUNTIME_DB_ROLE=geolens_app
+ENV
+PG_NUM=170005 TARGET_PG=18 run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" != "0" ] && [ -n "$(pos_of probe_pg)" ]; then
+  ok "normalized query-host bundled mode keeps the PostgreSQL major guard"
+else
+  bad "normalized query-host bundled mode bypassed the major guard (exit=$(cat "$WORK/code.txt"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+
+# A non-db query host remains managed/external and must retain the bypass.
+seed_prod_env
+cat >> "$FAKE/.env" <<'ENV'
+DATABASE_URL_OVERRIDE=postgresql://geolens_app:runtime@/geolens?host=managed.example.com
+GEOLENS_RUNTIME_DB_ROLE=geolens_app
+ENV
+PG_NUM=170005 TARGET_PG=18 run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -n "$(pos_of app_up)" ]; then
+  ok "query-host managed runtime mode skips the bundled PostgreSQL major check"
+else
+  bad "query-host managed runtime mode was blocked by the bundled check (exit=$(cat "$WORK/code.txt"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+if [ -z "$(pos_of probe_pg)" ]; then
+  ok "query-host managed runtime mode does not probe bundled db"
+else
+  bad "query-host managed runtime mode still probed bundled db"
+fi
+
+# fix(#1287 review): a managed database can use the dedicated runtime role too.
+# The hostname, not merely the role flag, distinguishes that path from the
+# bundled `db` service; a stale local db container must not block its upgrade.
+seed_prod_env
+cat >> "$FAKE/.env" <<'ENV'
+DATABASE_URL_OVERRIDE=postgresql://geolens_app:runtime@managed.example.com:5432/geolens
+GEOLENS_RUNTIME_DB_ROLE=geolens_app
+ENV
+PG_NUM=170005 TARGET_PG=18 run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -n "$(pos_of app_up)" ]; then
+  ok "managed runtime-role mode skips the bundled PostgreSQL major check"
+else
+  bad "managed runtime-role mode was blocked by the bundled check (exit=$(cat "$WORK/code.txt"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+if [ -z "$(pos_of probe_pg)" ]; then
+  ok "managed runtime-role mode does not probe the bundled db container"
+else
+  bad "managed runtime-role mode still probed the bundled db"
+fi
+
 # Fail-open: an unreadable server version (a bundled db that cannot be reached)
 # must NOT block an otherwise valid upgrade. Guards the `set -eu` edge where an
 # empty probe could abort the script outright.

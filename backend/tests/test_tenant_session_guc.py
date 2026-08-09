@@ -662,7 +662,7 @@ class TestMultiTenantRuntimeRoleGuard:
         result.fetchone.return_value = (
             "geolens_app",
             "geolens_app",
-            *(False for _ in range(15)),
+            *(False for _ in range(17)),
         )
         conn.execute.return_value = result
 
@@ -670,7 +670,71 @@ class TestMultiTenantRuntimeRoleGuard:
             await assert_multi_tenant_runtime_role(conn)
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("unsafe_index", range(2, 17))
+    async def test_single_tenant_opt_in_accepts_exact_safe_runtime_login(self):
+        from app.core.config import settings
+        from app.core.db.rls import assert_multi_tenant_runtime_role
+
+        conn = AsyncMock()
+        result = MagicMock()
+        result.fetchone.return_value = (
+            "geolens_app",
+            "geolens_app",
+            *(False for _ in range(17)),
+        )
+        conn.execute.return_value = result
+
+        with (
+            patch("app.core.tenancy.is_multi_tenant", return_value=False),
+            patch.object(settings, "geolens_runtime_db_role", "geolens_app"),
+        ):
+            await assert_multi_tenant_runtime_role(conn)
+
+    @pytest.mark.asyncio
+    async def test_single_tenant_opt_in_rejects_a_different_live_login(self):
+        from app.core.config import settings
+        from app.core.db.rls import assert_multi_tenant_runtime_role
+
+        conn = AsyncMock()
+        result = MagicMock()
+        result.fetchone.return_value = (
+            "safe_but_wrong",
+            "safe_but_wrong",
+            *(False for _ in range(17)),
+        )
+        conn.execute.return_value = result
+
+        with (
+            patch("app.core.tenancy.is_multi_tenant", return_value=False),
+            patch.object(settings, "geolens_runtime_db_role", "geolens_app"),
+            pytest.raises(RuntimeError, match="exact dedicated LOGIN"),
+        ):
+            await assert_multi_tenant_runtime_role(conn)
+
+    @pytest.mark.asyncio
+    async def test_single_tenant_opt_in_rejects_powerful_membership(self):
+        from app.core.config import settings
+        from app.core.db.rls import assert_multi_tenant_runtime_role
+
+        values: list[object] = [
+            "geolens_app",
+            "geolens_app",
+            *(False for _ in range(17)),
+        ]
+        values[12] = True
+        conn = AsyncMock()
+        result = MagicMock()
+        result.fetchone.return_value = tuple(values)
+        conn.execute.return_value = result
+
+        with (
+            patch("app.core.tenancy.is_multi_tenant", return_value=False),
+            patch.object(settings, "geolens_runtime_db_role", "geolens_app"),
+            pytest.raises(RuntimeError, match="inherit/assume a powerful role"),
+        ):
+            await assert_multi_tenant_runtime_role(conn)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("unsafe_index", range(2, 19))
     async def test_rejects_every_superuser_bypass_and_membership_path(
         self, unsafe_index: int
     ):
@@ -679,7 +743,7 @@ class TestMultiTenantRuntimeRoleGuard:
         values: list[object] = [
             "geolens_app",
             "geolens_app",
-            *(False for _ in range(15)),
+            *(False for _ in range(17)),
         ]
         values[unsafe_index] = True
         conn = AsyncMock()
@@ -690,6 +754,32 @@ class TestMultiTenantRuntimeRoleGuard:
         with (
             patch("app.core.tenancy.is_multi_tenant", return_value=True),
             pytest.raises(RuntimeError, match="least-privilege runtime credential"),
+        ):
+            await assert_multi_tenant_runtime_role(conn)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("unsafe_index", (17, 18))
+    async def test_single_tenant_opt_in_rejects_database_or_schema_owner(
+        self, unsafe_index: int
+    ):
+        from app.core.config import settings
+        from app.core.db.rls import assert_multi_tenant_runtime_role
+
+        values: list[object] = [
+            "geolens_app",
+            "geolens_app",
+            *(False for _ in range(17)),
+        ]
+        values[unsafe_index] = True
+        conn = AsyncMock()
+        result = MagicMock()
+        result.fetchone.return_value = tuple(values)
+        conn.execute.return_value = result
+
+        with (
+            patch("app.core.tenancy.is_multi_tenant", return_value=False),
+            patch.object(settings, "geolens_runtime_db_role", "geolens_app"),
+            pytest.raises(RuntimeError, match="own a database or schema"),
         ):
             await assert_multi_tenant_runtime_role(conn)
 

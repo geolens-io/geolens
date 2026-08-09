@@ -2,11 +2,17 @@
 # Shared environment anchors
 # ==============================================================================
 x-db-env: &db-env
-  POSTGRES_USER: ${POSTGRES_USER}
-  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  # API/worker must not retain the privileged bootstrap password when the
+  # opt-in runtime role is enabled. The migrate service overrides these two
+  # values below with the privileged identity.
+  POSTGRES_USER: ${GEOLENS_RUNTIME_DB_ROLE:-${POSTGRES_USER}}
+  POSTGRES_PASSWORD: ${GEOLENS_RUNTIME_DB_PASSWORD:-${POSTGRES_PASSWORD}}
   POSTGRES_HOST: db
   POSTGRES_PORT: 5432
   POSTGRES_DB: ${POSTGRES_DB}
+  # Empty preserves the legacy single-tenant superuser connection. Setting a
+  # role opts API/worker into the live least-privilege boot guard.
+  GEOLENS_RUNTIME_DB_ROLE: "${GEOLENS_RUNTIME_DB_ROLE:-}"
 
 x-auth-env: &auth-env
   JWT_SECRET_KEY: ${JWT_SECRET_KEY}
@@ -162,6 +168,15 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      GEOLENS_RUNTIME_DB_ROLE: "${GEOLENS_RUNTIME_DB_ROLE:-}"
+      GEOLENS_RUNTIME_DB_PASSWORD: "${GEOLENS_RUNTIME_DB_PASSWORD:-}"
+      GEOLENS_RUNTIME_DB_ROLE_ADOPT_EXISTING: "${GEOLENS_RUNTIME_DB_ROLE_ADOPT_EXISTING:-false}"
+      # The URL itself contains a credential and must never enter db. These
+      # presence-only markers let the reconciler ignore an external migrator
+      # name, while an explicit local flag admits a custom migrator on `db`.
+      GEOLENS_MIGRATION_DB_ROLE: "${GEOLENS_MIGRATION_DB_ROLE:-}"
+      GEOLENS_MIGRATION_DB_URL_CONFIGURED: "${MIGRATION_DATABASE_URL_OVERRIDE:+configured}${DATABASE_URL_OVERRIDE:+configured}"
+      GEOLENS_MIGRATION_DB_LOCAL: "${GEOLENS_MIGRATION_DB_LOCAL:-false}"
     ports:
       # Host-port fallback (5434 from .env, 5432 bare).
       - "127.0.0.1:${DB_PORT:-5432}:5432"
@@ -175,6 +190,7 @@ services:
       # written, so a compromised db container cannot rewrite this host file (it
       # re-executes on every fresh pgdata volume).
       - ./scripts/init-db.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
+      - ./scripts/lib/configure-runtime-db-role.sh:/usr/local/bin/configure-runtime-db-role:ro
       - ./db/postgresql.conf:/etc/postgresql/custom.conf:ro
     # GAP-001: memory limit prevents the DB from consuming all host RAM under
     # heavy query load. 2 GB covers shared_buffers (512 MB) + work_mem headroom
@@ -234,6 +250,13 @@ services:
       - ./backend/alembic:/app/alembic
     environment:
       <<: [*db-env, *auth-env, *db-ssl-env, *edition-env]
+      # Migration authority is distinct from DATABASE_URL_OVERRIDE, which is
+      # the steady-state API/worker login when runtime-role mode is enabled.
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      DATABASE_URL_OVERRIDE: "${MIGRATION_DATABASE_URL_OVERRIDE:-${DATABASE_URL_OVERRIDE:-}}"
+      GEOLENS_RUNTIME_DB_ROLE: ""
+      GEOLENS_MIGRATION_DB_ROLE: "${GEOLENS_MIGRATION_DB_ROLE:-${GEOLENS_RUNTIME_DB_ROLE:+${POSTGRES_USER}}}"
       PYTHONPATH: /app
       # Migration 0012 resolves the vector typmod before the API starts. Keep
       # an unset dimension empty so stored vectors can still win over the

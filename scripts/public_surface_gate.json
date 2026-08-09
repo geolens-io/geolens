@@ -238,6 +238,13 @@
       "reason": "Offline recovery instructions must distinguish fresh-cluster tenant restores from same-cluster recovery."
     },
     {
+      "id": "runbook-single-tenant-runtime-role-boundary",
+      "path": "RUNBOOK.md",
+      "pattern_id": "multi_tenant_wording",
+      "match": "multi-tenant",
+      "reason": "The single-tenant runtime-role adoption procedure must distinguish itself from the existing tenant-isolation role topology."
+    },
+    {
       "id": "env-example-edition-enum-value",
       "path": ".env.example",
       "pattern_id": "enterprise_word",

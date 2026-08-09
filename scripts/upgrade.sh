@@ -131,17 +131,53 @@ TARGET_TAG="v${TARGET_VERSION}"
 # major, and an unreadable value on either side warns and continues rather than
 # blocking an otherwise valid upgrade.
 #
-# Codex #707: skipped entirely when DATABASE_URL_OVERRIDE is set. The prod
-# compose still defines and starts `db` in that mode, but the app does not use
-# it — so probing that container compares the target's bundled major against a
-# stale local container and would refuse an upgrade for an operator whose
-# provider is already on the new major. The bundled-volume incompatibility this
-# guard exists to prevent cannot occur when the data lives outside the bundle;
-# RUNBOOK section 6's managed-mode path covers those deployments.
+# Codex #707: skipped when DATABASE_URL_OVERRIDE points at an external database.
+# A bundled install using the opt-in GEOLENS_RUNTIME_DB_ROLE also sets that
+# override, so distinguish it by the Compose-only `db` hostname rather than by
+# the role flag alone (fix(#1287 review)).
 DATABASE_URL_OVERRIDE_VALUE="$(get_env_value DATABASE_URL_OVERRIDE)"
+RUNTIME_DB_ROLE_VALUE="$(get_env_value GEOLENS_RUNTIME_DB_ROLE)"
+override_targets_bundled_db() {
+  _url="$1"
+  _authority="${_url#*://}"
+  [ "$_authority" != "$_url" ] || return 1
+  _authority="${_authority%%/*}"
+  _host_port="${_authority##*@}"
+
+  # libpq permits credentials in the authority with the host supplied only as
+  # a query parameter: postgresql://user:pass@/db?host=db. Settings accepts
+  # this form, so resolve it before applying the managed-database bypass.
+  if [ -z "$_host_port" ]; then
+    _query="${_url#*\?}"
+    if [ "$_query" != "$_url" ]; then
+      _host_port="$(printf '%s' "$_query" \
+        | tr '&' '\n' \
+        | sed -n 's/^host=\([^#]*\).*$/\1/p' \
+        | head -n 1)"
+    fi
+  fi
+
+  # PostgreSQL hostnames are case-insensitive. Decode the unreserved `db`
+  # spelling (and an encoded port separator) that urllib.parse accepts too.
+  _host_port="$(printf '%s' "$_host_port" \
+    | tr '[:upper:]' '[:lower:]' \
+    | sed -e 's/%44/d/g' -e 's/%42/b/g' -e 's/%64/d/g' -e 's/%62/b/g' \
+          -e 's/%3a/:/g')"
+  case "$_host_port" in
+    db|db:*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+bundled_runtime_override=false
+if [ -n "$RUNTIME_DB_ROLE_VALUE" ] \
+   && override_targets_bundled_db "$DATABASE_URL_OVERRIDE_VALUE"; then
+  bundled_runtime_override=true
+fi
 target_pg_major=""
 current_pg_major=""
-if [ -n "$DATABASE_URL_OVERRIDE_VALUE" ]; then
+if [ -n "$DATABASE_URL_OVERRIDE_VALUE" ] \
+   && [ "$bundled_runtime_override" = "false" ]; then
   say "External database configured (DATABASE_URL_OVERRIDE) — skipping the bundled PostgreSQL major check."
 else
   if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then

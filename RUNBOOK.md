@@ -208,6 +208,219 @@ mc admin config get <alias> api
 Use this path when Postgres runs in the bundled `db` container (the default
 self-hosted Docker Compose deployment).
 
+### Single-tenant least-privilege database runtime role
+
+The default remains backward-compatible: API and worker use `POSTGRES_USER`
+unless the operator explicitly sets `GEOLENS_RUNTIME_DB_ROLE`. New and existing
+single-tenant installs can opt into a dedicated non-superuser login without
+changing the multi-tenant role topology.
+
+The credential order is load-bearing:
+
+1. `POSTGRES_USER` / `POSTGRES_PASSWORD` remain the bundled database bootstrap,
+   reconciliation, backup, and restore identity. Do not put this credential in
+   the steady-state app URL after adoption.
+2. `MIGRATION_DATABASE_URL_OVERRIDE` carries the migration identity only to the
+   ordered one-shot `migrate` service. `GEOLENS_MIGRATION_DB_ROLE` names that
+   URL's login, defaults to `POSTGRES_USER` in bundled mode, and tells the role
+   reconciler which object owner's default privileges to alter. If a custom
+   migration URL targets the bundled `db` service, also set
+   `GEOLENS_MIGRATION_DB_LOCAL=true`; leave it false for managed/external URLs
+   so their cluster-global role name is never reconciled in the local database.
+3. `DATABASE_URL_OVERRIDE` carries the dedicated runtime login to API and worker.
+4. `GEOLENS_API_RUN_MIGRATIONS=false` prevents the API image's migration safety
+   net from attempting extension/schema DDL with the runtime login.
+5. API and worker bootstrap verify the exact live login named by
+   `GEOLENS_RUNTIME_DB_ROLE` and refuse to start if it is superuser, can bypass
+   RLS, create roles/databases, replicate, assume a powerful role, or create in
+   `catalog`/`public`, or owns/can assume ownership of any database or schema.
+
+The reconciler rejects `POSTGRES_USER`, `postgres`, every `pg_*` built-in, fixed
+reader/writer/tile/tenant roles, and dynamic `geolens_{reader,writer}_t_*` names
+as the runtime login before it opens a SQL connection; reusing one would demote
+or over-privilege an existing security identity.
+
+On a fresh bundled volume, `init-db.sh` creates extensions and schemas first,
+then runs `scripts/lib/configure-runtime-db-role.sh`. The latter creates and
+marks the login with
+`geolens-managed-runtime-role:v2:database=<current-database>`, grants catalog
+DML/sequence access (except that `catalog.alembic_version` is read-only), grants
+CREATE plus relation ownership only in `data`, and grants SET access to
+`geolens_reader`. The shared reader itself carries the cluster-global marker
+`geolens-managed-reader-role:v1`; an unmarked role is accepted only when it has
+the inert `NOLOGIN` shape created by migration 0007, owns no object, has no
+configuration/comment, and is not a member of another role. Any same-named
+login or administrative/unrelated role fails before `ALTER ROLE`. The runtime
+role never receives blanket catalog-function execution: tenant provisioning
+remains exclusive to `geolens_tenant_control`.
+Functions and procedures in `data` follow the opposite ownership boundary:
+they must be runtime-owned because the application can create them there. The
+reconciler transfers routines owned by the current restore login or validated
+migration owner, rejects every unrelated owner, revokes `PUBLIC EXECUTE`, and
+then admits only the runtime. This prevents a `--no-owner --no-acl` restore from
+turning a runtime-authored `SECURITY DEFINER` routine into a bootstrap-privilege
+escalation path.
+Catalog default grants are installed for the validated
+`GEOLENS_MIGRATION_DB_ROLE`, so later Alembic objects remain usable even when a
+managed provider admin performed reconciliation. The migrate service then
+applies Alembic before API/worker connect. Because PostgreSQL roles are
+cluster-global, the reconciler also revokes the database's default
+`PUBLIC CONNECT` and explicitly grants connection access to the reconciler,
+migration owner, and this database's runtime role. This prevents a runtime
+login for a second database on the same cluster from connecting here and
+assuming the shared `geolens_reader` role. Any additional login that needs this
+database, such as a dedicated multi-tenant tile login, requires an explicit
+`GRANT CONNECT ON DATABASE <database> TO <login>`; existing explicit grants
+are preserved. Legacy reconciliation closes the same `PUBLIC CONNECT` boundary
+and explicitly retains its reconciliation login; operators must explicitly
+grant `CONNECT` to any separate legacy app or tile login first.
+The admin embedding-dimension resize is the sole catalog-DDL exception: the
+reconciler installs a bounded `SECURITY DEFINER` function, revokes its default
+`PUBLIC` execute grant, and grants it only to the configured runtime role. The
+runtime login never receives catalog ownership or general DDL privileges.
+
+#### Adopt the single-tenant runtime role on an existing install
+
+`init-db.sh` never reruns on a non-empty PostgreSQL volume. Adoption is therefore
+an explicit maintenance operation, not an Alembic migration or silent startup
+privilege rewrite. Take a verified backup first, then:
+
+```bash
+# 1. Generate a credential distinct from POSTGRES_PASSWORD.
+openssl rand -hex 32
+
+# 2. Put the generated value and the five companion settings in .env.
+#    Use the actual existing POSTGRES_USER password in the migration URL.
+GEOLENS_RUNTIME_DB_ROLE=geolens_app
+GEOLENS_RUNTIME_DB_PASSWORD=paste_generated_hex_here
+DATABASE_URL_OVERRIDE=postgresql://geolens_app:paste_generated_hex_here@db:5432/geolens
+GEOLENS_MIGRATION_DB_ROLE=geolens
+MIGRATION_DATABASE_URL_OVERRIDE=postgresql://geolens:paste_existing_postgres_password_here@db:5432/geolens
+GEOLENS_API_RUN_MIGRATIONS=false
+
+# 3. Stop writers. Recreate only db so it receives the new env and read-only
+#    reconciler mount; the named pgdata volume is preserved.
+docker compose stop api worker
+docker compose up -d --no-deps --force-recreate --wait db
+
+# 4. Run the canonical idempotent grant/ownership reconciliation as
+#    POSTGRES_USER inside db. It does not run any Alembic migration.
+docker compose exec -T db /usr/local/bin/configure-runtime-db-role
+
+# 5. Prove migrations still run with the separate privileged URL, then start.
+docker compose run --rm --no-deps migrate
+docker compose up -d
+```
+
+If the chosen login already exists, the command refuses to modify it unless it
+has the durable GeoLens marker. This protects unrelated provider/admin roles
+from password replacement or demotion. For a login previously dedicated to
+GeoLens, verify that it is `LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEROLE
+NOCREATEDB NOREPLICATION`, has no role memberships other than
+`geolens_reader`, owns no database/schema or non-`data` user relation, and then
+authorize exactly one adoption run:
+
+```bash
+docker compose exec -T \
+  -e GEOLENS_RUNTIME_DB_ROLE_ADOPT_EXISTING=true \
+  db /usr/local/bin/configure-runtime-db-role
+```
+
+The marker, password, runtime ownership transfers, and temporary SET authority
+used for those transfers are committed atomically. Do not persist the adoption
+flag; ordinary upgrades and restores prove ownership from the marker.
+
+Changing `GEOLENS_RUNTIME_DB_ROLE` is also the supported role-name rotation
+path. In the same transaction that prepares the replacement, the reconciler
+finds every other role carrying this database's exact active marker, reassigns
+its owned objects to the replacement, removes its current-database privileges
+and default privileges, revokes its held role memberships and `CONNECT`, then
+sets `NOLOGIN` and writes
+`geolens-retired-runtime-role:v1:database=<current-database>`. Roles marked for
+another database are never selected. If any ownership or membership operation
+fails, the replacement and retirement both roll back. Selecting a same-database
+retired role again performs the inverse rotation without the adoption flag, so
+an operator can revert the role-name choice with a newly supplied password.
+
+The reconciler deliberately does not require `pg_signal_backend`, which many
+managed-provider admins lack. Existing sessions lose their direct ACLs and
+memberships when the transaction commits, and `NOLOGIN` blocks new sessions.
+Drain the old API/worker connection pools before rotation: PostgreSQL does not
+automatically reset a session that had already completed `SET ROLE` before the
+membership revocation. Start the replacement services only after reconciliation
+succeeds and the old pools have exited.
+
+PostgreSQL roles are cluster-global, so the marker binds a managed runtime role
+to the database name that claimed it. A second live database cannot reuse that
+role or rotate its password, even with the adoption flag. A same-name restore
+continues to reconcile normally. For a database rename or a globals-backed
+restore under a different name, first ensure the marker's old database no
+longer exists, then perform one explicit adoption run to rebind the marker. If
+the old database still exists, choose a different runtime role; the reconciler
+will not treat adoption as a collision override. Legacy `v1` markers are
+unscoped and therefore require the same one-time safe adoption as an unmarked
+dedicated login.
+
+Load `.env` into the verification shell and query through the runtime login:
+
+```bash
+set -a; . ./.env; set +a
+docker compose exec -T db env PGPASSWORD="$GEOLENS_RUNTIME_DB_PASSWORD" \
+  psql -h 127.0.0.1 -U "$GEOLENS_RUNTIME_DB_ROLE" -d "$POSTGRES_DB" -c \
+  "SELECT current_user, rolsuper, rolbypassrls, rolcreaterole,
+          rolcreatedb, rolreplication
+     FROM pg_roles WHERE rolname = current_user;"
+```
+
+All five capability booleans must be `f`. Also confirm API and worker are
+healthy. To roll back the connection change, clear `GEOLENS_RUNTIME_DB_ROLE`,
+`GEOLENS_RUNTIME_DB_PASSWORD`, and `MIGRATION_DATABASE_URL_OVERRIDE`, restore
+the previous `DATABASE_URL_OVERRIDE`/migration-toggle values, then recreate API
+and worker. The legacy reconciler also revokes database `CONNECT` from `PUBLIC`
+because `geolens_reader` is cluster-global. Before running it with a managed
+legacy app or tile login that differs from `POSTGRES_USER`, explicitly admit
+each required login, for example `GRANT CONNECT ON DATABASE geolens TO
+legacy_app`; the reconciler preserves named grants but cannot safely infer
+which identities previously relied on `PUBLIC`. Leave the role in place during
+rollback: dropping it before re-owning `data.*` relations is destructive and
+unnecessary.
+
+For managed/external PostgreSQL, run privileged migrations first, then run
+`scripts/lib/configure-runtime-db-role.sh` from the host with `POSTGRES_HOST`,
+`POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_DB`, `PGPASSWORD`, and the two
+`GEOLENS_RUNTIME_DB_*` variables exported. Also export
+`GEOLENS_MIGRATION_DB_ROLE` as the username in
+`MIGRATION_DATABASE_URL_OVERRIDE`; it may differ from the provider admin used by
+the script. The provider credential must be able to create roles, change
+relation ownership, alter default privileges for that migration owner, and
+manage the target database's `CONNECT` ACL (normally by owning that database or
+through equivalent provider authority). A role-name rotation additionally
+requires SET/admin authority for each old and replacement runtime role plus
+ADMIN OPTION on every role membership held by the old login; missing authority
+fails the transaction rather than leaving a partially retired credential. When
+the provider admin differs from `GEOLENS_MIGRATION_DB_ROLE`, it also needs SET
+authority on that actual migration role; `INHERIT` and `ADMIN` are unnecessary.
+The reconciler creates the bounded embedding `SECURITY DEFINER` function while
+set to that owner, so the provider admin gains no direct catalog access. After
+a `--no-owner` logical restore, an existing copy and its bounded
+`catalog.record_embeddings` DDL target owned by the restore login are
+transferred to the validated migration role before replacement; a third-party
+owner fails closed. On PostgreSQL 18,
+the provider admin also needs ADMIN OPTION on a pre-existing
+`geolens_reader`; an admin that created it during initial reconciliation
+already has PostgreSQL's automatic ADMIN-only membership. The reconciler uses
+that authority to grant the runtime reader transition. It likewise preserves
+the automatic ADMIN-only membership on a runtime role it creates, enables SET
+through a separate grant only inside the reconciliation transaction, and
+revokes that grant before commit so only the original SET=false ADMIN authority
+remains. Start runtime services only after that command succeeds. Provider
+snapshot/PITR restore normally preserves the database-scoped marker; a globals
+backup preserves it as a role comment. After any logical restore, rerun the
+same script before restarting writers, using the explicit rebind procedure
+above if the restored database name changed. A logical dump does not carry the
+database-level `PUBLIC CONNECT` revocation because GeoLens uses `--no-acl`; the
+mandatory post-restore reconciliation reapplies that boundary.
+
 ### Canonical restore entry point
 
 ```bash
@@ -226,10 +439,12 @@ self-hosted Docker Compose deployment).
 3. Creates required extensions and schemas in the database.
 4. Stops `api` and `worker` to prevent write conflicts.
 5. Runs `pg_restore --clean --if-exists --no-owner` against the bundled `db` container.
-6. Re-applies the `geolens_reader` grants on schema `data` and asserts they took
-   (`has_schema_privilege`). `--clean` drops the schema together with its ACLs
-   and default privileges, and the dump carries no ACLs (`--no-acl`), so the
-   grants must be rebuilt after every restore.
+6. Runs the same privileged role/grant reconciler as bootstrap. It re-applies
+   `geolens_reader`; when `GEOLENS_RUNTIME_DB_ROLE` is set it also restores
+   the database connection boundary, catalog runtime grants, and re-owns only
+   `data.*` runtime relations. `--clean` drops schema ACLs/default privileges
+   and `--no-owner` makes the restore login own every restored relation, so this
+   post-restore step is mandatory.
 7. Restarts `api` and `worker` on exit (including on failure — via a trap).
 8. Runs a post-restore row-count check (`catalog.records`, `catalog.datasets`).
 9. Auto-detects any sibling `staging-<timestamp>.tar.gz` next to the dump and
@@ -345,7 +560,7 @@ upgrade is what fixes that, and the only way to reach it is to downgrade below
 >
 > The refusals are correct: forcing them would corrupt the restored data.
 > Taken together they mean this path is unusable or lossy for most real
-> multi-tenant databases, and there is currently no supported way to re-run
+> multi-database clusters, and there is currently no supported way to re-run
 > 0019's adoption without it (0019 installs its functions with plain
 > `CREATE FUNCTION`, so `alembic stamp 0018 && alembic upgrade 0019` collides
 > with the functions the restored dump already carries).

@@ -6,8 +6,9 @@ this helper enables + FORCEs them per table.
 
 Design invariants
 -----------------
-- **single_tenant**: hard no-op — returns immediately, touches NO SQL.  RLS
-  stays DISABLED (default) → zero planner cost, byte-identical to pre-1208.
+- **single_tenant**: RLS stays disabled. Runtime-role verification is a hard
+  no-op unless ``GEOLENS_RUNTIME_DB_ROLE`` explicitly enables the non-superuser
+  connection path, preserving existing installs byte-for-byte by default.
 - **multi_tenant**: for each tenant-shared table, reads
   ``pg_class.relrowsecurity`` and ``pg_class.relforcerowsecurity`` FIRST and
   only issues ``ALTER TABLE ... ENABLE/FORCE ROW LEVEL SECURITY`` when the
@@ -63,7 +64,7 @@ RLS_POLICY_NAMES: tuple[str, ...] = tuple(f"tenant_isolation_{t}" for t in RLS_T
 
 
 async def assert_multi_tenant_runtime_role(conn) -> None:
-    """Refuse multi-tenant startup under any role that can bypass RLS.
+    """Verify the live role when tenancy or the single-tenant opt-in requires it.
 
     ``FORCE ROW LEVEL SECURITY`` does not constrain PostgreSQL superusers or
     roles carrying ``BYPASSRLS``. Checking only ``current_user`` is also
@@ -71,11 +72,21 @@ async def assert_multi_tenant_runtime_role(conn) -> None:
     temporary role switch. The application login itself, the effective role,
     and every privileged role it can assume must therefore be safe.
 
-    Single-tenant mode is a hard no-op.
+    Legacy single-tenant mode is a hard no-op. Setting
+    ``GEOLENS_RUNTIME_DB_ROLE`` opts single-tenant API/worker processes into the
+    same dangerous-attribute and role-membership verification and additionally
+    requires the live login to match the configured role name.
     """
+    from app.core.config import settings
     from app.core.tenancy import is_multi_tenant
 
-    if not is_multi_tenant():
+    multi_tenant = is_multi_tenant()
+    expected_runtime_role = settings.geolens_runtime_db_role
+    if not multi_tenant and expected_runtime_role is None:
+        logger.warning(
+            "Single-tenant database runtime role guard is disabled",
+            remediation="Set GEOLENS_RUNTIME_DB_ROLE to adopt the opt-in least-privilege login",
+        )
         return
 
     result = await conn.execute(
@@ -158,7 +169,21 @@ async def assert_multi_tenant_runtime_role(conn) -> None:
                     session_user, 'catalog', 'CREATE'
                 ) OR pg_catalog.has_schema_privilege(
                     session_user, 'public', 'CREATE'
-                ) AS can_create_in_protected_schema
+                ) AS can_create_in_protected_schema,
+                EXISTS (
+                    SELECT 1
+                    FROM pg_catalog.pg_database owned_database
+                    WHERE pg_catalog.pg_has_role(
+                        session_user, owned_database.datdba, 'MEMBER'
+                    )
+                ) AS can_assume_database_owner,
+                EXISTS (
+                    SELECT 1
+                    FROM pg_catalog.pg_namespace owned_schema
+                    WHERE pg_catalog.pg_has_role(
+                        session_user, owned_schema.nspowner, 'MEMBER'
+                    )
+                ) AS can_assume_schema_owner
             FROM pg_roles effective_role
             JOIN pg_roles login_role ON login_role.rolname = session_user
             WHERE effective_role.rolname = current_user
@@ -167,9 +192,7 @@ async def assert_multi_tenant_runtime_role(conn) -> None:
     )
     row = result.fetchone()
     if row is None:
-        raise RuntimeError(
-            "Multi-tenant database role verification returned no PostgreSQL role"
-        )
+        raise RuntimeError("Database role verification returned no PostgreSQL role")
 
     (
         current_role_name,
@@ -189,8 +212,10 @@ async def assert_multi_tenant_runtime_role(conn) -> None:
         can_assume_catalog_table_owner,
         can_assume_tenant_schema_owner,
         can_create_in_protected_schema,
+        can_assume_database_owner,
+        can_assume_schema_owner,
     ) = row
-    if any(
+    unsafe_role = any(
         (
             current_superuser,
             current_bypassrls,
@@ -207,15 +232,39 @@ async def assert_multi_tenant_runtime_role(conn) -> None:
             can_assume_catalog_table_owner,
             can_assume_tenant_schema_owner,
             can_create_in_protected_schema,
+            can_assume_database_owner,
+            can_assume_schema_owner,
         )
-    ):
+    )
+    wrong_single_tenant_role = (
+        not multi_tenant
+        and expected_runtime_role is not None
+        and (
+            current_role_name != expected_runtime_role
+            or session_role_name != expected_runtime_role
+        )
+    )
+    if unsafe_role or wrong_single_tenant_role:
+        if not multi_tenant:
+            raise RuntimeError(
+                "GEOLENS_RUNTIME_DB_ROLE requires the live PostgreSQL session "
+                "to use that exact dedicated LOGIN with SUPERUSER, BYPASSRLS, "
+                "CREATEROLE, CREATEDB, and REPLICATION disabled; it must not "
+                "inherit/assume a powerful role, own a database or schema, "
+                "or create in catalog/public. "
+                f"Configured role={expected_runtime_role!r}, "
+                f"current_user={current_role_name!r}, "
+                f"session_user={session_role_name!r}. Keep migrations and "
+                "restore on the separate privileged credential."
+            )
         raise RuntimeError(
             "GEOLENS_TENANCY_MODE=multi_tenant requires a dedicated PostgreSQL "
             "application login that is not SUPERUSER, BYPASSRLS, CREATEROLE, "
             "CREATEDB, or REPLICATION and cannot assume such a role. The "
             "migrator provisioner and tile gateway must remain separate; the "
             "runtime login must not own (or be able to assume ownership of) "
-            "catalog RLS tables or tenant schemas, or have CREATE on catalog/public. "
+            "a database, schema, catalog RLS table, or tenant schema, or have "
+            "CREATE on catalog/public. "
             f"Resolved current_user={current_role_name!r}, "
             f"session_user={session_role_name!r}. Configure API and worker "
             "DATABASE_URL_OVERRIDE with a least-privilege runtime credential; "
@@ -223,7 +272,8 @@ async def assert_multi_tenant_runtime_role(conn) -> None:
         )
 
     logger.info(
-        "Multi-tenant database role verified",
+        "Database runtime role verified",
+        tenancy_mode="multi_tenant" if multi_tenant else "single_tenant",
         current_user=current_role_name,
         session_user=session_role_name,
     )
@@ -308,8 +358,8 @@ async def apply_tenancy_rls_from_engine(*, verify_runtime_role: bool = True) -> 
     Called by ``bootstrap()`` so mode flips require no new migration — the
     policies are already in the schema and this call enables them at boot.
 
-    In ``single_tenant``: delegates to ``apply_tenancy_rls()`` which returns
-    immediately (zero SQL).
+    In ``single_tenant``: RLS remains a no-op. The role check also remains a
+    no-op unless ``GEOLENS_RUNTIME_DB_ROLE`` opts into the non-superuser path.
 
     In ``multi_tenant``: opens an AUTOCOMMIT connection (DDL outside a
     transaction so each ALTER is visible immediately to other connections),

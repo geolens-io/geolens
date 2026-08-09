@@ -52,6 +52,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 BACKEND_DIR="${REPO_ROOT}/backend"
 DB_BUILD_CONTEXT="${REPO_ROOT}/db"
 INIT_DB_SCRIPT="${REPO_ROOT}/scripts/init-db.sh"
+ROLE_RECONCILER="${REPO_ROOT}/scripts/lib/configure-runtime-db-role.sh"
 
 # -----------------------------------------------------------------------
 # Cleanup (registered BEFORE the container starts so Ctrl-C drops it)
@@ -102,6 +103,11 @@ if [ ! -f "${INIT_DB_SCRIPT}" ]; then
   exit 1
 fi
 
+if [ ! -f "${ROLE_RECONCILER}" ] || [ ! -r "${ROLE_RECONCILER}" ]; then
+  echo "ERROR: ${ROLE_RECONCILER} not found or unreadable — database roles cannot be initialized without it" >&2
+  exit 1
+fi
+
 if [ ! -f "${BACKEND_DIR}/alembic.ini" ]; then
   echo "ERROR: ${BACKEND_DIR}/alembic.ini not found" >&2
   exit 1
@@ -140,6 +146,7 @@ docker run -d \
   -e POSTGRES_PASSWORD="${PG_PASSWORD}" \
   -e POSTGRES_DB="${PG_DB}" \
   -v "${INIT_DB_SCRIPT}:/docker-entrypoint-initdb.d/10-init.sh:ro" \
+  -v "${ROLE_RECONCILER}:/usr/local/bin/configure-runtime-db-role:ro" \
   "${TEST_IMAGE}" >/dev/null
 
 # -----------------------------------------------------------------------

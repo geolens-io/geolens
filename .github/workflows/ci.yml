@@ -174,6 +174,7 @@ jobs:
               # test_ci_alembic_filter_paths.py now enforces both directions.
               - 'scripts/backup-entrypoint.sh'
               - 'scripts/init-db.sh'
+              - 'scripts/lib/configure-runtime-db-role.sh'
               # fix(#561): a change to this workflow can alter HOW Backend Tests
               # runs (e.g. the -n4 parallelization / coverage core), so the suite
               # must run on PRs that touch it — otherwise CI-config changes ship
@@ -260,6 +261,10 @@ jobs:
             alembic:
               - 'backend/alembic/**'
               - 'backend/scripts/test_alembic_upgrade_clean_db.sh'
+              # The clean-DB harness bind-mounts both init scripts. Changes to
+              # either must exercise the exact fresh-cluster boot path.
+              - 'scripts/init-db.sh'
+              - 'scripts/lib/configure-runtime-db-role.sh'
               # OCG-02: backend/app/models/** was deleted in b63803c1; replaced
               # with the real model layout so model-only PRs still trigger alembic
               # check (blocks model migration drift regressions).
@@ -303,6 +308,7 @@ jobs:
             backup:
               - 'scripts/backup-entrypoint.sh'
               - 'scripts/restore.sh'
+              - 'scripts/lib/configure-runtime-db-role.sh'
               - 'scripts/tests/test-backup-restore-roundtrip.sh'
               # test(#826): the bundled-mode leg restores through the REAL
               # restore.sh against this db-only compose stack.
@@ -589,6 +595,8 @@ jobs:
           POSTGRES_USER: geolens
           POSTGRES_PASSWORD: geolens_test
           POSTGRES_DB: geolens
+          GEOLENS_RUNTIME_DB_ROLE: geolens_ci_app
+          GEOLENS_RUNTIME_DB_PASSWORD: ci-runtime-role-test-password-947-padding
         run: |
           set -euo pipefail
           # Seed a source DB with known rows.
@@ -674,6 +682,24 @@ jobs:
             "SET ROLE geolens_reader; SELECT COUNT(*) FROM data.ci_probe;" | tail -n 1)
           [ "$READER_CNT" = "1" ] || { echo "FAIL: geolens_reader cannot select restored data.ci_probe (got '${READER_CNT}')"; exit 1; }
           echo "  geolens_reader post-restore grant verified (data.ci_probe readable)"
+
+          # #947: restore runs with POSTGRES_USER, then the canonical reconciler
+          # restores the opt-in runtime role without handing it role/schema DDL.
+          ROLE_STATE=$(docker compose -f "$COMPOSE_FILE" exec -T db \
+            psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
+            "SELECT rolsuper || '|' || rolbypassrls || '|' || rolcreaterole || '|' || rolcreatedb || '|' || rolreplication
+             FROM pg_roles WHERE rolname = '$GEOLENS_RUNTIME_DB_ROLE';" | tr -d '[:space:]')
+          [ "$ROLE_STATE" = "false|false|false|false|false" ] || { echo "FAIL: unsafe runtime role state: $ROLE_STATE"; exit 1; }
+          DATA_OWNER=$(docker compose -f "$COMPOSE_FILE" exec -T db \
+            psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
+            "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'data.ci_probe'::regclass;" | tr -d '[:space:]')
+          [ "$DATA_OWNER" = "$GEOLENS_RUNTIME_DB_ROLE" ] || { echo "FAIL: restored data owner is $DATA_OWNER"; exit 1; }
+          RUNTIME_CNT=$(docker compose -f "$COMPOSE_FILE" exec -T db \
+            env PGPASSWORD="$GEOLENS_RUNTIME_DB_PASSWORD" \
+            psql -h 127.0.0.1 -U "$GEOLENS_RUNTIME_DB_ROLE" -d "$POSTGRES_DB" -tAc \
+            "SELECT COUNT(*) FROM catalog.records;" | tr -d '[:space:]')
+          [ "$RUNTIME_CNT" = "$SRC_R" ] || { echo "FAIL: runtime role cannot read restored catalog"; exit 1; }
+          echo "  least-privilege runtime role post-restore grants + data ownership verified"
 
           echo "PASS [BUNDLED MODE]: image backup→SigV4-S3→scripts/restore.sh, records=${SRC_R} datasets=${SRC_D}"
           dropdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" --if-exists "$SRC"
