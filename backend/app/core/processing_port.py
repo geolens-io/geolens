@@ -407,6 +407,7 @@ class ProcessingPort(Protocol):
         self,
         *,
         item_href: str,
+        item_id: str | None,
         collection_id: str | None,
         asset_href: str | None,
         asset_key: str | None,

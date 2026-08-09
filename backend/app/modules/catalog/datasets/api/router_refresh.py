@@ -445,6 +445,7 @@ class _StacOrigin:
     """
 
     item_href: str
+    item_id: str | None
     collection_id: str | None
     asset_href: str | None
     asset_key: str | None
@@ -493,6 +494,7 @@ def _resolve_stac_origin(dataset) -> _StacOrigin:
         )
     return _StacOrigin(
         item_href=item_href,
+        item_id=ref.get("item_id"),
         collection_id=ref.get("collection_id"),
         asset_href=ref.get("asset_href"),
         asset_key=ref.get("asset_key"),

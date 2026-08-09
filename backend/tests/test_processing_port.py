@@ -268,7 +268,7 @@ class FakeProcessingPort:
         return {}
 
     async def resolve_stac_binding(
-        self, *, item_href, collection_id, asset_href, asset_key
+        self, *, item_href, item_id, collection_id, asset_href, asset_key
     ):
         # feat(#1266): the STAC refresh strategy's one crossing of this port.
         # A fake that reached the network would make every test using this

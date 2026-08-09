@@ -141,8 +141,8 @@ def _binding(dataset: Any) -> tuple:
 
 def _stac_pointers(
     origin_ref: dict | None,
-) -> tuple[str, str | None, str | None, str | None]:
-    """``(item_href, collection_id, asset_href, asset_key)`` from the binding.
+) -> tuple[str, str | None, str | None, str | None, str | None]:
+    """``(item_href, item_id, collection_id, asset_href, asset_key)``.
 
     Raises when there is no ``item_href``. The item document is the only
     thing that can answer where an asset moved TO: the asset href answers a
@@ -164,6 +164,7 @@ def _stac_pointers(
         )
     return (
         item_href,
+        ref.get("item_id"),
         ref.get("collection_id"),
         ref.get("asset_href"),
         ref.get("asset_key"),
@@ -225,6 +226,10 @@ def _rebind(dataset: Any, resolution: Any, *, collection_id: str | None) -> None
         uri=resolution.asset_href,
         asset_href=resolution.asset_href,
         item_href=resolution.item_href,
+        # fix(#1266 review round 9): written back on every rebind, so a
+        # dataset imported before the id was recorded gains one the first
+        # time it refreshes and is checked against it thereafter.
+        item_id=resolution.item_id,
         collection_id=collection_id,
         asset_key=resolution.asset_key,
     )
@@ -398,9 +403,13 @@ async def refresh_stac(
                 return
 
             bound = _binding(dataset)
-            item_href, collection_id, asset_href, asset_key = _stac_pointers(
-                dataset.origin_ref
-            )
+            (
+                item_href,
+                item_id,
+                collection_id,
+                asset_href,
+                asset_key,
+            ) = _stac_pointers(dataset.origin_ref)
             await claim_run_for_job(session, job_uuid)
             await session.commit()
 
@@ -415,6 +424,7 @@ async def refresh_stac(
         # ----------------------------------------------------------------- #
         resolution = await port.resolve_stac_binding(
             item_href=item_href,
+            item_id=item_id,
             collection_id=collection_id,
             asset_href=asset_href,
             asset_key=asset_key,
@@ -481,6 +491,7 @@ async def refresh_stac(
             rebound = (
                 moved
                 or resolution.item_href != item_href
+                or resolution.item_id != item_id
                 or resolution.asset_key != asset_key
             )
             if rebound:

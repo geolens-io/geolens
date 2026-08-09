@@ -121,6 +121,11 @@ class StacResolution:
     detail: str | None = None
     contacted: bool = True
     item_href: str | None = None
+    # fix(#1266 review round 9): the id the resolved document answers to.
+    # Written back with the rest of the binding, so a dataset whose catalog
+    # states no identity in its URLs still accumulates one it can be checked
+    # against next time.
+    item_id: str | None = None
     asset_href: str | None = None
     asset_key: str | None = None
     # fix(#1266 review round 5): the moved object's OWN structural metadata.
@@ -334,16 +339,20 @@ def _contradicts_stored_identity(
     it as this dataset's raster. The search path never had the hole because
     ``_feature_by_id`` matches on id; this is the direct path's equivalent.
 
-    Framed as CONTRADICTION rather than confirmation, deliberately, because
-    confirmation is not always available. The item id can only be read out of
-    ``item_href`` where the catalog uses the standard layout, so requiring it
-    would refuse to refresh every catalog that does not — the same catalogs
-    that already get no fallback search. What is always available is the
-    weaker but sound test: where BOTH sides state a value, they must agree.
-    A document that states a different id, or a different collection, is not
-    this item and is refused; one that states neither is accepted on the
-    strength of the stored ``item_href`` being the item's own canonical URL,
-    which is what #1222 captured it from.
+    Framed as CONTRADICTION rather than confirmation because confirmation is
+    not always available: a dataset imported before ``item_id`` was recorded
+    has only what its URL states, and that is nothing at all for a catalog
+    outside the ``/collections/{c}/items/{id}`` layout. Where BOTH sides
+    state a value they must agree; where neither does, the answer stands on
+    ``item_href`` being the item's own canonical URL.
+
+    fix(#1266 review round 9): ``expected_item_id`` now comes from the
+    BINDING first and the URL only as a fallback, which is what closes the
+    hole for those non-standard catalogs — a canonical URL that later serves
+    a different item of the same collection used to pass this check, and the
+    asset chooser would then republish that item's raster as this dataset.
+    Every refresh writes the id back, so a dataset only has to be refreshed
+    once to gain the identity it is checked against thereafter.
     """
     if expected_item_id is not None and item.get("id") != expected_item_id:
         return True
@@ -500,11 +509,13 @@ async def _resolve_from_item(
             return _ASSET_UNREADABLE
 
     properties = item.get("properties")
+    resolved_id = item.get("id")
     return StacResolution(
         health=probed.health,
         detail=probed.detail,
         contacted=probed.contacted,
         item_href=resolved_item_href,
+        item_id=resolved_id if isinstance(resolved_id, str) else None,
         asset_href=href,
         # Bounded on the way into the binding by the same rule search
         # applies on the way out of the catalog: a key too long to carry is
@@ -561,22 +572,30 @@ def _feature_by_id(document: Any, item_id: str) -> dict[str, Any] | None:
 async def _resolve_by_search(
     *,
     item_href: str,
+    item_id: str | None,
     collection_id: str | None,
     asset_href: str | None,
     asset_key: str | None,
 ) -> StacResolution:
-    """Look the item up by identity after its own URL stopped resolving."""
+    """Look the item up by identity after its own URL stopped resolving.
+
+    The search ROOT can only come from the URL — there is nowhere else to
+    read it from — so a catalog outside the standard layout still gets no
+    second path. The IDENTITY prefers the stored id, which is exact, over the
+    one read out of the URL.
+    """
     derived = _search_root_and_item_id(item_href, collection_id)
     if derived is None:
         return _WITHDRAWN
-    root, item_id = derived
+    root, derived_id = derived
+    wanted_id = item_id or derived_id
     search_url = f"{root}/search"
     result, document, search_result_url = await fetch_json_document(
         search_url,
         method="POST",
-        json_body={"collections": [collection_id], "ids": [item_id], "limit": 1},
+        json_body={"collections": [collection_id], "ids": [wanted_id], "limit": 1},
     )
-    feature = _feature_by_id(document, item_id) if result.ok else None
+    feature = _feature_by_id(document, wanted_id) if result.ok else None
     if feature is None:
         # Either the catalog answered and does not have this item, or the
         # search could not be carried out at all. Both leave the item's own
@@ -591,7 +610,7 @@ async def _resolve_by_search(
         item_base=None,
         document_url=search_result_url,
         fallback_item_href=item_href,
-        expected_item_id=item_id,
+        expected_item_id=wanted_id,
         collection_id=collection_id,
         asset_href=asset_href,
         asset_key=asset_key,
@@ -601,6 +620,7 @@ async def _resolve_by_search(
 async def resolve_stac_binding(
     *,
     item_href: str,
+    item_id: str | None = None,
     collection_id: str | None = None,
     asset_href: str | None = None,
     asset_key: str | None = None,
@@ -610,12 +630,14 @@ async def resolve_stac_binding(
     Pure network and pure computation: nothing here reads or writes the
     database, and the caller is free to hold no session across it.
     """
-    # The identity the answer is checked against, where the URL states one.
-    # Same derivation the fallback search uses, for the same reason: it is
-    # only a reading of the stored href when that href spells out the
+    # The identity the answer is checked against. The BINDING first — it is
+    # exact, and it is the only thing a catalog outside the standard layout
+    # can be checked against at all — falling back to reading the id out of
+    # the URL for datasets imported before it was recorded. That fallback is
+    # only ever a reading of the stored href when the href spells out the
     # collection GeoLens also stored, never a guess.
     derived = _search_root_and_item_id(item_href, collection_id)
-    expected_item_id = derived[1] if derived else None
+    expected_item_id = item_id or (derived[1] if derived else None)
 
     result, document, item_url = await fetch_json_document(item_href)
     if result.ok:
@@ -634,6 +656,7 @@ async def resolve_stac_binding(
     if result.health == MISSING:
         return await _resolve_by_search(
             item_href=item_href,
+            item_id=item_id,
             collection_id=collection_id,
             asset_href=asset_href,
             asset_key=asset_key,

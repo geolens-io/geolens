@@ -93,7 +93,18 @@ ORIGIN_REF_KEYS: dict[str, frozenset[str]] = {
     # taught STAC search to surface the item's rel=self link and the import
     # request to echo it back; it stays absent for catalogs that publish no
     # self link, and for datasets imported before that landed.
-    "stac": frozenset({"item_href", "asset_href", "collection_id", "asset_key"}),
+    # `item_id` is the item's identity as the CATALOG states it, and it is
+    # here rather than read from `datasets.source_filename` — which holds the
+    # same string — because that field is in the metadata PATCH's map. A
+    # user-editable value that decides which remote item a dataset gets
+    # re-pointed at is a rebinding primitive, not a pointer (fix #1266 review
+    # round 9). With it stored, a refresh can refuse a document that answers
+    # for a different item even when the item's URL states no identity of its
+    # own; without it, only catalogs using the `/collections/{c}/items/{id}`
+    # layout can be checked at all.
+    "stac": frozenset(
+        {"item_href", "item_id", "asset_href", "collection_id", "asset_key"}
+    ),
     "upload": frozenset({"filename", "file_hash"}),
     # Gate 2: GeoLens-internal table only. No host/port/DSN/credential key.
     "postgis": frozenset({"table_name"}),

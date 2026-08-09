@@ -594,6 +594,12 @@ async def stac_import(
                     uri=item.data_asset_href,
                     asset_href=item.data_asset_href,
                     item_href=item.item_href,
+                    # feat(#1266): the item's own id, so a refresh can tell
+                    # this item from another the same URL might later serve.
+                    # Already a required field of the request — this is the
+                    # value the catalog searched by — so nothing new is asked
+                    # of a client.
+                    item_id=item.id,
                     collection_id=item.collection,
                     asset_key=item.data_asset_key,
                 )

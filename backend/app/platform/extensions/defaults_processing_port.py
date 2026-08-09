@@ -447,12 +447,13 @@ class DefaultProcessingPort:
         return AttributeMetadata
 
     async def resolve_stac_binding(  # type: ignore[no-untyped-def]
-        self, *, item_href, collection_id, asset_href, asset_key
+        self, *, item_href, item_id, collection_id, asset_href, asset_key
     ):
         from app.modules.catalog.sources.stac_resolve import resolve_stac_binding
 
         return await resolve_stac_binding(
             item_href=item_href,
+            item_id=item_id,
             collection_id=collection_id,
             asset_href=asset_href,
             asset_key=asset_key,

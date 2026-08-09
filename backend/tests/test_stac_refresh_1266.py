@@ -202,6 +202,7 @@ async def _stac_dataset(
     *,
     created_by: uuid.UUID,
     item_href: str | None = _ITEM,
+    item_id: str | None = "scene-1",
     asset_href: str | None = _ASSET,
     asset_key: str | None = None,
     collection_id: str | None = "scenes",
@@ -222,6 +223,7 @@ async def _stac_dataset(
         "stac",
         asset_href=asset_href,
         item_href=item_href,
+        item_id=item_id,
         collection_id=collection_id,
         asset_key=asset_key,
     )
@@ -721,6 +723,58 @@ class TestResolution:
         assert not result.resolved
         assert result.health == "inaccessible"
 
+    async def test_a_recorded_id_is_checked_even_when_the_url_states_none(
+        self, stac_transport
+    ) -> None:
+        """fix(#1266 review round 9): the hole the URL-derived check left.
+
+        A catalog outside the `/collections/{c}/items/{id}` layout states no
+        identity in its URLs, so the derived check was skipped entirely and a
+        canonical URL that later served a different item of the same
+        collection passed — after which the asset chooser would republish
+        that item's raster as this dataset. The binding carries the id now.
+        """
+        install, _ = stac_transport
+        odd_href = "https://origin.test/stac/permalink/abc123"
+        install(
+            {
+                odd_href: (
+                    200,
+                    _item_doc(item_id="a-different-scene", asset_href=_MOVED_ASSET),
+                )
+            }
+        )
+        result = await resolve_stac_binding(
+            item_href=odd_href,
+            item_id="scene-1",
+            collection_id="scenes",
+            asset_href=_ASSET,
+        )
+        assert not result.resolved
+        assert (result.health, result.detail) == ("inaccessible", "unexpected_status")
+
+    async def test_the_resolved_id_comes_back_to_be_stored(
+        self, stac_transport
+    ) -> None:
+        """A dataset imported before the id was recorded gains one the first
+        time it refreshes, and is checked against it thereafter."""
+        install, _ = stac_transport
+        odd_href = "https://origin.test/stac/permalink/abc123"
+        install(
+            {
+                odd_href: (
+                    200,
+                    _item_doc(asset_href=_MOVED_ASSET, self_href=odd_href),
+                ),
+                _MOVED_ASSET: (206, None),
+            }
+        )
+        result = await resolve_stac_binding(
+            item_href=odd_href, item_id=None, collection_id="scenes", asset_href=_ASSET
+        )
+        assert result.resolved
+        assert result.item_id == "scene-1"
+
     async def test_a_catalog_whose_layout_hides_the_id_is_still_refreshable(
         self, stac_transport
     ) -> None:
@@ -744,6 +798,7 @@ class TestResolution:
         )
         assert result.resolved
         assert result.asset_href == _MOVED_ASSET
+        assert result.item_id == "scene-1"
 
     async def test_a_searched_items_relative_asset_resolves_against_its_self_link(
         self, stac_transport
@@ -1178,6 +1233,9 @@ class TestAssetKeyCapture:
         dataset_id = uuid.UUID(resp.json()["results"][0]["dataset_id"])
         dataset = await _reload(dataset_id)
         assert dataset.origin_ref["asset_key"] == "B04"
+        # The item's own identity, recorded from a field the request already
+        # carried — the system-managed binding, never the PATCHable filename.
+        assert dataset.origin_ref["item_id"] == item_id
 
     async def test_an_older_client_that_sends_no_key_still_imports(
         self, client, admin_auth_header, test_db_session
@@ -1379,6 +1437,7 @@ class TestWorker:
         # rather than by re-running the import's default choice.
         assert refreshed.origin_ref["asset_key"] == "data"
         assert refreshed.origin_ref["item_href"] == _ITEM
+        assert refreshed.origin_ref["item_id"] == "scene-1"
         assert refreshed.origin_ref["collection_id"] == "scenes"
         # What actually serves — the address AND the description of what is
         # at it, because the tile proxy builds its parameters from the latter.

@@ -1770,7 +1770,10 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # ANSWER across the port is what keeps processing/ from importing
         # catalog for it (the burn-down list's own instruction) and leaves the
         # worker holding no HTTP client at all. Cap 470 -> 481.
-        "backend/app/platform/extensions/defaults_processing_port.py": 481,
+        # fix(#1266 review round 9): +1 — the resolution takes the item's
+        # recorded id as well, so a catalog whose URLs state no identity can
+        # still have an answer checked against the binding. Cap 481 -> 482.
+        "backend/app/platform/extensions/defaults_processing_port.py": 482,
         # fix(#929): +2 over the 350 default — the creator exemption on the
         # restricted branch of filter_visible/can_access_dataset plus its
         # rationale comments. fix(#930): +20 — the internal branch on the same
@@ -2266,7 +2269,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # strategy: the asset href says whether the COG is still there, and only
     # the ITEM href can say where the publisher moved it to. Entered at its
     # measured size.
-    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1089,
+    # fix(#1266 review round 9): +2 — the dispatched STAC binding carries the
+    # item's recorded id, so a re-upload that rebinds mid-admission is caught
+    # by the same equality check as every other field of it.
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1091,
     # --- entered by the inclusion rule, fix(#958) -------------------------
     # These five were the ungated modules at or above _RATCHET_INCLUSION_LOC
     # when the rule was written. They arrive at their measured size with no
