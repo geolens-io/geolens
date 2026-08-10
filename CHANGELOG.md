@@ -7,6 +7,80 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-08-10
+
+### Added
+
+- **Datasets can now be refreshed from their source.** A dataset imported
+  from a remote origin (an OGC/ArcGIS service, a STAC catalog, or a
+  registered PostGIS table) can be re-pulled in place from the Source panel,
+  the CLI (`geolens dataset refresh`), or `POST /datasets/{id}/refresh`.
+  Refresh runs are durable rows with admission control: one run per dataset
+  at a time, every attempt recorded with before/after counts and schema
+  drift, and the dataset keeps serving its current data until the new data
+  is ready (#1274, #1277, #1313, #1323, #1305).
+- **STAC refreshes re-resolve moved items and assets.** A refresh re-reads
+  the stored item document, follows the catalog to the asset's current
+  location, and falls back to a collection-scoped search when the item URL
+  itself is gone. Nothing is adopted unverified: the item must affirm the
+  identity the import recorded, and a binding that predates identity
+  tracking is refused with advice to re-import rather than guessed at.
+  Imports now capture the item pointer, collection, and asset key so
+  every future refresh has something to verify against (#1326).
+- **Source health and freshness are visible everywhere datasets are.**
+  STAC and service origins are probed for availability; dataset pages,
+  search summaries, and the MCP server now surface health, freshness
+  derived from the declared update frequency, and drift state, and the
+  read-only Source panel shows the origin, storage mode, safe source
+  pointer, and full refresh history (#1261, #1264, #1271, #1279, #1304,
+  #1278, #1280).
+- **A raster dataset's COG can be replaced in place** through the reupload
+  door, preserving the dataset's identity, maps, and shares while swapping
+  the underlying imagery (#1290).
+- **Opt-in least-privilege database runtime role.** Setting
+  `GEOLENS_RUNTIME_DB_ROLE` makes the API and worker connect under a role
+  that owns no DDL, as defense in depth for self-hosted deployments
+  (#1287).
+
+### Fixed
+
+- **VRT regeneration is visible and recoverable.** Generation timestamps
+  now project into `last_refreshed_at`, and a recovery sweep reconciles
+  regenerations whose worker died mid-flight instead of leaving them
+  stranded (#1322).
+- **STAC refresh refusals now explain themselves in the UI.** The refusal
+  wordings introduced by the STAC door were missing from the frontend's
+  error map, so a dataset imported before identity tracking showed a
+  generic conflict message instead of the re-import instruction (#1333).
+- **Duplicate-source detection keys on the canonical origin pair**, so a
+  different spelling of the same asset URL can no longer slip past the
+  guard or falsely block a distinct source (#1320).
+- **Bulk delete no longer returns raw exception text** to the client
+  (#1309).
+- **Local object-storage listings are contained to their prefix** (#1307).
+- **Stroke-only polygon styles render honest swatches** in the legend and
+  layer panel instead of filled squares (#1310).
+- **Generated SDK constructors keep a stable argument order.** The OpenAPI
+  snapshot now serializes schema properties in declaration order, so
+  regenerating an SDK cannot silently shift positional constructor
+  arguments again (#1263).
+
+### Security
+
+- **Dataset provenance is projected owner-or-admin.** Anonymous and
+  non-owner readers of a public dataset see the safe source pointer but
+  not the structured origin binding, and refresh-run history hides who
+  triggered each run (#1321).
+- **Titiler now uses scoped object-store credentials** instead of the
+  instance-wide MinIO/S3 identity (#1284).
+
+### Operations
+
+- **Protected service refreshes need a shared credential store.** Passing
+  a service token to a refresh requires `REDIS_URL` (Valkey/Redis) so the
+  credential can reach the worker without touching disk; deployments that
+  only refresh public sources need no change.
+
 ## [1.10.0] - 2026-08-07
 
 ### Security

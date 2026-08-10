@@ -18360,7 +18360,7 @@
     "summary": "PostGIS-native geospatial data catalog with OGC API Features and Records support",
     "termsOfService": "https://github.com/geolens-io/geolens/blob/main/LICENSE",
     "title": "GeoLens API",
-    "version": "1.10.0"
+    "version": "1.11.0"
   },
   "openapi": "3.1.0",
   "paths": {
