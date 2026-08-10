@@ -23,6 +23,22 @@ def _make_dataset(
 API_URL = "http://localhost:8080/api"
 
 
+class TestRasterTilesAssetVersion:
+    def test_raster_tiles_href_carries_tile_cache_version(self):
+        """fix(#1372 codex r2): the advertised template is versioned so a
+        refetching STAC/OGC client stops sharing the unversioned nginx cache
+        entry after a replace."""
+        ds = _make_dataset(record_type="raster_dataset", table_name=None)
+        ds.tile_cache_version = 7
+        assets = build_assets(ds, API_URL)
+        assert assets["raster_tiles"]["href"].endswith(".png?v=7")
+
+    def test_raster_tiles_href_bare_without_version(self):
+        ds = _make_dataset(record_type="raster_dataset", table_name=None)
+        assets = build_assets(ds, API_URL)
+        assert assets["raster_tiles"]["href"].endswith(".png")
+
+
 class TestModalityAssets:
     def test_vector_dataset_has_download_links(self):
         """Vector datasets should have download links, vector tiles, and OGC features."""

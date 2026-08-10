@@ -1619,7 +1619,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # through the visibility-filtered OGC search representation, including
         # JSON-safe datetime serialization for the OGC and STAC response paths.
         # Cap 505 -> 512, exact.
-        "backend/app/modules/catalog/search/service_records.py": 512,
+        # fix(#1372 codex r2): +7 — the advertised raster_tiles asset carries
+        # ?v=<tile_cache_version> like every rendered raster template.
+        "backend/app/modules/catalog/search/service_records.py": 519,
         # fix(#448): +~40 LOC — query-embedding hot-path deadline (asyncio.wait_for
         # wrapper) + the gated/approximated vector-only match COUNT in
         # _run_rrf_merge (perf audit 2026-07-10 §2d). Cap 350 → 390
@@ -2891,7 +2893,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # payload structure; `GET /datasets/{id}` had been building its assets
     # straight off the ORM rows and leaked the archived original's href and
     # filename to every viewer. Cap 1440 -> 1450, exact.
-    "backend/app/modules/catalog/search/router.py": 1450,
+    # fix(#1372 codex r2): +5 — the collections-list raster tiles link carries
+    # ?v=<tile_cache_version> like every rendered raster template.
+    "backend/app/modules/catalog/search/router.py": 1455,
     # fix(#474): negotiate localized STAC record text; fix(#475) adds the
     # unassigned Collection and matching HTTP Link navigation. fix(#506): keep
     # validated STAC item responses wire-compatible with serializer output.
