@@ -617,7 +617,6 @@ async def register_existing_table(
     # (_current_tenant_schema()='data', _current_tenant_role()='geolens_reader').
     _grant_role = _current_tenant_role()
 
-    metadata = {}
     if has_geom:
         if not has_4326:
             srid = await get_table_srid(session, table_name, schema=_schema)
@@ -648,11 +647,16 @@ async def register_existing_table(
                     f"Failed to linearize geom_4326 on '{table_name}': {exc}"
                 ) from exc
 
-        await grant_reader_access(session, table_name, schema=_schema, role=_grant_role)
-        metadata = await extract_metadata(session, table_name, schema=_schema)
-    else:
-        # Non-spatial table -- grant access but skip spatial metadata
-        await grant_reader_access(session, table_name, schema=_schema, role=_grant_role)
+    await grant_reader_access(session, table_name, schema=_schema, role=_grant_role)
+
+    # fix(#1359): one derivation for every registration, spatial or not. The
+    # non-spatial branch used to skip this entirely and register the table
+    # with column_info and feature_count NULL — the same "the stats bar
+    # contradicts the schema" state the ArcGIS import produced, reached a
+    # different way. extract_metadata already reports srid, geometry_type,
+    # and extent_wkt as None for a table with no geom column, so the spatial
+    # fields land exactly as they did before.
+    metadata = await extract_metadata(session, table_name, schema=_schema)
 
     # Extract sample values for attribute metadata example_values
     col_info = metadata.get("column_info", [])
