@@ -2951,7 +2951,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1372): +6 — the signed raster template also carries
     # ?v=<tile_cache_version> (outside the signature, like the colormap
     # params) so nginx's $arg_v cache-key segment rolls on replace.
-    "backend/app/processing/tiles/router.py": 2160,
+    # fix(#1372 codex r3): +19 — the auth check refuses to mark a response
+    # cacheable when its `v` mismatches the dataset's current version, so a
+    # predictable future key can never be pre-warmed with pre-replace bytes.
+    "backend/app/processing/tiles/router.py": 2179,
 }
 
 
