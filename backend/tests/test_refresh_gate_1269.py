@@ -891,10 +891,16 @@ class TestLifecycleBraids:
         assert reloaded.source_health == "missing"
         assert reloaded.tile_cache_version == before_version
 
-        # -- 2. the same item resolves again, naming a moved asset. --
+        # -- 2. the same item resolves again, naming a moved asset. The
+        # moved href itself must also answer (206, a range-request probe),
+        # or the resolver adopts the pointer but reports the asset
+        # inaccessible rather than healthy.
         moved_doc = _stac_item_doc(asset_href=_STAC_MOVED_ASSET)
         moved_doc["bbox"] = [30.0, 60.0, 31.0, 61.0]
-        _install_stac_transport(monkeypatch, {_STAC_ITEM: (200, moved_doc)})
+        _install_stac_transport(
+            monkeypatch,
+            {_STAC_ITEM: (200, moved_doc), _STAC_MOVED_ASSET: (206, None)},
+        )
         payload = await _dispatch_stac(client, admin_auth_header, dataset.id)
         await _execute_stac(test_db_session, payload)
 
