@@ -130,6 +130,75 @@ async def _seed_raster_asset(session, admin_id: uuid.UUID, crs_wkt: str) -> uuid
     return asset_id
 
 
+def _wkt1_root_re() -> str:
+    """The migration's predicate, loaded from the migration itself.
+
+    Copying the pattern here would let the two drift, and a predicate that
+    silently stopped matching would show up as a migration that converts
+    nothing — which looks exactly like a database that had nothing to
+    convert.
+    """
+    import importlib.util
+    from pathlib import Path
+
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "alembic"
+        / "versions"
+        / "0041_raster_assets_crs_wkt2.py"
+    )
+    spec = importlib.util.spec_from_file_location("migration_0041", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module._WKT1_ROOT_RE
+
+
+class TestWkt1Predicate:
+    """Which rows the backfill claims, evaluated by postgres rather than by
+    a Python re-implementation of its regex dialect.
+
+    The round trip above proves the loop; this proves its WHERE clause, on
+    the CRS kinds too rare to seed a row for. The pairs that matter are the
+    WKT1/WKT2 near-twins — ``GEOGCS`` against ``GEOGCRS``, ``PROJCS``
+    against ``PROJCRS`` — where only the ``\\[`` anchor separates a match
+    from a prefix match, and getting that wrong would rewrite already-WKT2
+    rows on every run.
+    """
+
+    @pytest.mark.parametrize(
+        ("value", "matches"),
+        [
+            ('PROJCS["x"]', True),
+            ('GEOGCS["x"]', True),
+            ('GEOCCS["x"]', True),
+            ('LOCAL_CS["x"]', True),
+            ('COMPD_CS["x"]', True),
+            ('VERT_CS["x"]', True),
+            ('FITTED_CS["x"]', True),
+            ('  \n GEOGCS["leading whitespace"]', True),
+            ('geogcs["lowercase — WKT keywords are case-insensitive"]', True),
+            ('GEOGCS ["space before the bracket"]', True),
+            ('PROJCRS["x"]', False),
+            ('GEOGCRS["x"]', False),
+            ('GEODCRS["x"]', False),
+            ('ENGCRS["x"]', False),
+            ('COMPOUNDCRS["x"]', False),
+            ('VERTCRS["x"]', False),
+            # Already WKT2 at the root, with a WKT1-spelled CRS nested
+            # inside it. The predicate reads the ROOT keyword, so this is
+            # correctly left alone — converting it would be a no-op at best.
+            ('BOUNDCRS[SOURCECRS[GEOGCS["nested"]]]', False),
+        ],
+    )
+    async def test_the_predicate_matches_wkt1_roots_only(self, value, matches):
+        rows = await _fresh_query(
+            "SELECT :value ~* :pattern AS matched",
+            {"value": value, "pattern": _wkt1_root_re()},
+        )
+        assert rows[0].matched is matches
+
+
 @_SKIP_UNDER_OVERLAY
 class TestCrsWkt2Backfill:
     async def test_backfill_converts_wkt1_and_leaves_the_rest_alone(
