@@ -2229,7 +2229,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the lines are the note recording what this deliberately does NOT fix on
     # this path (record_type, filed as #1361) so the asymmetry is a decision
     # rather than an oversight. Cap 1968 -> 1994, exact.
-    "backend/app/processing/ingest/tasks_common.py": 1994,
+    # fix(#1314 review round 2): +28 — the demote needs positive evidence that
+    # the relation is not spatial, because a spatial reupload of an empty file
+    # measures None while its geom column is still there. Most of the lines are
+    # the note saying why the sampled value is not that evidence, which is the
+    # same trap #1313 fell into on the refresh path. Cap 1994 -> 2022, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2022,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed

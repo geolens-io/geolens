@@ -1481,25 +1481,41 @@ _SWAP_METADATA = {
 
 
 async def _run_reupload_swap(
-    session, dataset, *, admin_id, metadata: dict | None = None, **kwargs
+    session,
+    dataset,
+    *,
+    admin_id,
+    metadata: dict | None = None,
+    staging_has_geometry: bool = True,
+    **kwargs,
 ) -> None:
     """Drive _apply_reupload_swap against a real staging table.
 
     ``metadata`` overrides the spatial default, for the callers that need the
     swap to install a measurement of a DIFFERENT modality than the one the
     dataset was created with (#1314).
+
+    ``staging_has_geometry`` builds the staging relation WITHOUT geometry
+    columns, which is what ingesting a CSV with no geometry produces. It is
+    separate from ``metadata`` on purpose: the pair (measurement says
+    non-spatial, relation still has a geom column) is exactly the empty-spatial
+    reupload the demote must not act on.
     """
     from unittest.mock import AsyncMock, patch
 
     from app.processing.ingest.tasks import _apply_reupload_swap
 
     staging_table = f"{dataset.table_name}_staging"
+    geometry_columns = (
+        "geom geometry(Point, 4326), geom_4326 geometry(Geometry, 4326), "
+        if staging_has_geometry
+        else ""
+    )
     await session.execute(
         sa.text(
             f"CREATE TABLE data.{staging_table} ("
             "gid SERIAL PRIMARY KEY, "
-            "geom geometry(Point, 4326), "
-            "geom_4326 geometry(Geometry, 4326), "
+            f"{geometry_columns}"
             "name TEXT)"
         )
     )
@@ -1719,6 +1735,10 @@ class TestReuploadReconcilesDistributions:
             ds,
             admin_id=admin_id,
             metadata={**_SWAP_METADATA, "geometry_type": None, "extent_wkt": None},
+            # A CSV with no geometry stages a relation with no geom column,
+            # which is what makes this a demote rather than an empty spatial
+            # reupload.
+            staging_has_geometry=False,
             source_filename="rows.csv",
             source_format="csv",
             origin_ref={"filename": "rows.csv"},
@@ -1764,6 +1784,43 @@ class TestReuploadReconcilesDistributions:
             ("ogc_features", "geojson"),
             ("vector_tiles", "pbf"),
         }
+
+    async def test_an_empty_spatial_reupload_is_not_a_demote(
+        self, test_db_session
+    ) -> None:
+        """fix(#1314 review round 2): a measurement of zero rows is not evidence.
+
+        ``extract_metadata`` derives the geometry type by sampling a row, so a
+        spatial file carrying no features reports None even though the relation
+        it stages still has its geometry column. Treating that as a demote
+        would delete the spatial rows of a dataset that is still spatial —
+        the destructive direction, on the weakest possible evidence.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await self._seed(test_db_session, admin_id=admin_id, geometry_type="POINT")
+        record_id = ds.record_id
+        before = await self._pairs(test_db_session, record_id)
+
+        await _run_reupload_swap(
+            test_db_session,
+            ds,
+            admin_id=admin_id,
+            # No sampled geometry (no rows), but the staged relation keeps its
+            # geom column — the pair that makes this an empty reupload rather
+            # than a de-spatialization.
+            metadata={
+                **_SWAP_METADATA,
+                "geometry_type": None,
+                "extent_wkt": None,
+                "feature_count": 0,
+            },
+            source_filename="empty.geojson",
+            source_format="geojson",
+            origin_ref={"filename": "empty.geojson"},
+        )
+        await test_db_session.commit()
+
+        assert await self._pairs(test_db_session, record_id) == before
 
 
 class TestFirstIngestStampsLastRefreshed:

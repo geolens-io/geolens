@@ -54,13 +54,19 @@ class TestExtensionApiVersionConstant:
         expected type of a registry key, which version.py's bump convention
         names explicitly. v4 adds the required ``record_audience`` method to
         ``PermissionExtension`` (feat(#1068)), which the convention names
-        outright: a required method added to a Protocol.
+        outright: a required method added to a Protocol. v5 adds the required
+        ``reconcile_distributions`` method to ``ProcessingPort`` (fix(#1314)),
+        the same case again: the registered-PostGIS refresh and the reupload
+        swap call it inside their write transactions whenever the modality
+        they measured differs from the stored one, so an overlay that replaces
+        the ``processing_port`` key without it raises AttributeError mid-write
+        instead of being refused at boot.
 
         Update this pin, and the note above it, whenever the constant moves.
         """
         from app.platform.extensions.version import EXTENSION_API_VERSION
 
-        assert EXTENSION_API_VERSION == 4
+        assert EXTENSION_API_VERSION == 5
 
 
 class TestCheckExtensionApiVersion:
