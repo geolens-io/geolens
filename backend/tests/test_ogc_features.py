@@ -534,12 +534,26 @@ async def test_collections_list_raster_tiles_link_is_versioned(
     client: AsyncClient, raster_dataset: Dataset
 ):
     """fix(#1372 codex r2): the collections LIST advertises the same versioned
-    raster template as the collection detail."""
-    resp = await client.get("/collections")
-    assert resp.status_code == 200
-    entry = next(
-        c for c in resp.json()["collections"] if c["id"] == str(raster_dataset.id)
-    )
+    raster template as the collection detail.
+
+    fix(#1372 flake): the list defaults to limit=50 with unordered offset
+    pagination, and this worker's shared DB accumulates datasets from sibling
+    tests, so a single-page scan can miss the fixture dataset and the bare
+    next() raised StopIteration inside the coroutine. Page through instead.
+    """
+    entry = None
+    offset = 0
+    while entry is None:
+        resp = await client.get(f"/collections?limit=200&offset={offset}")
+        assert resp.status_code == 200
+        page = resp.json()["collections"]
+        # every page prepends the catalog Records collection; a page holding
+        # only that entry means the dataset pagination is exhausted
+        if len(page) <= 1:
+            break
+        entry = next((c for c in page if c["id"] == str(raster_dataset.id)), None)
+        offset += 200
+    assert entry is not None, "raster fixture dataset absent from /collections"
     tiles_link = next(link for link in entry["links"] if link["rel"] == "tiles")
     assert f"/raster-tiles/{raster_dataset.id}/tiles/" in tiles_link["href"]
     assert f"?v={raster_dataset.tile_cache_version}" in tiles_link["href"]
