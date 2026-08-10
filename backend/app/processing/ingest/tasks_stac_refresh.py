@@ -354,15 +354,16 @@ async def _repoint_remote_asset(
             # disagree — and None is written when the item declares none,
             # because that is the same "unknown" a fresh import would store.
             epsg=epsg,
-            # fix(#1334): `crs_wkt`/`res_x`/`res_y` join the fields above for
-            # the same reason band_count/dtype/nodata do — the moved object
-            # is not the same object, and `fetch_cog_info` already reads
-            # these off it. The STAC import path now writes them too, so
-            # leaving them stale here would let a refreshed dataset disagree
-            # with what a fresh import of the same asset would record.
+            # fix(#1334): `crs_wkt` joins the fields above for the same
+            # reason band_count/dtype/nodata do — the moved object is not the
+            # same object, and `fetch_cog_info` already reads it off. The
+            # STAC import path now writes it too, so leaving it stale here
+            # would let a refreshed dataset disagree with what a fresh
+            # import of the same asset would record. `res_x`/`res_y` are
+            # NOT projected the same way — `fetch_cog_info` deliberately
+            # does not compute them; see `cog_info.py`'s `_georeferencing`
+            # docstring for why.
             crs_wkt=described.get("crs_wkt"),
-            res_x=described.get("res_x"),
-            res_y=described.get("res_y"),
         )
     )
 

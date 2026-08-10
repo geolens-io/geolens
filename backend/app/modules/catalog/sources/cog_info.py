@@ -25,19 +25,28 @@ logger = structlog.get_logger(__name__)
 
 
 def _georeferencing(info: dict) -> dict:
-    """``crs_wkt``/``res_x``/``res_y`` from Titiler's raw ``/cog/info`` reply.
+    """``crs_wkt`` from Titiler's raw ``/cog/info`` reply.
 
-    fix(#1334): both were retrievable all along and simply never read out of
-    this response. Titiler answers ``crs`` as an OGC CRS URI
-    (``http://www.opengis.net/def/crs/EPSG/0/<code>``) and ``bounds`` in the
-    dataset's OWN projection, not WGS84 — verified against a live 2.2.1
-    instance. GDAL's CRS parser accepts that URI form directly, so the WKT
-    round-trips through the same ``rasterio.crs.CRS`` every other ingest path
-    already writes ``crs_wkt`` from (``raster/cog.py``). Resolution is
-    bounds-over-pixels — the ratio a non-rotated GeoTIFF's transform encodes
-    — because there is no transform in this response to read one from
-    directly; a rotated remote asset would report a resolution rasterio's own
-    ``transform.a``/``transform.e`` would not describe as one either.
+    fix(#1334): retrievable all along and simply never read out of this
+    response. Titiler answers ``crs`` as an OGC CRS URI
+    (``http://www.opengis.net/def/crs/EPSG/0/<code>``) — verified against a
+    live 2.2.1 instance. GDAL's CRS parser accepts that URI form directly, so
+    the WKT round-trips through the same ``rasterio.crs.CRS`` every other
+    ingest path already writes ``crs_wkt`` from (``raster/cog.py``).
+
+    fix(#1334 review): ``res_x``/``res_y`` are deliberately NOT derived here.
+    The obvious computation — ``bounds`` (also in the dataset's own
+    projection) divided by pixel dimensions — is only the true per-pixel
+    resolution for an axis-aligned raster. This response carries no affine
+    transform to check that against, so a rotated or sheared remote COG would
+    silently get a resolution inflated by however far its bounding envelope
+    exceeds its own footprint — indistinguishable, in this payload, from a
+    correct value. The local-upload path can tell the two apart
+    (``raster/cog.py`` reads ``transform.b``/``transform.d`` to set
+    ``is_rotated``); nothing here can. A wrong number that LOOKS like a
+    measurement is worse than the blank "—" it would replace, so it stays
+    unset until there is a source that can rule rotation out. Tracked as
+    #1375.
 
     Individual failures degrade to None rather than raising: this is
     descriptive metadata for a UI card, not something a failed probe should
@@ -55,33 +64,14 @@ def _georeferencing(info: dict) -> dict:
         ):  # broad: an unfamiliar CRS string should not fail the whole probe
             crs_wkt = None
 
-    res_x = res_y = None
-    bounds = info.get("bounds")
-    width = info.get("width")
-    height = info.get("height")
-    if (
-        isinstance(bounds, list)
-        and len(bounds) == 4
-        and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in bounds)
-        and isinstance(width, int)
-        and not isinstance(width, bool)
-        and isinstance(height, int)
-        and not isinstance(height, bool)
-        and width > 0
-        and height > 0
-    ):
-        res_x = abs(bounds[2] - bounds[0]) / width
-        res_y = abs(bounds[3] - bounds[1]) / height
-
-    return {"crs_wkt": crs_wkt, "res_x": res_x, "res_y": res_y}
+    return {"crs_wkt": crs_wkt}
 
 
 async def fetch_cog_info(url: str) -> dict | None:
     """Fetch COG metadata + statistics from Titiler for a remote asset URL.
 
-    Returns dict with band_count, dtype, width, height, crs_wkt, res_x,
-    res_y, band_info (with min/max per band for rescaling), or None on
-    failure.
+    Returns dict with band_count, dtype, width, height, crs_wkt, band_info
+    (with min/max per band for rescaling), or None on failure.
 
     fix(#1271 review): None deliberately collapses every failure shape.
     A non-200 from Titiler is NOT proof the origin was attempted — the

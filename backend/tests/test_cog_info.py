@@ -1,15 +1,18 @@
 """fetch_cog_info's georeferencing extraction (#1334).
 
-Titiler's ``/cog/info`` reply already carries ``crs`` (an OGC CRS URI) and
-``bounds`` (in the dataset's OWN projection, not WGS84) alongside
-width/height — enough to derive ``crs_wkt``/``res_x``/``res_y``, which
-nothing downstream ever read out of it before this fix. Every other test in
-this codebase that touches ``fetch_cog_info`` stubs the function wholesale
-(see ``test_stac_refresh_1266.py``'s ``cog_info`` fixture and
+Titiler's ``/cog/info`` reply already carries ``crs`` (an OGC CRS URI),
+which nothing downstream ever read out of it before this fix. Every other
+test in this codebase that touches ``fetch_cog_info`` stubs the function
+wholesale (see ``test_stac_refresh_1266.py``'s ``cog_info`` fixture and
 ``test_stac_import.py``), which would never catch a regression in the
 extraction itself — these are unit tests of that extraction, against
 Titiler's actual response shape (captured live against a 2.2.1 instance,
 see ``cog_info.py``'s ``_georeferencing`` docstring for the exact payload).
+
+fix(#1334 review): ``res_x``/``res_y`` are deliberately NOT derived here —
+see ``_georeferencing``'s docstring. A prior version of this file computed
+them from ``bounds``/pixel-dimensions and asserted on the result; that
+computation is gone, and so are those assertions.
 """
 
 from __future__ import annotations
@@ -74,21 +77,28 @@ def _install(monkeypatch, info: dict, *, stats_status: int = 200) -> None:
 
 
 class TestGeoreferencing:
-    async def test_crs_wkt_and_resolution_come_from_titilers_own_reply(
-        self, monkeypatch
-    ) -> None:
-        """fix(#1334): the values were retrievable all along — this shows
-        fetch_cog_info actually reading them out, not just Titiler having
-        sent them."""
+    async def test_crs_wkt_comes_from_titilers_own_reply(self, monkeypatch) -> None:
+        """fix(#1334): the value was retrievable all along — this shows
+        fetch_cog_info actually reading it out, not just Titiler having sent
+        it."""
         _install(monkeypatch, _TITILER_INFO)
         result = await fetch_cog_info("https://origin.test/scene.tif")
         assert result is not None
         assert result["crs_wkt"] is not None
         assert "32621" in result["crs_wkt"]
-        # (639014.9492102272 - 373185.0) / 2658
-        assert result["res_x"] == pytest.approx(100.0, rel=1e-3)
-        # (8286015.0 - 8019284.949381611) / 2667
-        assert result["res_y"] == pytest.approx(100.011, rel=1e-3)
+
+    async def test_fetch_cog_info_never_reports_a_resolution(self, monkeypatch) -> None:
+        """fix(#1334 review): Titiler's /cog/info carries no affine
+        transform, so nothing here can tell a rotated remote COG from an
+        axis-aligned one — and dividing its bounding envelope by pixel
+        dimensions is only correct for the latter. A wrong number that looks
+        like a measurement is worse than the blank display it would replace,
+        so `res_x`/`res_y` are not derived at all, for any input."""
+        _install(monkeypatch, _TITILER_INFO)
+        result = await fetch_cog_info("https://origin.test/scene.tif")
+        assert result is not None
+        assert "res_x" not in result
+        assert "res_y" not in result
 
     async def test_a_missing_crs_degrades_to_none_not_a_raise(
         self, monkeypatch
@@ -98,9 +108,6 @@ class TestGeoreferencing:
         result = await fetch_cog_info("https://origin.test/scene.tif")
         assert result is not None
         assert result["crs_wkt"] is None
-        # bounds/width/height are untouched by the missing crs — the two
-        # fields fail independently.
-        assert result["res_x"] == pytest.approx(100.0, rel=1e-3)
 
     async def test_an_unparseable_crs_degrades_to_none_not_a_raise(
         self, monkeypatch
@@ -110,24 +117,3 @@ class TestGeoreferencing:
         result = await fetch_cog_info("https://origin.test/scene.tif")
         assert result is not None
         assert result["crs_wkt"] is None
-
-    @pytest.mark.parametrize(
-        "override",
-        [
-            {"bounds": None},
-            {"bounds": [1.0, 2.0, 3.0]},
-            {"bounds": [1.0, 2.0, "x", 4.0]},
-            {"width": 0},
-            {"height": 0},
-            {"width": None},
-        ],
-    )
-    async def test_unusable_bounds_or_dimensions_degrade_to_none(
-        self, monkeypatch, override: dict
-    ) -> None:
-        info = {**_TITILER_INFO, **override}
-        _install(monkeypatch, info)
-        result = await fetch_cog_info("https://origin.test/scene.tif")
-        assert result is not None
-        assert result["res_x"] is None
-        assert result["res_y"] is None

@@ -533,12 +533,17 @@ class TestStacImport:
         mock_stac_ssrf,
         test_db_session,
     ):
-        """fix(#1334): fetch_cog_info retrieves crs_wkt/res_x/res_y for a
-        remote asset the same way it retrieves band_count/dtype, but nothing
-        wrote them onto the raster_assets row — the UI's Raster Properties
-        card showed "— x —" for every STAC import's resolution. The Titiler
-        probe already runs at import time; this only asks that its answer be
-        kept, the same way its other fields already are.
+        """fix(#1334): fetch_cog_info retrieves crs_wkt for a remote asset
+        the same way it retrieves band_count/dtype, but nothing wrote it onto
+        the raster_assets row. The Titiler probe already runs at import
+        time; this only asks that its answer be kept, the same way its
+        other fields already are.
+
+        fix(#1334 review): res_x/res_y are NOT part of this — fetch_cog_info
+        deliberately does not compute them (see cog_info.py's
+        _georeferencing docstring: Titiler's response carries no affine
+        transform, so nothing can rule out a rotated source, and a wrong
+        resolution that looks like a measurement is worse than none).
         """
         crs_wkt = (
             'PROJCS["WGS 84 / UTM zone 21N",GEOGCS["WGS 84",'
@@ -564,8 +569,6 @@ class TestStacImport:
                     "nodata": None,
                     "band_info": None,
                     "crs_wkt": crs_wkt,
-                    "res_x": 100.0,
-                    "res_y": 100.011,
                 }
             ),
         ):
@@ -595,11 +598,12 @@ class TestStacImport:
         detail = await client.get(f"/datasets/{dataset_id}", headers=admin_auth_header)
         assert detail.status_code == 200
         raster = detail.json()["raster"]
-        assert raster["res_x"] == pytest.approx(100.0)
-        assert raster["res_y"] == pytest.approx(100.011)
         # A projected UTM CRS, not geographic — proves crs_wkt round-tripped
         # far enough for PROJ to classify it, not just landed as a string.
         assert raster["crs_is_geographic"] is False
+        # Not derived by this path — see the docstring above.
+        assert raster["res_x"] is None
+        assert raster["res_y"] is None
 
         row = (
             await test_db_session.execute(

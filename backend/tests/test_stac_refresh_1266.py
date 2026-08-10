@@ -171,10 +171,10 @@ def cog_info(monkeypatch):
         "band_info": [{"min": 0, "max": 4095, "mean": 1200}],
         # fix(#1334): the shape fetch_cog_info actually returns, so tests
         # against this fixture exercise the same fields the refresh path
-        # now writes to the asset row.
+        # now writes to the asset row. No res_x/res_y — fetch_cog_info
+        # deliberately does not compute them (cog_info.py's
+        # _georeferencing docstring explains why).
         "crs_wkt": 'PROJCS["WGS 84 / UTM zone 33N",AUTHORITY["EPSG","32633"]]',
-        "res_x": 10.0,
-        "res_y": 10.0,
     }
     calls: list[str] = []
 
@@ -2317,14 +2317,16 @@ class TestWorker:
         assert described.band_info == [{"min": 0, "max": 4095, "mean": 1200}]
         # One integer band is imagery, not elevation.
         assert described.is_dem is False
-        # fix(#1334): the moved object's own georeferencing, from the same
-        # probe as band_count/dtype/nodata — not left stale like the fields
-        # above would be if the refresh only wrote the address.
+        # fix(#1334): the moved object's own CRS, from the same probe as
+        # band_count/dtype/nodata — not left stale like the fields above
+        # would be if the refresh only wrote the address. res_x/res_y are
+        # NOT part of this: fetch_cog_info deliberately does not compute
+        # them (cog_info.py's _georeferencing docstring explains why), so
+        # they stay whatever they already were rather than being cleared —
+        # the repoint statement never mentions them.
         assert described.crs_wkt == (
             'PROJCS["WGS 84 / UTM zone 33N",AUTHORITY["EPSG","32633"]]'
         )
-        assert described.res_x == 10.0
-        assert described.res_y == 10.0
         # A moved member has to read as newer than any VRT built on it: a
         # mosaic that recorded no `built_from` is judged by this stamp alone,
         # and it still embeds the old URL.
