@@ -64,9 +64,12 @@ class TestIsLockTimeoutError:
 
 def _make_dataset_stub(table_name: str):
     """Build a minimal dataset object satisfying the attributes ``_apply_reupload_swap`` reads."""
+    # fix(#1361): the swap re-derives record_type from the geometry the swapped
+    # relation actually has, so the stub has to carry one to re-derive.
     record = types.SimpleNamespace(
         spatial_extent=None,
         updated_by=None,
+        record_type="vector_dataset",
     )
     dataset = types.SimpleNamespace(
         id=uuid.uuid4(),

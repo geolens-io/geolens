@@ -29,6 +29,7 @@ from pathlib import Path
 import pytest
 import sqlalchemy as sa
 from httpx import AsyncClient
+from sqlalchemy.orm import joinedload
 
 import app.modules.catalog.datasets.domain.models  # noqa: F401
 from app.core.db import Base
@@ -1487,6 +1488,7 @@ async def _run_reupload_swap(
     admin_id,
     metadata: dict | None = None,
     staging_has_geometry: bool = True,
+    staging_geometry_type: str = "Point",
     **kwargs,
 ) -> None:
     """Drive _apply_reupload_swap against a real staging table.
@@ -1500,6 +1502,10 @@ async def _run_reupload_swap(
     separate from ``metadata`` on purpose: the pair (measurement says
     non-spatial, relation still has a geom column) is exactly the empty-spatial
     reupload the demote must not act on.
+
+    ``staging_geometry_type`` is what the geom column is DECLARED as, which is
+    the evidence the sampled rows cannot supply (#1373). ``"Geometry"`` stages
+    the untyped column that establishes only that the relation is spatial.
     """
     from unittest.mock import AsyncMock, patch
 
@@ -1507,7 +1513,8 @@ async def _run_reupload_swap(
 
     staging_table = f"{dataset.table_name}_staging"
     geometry_columns = (
-        "geom geometry(Point, 4326), geom_4326 geometry(Geometry, 4326), "
+        f"geom geometry({staging_geometry_type}, 4326), "
+        "geom_4326 geometry(Geometry, 4326), "
         if staging_has_geometry
         else ""
     )
@@ -1821,6 +1828,311 @@ class TestReuploadReconcilesDistributions:
         await test_db_session.commit()
 
         assert await self._pairs(test_db_session, record_id) == before
+
+
+class TestReuploadDerivesTheEffectiveModality:
+    """fix(#1373) / fix(#1361): the swap writes what the RELATION is.
+
+    ``extract_metadata`` derives the geometry type by sampling a row, so an
+    empty spatial file measures None against a relation whose geom column is
+    right there. The registered-PostGIS refresh resolved that first (#1313);
+    these pin that the reupload path resolves it the same way, and that
+    ``record_type`` — which ``build_assets`` branches on live — follows the
+    resolved value rather than the sampled one.
+    """
+
+    async def _seed(self, session, *, admin_id, geometry_type, record_type):
+        ds = await _create_dataset(
+            session,
+            created_by=admin_id,
+            name="Reupload Modality",
+            # Private: these rows outlive the test on the shared per-worker
+            # DB, so keep them out of public-list assertions.
+            visibility="private",
+            source_format="geojson",
+            geometry_type=geometry_type,
+        )
+        ds.record.record_type = record_type
+        await session.commit()
+        return ds
+
+    async def _reload(self, session, dataset_id) -> Dataset:
+        """Read the pair back past the identity map, with the record joined."""
+        session.expire_all()
+        return (
+            await session.execute(
+                sa.select(Dataset)
+                .options(joinedload(Dataset.record))
+                .where(Dataset.id == dataset_id)
+            )
+        ).scalar_one()
+
+    async def test_an_empty_spatial_reupload_keeps_the_dataset_spatial(
+        self, test_db_session
+    ) -> None:
+        """fix(#1373): zero rows is not evidence that the column is gone.
+
+        Writing the sampled None reclassified a still-spatial dataset as
+        tabular, and the consequences are not cosmetic: feature writes are
+        refused, so the API could never repopulate the table it just emptied,
+        and the builder drops its layers as unsupported.
+        """
+        from app.modules.catalog.features.router import _require_feature_table
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await self._seed(
+            test_db_session,
+            admin_id=admin_id,
+            geometry_type="POINT",
+            record_type="vector_dataset",
+        )
+
+        await _run_reupload_swap(
+            test_db_session,
+            ds,
+            admin_id=admin_id,
+            metadata={
+                **_SWAP_METADATA,
+                "geometry_type": None,
+                "extent_wkt": None,
+                "feature_count": 0,
+            },
+            source_filename="empty.geojson",
+            source_format="geojson",
+            origin_ref={"filename": "empty.geojson"},
+        )
+        await test_db_session.commit()
+
+        reloaded = await self._reload(test_db_session, ds.id)
+        assert reloaded.geometry_type == "POINT", "the declared column type"
+        assert reloaded.record.record_type == "vector_dataset"
+        # The lockout the issue is actually about, asserted against the guard
+        # itself rather than a restatement of it.
+        _require_feature_table(reloaded)
+
+    async def test_an_empty_generic_column_keeps_what_was_already_known(
+        self, test_db_session
+    ) -> None:
+        """The branch where neither the rows nor the column say anything.
+
+        An untyped ``geometry`` column carrying no rows establishes only that
+        the relation is spatial, so the catalog keeps the type it last
+        measured — which is the PRE-swap value, and reading it after the write
+        would silently resolve to None.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await self._seed(
+            test_db_session,
+            admin_id=admin_id,
+            geometry_type="MULTIPOLYGON",
+            record_type="vector_dataset",
+        )
+
+        await _run_reupload_swap(
+            test_db_session,
+            ds,
+            admin_id=admin_id,
+            metadata={
+                **_SWAP_METADATA,
+                "geometry_type": None,
+                "extent_wkt": None,
+                "feature_count": 0,
+            },
+            staging_geometry_type="Geometry",
+            source_filename="empty.gpkg",
+            source_format="gpkg",
+            origin_ref={"filename": "empty.gpkg"},
+        )
+        await test_db_session.commit()
+
+        reloaded = await self._reload(test_db_session, ds.id)
+        assert reloaded.geometry_type == "MULTIPOLYGON"
+        assert reloaded.record.record_type == "vector_dataset"
+
+    async def test_a_non_spatial_reupload_demotes_the_record_type(
+        self, test_db_session
+    ) -> None:
+        """fix(#1361): a CSV over a shapefile leaves nothing to tile.
+
+        Without the re-derivation the record stays a ``vector_dataset``, and
+        ``build_assets`` goes on advertising vector-tile and OGC-Features
+        hrefs against a relation with no geometry column.
+        """
+        from app.modules.catalog.search.service_records import build_assets
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await self._seed(
+            test_db_session,
+            admin_id=admin_id,
+            geometry_type="POINT",
+            record_type="vector_dataset",
+        )
+        assert "vector_tiles" in build_assets(ds, "https://api.test")
+
+        await _run_reupload_swap(
+            test_db_session,
+            ds,
+            admin_id=admin_id,
+            metadata={**_SWAP_METADATA, "geometry_type": None, "extent_wkt": None},
+            staging_has_geometry=False,
+            source_filename="rows.csv",
+            source_format="csv",
+            origin_ref={"filename": "rows.csv"},
+        )
+        await test_db_session.commit()
+
+        reloaded = await self._reload(test_db_session, ds.id)
+        assert reloaded.geometry_type is None
+        assert reloaded.record.record_type == "table"
+        assets = build_assets(reloaded, "https://api.test")
+        assert "vector_tiles" not in assets
+        assert "ogc_features" not in assets
+
+    async def test_a_reupload_that_adds_geometry_promotes_the_record_type(
+        self, test_db_session
+    ) -> None:
+        """The inverse: a tabular dataset that gains a geometry column."""
+        from app.modules.catalog.search.service_records import build_assets
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await self._seed(
+            test_db_session,
+            admin_id=admin_id,
+            geometry_type=None,
+            record_type="table",
+        )
+
+        await _run_reupload_swap(
+            test_db_session,
+            ds,
+            admin_id=admin_id,
+            source_filename="points.geojson",
+            source_format="geojson",
+            origin_ref={"filename": "points.geojson"},
+        )
+        await test_db_session.commit()
+
+        reloaded = await self._reload(test_db_session, ds.id)
+        assert reloaded.geometry_type == "POINT"
+        assert reloaded.record.record_type == "vector_dataset"
+        assert "vector_tiles" in build_assets(reloaded, "https://api.test")
+
+    async def test_an_empty_spatial_file_over_a_table_promotes_it_too(
+        self, test_db_session
+    ) -> None:
+        """Where #1373 deliberately widens what #1314 let fall through.
+
+        #1314 left this case alone because nothing measured a type, so
+        ``geometry_type`` stayed None either way. It no longer does — a
+        specific declared column type is now written — so the record type and
+        the distribution rows have to follow it rather than describe a
+        dataset the catalog no longer claims to hold.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await self._seed(
+            test_db_session,
+            admin_id=admin_id,
+            geometry_type=None,
+            record_type="table",
+        )
+        record_id = ds.record_id
+        await generate_distributions(
+            test_db_session, ds.id, record_id, ds.table_name, geometry_type=None
+        )
+        await test_db_session.commit()
+
+        await _run_reupload_swap(
+            test_db_session,
+            ds,
+            admin_id=admin_id,
+            metadata={
+                **_SWAP_METADATA,
+                "geometry_type": None,
+                "extent_wkt": None,
+                "feature_count": 0,
+            },
+            source_filename="empty.geojson",
+            source_format="geojson",
+            origin_ref={"filename": "empty.geojson"},
+        )
+        await test_db_session.commit()
+
+        reloaded = await self._reload(test_db_session, ds.id)
+        assert reloaded.geometry_type == "POINT"
+        assert reloaded.record.record_type == "vector_dataset"
+        pairs = {
+            (row[0], row[1])
+            for row in (
+                await test_db_session.execute(
+                    sa.select(
+                        RecordDistribution.distribution_type,
+                        RecordDistribution.format,
+                    ).where(RecordDistribution.record_id == record_id)
+                )
+            ).all()
+        }
+        assert ("vector_tiles", "pbf") in pairs
+
+    @pytest.mark.parametrize("record_type", ["raster_dataset", "vrt_dataset"])
+    async def test_the_raster_family_is_never_re_derived(
+        self, test_db_session, record_type: str
+    ) -> None:
+        """Only the two record types the create path derives are derivable.
+
+        A raster or VRT record carries its own modality, and re-deriving it
+        from a geometry column it never had would reclassify it. Pinned at the
+        derivation rather than through the API, which refuses the combination
+        a layer earlier (``_assert_compatible_record_type`` in
+        ``router_reupload``, covered by ``test_reupload_record_type_guard``):
+        the guard here is what keeps a future caller of this swap — the raster
+        tails already build their own version rows beside it — from inheriting
+        a derivation that has no business running on them.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await self._seed(
+            test_db_session,
+            admin_id=admin_id,
+            geometry_type="POINT",
+            record_type=record_type,
+        )
+
+        await _run_reupload_swap(
+            test_db_session,
+            ds,
+            admin_id=admin_id,
+            metadata={**_SWAP_METADATA, "geometry_type": None, "extent_wkt": None},
+            staging_has_geometry=False,
+            source_filename="rows.csv",
+            source_format="csv",
+            origin_ref={"filename": "rows.csv"},
+        )
+        await test_db_session.commit()
+
+        reloaded = await self._reload(test_db_session, ds.id)
+        assert reloaded.record.record_type == record_type
+
+    def test_both_paths_share_one_derivation(self) -> None:
+        """The acceptance criterion of both issues, pinned by identity.
+
+        A second spelling of this precedence is how the reupload swap and the
+        registered-PostGIS refresh end up describing the same dataset
+        differently. Identity rather than a file path, so moving the helpers
+        again is a refactor rather than a test failure.
+        """
+        from app.processing.ingest import tasks_common, tasks_postgis_refresh
+
+        assert (
+            tasks_postgis_refresh._effective_geometry_type
+            is tasks_common._effective_geometry_type
+        )
+        assert (
+            tasks_postgis_refresh._declared_geometry_type
+            is tasks_common._declared_geometry_type
+        )
+        assert (
+            tasks_postgis_refresh._derived_record_type
+            is tasks_common._derived_record_type
+        )
 
 
 class TestFirstIngestStampsLastRefreshed:
