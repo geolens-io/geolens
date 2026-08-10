@@ -127,6 +127,13 @@ class StacResolution:
     # states no identity in its URLs still accumulates one it can be checked
     # against next time.
     item_id: str | None = None
+    # fix(#1266 review round 24, retention half): the collection this answer
+    # was checked against. A binding imported with `collection=null` — which
+    # `StacImportItem` permits — has none of its own, so the stored item URL
+    # stands in; reporting it back lets the binding LEARN it, the same way
+    # `item_id` is learned, and a dataset that refreshes once is checked
+    # against a stored value thereafter instead of a re-derived one.
+    collection_id: str | None = None
     asset_href: str | None = None
     asset_key: str | None = None
     # fix(#1266 review round 5): the moved object's OWN structural metadata.
@@ -672,6 +679,7 @@ async def _resolve_from_item(
         contacted=probed.contacted,
         item_href=resolved_item_href,
         item_id=resolved_id if isinstance(resolved_id, str) else None,
+        collection_id=collection_id,
         asset_href=href,
         # Bounded on the way into the binding by the same rule search
         # applies on the way out of the catalog: a key too long to carry is

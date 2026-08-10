@@ -2322,6 +2322,55 @@ class TestWorker:
         assert stac_resolve._horizontal_bbox([10.0, 45.0, "x", 46.0]) is None
         assert stac_resolve._horizontal_bbox(None) is None
 
+    async def test_a_null_collection_binding_learns_its_collection(
+        self, client, admin_auth_header, test_db_session, stac_transport
+    ) -> None:
+        """The retention half of the null-collection fix.
+
+        A binding imported with `collection=null` — which `StacImportItem`
+        permits — has none of its own, so the stored item URL stands in for
+        verification. Storing it back means the NEXT refresh checks against a
+        stored value rather than re-deriving one, the same way `item_id` is
+        learned.
+        """
+        install, _ = stac_transport
+        install(
+            {
+                _ITEM: (200, _item_doc(asset_href=_MOVED_ASSET)),
+                _MOVED_ASSET: (206, None),
+            }
+        )
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(
+            test_db_session, created_by=admin_id, collection_id=None
+        )
+        assert "collection_id" not in dataset.origin_ref
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        await _execute(test_db_session, payload)
+
+        refreshed = await _reload(dataset.id)
+        # Read out of `/collections/scenes/items/scene-1`, and now stored.
+        assert refreshed.origin_ref["collection_id"] == "scenes"
+
+    async def test_a_stored_collection_is_never_replaced_by_the_items_own(
+        self, client, admin_auth_header, test_db_session, stac_transport
+    ) -> None:
+        """Learning a value the URL already stated is one thing; taking one
+        from the re-fetched item is a rebinding, and is not done."""
+        install, _ = stac_transport
+        moved = _item_doc(asset_href=_MOVED_ASSET)
+        moved["collection"] = "scenes"
+        install({_ITEM: (200, moved), _MOVED_ASSET: (206, None)})
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        await _execute(test_db_session, payload)
+
+        refreshed = await _reload(dataset.id)
+        assert refreshed.origin_ref["collection_id"] == "scenes"
+
     async def test_an_unchanged_item_dates_the_refresh_without_rebinding(
         self, client, admin_auth_header, test_db_session, stac_transport
     ) -> None:

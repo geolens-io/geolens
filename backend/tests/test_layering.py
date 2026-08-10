@@ -2291,7 +2291,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # nothing unverifiable") reads as redundancy without them. Splitting it
     # would put the identity rules in one file and the fetches they guard in
     # another, which is the seam every one of those rounds found a hole in.
-    "backend/app/modules/catalog/sources/stac_resolve.py": 1005,
+    # +8: the collection a null-collection binding is verified against is
+    # reported back so the binding can learn it, the same way item_id is.
+    "backend/app/modules/catalog/sources/stac_resolve.py": 1013,
     # --- entered by the inclusion rule, fix(#958) -------------------------
     # These five were the ungated modules at or above _RATCHET_INCLUSION_LOC
     # when the rule was written. They arrive at their measured size with no

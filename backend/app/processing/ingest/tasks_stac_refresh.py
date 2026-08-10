@@ -237,10 +237,14 @@ def _rebind(dataset: Any, resolution: Any, *, collection_id: str | None) -> None
     that somehow carried an extra field raises here rather than widening what
     a STAC binding can hold (ADR-002 invariant 4).
 
-    ``collection_id`` is carried through from the STORED binding rather than
-    taken from the re-fetched item. An item that reports a different
-    collection has not moved, it has been re-published as something else, and
-    following that would be a rebinding rather than a re-resolution.
+    ``collection_id`` is the stored value, or — for a binding that never had
+    one, which ``StacImportItem`` permits — the one the resolution verified
+    the answer against, read out of the stored item URL. It is never taken
+    from the re-fetched item: an item that reports a different collection has
+    not moved, it has been re-published as something else, and following that
+    would be a rebinding rather than a re-resolution. Learning the value the
+    URL already stated is a different act, and it is what lets the NEXT
+    refresh check against a stored collection rather than re-deriving one.
 
     ``origin_uri`` moves with the asset href because they are one value: the
     STAC import sets the pointer to the asset href, and the duplicate-source
@@ -517,14 +521,19 @@ async def refresh_stac(
                 return
 
             moved = resolution.asset_href != asset_href
+            # A binding with no collection of its own learns the one the
+            # resolution checked it against; one that has a collection keeps
+            # it, because only the stored value may name what this dataset is.
+            learned_collection = collection_id or resolution.collection_id
             rebound = (
                 moved
                 or resolution.item_href != item_href
                 or resolution.item_id != item_id
                 or resolution.asset_key != asset_key
+                or learned_collection != collection_id
             )
             if rebound:
-                _rebind(dataset, resolution, collection_id=collection_id)
+                _rebind(dataset, resolution, collection_id=learned_collection)
             if moved:
                 await _repoint_remote_asset(
                     session,
