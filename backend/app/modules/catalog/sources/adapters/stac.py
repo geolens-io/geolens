@@ -56,17 +56,20 @@ MAX_ASSET_KEY_CHARS = 255
 
 
 def storable_asset_key(key: str | None) -> str | None:
-    """The asset key if it is non-empty and short enough to carry, else None.
+    """The asset key if it is short enough to carry, else None.
 
-    fix(#1331): ``""`` is a legal JSON property name, so an item may key its
-    data asset under the empty string — and every consultation of the stored
-    key downstream (``stac_resolve.py``) tests it with truthiness, which
-    cannot tell a recorded ``""`` apart from no key at all. Refusing it here,
-    the same way an over-long key is refused, keeps those truthiness reads
-    describing a real invariant instead of quietly mismatching this one edge
-    forever.
+    fix(#1331): ``""`` is a legal JSON property name and a legal STAC asset
+    key, and it is deliberately NOT refused here. Every consultation of a
+    stored key downstream (``stac_resolve.py``) now tests it with
+    ``is not None`` rather than truthiness, which is what makes a recorded
+    ``""`` mean something different from "no key recorded" — refusing it at
+    capture would defeat that: a resolve that used a stored ``""`` to
+    recover a moved asset would strip it back out on write-back, and the
+    dataset would need to guess again the next time the asset moved. Unlike
+    an over-long key, ``""`` runs into no length problem, so there is
+    nothing about it worth refusing once the truthiness reads are honest.
     """
-    if not key or len(key) > MAX_ASSET_KEY_CHARS:
+    if key is None or len(key) > MAX_ASSET_KEY_CHARS:
         return None
     return key
 

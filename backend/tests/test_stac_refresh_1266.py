@@ -1856,11 +1856,11 @@ class TestResolution:
         pick — the refresh reported the asset unidentified instead of
         recovering it by the key that still names it.
 
-        The write-back carries ``None``, not ``""``: capture refuses to ever
-        store the empty string (same as an over-long key), so a stored
-        ``""`` is honoured for THIS resolve — it is what finds the moved
-        asset — and then not re-recorded. The binding falls back to
-        href-matching from here, exactly like any other keyless one.
+        The write-back carries ``""`` forward, not ``None``: capture does not
+        refuse the empty string (it has no length problem an over-long key
+        has), so the durable identity this resolve just used to find the
+        moved asset survives to protect the NEXT move too — stripping it
+        back to keyless here would only defer today's bug by one refresh.
         """
         install, _ = stac_transport
         install(
@@ -1884,7 +1884,7 @@ class TestResolution:
             asset_key="",
         )
         assert result.resolved
-        assert (result.asset_key, result.asset_href) == (None, _MOVED_ASSET)
+        assert (result.asset_key, result.asset_href) == ("", _MOVED_ASSET)
 
     async def test_a_live_item_that_dropped_the_asset_is_missing(
         self, stac_transport
@@ -1964,17 +1964,16 @@ class TestAssetKeyCapture:
         assert storable_asset_key("k" * (MAX_ASSET_KEY_CHARS + 1)) is None
         assert storable_asset_key(None) is None
 
-    def test_an_empty_string_key_is_never_surfaced_or_stored(self) -> None:
+    def test_an_empty_string_key_is_a_storable_key(self) -> None:
         """fix(#1331): ``""`` is a legal JSON property name and clears the
-        length bound, so nothing else was refusing it at capture — and every
-        downstream consultation of the stored key reads it with truthiness,
-        which cannot tell a recorded ``""`` apart from no key at all. Refusing
-        it here, the same way an over-long key is refused, means those
-        truthiness reads describe a real invariant instead of quietly
-        mismatching this one edge forever."""
+        length bound, so there is no reason to refuse it at capture — unlike
+        an over-long key, it has nowhere it fails to fit. What made it
+        misbehave was every downstream consultation reading it with
+        truthiness, which is fixed at the read sites (``is not None``); the
+        capture bound is unrelated to that and leaves ``""`` alone."""
         from app.modules.catalog.sources.adapters.stac import storable_asset_key
 
-        assert storable_asset_key("") is None
+        assert storable_asset_key("") == ""
 
     async def test_an_over_long_key_still_resolves_an_unmoved_asset(
         self, stac_transport
@@ -2074,14 +2073,15 @@ class TestAssetKeyCapture:
         dataset = await _reload(dataset_id)
         assert "asset_key" not in dataset.origin_ref
 
-    async def test_import_never_stores_an_empty_string_key(
+    async def test_import_records_an_empty_string_key(
         self, client, admin_auth_header, test_db_session
     ) -> None:
-        """fix(#1331): a raw API caller can submit ``data_asset_key=""``
-        directly — Pydantic's ``max_length`` does not reject an empty string
-        — so the import handler has to refuse it itself rather than rely on
-        search having already normalised it away. Stored as no key, the same
-        outcome as an older client that sends none at all."""
+        """fix(#1331): a searched item may key its data asset under ``""``,
+        and the import request echoes back whatever search surfaced —
+        including that. Recording it is what lets the FIRST refresh after a
+        move recover the asset by identity instead of falling back to a
+        keyless guess; the length bound is the only thing capture refuses,
+        and ``""`` does not run into it."""
         item_id = f"emptykey-{uuid.uuid4().hex[:8]}"
         with patch("app.modules.catalog.sources.stac_router.validate_url_for_ssrf"):
             resp = await client.post(
@@ -2108,7 +2108,7 @@ class TestAssetKeyCapture:
         assert resp.status_code == 200, resp.text
         dataset_id = uuid.UUID(resp.json()["results"][0]["dataset_id"])
         dataset = await _reload(dataset_id)
-        assert "asset_key" not in dataset.origin_ref
+        assert dataset.origin_ref["asset_key"] == ""
 
 
 # ---------------------------------------------------------------------------

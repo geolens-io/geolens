@@ -35,7 +35,6 @@ from app.modules.catalog.sources.adapters.stac import (
     connect_stac_api,
     list_stac_collections,
     search_stac_items,
-    storable_asset_key,
 )
 from app.modules.catalog.sources.cog_info import fetch_cog_info
 from app.modules.catalog.sources.security import SSRFError, validate_url_for_ssrf
@@ -602,13 +601,7 @@ async def stac_import(
                     # of a client.
                     item_id=item.id,
                     collection_id=item.collection,
-                    # fix(#1331): routed through the same capture-time bound
-                    # search applies to its own results. The request model's
-                    # `max_length` accepts `""` — a legal STAC asset key — so
-                    # a raw API caller bypassing search could still write it
-                    # here; storable_asset_key refuses it the same way it
-                    # refuses an over-long key.
-                    asset_key=storable_asset_key(item.data_asset_key),
+                    asset_key=item.data_asset_key,
                 )
                 # fix(#1271 review): the import IS a contact — the same
                 # contract _finalize_ingest and the reupload swap follow —
