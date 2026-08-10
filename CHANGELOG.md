@@ -38,23 +38,27 @@ and releases use semantic versioning.
   metres-per-unit; geographic CRSs omit the field rather than publish an
   angular value as a length. The OGC Records surface is unchanged (#1384).
 - **Reupload keeps geometry and record type honest.** Swapping a
-  dataset's file re-derives the effective geometry type and record type
-  from the new data instead of carrying the old ones forward (#1361,
-  #1373).
+  dataset's file derives the effective geometry and record type through
+  a precedence of measured, declared, and stored values, so an empty or
+  all-NULL-geometry file no longer reclassifies a still-spatial dataset
+  as tabular (#1361, #1373).
 - **User-authored distributions no longer hide the built-in export
   rows** on a record's distribution list (#1370).
 - **CRS WKT is stored as WKT2:2019 at both raster ingest paths**, with a
   data migration converting existing WKT1 rows (#1376).
 - **STAC assets keyed by an empty string are recovered after the item
-  moves** instead of failing the refresh (#1363).
+  moves** instead of being reported unidentified (#1363).
 - **ArcGIS imports request every field**, so service imports keep their
   full attribute set (#1368).
-- **The worker initializes the tile cache in its shared bootstrap**, so
-  cache invalidation from worker-side jobs works on a fresh boot (#1371).
+- **Vector tile purges after a reupload or PostGIS refresh now take
+  effect.** The tile cache was only initialized in the API process, so the
+  worker's post-swap purges silently evicted nothing and stale tiles could
+  serve until the cache TTL expired; the cache is now initialized in the
+  bootstrap both processes share (#1371).
 - **Auto-generated distributions reconcile when a dataset's modality
   changes** (#1369).
-- **First-ingest raster origins record their file hash**, so a later
-  replace can verify what it is replacing (#1360).
+- **A raster's origin carries its provenance hash from first ingest**
+  instead of only gaining one after its first replace (#1360).
 - **Single-dataset delete errors are sanitized** before reaching the
   client (#1358).
 
