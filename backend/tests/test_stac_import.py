@@ -630,9 +630,10 @@ class TestStacImport:
         only report as the column's default ``false``.
 
         The values are a rotated raster's on purpose: it is the case the
-        envelope-division shortcut would have got wrong, so seeing 8.66 here
-        rather than a figure derived from ``bounds`` is what proves the row
-        came from the transform.
+        envelope-division shortcut would have got wrong. 10.0 is the pixel
+        size of the same 30°-rotated fixture ``test_cog_info.py`` probes —
+        its affine's element 0 is 8.66, and the difference between those two
+        numbers is the #1375 review finding.
         """
         with patch(
             "app.modules.catalog.sources.stac_router.fetch_cog_info",
@@ -645,8 +646,8 @@ class TestStacImport:
                     "nodata": None,
                     "band_info": None,
                     "crs_wkt": None,
-                    "res_x": 8.660254037844387,
-                    "res_y": 8.660254037844387,
+                    "res_x": 10.0,
+                    "res_y": 10.0,
                     "is_rotated": True,
                 }
             ),
@@ -675,8 +676,8 @@ class TestStacImport:
         detail = await client.get(f"/datasets/{dataset_id}", headers=admin_auth_header)
         assert detail.status_code == 200
         raster = detail.json()["raster"]
-        assert raster["res_x"] == pytest.approx(8.660254037844387)
-        assert raster["res_y"] == pytest.approx(8.660254037844387)
+        assert raster["res_x"] == pytest.approx(10.0)
+        assert raster["res_y"] == pytest.approx(10.0)
 
         row = (
             await test_db_session.execute(

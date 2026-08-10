@@ -19,6 +19,7 @@ from __future__ import annotations
 import httpx
 import structlog
 
+from app.core.geo import pixel_size_from_affine
 from app.platform.storage.titiler_url import build_titiler_cog_url
 
 logger = structlog.get_logger(__name__)
@@ -99,11 +100,17 @@ def _geotransform(item: dict) -> dict:
     extension's ``proj:transform`` as the 9-element affine — and it is the
     SAME six numbers ``raster/cog.py`` reads off ``rasterio``'s
     ``src.transform`` on the local-upload path. So this is not an
-    approximation of what a local ingest would have stored; element 0 and
-    element 4 are exactly its ``abs(transform.a)``/``abs(transform.e)``, and
-    elements 1 and 3 are exactly the ``transform.b``/``transform.d`` it tests
-    to set ``is_rotated``. A rotated remote COG is now recorded as rotated
-    rather than defaulting to the column's ``false``.
+    approximation of what a local ingest would have stored: both paths hand
+    those numbers to the same ``pixel_size_from_affine``, and elements 1 and 3
+    are the ``transform.b``/``transform.d`` both test to set ``is_rotated``. A
+    rotated remote COG is now recorded as rotated rather than defaulting to
+    the column's ``false``.
+
+    fix(#1375 review): the resolution is the pixel VECTORS' lengths, not
+    elements 0 and 4 on their own — see ``pixel_size_from_affine`` for why
+    those two understate a rotated raster by 13% at 30°. The review caught it
+    here; the local path had the same shape and was corrected with it, so the
+    two agree on the right number rather than on the wrong one.
 
     Endpoint choice, since two of them expose georeferencing: ``/cog/validate``
     (rio-cogeo) reports ``GEO.Resolution`` and it is the same
@@ -130,9 +137,10 @@ def _geotransform(item: dict) -> dict:
         scale_x, shear_x, _, shear_y, scale_y, _ = (float(v) for v in transform[:6])
     except (TypeError, ValueError):
         return {}
+    res_x, res_y = pixel_size_from_affine(scale_x, shear_x, shear_y, scale_y)
     return {
-        "res_x": abs(scale_x),
-        "res_y": abs(scale_y),
+        "res_x": res_x,
+        "res_y": res_y,
         "is_rotated": shear_x != 0.0 or shear_y != 0.0,
     }
 

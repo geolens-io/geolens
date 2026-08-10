@@ -705,3 +705,30 @@ def wkt_has_degree_unit(crs_wkt: str | None) -> bool | None:
     if not isinstance(crs_wkt, str) or not crs_wkt:
         return None
     return crs_has_degree_unit(_parse_crs(crs_wkt))
+
+
+def pixel_size_from_affine(
+    a: float, b: float, d: float, e: float
+) -> tuple[float, float]:
+    """Per-pixel ground distances along a raster's OWN axes, from its affine.
+
+    fix(#1375 review): not ``abs(a)``/``abs(e)``. Those are the pixel vectors'
+    COMPONENTS on the world axes, which equal the pixel sizes only when the
+    raster is axis-aligned. A geotransform maps pixel (col, row) to world
+    ``x = a*col + b*row + c``, ``y = d*col + e*row + f``, so one step along the
+    column axis moves the world point by the vector ``(a, d)`` and one step
+    along the row axis by ``(b, e)``. The LENGTHS of those two vectors are the
+    resolutions; ``a`` and ``e`` alone are their projections onto x and y.
+
+    Rotate a 10 m-pixel raster by 30° and the affine reads ``a=8.66, d=5.0``:
+    ``abs(a)`` reports 8.66 m for a pixel that is 10 m across, a 13%
+    understatement that reaches the UI and STAC's ``gsd``. Confirmed against
+    the distance between adjacent pixel centres, which is 10.0.
+
+    For an axis-aligned raster ``b`` and ``d`` are zero and this returns
+    exactly ``abs(a)``/``abs(e)`` — it agrees with the old form everywhere the
+    old form was right, and differs only where it was wrong. Both raster
+    ingest paths call this so a rotated scene reports the same resolution
+    whether it was uploaded or imported from a remote catalog.
+    """
+    return math.hypot(a, d), math.hypot(b, e)

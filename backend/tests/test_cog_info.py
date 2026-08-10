@@ -57,8 +57,10 @@ _TITILER_INFO = {
 # affine is a real 30°-rotated one, captured from the pinned image against a
 # synthetic rotated COG with 10 m pixels: element 0 is cos(30°)*10 and the
 # shear terms are sin(30°)*10, which is why the numbers below are 8.66/5.0
-# rather than a round 10. An axis-aligned file returns the same shape with
-# both shear terms exactly 0.
+# rather than a round 10. The PIXELS are still 10 m — hypot(8.66, 5.0) — which
+# is the whole point of the #1375 review finding. An axis-aligned file returns
+# the same shape with both shear terms exactly 0, where element 0 IS the
+# resolution.
 _TITILER_STAC_ITEM = {
     "type": "Feature",
     "stac_version": "1.1.0",
@@ -191,16 +193,36 @@ class TestGeotransform:
     async def test_resolution_comes_from_the_affine_not_the_envelope(
         self, monkeypatch
     ) -> None:
-        """The proving case. This item's raster is rotated 30°, so its
-        bounding envelope is much wider than its footprint: deriving from
-        ``/cog/info``'s ``bounds`` would report ~100 m where the affine says
-        the pixels are 8.66 m on the transform's own axes — the same number
-        ``raster/cog.py`` stores for a local upload of the same file."""
+        """The proving case. This item's raster is rotated 30° with 10 m
+        pixels, so its bounding envelope is wider than its footprint and a
+        figure derived from ``/cog/info``'s ``bounds`` would overstate the
+        resolution. 10.0 is also what ``raster/cog.py`` stores for a local
+        upload of the same file — both paths run these six numbers through
+        ``pixel_size_from_affine``."""
         _install(monkeypatch, _TITILER_INFO)
         result = await fetch_cog_info("https://origin.test/scene.tif")
         assert result is not None
-        assert result["res_x"] == pytest.approx(8.660254037844387)
-        assert result["res_y"] == pytest.approx(8.660254037844387)
+        assert result["res_x"] == pytest.approx(10.0)
+        assert result["res_y"] == pytest.approx(10.0)
+
+    async def test_a_rotated_resolution_is_the_pixel_vector_not_its_x_component(
+        self, monkeypatch
+    ) -> None:
+        """fix(#1375 review): the finding this file exists to keep fixed.
+
+        Element 0 of this fixture's affine is 8.66 — the x-COMPONENT of a
+        pixel vector whose length is 10. Reading the resolution off elements
+        0 and 4 understates a 30°-rotated raster by 13%, and that number
+        reaches the UI and STAC's ``gsd``. The assertion is written as the
+        contrast so a regression to ``abs(a)`` fails here rather than
+        silently shipping the smaller number."""
+        _install(monkeypatch, _TITILER_INFO)
+        result = await fetch_cog_info("https://origin.test/scene.tif")
+        assert result is not None
+        element_0 = _TITILER_STAC_ITEM["properties"]["proj:transform"][0]
+        assert element_0 == pytest.approx(8.660254037844387)
+        assert result["res_x"] != pytest.approx(element_0)
+        assert result["res_x"] == pytest.approx(10.0)
 
     async def test_a_rotated_transform_sets_is_rotated(self, monkeypatch) -> None:
         """The flag the local path sets from ``transform.b``/``transform.d``
