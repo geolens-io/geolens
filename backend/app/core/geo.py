@@ -707,6 +707,52 @@ def wkt_has_degree_unit(crs_wkt: str | None) -> bool | None:
     return crs_has_degree_unit(_parse_crs(crs_wkt))
 
 
+def crs_metres_per_unit(crs: object | None) -> float | None:
+    """Metres per linear unit of a PROJECTED CRS, or None when that is not a
+    question with an answer.
+
+    fix(#1375 review): STAC's ``gsd`` is defined in metres, but a stored
+    resolution is in whatever unit its CRS measures. PROJ answers the
+    conversion for projected CRSs directly — ``units_factor`` reports
+    ``('metre', 1.0)`` for UTM and Web Mercator and ``('US survey foot',
+    0.3048006...)`` for the state-plane systems, so a foot-based raster
+    converts as readily as a metre-based one.
+
+    Returns None for a GEOGRAPHIC CRS on purpose, rather than a factor.
+    ``units_factor`` reports RADIANS per unit there, and an angular
+    resolution has no fixed length: a degree of longitude is 111 km at the
+    equator and nothing at the pole, so the conversion needs a latitude this
+    function is not given. Callers must read None as "cannot be expressed in
+    metres" and omit the value rather than publish it unconverted — see
+    ``RasterAsset.to_stac_properties``.
+    """
+    if crs is None:
+        return None
+    try:
+        if not crs.is_projected:
+            return None
+        _, metres_per_unit = crs.units_factor
+    except Exception:  # broad: exotic CRSs raise from PROJ rather than answering, and "no answer" is exactly the None case
+        return None
+    if not metres_per_unit or metres_per_unit <= 0:
+        return None
+    return float(metres_per_unit)
+
+
+def wkt_metres_per_unit(crs_wkt: str | None) -> float | None:
+    """:func:`crs_metres_per_unit` plus the WKT parse.
+
+    Same shape as :func:`wkt_has_degree_unit` over
+    :func:`crs_has_degree_unit`: one implementation, two entry points, so a
+    caller holding a live ``rasterio.crs.CRS`` need not round-trip through
+    WKT to reach it. None covers every uncertainty — no WKT, an unparseable
+    one, or a CRS whose units PROJ will not report.
+    """
+    if not isinstance(crs_wkt, str) or not crs_wkt:
+        return None
+    return crs_metres_per_unit(_parse_crs(crs_wkt))
+
+
 def pixel_size_from_affine(
     a: float, b: float, d: float, e: float
 ) -> tuple[float, float]:
