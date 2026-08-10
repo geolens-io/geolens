@@ -169,6 +169,16 @@ def cog_info(monkeypatch):
         "height": 512,
         "nodata": 0,
         "band_info": [{"min": 0, "max": 4095, "mean": 1200}],
+        # fix(#1334): the shape fetch_cog_info actually returns, so tests
+        # against this fixture exercise the same fields the refresh path
+        # now writes to the asset row. No res_x/res_y — fetch_cog_info
+        # deliberately does not compute them (cog_info.py's
+        # _georeferencing docstring explains why). crs_wkt and epsg are a
+        # matched pair, same as a real _georeferencing result: leaving epsg
+        # out here would make reconcile_epsg read as "a CRS with no mappable
+        # EPSG" rather than "the fixture just didn't set it".
+        "crs_wkt": 'PROJCS["WGS 84 / UTM zone 33N",AUTHORITY["EPSG","32633"]]',
+        "epsg": 32633,
     }
     calls: list[str] = []
 
@@ -1191,10 +1201,17 @@ class TestResolution:
         assert (result.health, result.detail) == ("missing", "not_found")
 
     async def test_the_projection_comes_from_the_document_the_asset_did(
-        self, stac_transport
+        self, stac_transport, monkeypatch
     ) -> None:
         """fix(#1266 review round 24): a canonical document that supersedes
-        the representation supersedes its projection too."""
+        the representation supersedes its projection too.
+
+        fix(#1334 review): stubs the probe to report no CRS at all — its OWN
+        reading would otherwise outrank the document's declared one
+        (``reconcile_epsg``), which is a different concern from the one this
+        test isolates: WHICH document's declaration wins, not probe-vs-
+        declared precedence.
+        """
         install, _ = stac_transport
         canonical = f"{_ROOT}/v2/collections/scenes/items/scene-1"
         newer_asset = "https://origin.test/v2/tiles/new.tif"
@@ -1207,6 +1224,13 @@ class TestResolution:
                 _ASSET: (206, None),
                 newer_asset: (206, None),
             }
+        )
+
+        async def _no_crs(url: str):
+            return {"band_count": 1, "dtype": "uint16", "band_info": None}
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.stac_resolve.fetch_cog_info", _no_crs
         )
         result = await _resolve(item_href=_ITEM)
         assert result.asset_href == newer_asset
@@ -2311,6 +2335,16 @@ class TestWorker:
         assert described.band_info == [{"min": 0, "max": 4095, "mean": 1200}]
         # One integer band is imagery, not elevation.
         assert described.is_dem is False
+        # fix(#1334): the moved object's own CRS, from the same probe as
+        # band_count/dtype/nodata — not left stale like the fields above
+        # would be if the refresh only wrote the address. res_x/res_y are
+        # NOT part of this: fetch_cog_info deliberately does not compute
+        # them (cog_info.py's _georeferencing docstring explains why), so
+        # they stay whatever they already were rather than being cleared —
+        # the repoint statement never mentions them.
+        assert described.crs_wkt == (
+            'PROJCS["WGS 84 / UTM zone 33N",AUTHORITY["EPSG","32633"]]'
+        )
         # A moved member has to read as newer than any VRT built on it: a
         # mosaic that recorded no `built_from` is judged by this stamp alone,
         # and it still embeds the old URL.
@@ -2331,6 +2365,49 @@ class TestWorker:
         run = await _run_for(dataset.id)
         assert run.status == "succeeded"
         assert run.error_code is None
+
+    async def test_a_refresh_prefers_the_probed_epsg_over_the_items_declared_one(
+        self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
+    ) -> None:
+        """fix(#1334 review): the moved item declares EPSG:32633
+        (``_item_doc``'s default ``proj:code``), while the probe that
+        actually opened the new bytes reports a different CRS — the raster
+        row and the dataset's srid follow the probe, not the item, so
+        ``RasterAsset.to_stac_properties()`` cannot publish a ``proj:code``
+        and a ``proj:wkt2`` that name different projections.
+        """
+        install, _ = stac_transport
+        install(
+            {
+                _ITEM: (200, _item_doc(asset_href=_MOVED_ASSET)),
+                _MOVED_ASSET: (206, None),
+            }
+        )
+
+        async def _disagreeing_probe(url: str):
+            return {
+                "band_count": 1,
+                "dtype": "uint16",
+                "nodata": 0,
+                "band_info": None,
+                "crs_wkt": 'PROJCS["WGS 84 / UTM zone 21N",AUTHORITY["EPSG","32621"]]',
+                "epsg": 32621,
+            }
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.stac_resolve.fetch_cog_info",
+            _disagreeing_probe,
+        )
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        await _execute(test_db_session, payload)
+
+        described = await _raster_asset(dataset.id)
+        assert described.epsg == 32621
+        refreshed = await _reload(dataset.id)
+        assert refreshed.srid == 32621
 
     async def test_a_move_to_an_elevation_raster_reclassifies_it(
         self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch

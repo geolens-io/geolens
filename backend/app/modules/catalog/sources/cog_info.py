@@ -24,11 +24,100 @@ from app.platform.storage.titiler_url import build_titiler_cog_url
 logger = structlog.get_logger(__name__)
 
 
+def _georeferencing(info: dict) -> dict:
+    """``crs_wkt``/``epsg`` from Titiler's raw ``/cog/info`` reply.
+
+    fix(#1334): retrievable all along and simply never read out of this
+    response. Titiler answers ``crs`` as an OGC CRS URI
+    (``http://www.opengis.net/def/crs/EPSG/0/<code>``) — verified against a
+    live 2.2.1 instance. GDAL's CRS parser accepts that URI form directly, so
+    the WKT round-trips through the same ``rasterio.crs.CRS`` every other
+    ingest path already writes ``crs_wkt`` from (``raster/cog.py``).
+
+    fix(#1334 review): both keys come off the SAME parsed ``CRS`` object, on
+    purpose. The caller's other source for a raster's EPSG is the STAC
+    item's own ``proj:code``/``proj:epsg`` — the PUBLISHER's claim about the
+    file, read at import or refresh time from whatever document it happened
+    to be describing itself with then. This function's ``crs`` came from
+    Titiler actually opening the CURRENT bytes at the CURRENT href, which is
+    ground truth about what is actually being served. A stale or wrong item
+    declaration would otherwise have this probe write a WKT describing one
+    projection beside a caller-supplied EPSG naming another, and
+    ``RasterAsset.to_stac_properties()`` would publish both as ``proj:wkt2``
+    and ``proj:code`` — a raster describing itself two contradictory ways in
+    GeoLens's OWN STAC export. Deriving ``epsg`` from the same object the WKT
+    came from makes the two agree by construction; the caller uses it in
+    preference to the item's declared value and falls back to that only when
+    the probe yields no EPSG (an unusual custom CRS, or no probe at all).
+
+    fix(#1334 review): ``res_x``/``res_y`` are deliberately NOT derived here.
+    The obvious computation — ``bounds`` (also in the dataset's own
+    projection) divided by pixel dimensions — is only the true per-pixel
+    resolution for an axis-aligned raster. This response carries no affine
+    transform to check that against, so a rotated or sheared remote COG would
+    silently get a resolution inflated by however far its bounding envelope
+    exceeds its own footprint — indistinguishable, in this payload, from a
+    correct value. The local-upload path can tell the two apart
+    (``raster/cog.py`` reads ``transform.b``/``transform.d`` to set
+    ``is_rotated``); nothing here can. A wrong number that LOOKS like a
+    measurement is worse than the blank "—" it would replace, so it stays
+    unset until there is a source that can rule rotation out. Tracked as
+    #1375.
+
+    Individual failures degrade to None rather than raising: this is
+    descriptive metadata for a UI card, not something a failed probe should
+    abort over.
+    """
+    crs_wkt = None
+    epsg = None
+    crs_value = info.get("crs")
+    if isinstance(crs_value, str) and crs_value:
+        try:
+            from rasterio.crs import CRS
+
+            parsed = CRS.from_user_input(crs_value)
+            crs_wkt = parsed.to_wkt()
+            epsg = parsed.to_epsg()
+        except (
+            Exception
+        ):  # broad: an unfamiliar CRS string should not fail the whole probe
+            crs_wkt = None
+            epsg = None
+
+    return {"crs_wkt": crs_wkt, "epsg": epsg}
+
+
+def reconcile_epsg(probe: dict, declared: int | None) -> int | None:
+    """The EPSG to store: the probe's, when it established any CRS at all.
+
+    fix(#1334 review, round 3): "the probe returned no EPSG" is not the same
+    question as "the probe returned no CRS at all", and the two callers'
+    first attempt at this answered the wrong one — falling back to
+    ``declared`` whenever ``probe["epsg"]`` was None, which also fires for a
+    custom or exotic CRS that Titiler opened successfully but that PROJ
+    cannot map to an authority code. That case answers ``crs_wkt`` with
+    something real and ``epsg`` with None; falling back to a DECLARED code
+    there would pair the probed WKT with a code that may name a different
+    projection — reproducing on this row the exact contradiction this
+    reconciliation exists to prevent, just with a null-vs-populated EPSG
+    instead of two populated ones.
+
+    The declared value is trustworthy only when the probe established
+    NOTHING about the CRS — no ``crs_wkt`` at all, from a failed probe or an
+    unparseable ``crs`` string. Whatever the probe DID establish, including
+    "a WKT with no mappable EPSG", is what a caller must keep rather than
+    patch over with an unrelated source.
+    """
+    if probe.get("crs_wkt") is not None:
+        return probe.get("epsg")
+    return declared
+
+
 async def fetch_cog_info(url: str) -> dict | None:
     """Fetch COG metadata + statistics from Titiler for a remote asset URL.
 
-    Returns dict with band_count, dtype, width, height, band_info (with
-    min/max per band for rescaling), or None on failure.
+    Returns dict with band_count, dtype, width, height, crs_wkt, band_info
+    (with min/max per band for rescaling), or None on failure.
 
     fix(#1271 review): None deliberately collapses every failure shape.
     A non-200 from Titiler is NOT proof the origin was attempted — the
@@ -99,6 +188,7 @@ async def fetch_cog_info(url: str) -> dict | None:
                 "height": info.get("height"),
                 "nodata": info.get("nodata"),
                 "band_info": band_info or None,
+                **_georeferencing(info),
             }
     except Exception as exc:  # broad: Titiler info call — httpx/JSON parse can throw varied errors; degrade to None
         logger.debug("Failed to fetch COG info from Titiler", url=url, error=str(exc))

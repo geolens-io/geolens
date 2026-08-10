@@ -36,7 +36,7 @@ from app.modules.catalog.sources.adapters.stac import (
     list_stac_collections,
     search_stac_items,
 )
-from app.modules.catalog.sources.cog_info import fetch_cog_info
+from app.modules.catalog.sources.cog_info import fetch_cog_info, reconcile_epsg
 from app.modules.catalog.sources.security import SSRFError, validate_url_for_ssrf
 
 
@@ -613,10 +613,22 @@ async def stac_import(
                 ci = cog_info_map.get(item.data_asset_href)
                 if ci is not None:
                     dataset.last_checked_at = datetime.now(timezone.utc)
+                ci = ci or {}
+                # fix(#1334 review): the dataset-level mirror of the raster
+                # row's EPSG preference below — both come from the same
+                # probe, so both must prefer it the same way, or the OGC
+                # Records properties block (dataset.srid as `crs`,
+                # RasterAsset fields as `proj:code`/`proj:wkt2`) would
+                # publish two disagreeing declarations for one dataset.
+                # `reconcile_epsg` is the one place that decides when the
+                # probe outranks the item's declared value; see its
+                # docstring for why "no EPSG" and "no CRS at all" are
+                # different questions.
+                reconciled_epsg = reconcile_epsg(ci, item.epsg)
+                dataset.srid = reconciled_epsg
                 db.add(dataset)
                 await db.flush()
 
-                ci = ci or {}
                 nodata_raw = ci.get("nodata")
 
                 raster_asset = get_catalog_port().raster_asset_orm_class()(
@@ -624,13 +636,19 @@ async def stac_import(
                     asset_uri=item.data_asset_href,
                     storage_backend="remote",
                     cog_status="verified",
-                    epsg=item.epsg,
+                    epsg=reconciled_epsg,
                     band_count=ci.get("band_count"),
                     dtype=ci.get("dtype"),
                     width=ci.get("width"),
                     height=ci.get("height"),
                     nodata=str(nodata_raw) if nodata_raw is not None else None,
                     band_info=ci.get("band_info"),
+                    # fix(#1334): fetch_cog_info already retrieves this; it
+                    # was simply never read off the probe result onto the
+                    # row. res_x/res_y are NOT projected the same way —
+                    # fetch_cog_info deliberately does not compute them; see
+                    # cog_info.py's _georeferencing docstring for why.
+                    crs_wkt=ci.get("crs_wkt"),
                 )
                 db.add(raster_asset)
 

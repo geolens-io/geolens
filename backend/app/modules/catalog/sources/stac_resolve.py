@@ -77,7 +77,7 @@ from app.modules.catalog.sources.adapters.stac import (
     self_link_href,
     storable_href,
 )
-from app.modules.catalog.sources.cog_info import fetch_cog_info
+from app.modules.catalog.sources.cog_info import fetch_cog_info, reconcile_epsg
 from app.modules.catalog.sources.origin_probe import (
     BLOCKED_BY_POLICY,
     INACCESSIBLE,
@@ -145,12 +145,21 @@ class StacResolution:
     # parameters. Populated only when the href moved, which is the only time
     # anything is adopted.
     asset_metadata: dict[str, Any] | None = None
-    # fix(#1266 review round 7): the moved object's declared projection, read
-    # from the item that publishes it rather than from the object. That is
-    # where the import path reads it too — the STAC projection extension —
-    # so the two agree by construction, and a reprojected replacement stops
-    # being described by the previous object's EPSG. Populated beside
-    # ``asset_metadata`` and written with it.
+    # fix(#1266 review round 7): the moved object's projection — read from
+    # the item that publishes it when nothing better is available, which is
+    # where the import path reads it too, so an unmoved asset's EPSG still
+    # agrees with the import that set it.
+    #
+    # fix(#1334 review): reconciled with the probe's OWN CRS when one ran —
+    # see ``reconcile_epsg``. The item's declaration is the publisher's
+    # CLAIM about the object; ``asset_metadata`` (when populated) came from
+    # Titiler actually opening the CURRENT bytes, which is ground truth.
+    # A stale item declaration disagreeing with the probed CRS used to
+    # reach the caller as this field regardless, and the caller pairs it
+    # with ``asset_metadata["crs_wkt"]`` when writing both to one row —
+    # publishing two contradictory projections for the same raster. This
+    # field is the single authoritative value once a probe has run, and
+    # ``asset_metadata["epsg"]`` remains the RAW probe reading beside it.
     epsg: int | None = None
     # fix(#1266 review round 25): the moved object's footprint. A publisher
     # who re-tiles or crops a scene updates the item's bbox with it, and a
@@ -685,6 +694,7 @@ async def _resolve_from_item(
     properties = describing.get("properties")
     usable_bbox = _horizontal_bbox(describing.get("bbox"))
     resolved_id = item.get("id")
+    declared_epsg = projection_epsg(properties if isinstance(properties, dict) else {})
     return StacResolution(
         health=probed.health,
         detail=probed.detail,
@@ -699,7 +709,12 @@ async def _resolve_from_item(
         # already settled above, and the href match will find it again.
         asset_key=storable_asset_key(key),
         asset_metadata=metadata,
-        epsg=projection_epsg(properties if isinstance(properties, dict) else {}),
+        # fix(#1334 review): reconciled here, once, where both facts are in
+        # hand — `reconcile_epsg({}, declared_epsg)` for an unmoved asset
+        # (metadata is None) is just `declared_epsg`, so this is a no-op
+        # change for that case and the caller (processing/) never needs to
+        # import anything to get the same preference for a moved one.
+        epsg=reconcile_epsg(metadata or {}, declared_epsg),
         bbox=usable_bbox,
     )
 

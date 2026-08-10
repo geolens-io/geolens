@@ -349,18 +349,21 @@ async def _repoint_remote_asset(
             # field is emitted as STAC `proj:code` and read by the VRT
             # compatibility checks, so a reprojected replacement described by
             # the previous object's EPSG is a wrong answer served to both.
-            # The value comes from the item's projection extension, which is
-            # where the IMPORT path reads it — one source, so the two cannot
-            # disagree — and None is written when the item declares none,
-            # because that is the same "unknown" a fresh import would store.
-            #
-            # `crs_wkt`, `res_x` and `res_y` are deliberately not in this
-            # list: nothing on a remote-asset row has ever set them (the STAC
-            # import does not, and only the managed-COG path does), so they
-            # are NULL here by construction and there is nothing stale to
-            # correct. Writing a derived value into them would be inventing
-            # georeferencing rather than refreshing it.
+            # The caller's `epsg` is already reconciled with the probe's own
+            # CRS (fix #1334 review, in `stac_resolve.py` — the one place
+            # both facts are in hand, and the reason `processing/` never has
+            # to import anything from `catalog/` to get this preference).
             epsg=epsg,
+            # fix(#1334): `crs_wkt` joins the fields above for the same
+            # reason band_count/dtype/nodata do — the moved object is not the
+            # same object, and `fetch_cog_info` already reads it off. The
+            # STAC import path now writes it too, so leaving it stale here
+            # would let a refreshed dataset disagree with what a fresh
+            # import of the same asset would record. `res_x`/`res_y` are
+            # NOT projected the same way — `fetch_cog_info` deliberately
+            # does not compute them; see `cog_info.py`'s `_georeferencing`
+            # docstring for why.
+            crs_wkt=described.get("crs_wkt"),
         )
     )
 
@@ -542,10 +545,12 @@ async def refresh_stac(
                     resolution.asset_metadata,
                     resolution.epsg,
                 )
-                # The dataset-level mirror of the same fact. The STAC import
-                # writes both from one value; a refresh that moved one and
-                # left the other would leave the catalog disagreeing with
-                # itself about the projection it serves.
+                # The dataset-level mirror of the same fact. `resolution.epsg`
+                # is already reconciled with the probe's own CRS when one ran
+                # (fix #1334 review, in `stac_resolve.py`), so this and the
+                # raster row `_repoint_remote_asset` just wrote agree by
+                # construction — one value, two writes, same as the STAC
+                # import path.
                 dataset.srid = resolution.epsg
                 # fix(#1266 review round 25): and the footprint, from the same
                 # document. A re-tiled or cropped scene comes with a new bbox,
