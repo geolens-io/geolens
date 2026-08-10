@@ -165,7 +165,13 @@ async def create_raster_dataset(
     # feat(#1218): a raster dataset IS the COG; the pre-conversion upload is a
     # transient input, so the origin is the uploaded file and there is no
     # remote URI to point at (ADR-002 Decision 7).
-    set_dataset_origin(dataset, "upload", filename=source_filename)
+    # fix(#1294): file_hash was missing here, unlike the replace tail's
+    # equivalent call in tasks_raster_swap.py — both go through this same
+    # set_dataset_origin authority, so passing the sha256 the caller already
+    # computed for `source_sha256` is the whole fix.
+    set_dataset_origin(
+        dataset, "upload", filename=source_filename, file_hash=source_sha256
+    )
     session.add(dataset)
     await session.flush()
 

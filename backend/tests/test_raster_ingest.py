@@ -590,3 +590,73 @@ class TestRasterDistributionAndQuicklook:
         assert f"{dataset_id}" in asset.quicklook_256_uri
         assert "quicklook_256.png" in asset.quicklook_256_uri
         assert "quicklook_512.png" in asset.quicklook_512_uri
+
+
+# ---------------------------------------------------------------------------
+# #1294: first-ingest origin must carry file_hash, like the replace tail's
+# ---------------------------------------------------------------------------
+
+
+class TestFirstIngestOriginFileHash:
+    @pytest.mark.anyio
+    async def test_create_raster_dataset_stamps_origin_file_hash(
+        self, test_db_session
+    ) -> None:
+        """create_raster_dataset must record source_sha256 on origin_ref.
+
+        ADR-002 Decision 7 leans on this provenance hash to justify deleting
+        the pre-conversion source after a sample-preserving conversion. The
+        replace tail's equivalent call (_write_swapped_fields in
+        tasks_raster_swap.py) already passes file_hash=source_sha256 to the
+        same set_dataset_origin authority; first-ingest silently omitted it,
+        even though source_sha256 was already a required argument here.
+        """
+        from sqlalchemy import delete, select
+
+        from app.modules.auth.models import User
+        from app.modules.catalog.datasets.domain.models import Dataset, Record
+        from app.processing.ingest.tasks_raster import create_raster_dataset
+
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        source_sha256 = "a" * 64
+
+        record, dataset, raster_asset = await create_raster_dataset(
+            test_db_session,
+            meta={
+                "driver": "GTiff",
+                "epsg": 4326,
+                "band_count": 1,
+                "dtype": "uint8",
+                "width": 64,
+                "height": 64,
+            },
+            source_sha256=source_sha256,
+            asset_sha256="b" * 64,
+            cog_status="verified",
+            cog_size=2048,
+            source_filename="first-ingest-1294.tif",
+            created_by=admin_id,
+            title="First Ingest File Hash 1294",
+            summary=None,
+            visibility="private",
+            record_status="published",
+        )
+        await test_db_session.commit()
+
+        try:
+            await test_db_session.refresh(dataset)
+            # Unaffected by #1294 — the RasterAsset column already carried
+            # this. What was missing is the origin_ref pointer.
+            assert raster_asset.source_sha256 == source_sha256
+            assert (dataset.origin_ref or {}).get("kind") == "upload"
+            assert (dataset.origin_ref or {}).get("file_hash") == source_sha256
+        finally:
+            await test_db_session.execute(
+                delete(Dataset).where(Dataset.id == dataset.id)
+            )
+            await test_db_session.execute(delete(Record).where(Record.id == record.id))
+            await test_db_session.commit()
