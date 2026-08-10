@@ -1,5 +1,6 @@
-import { act, screen, waitFor } from '@testing-library/react';
+import { act, render as rtlRender, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render } from '@/test/test-utils';
 import {
   useReuploadDataset,
@@ -991,5 +992,61 @@ describe('ReuploadDialog raster reupload', () => {
 
     await screen.findByText('Converting to Cloud Optimized GeoTIFF...');
     expect(onReplaceComplete).not.toHaveBeenCalled();
+  });
+
+  // codex(#1362 r2): invalidateQueries only SCHEDULES a refetch — firing
+  // onReplaceComplete without waiting for it raced the remount against the
+  // still-in-flight dataset-detail refetch, so a replacement with a
+  // different extent could remount using the OLD bbox. Uses a real
+  // QueryClient (spied, not mocked away) so the fix's actual await matters.
+  it('waits for the dataset invalidation to settle before firing onReplaceComplete', async () => {
+    const user = userEvent.setup();
+    const onReplaceComplete = vi.fn();
+    mockUseJobStatus.mockReturnValue({
+      data: { status: 'complete' },
+    } as unknown as ReturnType<typeof useJobStatus>);
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
+    });
+    const pendingResolvers: Array<() => void> = [];
+    vi.spyOn(queryClient, 'invalidateQueries').mockImplementation(
+      () => new Promise<void>((resolve) => { pendingResolvers.push(resolve); }),
+    );
+
+    rtlRender(
+      <QueryClientProvider client={queryClient}>
+        <ReuploadDialog
+          dataset={makeRasterDataset()}
+          open
+          onOpenChange={vi.fn()}
+          onReplaceComplete={onReplaceComplete}
+        />
+      </QueryClientProvider>,
+    );
+
+    await openFileSource(user);
+    await dropFile('ortho.tif');
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+    await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+    // The invalidations were kicked off but left deliberately unresolved —
+    // onReplaceComplete (and the 'complete' step transition) must not have
+    // fired yet.
+    await waitFor(() => {
+      expect(pendingResolvers.length).toBeGreaterThan(0);
+    });
+    expect(onReplaceComplete).not.toHaveBeenCalled();
+    expect(screen.queryByText('Re-upload complete!')).not.toBeInTheDocument();
+
+    // Now let the invalidations settle.
+    await act(async () => {
+      pendingResolvers.forEach((resolve) => resolve());
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(onReplaceComplete).toHaveBeenCalledTimes(1);
+    });
   });
 });

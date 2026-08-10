@@ -189,24 +189,35 @@ export function ReuploadDialog({
     if (step !== 'tracking' || !jobData) return;
 
     if (jobData.status === 'complete') {
-      queryClient.invalidateQueries({ queryKey: queryKeys.datasets.detail(dataset.id) });
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.datasets.versionsPrefix(dataset.id),
-      });
-      queryClient.invalidateQueries({ queryKey: queryKeys.datasets.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.search.all });
-      // fix(#1362 codex r1): a raster's tile URL is a fixed per-dataset route,
-      // not versioned by content — invalidating the dataset query alone
-      // doesn't touch the hero map's already-added MapLibre raster source,
-      // so it keeps serving the old tiles until something remounts it. The
-      // vector path doesn't need this: its tiles are cache-busted through
-      // `tileVersion` (dataset.updated_at), which this same invalidation
-      // already refreshes.
-      if (isRaster) {
-        onReplaceComplete?.();
-      }
-      setStep('complete');
-      toast.success(t('reupload.toastSuccess'));
+      // fix(#1362 codex r2): invalidateQueries only SCHEDULES a refetch —
+      // firing onReplaceComplete without waiting for it raced the remount
+      // against the still-in-flight dataset-detail refetch, so a replacement
+      // with a different extent could remount using the OLD bbox (DatasetMap
+      // only fits the new one on an explicit zoom-to-extent, never on prop
+      // change). Await the detail refetch first so the remount reads fresh
+      // bbox/tile_url/updated_at off the query cache.
+      void (async () => {
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: queryKeys.datasets.detail(dataset.id) }),
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.datasets.versionsPrefix(dataset.id),
+          }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.datasets.all }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.search.all }),
+        ]);
+        // fix(#1362 codex r1): a raster's tile URL is a fixed per-dataset
+        // route, not versioned by content — invalidating the dataset query
+        // alone doesn't touch the hero map's already-added MapLibre raster
+        // source, so it keeps serving the old tiles until something remounts
+        // it. The vector path doesn't need this: its tiles are cache-busted
+        // through `tileVersion` (dataset.updated_at), which this same
+        // invalidation already refreshes.
+        if (isRaster) {
+          onReplaceComplete?.();
+        }
+        setStep('complete');
+        toast.success(t('reupload.toastSuccess'));
+      })();
     } else if (jobData.status === 'failed') {
       const message = jobData.error_message ?? t('reupload.jobFailed');
       setError(

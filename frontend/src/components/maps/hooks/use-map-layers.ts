@@ -218,9 +218,24 @@ export function useMapLayers({
       if (!rasterTileUrl || rasterLayersAdded.current) return;
       if (map.getSource('raster-tile-source')) return;
       try {
+        // #1362 codex r2: the raster tile route is a fixed per-dataset path
+        // (never re-added, see the guard above), and the api response for a
+        // public dataset carries `Cache-Control: public, max-age=3600` — so
+        // the browser's OWN cache can keep serving pre-replace tile bytes
+        // for an identical URL for up to an hour even after this source is
+        // freshly re-added on remount. Bust that with tileVersion (the
+        // dataset's updated_at) the same way the vector source already does
+        // via buildSignedTileUrl. This does NOT reach the shared nginx
+        // raster_cache — its proxy_cache_key whitelists only the Titiler
+        // render params (colormap_name/stretch/pmin/pmax/sigma), so an
+        // unlisted query param has no effect there (see #1362 follow-up
+        // filed for that separate, infra-scoped gap).
+        const versionedTileUrl = tileVersion
+          ? `${window.location.origin}${rasterTileUrl}?v=${encodeURIComponent(tileVersion)}`
+          : `${window.location.origin}${rasterTileUrl}`;
         map.addSource('raster-tile-source', {
           type: 'raster',
-          tiles: [`${window.location.origin}${rasterTileUrl}`],
+          tiles: [versionedTileUrl],
           tileSize: 256,
           minzoom: 0,
           maxzoom: 22,
@@ -236,7 +251,7 @@ export function useMapLayers({
         if (import.meta.env.DEV) console.warn('addRasterLayers: failed', e);
       }
     },
-    [rasterTileUrl],
+    [rasterTileUrl, tileVersion],
   );
 
   const addOverlaySource = useCallback((map: MaplibreMap) => {
