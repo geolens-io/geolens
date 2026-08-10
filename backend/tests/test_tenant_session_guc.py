@@ -1454,6 +1454,7 @@ async def test_raster_metadata_cache_is_tenant_scoped_and_filtered():
         "is_dem": False,
         "band_info": None,
         "nodata": None,
+        "tile_cache_version": 1,
     }
     result_a = MagicMock()
     result_a.mappings.return_value.one_or_none.return_value = row
