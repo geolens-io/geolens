@@ -934,11 +934,23 @@ async def raster_auth_check(
     # so the wrong key is never populated. Compared against the same cached
     # meta snapshot the bytes come from (`_RASTER_META_CACHE_TTL` note above),
     # so version and content can never disagree within one response.
-    v_param = request.query_params.get("v")
+    #
+    # fix(#1372 codex r4): the match must mirror nginx's `$arg_v` semantics,
+    # not Starlette's. nginx keys on the FIRST occurrence and matches the
+    # param NAME case-insensitively; `QueryParams.get()` returns the LAST
+    # occurrence of an exact-case name — so `?v=<future>&v=<current>` (or
+    # `?V=<future>`) would pass a naive check while nginx keys on the future
+    # value. Cacheable requires exactly one case-insensitive `v`, equal to
+    # the current version; anything else is served no-store.
+    v_values = [
+        value
+        for name, value in request.query_params.multi_items()
+        if name.lower() == "v"
+    ]
     if (
         cache_status == "public"
-        and v_param is not None
-        and v_param != str(meta.tile_cache_version)
+        and v_values
+        and (len(v_values) != 1 or v_values[0] != str(meta.tile_cache_version))
     ):
         cache_status = "private"
     if meta.is_dem:

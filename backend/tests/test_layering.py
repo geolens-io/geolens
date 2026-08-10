@@ -2954,7 +2954,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1372 codex r3): +19 — the auth check refuses to mark a response
     # cacheable when its `v` mismatches the dataset's current version, so a
     # predictable future key can never be pre-warmed with pre-replace bytes.
-    "backend/app/processing/tiles/router.py": 2179,
+    # fix(#1372 codex r4): +12 — the check mirrors nginx's $arg_v semantics
+    # (first occurrence, case-insensitive name), closing the duplicate-param
+    # and name-case parser-disagreement variants of the same pre-warm attack.
+    "backend/app/processing/tiles/router.py": 2191,
 }
 
 

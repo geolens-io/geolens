@@ -352,6 +352,24 @@ class TestRasterAuthCheck:
         assert resp.status_code == 200
         assert resp.headers.get("x-geolens-cache-status") == "private"
 
+        # fix(#1372 codex r4): duplicate v — nginx keys on the FIRST value,
+        # Starlette's .get() would return the LAST, so a naive check passes
+        # while nginx caches under the future key. Exactly one v is required.
+        resp = await client.get(
+            f"/tiles/raster-auth-check/?dataset_id={dataset.id}&v=999&v={current}",
+        )
+        assert resp.status_code == 200
+        assert resp.headers.get("x-geolens-cache-status") == "private"
+
+        # fix(#1372 codex r4): nginx matches the param NAME case-insensitively
+        # ($arg_v sees V=999); an exact-case backend check would miss it.
+        resp = await client.get(
+            "/tiles/raster-auth-check/",
+            params={"dataset_id": str(dataset.id), "V": "999"},
+        )
+        assert resp.status_code == 200
+        assert resp.headers.get("x-geolens-cache-status") == "private"
+
         # No v (copied connect URLs): unchanged legacy behavior.
         resp = await client.get(
             "/tiles/raster-auth-check/",
