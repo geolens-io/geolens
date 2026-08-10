@@ -344,11 +344,12 @@
       "tableLabel": "Datei-Layer"
     },
     "raster": {
+      "sourceSelectHelpText": "Wählen Sie eine Ersatz-Rasterdatei aus.",
       "previewDescription": "Bestätigen, um den Raster zu ersetzen.",
       "previewNote": "Raster-Re-Uploads überspringen den Schemavergleich. Die Bestätigung startet eine Cloud Optimized GeoTIFF-Konvertierung, die mehrere Minuten dauern kann.",
       "trackingDescription": "Konvertierung zu Cloud Optimized GeoTIFF. Dies kann mehrere Minuten dauern.",
       "processingMessage": "Konvertierung zu Cloud Optimized GeoTIFF...",
-      "trackingBackground": "Dies kann einige Minuten dauern. Sie können diesen Dialog schließen — die Karte wird automatisch aktualisiert, sobald die Konvertierung abgeschlossen ist."
+      "trackingBackground": "Dies kann einige Minuten dauern. Lassen Sie diesen Dialog geöffnet, bis die Konvertierung abgeschlossen ist."
     },
     "dropzone": "Datei hierher ziehen oder klicken zum Durchsuchen",
     "uploadingMessage": "Datei wird hochgeladen und analysiert...",

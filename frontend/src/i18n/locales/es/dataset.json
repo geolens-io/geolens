@@ -344,11 +344,12 @@
       "tableLabel": "Capas del archivo"
     },
     "raster": {
+      "sourceSelectHelpText": "Seleccione un archivo ráster de reemplazo.",
       "previewDescription": "Confirme para reemplazar el ráster.",
       "previewNote": "Las re-cargas de ráster omiten la comparación de esquema. Confirmar inicia una conversión a GeoTIFF optimizado en la nube, que puede tardar varios minutos.",
       "trackingDescription": "Convirtiendo a GeoTIFF optimizado en la nube. Esto puede tardar varios minutos.",
       "processingMessage": "Convirtiendo a GeoTIFF optimizado en la nube...",
-      "trackingBackground": "Esto puede tardar unos minutos. Puede cerrar este cuadro de diálogo — el mapa se actualizará automáticamente cuando la conversión finalice."
+      "trackingBackground": "Esto puede tardar unos minutos. Mantenga este cuadro de diálogo abierto hasta que finalice la conversión."
     },
     "dropzone": "Arrastre y suelte un archivo aquí, o haga clic para explorar",
     "uploadingMessage": "Subiendo y analizando archivo...",

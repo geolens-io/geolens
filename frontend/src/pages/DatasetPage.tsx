@@ -670,6 +670,13 @@ export function DatasetPage() {
             dataset={dataset}
             open={activeDialog === 'reupload'}
             onOpenChange={(open) => setActiveDialog(open ? 'reupload' : null)}
+            // fix(#1362 codex r1): a raster's tile URL is a fixed per-dataset
+            // route (not content-versioned), and the hero map's raster
+            // source is added once and never re-added on prop change — so a
+            // completed replacement needs an explicit remount to show the
+            // new tiles. Reuse the existing hero-error retry mechanism,
+            // which already does exactly that (reset heroState, bump mapKey).
+            onReplaceComplete={handleRetry}
           />
         </Suspense>
       )}

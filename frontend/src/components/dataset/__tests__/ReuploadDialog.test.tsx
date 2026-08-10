@@ -857,6 +857,16 @@ describe('ReuploadDialog raster reupload', () => {
     } as unknown as ReturnType<typeof useJobStatus>);
   });
 
+  // codex(#1362 r1): raster has no service path — the backend refuses a
+  // raster service-preview outright, so the source selector must not offer it.
+  it('shows only the File source option for raster datasets', () => {
+    renderRasterDialog();
+
+    expect(screen.getByTestId('reupload-source-selector')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'File' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Service URL' })).not.toBeInTheDocument();
+  });
+
   it('advertises only raster formats for raster reupload', async () => {
     const user = userEvent.setup();
     renderRasterDialog();
@@ -926,5 +936,60 @@ describe('ReuploadDialog raster reupload', () => {
     expect(
       screen.getByText(/This can take a few minutes/),
     ).toBeInTheDocument();
+  });
+
+  // codex(#1362 r1): the raster hero map's MapLibre source is added once and
+  // never re-added on prop change (the tile URL is a fixed per-dataset route,
+  // not content-versioned), so the caller needs an explicit signal to remount
+  // it once the replacement job completes.
+  it('calls onReplaceComplete once the replacement job completes', async () => {
+    const user = userEvent.setup();
+    const onReplaceComplete = vi.fn();
+    mockUseJobStatus.mockReturnValue({
+      data: { status: 'complete' },
+    } as unknown as ReturnType<typeof useJobStatus>);
+
+    render(
+      <ReuploadDialog
+        dataset={makeRasterDataset()}
+        open
+        onOpenChange={vi.fn()}
+        onReplaceComplete={onReplaceComplete}
+      />,
+    );
+
+    await openFileSource(user);
+    await dropFile('ortho.tif');
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+    await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+    await waitFor(() => {
+      expect(onReplaceComplete).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('does not call onReplaceComplete while the job is still pending', async () => {
+    const user = userEvent.setup();
+    const onReplaceComplete = vi.fn();
+    mockUseJobStatus.mockReturnValue({
+      data: { status: 'pending' },
+    } as unknown as ReturnType<typeof useJobStatus>);
+
+    render(
+      <ReuploadDialog
+        dataset={makeRasterDataset()}
+        open
+        onOpenChange={vi.fn()}
+        onReplaceComplete={onReplaceComplete}
+      />,
+    );
+
+    await openFileSource(user);
+    await dropFile('ortho.tif');
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+    await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+    await screen.findByText('Converting to Cloud Optimized GeoTIFF...');
+    expect(onReplaceComplete).not.toHaveBeenCalled();
   });
 });

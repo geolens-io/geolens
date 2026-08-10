@@ -91,7 +91,18 @@ vi.mock('@/components/dataset/DatasetDeleteDialog', () => ({
 }));
 
 vi.mock('@/components/dataset/ReuploadDialog', () => ({
-  ReuploadDialog: () => null,
+  // codex(#1362 r1): exposes onReplaceComplete as a clickable stub so tests
+  // can simulate "a raster reupload job just completed" without driving the
+  // full dialog flow (that flow is covered in ReuploadDialog.test.tsx).
+  ReuploadDialog: (props: { onReplaceComplete?: () => void }) => (
+    <button
+      type="button"
+      data-testid="reupload-dialog-stub"
+      onClick={() => props.onReplaceComplete?.()}
+    >
+      reupload dialog stub
+    </button>
+  ),
 }));
 
 vi.mock('@/components/dataset/DatasetDetailSkeleton', () => ({
@@ -345,6 +356,30 @@ describe('DatasetPage hero state machine', () => {
     }
 
     // After 3rd retry, trigger timeout again
+    act(() => { vi.advanceTimersByTime(10_000); });
+
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+    expect(screen.getByText('Tiles may still be processing')).toBeInTheDocument();
+  });
+
+  // codex(#1362 r1): a raster's tile URL is a fixed per-dataset route (not
+  // content-versioned), and the hero map's MapLibre raster source is added
+  // once and never re-added on prop change — so ReuploadDialog's
+  // onReplaceComplete is wired to handleRetry (the same remount mechanism
+  // the manual Retry button uses) to pick up a completed replacement.
+  it('wires ReuploadDialog onReplaceComplete to the same retry mechanism as the manual Retry button', () => {
+    setup({ record_type: 'raster_dataset', raster: { tile_url: '/raster-tiles/test/{z}/{x}/{y}.png' } as DatasetResponse['raster'] });
+    render(<DatasetPage />, { route: '/datasets/dataset-1' });
+
+    const replaceStub = screen.getByTestId('reupload-dialog-stub');
+
+    // Mirrors the "hides retry button after 3 retries" test above, but
+    // drives retryCount via onReplaceComplete instead of clicking Retry —
+    // proving it increments the same counter through the same handler.
+    for (let i = 0; i < 3; i++) {
+      act(() => { vi.advanceTimersByTime(10_000); });
+      act(() => { replaceStub.click(); });
+    }
     act(() => { vi.advanceTimersByTime(10_000); });
 
     expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();

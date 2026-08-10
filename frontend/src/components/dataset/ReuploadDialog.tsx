@@ -87,6 +87,11 @@ interface ReuploadDialogProps {
   dataset: DatasetResponse;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** fix(#1362 codex r1): called once a raster replacement job completes, so
+   * the caller can force its hero map to remount and pick up the new tiles —
+   * the raster tile URL is a fixed per-dataset route, so nothing else in the
+   * app tells MapLibre's already-added raster source to reload. */
+  onReplaceComplete?: () => void;
 }
 
 function humanizeLayerName(layer: LayerInfo): string {
@@ -119,6 +124,7 @@ export function ReuploadDialog({
   dataset,
   open,
   onOpenChange,
+  onReplaceComplete,
 }: ReuploadDialogProps) {
   const { t } = useTranslation('dataset');
   // #1289: raster datasets now reach this dialog (DatasetPage relaxes its
@@ -189,6 +195,16 @@ export function ReuploadDialog({
       });
       queryClient.invalidateQueries({ queryKey: queryKeys.datasets.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.search.all });
+      // fix(#1362 codex r1): a raster's tile URL is a fixed per-dataset route,
+      // not versioned by content — invalidating the dataset query alone
+      // doesn't touch the hero map's already-added MapLibre raster source,
+      // so it keeps serving the old tiles until something remounts it. The
+      // vector path doesn't need this: its tiles are cache-busted through
+      // `tileVersion` (dataset.updated_at), which this same invalidation
+      // already refreshes.
+      if (isRaster) {
+        onReplaceComplete?.();
+      }
       setStep('complete');
       toast.success(t('reupload.toastSuccess'));
     } else if (jobData.status === 'failed') {
@@ -200,7 +216,7 @@ export function ReuploadDialog({
       );
       setStep('error');
     }
-  }, [step, jobData, dataset.id, queryClient, sourceType, appendRetryGuidance, t]);
+  }, [step, jobData, dataset.id, queryClient, sourceType, isRaster, onReplaceComplete, appendRetryGuidance, t]);
 
   const handleSelectSource = useCallback((nextSource: ReuploadSourceType) => {
     setSourceType(nextSource);
@@ -561,11 +577,19 @@ export function ReuploadDialog({
         {step === 'source-select' && (
           <div className="space-y-4" data-testid="reupload-source-selector">
             <p className="text-sm text-muted-foreground">
-              {t('reupload.sourceSelector.helpText', {
-                defaultValue: 'Select whether to re-upload from a local file or a service URL.',
-              })}
+              {/* fix(#1362 codex r1): raster has no service path — nothing
+                  fetches a GeoTIFF from a feature service, and the backend
+                  refuses a raster service-preview outright — so raster
+                  never sees the Service URL option below. */}
+              {isRaster
+                ? t('reupload.raster.sourceSelectHelpText', {
+                  defaultValue: 'Select a replacement raster file.',
+                })
+                : t('reupload.sourceSelector.helpText', {
+                  defaultValue: 'Select whether to re-upload from a local file or a service URL.',
+                })}
             </p>
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className={cn('grid gap-2', !isRaster && 'sm:grid-cols-2')}>
               <Button
                 type="button"
                 variant="outline"
@@ -574,14 +598,16 @@ export function ReuploadDialog({
                 <Upload className="me-2 h-4 w-4" />
                 {t('reupload.sourceSelector.file', { defaultValue: 'File' })}
               </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => handleSelectSource('service_url')}
-              >
-                <Globe className="me-2 h-4 w-4" />
-                {t('reupload.sourceSelector.service', { defaultValue: 'Service URL' })}
-              </Button>
+              {!isRaster && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => handleSelectSource('service_url')}
+                >
+                  <Globe className="me-2 h-4 w-4" />
+                  {t('reupload.sourceSelector.service', { defaultValue: 'Service URL' })}
+                </Button>
+              )}
             </div>
           </div>
         )}
@@ -945,9 +971,12 @@ export function ReuploadDialog({
                 : t('reupload.processingMessage')}
             </p>
             <p className="text-xs text-muted-foreground">
+              {/* fix(#1362 codex r1): job tracking (useJobStatus polling)
+                  stops once the dialog closes and steps away from
+                  'tracking', so this must not promise closing is safe. */}
               {isRaster
                 ? t('reupload.raster.trackingBackground', {
-                  defaultValue: 'This can take a few minutes. You can close this dialog — the map updates automatically once the conversion finishes.',
+                  defaultValue: 'This can take a few minutes. Keep this dialog open until the conversion finishes.',
                 })
                 : t('reupload.trackingBackground')}
             </p>
