@@ -47,7 +47,17 @@ def build_gdal_source(
             raise ValueError("ArcGIS layer preview requires a layer ID")
         safe_base_url = _encode_url_for_gdal(base_url.rstrip("/"))
         safe_layer_id = quote(str(layer_id).strip("/"), safe="")
-        params: dict[str, str | int] = {"f": "json", "where": "1=1"}
+        # fix(#1359): a /query with no outFields returns the layer's display
+        # field alone, so the import landed geometry plus ONE attribute column
+        # and dropped every other field. The preview reads the layer's ?f=json
+        # field list and therefore promised columns this fetch never asked
+        # for. urlencode renders the value as `outFields=%2A`, which ArcGIS
+        # decodes back to `*`.
+        params: dict[str, str | int] = {
+            "f": "json",
+            "where": "1=1",
+            "outFields": "*",
+        }
         if order_field:
             params["orderByFields"] = f"{order_field} ASC"
         if result_limit is not None:

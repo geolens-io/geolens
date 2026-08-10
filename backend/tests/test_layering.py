@@ -2626,7 +2626,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # applies. Deriving from the raw filename split the key: the logical URI
     # kept a path component the write stripped, so the counted row pointed at
     # nothing. Cap 1059 -> 1073, exact.
-    "backend/app/processing/ingest/service.py": 1073,
+    # fix(#1359): +4 — register_existing_table now derives metadata for every
+    # table it registers instead of only the spatial ones, so a non-spatial
+    # registration stops landing with column_info and feature_count NULL. The
+    # added lines are the comment explaining why the branch is gone.
+    # Cap 1073 -> 1077, exact.
+    "backend/app/processing/ingest/service.py": 1077,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.
