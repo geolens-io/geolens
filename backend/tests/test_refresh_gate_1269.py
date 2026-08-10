@@ -704,13 +704,26 @@ class TestSentinelTokenSweep:
             credential_ref = kwargs["credential_ref"]
             assert credential_ref
 
-            # 2. ingest_jobs
+            # 2. ingest_jobs — every durable text/JSON column a regression
+            # could write the credential into, not just user_metadata
+            # (fix(#1330 review): error_message is where a dispatch-failure
+            # message would plausibly compose it in).
             job = (
                 await test_db_session.execute(
                     select(IngestJob).where(IngestJob.dataset_id == dataset.id)
                 )
             ).scalar_one()
-            assert secret not in str(job.user_metadata)
+            for field in (
+                "source_filename",
+                "file_path",
+                "source_url",
+                "source_layer",
+                "error_message",
+                "user_metadata",
+            ):
+                assert secret not in str(getattr(job, field)), (
+                    f"sentinel leaked into ingest_jobs.{field}"
+                )
 
         # 3. dataset_refresh_runs — the dispatch-failure rollback finalizes
         # the run itself; assert its error_message/error_code never composed
