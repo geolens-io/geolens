@@ -31409,7 +31409,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -35806,7 +35806,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -36126,7 +36126,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -36455,7 +36455,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
