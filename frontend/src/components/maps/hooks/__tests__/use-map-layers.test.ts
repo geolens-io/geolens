@@ -150,4 +150,19 @@ describe('useMapLayers raster tile source cache-busting', () => {
     const source = addedSourceConfig(map);
     expect(source?.tiles[0]).not.toContain('?v=');
   });
+
+  // fix(#1372): the server now embeds `?v=<tile_cache_version>` in the raster
+  // tile URL (the shared nginx cache keys on it). A second client-side `v`
+  // would make nginx key on the wrong (first) value, so the append must yield
+  // to a server-versioned URL.
+  it('does not append a second v when the server URL already carries one', () => {
+    const map = runRasterHook(
+      '/raster-tiles/dataset-1/tiles/{z}/{x}/{y}.png?v=7',
+      '2026-08-10T00:00:00Z',
+    );
+    const source = addedSourceConfig(map);
+    expect(source?.tiles[0]).toBe(
+      `${window.location.origin}/raster-tiles/dataset-1/tiles/{z}/{x}/{y}.png?v=7`,
+    );
+  });
 });

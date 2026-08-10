@@ -79,7 +79,14 @@ def _build_raster_metadata(
     # desktop GIS tools cannot send headers — this placeholder is the sanctioned
     # remaining use of the lane.
     tile_url_path = f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png"
-    tile_url_meta = tile_url_path
+    # fix(#1372): `v` is the tile_cache_version — nginx's raster_cache keys on
+    # $arg_v, so a raster replace rolls the shared cache immediately. The
+    # connect URL stays unversioned: it is copied once into desktop GIS tools,
+    # where a frozen `v` would pin exactly the staleness it exists to bust.
+    tile_version = getattr(dataset, "tile_cache_version", None)
+    tile_url_meta = (
+        f"{tile_url_path}?v={tile_version}" if tile_version else tile_url_path
+    )
 
     if base_url:
         tile_url_connect = f"{base_url}{tile_url_path}?api_key={{your_key}}"

@@ -1302,7 +1302,13 @@ def _build_tile_token_for_dataset(
         raster_scope = tenant_bound_scope(str(dataset.id))
         raster_sig = generate_tile_signature(raster_scope, raster_exp)
         tile_path = f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png"
-        query = urlencode({"sig": raster_sig, "exp": raster_exp, "scope": raster_scope})
+        # fix(#1372): `v` rides outside the signature (which binds scope+exp
+        # only, like the colormap params) and feeds nginx's $arg_v cache-key
+        # segment, so a raster replace rolls the shared tile cache.
+        query_params = {"sig": raster_sig, "exp": raster_exp, "scope": raster_scope}
+        if dataset.tile_cache_version:
+            query_params["v"] = dataset.tile_cache_version
+        query = urlencode(query_params)
 
         return RasterTileToken(
             kind="raster",

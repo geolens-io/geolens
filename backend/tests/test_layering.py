@@ -1605,7 +1605,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # raw aggregate (which is NULL, not 0, for a map with no ACTIVE embed
         # token — and the count never exceeds 1, per the partial unique index).
         # Cap 914 -> 983, exact.
-        "backend/app/modules/catalog/maps/service_public.py": 983,
+        # fix(#1372): +4 — the shared-layer raster tile template carries
+        # ?v=<tile_cache_version>, the segment nginx's raster cache keys on.
+        "backend/app/modules/catalog/maps/service_public.py": 987,
         # fix(#1290 review): +5 — PUBLIC_ASSET_KEYS and the guard that reads it.
         # _build_stac_assets published every dataset_assets row it was handed,
         # so the first INTERNAL key (archived_original, the pre-conversion
@@ -1875,7 +1877,9 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # tuple and not `Exception`: `_tile_url_for_layer` raises RuntimeError with
     # no tenant context, and swallowing that would turn a fail-closed refusal
     # into a quietly missing layer in a hosted export.
-    "backend/app/modules/catalog/maps/style_json.py": 1615,
+    # fix(#1372): +5 — exported raster/DEM sources carry ?v=<tile_cache_version>
+    # so external MapLibre consumers roll the shared nginx cache on replace.
+    "backend/app/modules/catalog/maps/style_json.py": 1620,
     "backend/app/modules/catalog/maps/style_import.py": 450,
     "backend/app/modules/catalog/maps/style_sanitizers.py": 200,
     "backend/app/modules/catalog/maps/router_assets.py": 126,
@@ -2940,7 +2944,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # _resolve_raster_access via _has_tile_signature/_verify_raster_tile_signature).
     # Before this a client following the contract literally received an
     # unauthenticated template for a private raster. Ratchet stays exact.
-    "backend/app/processing/tiles/router.py": 2154,
+    # fix(#1372): +6 — the signed raster template also carries
+    # ?v=<tile_cache_version> (outside the signature, like the colormap
+    # params) so nginx's $arg_v cache-key segment rolls on replace.
+    "backend/app/processing/tiles/router.py": 2160,
 }
 
 

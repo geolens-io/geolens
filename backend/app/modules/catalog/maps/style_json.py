@@ -370,7 +370,12 @@ def _tile_url_for_layer(layer: MapLayerResponse) -> str:
         layer.layer_type == "raster_geolens"
         or layer.dataset_record_type in RASTER_FAMILY_RECORD_TYPES
     ):
-        return f"/raster-tiles/{layer.dataset_id}/tiles/{{z}}/{{x}}/{{y}}.png"
+        url = f"/raster-tiles/{layer.dataset_id}/tiles/{{z}}/{{x}}/{{y}}.png"
+        # fix(#1372): version the raster template so nginx's $arg_v cache-key
+        # segment rolls the shared tile cache when a replace bumps the version.
+        if layer.tile_version:
+            url = f"{url}?v={layer.tile_version}"
+        return url
     port = get_catalog_port()
     exp = port.round_tile_expiry()
     scope = tenant_bound_scope(layer.dataset_table_name)

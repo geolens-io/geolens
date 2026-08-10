@@ -736,6 +736,32 @@ class TestRasterTokenEndpoint:
         assert data["tile_size"] == 256
         assert data["format"] == "png"
 
+    async def test_raster_token_url_carries_tile_cache_version(
+        self, client: AsyncClient, test_db_session
+    ):
+        """fix(#1372): the signed template carries v=<tile_cache_version>, the
+        segment nginx's shared raster cache keys on ($arg_v) — a raster replace
+        bumps the version, so the shared cache rolls instead of serving
+        pre-replace bytes for up to proxy_cache_valid."""
+        from urllib.parse import parse_qs
+
+        admin_id = await _get_admin_id(test_db_session)
+        _record, dataset, _asset = await _create_raster_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+
+        resp = await client.get(f"/tiles/token/{dataset.id}/")
+        assert resp.status_code == 200
+        query = parse_qs(resp.json()["tile_url"].split("?", 1)[1])
+        assert query["v"] == [str(dataset.tile_cache_version)]
+
+        dataset.bump_tile_cache_version()
+        await test_db_session.commit()
+
+        resp = await client.get(f"/tiles/token/{dataset.id}/")
+        query = parse_qs(resp.json()["tile_url"].split("?", 1)[1])
+        assert query["v"] == [str(dataset.tile_cache_version)]
+
     async def test_raster_token_derives_maxzoom_from_raster_metadata(
         self, client: AsyncClient, test_db_session
     ):
