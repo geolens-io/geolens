@@ -359,11 +359,17 @@ async def _repoint_remote_asset(
             # same object, and `fetch_cog_info` already reads it off. The
             # STAC import path now writes it too, so leaving it stale here
             # would let a refreshed dataset disagree with what a fresh
-            # import of the same asset would record. `res_x`/`res_y` are
-            # NOT projected the same way — `fetch_cog_info` deliberately
-            # does not compute them; see `cog_info.py`'s `_georeferencing`
-            # docstring for why.
+            # import of the same asset would record.
             crs_wkt=described.get("crs_wkt"),
+            # fix(#1375): the resolution pair and the rotation flag join the
+            # fields above for that same reason, and they are the ones a
+            # move is MOST likely to change — a re-tiled or reprojected
+            # replacement is exactly where the old pixel size stops
+            # describing the new object. Like its siblings, an absent value
+            # writes NULL: the number described bytes that are gone.
+            res_x=described.get("res_x"),
+            res_y=described.get("res_y"),
+            is_rotated=described.get("is_rotated", False),
         )
     )
 

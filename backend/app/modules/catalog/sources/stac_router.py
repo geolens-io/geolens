@@ -645,10 +645,21 @@ async def stac_import(
                     band_info=ci.get("band_info"),
                     # fix(#1334): fetch_cog_info already retrieves this; it
                     # was simply never read off the probe result onto the
-                    # row. res_x/res_y are NOT projected the same way —
-                    # fetch_cog_info deliberately does not compute them; see
-                    # cog_info.py's _georeferencing docstring for why.
+                    # row.
                     crs_wkt=ci.get("crs_wkt"),
+                    # fix(#1375): the resolution pair, and the rotation flag
+                    # that makes it readable. Both come off /cog/stac's
+                    # proj:transform, the same six affine numbers the
+                    # local-upload path reads from rasterio — see
+                    # cog_info.py's _geotransform. Absent when the transform
+                    # probe found nothing, which leaves the columns NULL and
+                    # the UI's "—" rather than asserting a measurement.
+                    res_x=ci.get("res_x"),
+                    res_y=ci.get("res_y"),
+                    # The column is NOT NULL; False is what it defaulted to
+                    # before this probe existed, so an unanswered probe keeps
+                    # the historical value rather than inventing a new one.
+                    is_rotated=ci.get("is_rotated", False),
                 )
                 db.add(raster_asset)
 

@@ -171,14 +171,18 @@ def cog_info(monkeypatch):
         "band_info": [{"min": 0, "max": 4095, "mean": 1200}],
         # fix(#1334): the shape fetch_cog_info actually returns, so tests
         # against this fixture exercise the same fields the refresh path
-        # now writes to the asset row. No res_x/res_y — fetch_cog_info
-        # deliberately does not compute them (cog_info.py's
-        # _georeferencing docstring explains why). crs_wkt and epsg are a
+        # now writes to the asset row. crs_wkt and epsg are a
         # matched pair, same as a real _georeferencing result: leaving epsg
         # out here would make reconcile_epsg read as "a CRS with no mappable
         # EPSG" rather than "the fixture just didn't set it".
         "crs_wkt": 'PROJCS["WGS 84 / UTM zone 33N",AUTHORITY["EPSG","32633"]]',
         "epsg": 32633,
+        # fix(#1375): res_x/res_y/is_rotated join them for the same reason —
+        # _geotransform reads all three off /cog/stac's proj:transform, so a
+        # fixture without them would exercise only the degraded path.
+        "res_x": 30.0,
+        "res_y": 30.0,
+        "is_rotated": False,
     }
     calls: list[str] = []
 
@@ -2337,14 +2341,17 @@ class TestWorker:
         assert described.is_dem is False
         # fix(#1334): the moved object's own CRS, from the same probe as
         # band_count/dtype/nodata — not left stale like the fields above
-        # would be if the refresh only wrote the address. res_x/res_y are
-        # NOT part of this: fetch_cog_info deliberately does not compute
-        # them (cog_info.py's _georeferencing docstring explains why), so
-        # they stay whatever they already were rather than being cleared —
-        # the repoint statement never mentions them.
+        # would be if the refresh only wrote the address.
         assert described.crs_wkt == (
             'PROJCS["WGS 84 / UTM zone 33N",AUTHORITY["EPSG","32633"]]'
         )
+        # fix(#1375): and the pixel geometry, which a move is more likely to
+        # change than anything else here — a re-tiled or reprojected
+        # replacement is exactly where the old resolution stops describing
+        # the new object.
+        assert described.res_x == pytest.approx(30.0)
+        assert described.res_y == pytest.approx(30.0)
+        assert described.is_rotated is False
         # A moved member has to read as newer than any VRT built on it: a
         # mosaic that recorded no `built_from` is judged by this stamp alone,
         # and it still embeds the old URL.
