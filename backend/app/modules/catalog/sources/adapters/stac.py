@@ -56,8 +56,17 @@ MAX_ASSET_KEY_CHARS = 255
 
 
 def storable_asset_key(key: str | None) -> str | None:
-    """The asset key if it is short enough to carry, else None."""
-    if key is None or len(key) > MAX_ASSET_KEY_CHARS:
+    """The asset key if it is non-empty and short enough to carry, else None.
+
+    fix(#1331): ``""`` is a legal JSON property name, so an item may key its
+    data asset under the empty string — and every consultation of the stored
+    key downstream (``stac_resolve.py``) tests it with truthiness, which
+    cannot tell a recorded ``""`` apart from no key at all. Refusing it here,
+    the same way an over-long key is refused, keeps those truthiness reads
+    describing a real invariant instead of quietly mismatching this one edge
+    forever.
+    """
+    if not key or len(key) > MAX_ASSET_KEY_CHARS:
         return None
     return key
 

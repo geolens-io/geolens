@@ -473,6 +473,20 @@ class TestAssetSelection:
             == "B04"
         )
 
+    def test_an_empty_string_key_is_recognised_by_identity(self) -> None:
+        """fix(#1331): ``""`` is a legal JSON property name, so an item may
+        key its data asset under the empty string — and a binding that
+        recorded it names a real asset. Testing the stored key with
+        truthiness treats ``""`` exactly like no key was ever recorded,
+        which is the bug: identity must be read with ``is not None``."""
+        assets = {
+            "data": {"href": "https://origin.test/other.tif", "roles": ["data"]},
+            "": {"href": _MOVED_ASSET},
+        }
+        assert (
+            stac_resolve._bound_asset_key(assets, asset_href=_ASSET, asset_key="") == ""
+        )
+
     async def test_a_relative_asset_href_resolves_against_the_document_url(
         self, stac_transport
     ) -> None:
@@ -1832,6 +1846,46 @@ class TestResolution:
         assert result.resolved
         assert (result.asset_key, result.asset_href) == ("visual", _MOVED_ASSET)
 
+    async def test_an_empty_string_keyed_binding_follows_the_move_it_could_not_guess(
+        self, stac_transport
+    ) -> None:
+        """fix(#1331): the same scenario as the ``visual`` case above, for the
+        one key value truthiness treats as absent. Before the fix, the stored
+        ``""`` key was ignored, the href match failed because the asset moved,
+        and — since the item also gained a decoy the priority list would
+        pick — the refresh reported the asset unidentified instead of
+        recovering it by the key that still names it.
+
+        The write-back carries ``None``, not ``""``: capture refuses to ever
+        store the empty string (same as an over-long key), so a stored
+        ``""`` is honoured for THIS resolve — it is what finds the moved
+        asset — and then not re-recorded. The binding falls back to
+        href-matching from here, exactly like any other keyless one.
+        """
+        install, _ = stac_transport
+        install(
+            {
+                _ITEM: (
+                    200,
+                    _item_doc(
+                        assets={
+                            "": {"href": _MOVED_ASSET, "roles": ["data"]},
+                            "visual": {"href": "https://origin.test/v2/vis.tif"},
+                        }
+                    ),
+                ),
+                _MOVED_ASSET: (206, None),
+            }
+        )
+        result = await _resolve(
+            item_href=_ITEM,
+            collection_id="scenes",
+            asset_href=_ASSET,
+            asset_key="",
+        )
+        assert result.resolved
+        assert (result.asset_key, result.asset_href) == (None, _MOVED_ASSET)
+
     async def test_a_live_item_that_dropped_the_asset_is_missing(
         self, stac_transport
     ) -> None:
@@ -1909,6 +1963,18 @@ class TestAssetKeyCapture:
         assert storable_asset_key("k" * MAX_ASSET_KEY_CHARS) is not None
         assert storable_asset_key("k" * (MAX_ASSET_KEY_CHARS + 1)) is None
         assert storable_asset_key(None) is None
+
+    def test_an_empty_string_key_is_never_surfaced_or_stored(self) -> None:
+        """fix(#1331): ``""`` is a legal JSON property name and clears the
+        length bound, so nothing else was refusing it at capture — and every
+        downstream consultation of the stored key reads it with truthiness,
+        which cannot tell a recorded ``""`` apart from no key at all. Refusing
+        it here, the same way an over-long key is refused, means those
+        truthiness reads describe a real invariant instead of quietly
+        mismatching this one edge forever."""
+        from app.modules.catalog.sources.adapters.stac import storable_asset_key
+
+        assert storable_asset_key("") is None
 
     async def test_an_over_long_key_still_resolves_an_unmoved_asset(
         self, stac_transport
@@ -1996,6 +2062,42 @@ class TestAssetKeyCapture:
                             "title": "No asset key",
                             "data_asset_href": f"https://origin.test/{item_id}.tif",
                             "bbox": [-1, -1, 1, 1],
+                            "keywords": [],
+                        }
+                    ],
+                    "visibility": "private",
+                },
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 200, resp.text
+        dataset_id = uuid.UUID(resp.json()["results"][0]["dataset_id"])
+        dataset = await _reload(dataset_id)
+        assert "asset_key" not in dataset.origin_ref
+
+    async def test_import_never_stores_an_empty_string_key(
+        self, client, admin_auth_header, test_db_session
+    ) -> None:
+        """fix(#1331): a raw API caller can submit ``data_asset_key=""``
+        directly — Pydantic's ``max_length`` does not reject an empty string
+        — so the import handler has to refuse it itself rather than rely on
+        search having already normalised it away. Stored as no key, the same
+        outcome as an older client that sends none at all."""
+        item_id = f"emptykey-{uuid.uuid4().hex[:8]}"
+        with patch("app.modules.catalog.sources.stac_router.validate_url_for_ssrf"):
+            resp = await client.post(
+                "/services/stac/import",
+                json={
+                    "url": "https://origin.test/v1",
+                    "items": [
+                        {
+                            "id": item_id,
+                            "collection": "scenes",
+                            "title": "Empty asset key",
+                            "data_asset_href": f"https://origin.test/{item_id}.tif",
+                            "data_asset_key": "",
+                            "item_href": f"https://origin.test/items/{item_id}",
+                            "bbox": [-1, -1, 1, 1],
+                            "epsg": 4326,
                             "keywords": [],
                         }
                     ],
