@@ -546,6 +546,9 @@ async def _resolve_from_item(
         item,
         document_url=document_url,
         fallback=fallback_item_href,
+        # The direct path fetched the fallback to get this document; the
+        # search path is here because that fetch returned 404/410.
+        fallback_is_live=item_base is not None,
         collection_id=collection_id,
         asset_key=key,
     )
@@ -656,6 +659,7 @@ async def _trustworthy_self_href(
     *,
     document_url: str,
     fallback: str,
+    fallback_is_live: bool,
     collection_id: str | None,
     asset_key: str,
 ) -> str | None:
@@ -684,8 +688,16 @@ async def _trustworthy_self_href(
     matching how #1222 treats every other unusable self link.
     """
     self_href = self_link_href(item, document_url)
-    if self_href is None or self_href == fallback:
-        return None if self_href is None else self_href
+    if self_href is None:
+        return None
+    if self_href == fallback and fallback_is_live:
+        # Nothing to prove: this is the URL the document was just fetched
+        # from. fix(#1266 review round 21): only on the direct path. The
+        # search path is reached BECAUSE the stored pointer 404s, so a
+        # searched feature advertising that same stale URL must still be
+        # checked — skipping it would make a known-dead address the base a
+        # relative asset href resolves against.
+        return self_href
     if _url_contradicts_identity(
         self_href, item_id=item.get("id"), collection_id=collection_id
     ):
@@ -706,7 +718,14 @@ async def _trustworthy_self_href(
     if refusal is not None:
         logger.info("stac_self_link_does_not_serve_this_item")
         return None
-    if not isinstance(document.get("assets", {}).get(asset_key), dict):
+    replacement_asset = document.get("assets", {}).get(asset_key)
+    if not isinstance(replacement_asset, dict) or (
+        # fix(#1266 review round 21): present is not the same as usable. A
+        # STAC Asset Object requires an href, and a keyed empty object gives
+        # the next refresh nothing to resolve — which it would then report as
+        # an unusable asset, again without reaching the search fallback.
+        storable_href(replacement_asset.get("href"), final_url) is None
+    ):
         logger.info("stac_self_link_lacks_the_bound_asset", asset_key=asset_key)
         return None
     return self_href

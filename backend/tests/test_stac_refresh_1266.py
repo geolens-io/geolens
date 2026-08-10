@@ -961,6 +961,66 @@ class TestResolution:
         assert result.asset_href == _MOVED_ASSET
         assert result.item_href == _ITEM
 
+    async def test_a_searched_item_advertising_the_stale_url_revalidates_it(
+        self, stac_transport
+    ) -> None:
+        """fix(#1266 review round 21): the search path is reached BECAUSE the
+        stored pointer 404s.
+
+        A searched feature advertising that same stale URL was fast-pathed as
+        "nothing to prove", which made a known-dead address the base a
+        relative asset href resolves against — and a COG sitting at the
+        resulting sibling path would have been adopted.
+        """
+        install, _ = stac_transport
+        stale_sibling = f"{_ROOT}/collections/scenes/items/tiles/scene.tif"
+        install(
+            {
+                _ITEM: (404, None),
+                _SEARCH: (
+                    200,
+                    {
+                        "features": [
+                            _item_doc(
+                                self_href=_ITEM,
+                                assets={"data": {"href": "tiles/scene.tif"}},
+                            )
+                        ]
+                    },
+                ),
+                stale_sibling: (206, None),
+            }
+        )
+        result = await _resolve(item_href=_ITEM)
+        # The stale URL is not trusted as a base, so nothing is resolved
+        # under it — the relative href has no address left to resolve against.
+        assert result.asset_href != stale_sibling
+
+    async def test_a_replacement_whose_bound_asset_has_no_href_is_not_adopted(
+        self, stac_transport
+    ) -> None:
+        """fix(#1266 review round 21): present is not the same as usable.
+
+        A STAC Asset Object requires an href, and a keyed empty object gives
+        the next refresh nothing to resolve — which it would report as an
+        unusable asset, again without reaching the search fallback.
+        """
+        install, _ = stac_transport
+        thinner = f"{_ROOT}/v2/collections/scenes/items/scene-1"
+        install(
+            {
+                _ITEM: (200, _item_doc(asset_href=_MOVED_ASSET, self_href=thinner)),
+                thinner: (
+                    200,
+                    _item_doc(self_href=thinner, assets={"data": {}}),
+                ),
+                _MOVED_ASSET: (206, None),
+            }
+        )
+        result = await _resolve(item_href=_ITEM)
+        assert result.resolved
+        assert result.item_href == _ITEM
+
     async def test_a_self_link_that_redirects_into_a_blocked_target_is_refused(
         self, stac_transport
     ) -> None:
