@@ -638,6 +638,48 @@ class TestATemplateUrlCollisionDoesNotRaise:
             ("api", "json")
         }
 
+    async def test_the_fallback_primary_lands_on_a_row_the_insert_returned(
+        self, test_db_session: AsyncSession
+    ) -> None:
+        """The normalization has to be able to WRITE to a just-inserted row.
+
+        Every other promote flips a survivor's flag or accepts the one the
+        template already inserted as primary, so nothing else exercises this:
+        the fallback is only reached when the preferred pair was skipped, and
+        the CSV that takes it is a row this call created. Those rows come back
+        from ``INSERT ... RETURNING`` rather than from ``session.add``, and one
+        that was not session-persistent would take ``is_primary = True``
+        silently and never emit the UPDATE.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await create_dataset(test_db_session, created_by=admin_id)
+        await self._user_row_at_the_template_url(test_db_session, dataset)
+
+        created, _removed = await reconcile_distributions(
+            test_db_session,
+            dataset.id,
+            dataset.record_id,
+            dataset.table_name,
+            geometry_type="POLYGON",
+        )
+        await test_db_session.commit()
+
+        # CSV was created with is_primary=False (the template marks GeoPackage
+        # primary), and GeoPackage is the row the conflict skipped.
+        assert ("download", "csv") in {(c.distribution_type, c.format) for c in created}
+        primaries = (
+            await test_db_session.execute(
+                select(
+                    RecordDistribution.distribution_type, RecordDistribution.format
+                ).where(
+                    RecordDistribution.record_id == dataset.record_id,
+                    RecordDistribution.auto_generated.is_(True),
+                    RecordDistribution.is_primary.is_(True),
+                )
+            )
+        ).all()
+        assert [(row[0], row[1]) for row in primaries] == [("download", "csv")]
+
     async def test_repeated_reconciles_stay_idempotent_over_the_collision(
         self, test_db_session: AsyncSession
     ) -> None:
