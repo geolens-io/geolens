@@ -41,7 +41,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 import structlog
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
+
+from app.core.geo import bbox_to_extent_wkt
 
 from app.core.db.tenant_session import tenant_task
 from app.platform.cache.tiles import invalidate_catalog_cache
@@ -536,6 +538,20 @@ async def refresh_stac(
                 # left the other would leave the catalog disagreeing with
                 # itself about the projection it serves.
                 dataset.srid = resolution.epsg
+                # fix(#1266 review round 25): and the footprint, from the same
+                # document. A re-tiled or cropped scene comes with a new bbox,
+                # and a dataset still advertising the old one lies to every
+                # spatial search and every map-bounds read — the registered-
+                # table strategy corrects exactly this staleness when it
+                # rewrites an extent. Written only when the item states a
+                # bbox: an item that states none has not said the footprint
+                # changed, and clearing it would remove the dataset from
+                # spatial search on no evidence at all.
+                if resolution.bbox is not None:
+                    west, south, east, north = resolution.bbox
+                    dataset.record.spatial_extent = func.ST_GeomFromText(
+                        bbox_to_extent_wkt(west, south, east, north), 4326
+                    )
                 # The other half of the tile story, and the half a server-side
                 # purge cannot do: the `_v=` parameter in the tile URL is what
                 # busts browser and CDN caches. In the write transaction,

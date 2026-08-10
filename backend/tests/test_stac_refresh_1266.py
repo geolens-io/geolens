@@ -33,7 +33,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import joinedload
 
 from app.modules.catalog.datasets.api import router_refresh
@@ -82,6 +82,7 @@ def _item_doc(
         "id": item_id,
         "collection": "scenes",
         "properties": {"proj:code": "EPSG:32633"},
+        "bbox": [10.0, 45.0, 11.0, 46.0],
         "links": (
             [{"rel": "self", "href": self_href}] if self_href is not None else []
         ),
@@ -2263,6 +2264,39 @@ class TestWorker:
         await _execute(test_db_session, payload)
 
         assert (await _raster_asset(dataset.id)).is_dem is True
+
+    async def test_a_moved_asset_brings_its_footprint_with_it(
+        self, client, admin_auth_header, test_db_session, stac_transport
+    ) -> None:
+        """fix(#1266 review round 25): a re-tiled scene comes with a new bbox.
+
+        A dataset still advertising the old one lies to every spatial search
+        and map-bounds read — the same staleness the registered-table
+        strategy corrects when it rewrites an extent.
+        """
+        install, _ = stac_transport
+        moved = _item_doc(asset_href=_MOVED_ASSET)
+        moved["bbox"] = [20.0, 55.0, 21.0, 56.0]
+        install({_ITEM: (200, moved), _MOVED_ASSET: (206, None)})
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        await _execute(test_db_session, payload)
+
+        async with _fresh_session() as session:
+            extent = await session.scalar(
+                text(
+                    "SELECT ST_AsText(ST_Envelope(spatial_extent)) "
+                    "FROM catalog.records r "
+                    "JOIN catalog.datasets d ON d.record_id = r.id "
+                    "WHERE d.id = :dataset_id"
+                ),
+                {"dataset_id": dataset.id},
+            )
+        assert extent is not None
+        # The new footprint, not the one imported.
+        assert "20" in extent and "55" in extent
 
     async def test_an_unchanged_item_dates_the_refresh_without_rebinding(
         self, client, admin_auth_header, test_db_session, stac_transport

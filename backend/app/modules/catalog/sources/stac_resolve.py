@@ -144,6 +144,15 @@ class StacResolution:
     # being described by the previous object's EPSG. Populated beside
     # ``asset_metadata`` and written with it.
     epsg: int | None = None
+    # fix(#1266 review round 25): the moved object's footprint. A publisher
+    # who re-tiles or crops a scene updates the item's bbox with it, and a
+    # dataset that goes on advertising the old one lies to every spatial
+    # search and map-bounds read — the same lie the registered-table strategy
+    # corrects when it clears an emptied table's extent. Carried from the
+    # same document as the asset, so the two cannot describe different
+    # objects. None when the item states none, which is not a statement that
+    # the footprint changed.
+    bbox: list[float] | None = None
 
     @property
     def resolved(self) -> bool:
@@ -654,6 +663,14 @@ async def _resolve_from_item(
     # projection too, and writing the other one's EPSG would describe the
     # wrong object in STAC output and in VRT compatibility checks.
     properties = describing.get("properties")
+    stated_bbox = describing.get("bbox")
+    usable_bbox = (
+        [float(value) for value in stated_bbox[:4]]
+        if isinstance(stated_bbox, list)
+        and len(stated_bbox) >= 4
+        and all(isinstance(value, (int, float)) for value in stated_bbox[:4])
+        else None
+    )
     resolved_id = item.get("id")
     return StacResolution(
         health=probed.health,
@@ -669,6 +686,7 @@ async def _resolve_from_item(
         asset_key=storable_asset_key(key),
         asset_metadata=metadata,
         epsg=projection_epsg(properties if isinstance(properties, dict) else {}),
+        bbox=usable_bbox,
     )
 
 
