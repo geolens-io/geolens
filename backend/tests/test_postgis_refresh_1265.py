@@ -1031,6 +1031,39 @@ class TestPostgisRefreshExecution:
         refreshed = await _reload(test_db_session, dataset.id)
         assert refreshed.geometry_type == "POLYGON"  # the stored value, kept
 
+    async def test_an_emptied_generic_column_with_nothing_known_stays_spatial(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """fix(#1382 review r1): the sub-case with no last measurement.
+
+        Same branch as above, minus the stored value to fall back on: a table
+        registered while it was empty and generic has never had a type
+        measured. Resolving that to None classified a relation with a geometry
+        column as tabular and refused the feature writes that would have given
+        it a row to measure. The generic sentinel says what is actually known.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _registered_dataset(test_db_session, created_by=admin_id)
+        await test_db_session.execute(
+            text(  # noqa: S608
+                f"ALTER TABLE data.{dataset.table_name} "
+                f"ALTER COLUMN geom TYPE geometry(Geometry, 4326)"
+            )
+        )
+        await test_db_session.execute(
+            text(f"DELETE FROM data.{dataset.table_name}")  # noqa: S608
+        )
+        dataset.geometry_type = None
+        dataset.record.record_type = "table"
+        await test_db_session.commit()
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        await _execute(test_db_session, payload)
+
+        refreshed = await _reload(test_db_session, dataset.id)
+        assert refreshed.geometry_type == "GEOMETRY"
+        assert refreshed.record.record_type == "vector_dataset"
+
     async def test_a_table_that_gains_geometry_becomes_a_vector_dataset(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ) -> None:

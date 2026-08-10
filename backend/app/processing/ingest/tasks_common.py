@@ -1770,9 +1770,21 @@ def _effective_geometry_type(
     - a sampled row is what the data actually is;
     - no rows but a specific declared column type is what the column accepts;
     - no rows and a generic ``geometry`` column establishes only that the
-      relation is spatial, so the catalog keeps what it last measured;
+      relation is spatial, so the catalog keeps what it last measured, and
+      falls back to the generic sentinel when it has measured nothing;
     - no ``geom`` column at all is genuinely not spatial, and the only case
       that yields None.
+
+    fix(#1382 review r1): that fallback is the difference between the rule and
+    its own first sentence. Returning ``stored`` unconditionally meant a
+    generic empty column over a dataset the catalog had never measured (an
+    empty mixed-geometry file over a tabular dataset, or a retry against a row
+    the old bug had already NULLed) resolved to None and stayed classified
+    ``table`` — locked out of feature writes, against a relation that plainly
+    has a geometry column. ``GEOMETRY`` is how this codebase already spells
+    "spatial, subtype unknown": ``chk_datasets_geometry_type`` admits it,
+    ``_validate_geometry_type`` accepts every subtype under it (#430 BA-32),
+    and the builder routes it to the mixed adapter (#430 r23).
     """
     if measured is not None:
         return measured
@@ -1780,7 +1792,7 @@ def _effective_geometry_type(
         return None
     if declared != _GENERIC_GEOMETRY_TYPE:
         return declared
-    return stored
+    return stored if stored is not None else _GENERIC_GEOMETRY_TYPE
 
 
 def _derived_record_type(current: str | None, geometry_type: str | None) -> str | None:

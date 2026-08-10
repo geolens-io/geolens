@@ -2111,6 +2111,84 @@ class TestReuploadDerivesTheEffectiveModality:
         reloaded = await self._reload(test_db_session, ds.id)
         assert reloaded.record.record_type == record_type
 
+    async def test_an_empty_generic_column_over_a_table_is_still_spatial(
+        self, test_db_session
+    ) -> None:
+        """fix(#1382 review r1): the case where nothing has ever been measured.
+
+        A generic column with no rows and no stored type used to resolve to
+        None, which classified a relation that plainly has a geometry column
+        as tabular and left feature writes refused — so the dataset could
+        never be given the first row that would have named its type. The
+        generic sentinel is what this codebase spells that state as, and it
+        survives write validation (#430 BA-32) and the builder (#430 r23).
+        """
+        from app.modules.catalog.features.router import _require_feature_table
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await self._seed(
+            test_db_session,
+            admin_id=admin_id,
+            geometry_type=None,
+            record_type="table",
+        )
+
+        await _run_reupload_swap(
+            test_db_session,
+            ds,
+            admin_id=admin_id,
+            metadata={
+                **_SWAP_METADATA,
+                "geometry_type": None,
+                "extent_wkt": None,
+                "feature_count": 0,
+            },
+            staging_geometry_type="Geometry",
+            source_filename="empty-mixed.gpkg",
+            source_format="gpkg",
+            origin_ref={"filename": "empty-mixed.gpkg"},
+        )
+        await test_db_session.commit()
+
+        reloaded = await self._reload(test_db_session, ds.id)
+        assert reloaded.geometry_type == "GEOMETRY"
+        assert reloaded.record.record_type == "vector_dataset"
+        _require_feature_table(reloaded)
+
+    @pytest.mark.parametrize(
+        ("measured", "declared", "stored", "expected"),
+        [
+            # A sampled row wins over everything else.
+            ("POINT", "GEOMETRY", "MULTIPOLYGON", "POINT"),
+            ("POINT", None, None, "POINT"),
+            # No rows, but the column says what it accepts.
+            (None, "MULTIPOLYGON", "POINT", "MULTIPOLYGON"),
+            # Generic column, no rows: keep the last measurement...
+            (None, "GEOMETRY", "POINT", "POINT"),
+            # ...or say "spatial, subtype unknown" when there is none.
+            (None, "GEOMETRY", None, "GEOMETRY"),
+            # No geom column at all is the only genuinely non-spatial case.
+            (None, None, "POINT", None),
+            (None, None, None, None),
+        ],
+    )
+    def test_the_precedence_in_full(
+        self,
+        measured: str | None,
+        declared: str | None,
+        stored: str | None,
+        expected: str | None,
+    ) -> None:
+        """The whole truth table, since both paths now resolve through it."""
+        from app.processing.ingest.tasks_common import _effective_geometry_type
+
+        assert (
+            _effective_geometry_type(
+                measured=measured, declared=declared, stored=stored
+            )
+            == expected
+        )
+
     def test_both_paths_share_one_derivation(self) -> None:
         """The acceptance criterion of both issues, pinned by identity.
 

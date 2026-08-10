@@ -2250,8 +2250,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # recording what this swap still does NOT retire when it de-spatializes a
     # dataset (the synthetic `geom` attribute row, filed as #1380), so the
     # remaining asymmetry with the refresh path is a decision. Cap 2119 ->
-    # 2127, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2127,
+    # 2127, exact. +12 more (#1382 review r1): a generic empty column over a
+    # dataset nothing had ever measured resolved to None and classified a
+    # spatial relation as tabular, so the precedence falls back to the generic
+    # sentinel; the lines are the note recording that `GEOMETRY` is how the
+    # rest of the codebase already spells "spatial, subtype unknown".
+    # Cap 2127 -> 2139, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2139,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
