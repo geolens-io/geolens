@@ -919,12 +919,16 @@ class TestRecoveryPair:
         now = datetime.now(timezone.utc)
         vrt_cutoff = now - timedelta(hours=1)
 
-        cancelled_count = await sweep_abandoned_refresh_runs(test_db_session, now)
+        # fix(#1330 review): fail_stale_jobs runs the VRT sweep before the
+        # run sweep on purpose — the run sweep depends on job-failure facts
+        # the earlier sweeps establish. Call them in that same order so this
+        # test actually exercises the sequence operators run, not its mirror.
         (
             vrt_assets_recovered,
             vrt_generations_failed,
             _storage_keys,
         ) = await sweep_stale_vrt_assets(test_db_session, vrt_cutoff)
+        cancelled_count = await sweep_abandoned_refresh_runs(test_db_session, now)
         await test_db_session.commit()
 
         # -- the refresh-run half reconciled --
