@@ -746,8 +746,8 @@ class TestTwoRowsForOneFormat:
         """The user's row defaults to non-primary, so the record advertises one.
 
         ``is_primary`` normalization spans the generated rows; a user who
-        explicitly flags their own row primary keeps that flag, which is
-        stated on ``reconcile_distributions`` and predates this change.
+        explicitly flags their own row primary keeps that flag, which is #1383
+        and predates this change.
         """
         dataset = await self._record_with_two_gpkg_rows(test_db_session)
         primaries = [d for d in dataset.record.distributions if d.is_primary]

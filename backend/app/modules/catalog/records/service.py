@@ -720,11 +720,9 @@ async def reconcile_distributions(
 
     Normalization spans the generated rows only, which is the same boundary as
     every other bullet here. A user who flags their OWN row primary keeps that
-    flag through a reconcile; that record advertises two primaries, and it
-    could already do so before #1370 put a generated row beside a user row for
-    one format — a single ``POST /records/{id}/distributions/`` with
-    ``is_primary=true`` reaches it, and nothing in ``create_distribution``
-    demotes the incumbent.
+    flag through a reconcile, so that record advertises two primaries — see
+    #1383, which is reachable from a single POST on any dataset and predates
+    #1370 rather than being introduced by it.
 
     The lost-edit case is narrower than it reads: ``update_distribution`` and
     ``delete_distribution`` both refuse to touch a row with
