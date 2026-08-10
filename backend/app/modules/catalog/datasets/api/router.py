@@ -66,7 +66,7 @@ from app.core.dependencies import get_db
 from app.core.public_urls import get_dataset_service_url
 from app.platform.storage import get_storage
 from app.platform.extensions import get_catalog_port
-from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
+from app.standards.ogc.errors import ERROR_RESPONSES_WRITE, FORBIDDEN_RESPONSE
 
 logger = structlog.get_logger()
 
@@ -162,7 +162,15 @@ async def create_empty_dataset_endpoint(
     )
 
 
-@router.get("/{dataset_id}", response_model=DatasetResponse)
+@router.get(
+    "/{dataset_id}",
+    response_model=DatasetResponse,
+    # fix(getgeolens.com#86 review): read-gated (check_dataset_access_or_anonymous
+    # below), not write-gated, so the router's default 403 ("caller lacks write
+    # access") misdescribes this route's actual 403 cause. Same override on
+    # every other read-gated GET in this file (quicklook, history, refresh-runs).
+    responses={403: FORBIDDEN_RESPONSE},
+)
 async def get_single_dataset(
     dataset_id: uuid.UUID,
     request: Request,
@@ -216,7 +224,11 @@ async def get_single_dataset(
     return result
 
 
-@router.get("/{dataset_id}/quicklook", response_class=Response)
+@router.get(
+    "/{dataset_id}/quicklook",
+    response_class=Response,
+    responses={403: FORBIDDEN_RESPONSE},
+)
 async def get_quicklook(
     dataset_id: uuid.UUID,
     size: int = Query(
@@ -557,7 +569,11 @@ async def delete_dataset_endpoint(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.get("/{dataset_id}/history", response_model=AuditLogListResponse)
+@router.get(
+    "/{dataset_id}/history",
+    response_model=AuditLogListResponse,
+    responses={403: FORBIDDEN_RESPONSE},
+)
 async def get_dataset_history(
     dataset_id: uuid.UUID,
     skip: int = Query(0, ge=0),
@@ -609,7 +625,11 @@ async def get_dataset_history(
     )
 
 
-@router.get("/{dataset_id}/refresh-runs", response_model=DatasetRefreshRunListResponse)
+@router.get(
+    "/{dataset_id}/refresh-runs",
+    response_model=DatasetRefreshRunListResponse,
+    responses={403: FORBIDDEN_RESPONSE},
+)
 async def list_dataset_refresh_runs(
     dataset_id: uuid.UUID,
     skip: int = Query(0, ge=0),

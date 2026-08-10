@@ -8954,11 +8954,15 @@ export type SharedMapResponse = {
  *
  * Result of one on-demand origin probe (ADR-002, #1222).
  *
- * Deliberately the same three words ``VrtSourceHealth.status`` uses, so the
- * UI renders one legend across VRT members and standalone origins. This
- * endpoint always probes, so it never returns the fourth value: ``unknown``
- * is the response-boundary projection of a never-determined NULL column and
- * reaches clients through ``DatasetResponse``, not through here.
+ * Shares its first three words with ``VrtSourceHealth.status``, so the UI
+ * renders one legend across VRT members and standalone origins.
+ * ``VrtSourceHealth`` carries a fourth, VRT-specific value, ``stale``
+ * (fix(#1221)): it means a member's raster was replaced after the parent
+ * VRT was last built, and it does not apply to a single-origin probe. This
+ * endpoint always probes, so it also never returns the OTHER fourth value,
+ * ``unknown`` — the response-boundary projection of a never-determined NULL
+ * column, which reaches clients through ``DatasetResponse``, not through
+ * here.
  */
 export type SourceHealthResponse = {
     /**
@@ -16345,7 +16349,7 @@ export type GetSingleDatasetDatasetsDatasetIdGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -18219,7 +18223,7 @@ export type GetDatasetHistoryDatasetsDatasetIdHistoryGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -18359,7 +18363,7 @@ export type GetQuicklookDatasetsDatasetIdQuicklookGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -18493,7 +18497,7 @@ export type ListDatasetRefreshRunsDatasetsDatasetIdRefreshRunsGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
