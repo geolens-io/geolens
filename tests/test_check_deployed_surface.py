@@ -343,7 +343,6 @@ class DeployedSurfaceGateTest(unittest.TestCase):
                 "url": "https://getgeolens.com/",
                 "required": [
                     ("curl_installer", "curl\\s+-fsSL\\s+https://getgeolens\\.com/install\\.sh\\s+\\|\\s+sh", "i"),
-                    ("ogc_api_collections_url", "http://localhost:8080/api/collections", "i"),
                 ],
                 "forbidden": [
                     ("stale_geolens_yml", "\\bgeolens\\.yml\\b", "i"),
@@ -429,6 +428,7 @@ class DeployedSurfaceGateTest(unittest.TestCase):
                 "url": "https://getgeolens.com/quickstart/",
                 "required": [
                     ("curl_installer", "curl\\s+-fsSL\\s+https://getgeolens\\.com/install\\.sh\\s+\\|\\s+sh", "i"),
+                    ("ogc_api_collections_url", "http://localhost:8080/api/collections", "i"),
                 ],
                 "forbidden": [
                     ("stale_first_build_timing", "5\\s*[-–]\\s*10\\s+minutes", "i"),
@@ -518,10 +518,7 @@ class DeployedSurfaceGateTest(unittest.TestCase):
     def test_default_config_fixture_pages_pass_offline(self) -> None:
         config = self.scanner.load_config(CONFIG)
         fixtures = {
-            "marketing_home": (
-                "curl -fsSL https://getgeolens.com/install.sh | sh "
-                "OGC API at http://localhost:8080/api/collections"
-            ),
+            "marketing_home": "curl -fsSL https://getgeolens.com/install.sh | sh",
             "docs_install": (
                 "curl -fsSL https://getgeolens.com/install.sh | sh "
                 "OGC API clients should connect through the reverse-proxy path at http://localhost:8080/api/ "
@@ -540,7 +537,10 @@ class DeployedSurfaceGateTest(unittest.TestCase):
                 "Standards support: OGC API Features and Records. "
                 "Embed maps in any webpage."
             ),
-            "marketing_quickstart": "Quickstart: curl -fsSL https://getgeolens.com/install.sh | sh",
+            "marketing_quickstart": (
+                "Quickstart: curl -fsSL https://getgeolens.com/install.sh | sh "
+                "OGC API at http://localhost:8080/api/collections"
+            ),
             "marketing_es": "GeoLens: catálogo GIS autoalojado con docker-compose.yml.",
             "marketing_fr": "GeoLens : catalogue SIG auto-hébergé avec docker-compose.yml.",
             "marketing_de": "GeoLens: selbst gehosteter GIS-Katalog mit docker-compose.yml.",

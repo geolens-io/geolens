@@ -11,12 +11,6 @@
           "pattern": "curl\\s+-fsSL\\s+https://getgeolens\\.com/install\\.sh\\s+\\|\\s+sh",
           "flags": "i",
           "reason": "Marketing home should show the public installer command."
-        },
-        {
-          "id": "ogc_api_collections_url",
-          "pattern": "http://localhost:8080/api/collections",
-          "flags": "i",
-          "reason": "Marketing home should route OGC examples through the frontend /api path."
         }
       ],
       "forbidden": [
@@ -263,6 +257,12 @@
           "pattern": "curl\\s+-fsSL\\s+https://getgeolens\\.com/install\\.sh\\s+\\|\\s+sh",
           "flags": "i",
           "reason": "Quickstart should lead with the public installer one-liner."
+        },
+        {
+          "id": "ogc_api_collections_url",
+          "pattern": "http://localhost:8080/api/collections",
+          "flags": "i",
+          "reason": "Quickstart should route OGC examples through the frontend /api path."
         }
       ],
       "forbidden": [
