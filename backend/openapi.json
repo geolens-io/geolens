@@ -15230,7 +15230,7 @@
         "type": "object"
       },
       "SourceHealthResponse": {
-        "description": "Result of one on-demand origin probe (ADR-002, #1222).\n\nDeliberately the same three words ``VrtSourceHealth.status`` uses, so the\nUI renders one legend across VRT members and standalone origins. This\nendpoint always probes, so it never returns the fourth value: ``unknown``\nis the response-boundary projection of a never-determined NULL column and\nreaches clients through ``DatasetResponse``, not through here.",
+        "description": "Result of one on-demand origin probe (ADR-002, #1222).\n\nShares its first three words with ``VrtSourceHealth.status``, so the UI\nrenders one legend across VRT members and standalone origins.\n``VrtSourceHealth`` carries a fourth, VRT-specific value, ``stale``\n(fix(#1221)): it means a member's raster was replaced after the parent\nVRT was last built, and it does not apply to a single-origin probe. This\nendpoint always probes, so it also never returns the OTHER fourth value,\n``unknown`` \u2014 the response-boundary projection of a never-determined NULL\ncolumn, which reaches clients through ``DatasetResponse``, not through\nhere.",
         "properties": {
           "dataset_id": {
             "format": "uuid",
