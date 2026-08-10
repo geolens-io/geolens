@@ -136,6 +136,26 @@ def _is_float_dtype(dtype: str) -> bool:
     return any(f in dtype.lower() for f in _FLOAT_DTYPES)
 
 
+def is_dem_candidate(band_count: int | None, dtype: str | None) -> bool:
+    """Whether a raster of this shape is elevation data rather than imagery.
+
+    One band of floating-point values is what a DEM looks like and what
+    imagery does not. The rule is a heuristic, but it has to be the SAME
+    heuristic everywhere: ``raster_tile_proxy`` branches on the stored flag
+    before it looks at anything else, so a raster classified one way here and
+    another way there is served through the wrong renderer — terrainrgb over
+    RGB imagery, or ordinary imagery over an elevation model.
+
+    feat(#1266): named and shared because a second caller needs it. The STAC
+    refresh strategy adopts a COG the publisher moved to, and the shape of
+    that object is a property of the object rather than of the row it
+    replaces. It reads band count and dtype through Titiler rather than
+    rasterio, which is why this takes the two values instead of a dataset
+    handle.
+    """
+    return bool(band_count == 1 and dtype and _is_float_dtype(dtype))
+
+
 def _scratch_dir() -> str | None:
     """Directory for COG temp copies (fix #448).
 
@@ -300,7 +320,7 @@ def extract_raster_metadata(file_path: str) -> dict:
                 entry["unit"] = unit.strip()
             band_info.append(entry)
 
-        is_dem_candidate = src.count == 1 and _is_float_dtype(src.dtypes[0])
+        is_dem = is_dem_candidate(src.count, src.dtypes[0])
 
         # Extract temporal metadata from TIFF tags
         temporal_start = None
@@ -340,7 +360,7 @@ def extract_raster_metadata(file_path: str) -> dict:
             "driver": profile.get("driver"),
             "band_info": band_info,
             "is_rotated": is_rotated,
-            "is_dem_candidate": is_dem_candidate,
+            "is_dem_candidate": is_dem,
             "temporal_start": temporal_start,
         }
 

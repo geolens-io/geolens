@@ -463,7 +463,7 @@ class TestStacImport:
         assert data["results"][0]["dataset_id"] is not None
 
         # fix(#1271 review): no Titiler answered in this environment, so
-        # _fetch_cog_info returned None and nobody can show the origin was
+        # fetch_cog_info returned None and nobody can show the origin was
         # contacted — the field stays NULL until a probe settles it. The
         # contacted case is pinned separately below.
         detail = await client.get(
@@ -484,7 +484,7 @@ class TestStacImport:
         on GeoLens's behalf — that IS a contact, same contract as
         _finalize_ingest and the reupload swap."""
         with patch(
-            "app.modules.catalog.sources.stac_router._fetch_cog_info",
+            "app.modules.catalog.sources.stac_router.fetch_cog_info",
             new=AsyncMock(
                 return_value={
                     "band_count": 1,
@@ -1006,7 +1006,7 @@ class TestStacImportContactSemantics:
         Titiler's error bodies. Only proven contact (info in hand) stamps;
         the probe settles everything else."""
         with patch(
-            "app.modules.catalog.sources.stac_router._fetch_cog_info",
+            "app.modules.catalog.sources.stac_router.fetch_cog_info",
             new=AsyncMock(return_value=None),
         ):
             resp = await client.post(

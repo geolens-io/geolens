@@ -208,6 +208,11 @@ class DefaultCatalogPort:
 
         return refresh_postgis
 
+    def refresh_stac_task(self):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.tasks import refresh_stac
+
+        return refresh_stac
+
     def materialize_analysis_task(self):  # type: ignore[no-untyped-def]
         from app.processing.analysis.tasks import materialize_analysis
 

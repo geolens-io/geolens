@@ -111,9 +111,8 @@ it.each<[RecordType, boolean]>([
 it.each<[string, string]>([
   ['geojson', 'upload'],
   ['created', 'created'],
-  ['stac', 'stac'],
 ])(
-  'withholds the refresh action for a %s-sourced (%s-origin) dataset the refresh door cannot serve yet',
+  'withholds the refresh action for a %s-sourced (%s-origin) dataset the refresh door cannot serve',
   (sourceFormat) => {
     render(
       <DetailPanel
@@ -133,6 +132,30 @@ it.each<[string, string]>([
     expect(screen.getByTestId('source-panel')).toHaveAttribute('data-has-actions', 'false');
   },
 );
+
+it('offers the refresh action for a stac-origin dataset, which now has a strategy', () => {
+  // feat(#1266): the refresh door dispatches stac to its own executor, which
+  // re-reads the item document and follows the asset if the publisher moved
+  // it. A binding whose item identity cannot be verified is still refused,
+  // but per dataset and with a reason the error-map renders — not by hiding
+  // the control for the whole kind.
+  render(
+    <DetailPanel
+      dataset={{ ...makeDataset('raster_dataset'), source_format: 'stac' }}
+      canEdit
+      capabilities={buildDatasetEditCapabilities({ isEditor: true })}
+      activeTab="sources"
+      onTabChange={vi.fn()}
+      resolveDraftValue={() => ''}
+      stagePendingDraft={vi.fn()}
+      handleDraftDirtyChange={vi.fn()}
+      onNavigateToValidationField={vi.fn()}
+      refreshWatch={makeRefreshWatch()}
+    />,
+  );
+
+  expect(screen.getByTestId('source-panel')).toHaveAttribute('data-has-actions', 'true');
+});
 
 it('withholds the refresh action from a reader who cannot edit, even with a resolvable origin', () => {
   render(

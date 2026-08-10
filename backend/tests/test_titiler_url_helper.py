@@ -101,8 +101,39 @@ def test_tiles_router_uses_helper():
     )
 
 
-def test_stac_router_uses_helper():
-    """Pin: backend/app/modules/catalog/sources/stac_router.py imports + uses build_titiler_cog_url."""
+def test_stac_cog_info_uses_helper():
+    """Pin: the STAC import path's Titiler calls go through build_titiler_cog_url.
+
+    feat(#1266): the calls moved from ``stac_router`` to ``sources/cog_info``
+    when the refresh strategy needed to reach them — importing an API-edge
+    module executes route registration as a side effect. The pin follows the
+    code; the property it protects is unchanged. The router keeps its own
+    no-inlined-host assertion below, so the host cannot come back either side
+    of the split.
+    """
+    from pathlib import Path
+
+    source = (
+        Path(__file__).parent.parent
+        / "app"
+        / "modules"
+        / "catalog"
+        / "sources"
+        / "cog_info.py"
+    )
+    text = source.read_text()
+    non_comment_lines = [
+        line for line in text.splitlines() if not line.strip().startswith("#")
+    ]
+    non_comment_text = "\n".join(non_comment_lines)
+    assert "from app.platform.storage.titiler_url import build_titiler_cog_url" in text
+    assert "http://titiler:8000" not in non_comment_text, (
+        "cog_info.py must NOT inline http://titiler:8000 -- use build_titiler_cog_url"
+    )
+
+
+def test_stac_router_inlines_no_titiler_host():
+    """The router composes no Titiler URL of its own, and must not start."""
     from pathlib import Path
 
     source = (
@@ -113,12 +144,11 @@ def test_stac_router_uses_helper():
         / "sources"
         / "stac_router.py"
     )
-    text = source.read_text()
-    non_comment_lines = [
-        line for line in text.splitlines() if not line.strip().startswith("#")
-    ]
-    non_comment_text = "\n".join(non_comment_lines)
-    assert "from app.platform.storage.titiler_url import build_titiler_cog_url" in text
+    non_comment_text = "\n".join(
+        line
+        for line in source.read_text().splitlines()
+        if not line.strip().startswith("#")
+    )
     assert "http://titiler:8000" not in non_comment_text, (
         "stac_router.py must NOT inline http://titiler:8000 -- use build_titiler_cog_url"
     )

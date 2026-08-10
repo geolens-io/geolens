@@ -2299,12 +2299,15 @@ export interface paths {
          *     complete, so a refresh that fails leaves the live table and its freshness
          *     exactly as they were.
          *
-         *     A dataset registered from an existing PostGIS table takes the other
-         *     execution strategy (#1265): its origin IS the table it serves from, so
-         *     there is nothing to pull and nothing to swap, and the refresh re-measures
-         *     the live relation instead — recounting features, recomputing the extent,
-         *     and rebuilding the column schema snapshot and statistics. Admission, the
-         *     run row and the history it writes are identical either way.
+         *     Two origin kinds take their own execution strategy, and neither moves any
+         *     data. A dataset registered from an existing PostGIS table (#1265) has an
+         *     origin that IS the table it serves from, so its refresh re-measures the
+         *     live relation — recounting features, recomputing the extent, rebuilding
+         *     the column schema snapshot and statistics. A dataset imported from a STAC
+         *     item (#1266) is nothing but a pointer at somebody else's COG, so its
+         *     refresh re-reads the item document and follows the asset if the publisher
+         *     moved it. Admission, the run row and the history they write are identical
+         *     across all three.
          *
          *     Refuses with 409 ``dataset_busy`` while another refresh or re-upload is
          *     active for this dataset — v1 rejects rather than queues (Decision 5b), and
@@ -12029,6 +12032,11 @@ export interface components {
              */
             item_href?: string | null;
             /**
+             * Data Asset Key
+             * @description The asset key on the item, echoed from search results.
+             */
+            data_asset_key?: string | null;
+            /**
              * Bbox
              * @description Item bounding box.
              */
@@ -12364,6 +12372,11 @@ export interface components {
              * @description Media type of the data asset.
              */
             data_asset_type?: string | null;
+            /**
+             * Data Asset Key
+             * @description The key the data asset is published under on the item. Echo it back on import so the dataset records WHICH asset it came from: hrefs move, and the key is what survives the move (#1266).
+             */
+            data_asset_key?: string | null;
             /**
              * Data Asset Size Bytes
              * @description Size of the primary data asset in bytes (from STAC file:size). None when not in manifest.

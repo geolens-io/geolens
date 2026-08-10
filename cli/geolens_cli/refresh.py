@@ -58,9 +58,16 @@ _REFUSAL_MESSAGES: dict[str, str] = {
         "through re-upload, or re-run 'geolens apply' with an updated "
         "manifest."
     ),
+    # fix(#1266): kind-agnostic for the same reason #1319 made its sibling so.
+    # This code now answers for three origins — a service binding with no base
+    # URL or layer, a registered table with no table name, a STAC dataset with
+    # no item href — and naming one of them was already stale for the other
+    # two. The recovery is the same sentence in every case: import it again
+    # through the flow it came from.
     "origin_unavailable": (
-        "This dataset's stored service binding is incomplete. Re-import the "
-        "layer through the service import flow before refreshing it."
+        "This dataset's stored source binding is incomplete, so GeoLens "
+        "cannot tell what to refresh from. Import it again through the flow "
+        "it came from to record a complete one."
     ),
     "dataset_busy": (
         "A refresh or re-upload is already running for this dataset. Wait for "

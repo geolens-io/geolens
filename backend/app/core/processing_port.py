@@ -396,6 +396,23 @@ class ProcessingPort(Protocol):
 
     def get_attribute_metadata_orm_class(self) -> type: ...
 
+    # feat(#1266): the STAC refresh strategy re-reads the item document its
+    # asset was published in. Every byte of that goes through Rule 2's safe
+    # client and the #1222 health classifier, both of which live in the
+    # catalog domain — so the strategy asks for the ANSWER through this port
+    # and holds no HTTP client of its own. Returns a
+    # ``catalog.sources.stac_resolve.StacResolution``, typed here as Any
+    # because core/ is the lowest layer and may not import modules.*.
+    async def resolve_stac_binding(
+        self,
+        *,
+        item_href: str,
+        item_id: str | None,
+        collection_id: str | None,
+        asset_href: str | None,
+        asset_key: str | None,
+    ) -> Any: ...
+
     # -------------------------------------------------------------------------
     # Dataset-with-attributes loader (Plan 02 — preserves joinedload semantics
     # for metadata_service._build_dataset_context; Pitfall 2 mitigation)

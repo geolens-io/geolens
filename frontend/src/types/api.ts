@@ -1992,6 +1992,7 @@ export interface StacItemSummary {
   cloud_cover: number | null;
   data_asset_href: string | null;
   data_asset_type: string | null;
+  data_asset_key: string | null;
   data_asset_size_bytes: number | null; // EW-05: STAC file:size extension
   thumbnail_href: string | null;
   asset_count: number;
@@ -2008,6 +2009,7 @@ export interface StacImportItem {
   collection: string | null;
   title: string;
   data_asset_href: string;
+  data_asset_key: string | null;
   item_href: string | null;
   bbox: number[] | null;
   epsg: number | null;

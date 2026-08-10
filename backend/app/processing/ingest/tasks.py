@@ -69,3 +69,8 @@ from app.processing.ingest.tasks_raster_replace import (  # noqa: F401
 from app.processing.ingest.tasks_postgis_refresh import (  # noqa: F401
     refresh_postgis,
 )
+
+# -- STAC item/asset re-resolution (feat #1266) --
+from app.processing.ingest.tasks_stac_refresh import (  # noqa: F401
+    refresh_stac,
+)

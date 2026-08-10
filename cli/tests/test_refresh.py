@@ -213,7 +213,7 @@ class TestRefreshRequest:
     "code,expected",
     [
         ("refresh_not_applicable", "origin does not support refresh"),
-        ("origin_unavailable", "stored service binding is incomplete"),
+        ("origin_unavailable", "stored source binding is incomplete"),
         ("dataset_busy", "already running"),
         ("origin_changed", "source changed"),
     ],

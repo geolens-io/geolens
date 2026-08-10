@@ -410,13 +410,13 @@ describe('SourceRefreshAction', () => {
 });
 
 describe('REFRESHABLE_ORIGINS', () => {
-  it('mirrors the refresh door dispatch table — service and postgis only, today', () => {
-    // fix(#1285 codex round 1): router_refresh.py routes every non-postgis
-    // origin through _resolve_service_origin(), which refuses upload,
-    // created, and stac with 409 refresh_not_applicable. This is the value
-    // DetailPanel gates on; a widened set here without a matching backend
-    // strategy would put the "Refresh from source" control back where round
-    // 1 found it.
-    expect([...REFRESHABLE_ORIGINS].sort()).toEqual(['postgis', 'service']);
+  it('mirrors the refresh door dispatch table — the three kinds with a strategy', () => {
+    // fix(#1285 codex round 1): router_refresh.py routes every origin it does
+    // not name through _resolve_service_origin(), which refuses upload and
+    // created with 409 refresh_not_applicable. This is the value DetailPanel
+    // gates on; a widened set here without a matching backend strategy would
+    // put the "Refresh from source" control back where round 1 found it.
+    // feat(#1266): stac gained one.
+    expect([...REFRESHABLE_ORIGINS].sort()).toEqual(['postgis', 'service', 'stac']);
   });
 });

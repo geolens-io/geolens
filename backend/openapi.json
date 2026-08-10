@@ -15780,6 +15780,19 @@
             "description": "The item's own canonical URL, echoed from search results.",
             "title": "Item Href"
           },
+          "data_asset_key": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The asset key on the item, echoed from search results.",
+            "title": "Data Asset Key"
+          },
           "bbox": {
             "anyOf": [
               {
@@ -16470,6 +16483,18 @@
             ],
             "description": "Media type of the data asset.",
             "title": "Data Asset Type"
+          },
+          "data_asset_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The key the data asset is published under on the item. Echo it back on import so the dataset records WHICH asset it came from: hrefs move, and the key is what survives the move (#1266).",
+            "title": "Data Asset Key"
           },
           "data_asset_size_bytes": {
             "anyOf": [
@@ -36193,7 +36218,7 @@
     },
     "/datasets/{dataset_id}/refresh": {
       "post": {
-        "description": "Re-pull this dataset's data from the origin it was imported from.\n\nOne request, no source pointer, no layer selection. The dataset keeps\nserving its current data throughout: the worker loads into an\nattempt-scoped staging table and swaps only once the new data is\ncomplete, so a refresh that fails leaves the live table and its freshness\nexactly as they were.\n\nA dataset registered from an existing PostGIS table takes the other\nexecution strategy (#1265): its origin IS the table it serves from, so\nthere is nothing to pull and nothing to swap, and the refresh re-measures\nthe live relation instead \u2014 recounting features, recomputing the extent,\nand rebuilding the column schema snapshot and statistics. Admission, the\nrun row and the history it writes are identical either way.\n\nRefuses with 409 ``dataset_busy`` while another refresh or re-upload is\nactive for this dataset \u2014 v1 rejects rather than queues (Decision 5b), and\nthe refusal comes from a partial unique index rather than a check, so two\nsimultaneous clicks cannot both be admitted.",
+        "description": "Re-pull this dataset's data from the origin it was imported from.\n\nOne request, no source pointer, no layer selection. The dataset keeps\nserving its current data throughout: the worker loads into an\nattempt-scoped staging table and swaps only once the new data is\ncomplete, so a refresh that fails leaves the live table and its freshness\nexactly as they were.\n\nTwo origin kinds take their own execution strategy, and neither moves any\ndata. A dataset registered from an existing PostGIS table (#1265) has an\norigin that IS the table it serves from, so its refresh re-measures the\nlive relation \u2014 recounting features, recomputing the extent, rebuilding\nthe column schema snapshot and statistics. A dataset imported from a STAC\nitem (#1266) is nothing but a pointer at somebody else's COG, so its\nrefresh re-reads the item document and follows the asset if the publisher\nmoved it. Admission, the run row and the history they write are identical\nacross all three.\n\nRefuses with 409 ``dataset_busy`` while another refresh or re-upload is\nactive for this dataset \u2014 v1 rejects rather than queues (Decision 5b), and\nthe refusal comes from a partial unique index rather than a check, so two\nsimultaneous clicks cannot both be admitted.",
         "operationId": "refresh_dataset_datasets__dataset_id__refresh_post",
         "parameters": [
           {

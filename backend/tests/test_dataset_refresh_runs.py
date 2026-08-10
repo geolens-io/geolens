@@ -310,9 +310,19 @@ def test_only_the_commit_handler_creates_a_run() -> None:
     # same function. A strategy that grew its own admission path is precisely
     # what this assertion would catch, so the entry is per-strategy rather
     # than a wildcard on the module.
+    #
+    # feat(#1266): `_dispatch_stac_refresh` is the third, on the same terms.
+    # It reserves through `create_pending_run` and is reached only from
+    # `refresh_dataset`, after the one Rule 1 gate — which is what makes the
+    # partial unique index the referee for every origin kind rather than for
+    # the two that happened to be written first.
     assert callers == {
         "router_reupload.py": {"reupload_commit"},
-        "router_refresh.py": {"refresh_dataset", "_dispatch_postgis_refresh"},
+        "router_refresh.py": {
+            "refresh_dataset",
+            "_dispatch_postgis_refresh",
+            "_dispatch_stac_refresh",
+        },
     }, f"A refresh run row may only be created by a dispatch handler. Found: {callers}"
 
 

@@ -1753,7 +1753,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # same three-line shape again. The refresh door now picks its executor
         # by origin kind and reaches this one the same way it reaches
         # reupload_service.
-        "backend/app/platform/extensions/defaults_catalog_port.py": 440,
+        # feat(#1266): +5 — the STAC re-resolution task delegation, the third
+        # instance of that same three-line shape. Cap 440 -> 445.
+        "backend/app/platform/extensions/defaults_catalog_port.py": 445,
         # feat(#683): +58 — run_analysis_preview carries a clip mask DATASET
         # now, which costs a widened signature (one param per line once ruff
         # wraps it) plus the mask's shape and size gates. Those live here on
@@ -1761,7 +1763,17 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # applies, and putting them at the port gives every caller the same
         # refusal instead of an empty preview or an unbounded mask subdivide.
         # Cap 406 → 470 (~6 headroom).
-        "backend/app/platform/extensions/defaults_processing_port.py": 470,
+        # feat(#1266): +11 — resolve_stac_binding. The STAC refresh strategy
+        # re-reads the item document its asset was published in, and every
+        # byte of that goes through Rule 2's safe client and the #1222 health
+        # classifier, both of which live in the catalog domain. Routing the
+        # ANSWER across the port is what keeps processing/ from importing
+        # catalog for it (the burn-down list's own instruction) and leaves the
+        # worker holding no HTTP client at all. Cap 470 -> 481.
+        # fix(#1266 review round 9): +1 — the resolution takes the item's
+        # recorded id as well, so a catalog whose URLs state no identity can
+        # still have an answer checked against the binding. Cap 481 -> 482.
+        "backend/app/platform/extensions/defaults_processing_port.py": 482,
         # fix(#929): +2 over the 350 default — the creator exemption on the
         # restricted branch of filter_visible/can_access_dataset plus its
         # rationale comments. fix(#930): +20 — the internal branch on the same
@@ -2201,7 +2213,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the durable copy exists) rather than a breadcrumb, and `file_path` is a
     # temp download on object storage so the name had to come from the caller.
     # Cap 1889 -> 1902, exact.
-    "backend/app/processing/ingest/tasks_common.py": 1902,
+    # feat(#1266): +66 — stamp_failed_origin_health, the guarded dataset-side
+    # health write a failed refresh makes. It arrived with #1313 as a private
+    # helper inside the registered-PostGIS strategy; the STAC strategy needs
+    # precisely the same write, and a copy would have been a THIRD spelling of
+    # the binding guard beside _record_failed_origin_contact in
+    # tasks_reupload. Moved here rather than duplicated, so the two strategies
+    # share one implementation and #1313's file shrank by the same lines.
+    # Cap 1902 -> 1968, exact.
+    "backend/app/processing/ingest/tasks_common.py": 1968,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -2237,6 +2257,43 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # in place rather than raising a replacement (the class is load-bearing for
     # the error-code mapping below it). Cap 1125 -> 1139, exact.
     "backend/app/processing/ingest/tasks_reupload.py": 1139,
+    # --- entered by the inclusion rule, feat(#1266) -----------------------
+    # The refresh door crossed 1000 when it gained its third execution
+    # strategy. Two thirds of the addition is the STAC dispatcher, which is
+    # the service door's ordering with the steps a remote ITEM does not need
+    # removed (no credential, no prior-ingest settings) — the shape is
+    # deliberately the same because the ordering is what keeps a re-upload
+    # that commits mid-admission from having its rebind dispatched from a
+    # pre-swap snapshot. The rest is _resolve_stac_origin and the binding
+    # dataclass, whose comments carry the one asymmetry that decides this
+    # strategy: the asset href says whether the COG is still there, and only
+    # the ITEM href can say where the publisher moved it to. Entered at its
+    # measured size.
+    # fix(#1266 review round 9): +2 — the dispatched STAC binding carries the
+    # item's recorded id, so a re-upload that rebinds mid-admission is caught
+    # by the same equality check as every other field of it.
+    # fix(#1266 review round 10): +28 — the door refuses a STAC binding whose
+    # item identity cannot be verified at all (no recorded id, and item URLs
+    # that state none), before a job or a run row exists. Most of the lines
+    # are the refusal's wording and the comment saying why it is the door's
+    # business: an unverified first answer would be both adopted and recorded
+    # as durable truth, and a caller who learns that immediately can act on
+    # it, where one who learns it from a failed run cannot. Cap 1091 -> 1119.
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1119,
+    # --- entered by the inclusion rule, feat(#1266) -----------------------
+    # The STAC re-resolution policy, entered at its measured size. It is one
+    # question asked of a third party — "where does this dataset's asset live
+    # now" — and almost all of its length is the answer's edges, each one a
+    # review round: which document is this item, which asset in it is ours,
+    # which URL may be stored, which may be a base for a relative href, and
+    # what each failure is allowed to conclude. The comments carry WHICH of
+    # those a given line closes, because the invariant they share ("adopt
+    # nothing unverifiable") reads as redundancy without them. Splitting it
+    # would put the identity rules in one file and the fetches they guard in
+    # another, which is the seam every one of those rounds found a hole in.
+    # +8: the collection a null-collection binding is verified against is
+    # reported back so the binding can learn it, the same way item_id is.
+    "backend/app/modules/catalog/sources/stac_resolve.py": 1013,
     # --- entered by the inclusion rule, fix(#958) -------------------------
     # These five were the ungated modules at or above _RATCHET_INCLUSION_LOC
     # when the rule was written. They arrive at their measured size with no

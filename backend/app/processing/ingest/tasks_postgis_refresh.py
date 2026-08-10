@@ -62,6 +62,7 @@ from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
     _current_tenant_schema,
     invalidate_tile_cache_for_table,
+    stamp_failed_origin_health,
     task_app,
 )
 
@@ -396,58 +397,6 @@ async def _declared_geometry_type(
         ),
         {"schema": schema, "table": table},
     )
-
-
-async def _stamp_failed_health(
-    session: Any,
-    dataset_cls: Any,
-    dataset_uuid: uuid.UUID,
-    *,
-    health: str | None,
-    detail: str | None,
-    bound: tuple | None,
-) -> None:
-    """Persist what a failed attempt learned about the origin, if anything.
-
-    Two writers, one record each, the same split ``reupload_service`` uses:
-    this owns the dataset-side verdict, ``record_refresh_failure`` owns the
-    run row, and the caller passes ``contacted_origin=False`` there so the run
-    finalizer does not write the dataset a second, weaker way.
-
-    Guarded on the ``(origin_uri, origin_ref, source_format)`` triple this
-    attempt read. A refresh that failed against a table the dataset is no
-    longer bound to must not mark the NEW binding missing — and for a rebind
-    to an upload, nothing would ever correct it, because uploads have no
-    probe and no refresh. Losing the race is a silent skip; there is nobody
-    to tell from a background task, and the rebind's own commit already
-    stated what is true now.
-    """
-    if health is None or bound is None:
-        return
-    bound_uri, bound_ref, bound_format = bound
-    outcome = await session.execute(
-        update(dataset_cls)
-        .where(
-            dataset_cls.id == dataset_uuid,
-            dataset_cls.origin_uri.is_not_distinct_from(bound_uri),
-            dataset_cls.origin_ref.is_not_distinct_from(bound_ref),
-            dataset_cls.source_format.is_not_distinct_from(bound_format),
-        )
-        .values(
-            source_health=health,
-            source_health_detail=detail,
-            # The attempt reached the origin and got an answer — a dropped
-            # relation IS an answer, the same way the probe dates a 404. That
-            # is the whole meaning of the column.
-            last_checked_at=datetime.now(timezone.utc),
-        )
-    )
-    await session.commit()
-    if outcome.rowcount:
-        # GET /datasets/ serves these fields from a 60s cache; every other
-        # writer invalidates it, and a lost guard race changed nothing worth
-        # invalidating for.
-        await invalidate_catalog_cache()
 
 
 def _apply_measurement(
@@ -924,7 +873,7 @@ async def refresh_postgis(
                 },
             )
             await err_session.commit()
-            await _stamp_failed_health(
+            await stamp_failed_origin_health(
                 err_session,
                 Dataset,
                 dataset_uuid,
