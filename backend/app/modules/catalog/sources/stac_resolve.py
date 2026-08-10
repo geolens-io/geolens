@@ -581,7 +581,12 @@ async def _resolve_from_item(
     # already stored: a catalog that publishes no self link has told GeoLens
     # nothing better to point at, and inventing an address from the search
     # endpoint would store one no reader could resolve.
-    resolved_item_href = await _storable_item_pointer(self_href, fallback_item_href)
+    resolved_item_href = await _storable_item_pointer(
+        self_href,
+        fallback_item_href,
+        item_id=item.get("id"),
+        collection_id=collection_id,
+    )
 
     probed = await probe_remote_uri(href)
     if probed.detail == BLOCKED_BY_POLICY:
@@ -647,39 +652,51 @@ async def _resolve_from_item(
     )
 
 
-async def _storable_item_pointer(self_href: str | None, fallback: str) -> str:
+async def _storable_item_pointer(
+    self_href: str | None,
+    fallback: str,
+    *,
+    item_id: Any,
+    collection_id: str | None,
+) -> str:
     """The item pointer to store: the new self link, or the one already held.
 
-    fix(#1266 review round 5): a self link is not storable just because it is
-    well-formed and states the right identity. It also has to be an address
-    the refresh door will accept next time — that door SSRF-validates
-    ``origin_ref.item_href`` before it will queue anything. A publisher that
-    starts advertising a self link on a private host would otherwise get one
-    successful refresh and then permanently locked-out ones, with the usable
-    pointer already overwritten.
+    The test is whether the replacement would WORK next time, so it is the
+    next refresh's own first step that is run against it: fetch the document
+    and put it through the identity gate. fix(#1266 review round 19) — the
+    weaker "can GeoLens read it" test passed a self link that answers 200
+    with a login page or any other non-STAC body, and the next refresh then
+    fails on it as inconclusive and never reaches the search fallback, which
+    only runs for an item that is authoritatively gone.
 
-    The test is simply whether GeoLens can READ the replacement, and that
-    one condition replaces the pair of checks the previous two rounds
-    accumulated. A probe that comes back healthy has resolved the hostname,
-    passed the guard transport's per-hop validation and pinning, and been
-    served — so it satisfies the door's own check by construction, and a
-    separate call to that check adds nothing.
+    That one check subsumes every narrower one this function has carried.
+    A document that parses as this item was served over a connection the
+    guard transport resolved, validated per hop and pinned — so the pointer
+    also satisfies the refresh door's own SSRF check by construction, and
+    the blocked, unresolvable, protected and failing cases never get past
+    the fetch.
 
-    Anything else keeps the pointer already stored, and the reason is the
-    same in every case (fix #1266 review rounds 15, 16, 17): a replacement
-    GeoLens cannot read is one the NEXT refresh cannot get past. A blocked
-    or unresolvable link is refused by the door before a job exists; a
-    protected one (401/403) or a failing one is fetched, reports
-    inconclusive, and never reaches the search fallback, which only runs for
-    an item that is authoritatively gone. Each of those strands the dataset
-    on a pointer that used to work — so the bar is "demonstrably readable",
-    not "not obviously bad".
+    Anything short of that keeps the pointer already stored, because a
+    replacement the next refresh cannot use is strictly worse than an old
+    one that at least reaches the fallback. The fallback itself needs no
+    check: it is the value that got this refresh admitted in the first
+    place.
     """
     if self_href is None or self_href == fallback:
         return fallback
-    probed = await probe_remote_uri(self_href)
-    if not probed.ok:
-        logger.info("stac_self_link_not_adopted", detail=probed.detail)
+    result, document, final_url = await fetch_json_document(self_href)
+    if not result.ok:
+        logger.info("stac_self_link_not_adopted", detail=result.detail)
+        return fallback
+    refusal = _identity_refusal(
+        document,
+        document_url=final_url,
+        expected_item_id=item_id if isinstance(item_id, str) else None,
+        collection_id=collection_id,
+        collection_affirmed=_standard_item_path(final_url) is not None,
+    )
+    if refusal is not None:
+        logger.info("stac_self_link_does_not_serve_this_item")
         return fallback
     return self_href
 

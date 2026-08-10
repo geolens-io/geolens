@@ -594,9 +594,12 @@ class TestResolution:
                         ]
                     },
                 ),
-                # The item's new address answers — a replacement pointer is
-                # adopted only if GeoLens can demonstrably read it.
-                _MOVED_ITEM: (200, None),
+                # The item's new address serves the item — a replacement
+                # pointer is adopted only if it would work next time.
+                _MOVED_ITEM: (
+                    200,
+                    _item_doc(asset_href=_MOVED_ASSET, self_href=_MOVED_ITEM),
+                ),
                 _MOVED_ASSET: (206, None),
             }
         )
@@ -859,6 +862,35 @@ class TestResolution:
         assert result.resolved
         assert result.asset_href == _MOVED_ASSET
         # The asset moved; the pointer stayed the one the door still accepts.
+        assert result.item_href == _ITEM
+
+    async def test_a_self_link_that_answers_with_a_login_page_is_not_stored(
+        self, stac_transport
+    ) -> None:
+        """fix(#1266 review round 19): 200 is not the same claim as "this
+        serves the item".
+
+        A self link behind an auth wall answers 200 with HTML, which a ranged
+        GET cannot tell from a STAC item — and the next refresh then fails on
+        it as inconclusive and never reaches the search fallback. The
+        replacement is put through the next refresh's own first step instead.
+        """
+        install, _ = stac_transport
+        login_page = f"{_ROOT}/v2/collections/scenes/items/scene-1"
+        install(
+            {
+                _ITEM: (
+                    200,
+                    _item_doc(asset_href=_MOVED_ASSET, self_href=login_page),
+                ),
+                # 200, and not an item.
+                login_page: (200, {"message": "please sign in"}),
+                _MOVED_ASSET: (206, None),
+            }
+        )
+        result = await _resolve(item_href=_ITEM)
+        assert result.resolved
+        assert result.asset_href == _MOVED_ASSET
         assert result.item_href == _ITEM
 
     async def test_a_self_link_that_redirects_into_a_blocked_target_is_refused(
@@ -1152,7 +1184,13 @@ class TestResolution:
                 ),
                 # The item's new address answers — a replacement pointer is
                 # only adopted if GeoLens can actually read it.
-                _MOVED_ITEM: (200, None),
+                _MOVED_ITEM: (
+                    200,
+                    _item_doc(
+                        self_href=_MOVED_ITEM,
+                        assets={"data": {"href": "../tiles/scene.tif"}},
+                    ),
+                ),
                 moved_relative: (206, None),
             }
         )
@@ -1218,9 +1256,12 @@ class TestResolution:
         install(
             {
                 _ITEM: (200, _item_doc(asset_href=_MOVED_ASSET, self_href=permalink)),
-                # It answers, which is the bar a replacement pointer has to
-                # clear: GeoLens adopts only what it can demonstrably read.
-                permalink: (200, None),
+                # It serves the item, which is the bar a replacement pointer
+                # has to clear: GeoLens adopts only a pointer that would work.
+                permalink: (
+                    200,
+                    _item_doc(asset_href=_MOVED_ASSET, self_href=permalink),
+                ),
                 _MOVED_ASSET: (206, None),
             }
         )
