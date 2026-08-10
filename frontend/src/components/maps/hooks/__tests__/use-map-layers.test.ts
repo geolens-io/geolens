@@ -106,3 +106,48 @@ describe('useMapLayers generic-geometry rendering (fix #430 codex r21)', () => {
     expect(addedLayers(map)[0]?.['source-layer']).toBe('tenant_acme.roads');
   });
 });
+
+// #1362 codex r2: the raster tile route is a fixed per-dataset path, and a
+// public dataset's tile response carries `Cache-Control: public,
+// max-age=3600` — so the browser's own HTTP cache can keep serving
+// pre-replace bytes for an identical URL. tileVersion busts that the same
+// way the vector source already does via buildSignedTileUrl.
+describe('useMapLayers raster tile source cache-busting', () => {
+  function runRasterHook(rasterTileUrl: string | null, tileVersion?: string | null) {
+    const mapRef = { current: null };
+    const { result } = renderHook(() =>
+      useMapLayers({
+        tableName: null,
+        geometryType: null,
+        rasterTileUrl,
+        tileVersion,
+        tileToken: null,
+        mapRef,
+      }),
+    );
+    const map = fakeMap();
+    result.current.addRasterLayers(map);
+    return map;
+  }
+
+  function addedSourceConfig(map: MaplibreMap) {
+    const call = (map.addSource as ReturnType<typeof vi.fn>).mock.calls[0];
+    return call?.[1] as { tiles: string[] } | undefined;
+  }
+
+  it('appends tileVersion as a cache-busting query param when present', () => {
+    const map = runRasterHook(
+      '/raster-tiles/dataset-1/tiles/{z}/{x}/{y}.png',
+      '2026-08-10T00:00:00Z',
+    );
+    const source = addedSourceConfig(map);
+    expect(source?.tiles[0]).toContain('/raster-tiles/dataset-1/tiles/{z}/{x}/{y}.png?v=');
+    expect(source?.tiles[0]).toContain(encodeURIComponent('2026-08-10T00:00:00Z'));
+  });
+
+  it('omits the query param when tileVersion is absent', () => {
+    const map = runRasterHook('/raster-tiles/dataset-1/tiles/{z}/{x}/{y}.png', null);
+    const source = addedSourceConfig(map);
+    expect(source?.tiles[0]).not.toContain('?v=');
+  });
+});

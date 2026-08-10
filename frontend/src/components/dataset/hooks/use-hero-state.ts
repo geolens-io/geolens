@@ -33,6 +33,19 @@ export function useHeroState({ datasetId, recordType, hasTileUrl }: UseHeroState
     setMapKey(prev => prev + 1);
   }, []);
 
+  // fix(#1362 codex r4): a completed replacement remounts the hero the same
+  // way a manual retry does (fresh heroState + mapKey), but it is NOT a
+  // failed-tile retry — routing it through handleRetry spent the 3-attempt
+  // manual-retry budget on a SUCCESS, so a later genuine tile failure could
+  // land with the Retry button already exhausted. Reset retryCount instead
+  // of incrementing it: a successful replace is a natural point to hand the
+  // user a fresh budget, not consume theirs.
+  const handleReplaceComplete = useCallback(() => {
+    setRetryCount(0);
+    setHeroState('loading');
+    setMapKey(prev => prev + 1);
+  }, []);
+
   // Reset hero state when the dataset CHANGES — skip the initial mount, where
   // state is already fresh and a map that reports ready in the same commit
   // (cached lazy chunk) would be clobbered back to 'loading'.
@@ -59,6 +72,7 @@ export function useHeroState({ datasetId, recordType, hasTileUrl }: UseHeroState
     retryCount,
     mapKey,
     handleRetry,
+    handleReplaceComplete,
     onMapReady: useCallback(() => setHeroState('loaded'), []),
     onTileError: useCallback(() => setHeroState('error'), []),
   };

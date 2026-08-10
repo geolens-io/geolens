@@ -233,6 +233,7 @@ export function DatasetPage() {
     retryCount,
     mapKey,
     handleRetry,
+    handleReplaceComplete,
     onMapReady,
     onTileError,
   } = useHeroState({
@@ -465,7 +466,10 @@ export function DatasetPage() {
       icon: Upload,
       onSelect: () => setActiveDialog('reupload'),
       priority: 10,
-      visible: canEdit && !isRaster && !isVrt,
+      // #1289: raster now has a reupload flow too (upload -> commit,
+      // skipping the vector schema-preview step); VRT stays excluded — VRT
+      // datasets keep the regenerate action instead.
+      visible: canEdit && !isVrt,
       variant: 'outline',
     },
     {
@@ -661,12 +665,22 @@ export function DatasetPage() {
         />
       )}
 
-      {canEdit && !isRaster && !isVrt && (
+      {canEdit && !isVrt && (
         <Suspense fallback={null}>
           <ReuploadDialog
             dataset={dataset}
             open={activeDialog === 'reupload'}
             onOpenChange={(open) => setActiveDialog(open ? 'reupload' : null)}
+            // fix(#1362 codex r1): a raster's tile URL is a fixed per-dataset
+            // route (not content-versioned), and the hero map's raster
+            // source is added once and never re-added on prop change — so a
+            // completed replacement needs an explicit remount to show the
+            // new tiles.
+            // fix(#1362 codex r4): use the dedicated handleReplaceComplete,
+            // not handleRetry — a success isn't a failed-tile retry, and
+            // routing it through handleRetry spent the 3-attempt manual-retry
+            // budget on every successful replace.
+            onReplaceComplete={handleReplaceComplete}
           />
         </Suspense>
       )}

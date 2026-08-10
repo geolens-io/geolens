@@ -366,7 +366,10 @@ describe('DatasetPage editable affordance integration', () => {
     expect(screen.queryByTestId('pending-edits-bar')).not.toBeInTheDocument();
   });
 
-  it('does not offer reupload for raster datasets', async () => {
+  // #1289: raster reupload (upload -> commit, skipping the schema-preview
+  // step) is now reachable from the app — raster offers both Create VRT and
+  // Re-Upload.
+  it('offers both reupload and create-vrt for raster datasets', async () => {
     setUser(EDITOR_USER);
     mockUseDataset.mockReturnValue({
       data: {
@@ -387,6 +390,37 @@ describe('DatasetPage editable affordance integration', () => {
     expect(
       await screen.findByRole('menuitem', { name: 'Create VRT' }),
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitem', { name: 'Re-Upload' }),
+    ).toBeInTheDocument();
+  });
+
+  // VRT stays on the regenerate flow — it never gets a reupload action,
+  // and Create VRT is raster-only so it's absent here too.
+  it('does not offer reupload or create-vrt for VRT datasets', async () => {
+    setUser(EDITOR_USER);
+    mockUseDataset.mockReturnValue({
+      data: {
+        ...makeDataset(),
+        record_type: 'vrt_dataset',
+        raster: {
+          tile_url: '/raster-tiles/test/{z}/{x}/{y}.png',
+        } as DatasetResponse['raster'],
+      },
+      isLoading: false,
+      error: null,
+    } as ReturnType<typeof useDataset>);
+    const user = userEvent.setup();
+
+    render(<DatasetPage />, { route: '/datasets/dataset-1' });
+    await user.click(screen.getByRole('button', { name: 'More actions' }));
+
+    expect(
+      await screen.findByRole('menuitem', { name: 'Delete' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('menuitem', { name: 'Create VRT' }),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole('menuitem', { name: 'Re-Upload' }),
     ).not.toBeInTheDocument();
