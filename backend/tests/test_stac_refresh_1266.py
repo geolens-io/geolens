@@ -1110,6 +1110,93 @@ class TestResolution:
         # from the stored pointer would reach the same answer.
         assert result.asset_href == newer_asset
 
+    async def test_a_binding_with_no_collection_borrows_one_from_its_url(
+        self, stac_transport
+    ) -> None:
+        """fix(#1266 review round 24): `StacImportItem.collection` is optional.
+
+        A binding that carries none skipped every collection comparison, so a
+        stored `/collections/A/items/x` redirecting to `/collections/B/items/x`
+        would rebind the dataset to B's keyed asset. The URL states the
+        collection even when the binding does not.
+        """
+        install, _ = stac_transport
+        other = f"{_ROOT}/collections/other/items/scene-1"
+        body = _item_doc(asset_href=_MOVED_ASSET, self_href=None)
+        del body["collection"]
+        install({other: (200, body), _MOVED_ASSET: (206, None)})
+
+        result = await resolve_stac_binding(
+            item_href=_ITEM,
+            item_id="scene-1",
+            collection_id=None,
+            asset_href=_ASSET,
+            asset_key="data",
+        )
+        # _ITEM is not served; what matters is that the derived collection is
+        # used at all, which the redirect case below exercises directly.
+        assert not result.resolved
+
+        install({_ITEM: (302, None), other: (200, body), _MOVED_ASSET: (206, None)})
+        redirected = await resolve_stac_binding(
+            item_href=_ITEM,
+            item_id="scene-1",
+            collection_id=None,
+            asset_href=_ASSET,
+            asset_key="data",
+        )
+        assert not redirected.resolved
+
+    async def test_a_missing_new_asset_keeps_its_conclusive_verdict(
+        self, stac_transport, monkeypatch
+    ) -> None:
+        """fix(#1266 review round 24): Titiler being unable to describe a
+        missing object adds nothing.
+
+        The probe already settled that the publisher's new href is gone, and
+        replacing that with an inconclusive verdict threw away the one fact
+        the run established.
+        """
+        install, _ = stac_transport
+        install(
+            {
+                _ITEM: (200, _item_doc(asset_href=_MOVED_ASSET)),
+                _MOVED_ASSET: (404, None),
+            }
+        )
+
+        async def _unreadable(url: str):
+            return None
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.stac_resolve.fetch_cog_info", _unreadable
+        )
+        result = await _resolve(item_href=_ITEM)
+        assert not result.resolved
+        assert (result.health, result.detail) == ("missing", "not_found")
+
+    async def test_the_projection_comes_from_the_document_the_asset_did(
+        self, stac_transport
+    ) -> None:
+        """fix(#1266 review round 24): a canonical document that supersedes
+        the representation supersedes its projection too."""
+        install, _ = stac_transport
+        canonical = f"{_ROOT}/v2/collections/scenes/items/scene-1"
+        newer_asset = "https://origin.test/v2/tiles/new.tif"
+        canonical_doc = _item_doc(asset_href=newer_asset, self_href=canonical)
+        canonical_doc["properties"] = {"proj:code": "EPSG:3857"}
+        install(
+            {
+                _ITEM: (200, _item_doc(asset_href=_ASSET, self_href=canonical)),
+                canonical: (200, canonical_doc),
+                _ASSET: (206, None),
+                newer_asset: (206, None),
+            }
+        )
+        result = await _resolve(item_href=_ITEM)
+        assert result.asset_href == newer_asset
+        assert result.epsg == 3857
+
     async def test_a_self_link_that_redirects_into_a_blocked_target_is_refused(
         self, stac_transport
     ) -> None:

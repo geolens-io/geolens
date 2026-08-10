@@ -634,6 +634,14 @@ async def _resolve_from_item(
             return _ASSET_BLOCKED
         metadata = await fetch_cog_info(href)
         if metadata is None:
+            # fix(#1266 review round 24): the probe may already have settled
+            # this. An href that answers 404/410 is conclusively gone, and
+            # Titiler being unable to describe a missing object adds nothing —
+            # replacing that verdict with an inconclusive one would throw away
+            # the one fact the run established about the publisher's new
+            # asset. The pointer is still not adopted either way.
+            if probed.health == MISSING:
+                return StacResolution(probed.health, probed.detail)
             # Do not publish a pointer to an object GeoLens could not read.
             # Same discipline as the raster replace path's read-back: a
             # publisher's document saying where the asset is, is not the same
@@ -641,7 +649,11 @@ async def _resolve_from_item(
             # binding stays exactly as it is and a retry can succeed.
             return _ASSET_UNREADABLE
 
-    properties = item.get("properties")
+    # From the same document as the asset (fix #1266 review round 24): a
+    # canonical document that supersedes the representation supersedes its
+    # projection too, and writing the other one's EPSG would describe the
+    # wrong object in STAC output and in VRT compatibility checks.
+    properties = describing.get("properties")
     resolved_id = item.get("id")
     return StacResolution(
         health=probed.health,
@@ -897,7 +909,20 @@ async def resolve_stac_binding(
     # the URL for datasets imported before it was recorded. That fallback is
     # only ever a reading of the stored href when the href spells out the
     # collection GeoLens also stored, never a guess.
-    derived = _search_root_and_item_id(item_href, collection_id)
+    # fix(#1266 review round 24): a binding may carry no collection at all —
+    # `StacImportItem.collection` is optional and the import stores what it
+    # was given — and every collection comparison here is skipped when it is
+    # absent. A stored `/collections/A/items/x` that later redirects to
+    # `/collections/B/items/x` would then rebind the dataset to B's keyed
+    # asset. The URL states the collection even when the binding does not, so
+    # it stands in for verification. It is NOT written back: the worker
+    # restamps the stored value, and inventing a collection from a URL is a
+    # different act from reading one to check an answer against.
+    stored_layout = _standard_item_path(item_href)
+    effective_collection = collection_id or (
+        stored_layout[1] if stored_layout else None
+    )
+    derived = _search_root_and_item_id(item_href, effective_collection)
     expected_item_id = item_id or (derived[1] if derived else None)
     if expected_item_id is None:
         # Nothing to check an answer against, so nothing is asked and nothing
@@ -917,7 +942,7 @@ async def resolve_stac_binding(
             document_url=item_url,
             fallback_item_href=item_href,
             expected_item_id=expected_item_id,
-            collection_id=collection_id,
+            collection_id=effective_collection,
             # Only a standard-layout URL speaks for the collection; a
             # permalink does not, and then the body has to.
             collection_affirmed=_standard_item_path(item_url) is not None,
@@ -928,7 +953,7 @@ async def resolve_stac_binding(
         return await _resolve_by_search(
             item_href=item_href,
             item_id=item_id,
-            collection_id=collection_id,
+            collection_id=effective_collection,
             asset_href=asset_href,
             asset_key=asset_key,
         )
