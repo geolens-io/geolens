@@ -516,16 +516,23 @@ def _pair_applies(dist_type: str, fmt: str, geometry_type: str | None) -> bool:
     return (dist_type == "download" and fmt == "csv") or dist_type == "ogc_features"
 
 
-def _primary_pair(geometry_type: str | None) -> tuple[str, str]:
-    """The one generated row that carries ``is_primary`` for this modality.
+# Which generated row carries ``is_primary``, best first. GeoPackage is what
+# the template table marks primary; CSV is the fallback, both for a modality
+# that generates no GeoPackage row at all and — on reconcile — for a promote
+# where no generated GeoPackage row exists to promote because a user's own row
+# already occupies that pair.
+_PRIMARY_PREFERENCE: tuple[tuple[str, str], ...] = (
+    ("download", "gpkg"),
+    ("download", "csv"),
+)
 
-    The templates mark GeoPackage primary; without geometry that row is not
-    generated at all, and CSV is the richest download left.
-    """
-    for dist_type, fmt, *_rest, is_primary in _DISTRIBUTION_TEMPLATES:
-        if is_primary and _pair_applies(dist_type, fmt, geometry_type):
-            return dist_type, fmt
-    return "download", "csv"
+
+def _primary_pair(geometry_type: str | None) -> tuple[str, str]:
+    """The one generated row that carries ``is_primary`` for this modality."""
+    for pair in _PRIMARY_PREFERENCE:
+        if _pair_applies(*pair, geometry_type):
+            return pair
+    return _PRIMARY_PREFERENCE[-1]
 
 
 async def generate_distributions(
@@ -663,7 +670,10 @@ async def reconcile_distributions(
     - ``is_primary`` is NORMALIZED across the surviving generated rows, so
       exactly one of them is primary for the new modality (GeoPackage when
       there is geometry, CSV when there is not). A promote that left the old
-      CSV primary beside a new primary GeoPackage would advertise two.
+      CSV primary beside a new primary GeoPackage would advertise two. The
+      winner is picked from the rows that exist rather than from the modality
+      alone — if a user's own row occupies the preferred pair there is no
+      generated row to promote, and the fallback takes it.
 
     The lost-edit case is narrower than it reads: ``update_distribution`` and
     ``delete_distribution`` both refuse to touch a row with
@@ -702,14 +712,34 @@ async def reconcile_distributions(
         session, dataset_id, record_id, table_name, geometry_type=geometry_type
     )
 
-    primary_pair = _primary_pair(geometry_type)
-    for row in survivors + created:
-        pair = (row.distribution_type, row.format)
-        if pair not in _GENERATED_PAIRS:
-            continue
-        should_be_primary = pair == primary_pair
-        if row.is_primary != should_be_primary:
-            row.is_primary = should_be_primary
+    # fix(#1314 review round 1): chosen from the rows that ACTUALLY exist, not
+    # from the modality alone. `generate_distributions` skips any pair a row
+    # already occupies, including a user-authored one — so a promote of a
+    # dataset whose owner had added their own GeoPackage entry generates no
+    # GeoPackage row for the preferred pair to name. Naming it anyway cleared
+    # the CSV flag and promoted nothing, leaving the record with no primary
+    # distribution at all.
+    generated = [
+        row
+        for row in survivors + created
+        if (row.distribution_type, row.format) in _GENERATED_PAIRS
+    ]
+    by_pair = {(row.distribution_type, row.format): row for row in generated}
+    primary = next(
+        (
+            by_pair[pair]
+            for pair in _PRIMARY_PREFERENCE
+            if _pair_applies(*pair, geometry_type) and pair in by_pair
+        ),
+        None,
+    )
+    # No candidate means every preferred pair is occupied by a row this
+    # function does not own, and there is nothing to promote. Leave the flags
+    # as they are rather than clearing them: an unchanged primary is a worse
+    # answer than the right one and a better answer than none.
+    if primary is not None:
+        for row in generated:
+            row.is_primary = row is primary
     await session.flush()
 
     return created, removed

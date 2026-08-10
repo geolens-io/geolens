@@ -58,7 +58,21 @@ logger = logging.getLogger(__name__)
 # missing answer from a wrong one, so an authority that overrides reads while
 # inheriting the community audience is treated as unable to answer and gets the
 # conservative refusal (see find_maps_broken_by_dataset_visibility).
-EXTENSION_API_VERSION: int = 4
+# 4 -> 5 (fix(#1314)): ProcessingPort gained a required
+# ``reconcile_distributions`` method. An overlay that replaces the
+# ``processing_port`` slot must implement it: the registered-PostGIS refresh
+# and the reupload swap both call it whenever the modality of the dataset they
+# just measured differs from the stored one, so without this bump a
+# version-4 overlay loads cleanly and then raises AttributeError inside the
+# write transaction of the first refresh that matters. Skew that the loader
+# refuses at boot is the whole point of this constant.
+#
+# This bump carries the required-method addition ONLY. The deprecated
+# import-compatibility aliases in protocols.py and defaults.py that their own
+# comments defer "until the next EXTENSION_API_VERSION bump" are NOT removed
+# here — that removal is a separate change with its own review, and a bump
+# forced by an unrelated Protocol addition is not the occasion for it.
+EXTENSION_API_VERSION: int = 5
 
 
 def check_extension_api_version(name: str, declared_version: int | None) -> None:

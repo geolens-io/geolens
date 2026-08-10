@@ -341,6 +341,40 @@ class TestPrimaryFlag:
             ("download", "gpkg")
         }
 
+    async def test_a_promote_falls_back_to_csv_when_a_user_row_holds_geopackage(
+        self, test_db_session: AsyncSession
+    ) -> None:
+        """fix(#1314 review round 1): the record must never end up with none.
+
+        ``generate_distributions`` skips any pair a row already occupies, and
+        it does not care whether that row is auto-generated. So a promote of a
+        dataset whose owner added their own GeoPackage entry generates no
+        GeoPackage row — and picking the primary from the modality alone
+        cleared the CSV flag to promote a row that was never created.
+        """
+        dataset = await _tabular_dataset(test_db_session)
+        await create_distribution(
+            test_db_session,
+            dataset.record_id,
+            distribution_type="download",
+            format="gpkg",
+            url="https://example.org/mine.gpkg",
+        )
+        await test_db_session.commit()
+
+        await reconcile_distributions(
+            test_db_session,
+            dataset.id,
+            dataset.record_id,
+            dataset.table_name,
+            geometry_type="POLYGON",
+        )
+        await test_db_session.commit()
+
+        assert await self._primary_pairs(test_db_session, dataset.record_id) == {
+            ("download", "csv")
+        }
+
     async def test_a_demote_moves_primary_to_csv(
         self, test_db_session: AsyncSession
     ) -> None:
