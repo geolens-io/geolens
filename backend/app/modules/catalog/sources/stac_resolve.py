@@ -386,8 +386,15 @@ def _bound_asset_key(
 
     Identity is settled here alone, and the caller refuses when it comes back
     None. Which asset a dataset serves is not something a refresh may decide.
+
+    fix(#1331): the key is read with ``is not None``, not truthiness. ``""``
+    is a legal JSON property name and a legal asset key, and capture (see
+    ``storable_asset_key``) preserves it and distinguishes it from no key at
+    all — a binding that recorded it names a real asset, and treating it
+    like no key was recorded is exactly the bug this reads honestly instead
+    of reintroducing.
     """
-    if asset_key and isinstance(assets.get(asset_key), dict):
+    if asset_key is not None and isinstance(assets.get(asset_key), dict):
         return asset_key
     if asset_href:
         for key, asset in assets.items():
@@ -530,7 +537,12 @@ async def _resolve_from_item(
         # and reports as one — even when the item still publishes something
         # the import rule would have picked. Only a keyless binding is
         # genuinely unable to tell removal from ambiguity.
-        if asset_key:
+        #
+        # fix(#1331): `is not None`, not truthiness — the same reasoning as
+        # `_bound_asset_key` above. A binding that recorded `""` still
+        # recorded a key, and treating it as keyless here would report a
+        # removed asset as an unidentified one instead.
+        if asset_key is not None:
             return _ASSET_GONE
         # Two different facts, and they read differently to whoever acts on
         # them. An item that publishes no usable data asset at all has lost
