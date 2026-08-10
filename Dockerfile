@@ -6,7 +6,7 @@
 # Build-time deps (apt cache, intermediate uv-sync state) are confined to this
 # stage. The runtime layer rebuilds from a clean python:3.14-slim base and
 # only copies the resolved /app venv from this builder.
-FROM python:3.14.6-slim AS backend-builder
+FROM python:3.15.0rc1-slim AS backend-builder
 
 # uv is build-time + runtime: see runtime-stage comment below for runtime rationale.
 # Aligned uv installer pin across builder + runtime stages.
@@ -116,7 +116,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # requires-python>=3.13 for adopter flexibility; this image ships the pinned
 # 3.14-slim as the project's tested runtime.
 # See backend/pyproject.toml comment at requires-python for the matching note.
-FROM python:3.14.6-slim AS backend-base
+FROM python:3.15.0rc1-slim AS backend-base
 
 # uv kept for `uv run --no-dev` launch pattern (entrypoints + CMD).
 # Aligned uv installer pin across builder + runtime stages.
