@@ -284,7 +284,16 @@ def extract_raster_metadata(file_path: str) -> dict:
 
     with rasterio.open(file_path) as src:
         crs = src.crs
-        crs_wkt = crs.to_wkt() if crs else None
+        # fix(#1376): explicitly WKT2, because this value is what
+        # RasterAsset.to_stac_properties() publishes as the STAC Projection
+        # Extension's `proj:wkt2`. rasterio's default is WKT1_GDAL
+        # (`PROJCS[...]`), which a strict consumer of a wkt2-named field may
+        # reject. The remote-asset probe (catalog/sources/cog_info.py) asks
+        # for the same version, so the column is one dialect regardless of
+        # how the raster was ingested. WKT2 also expresses strictly more than
+        # WKT1 — nothing GDAL can open exports here but not there — so this
+        # narrows no input.
+        crs_wkt = crs.to_wkt(version="WKT2_2019") if crs else None
         epsg = crs.to_epsg() if crs else None
 
         bounds_wgs84 = _wgs84_bbox(src)
