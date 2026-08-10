@@ -616,6 +616,79 @@ class TestStacImport:
         ).one()
         assert row.crs_wkt == crs_wkt
 
+    async def test_import_prefers_the_probed_epsg_over_a_stale_item_declaration(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        mock_stac_ssrf,
+        test_db_session,
+    ):
+        """fix(#1334 review): the item declares one EPSG (4326, stale or
+        simply wrong) while the probe's own CRS says another (32621) — the
+        raster row and the dataset's srid mirror the probe, not the item, so
+        RasterAsset.to_stac_properties() cannot publish a proj:code and a
+        proj:wkt2 that name different projections.
+        """
+        crs_wkt = (
+            'PROJCS["WGS 84 / UTM zone 21N",GEOGCS["WGS 84",'
+            'DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],'
+            'PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],'
+            'PROJECTION["Transverse_Mercator"],'
+            'PARAMETER["latitude_of_origin",0],'
+            'PARAMETER["central_meridian",-57],'
+            'PARAMETER["scale_factor",0.9996],'
+            'PARAMETER["false_easting",500000],'
+            'PARAMETER["false_northing",0],'
+            'UNIT["metre",1],AXIS["Easting",EAST],AXIS["Northing",NORTH],'
+            'AUTHORITY["EPSG","32621"]]'
+        )
+        with patch(
+            "app.modules.catalog.sources.stac_router.fetch_cog_info",
+            new=AsyncMock(
+                return_value={
+                    "band_count": 1,
+                    "dtype": "uint16",
+                    "width": 2658,
+                    "height": 2667,
+                    "nodata": None,
+                    "band_info": None,
+                    "crs_wkt": crs_wkt,
+                    "epsg": 32621,
+                }
+            ),
+        ):
+            resp = await client.post(
+                "/services/stac/import",
+                json={
+                    "url": "https://stac.example.com/v1",
+                    "items": [
+                        {
+                            "id": f"test-item-{uuid.uuid4().hex[:8]}",
+                            "collection": "dem-collection",
+                            "title": "Stale item EPSG",
+                            "data_asset_href": "https://example.com/data/stale.tif",
+                            "bbox": [-1, -1, 1, 1],
+                            # Deliberately wrong/stale — the item claims 4326
+                            # while the file the probe actually opened is
+                            # 32621.
+                            "epsg": 4326,
+                        }
+                    ],
+                    "visibility": "private",
+                },
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["created"] == 1
+        dataset_id = data["results"][0]["dataset_id"]
+
+        detail = await client.get(f"/datasets/{dataset_id}", headers=admin_auth_header)
+        assert detail.status_code == 200
+        body = detail.json()
+        assert body["raster"]["epsg"] == 32621
+        assert body["srid"] == 32621
+
     async def test_import_antimeridian_bbox_stores_two_rings(
         self,
         client: AsyncClient,

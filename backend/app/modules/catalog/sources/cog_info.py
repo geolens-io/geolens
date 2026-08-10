@@ -25,7 +25,7 @@ logger = structlog.get_logger(__name__)
 
 
 def _georeferencing(info: dict) -> dict:
-    """``crs_wkt`` from Titiler's raw ``/cog/info`` reply.
+    """``crs_wkt``/``epsg`` from Titiler's raw ``/cog/info`` reply.
 
     fix(#1334): retrievable all along and simply never read out of this
     response. Titiler answers ``crs`` as an OGC CRS URI
@@ -33,6 +33,22 @@ def _georeferencing(info: dict) -> dict:
     live 2.2.1 instance. GDAL's CRS parser accepts that URI form directly, so
     the WKT round-trips through the same ``rasterio.crs.CRS`` every other
     ingest path already writes ``crs_wkt`` from (``raster/cog.py``).
+
+    fix(#1334 review): both keys come off the SAME parsed ``CRS`` object, on
+    purpose. The caller's other source for a raster's EPSG is the STAC
+    item's own ``proj:code``/``proj:epsg`` — the PUBLISHER's claim about the
+    file, read at import or refresh time from whatever document it happened
+    to be describing itself with then. This function's ``crs`` came from
+    Titiler actually opening the CURRENT bytes at the CURRENT href, which is
+    ground truth about what is actually being served. A stale or wrong item
+    declaration would otherwise have this probe write a WKT describing one
+    projection beside a caller-supplied EPSG naming another, and
+    ``RasterAsset.to_stac_properties()`` would publish both as ``proj:wkt2``
+    and ``proj:code`` — a raster describing itself two contradictory ways in
+    GeoLens's OWN STAC export. Deriving ``epsg`` from the same object the WKT
+    came from makes the two agree by construction; the caller uses it in
+    preference to the item's declared value and falls back to that only when
+    the probe yields no EPSG (an unusual custom CRS, or no probe at all).
 
     fix(#1334 review): ``res_x``/``res_y`` are deliberately NOT derived here.
     The obvious computation — ``bounds`` (also in the dataset's own
@@ -53,18 +69,22 @@ def _georeferencing(info: dict) -> dict:
     abort over.
     """
     crs_wkt = None
+    epsg = None
     crs_value = info.get("crs")
     if isinstance(crs_value, str) and crs_value:
         try:
             from rasterio.crs import CRS
 
-            crs_wkt = CRS.from_user_input(crs_value).to_wkt()
+            parsed = CRS.from_user_input(crs_value)
+            crs_wkt = parsed.to_wkt()
+            epsg = parsed.to_epsg()
         except (
             Exception
         ):  # broad: an unfamiliar CRS string should not fail the whole probe
             crs_wkt = None
+            epsg = None
 
-    return {"crs_wkt": crs_wkt}
+    return {"crs_wkt": crs_wkt, "epsg": epsg}
 
 
 async def fetch_cog_info(url: str) -> dict | None:

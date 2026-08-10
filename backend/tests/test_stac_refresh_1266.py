@@ -2348,6 +2348,49 @@ class TestWorker:
         assert run.status == "succeeded"
         assert run.error_code is None
 
+    async def test_a_refresh_prefers_the_probed_epsg_over_the_items_declared_one(
+        self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
+    ) -> None:
+        """fix(#1334 review): the moved item declares EPSG:32633
+        (``_item_doc``'s default ``proj:code``), while the probe that
+        actually opened the new bytes reports a different CRS — the raster
+        row and the dataset's srid follow the probe, not the item, so
+        ``RasterAsset.to_stac_properties()`` cannot publish a ``proj:code``
+        and a ``proj:wkt2`` that name different projections.
+        """
+        install, _ = stac_transport
+        install(
+            {
+                _ITEM: (200, _item_doc(asset_href=_MOVED_ASSET)),
+                _MOVED_ASSET: (206, None),
+            }
+        )
+
+        async def _disagreeing_probe(url: str):
+            return {
+                "band_count": 1,
+                "dtype": "uint16",
+                "nodata": 0,
+                "band_info": None,
+                "crs_wkt": 'PROJCS["WGS 84 / UTM zone 21N",AUTHORITY["EPSG","32621"]]',
+                "epsg": 32621,
+            }
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.stac_resolve.fetch_cog_info",
+            _disagreeing_probe,
+        )
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        await _execute(test_db_session, payload)
+
+        described = await _raster_asset(dataset.id)
+        assert described.epsg == 32621
+        refreshed = await _reload(dataset.id)
+        assert refreshed.srid == 32621
+
     async def test_a_move_to_an_elevation_raster_reclassifies_it(
         self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
     ) -> None:

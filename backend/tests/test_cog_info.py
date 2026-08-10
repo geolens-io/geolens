@@ -87,6 +87,25 @@ class TestGeoreferencing:
         assert result["crs_wkt"] is not None
         assert "32621" in result["crs_wkt"]
 
+    async def test_epsg_comes_from_the_same_parsed_crs_as_the_wkt(
+        self, monkeypatch
+    ) -> None:
+        """fix(#1334 review): both keys have to come off the SAME parsed CRS
+        object, or a caller preferring this EPSG over a stale item
+        declaration could still end up with an EPSG and a WKT that name
+        different projections."""
+        _install(monkeypatch, _TITILER_INFO)
+        result = await fetch_cog_info("https://origin.test/scene.tif")
+        assert result is not None
+        assert result["epsg"] == 32621
+
+    async def test_an_unparseable_crs_reports_no_epsg_either(self, monkeypatch) -> None:
+        info = {**_TITILER_INFO, "crs": "not a crs identifier"}
+        _install(monkeypatch, info)
+        result = await fetch_cog_info("https://origin.test/scene.tif")
+        assert result is not None
+        assert result["epsg"] is None
+
     async def test_fetch_cog_info_never_reports_a_resolution(self, monkeypatch) -> None:
         """fix(#1334 review): Titiler's /cog/info carries no affine
         transform, so nothing here can tell a rotated remote COG from an

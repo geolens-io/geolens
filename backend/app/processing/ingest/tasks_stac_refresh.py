@@ -353,7 +353,14 @@ async def _repoint_remote_asset(
             # where the IMPORT path reads it — one source, so the two cannot
             # disagree — and None is written when the item declares none,
             # because that is the same "unknown" a fresh import would store.
-            epsg=epsg,
+            #
+            # fix(#1334 review): the probe's own EPSG wins when it has one —
+            # `described` now carries it (from the same parsed CRS as
+            # `crs_wkt` below), and it is ground truth about the bytes this
+            # refresh just adopted, where the item's declared projection is
+            # only the publisher's claim. Matches the import path's identical
+            # preference, so the two agree on which source is authoritative.
+            epsg=(described.get("epsg") if described.get("epsg") is not None else epsg),
             # fix(#1334): `crs_wkt` joins the fields above for the same
             # reason band_count/dtype/nodata do — the moved object is not the
             # same object, and `fetch_cog_info` already reads it off. The
@@ -545,11 +552,16 @@ async def refresh_stac(
                     resolution.asset_metadata,
                     resolution.epsg,
                 )
-                # The dataset-level mirror of the same fact. The STAC import
-                # writes both from one value; a refresh that moved one and
-                # left the other would leave the catalog disagreeing with
-                # itself about the projection it serves.
-                dataset.srid = resolution.epsg
+                # The dataset-level mirror of the same fact — and it must
+                # prefer the probe's own EPSG the same way
+                # `_repoint_remote_asset` just did for the raster row
+                # (fix #1334 review), or the two would disagree about the
+                # projection this dataset serves whenever the item's
+                # declared EPSG and the probed COG's actual one differ.
+                probed_epsg = (resolution.asset_metadata or {}).get("epsg")
+                dataset.srid = (
+                    probed_epsg if probed_epsg is not None else resolution.epsg
+                )
                 # fix(#1266 review round 25): and the footprint, from the same
                 # document. A re-tiled or cropped scene comes with a new bbox,
                 # and a dataset still advertising the old one lies to every

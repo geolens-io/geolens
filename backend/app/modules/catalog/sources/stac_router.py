@@ -613,6 +613,17 @@ async def stac_import(
                 ci = cog_info_map.get(item.data_asset_href)
                 if ci is not None:
                     dataset.last_checked_at = datetime.now(timezone.utc)
+                    # fix(#1334 review): the dataset-level mirror of the
+                    # raster row's EPSG preference below — both come from
+                    # the same probe, so both must prefer it the same way,
+                    # or the OGC Records properties block (dataset.srid as
+                    # `crs`, RasterAsset fields as `proj:code`/`proj:wkt2`)
+                    # would publish two disagreeing declarations for one
+                    # dataset. Only overwritten when the probe actually
+                    # yielded an EPSG.
+                    probed_epsg = ci.get("epsg")
+                    if probed_epsg is not None:
+                        dataset.srid = probed_epsg
                 db.add(dataset)
                 await db.flush()
 
@@ -624,7 +635,13 @@ async def stac_import(
                     asset_uri=item.data_asset_href,
                     storage_backend="remote",
                     cog_status="verified",
-                    epsg=item.epsg,
+                    # fix(#1334 review): the probe's own EPSG, in preference
+                    # to the item's declared one — both now land on this row
+                    # (crs_wkt below), and a stale or wrong publisher
+                    # declaration must not describe a DIFFERENT projection
+                    # than the WKT read off the same probe. Falls back to
+                    # the item's value only when the probe yielded no EPSG.
+                    epsg=(ci.get("epsg") if ci.get("epsg") is not None else item.epsg),
                     band_count=ci.get("band_count"),
                     dtype=ci.get("dtype"),
                     width=ci.get("width"),
