@@ -367,23 +367,34 @@ describe('DatasetPage hero state machine', () => {
   // once and never re-added on prop change — so ReuploadDialog's
   // onReplaceComplete is wired to handleRetry (the same remount mechanism
   // the manual Retry button uses) to pick up a completed replacement.
-  it('wires ReuploadDialog onReplaceComplete to the same retry mechanism as the manual Retry button', () => {
+  // codex(#1362 r4): onReplaceComplete must remount the hero map WITHOUT
+  // spending the manual-retry budget — a successful replace is not a failed
+  // retry, and routing it through handleRetry would leave a later genuine
+  // tile failure unretryable once 3 replaces (or a mix of retries/replaces)
+  // had accumulated.
+  it('wires ReuploadDialog onReplaceComplete to a remount that resets the manual-retry budget', () => {
     setup({ record_type: 'raster_dataset', raster: { tile_url: '/raster-tiles/test/{z}/{x}/{y}.png' } as DatasetResponse['raster'] });
     render(<DatasetPage />, { route: '/datasets/dataset-1' });
 
-    const replaceStub = screen.getByTestId('reupload-dialog-stub');
-
-    // Mirrors the "hides retry button after 3 retries" test above, but
-    // drives retryCount via onReplaceComplete instead of clicking Retry —
-    // proving it increments the same counter through the same handler.
+    // Exhaust the manual-retry budget via the error overlay first.
     for (let i = 0; i < 3; i++) {
       act(() => { vi.advanceTimersByTime(10_000); });
-      act(() => { replaceStub.click(); });
+      const retryBtn = screen.getByRole('button', { name: 'Retry' });
+      act(() => { retryBtn.click(); });
     }
     act(() => { vi.advanceTimersByTime(10_000); });
-
     expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
     expect(screen.getByText('Tiles may still be processing')).toBeInTheDocument();
+
+    // A raster replacement completes — must hand back a fresh budget rather
+    // than push retryCount even further past the cutoff.
+    const replaceStub = screen.getByTestId('reupload-dialog-stub');
+    act(() => { replaceStub.click(); });
+
+    // A genuine tile failure on the freshly remounted hero must be
+    // retryable again, proving the budget was reset, not spent.
+    act(() => { vi.advanceTimersByTime(10_000); });
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });
 
   it('vector datasets pass onMapReady/onTileError to DatasetMap', () => {

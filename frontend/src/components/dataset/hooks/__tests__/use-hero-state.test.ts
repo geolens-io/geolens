@@ -114,6 +114,47 @@ describe('useHeroState', () => {
     expect(result.current.mapKey).toBe(1);
   });
 
+  // #1362 codex r4: a completed replacement is not a failed-tile retry —
+  // routing it through handleRetry would spend the 3-attempt manual-retry
+  // budget on a SUCCESS, leaving a later genuine tile failure unretryable.
+  it('handleReplaceComplete resets to loading, bumps mapKey, and does NOT spend the retry budget', () => {
+    const { result } = renderHook(() =>
+      useHeroState({ datasetId: 'd1', recordType: 'raster_dataset', hasTileUrl: true }),
+    );
+
+    act(() => {
+      result.current.handleReplaceComplete();
+    });
+
+    expect(result.current.heroState).toBe('loading');
+    expect(result.current.mapKey).toBe(1);
+    expect(result.current.retryCount).toBe(0);
+  });
+
+  it('handleReplaceComplete resets an already-spent retry budget instead of adding to it', () => {
+    const { result } = renderHook(() =>
+      useHeroState({ datasetId: 'd1', recordType: 'raster_dataset', hasTileUrl: true }),
+    );
+
+    // Exhaust the manual-retry budget first.
+    act(() => { result.current.onTileError(); });
+    act(() => { result.current.handleRetry(); });
+    act(() => { result.current.onTileError(); });
+    act(() => { result.current.handleRetry(); });
+    act(() => { result.current.onTileError(); });
+    act(() => { result.current.handleRetry(); });
+    expect(result.current.retryCount).toBe(3);
+
+    act(() => {
+      result.current.handleReplaceComplete();
+    });
+
+    // A successful replace hands back a fresh budget rather than pushing
+    // retryCount even further past the Retry-button cutoff.
+    expect(result.current.retryCount).toBe(0);
+    expect(result.current.heroState).toBe('loading');
+  });
+
   it('skips to loaded for raster with no tile URL', () => {
     const { result } = renderHook(() =>
       useHeroState({ datasetId: 'd1', recordType: 'raster_dataset', hasTileUrl: false }),

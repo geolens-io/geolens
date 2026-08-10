@@ -233,6 +233,7 @@ export function DatasetPage() {
     retryCount,
     mapKey,
     handleRetry,
+    handleReplaceComplete,
     onMapReady,
     onTileError,
   } = useHeroState({
@@ -674,9 +675,12 @@ export function DatasetPage() {
             // route (not content-versioned), and the hero map's raster
             // source is added once and never re-added on prop change — so a
             // completed replacement needs an explicit remount to show the
-            // new tiles. Reuse the existing hero-error retry mechanism,
-            // which already does exactly that (reset heroState, bump mapKey).
-            onReplaceComplete={handleRetry}
+            // new tiles.
+            // fix(#1362 codex r4): use the dedicated handleReplaceComplete,
+            // not handleRetry — a success isn't a failed-tile retry, and
+            // routing it through handleRetry spent the 3-attempt manual-retry
+            // budget on every successful replace.
+            onReplaceComplete={handleReplaceComplete}
           />
         </Suspense>
       )}
