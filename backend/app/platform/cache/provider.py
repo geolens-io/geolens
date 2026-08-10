@@ -2,11 +2,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Protocol
 
+import structlog
+
 if TYPE_CHECKING:
     from app.platform.cache.tile_cache import (
         InMemoryTileCacheProvider,
         TileCacheProvider,
     )
+
+logger = structlog.stdlib.get_logger(__name__)
 
 
 class CacheProvider(Protocol):
@@ -63,13 +67,21 @@ def get_cache() -> CacheProvider:
 _tile_cache: "TileCacheProvider | InMemoryTileCacheProvider | None" = None
 
 
-def init_tile_cache() -> None:
+def init_tile_cache(*, in_memory_fallback: bool = True) -> None:
     """Initialize the tile cache singleton.
 
     Uses the Redis-backed binary provider when ``REDIS_URL`` is set;
     otherwise falls back to an in-memory LRU provider (PERF-01,
     Phase 274) so smaller single-VPS deployments still get tile-cache
     benefits without running Redis.
+
+    fix(#1315): pass ``in_memory_fallback=False`` from a process that only
+    ever INVALIDATES tiles and never reads them — the Procrastinate worker.
+    A process-local LRU there holds nothing, because nothing in that process
+    ever caches a tile, so the post-swap purge would evict zero entries while
+    logging ``tile_cache_invalidated`` — a no-op wearing a success message.
+    Leaving the singleton unset instead makes the gap legible: the caller sees
+    ``None`` and the warning below says what is lost and how to fix it.
     """
     global _tile_cache
     from app.core.config import settings
@@ -80,21 +92,40 @@ def init_tile_cache() -> None:
         )
 
         _tile_cache = _TileCacheProvider(url=settings.redis_url)
-    else:
-        # PERF-01 (Phase 274): bounded in-memory LRU fallback.
-        from app.platform.cache.tile_cache import (
-            InMemoryTileCacheProvider as _InMemoryTileCacheProvider,
-        )
+        return
 
-        _tile_cache = _InMemoryTileCacheProvider()
+    if not in_memory_fallback:
+        _tile_cache = None
+        logger.warning(
+            "tile_cache_unavailable_in_worker",
+            reason="REDIS_URL is unset",
+            consequence=(
+                "worker-side MVT purges after a reupload or PostGIS refresh "
+                "cannot reach the API process's in-memory tile cache; the API "
+                "keeps serving pre-swap tiles for up to tile_cache_ttl"
+            ),
+            remediation="set REDIS_URL so both processes share one tile cache",
+        )
+        return
+
+    # PERF-01 (Phase 274): bounded in-memory LRU fallback.
+    from app.platform.cache.tile_cache import (
+        InMemoryTileCacheProvider as _InMemoryTileCacheProvider,
+    )
+
+    _tile_cache = _InMemoryTileCacheProvider()
 
 
 def get_tile_cache() -> "TileCacheProvider | InMemoryTileCacheProvider | None":
     """Return the tile cache provider.
 
-    PERF-01 (Phase 274): after ``init_tile_cache()`` has run this is
-    always non-None — the in-memory fallback is used when ``REDIS_URL``
-    is unset. ``None`` is only possible if ``init_tile_cache()`` was
-    never called (e.g. inside a unit test before app startup).
+    PERF-01 (Phase 274): in the API process this is non-None after
+    ``init_tile_cache()`` has run — the in-memory fallback covers an unset
+    ``REDIS_URL``.
+
+    ``None`` means one of two things: ``init_tile_cache()`` was never called
+    (a unit test before app startup), or fix(#1315) — the worker process
+    with ``REDIS_URL`` unset, where no cache this process could hold would
+    be the cache anyone reads.
     """
     return _tile_cache

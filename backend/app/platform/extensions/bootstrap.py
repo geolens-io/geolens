@@ -39,6 +39,7 @@ from app.platform.extensions import (
     load_extensions,
 )
 from app.platform.cache import init_cache
+from app.platform.cache.provider import init_tile_cache
 from app.platform.storage import init_storage
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -250,6 +251,8 @@ async def bootstrap(*, app: "FastAPI | None" = None) -> EditionInfo:
     8. ``get_billing_extensions().on_startup(app)`` dispatch loop — only when
        ``app`` is provided (billing startup hooks need the app object).
     9. ``init_cache()`` — register the cache provider.
+    9b. ``init_tile_cache()`` — register the binary MVT tile cache. The
+       in-memory fallback is API-only (fix #1315).
 
     Returns the ``EditionInfo`` from ``get_edition()``.
 
@@ -360,6 +363,21 @@ async def bootstrap(*, app: "FastAPI | None" = None) -> EditionInfo:
 
     # Step 9: Initialize cache.
     init_cache()
+
+    # Step 9b (fix #1315): initialize the binary tile cache. This used to live
+    # in the API lifespan alone, so get_tile_cache() returned None in the
+    # worker and every post-swap MVT purge — reupload_file, reupload_service,
+    # refresh_postgis — returned without evicting anything. fix(#394) B-019
+    # added those purges because a swap replaces a table's contents under the
+    # same name and the tile cache key has no content-version dimension; from
+    # the worker they had never once taken effect.
+    #
+    # The worker gets no in-memory fallback (see init_tile_cache): it never
+    # reads tiles, so a process-local LRU there would be a purge that evicts
+    # nothing and says it worked. `app is not None` is the right discriminator
+    # because the FastAPI app IS the tile-serving surface — the process holding
+    # one is the only process a process-local tile cache could ever serve.
+    init_tile_cache(in_memory_fallback=app is not None)
 
     # Step 10 (ISO-02): Mode-gated idempotent RLS enablement (Phase 1208-02).
     # In single_tenant: no-op (zero SQL, zero planner cost).
