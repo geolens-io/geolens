@@ -663,14 +663,7 @@ async def _resolve_from_item(
     # projection too, and writing the other one's EPSG would describe the
     # wrong object in STAC output and in VRT compatibility checks.
     properties = describing.get("properties")
-    stated_bbox = describing.get("bbox")
-    usable_bbox = (
-        [float(value) for value in stated_bbox[:4]]
-        if isinstance(stated_bbox, list)
-        and len(stated_bbox) >= 4
-        and all(isinstance(value, (int, float)) for value in stated_bbox[:4])
-        else None
-    )
+    usable_bbox = _horizontal_bbox(describing.get("bbox"))
     resolved_id = item.get("id")
     return StacResolution(
         health=probed.health,
@@ -789,6 +782,29 @@ async def _trustworthy_self_href(
     # The final URL, not the declared one: this fetch may have redirected
     # too, and the base is always where the document came from.
     return self_href, final_url, document
+
+
+def _horizontal_bbox(stated: Any) -> list[float] | None:
+    """``[west, south, east, north]`` from a STAC bbox, or None.
+
+    fix(#1266 review round 26): a bbox may be SIX values —
+    ``minx, miny, minz, maxx, maxy, maxz`` — which GeoJSON and STAC both
+    allow and this repository already handles in ``parse_bbox``. Taking the
+    first four of those reads the elevation as east and the longitude as
+    north, and writes a corrupted extent. The horizontal pair is at indices
+    0, 1, 3, 4 in the 3D form and 0, 1, 2, 3 in the 2D one; anything else
+    states no footprint this can use.
+    """
+    if not isinstance(stated, list) or len(stated) not in (4, 6):
+        return None
+    indices = (0, 1, 2, 3) if len(stated) == 4 else (0, 1, 3, 4)
+    values = [stated[index] for index in indices]
+    if not all(
+        isinstance(value, (int, float)) and not isinstance(value, bool)
+        for value in values
+    ):
+        return None
+    return [float(value) for value in values]
 
 
 def _searched_feature(

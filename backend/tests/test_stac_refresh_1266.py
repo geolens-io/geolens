@@ -2298,6 +2298,26 @@ class TestWorker:
         # The new footprint, not the one imported.
         assert "20" in extent and "55" in extent
 
+    def test_a_three_dimensional_bbox_keeps_its_horizontal_pair(self) -> None:
+        """fix(#1266 review round 26): a bbox may be SIX values.
+
+        `minx, miny, minz, maxx, maxy, maxz` sliced to its first four reads
+        the elevation as east and the longitude as north, and writes a
+        corrupted extent. `parse_bbox` already reduces 3D bboxes the same way.
+        """
+        assert stac_resolve._horizontal_bbox([10.0, 45.0, 11.0, 46.0]) == [
+            10.0,
+            45.0,
+            11.0,
+            46.0,
+        ]
+        assert stac_resolve._horizontal_bbox(
+            [10.0, 45.0, 100.0, 11.0, 46.0, 900.0]
+        ) == [10.0, 45.0, 11.0, 46.0]
+        assert stac_resolve._horizontal_bbox([10.0, 45.0, 11.0]) is None
+        assert stac_resolve._horizontal_bbox([10.0, 45.0, "x", 46.0]) is None
+        assert stac_resolve._horizontal_bbox(None) is None
+
     async def test_an_unchanged_item_dates_the_refresh_without_rebinding(
         self, client, admin_auth_header, test_db_session, stac_transport
     ) -> None:
