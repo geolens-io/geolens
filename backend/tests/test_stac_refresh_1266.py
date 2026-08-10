@@ -1080,6 +1080,36 @@ class TestResolution:
         assert result.asset_href != stale
         assert result.asset_href == correct
 
+    async def test_the_pointer_and_the_asset_come_from_one_document(
+        self, stac_transport
+    ) -> None:
+        """fix(#1266 review round 23): one binding, one document.
+
+        When two addresses for the same item give the bound key different
+        hrefs, storing one document's pointer beside the other's href made
+        this run adopt the first asset while the next run — reading the
+        pointer it was handed — switched to the second.
+        """
+        install, _ = stac_transport
+        canonical = f"{_ROOT}/v2/collections/scenes/items/scene-1"
+        newer_asset = "https://origin.test/v2/tiles/new.tif"
+        install(
+            {
+                _ITEM: (200, _item_doc(asset_href=_ASSET, self_href=canonical)),
+                canonical: (
+                    200,
+                    _item_doc(asset_href=newer_asset, self_href=canonical),
+                ),
+                _ASSET: (206, None),
+                newer_asset: (206, None),
+            }
+        )
+        result = await _resolve(item_href=_ITEM)
+        assert result.item_href == canonical
+        # The asset comes from the document that pointer names, so a refresh
+        # from the stored pointer would reach the same answer.
+        assert result.asset_href == newer_asset
+
     async def test_a_self_link_that_redirects_into_a_blocked_target_is_refused(
         self, stac_transport
     ) -> None:

@@ -542,7 +542,7 @@ async def _resolve_from_item(
     # only on the way to storage left the first one reading from an untrusted
     # URL, so an item advertising a login page could still have a COG resolved
     # under that page's path and persisted as this dataset's asset.
-    self_href, self_base = await _trustworthy_self_href(
+    self_href, self_base, self_document = await _trustworthy_self_href(
         item,
         document_url=document_url,
         fallback=fallback_item_href,
@@ -563,7 +563,13 @@ async def _resolve_from_item(
     # relative href cannot be resolved at all — joining it against `/search`
     # composes a path under the query endpoint, and the danger is precisely
     # that something might be served there.
-    raw_href = assets[key].get("href")
+    # fix(#1266 review round 23): one binding, one document. When a
+    # canonical address was adopted above, the asset is read from what THAT
+    # address serves — storing one document's pointer beside another
+    # document's href would have this run adopt the first's asset while the
+    # next run, reading the pointer it was handed, switched to the second's.
+    describing = self_document if self_document is not None else item
+    raw_href = describing["assets"][key].get("href")
     asset_base = self_base or item_base or _absolute_http(raw_href)
     if asset_base is None:
         return _ASSET_UNADDRESSABLE
@@ -662,8 +668,8 @@ async def _trustworthy_self_href(
     fallback_is_live: bool,
     collection_id: str | None,
     asset_key: str,
-) -> tuple[str | None, str | None]:
-    """``(pointer to store, base for relative hrefs)``, either may be None.
+) -> tuple[str | None, str | None, dict[str, Any] | None]:
+    """``(pointer to store, base for relative hrefs, the document at it)``.
 
     fix(#1266 review round 22): two values, because the self link plays two
     roles and they do not always name the same URL. The POINTER is the
@@ -691,6 +697,13 @@ async def _trustworthy_self_href(
       the dataset needs, and an address that has the item without the asset
       is one the next refresh cannot get anything from.
 
+    The document comes back with the pointer (fix #1266 review round 23)
+    because the two have to describe each other. When a canonical address is
+    adopted, the ASSET has to be read from the document that address serves —
+    otherwise a refresh stores one document's pointer beside another
+    document's href, this run adopts `old.tif`, and the next run, reading the
+    pointer it was handed, switches to `new.tif`. One binding, one document.
+
     A None pointer means "keep what you have": the document in hand is still
     this item, so the refresh proceeds from the URL it demonstrably came
     from, and the working pointer is not overwritten. Dropped rather than
@@ -699,7 +712,7 @@ async def _trustworthy_self_href(
     """
     self_href = self_link_href(item, document_url)
     if self_href is None:
-        return None, None
+        return None, None, None
     if self_href == fallback and fallback_is_live:
         # Nothing to prove: this is the URL the document was just fetched
         # from. fix(#1266 review round 21): only on the direct path. The
@@ -712,16 +725,16 @@ async def _trustworthy_self_href(
         # the one the caller ASKED for, and the caller's `item_base` is the
         # one that answered. Under a redirect those differ, and the relative
         # hrefs belong to the address that served the document.
-        return self_href, None
+        return self_href, None, None
     if _url_contradicts_identity(
         self_href, item_id=item.get("id"), collection_id=collection_id
     ):
         logger.info("stac_self_link_identity_mismatch", item_id=item.get("id"))
-        return None, None
+        return None, None, None
     result, document, final_url = await fetch_json_document(self_href)
     if not result.ok:
         logger.info("stac_self_link_not_adopted", detail=result.detail)
-        return None, None
+        return None, None, None
     stated_id = item.get("id")
     refusal = _identity_refusal(
         document,
@@ -732,7 +745,7 @@ async def _trustworthy_self_href(
     )
     if refusal is not None:
         logger.info("stac_self_link_does_not_serve_this_item")
-        return None, None
+        return None, None, None
     replacement_asset = document.get("assets", {}).get(asset_key)
     if not isinstance(replacement_asset, dict) or (
         # fix(#1266 review round 21): present is not the same as usable. A
@@ -742,10 +755,10 @@ async def _trustworthy_self_href(
         storable_href(replacement_asset.get("href"), final_url) is None
     ):
         logger.info("stac_self_link_lacks_the_bound_asset", asset_key=asset_key)
-        return None, None
+        return None, None, None
     # The final URL, not the declared one: this fetch may have redirected
     # too, and the base is always where the document came from.
-    return self_href, final_url
+    return self_href, final_url, document
 
 
 def _searched_feature(
