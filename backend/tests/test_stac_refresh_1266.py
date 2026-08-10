@@ -169,6 +169,12 @@ def cog_info(monkeypatch):
         "height": 512,
         "nodata": 0,
         "band_info": [{"min": 0, "max": 4095, "mean": 1200}],
+        # fix(#1334): the shape fetch_cog_info actually returns, so tests
+        # against this fixture exercise the same fields the refresh path
+        # now writes to the asset row.
+        "crs_wkt": 'PROJCS["WGS 84 / UTM zone 33N",AUTHORITY["EPSG","32633"]]',
+        "res_x": 10.0,
+        "res_y": 10.0,
     }
     calls: list[str] = []
 
@@ -2311,6 +2317,14 @@ class TestWorker:
         assert described.band_info == [{"min": 0, "max": 4095, "mean": 1200}]
         # One integer band is imagery, not elevation.
         assert described.is_dem is False
+        # fix(#1334): the moved object's own georeferencing, from the same
+        # probe as band_count/dtype/nodata — not left stale like the fields
+        # above would be if the refresh only wrote the address.
+        assert described.crs_wkt == (
+            'PROJCS["WGS 84 / UTM zone 33N",AUTHORITY["EPSG","32633"]]'
+        )
+        assert described.res_x == 10.0
+        assert described.res_y == 10.0
         # A moved member has to read as newer than any VRT built on it: a
         # mosaic that recorded no `built_from` is judged by this stamp alone,
         # and it still embeds the old URL.

@@ -631,6 +631,13 @@ async def stac_import(
                     height=ci.get("height"),
                     nodata=str(nodata_raw) if nodata_raw is not None else None,
                     band_info=ci.get("band_info"),
+                    # fix(#1334): fetch_cog_info already retrieves these; they
+                    # were simply never read off the probe result onto the
+                    # row, which is why every remote raster's Raster
+                    # Properties card showed no resolution.
+                    crs_wkt=ci.get("crs_wkt"),
+                    res_x=ci.get("res_x"),
+                    res_y=ci.get("res_y"),
                 )
                 db.add(raster_asset)
 

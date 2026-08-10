@@ -24,11 +24,64 @@ from app.platform.storage.titiler_url import build_titiler_cog_url
 logger = structlog.get_logger(__name__)
 
 
+def _georeferencing(info: dict) -> dict:
+    """``crs_wkt``/``res_x``/``res_y`` from Titiler's raw ``/cog/info`` reply.
+
+    fix(#1334): both were retrievable all along and simply never read out of
+    this response. Titiler answers ``crs`` as an OGC CRS URI
+    (``http://www.opengis.net/def/crs/EPSG/0/<code>``) and ``bounds`` in the
+    dataset's OWN projection, not WGS84 — verified against a live 2.2.1
+    instance. GDAL's CRS parser accepts that URI form directly, so the WKT
+    round-trips through the same ``rasterio.crs.CRS`` every other ingest path
+    already writes ``crs_wkt`` from (``raster/cog.py``). Resolution is
+    bounds-over-pixels — the ratio a non-rotated GeoTIFF's transform encodes
+    — because there is no transform in this response to read one from
+    directly; a rotated remote asset would report a resolution rasterio's own
+    ``transform.a``/``transform.e`` would not describe as one either.
+
+    Individual failures degrade to None rather than raising: this is
+    descriptive metadata for a UI card, not something a failed probe should
+    abort over.
+    """
+    crs_wkt = None
+    crs_value = info.get("crs")
+    if isinstance(crs_value, str) and crs_value:
+        try:
+            from rasterio.crs import CRS
+
+            crs_wkt = CRS.from_user_input(crs_value).to_wkt()
+        except (
+            Exception
+        ):  # broad: an unfamiliar CRS string should not fail the whole probe
+            crs_wkt = None
+
+    res_x = res_y = None
+    bounds = info.get("bounds")
+    width = info.get("width")
+    height = info.get("height")
+    if (
+        isinstance(bounds, list)
+        and len(bounds) == 4
+        and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in bounds)
+        and isinstance(width, int)
+        and not isinstance(width, bool)
+        and isinstance(height, int)
+        and not isinstance(height, bool)
+        and width > 0
+        and height > 0
+    ):
+        res_x = abs(bounds[2] - bounds[0]) / width
+        res_y = abs(bounds[3] - bounds[1]) / height
+
+    return {"crs_wkt": crs_wkt, "res_x": res_x, "res_y": res_y}
+
+
 async def fetch_cog_info(url: str) -> dict | None:
     """Fetch COG metadata + statistics from Titiler for a remote asset URL.
 
-    Returns dict with band_count, dtype, width, height, band_info (with
-    min/max per band for rescaling), or None on failure.
+    Returns dict with band_count, dtype, width, height, crs_wkt, res_x,
+    res_y, band_info (with min/max per band for rescaling), or None on
+    failure.
 
     fix(#1271 review): None deliberately collapses every failure shape.
     A non-200 from Titiler is NOT proof the origin was attempted — the
@@ -99,6 +152,7 @@ async def fetch_cog_info(url: str) -> dict | None:
                 "height": info.get("height"),
                 "nodata": info.get("nodata"),
                 "band_info": band_info or None,
+                **_georeferencing(info),
             }
     except Exception as exc:  # broad: Titiler info call — httpx/JSON parse can throw varied errors; degrade to None
         logger.debug("Failed to fetch COG info from Titiler", url=url, error=str(exc))

@@ -353,14 +353,16 @@ async def _repoint_remote_asset(
             # where the IMPORT path reads it — one source, so the two cannot
             # disagree — and None is written when the item declares none,
             # because that is the same "unknown" a fresh import would store.
-            #
-            # `crs_wkt`, `res_x` and `res_y` are deliberately not in this
-            # list: nothing on a remote-asset row has ever set them (the STAC
-            # import does not, and only the managed-COG path does), so they
-            # are NULL here by construction and there is nothing stale to
-            # correct. Writing a derived value into them would be inventing
-            # georeferencing rather than refreshing it.
             epsg=epsg,
+            # fix(#1334): `crs_wkt`/`res_x`/`res_y` join the fields above for
+            # the same reason band_count/dtype/nodata do — the moved object
+            # is not the same object, and `fetch_cog_info` already reads
+            # these off it. The STAC import path now writes them too, so
+            # leaving them stale here would let a refreshed dataset disagree
+            # with what a fresh import of the same asset would record.
+            crs_wkt=described.get("crs_wkt"),
+            res_x=described.get("res_x"),
+            res_y=described.get("res_y"),
         )
     )
 

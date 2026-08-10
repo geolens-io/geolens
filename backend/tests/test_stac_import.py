@@ -526,6 +526,92 @@ class TestStacImport:
         assert detail.json()["last_checked_at"] is not None
         assert detail.json()["source_health"] == "unknown"
 
+    async def test_import_projects_cog_info_georeferencing_onto_the_asset(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        mock_stac_ssrf,
+        test_db_session,
+    ):
+        """fix(#1334): fetch_cog_info retrieves crs_wkt/res_x/res_y for a
+        remote asset the same way it retrieves band_count/dtype, but nothing
+        wrote them onto the raster_assets row — the UI's Raster Properties
+        card showed "— x —" for every STAC import's resolution. The Titiler
+        probe already runs at import time; this only asks that its answer be
+        kept, the same way its other fields already are.
+        """
+        crs_wkt = (
+            'PROJCS["WGS 84 / UTM zone 21N",GEOGCS["WGS 84",'
+            'DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],'
+            'PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],'
+            'PROJECTION["Transverse_Mercator"],'
+            'PARAMETER["latitude_of_origin",0],'
+            'PARAMETER["central_meridian",-57],'
+            'PARAMETER["scale_factor",0.9996],'
+            'PARAMETER["false_easting",500000],'
+            'PARAMETER["false_northing",0],'
+            'UNIT["metre",1],AXIS["Easting",EAST],AXIS["Northing",NORTH],'
+            'AUTHORITY["EPSG","32621"]]'
+        )
+        with patch(
+            "app.modules.catalog.sources.stac_router.fetch_cog_info",
+            new=AsyncMock(
+                return_value={
+                    "band_count": 1,
+                    "dtype": "uint16",
+                    "width": 2658,
+                    "height": 2667,
+                    "nodata": None,
+                    "band_info": None,
+                    "crs_wkt": crs_wkt,
+                    "res_x": 100.0,
+                    "res_y": 100.011,
+                }
+            ),
+        ):
+            resp = await client.post(
+                "/services/stac/import",
+                json={
+                    "url": "https://stac.example.com/v1",
+                    "items": [
+                        {
+                            "id": f"test-item-{uuid.uuid4().hex[:8]}",
+                            "collection": "dem-collection",
+                            "title": "Georeferenced STAC Import",
+                            "data_asset_href": "https://example.com/data/geo.tif",
+                            "bbox": [-1, -1, 1, 1],
+                            "epsg": 32621,
+                        }
+                    ],
+                    "visibility": "private",
+                },
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["created"] == 1
+        dataset_id = data["results"][0]["dataset_id"]
+
+        detail = await client.get(f"/datasets/{dataset_id}", headers=admin_auth_header)
+        assert detail.status_code == 200
+        raster = detail.json()["raster"]
+        assert raster["res_x"] == pytest.approx(100.0)
+        assert raster["res_y"] == pytest.approx(100.011)
+        # A projected UTM CRS, not geographic — proves crs_wkt round-tripped
+        # far enough for PROJ to classify it, not just landed as a string.
+        assert raster["crs_is_geographic"] is False
+
+        row = (
+            await test_db_session.execute(
+                text(
+                    "SELECT ra.crs_wkt FROM catalog.raster_assets ra"
+                    " JOIN catalog.datasets d ON d.id = ra.dataset_id"
+                    " WHERE d.id = :did"
+                ).bindparams(did=uuid.UUID(dataset_id))
+            )
+        ).one()
+        assert row.crs_wkt == crs_wkt
+
     async def test_import_antimeridian_bbox_stores_two_rings(
         self,
         client: AsyncClient,
