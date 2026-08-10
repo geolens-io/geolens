@@ -1710,6 +1710,98 @@ async def invalidate_tile_cache_for_table(table_name: str) -> None:
         await tile_cache.invalidate_table(table_name)
 
 
+# What PostGIS records in ``geometry_columns.type`` for an untyped column.
+# A specific value ("POLYGON", "MULTILINESTRING", ...) describes what the
+# column will accept; this one describes nothing.
+_GENERIC_GEOMETRY_TYPE = "GEOMETRY"
+
+# The record types ``service_create.py`` derives from "does this dataset have
+# geometry". Raster and VRT records carry their own modality and must never be
+# re-derived from a geometry column they do not have.
+_DERIVED_RECORD_TYPES: frozenset[str] = frozenset({"table", "vector_dataset"})
+
+
+async def _declared_geometry_type(
+    session: Any, *, schema: str, table: str
+) -> str | None:
+    """The geom column's DECLARED type, or None when the relation has no geom.
+
+    fix(#1313 review round 5): ``extract_metadata`` derives the geometry type
+    by sampling a row (``GeometryType(geom) ... LIMIT 1``), so a spatial table
+    that has been emptied reports None — indistinguishable, from the
+    measurement alone, from a table that never had geometry at all. Writing
+    that None reclassified the dataset as tabular, and the consequences are
+    not cosmetic: ``_require_feature_table`` refuses feature writes to a
+    dataset whose ``geometry_type`` is None, so a refresh of an emptied table
+    would lock the API out of ever repopulating it, and the builder drops its
+    layers as unsupported.
+
+    ``geometry_columns`` answers the question the rows cannot: it describes
+    the COLUMN. A row here means the relation is spatial whatever it
+    currently holds; no row means it genuinely is not.
+
+    fix(#1373): lives here rather than in ``tasks_postgis_refresh`` because the
+    reupload swap reaches the identical trap from the other direction — an
+    empty spatial FILE stages a relation whose geom column is right there — and
+    two spellings of this question are how the two paths end up disagreeing
+    about the same dataset.
+    """
+    from sqlalchemy import text
+
+    return await session.scalar(
+        text(
+            "SELECT type FROM geometry_columns "
+            "WHERE f_table_schema = :schema AND f_table_name = :table "
+            "AND f_geometry_column = 'geom'"
+        ),
+        {"schema": schema, "table": table},
+    )
+
+
+def _effective_geometry_type(
+    *, measured: str | None, declared: str | None, stored: str | None
+) -> str | None:
+    """The geometry type this measurement establishes, from the best evidence.
+
+    One rule in one place: the write applies it and the quality score is
+    computed under it, and a second spelling of this precedence is how those
+    two end up describing different datasets.
+
+    - a sampled row is what the data actually is;
+    - no rows but a specific declared column type is what the column accepts;
+    - no rows and a generic ``geometry`` column establishes only that the
+      relation is spatial, so the catalog keeps what it last measured, and
+      falls back to the generic sentinel when it has measured nothing;
+    - no ``geom`` column at all is genuinely not spatial, and the only case
+      that yields None.
+
+    fix(#1382 review r1): that fallback is the difference between the rule and
+    its own first sentence. Returning ``stored`` unconditionally meant a
+    generic empty column over a dataset the catalog had never measured (an
+    empty mixed-geometry file over a tabular dataset, or a retry against a row
+    the old bug had already NULLed) resolved to None and stayed classified
+    ``table`` — locked out of feature writes, against a relation that plainly
+    has a geometry column. ``GEOMETRY`` is how this codebase already spells
+    "spatial, subtype unknown": ``chk_datasets_geometry_type`` admits it,
+    ``_validate_geometry_type`` accepts every subtype under it (#430 BA-32),
+    and the builder routes it to the mixed adapter (#430 r23).
+    """
+    if measured is not None:
+        return measured
+    if declared is None:
+        return None
+    if declared != _GENERIC_GEOMETRY_TYPE:
+        return declared
+    return stored if stored is not None else _GENERIC_GEOMETRY_TYPE
+
+
+def _derived_record_type(current: str | None, geometry_type: str | None) -> str | None:
+    """``record_type`` as ``service_create.py`` derives it, for the two it owns."""
+    if current not in _DERIVED_RECORD_TYPES:
+        return current
+    return "table" if geometry_type is None else "vector_dataset"
+
+
 async def _apply_reupload_swap(
     session,
     *,
@@ -1744,7 +1836,6 @@ async def _apply_reupload_swap(
     )  # LAZY — preserved per D-17
     from app.platform.extensions import get_processing_port
     from app.processing.ingest.metadata import (
-        _table_has_geometry,
         compute_quality_score,
         refresh_attribute_metadata,
     )
@@ -1852,21 +1943,54 @@ async def _apply_reupload_swap(
             retry_timeout_seconds=15,
         )
 
+    # fix(#1373): resolve the geometry type ONCE, from the relation the swap
+    # just installed, and use that one value everywhere below.
+    #
+    # `extract_metadata` samples a row (`GeometryType(geom) ... LIMIT 1`), so a
+    # spatial file carrying zero features — or only NULL geometries — measures
+    # None while the relation it staged still has its geometry column. Writing
+    # that None reclassified the dataset as tabular: `_require_feature_table`
+    # then refuses feature writes, so the API could never repopulate the table
+    # through GeoLens, and the builder drops its layers as unsupported.
+    # `_declared_geometry_type` supplies the evidence the rows cannot, and the
+    # precedence is the refresh path's — the same helpers, imported, not a
+    # second spelling of the rule (#1313 fell into this trap first).
+    #
+    # Read before the write below, because `stored` is the PRE-swap value: a
+    # generic `geometry` column with no rows establishes only that the relation
+    # is spatial, so the honest answer is what the catalog last measured.
+    previous_geometry_type = dataset.geometry_type
+    effective_geometry_type = _effective_geometry_type(
+        measured=metadata["geometry_type"],
+        declared=await _declared_geometry_type(
+            session, schema=_tenant_schema, table=table_name
+        ),
+        stored=previous_geometry_type,
+    )
+
     # fix(#448): belt-and-braces after the swap — the staging pipeline is
     # responsible for the GIST index, but a re-ingest of a table that already
     # lost its index (the IF-NOT-EXISTS name-collision regression) must
     # self-heal here rather than serve full-scan tiles until the next audit.
-    if metadata.get("geometry_type") is not None:
+    if effective_geometry_type is not None:
         from app.processing.ingest.metadata import ensure_geom_4326_gist_index
 
         await ensure_geom_4326_gist_index(session, table_name, schema=_tenant_schema)
 
     # Update dataset metadata in the same transaction as swap
     dataset.srid = metadata["srid"]
-    # fix(#1314): read before the overwrite — the reconcile below is the only
-    # thing that needs the PRE-swap modality, and one line later it is gone.
-    previous_geometry_type = dataset.geometry_type
-    dataset.geometry_type = metadata["geometry_type"]
+    dataset.geometry_type = effective_geometry_type
+    # fix(#1361): modality is derived, so keep deriving it. `service_create.py`
+    # sets `record_type` from whether the dataset has geometry, and a reupload
+    # is one of the two operations that can change the answer afterwards.
+    # `build_assets` reads it live, so leaving it stale means a de-spatialized
+    # dataset goes on advertising vector-tile and OGC-Features links against a
+    # relation with no geometry column, and a newly-spatial one never advertises
+    # them at all. Fed the EFFECTIVE type rather than the sampled one, or an
+    # empty spatial reupload would flip a still-spatial dataset to `table`.
+    dataset.record.record_type = _derived_record_type(
+        dataset.record.record_type, effective_geometry_type
+    )
     dataset.feature_count = metadata["feature_count"]
     if metadata["extent_wkt"] is not None:
         dataset.record.spatial_extent = func.ST_GeomFromText(
@@ -1879,9 +2003,17 @@ async def _apply_reupload_swap(
         session,
         dataset.id,
         metadata["column_info"],
-        geometry_type=metadata.get("geometry_type"),
+        geometry_type=effective_geometry_type,
         sample_values=sample_values,
     )
+    # NOT fixed here, and filed as #1380: that helper touches the synthetic
+    # `geom` attribute row only when geometry_type is non-null and excludes it
+    # from the removed-column sweep by name, so a de-spatializing reupload
+    # leaves the row current against a relation with no geometry. The refresh
+    # path retires it explicitly (#1313 review round 7); this one still does
+    # not. It is a row this swap has never written, unlike the two fields
+    # #1373 and #1361 asked for, so folding it in would widen the change past
+    # both issues.
 
     # fix(#1314): a reupload can replace a spatial dataset with a non-spatial
     # one (or the reverse), and the auto-generated `record_distributions` rows
@@ -1890,47 +2022,30 @@ async def _apply_reupload_swap(
     # for the same reason as there: reconcile normalizes `is_primary`, and a
     # reupload that kept the modality has no business rewriting it.
     #
-    # NOT fixed here, and filed as #1361: this path leaves
-    # `dataset.record.record_type` at whatever creation derived, so a
-    # de-spatialized reupload still reads as a `vector_dataset` and
-    # `build_assets` still emits tile links from it. That is a different field
-    # with a different derivation (the refresh path owns the only copy of it),
-    # and folding it in would widen this change past the distributions #1314
-    # asked for.
+    # fix(#1373): the flip is read off the EFFECTIVE type, which is also the
+    # value written to `geometry_type` and `record_type` above — so the three
+    # cannot disagree about one swap. #1314 review round 2 reached the same
+    # answer for the demote alone by asking `_table_has_geometry` whether the
+    # relation still had its geom column, because reconciling on the sampled
+    # None would DELETE the GeoPackage, GeoJSON, Shapefile, GeoParquet and
+    # vector-tile rows of a still-spatial dataset. That question is now
+    # subsumed: `_declared_geometry_type` returns None exactly when there is no
+    # geom column, which is the only case the precedence resolves to None.
     #
-    # fix(#1314 review round 2): the demote needs positive evidence, and
-    # `metadata["geometry_type"]` is not it. `extract_metadata` derives the
-    # type by sampling a row (`GeometryType(geom) ... LIMIT 1`), so a spatial
-    # reupload carrying zero features — or only NULL geometries — reports None
-    # while the relation it just installed still has its geometry column.
-    # Reconciling on that would DELETE the GeoPackage, GeoJSON, Shapefile,
-    # GeoParquet and vector-tile rows of a dataset that is still spatial.
-    # #1313 hit the identical trap on the refresh path (review round 5) and
-    # answered it by deriving the type from the COLUMN rather than the rows;
-    # here the column's presence is the entire question, and
-    # `_table_has_geometry` is the codebase's existing way to ask it.
-    #
-    # Only the demote pays for that query, and the third case falls through
-    # deliberately: a TABULAR dataset reuploaded from an empty spatial file
-    # measures None, so there is no type to promote to and no distribution set
-    # to promote it into. Nothing changes until a reupload or a refresh
-    # actually measures geometry, which is the same answer
-    # `dataset.geometry_type` gets on that path.
-    measured_geometry_type = metadata["geometry_type"]
+    # The promote widens accordingly, and deliberately: #1314 let a TABULAR
+    # dataset reuploaded from an empty spatial file fall through, on the
+    # grounds that nothing measured a type so `dataset.geometry_type` stayed
+    # None too. It no longer does — a specific declared column type is now
+    # written — so the distributions follow it.
     was_spatial = previous_geometry_type is not None
-    demoted = (
-        was_spatial
-        and measured_geometry_type is None
-        and not await _table_has_geometry(session, table_name, schema=_tenant_schema)
-    )
-    promoted = not was_spatial and measured_geometry_type is not None
-    if demoted or promoted:
+    is_spatial = effective_geometry_type is not None
+    if was_spatial != is_spatial:
         await port.reconcile_distributions(
             session,
             dataset.id,
             dataset.record_id,
             table_name,
-            geometry_type=measured_geometry_type,
+            geometry_type=effective_geometry_type,
         )
 
     dataset.source_format = source_format
@@ -1998,7 +2113,9 @@ async def _apply_reupload_swap(
         source_format=source_format,
         feature_count=metadata["feature_count"],
         srid=metadata["srid"],
-        geometry_type=metadata["geometry_type"],
+        # The effective type, so the version history and the dataset row it
+        # describes never disagree about what this swap installed (#1373).
+        geometry_type=effective_geometry_type,
         file_hash=file_hash,
         uploaded_by=actor_id,
     )

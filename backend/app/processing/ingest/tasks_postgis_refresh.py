@@ -61,6 +61,9 @@ from app.platform.refresh.service import (
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
     _current_tenant_schema,
+    _declared_geometry_type,
+    _derived_record_type,
+    _effective_geometry_type,
     invalidate_tile_cache_for_table,
     stamp_failed_origin_health,
     task_app,
@@ -91,16 +94,6 @@ _ERROR_CODE_MISSING = "source_missing"
 _ERROR_CODE_INACCESSIBLE = "source_inaccessible"
 _ERROR_CODE_GENERIC = "postgis_refresh_failed"
 _ERROR_CODE_SUPERSEDED = "superseded"
-
-# What PostGIS records in ``geometry_columns.type`` for an untyped column.
-# A specific value ("POLYGON", "MULTILINESTRING", ...) describes what the
-# column will accept; this one describes nothing.
-_GENERIC_GEOMETRY_TYPE = "GEOMETRY"
-
-# The record types ``service_create.py`` derives from "does this dataset have
-# geometry". Raster and VRT records carry their own modality and must never be
-# re-derived from a geometry column they do not have.
-_DERIVED_RECORD_TYPES: frozenset[str] = frozenset({"table", "vector_dataset"})
 
 
 class _Verdict(NamedTuple):
@@ -316,38 +309,6 @@ async def _relation_exists(session: Any, *, schema: str, table: str) -> bool:
     )
 
 
-def _effective_geometry_type(
-    *, measured: str | None, declared: str | None, stored: str | None
-) -> str | None:
-    """The geometry type this measurement establishes, from the best evidence.
-
-    One rule in one place: the write applies it and the quality score is
-    computed under it, and a second spelling of this precedence is how those
-    two end up describing different datasets.
-
-    - a sampled row is what the data actually is;
-    - no rows but a specific declared column type is what the column accepts;
-    - no rows and a generic ``geometry`` column establishes only that the
-      relation is spatial, so the catalog keeps what it last measured;
-    - no ``geom`` column at all is genuinely not spatial, and the only case
-      that yields None.
-    """
-    if measured is not None:
-        return measured
-    if declared is None:
-        return None
-    if declared != _GENERIC_GEOMETRY_TYPE:
-        return declared
-    return stored
-
-
-def _derived_record_type(current: str | None, geometry_type: str | None) -> str | None:
-    """``record_type`` as ``service_create.py`` derives it, for the two it owns."""
-    if current not in _DERIVED_RECORD_TYPES:
-        return current
-    return "table" if geometry_type is None else "vector_dataset"
-
-
 class _RecordAs:
     """The record as the measurement implies it, for scoring only.
 
@@ -368,35 +329,6 @@ class _RecordAs:
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._record, name)
-
-
-async def _declared_geometry_type(
-    session: Any, *, schema: str, table: str
-) -> str | None:
-    """The geom column's DECLARED type, or None when the relation has no geom.
-
-    fix(#1313 review round 5): ``extract_metadata`` derives the geometry type
-    by sampling a row (``GeometryType(geom) ... LIMIT 1``), so a spatial table
-    that has been emptied reports None — indistinguishable, from the
-    measurement alone, from a table that never had geometry at all. Writing
-    that None reclassified the dataset as tabular, and the consequences are
-    not cosmetic: ``_require_feature_table`` refuses feature writes to a
-    dataset whose ``geometry_type`` is None, so a refresh of an emptied table
-    would lock the API out of ever repopulating it, and the builder drops its
-    layers as unsupported.
-
-    ``geometry_columns`` answers the question the rows cannot: it describes
-    the COLUMN. A row here means the relation is spatial whatever it
-    currently holds; no row means it genuinely is not.
-    """
-    return await session.scalar(
-        text(
-            "SELECT type FROM geometry_columns "
-            "WHERE f_table_schema = :schema AND f_table_name = :table "
-            "AND f_geometry_column = 'geom'"
-        ),
-        {"schema": schema, "table": table},
-    )
 
 
 def _apply_measurement(

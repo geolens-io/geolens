@@ -2238,7 +2238,25 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # measures None while its geom column is still there. Most of the lines are
     # the note saying why the sampled value is not that evidence, which is the
     # same trap #1313 fell into on the refresh path. Cap 1994 -> 2022, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2022,
+    # fix(#1373 x #1361): +97 — the effective-geometry precedence and the
+    # record_type derivation MOVED here from tasks_postgis_refresh (which
+    # already imports from this module, so the dependency runs the right way)
+    # and _apply_reupload_swap now resolves both. Roughly half the lines are
+    # the three helpers and their docstrings arriving intact — that file shrank
+    # by 68 — and the rest is the swap's own note recording why the sampled
+    # geometry type is not evidence about the COLUMN, and why record_type must
+    # consume the RESOLVED value or an empty spatial reupload flips a still-
+    # spatial dataset to `table`. Cap 2022 -> 2119, exact. +8 more: the note
+    # recording what this swap still does NOT retire when it de-spatializes a
+    # dataset (the synthetic `geom` attribute row, filed as #1380), so the
+    # remaining asymmetry with the refresh path is a decision. Cap 2119 ->
+    # 2127, exact. +12 more (#1382 review r1): a generic empty column over a
+    # dataset nothing had ever measured resolved to None and classified a
+    # spatial relation as tabular, so the precedence falls back to the generic
+    # sentinel; the lines are the note recording that `GEOMETRY` is how the
+    # rest of the codebase already spells "spatial, subtype unknown".
+    # Cap 2127 -> 2139, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2139,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
