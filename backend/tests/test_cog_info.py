@@ -87,6 +87,17 @@ class TestGeoreferencing:
         assert result["crs_wkt"] is not None
         assert "32621" in result["crs_wkt"]
 
+    async def test_crs_wkt_is_serialized_as_wkt2(self, monkeypatch) -> None:
+        """fix(#1376): this value reaches ``RasterAsset.crs_wkt``, which
+        ``to_stac_properties()`` publishes as ``proj:wkt2``. rasterio's
+        default export is WKT1_GDAL, so the version has to be asked for —
+        and the root keyword is the whole difference a strict consumer sees
+        (``PROJCS[`` vs ``PROJCRS[``)."""
+        _install(monkeypatch, _TITILER_INFO)
+        result = await fetch_cog_info("https://origin.test/scene.tif")
+        assert result is not None
+        assert result["crs_wkt"].startswith("PROJCRS[")
+
     async def test_epsg_comes_from_the_same_parsed_crs_as_the_wkt(
         self, monkeypatch
     ) -> None:

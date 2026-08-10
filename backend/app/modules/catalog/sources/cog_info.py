@@ -34,6 +34,12 @@ def _georeferencing(info: dict) -> dict:
     the WKT round-trips through the same ``rasterio.crs.CRS`` every other
     ingest path already writes ``crs_wkt`` from (``raster/cog.py``).
 
+    fix(#1376): the version is explicit because ``crs_wkt`` is published as
+    the STAC Projection Extension's ``proj:wkt2`` and rasterio's default
+    export is WKT1_GDAL. ``raster/cog.py`` asks for the same version, and
+    migration ``0041`` converted the rows written before either did, so the
+    column carries one dialect no matter which path or era produced a row.
+
     fix(#1334 review): both keys come off the SAME parsed ``CRS`` object, on
     purpose. The caller's other source for a raster's EPSG is the STAC
     item's own ``proj:code``/``proj:epsg`` — the PUBLISHER's claim about the
@@ -76,7 +82,7 @@ def _georeferencing(info: dict) -> dict:
             from rasterio.crs import CRS
 
             parsed = CRS.from_user_input(crs_value)
-            crs_wkt = parsed.to_wkt()
+            crs_wkt = parsed.to_wkt(version="WKT2_2019")
             epsg = parsed.to_epsg()
         except (
             Exception
