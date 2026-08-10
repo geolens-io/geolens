@@ -893,6 +893,74 @@ class TestResolution:
         assert result.asset_href == _MOVED_ASSET
         assert result.item_href == _ITEM
 
+    async def test_an_untrusted_self_link_does_not_steer_a_relative_asset(
+        self, stac_transport
+    ) -> None:
+        """fix(#1266 review round 20): the self link steers TWO things.
+
+        Validating it only on the way to storage left the asset base reading
+        from an untrusted URL — so an item advertising a login page could
+        still have a COG resolved under that page's path and persisted as
+        this dataset's asset, which is worse than a stale pointer.
+        """
+        install, recorded = stac_transport
+        login_page = "https://origin.test/login/scene-1"
+        under_login = "https://origin.test/login/tiles/scene.tif"
+        install(
+            {
+                _ITEM: (
+                    200,
+                    _item_doc(
+                        self_href=login_page,
+                        assets={"data": {"href": "tiles/scene.tif"}},
+                    ),
+                ),
+                login_page: (200, {"message": "please sign in"}),
+                under_login: (206, None),
+                "https://origin.test/stac/collections/scenes/items/tiles/scene.tif": (
+                    206,
+                    None,
+                ),
+            }
+        )
+        result = await _resolve(item_href=_ITEM)
+        # Whatever it resolved, it must not be the path under the login page.
+        assert result.asset_href != under_login
+        assert result.item_href == _ITEM
+
+    async def test_a_replacement_without_the_bound_asset_is_not_adopted(
+        self, stac_transport
+    ) -> None:
+        """fix(#1266 review round 20): the item is what a pointer addresses,
+        the asset is what the dataset needs.
+
+        An address that serves the item WITHOUT the bound asset is one the
+        next refresh cannot get anything from — and it would not reach the
+        search fallback either, because the item answered.
+        """
+        install, _ = stac_transport
+        thinner = f"{_ROOT}/v2/collections/scenes/items/scene-1"
+        install(
+            {
+                _ITEM: (
+                    200,
+                    _item_doc(asset_href=_MOVED_ASSET, self_href=thinner),
+                ),
+                thinner: (
+                    200,
+                    _item_doc(
+                        self_href=thinner,
+                        assets={"thumbnail": {"href": "https://x.test/t.png"}},
+                    ),
+                ),
+                _MOVED_ASSET: (206, None),
+            }
+        )
+        result = await _resolve(item_href=_ITEM)
+        assert result.resolved
+        assert result.asset_href == _MOVED_ASSET
+        assert result.item_href == _ITEM
+
     async def test_a_self_link_that_redirects_into_a_blocked_target_is_refused(
         self, stac_transport
     ) -> None:

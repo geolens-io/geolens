@@ -535,16 +535,20 @@ async def _resolve_from_item(
     # location, and it is also the only one that survives the item moving.
     # The requested URL stays the fallback for catalogs that publish no self
     # link — it is where this document demonstrably came from.
-    self_href = self_link_href(item, document_url)
-    if self_href is not None and _url_contradicts_identity(
-        self_href, item_id=item.get("id"), collection_id=collection_id
-    ):
-        # Dropped rather than fatal, matching how #1222 treats every other
-        # unusable self link: the document is still this item by its own id,
-        # so the refresh can proceed from the URL it demonstrably came from.
-        # What must not happen is storing the contradictory pointer.
-        logger.info("stac_self_link_identity_mismatch", item_id=item.get("id"))
-        self_href = None
+    #
+    # fix(#1266 review round 20): the self link is settled ONCE, before it is
+    # used for anything. It steers two things — the base relative asset hrefs
+    # resolve against, and the pointer that gets stored — and validating it
+    # only on the way to storage left the first one reading from an untrusted
+    # URL, so an item advertising a login page could still have a COG resolved
+    # under that page's path and persisted as this dataset's asset.
+    self_href = await _trustworthy_self_href(
+        item,
+        document_url=document_url,
+        fallback=fallback_item_href,
+        collection_id=collection_id,
+        asset_key=key,
+    )
 
     # fix(#1266 review round 4): ``item_base`` is the item's own address when
     # the caller has one — the URL the document was fetched from on the direct
@@ -581,12 +585,7 @@ async def _resolve_from_item(
     # already stored: a catalog that publishes no self link has told GeoLens
     # nothing better to point at, and inventing an address from the search
     # endpoint would store one no reader could resolve.
-    resolved_item_href = await _storable_item_pointer(
-        self_href,
-        fallback_item_href,
-        item_id=item.get("id"),
-        collection_id=collection_id,
-    )
+    resolved_item_href = self_href or fallback_item_href
 
     probed = await probe_remote_uri(href)
     if probed.detail == BLOCKED_BY_POLICY:
@@ -652,52 +651,64 @@ async def _resolve_from_item(
     )
 
 
-async def _storable_item_pointer(
-    self_href: str | None,
-    fallback: str,
+async def _trustworthy_self_href(
+    item: dict[str, Any],
     *,
-    item_id: Any,
+    document_url: str,
+    fallback: str,
     collection_id: str | None,
-) -> str:
-    """The item pointer to store: the new self link, or the one already held.
+    asset_key: str,
+) -> str | None:
+    """The item's advertised address, if it can be trusted, else None.
 
-    The test is whether the replacement would WORK next time, so it is the
-    next refresh's own first step that is run against it: fetch the document
-    and put it through the identity gate. fix(#1266 review round 19) — the
-    weaker "can GeoLens read it" test passed a self link that answers 200
-    with a login page or any other non-STAC body, and the next refresh then
-    fails on it as inconclusive and never reaches the search fallback, which
-    only runs for an item that is authoritatively gone.
+    One decision for the two things a self link steers: the base that
+    relative asset hrefs resolve against, and the pointer that gets stored.
+    Settled before either is computed (fix #1266 review round 20) — checking
+    it on the way to storage alone left the base reading from an untrusted
+    URL, and a COG resolved under a login page's path is a worse outcome
+    than a stale pointer.
 
-    That one check subsumes every narrower one this function has carried.
-    A document that parses as this item was served over a connection the
-    guard transport resolved, validated per hop and pinned — so the pointer
-    also satisfies the refresh door's own SSRF check by construction, and
-    the blocked, unresolvable, protected and failing cases never get past
-    the fetch.
+    Three questions, each from a round of review:
 
-    Anything short of that keeps the pointer already stored, because a
-    replacement the next refresh cannot use is strictly worse than an old
-    one that at least reaches the fallback. The fallback itself needs no
-    check: it is the value that got this refresh admitted in the first
-    place.
+    - does the URL itself state an identity other than the stored one;
+    - does it SERVE this item — the next refresh's own first step, run
+      against it, because a 200 from an auth wall is not the same claim;
+    - does the document it serves still carry the asset this dataset is
+      bound to. The item is what a pointer addresses, but the asset is what
+      the dataset needs, and an address that has the item without the asset
+      is one the next refresh cannot get anything from.
+
+    None means "keep what you have": the document in hand is still this
+    item, so the refresh proceeds from the URL it demonstrably came from, and
+    the working pointer is not overwritten. Dropped rather than fatal,
+    matching how #1222 treats every other unusable self link.
     """
+    self_href = self_link_href(item, document_url)
     if self_href is None or self_href == fallback:
-        return fallback
+        return None if self_href is None else self_href
+    if _url_contradicts_identity(
+        self_href, item_id=item.get("id"), collection_id=collection_id
+    ):
+        logger.info("stac_self_link_identity_mismatch", item_id=item.get("id"))
+        return None
     result, document, final_url = await fetch_json_document(self_href)
     if not result.ok:
         logger.info("stac_self_link_not_adopted", detail=result.detail)
-        return fallback
+        return None
+    stated_id = item.get("id")
     refusal = _identity_refusal(
         document,
         document_url=final_url,
-        expected_item_id=item_id if isinstance(item_id, str) else None,
+        expected_item_id=stated_id if isinstance(stated_id, str) else None,
         collection_id=collection_id,
         collection_affirmed=_standard_item_path(final_url) is not None,
     )
     if refusal is not None:
         logger.info("stac_self_link_does_not_serve_this_item")
-        return fallback
+        return None
+    if not isinstance(document.get("assets", {}).get(asset_key), dict):
+        logger.info("stac_self_link_lacks_the_bound_asset", asset_key=asset_key)
+        return None
     return self_href
 
 
