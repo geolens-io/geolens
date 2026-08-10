@@ -929,6 +929,37 @@ class TestRecoveryPair:
             test_db_session, created_by=admin_id
         )
 
+        # Control rows: each dataset also carries a healthy row that belongs
+        # to the OTHER sweep's domain, so "the other dataset's rows are
+        # untouched" is a real assertion rather than one that would pass
+        # vacuously against rows that never existed (fix(#1330 review)).
+        control_asset = RasterAsset(
+            dataset_id=refresh_dataset.id,
+            asset_uri=f"rasters/{refresh_dataset.id}/control.tif",
+            status="ready",
+        )
+        test_db_session.add(control_asset)
+
+        vrt_control_job = IngestJob(
+            dataset_id=vrt_dataset.id,
+            status="pending",
+            source_filename="vrt-control.tif",
+            created_by=admin_id,
+        )
+        test_db_session.add(vrt_control_job)
+        await test_db_session.commit()
+        await test_db_session.refresh(vrt_control_job)
+        control_run = await create_pending_run(
+            test_db_session,
+            dataset_id=vrt_dataset.id,
+            origin_kind="raster",
+            trigger="manual",
+            triggered_by=admin_id,
+            ingest_job_id=vrt_control_job.id,
+            feature_count_before=None,
+        )
+        await test_db_session.commit()
+
         now = datetime.now(timezone.utc)
         vrt_cutoff = now - timedelta(hours=1)
 
@@ -961,7 +992,22 @@ class TestRecoveryPair:
         )
         assert vrt_asset.current_generation_id is None
 
-        # -- no cross-contamination: the refresh-run sweep never touched the
-        # VRT dataset's own (nonexistent) refresh run, and the VRT sweep
-        # never touched the other dataset's RasterAsset (it has none).
-        assert await _run_for(test_db_session, vrt_dataset.id) is None
+        # -- no cross-contamination: each control row belongs to the OTHER
+        # sweep's domain and survives both sweeps untouched, so this proves
+        # non-interference against rows that actually exist rather than
+        # against an absence that was never at risk.
+        await test_db_session.refresh(control_asset)
+        assert control_asset.status == "ready", (
+            "the VRT sweep must never touch a healthy raster asset on the "
+            "refresh-run dataset"
+        )
+
+        await test_db_session.refresh(control_run)
+        assert control_run.status == "pending", (
+            "the run sweep must never cancel a non-stale run on the VRT dataset"
+        )
+        assert control_run.error_code is None
+
+        vrt_dataset_run = await _run_for(test_db_session, vrt_dataset.id)
+        assert vrt_dataset_run is not None
+        assert vrt_dataset_run.id == control_run.id
