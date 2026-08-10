@@ -7,6 +7,68 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.11.1] - 2026-08-10
+
+### Added
+
+- **Raster replace is now reachable from the reupload dialog.** The
+  in-place COG replacement that shipped in 1.11.0 gets its frontend door:
+  the reupload dialog offers replace for raster datasets (#1362).
+- **Remote rasters now report a measured resolution and rotation flag.**
+  STAC-imported and refreshed raster assets read the affine transform from
+  Titiler, so `res_x`/`res_y`/`is_rotated` are populated the same way a
+  local upload populates them instead of staying blank (#1374, #1384).
+
+### Fixed
+
+- **Raster tiles stop serving stale imagery after a replace.** Tile URLs
+  now carry the dataset's content version, so a raster replace, reupload,
+  or source refresh rolls the shared nginx tile cache instead of serving
+  the old pixels until the cache expired. A mismatched or duplicated
+  version parameter is served uncached rather than rejected, so open tabs
+  keep rendering (#1372).
+- **Rotated rasters report their true pixel size.** Resolution was
+  computed from the affine's axis components, understating a 30°-rotated
+  raster by 13%; it now uses the pixel vector lengths on both ingest
+  paths. Axis-aligned rasters are unaffected; a rotated raster's stored
+  resolution corrects on its next ingest or refresh (#1384).
+- **STAC `gsd` is published in metres, as the spec defines it.** Exports
+  used to emit the raw CRS-unit value (degrees for EPSG:4326, feet for
+  state-plane systems). Projected CRSs now convert through PROJ's
+  metres-per-unit; geographic CRSs omit the field rather than publish an
+  angular value as a length. The OGC Records surface is unchanged (#1384).
+- **Reupload keeps geometry and record type honest.** Swapping a
+  dataset's file re-derives the effective geometry type and record type
+  from the new data instead of carrying the old ones forward (#1361,
+  #1373).
+- **User-authored distributions no longer hide the built-in export
+  rows** on a record's distribution list (#1370).
+- **CRS WKT is stored as WKT2:2019 at both raster ingest paths**, with a
+  data migration converting existing WKT1 rows (#1376).
+- **STAC assets keyed by an empty string are recovered after the item
+  moves** instead of failing the refresh (#1363).
+- **ArcGIS imports request every field**, so service imports keep their
+  full attribute set (#1368).
+- **The worker initializes the tile cache in its shared bootstrap**, so
+  cache invalidation from worker-side jobs works on a fresh boot (#1371).
+- **Auto-generated distributions reconcile when a dataset's modality
+  changes** (#1369).
+- **First-ingest raster origins record their file hash**, so a later
+  replace can verify what it is replacing (#1360).
+- **Single-dataset delete errors are sanitized** before reaching the
+  client (#1358).
+
+### Performance
+
+- **Duplicate-source guards use an index** on the origin-reference keys
+  they query instead of scanning (#1365).
+
+### Operations
+
+- **Migration 0041 is a data migration**: it rewrites stored WKT1 CRS
+  definitions to WKT2:2019 in batches. Deploy logs report
+  `converted to WKT2:2019: N row(s)`; the downgrade is a no-op.
+
 ## [1.11.0] - 2026-08-10
 
 ### Added
@@ -1911,7 +1973,9 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.10.0...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.11.1...HEAD
+[1.11.1]: https://github.com/geolens-io/geolens/compare/v1.11.0...v1.11.1
+[1.11.0]: https://github.com/geolens-io/geolens/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/geolens-io/geolens/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/geolens-io/geolens/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/geolens-io/geolens/compare/v1.7.1...v1.8.0
