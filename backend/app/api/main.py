@@ -28,7 +28,6 @@ from app.observability.metrics import (
     shutdown_worker_metrics,
     sweep_dead_worker_metrics,
 )
-from app.platform.cache.provider import init_tile_cache
 
 # settings already imported above for the tempdir override — do NOT reimport
 # fix(#909): async_session/engine are late-bound inside each function that
@@ -325,7 +324,6 @@ async def lifespan(app: FastAPI):
     # the worker's age-aware sweeper instead.
     sweep_orphaned_exports(exports_dir)
 
-    init_tile_cache()
     await init_tile_pool()
     await task_app.open_async()
 

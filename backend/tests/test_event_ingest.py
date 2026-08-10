@@ -44,6 +44,9 @@ def _fake_settings(*, complete: bool = False, failed: bool = False) -> SimpleNam
         notification_webhook_url=None,
         # bootstrap() Step 7 — skip S3 health probe when "local"
         storage_provider="local",
+        # bootstrap() Step 9b (fix #1315) — init_tile_cache reads redis_url.
+        # None takes the worker branch: no provider, one boot warning.
+        redis_url=None,
     )
 
 

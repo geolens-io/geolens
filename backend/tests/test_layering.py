@@ -1961,7 +1961,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # renewal and cannot import the API app module. main.py is a thin caller
     # again, so the cap drops below where round 3 left it.
     # Cap 1390 -> 1332, exact.
-    "backend/app/api/main.py": 1332,
+    # fix(#1315): -2 — init_tile_cache() and its import move into the shared
+    # bootstrap(). The lifespan owning a second copy is how the API and the
+    # worker ended up with different tile-cache states in the first place.
+    # Cap 1332 -> 1330, exact.
+    "backend/app/api/main.py": 1330,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative
