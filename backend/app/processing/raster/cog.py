@@ -5,7 +5,12 @@ import math
 import tempfile
 from pathlib import Path
 
-from app.core.geo import LON_EPSILON_DEGREES, bbox_to_extent_wkt, wrap_longitude
+from app.core.geo import (
+    LON_EPSILON_DEGREES,
+    bbox_to_extent_wkt,
+    pixel_size_from_affine,
+    wrap_longitude,
+)
 from app.processing.raster.vrt import gdal_safe_env, run_gdal
 
 
@@ -299,8 +304,15 @@ def extract_raster_metadata(file_path: str) -> dict:
         bounds_wgs84 = _wgs84_bbox(src)
         bbox_wkt = bbox_to_extent_wkt(*bounds_wgs84)
 
-        res_x = abs(src.transform.a)
-        res_y = abs(src.transform.e)
+        # fix(#1375 review): the pixel VECTOR lengths, not their world-axis
+        # components. Identical to the old abs(a)/abs(e) for the axis-aligned
+        # rasters that are almost all of them, and correct for the rotated
+        # ones those two silently understated. The remote-asset probe
+        # (catalog/sources/cog_info.py) derives its pair through the same
+        # helper, so one scene reports one resolution either way in.
+        res_x, res_y = pixel_size_from_affine(
+            src.transform.a, src.transform.b, src.transform.d, src.transform.e
+        )
         is_rotated = src.transform.b != 0.0 or src.transform.d != 0.0
 
         dtype = src.dtypes[0] if src.dtypes else None

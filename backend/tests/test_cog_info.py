@@ -9,10 +9,13 @@ extraction itself — these are unit tests of that extraction, against
 Titiler's actual response shape (captured live against a 2.2.1 instance,
 see ``cog_info.py``'s ``_georeferencing`` docstring for the exact payload).
 
-fix(#1334 review): ``res_x``/``res_y`` are deliberately NOT derived here —
-see ``_georeferencing``'s docstring. A prior version of this file computed
-them from ``bounds``/pixel-dimensions and asserted on the result; that
-computation is gone, and so are those assertions.
+fix(#1334 review): ``res_x``/``res_y`` are still not derived from
+``/cog/info`` — a prior version of this file computed them from
+``bounds``/pixel-dimensions and asserted on the result, and that computation
+is gone. fix(#1375): they come instead from ``/cog/stac``'s
+``proj:transform``, an endpoint that publishes the real affine, so
+``TestGeotransform`` below asserts on measured numbers rather than on their
+absence.
 """
 
 from __future__ import annotations
@@ -50,9 +53,48 @@ _TITILER_INFO = {
     "overviews": [2, 4, 8, 16],
 }
 
+# A Titiler 2.2.1 /cog/stac reply, trimmed to what _geotransform reads. The
+# affine is a real 30°-rotated one, captured from the pinned image against a
+# synthetic rotated COG with 10 m pixels: element 0 is cos(30°)*10 and the
+# shear terms are sin(30°)*10, which is why the numbers below are 8.66/5.0
+# rather than a round 10. The PIXELS are still 10 m — hypot(8.66, 5.0) — which
+# is the whole point of the #1375 review finding. An axis-aligned file returns
+# the same shape with both shear terms exactly 0, where element 0 IS the
+# resolution.
+_TITILER_STAC_ITEM = {
+    "type": "Feature",
+    "stac_version": "1.1.0",
+    "id": "scene",
+    "properties": {
+        "proj:epsg": 32621,
+        "proj:shape": [2667, 2658],
+        "proj:transform": [
+            8.660254037844387,
+            -4.999999999999999,
+            373185.0,
+            4.999999999999999,
+            -8.660254037844387,
+            8286015.0,
+            0.0,
+            0.0,
+            1.0,
+        ],
+    },
+    "assets": {"data": {"href": "https://origin.test/scene.tif"}},
+}
 
-def _install(monkeypatch, info: dict, *, stats_status: int = 200) -> None:
-    """Route both COG-endpoint requests fetch_cog_info makes to one table.
+_AXIS_ALIGNED_TRANSFORM = [100.0, 0.0, 373185.0, 0.0, -100.0, 8286015.0, 0.0, 0.0, 1.0]
+
+
+def _install(
+    monkeypatch,
+    info: dict,
+    *,
+    stats_status: int = 200,
+    stac_item: dict | None = _TITILER_STAC_ITEM,
+    stac_status: int = 200,
+) -> None:
+    """Route the three COG-endpoint requests fetch_cog_info makes to one table.
 
     fetch_cog_info builds its own ``httpx.AsyncClient`` directly rather than
     through a factory seam (Titiler is an internal trusted service, not a
@@ -61,10 +103,13 @@ def _install(monkeypatch, info: dict, *, stats_status: int = 200) -> None:
     """
 
     def _handler(request: httpx.Request) -> httpx.Response:
-        if "/cog/statistics" in str(request.url):
+        url = str(request.url)
+        if "/cog/statistics" in url:
             return httpx.Response(
                 stats_status, json={} if stats_status == 200 else None
             )
+        if "/cog/stac" in url:
+            return httpx.Response(stac_status, json=stac_item)
         return httpx.Response(200, json=info)
 
     def _factory(*args, **kwargs) -> httpx.AsyncClient:
@@ -117,19 +162,6 @@ class TestGeoreferencing:
         assert result is not None
         assert result["epsg"] is None
 
-    async def test_fetch_cog_info_never_reports_a_resolution(self, monkeypatch) -> None:
-        """fix(#1334 review): Titiler's /cog/info carries no affine
-        transform, so nothing here can tell a rotated remote COG from an
-        axis-aligned one — and dividing its bounding envelope by pixel
-        dimensions is only correct for the latter. A wrong number that looks
-        like a measurement is worse than the blank display it would replace,
-        so `res_x`/`res_y` are not derived at all, for any input."""
-        _install(monkeypatch, _TITILER_INFO)
-        result = await fetch_cog_info("https://origin.test/scene.tif")
-        assert result is not None
-        assert "res_x" not in result
-        assert "res_y" not in result
-
     async def test_a_missing_crs_degrades_to_none_not_a_raise(
         self, monkeypatch
     ) -> None:
@@ -147,6 +179,136 @@ class TestGeoreferencing:
         result = await fetch_cog_info("https://origin.test/scene.tif")
         assert result is not None
         assert result["crs_wkt"] is None
+
+
+class TestGeotransform:
+    """fix(#1375): the resolution pair and the rotation flag, from
+    ``/cog/stac``'s ``proj:transform``.
+
+    ``/cog/info`` still carries no transform — that is why #1334 refused to
+    divide its bounding envelope by pixel dimensions, and why the numbers
+    come from a second endpoint rather than a smarter reading of the first.
+    """
+
+    async def test_resolution_comes_from_the_affine_not_the_envelope(
+        self, monkeypatch
+    ) -> None:
+        """The proving case. This item's raster is rotated 30° with 10 m
+        pixels, so its bounding envelope is wider than its footprint and a
+        figure derived from ``/cog/info``'s ``bounds`` would overstate the
+        resolution. 10.0 is also what ``raster/cog.py`` stores for a local
+        upload of the same file — both paths run these six numbers through
+        ``pixel_size_from_affine``."""
+        _install(monkeypatch, _TITILER_INFO)
+        result = await fetch_cog_info("https://origin.test/scene.tif")
+        assert result is not None
+        assert result["res_x"] == pytest.approx(10.0)
+        assert result["res_y"] == pytest.approx(10.0)
+
+    async def test_a_rotated_resolution_is_the_pixel_vector_not_its_x_component(
+        self, monkeypatch
+    ) -> None:
+        """fix(#1375 review): the finding this file exists to keep fixed.
+
+        Element 0 of this fixture's affine is 8.66 — the x-COMPONENT of a
+        pixel vector whose length is 10. Reading the resolution off elements
+        0 and 4 understates a 30°-rotated raster by 13%, and that number
+        reaches the UI and STAC's ``gsd``. The assertion is written as the
+        contrast so a regression to ``abs(a)`` fails here rather than
+        silently shipping the smaller number."""
+        _install(monkeypatch, _TITILER_INFO)
+        result = await fetch_cog_info("https://origin.test/scene.tif")
+        assert result is not None
+        element_0 = _TITILER_STAC_ITEM["properties"]["proj:transform"][0]
+        assert element_0 == pytest.approx(8.660254037844387)
+        assert result["res_x"] != pytest.approx(element_0)
+        assert result["res_x"] == pytest.approx(10.0)
+
+    async def test_a_rotated_transform_sets_is_rotated(self, monkeypatch) -> None:
+        """The flag the local path sets from ``transform.b``/``transform.d``
+        and that a remote row could never answer before — it defaulted to
+        the column's ``false``, asserting axis-alignment with no evidence."""
+        _install(monkeypatch, _TITILER_INFO)
+        result = await fetch_cog_info("https://origin.test/scene.tif")
+        assert result is not None
+        assert result["is_rotated"] is True
+
+    async def test_an_axis_aligned_transform_clears_is_rotated(
+        self, monkeypatch
+    ) -> None:
+        item = {
+            **_TITILER_STAC_ITEM,
+            "properties": {
+                **_TITILER_STAC_ITEM["properties"],
+                "proj:transform": _AXIS_ALIGNED_TRANSFORM,
+            },
+        }
+        _install(monkeypatch, _TITILER_INFO, stac_item=item)
+        result = await fetch_cog_info("https://origin.test/scene.tif")
+        assert result is not None
+        assert result["is_rotated"] is False
+        assert result["res_x"] == pytest.approx(100.0)
+        assert result["res_y"] == pytest.approx(100.0)
+
+    async def test_resolution_is_positive_for_a_north_up_transform(
+        self, monkeypatch
+    ) -> None:
+        """``transform.e`` is negative for the usual north-up raster; the
+        stored resolution is a magnitude, matching ``abs(src.transform.e)``
+        on the local path."""
+        _install(
+            monkeypatch,
+            _TITILER_INFO,
+            stac_item={
+                **_TITILER_STAC_ITEM,
+                "properties": {
+                    **_TITILER_STAC_ITEM["properties"],
+                    "proj:transform": _AXIS_ALIGNED_TRANSFORM,
+                },
+            },
+        )
+        result = await fetch_cog_info("https://origin.test/scene.tif")
+        assert result is not None
+        assert result["res_y"] > 0
+
+    @pytest.mark.parametrize(
+        "properties",
+        [
+            {},
+            {"proj:transform": None},
+            {"proj:transform": [10.0, 0.0, 1.0]},
+            {"proj:transform": "10,0,1,0,-10,2"},
+            {"proj:transform": [10.0, 0.0, 1.0, 0.0, "not a number", 2.0]},
+        ],
+        ids=["absent", "null", "too-short", "not-a-list", "unparseable-member"],
+    )
+    async def test_a_transform_it_cannot_read_leaves_the_keys_absent(
+        self, monkeypatch, properties
+    ) -> None:
+        """Absent, not None. The two callers write these straight onto the
+        row, so a None would assert "measured, and there is no value" where
+        an absent key leaves the column as it was."""
+        _install(
+            monkeypatch,
+            _TITILER_INFO,
+            stac_item={**_TITILER_STAC_ITEM, "properties": properties},
+        )
+        result = await fetch_cog_info("https://origin.test/scene.tif")
+        assert result is not None
+        assert "res_x" not in result
+        assert "res_y" not in result
+        assert "is_rotated" not in result
+
+    async def test_a_failing_stac_endpoint_does_not_fail_the_probe(
+        self, monkeypatch
+    ) -> None:
+        """Same contract as the optional statistics call: the rest of the
+        probe is still worth having."""
+        _install(monkeypatch, _TITILER_INFO, stac_item=None, stac_status=500)
+        result = await fetch_cog_info("https://origin.test/scene.tif")
+        assert result is not None
+        assert result["crs_wkt"] is not None
+        assert "res_x" not in result
 
 
 class TestReconcileEpsg:

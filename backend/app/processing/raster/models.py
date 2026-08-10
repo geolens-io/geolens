@@ -18,6 +18,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
+from app.core.geo import wkt_metres_per_unit
 
 
 class RasterAsset(Base):
@@ -115,7 +116,26 @@ class RasterAsset(Base):
         if self.width is not None and self.height is not None:
             props["proj:shape"] = [self.height, self.width]
         if self.res_x is not None and self.res_y is not None:
-            props["gsd"] = min(abs(self.res_x), abs(self.res_y))
+            # fix(#1375 review): STAC defines `gsd` in METRES, while
+            # `res_x`/`res_y` are in whatever unit the raster's CRS measures.
+            # Publishing them raw made a 0.0001-degree EPSG:4326 pixel — an
+            # ~11 m one, and 4326 is ordinary in the STAC catalogs #1375 now
+            # reads resolutions from — export as `gsd: 0.0001`, which a
+            # conforming consumer reads as a tenth of a millimetre. PROJ's
+            # metres-per-unit converts every projected CRS, including the
+            # foot-based state-plane systems this used to overstate by 3.28x.
+            #
+            # A geographic CRS yields None and the field is OMITTED, because
+            # an angular resolution has no fixed length without a latitude
+            # and `gsd` carries no unit of its own to qualify it. Omitting an
+            # optional field is always conformant; a wrong number is not.
+            # The OGC Records serializer deliberately keeps the CRS-unit
+            # value (`service_records.py`, fix(#569)) — it ships a
+            # `crs_is_geographic` flag beside it so its one consumer, the
+            # GeoLens UI, can format the number. STAC has no such companion.
+            metres_per_unit = wkt_metres_per_unit(self.crs_wkt)
+            if metres_per_unit is not None:
+                props["gsd"] = min(abs(self.res_x), abs(self.res_y)) * metres_per_unit
 
         # Bands (STAC Raster Extension v1.1 format)
         if self.band_info:

@@ -630,6 +630,11 @@ async def stac_import(
                 await db.flush()
 
                 nodata_raw = ci.get("nodata")
+                pixel_geometry = (
+                    {k: ci[k] for k in ("res_x", "res_y", "is_rotated")}
+                    if "res_x" in ci
+                    else {}
+                )
 
                 raster_asset = get_catalog_port().raster_asset_orm_class()(
                     dataset_id=dataset.id,
@@ -645,10 +650,24 @@ async def stac_import(
                     band_info=ci.get("band_info"),
                     # fix(#1334): fetch_cog_info already retrieves this; it
                     # was simply never read off the probe result onto the
-                    # row. res_x/res_y are NOT projected the same way —
-                    # fetch_cog_info deliberately does not compute them; see
-                    # cog_info.py's _georeferencing docstring for why.
+                    # row.
                     crs_wkt=ci.get("crs_wkt"),
+                    # fix(#1375): the resolution pair, and the rotation flag
+                    # that makes it readable. All three come off /cog/stac's
+                    # proj:transform, the same six affine numbers the
+                    # local-upload path reads from rasterio — see
+                    # cog_info.py's _geotransform.
+                    #
+                    # fix(#1375 review): they are ONE fact, so they are
+                    # written together or not at all. A probe that read no
+                    # transform leaves all three to their column defaults
+                    # rather than asserting `is_rotated=False`, which the
+                    # NOT NULL column cannot distinguish from a measurement.
+                    # The refresh path states the full argument at
+                    # `_pixel_geometry` in processing/ingest/tasks_stac_refresh.py;
+                    # the two cannot share a helper because `processing/` may
+                    # not import `catalog/` and this module is the catalog side.
+                    **pixel_geometry,
                 )
                 db.add(raster_asset)
 

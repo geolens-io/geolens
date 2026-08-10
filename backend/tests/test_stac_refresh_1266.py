@@ -171,14 +171,18 @@ def cog_info(monkeypatch):
         "band_info": [{"min": 0, "max": 4095, "mean": 1200}],
         # fix(#1334): the shape fetch_cog_info actually returns, so tests
         # against this fixture exercise the same fields the refresh path
-        # now writes to the asset row. No res_x/res_y — fetch_cog_info
-        # deliberately does not compute them (cog_info.py's
-        # _georeferencing docstring explains why). crs_wkt and epsg are a
+        # now writes to the asset row. crs_wkt and epsg are a
         # matched pair, same as a real _georeferencing result: leaving epsg
         # out here would make reconcile_epsg read as "a CRS with no mappable
         # EPSG" rather than "the fixture just didn't set it".
         "crs_wkt": 'PROJCS["WGS 84 / UTM zone 33N",AUTHORITY["EPSG","32633"]]',
         "epsg": 32633,
+        # fix(#1375): res_x/res_y/is_rotated join them for the same reason —
+        # _geotransform reads all three off /cog/stac's proj:transform, so a
+        # fixture without them would exercise only the degraded path.
+        "res_x": 30.0,
+        "res_y": 30.0,
+        "is_rotated": False,
     }
     calls: list[str] = []
 
@@ -2337,14 +2341,18 @@ class TestWorker:
         assert described.is_dem is False
         # fix(#1334): the moved object's own CRS, from the same probe as
         # band_count/dtype/nodata — not left stale like the fields above
-        # would be if the refresh only wrote the address. res_x/res_y are
-        # NOT part of this: fetch_cog_info deliberately does not compute
-        # them (cog_info.py's _georeferencing docstring explains why), so
-        # they stay whatever they already were rather than being cleared —
-        # the repoint statement never mentions them.
+        # would be if the refresh only wrote the address.
         assert described.crs_wkt == (
             'PROJCS["WGS 84 / UTM zone 33N",AUTHORITY["EPSG","32633"]]'
         )
+        # fix(#1375): and the pixel geometry, which a move is more likely to
+        # change than anything else here — a re-tiled or reprojected
+        # replacement is exactly where the old resolution stops describing
+        # the new object.
+        assert described.res_x == pytest.approx(30.0)
+        assert described.res_y == pytest.approx(30.0)
+        assert described.is_rotated is False
+
         # A moved member has to read as newer than any VRT built on it: a
         # mosaic that recorded no `built_from` is judged by this stamp alone,
         # and it still embeds the old URL.
@@ -2365,6 +2373,80 @@ class TestWorker:
         run = await _run_for(dataset.id)
         assert run.status == "succeeded"
         assert run.error_code is None
+
+    async def test_a_refresh_without_a_transform_leaves_pixel_geometry_alone(
+        self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
+    ) -> None:
+        """fix(#1375 review): the three affine-derived columns are one fact.
+
+        ``fetch_cog_info``'s transform probe is optional — ``/cog/info`` can
+        answer while ``/cog/stac`` fails — and an earlier version of this
+        change turned that partial result into ``is_rotated=False``. That is
+        not a missing value but a wrong measurement: the column is NOT NULL
+        and cannot say "unknown", and ``_check_rotation`` (VAL-07) rejects a
+        VRT source only when the flag is TRUE, so a fabricated ``False``
+        would walk a rotated replacement straight through the gate built to
+        stop it. A remote asset is an eligible VRT source, so that path is
+        reachable rather than theoretical.
+
+        The row here is seeded as rotated with a known resolution, then
+        refreshed by a probe that establishes no transform. All three must
+        survive: stale is the lesser wrong, and it is the conservative
+        direction for every consumer of these columns.
+        """
+        install, _ = stac_transport
+        install(
+            {
+                _ITEM: (200, _item_doc(asset_href=_MOVED_ASSET)),
+                _MOVED_ASSET: (206, None),
+            }
+        )
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(
+            test_db_session, created_by=admin_id, source_health="missing"
+        )
+        await test_db_session.execute(
+            text(
+                "UPDATE catalog.raster_assets SET is_rotated = true, "
+                "res_x = 30.0, res_y = 30.0 WHERE dataset_id = :did"
+            ).bindparams(did=dataset.id)
+        )
+        await test_db_session.commit()
+
+        # A probe that read the COG but not its transform: /cog/info answered,
+        # /cog/stac did not. The three affine keys are ABSENT, which is the
+        # shape fetch_cog_info actually returns in that case.
+        async def _no_transform(url: str):
+            return {
+                "band_count": 1,
+                "dtype": "uint16",
+                "width": 512,
+                "height": 512,
+                "nodata": 0,
+                "band_info": [{"min": 0, "max": 4095, "mean": 1200}],
+                "crs_wkt": 'PROJCS["WGS 84 / UTM zone 33N",AUTHORITY["EPSG","32633"]]',
+                "epsg": 32633,
+            }
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.stac_resolve.fetch_cog_info", _no_transform
+        )
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        await _execute(test_db_session, payload)
+
+        # The move itself still happens — a missing transform degrades the
+        # description, it does not block adoption.
+        assert await _asset_uri(dataset.id) == _MOVED_ASSET
+        described = await _raster_asset(dataset.id)
+        assert described.band_count == 1
+
+        assert described.is_rotated is True, (
+            "an unmeasured probe must not assert axis-alignment — VAL-07 only "
+            "rejects a rotated VRT source when this flag is true"
+        )
+        assert described.res_x == pytest.approx(30.0)
+        assert described.res_y == pytest.approx(30.0)
 
     async def test_a_refresh_prefers_the_probed_epsg_over_the_items_declared_one(
         self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch

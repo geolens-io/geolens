@@ -19,6 +19,7 @@ from __future__ import annotations
 import httpx
 import structlog
 
+from app.core.geo import pixel_size_from_affine
 from app.platform.storage.titiler_url import build_titiler_cog_url
 
 logger = structlog.get_logger(__name__)
@@ -63,12 +64,9 @@ def _georeferencing(info: dict) -> dict:
     transform to check that against, so a rotated or sheared remote COG would
     silently get a resolution inflated by however far its bounding envelope
     exceeds its own footprint — indistinguishable, in this payload, from a
-    correct value. The local-upload path can tell the two apart
-    (``raster/cog.py`` reads ``transform.b``/``transform.d`` to set
-    ``is_rotated``); nothing here can. A wrong number that LOOKS like a
-    measurement is worse than the blank "—" it would replace, so it stays
-    unset until there is a source that can rule rotation out. Tracked as
-    #1375.
+    correct value. fix(#1375): they now come from ``_geotransform`` and a
+    SECOND Titiler endpoint that does carry the transform, which is why this
+    one still refuses to guess at them.
 
     Individual failures degrade to None rather than raising: this is
     descriptive metadata for a UI card, not something a failed probe should
@@ -91,6 +89,60 @@ def _georeferencing(info: dict) -> dict:
             epsg = None
 
     return {"crs_wkt": crs_wkt, "epsg": epsg}
+
+
+def _geotransform(item: dict) -> dict:
+    """``res_x``/``res_y``/``is_rotated`` from a Titiler-generated STAC item.
+
+    fix(#1375): ``/cog/info`` carries no affine transform, which is why
+    ``_georeferencing`` refuses to derive a resolution from its bounding
+    envelope. ``/cog/stac`` does carry one — rio-stac writes the projection
+    extension's ``proj:transform`` as the 9-element affine — and it is the
+    SAME six numbers ``raster/cog.py`` reads off ``rasterio``'s
+    ``src.transform`` on the local-upload path. So this is not an
+    approximation of what a local ingest would have stored: both paths hand
+    those numbers to the same ``pixel_size_from_affine``, and elements 1 and 3
+    are the ``transform.b``/``transform.d`` both test to set ``is_rotated``. A
+    rotated remote COG is now recorded as rotated rather than defaulting to
+    the column's ``false``.
+
+    fix(#1375 review): the resolution is the pixel VECTORS' lengths, not
+    elements 0 and 4 on their own — see ``pixel_size_from_affine`` for why
+    those two understate a rotated raster by 13% at 30°. The review caught it
+    here; the local path had the same shape and was corrected with it, so the
+    two agree on the right number rather than on the wrong one.
+
+    Endpoint choice, since two of them expose georeferencing: ``/cog/validate``
+    (rio-cogeo) reports ``GEO.Resolution`` and it is the same
+    ``(transform.a, transform.e)`` pair, but it publishes no ``b``/``d``, so
+    it cannot answer the rotation question this function exists to settle.
+    Verified against titiler 2.2.1 / rio-tiler 9.4.2 / rio-stac, the pinned
+    image: a 30°-rotated COG returns
+    ``[8.66, -5.0, ..., 5.0, -8.66, ...]`` where the axis-aligned twin
+    returns ``[10.0, 0.0, ..., 0.0, -10.0, ...]``, while ``/cog/info``'s
+    ``bounds`` for that same rotated file describe a 3497 m envelope around a
+    2560 m footprint (the 37% overstatement #1334 declined to publish).
+
+    Returns an EMPTY dict, not one full of Nones, when the transform is
+    missing or malformed: absent keys leave the row's columns untouched,
+    where a None would assert "measured, and there is no value".
+    """
+    props = item.get("properties") or {}
+    transform = props.get("proj:transform")
+    # 9 elements in practice (the affine's bottom row is included); the first
+    # six are the only ones with content, and >= 6 accepts either spelling.
+    if not isinstance(transform, (list, tuple)) or len(transform) < 6:
+        return {}
+    try:
+        scale_x, shear_x, _, shear_y, scale_y, _ = (float(v) for v in transform[:6])
+    except (TypeError, ValueError):
+        return {}
+    res_x, res_y = pixel_size_from_affine(scale_x, shear_x, shear_y, scale_y)
+    return {
+        "res_x": res_x,
+        "res_y": res_y,
+        "is_rotated": shear_x != 0.0 or shear_y != 0.0,
+    }
 
 
 def reconcile_epsg(probe: dict, declared: int | None) -> int | None:
@@ -123,7 +175,9 @@ async def fetch_cog_info(url: str) -> dict | None:
     """Fetch COG metadata + statistics from Titiler for a remote asset URL.
 
     Returns dict with band_count, dtype, width, height, crs_wkt, band_info
-    (with min/max per band for rescaling), or None on failure.
+    (with min/max per band for rescaling), res_x/res_y/is_rotated, or None on
+    failure. The georeferencing keys are absent rather than None when their
+    endpoint could not be read — see ``_georeferencing`` and ``_geotransform``.
 
     fix(#1271 review): None deliberately collapses every failure shape.
     A non-200 from Titiler is NOT proof the origin was attempted — the
@@ -151,7 +205,10 @@ async def fetch_cog_info(url: str) -> dict | None:
     non-raster file extensions.
 
     Removing Gate 1 OR loosening Gate 2 must be a deliberate audit-tracked
-    decision, not a refactor side-effect.
+    decision, not a refactor side-effect. fix(#1375) added a third request to
+    the same internal Titiler service for the same already-validated ``url``,
+    inside both gates and adding no origin this function did not already
+    reach; a caller that reached a new origin would need its own Gate 1.
     """
     try:
         async with httpx.AsyncClient(
@@ -187,6 +244,31 @@ async def fetch_cog_info(url: str) -> dict | None:
             except Exception:  # broad: per-band stats optional — Titiler payload shape varies; defaults are fine
                 pass  # stats are optional — rendering will fall back to defaults
 
+            # fix(#1375): the affine transform, from the one COG endpoint
+            # that publishes it. `with_raster`/`with_eo` are OFF because
+            # their defaults make this a PIXEL read — rio-stac downsamples
+            # to `max_size` to compute per-band statistics, which this call
+            # has no use for and which fetch_cog_info already has its own
+            # /cog/statistics request for. Measured against the pinned 2.2.1
+            # image on a 2048x2048 3-band COG: 7 ms with them off, 90 ms
+            # with them on.
+            geotransform: dict = {}
+            try:
+                stac_resp = await client.get(
+                    build_titiler_cog_url(
+                        "stac",
+                        query={
+                            "url": url,
+                            "with_raster": "false",
+                            "with_eo": "false",
+                        },
+                    )
+                )
+                if stac_resp.status_code == 200:
+                    geotransform = _geotransform(stac_resp.json())
+            except Exception:  # broad: same contract as the stats call above — a resolution GeoLens could not measure is a blank display, not a failed probe
+                pass
+
             return {
                 "band_count": band_count,
                 "dtype": dtype,
@@ -195,6 +277,7 @@ async def fetch_cog_info(url: str) -> dict | None:
                 "nodata": info.get("nodata"),
                 "band_info": band_info or None,
                 **_georeferencing(info),
+                **geotransform,
             }
     except Exception as exc:  # broad: Titiler info call — httpx/JSON parse can throw varied errors; degrade to None
         logger.debug("Failed to fetch COG info from Titiler", url=url, error=str(exc))

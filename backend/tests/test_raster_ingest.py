@@ -169,6 +169,78 @@ class TestExtractRasterMetadata:
         finally:
             tif.unlink(missing_ok=True)
 
+    def test_rotated_resolution_is_the_pixel_vector_not_its_x_component(self, tmp_path):
+        """fix(#1375 review): a rotated raster's pixel size is the length of
+        its pixel vector, not that vector's component on the world x axis.
+
+        This raster is rotated 30° with 10 m pixels, so its affine reads
+        ``a=8.66, d=5.0``. Reading ``abs(a)`` — which this path did until the
+        review — reports 8.66 m for a pixel that is 10 m across, and that
+        number reaches the UI and STAC's ``gsd``. The remote probe asserts
+        the same property against the same 30° affine in
+        ``test_cog_info.py``, because the two paths now share one helper and
+        must not drift back apart.
+        """
+        import math
+
+        from rasterio.transform import Affine
+
+        angle = math.radians(30)
+        transform = Affine(
+            math.cos(angle) * 10.0,
+            -math.sin(angle) * 10.0,
+            500000.0,
+            math.sin(angle) * 10.0,
+            -math.cos(angle) * 10.0,
+            8000000.0,
+        )
+        buf = io.BytesIO()
+        with MemoryFile() as mem:
+            with mem.open(
+                driver="GTiff",
+                dtype="uint8",
+                width=64,
+                height=64,
+                count=1,
+                crs=CRS.from_epsg(32621),
+                transform=transform,
+            ) as ds:
+                ds.write(np.zeros((64, 64), dtype="uint8"), 1)
+            buf.write(mem.read())
+        tmp = tempfile.NamedTemporaryFile(suffix=".tif", delete=False)
+        tmp.write(buf.getvalue())
+        tmp.close()
+        try:
+            from app.processing.raster.cog import extract_raster_metadata
+
+            meta = extract_raster_metadata(tmp.name)
+            assert meta["is_rotated"] is True
+            assert meta["res_x"] == pytest.approx(10.0)
+            assert meta["res_y"] == pytest.approx(10.0)
+            # Stated as the contrast so a regression to abs(transform.a)
+            # fails here instead of quietly shipping the smaller number.
+            assert meta["res_x"] != pytest.approx(abs(transform.a))
+        finally:
+            Path(tmp.name).unlink(missing_ok=True)
+
+    def test_axis_aligned_resolution_is_unchanged_by_the_vector_form(self, tmp_path):
+        """The other half of the same claim: for the axis-aligned rasters
+        that are almost all of them, the shear terms are zero and the vector
+        length collapses to exactly the old ``abs(a)``/``abs(e)``. The review
+        fix had to be inert here or it would have moved every existing
+        raster's stored resolution."""
+        tif = _write_tmp_tif(crs=CRS.from_epsg(4326))
+        try:
+            from app.processing.raster.cog import extract_raster_metadata
+
+            meta = extract_raster_metadata(str(tif))
+            # _write_tmp_tif spans -180..180 / -90..90 over 64x64 pixels.
+            assert meta["is_rotated"] is False
+            assert meta["res_x"] == pytest.approx(360.0 / 64)
+            assert meta["res_y"] == pytest.approx(180.0 / 64)
+        finally:
+            tif.unlink(missing_ok=True)
+
     def test_nodata_captured(self, tmp_path):
         tif = _write_tmp_tif(nodata=255.0)
         try:

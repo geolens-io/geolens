@@ -705,3 +705,76 @@ def wkt_has_degree_unit(crs_wkt: str | None) -> bool | None:
     if not isinstance(crs_wkt, str) or not crs_wkt:
         return None
     return crs_has_degree_unit(_parse_crs(crs_wkt))
+
+
+def crs_metres_per_unit(crs: object | None) -> float | None:
+    """Metres per linear unit of a PROJECTED CRS, or None when that is not a
+    question with an answer.
+
+    fix(#1375 review): STAC's ``gsd`` is defined in metres, but a stored
+    resolution is in whatever unit its CRS measures. PROJ answers the
+    conversion for projected CRSs directly — ``units_factor`` reports
+    ``('metre', 1.0)`` for UTM and Web Mercator and ``('US survey foot',
+    0.3048006...)`` for the state-plane systems, so a foot-based raster
+    converts as readily as a metre-based one.
+
+    Returns None for a GEOGRAPHIC CRS on purpose, rather than a factor.
+    ``units_factor`` reports RADIANS per unit there, and an angular
+    resolution has no fixed length: a degree of longitude is 111 km at the
+    equator and nothing at the pole, so the conversion needs a latitude this
+    function is not given. Callers must read None as "cannot be expressed in
+    metres" and omit the value rather than publish it unconverted — see
+    ``RasterAsset.to_stac_properties``.
+    """
+    if crs is None:
+        return None
+    try:
+        if not crs.is_projected:
+            return None
+        _, metres_per_unit = crs.units_factor
+    except Exception:  # broad: exotic CRSs raise from PROJ rather than answering, and "no answer" is exactly the None case
+        return None
+    if not metres_per_unit or metres_per_unit <= 0:
+        return None
+    return float(metres_per_unit)
+
+
+def wkt_metres_per_unit(crs_wkt: str | None) -> float | None:
+    """:func:`crs_metres_per_unit` plus the WKT parse.
+
+    Same shape as :func:`wkt_has_degree_unit` over
+    :func:`crs_has_degree_unit`: one implementation, two entry points, so a
+    caller holding a live ``rasterio.crs.CRS`` need not round-trip through
+    WKT to reach it. None covers every uncertainty — no WKT, an unparseable
+    one, or a CRS whose units PROJ will not report.
+    """
+    if not isinstance(crs_wkt, str) or not crs_wkt:
+        return None
+    return crs_metres_per_unit(_parse_crs(crs_wkt))
+
+
+def pixel_size_from_affine(
+    a: float, b: float, d: float, e: float
+) -> tuple[float, float]:
+    """Per-pixel ground distances along a raster's OWN axes, from its affine.
+
+    fix(#1375 review): not ``abs(a)``/``abs(e)``. Those are the pixel vectors'
+    COMPONENTS on the world axes, which equal the pixel sizes only when the
+    raster is axis-aligned. A geotransform maps pixel (col, row) to world
+    ``x = a*col + b*row + c``, ``y = d*col + e*row + f``, so one step along the
+    column axis moves the world point by the vector ``(a, d)`` and one step
+    along the row axis by ``(b, e)``. The LENGTHS of those two vectors are the
+    resolutions; ``a`` and ``e`` alone are their projections onto x and y.
+
+    Rotate a 10 m-pixel raster by 30° and the affine reads ``a=8.66, d=5.0``:
+    ``abs(a)`` reports 8.66 m for a pixel that is 10 m across, a 13%
+    understatement that reaches the UI and STAC's ``gsd``. Confirmed against
+    the distance between adjacent pixel centres, which is 10.0.
+
+    For an axis-aligned raster ``b`` and ``d`` are zero and this returns
+    exactly ``abs(a)``/``abs(e)`` — it agrees with the old form everywhere the
+    old form was right, and differs only where it was wrong. Both raster
+    ingest paths call this so a rotated scene reports the same resolution
+    whether it was uploaded or imported from a remote catalog.
+    """
+    return math.hypot(a, d), math.hypot(b, e)

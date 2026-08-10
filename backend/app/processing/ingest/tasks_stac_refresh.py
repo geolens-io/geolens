@@ -268,6 +268,40 @@ def _rebind(dataset: Any, resolution: Any, *, collection_id: str | None) -> None
     )
 
 
+def _pixel_geometry(described: dict) -> dict:
+    """The affine-derived columns, written only when the affine was READ.
+
+    fix(#1375 review): these three are one fact, so they move together or not
+    at all. ``fetch_cog_info``'s transform probe is optional — ``/cog/info``
+    can answer while ``/cog/stac`` fails — and an earlier version of this
+    turned that partial result into ``is_rotated=False``, which is not a
+    missing value but a WRONG measurement: the column is NOT NULL and cannot
+    say "unknown", so writing it from a probe that measured nothing asserts
+    axis-alignment on an object nothing looked at. ``_check_rotation``
+    (VAL-07) rejects a VRT source only when the flag is true, so that
+    fabricated ``False`` would have let a rotated replacement through a gate
+    built to stop it — and a remote asset IS an eligible VRT source
+    (``router_vrt.py`` handles ``storage_backend='remote'`` members).
+
+    Same argument as ``crs_wkt``/``epsg`` in ``sources/cog_info.py``, which
+    come off one parsed CRS object for the same reason: half a fact, written
+    from a source that produced none of it, leaves a row that is neither the
+    old truth nor the new one.
+
+    Absent keys leave the previous values in place. That is stale for a moved
+    object, and it is the lesser wrong: a scene previously measured as
+    rotated stays flagged rotated, which is the conservative direction for
+    every consumer of these columns.
+    """
+    if "res_x" not in described:
+        return {}
+    return {
+        "res_x": described["res_x"],
+        "res_y": described["res_y"],
+        "is_rotated": described["is_rotated"],
+    }
+
+
 async def _repoint_remote_asset(
     session: Any,
     dataset_uuid: uuid.UUID,
@@ -359,11 +393,14 @@ async def _repoint_remote_asset(
             # same object, and `fetch_cog_info` already reads it off. The
             # STAC import path now writes it too, so leaving it stale here
             # would let a refreshed dataset disagree with what a fresh
-            # import of the same asset would record. `res_x`/`res_y` are
-            # NOT projected the same way — `fetch_cog_info` deliberately
-            # does not compute them; see `cog_info.py`'s `_georeferencing`
-            # docstring for why.
+            # import of the same asset would record.
             crs_wkt=described.get("crs_wkt"),
+            # fix(#1375): the resolution pair and the rotation flag join the
+            # fields above for that same reason, and they are the ones a
+            # move is MOST likely to change — a re-tiled or reprojected
+            # replacement is exactly where the old pixel size stops
+            # describing the new object.
+            **_pixel_geometry(described),
         )
     )
 

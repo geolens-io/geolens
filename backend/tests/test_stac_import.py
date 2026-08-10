@@ -539,11 +539,9 @@ class TestStacImport:
         time; this only asks that its answer be kept, the same way its
         other fields already are.
 
-        fix(#1334 review): res_x/res_y are NOT part of this — fetch_cog_info
-        deliberately does not compute them (see cog_info.py's
-        _georeferencing docstring: Titiler's response carries no affine
-        transform, so nothing can rule out a rotated source, and a wrong
-        resolution that looks like a measurement is worse than none).
+        fix(#1375): this probe result carries no transform, which is the
+        case where res_x/res_y stay NULL. The sibling test below covers the
+        one that does carry it.
         """
         crs_wkt = (
             'PROJCS["WGS 84 / UTM zone 21N",GEOGCS["WGS 84",'
@@ -601,7 +599,8 @@ class TestStacImport:
         # A projected UTM CRS, not geographic — proves crs_wkt round-tripped
         # far enough for PROJ to classify it, not just landed as a string.
         assert raster["crs_is_geographic"] is False
-        # Not derived by this path — see the docstring above.
+        # A probe that established no transform leaves these NULL rather
+        # than guessing — see the docstring above.
         assert raster["res_x"] is None
         assert raster["res_y"] is None
 
@@ -615,6 +614,80 @@ class TestStacImport:
             )
         ).one()
         assert row.crs_wkt == crs_wkt
+
+    async def test_import_records_the_probed_resolution_and_rotation(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        mock_stac_ssrf,
+        test_db_session,
+    ):
+        """fix(#1375): remote raster rows showed "Resolution: — x —" and
+        exported no ``gsd``, because #1334 had no source for a resolution it
+        could trust. ``fetch_cog_info`` now reads the affine off
+        ``/cog/stac``; this asks that the numbers reach the row and the API,
+        including the rotation flag, which a remote row could previously
+        only report as the column's default ``false``.
+
+        The values are a rotated raster's on purpose: it is the case the
+        envelope-division shortcut would have got wrong. 10.0 is the pixel
+        size of the same 30°-rotated fixture ``test_cog_info.py`` probes —
+        its affine's element 0 is 8.66, and the difference between those two
+        numbers is the #1375 review finding.
+        """
+        with patch(
+            "app.modules.catalog.sources.stac_router.fetch_cog_info",
+            new=AsyncMock(
+                return_value={
+                    "band_count": 1,
+                    "dtype": "uint16",
+                    "width": 2658,
+                    "height": 2667,
+                    "nodata": None,
+                    "band_info": None,
+                    "crs_wkt": None,
+                    "res_x": 10.0,
+                    "res_y": 10.0,
+                    "is_rotated": True,
+                }
+            ),
+        ):
+            resp = await client.post(
+                "/services/stac/import",
+                json={
+                    "url": "https://stac.example.com/v1",
+                    "items": [
+                        {
+                            "id": f"test-item-{uuid.uuid4().hex[:8]}",
+                            "collection": "dem-collection",
+                            "title": "Rotated STAC Import",
+                            "data_asset_href": "https://example.com/data/rot.tif",
+                            "bbox": [-1, -1, 1, 1],
+                            "epsg": 32621,
+                        }
+                    ],
+                    "visibility": "private",
+                },
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 200
+        dataset_id = resp.json()["results"][0]["dataset_id"]
+
+        detail = await client.get(f"/datasets/{dataset_id}", headers=admin_auth_header)
+        assert detail.status_code == 200
+        raster = detail.json()["raster"]
+        assert raster["res_x"] == pytest.approx(10.0)
+        assert raster["res_y"] == pytest.approx(10.0)
+
+        row = (
+            await test_db_session.execute(
+                text(
+                    "SELECT ra.is_rotated FROM catalog.raster_assets ra"
+                    " WHERE ra.dataset_id = :did"
+                ).bindparams(did=uuid.UUID(dataset_id))
+            )
+        ).one()
+        assert row.is_rotated is True
 
     async def test_import_prefers_the_probed_epsg_over_a_stale_item_declaration(
         self,
