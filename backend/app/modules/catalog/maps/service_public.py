@@ -419,6 +419,10 @@ def _build_shared_layer_dict(
     is_public = ds_visibility == "public"
     if ds_record_type in RASTER_FAMILY_RECORD_TYPES:
         tile_url = f"/raster-tiles/{layer.dataset_id}/tiles/{{z}}/{{x}}/{{y}}.png"
+        # fix(#1372): version the raster template so nginx's $arg_v cache-key
+        # segment rolls the shared tile cache when a replace bumps the version.
+        if ds_tile_version:
+            tile_url = f"{tile_url}?v={ds_tile_version}"
     else:
         # Phase 273 SEC-16 / L-62: previous public-vs-private branch produced
         # `/tiles/public/data.{table_name}/...`, but no such route is mounted

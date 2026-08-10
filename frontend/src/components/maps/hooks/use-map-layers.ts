@@ -225,14 +225,16 @@ export function useMapLayers({
         // for an identical URL for up to an hour even after this source is
         // freshly re-added on remount. Bust that with tileVersion (the
         // dataset's updated_at) the same way the vector source already does
-        // via buildSignedTileUrl. This does NOT reach the shared nginx
-        // raster_cache — its proxy_cache_key whitelists only the Titiler
-        // render params (colormap_name/stretch/pmin/pmax/sigma), so an
-        // unlisted query param has no effect there (see #1362 follow-up
-        // filed for that separate, infra-scoped gap).
-        const versionedTileUrl = tileVersion
-          ? `${window.location.origin}${rasterTileUrl}?v=${encodeURIComponent(tileVersion)}`
-          : `${window.location.origin}${rasterTileUrl}`;
+        // via buildSignedTileUrl.
+        // fix(#1372): the server now embeds `?v=<tile_cache_version>` in the
+        // raster tile URL (nginx's shared cache keys on it) — when present,
+        // it supersedes this client-side append; appending a second `v`
+        // would make nginx key on the wrong (first) value.
+        const hasServerVersion = /[?&]v=/.test(rasterTileUrl);
+        const versionedTileUrl =
+          tileVersion && !hasServerVersion
+            ? `${window.location.origin}${rasterTileUrl}?v=${encodeURIComponent(tileVersion)}`
+            : `${window.location.origin}${rasterTileUrl}`;
         map.addSource('raster-tile-source', {
           type: 'raster',
           tiles: [versionedTileUrl],

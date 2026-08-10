@@ -373,11 +373,16 @@ async def get_dataset_collection(
         # APP origin (/raster-tiles/...), which nginx rewrites to the internal
         # tile proxy; the /api origin has no such route, so use public_app_url.
         public_app_url = await get_public_app_url(db, request=request)
+        # fix(#1372 codex r2): versioned like every rendered template so a
+        # refetching client stops sharing the unversioned cache entry.
+        raster_tiles_path = f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png"
+        if dataset.tile_cache_version:
+            raster_tiles_path = f"{raster_tiles_path}?v={dataset.tile_cache_version}"
         links.append(
             OGCLink(
                 rel="tiles",
                 href=build_url(
-                    f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png",
+                    raster_tiles_path,
                     base_url=public_app_url,
                 ),
                 type="image/png",

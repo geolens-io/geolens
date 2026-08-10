@@ -1605,7 +1605,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # raw aggregate (which is NULL, not 0, for a map with no ACTIVE embed
         # token — and the count never exceeds 1, per the partial unique index).
         # Cap 914 -> 983, exact.
-        "backend/app/modules/catalog/maps/service_public.py": 983,
+        # fix(#1372): +4 — the shared-layer raster tile template carries
+        # ?v=<tile_cache_version>, the segment nginx's raster cache keys on.
+        "backend/app/modules/catalog/maps/service_public.py": 987,
         # fix(#1290 review): +5 — PUBLIC_ASSET_KEYS and the guard that reads it.
         # _build_stac_assets published every dataset_assets row it was handed,
         # so the first INTERNAL key (archived_original, the pre-conversion
@@ -1617,7 +1619,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # through the visibility-filtered OGC search representation, including
         # JSON-safe datetime serialization for the OGC and STAC response paths.
         # Cap 505 -> 512, exact.
-        "backend/app/modules/catalog/search/service_records.py": 512,
+        # fix(#1372 codex r2): +7 — the advertised raster_tiles asset carries
+        # ?v=<tile_cache_version> like every rendered raster template.
+        "backend/app/modules/catalog/search/service_records.py": 519,
         # fix(#448): +~40 LOC — query-embedding hot-path deadline (asyncio.wait_for
         # wrapper) + the gated/approximated vector-only match COUNT in
         # _run_rrf_merge (perf audit 2026-07-10 §2d). Cap 350 → 390
@@ -1875,7 +1879,9 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # tuple and not `Exception`: `_tile_url_for_layer` raises RuntimeError with
     # no tenant context, and swallowing that would turn a fail-closed refusal
     # into a quietly missing layer in a hosted export.
-    "backend/app/modules/catalog/maps/style_json.py": 1615,
+    # fix(#1372): +5 — exported raster/DEM sources carry ?v=<tile_cache_version>
+    # so external MapLibre consumers roll the shared nginx cache on replace.
+    "backend/app/modules/catalog/maps/style_json.py": 1620,
     "backend/app/modules/catalog/maps/style_import.py": 450,
     "backend/app/modules/catalog/maps/style_sanitizers.py": 200,
     "backend/app/modules/catalog/maps/router_assets.py": 126,
@@ -2905,7 +2911,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # payload structure; `GET /datasets/{id}` had been building its assets
     # straight off the ORM rows and leaked the archived original's href and
     # filename to every viewer. Cap 1440 -> 1450, exact.
-    "backend/app/modules/catalog/search/router.py": 1450,
+    # fix(#1372 codex r2): +5 — the collections-list raster tiles link carries
+    # ?v=<tile_cache_version> like every rendered raster template.
+    "backend/app/modules/catalog/search/router.py": 1455,
     # fix(#474): negotiate localized STAC record text; fix(#475) adds the
     # unassigned Collection and matching HTTP Link navigation. fix(#506): keep
     # validated STAC item responses wire-compatible with serializer output.
@@ -2958,7 +2966,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # _resolve_raster_access via _has_tile_signature/_verify_raster_tile_signature).
     # Before this a client following the contract literally received an
     # unauthenticated template for a private raster. Ratchet stays exact.
-    "backend/app/processing/tiles/router.py": 2154,
+    # fix(#1372): +6 — the signed raster template also carries
+    # ?v=<tile_cache_version> (outside the signature, like the colormap
+    # params) so nginx's $arg_v cache-key segment rolls on replace.
+    # fix(#1372 codex r3): +19 — the auth check refuses to mark a response
+    # cacheable when its `v` mismatches the dataset's current version, so a
+    # predictable future key can never be pre-warmed with pre-replace bytes.
+    # fix(#1372 codex r4): +12 — the check mirrors nginx's $arg_v semantics
+    # (first occurrence, case-insensitive name), closing the duplicate-param
+    # and name-case parser-disagreement variants of the same pre-warm attack.
+    "backend/app/processing/tiles/router.py": 2191,
 }
 
 

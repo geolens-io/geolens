@@ -321,6 +321,63 @@ class TestRasterAuthCheck:
         assert open_path.endswith(asset.asset_uri)
         assert resp.headers.get("x-geolens-cache-status") == "public"
 
+    async def test_auth_check_mismatched_tile_version_is_not_cacheable(
+        self, client: AsyncClient, test_db_session
+    ):
+        """fix(#1372 codex r3): tile_cache_version is advertised in public URLs
+        and increments predictably, so a caller could pre-warm the NEXT
+        version's nginx cache key with pre-replace bytes. A `v` that does not
+        match the dataset's current version must therefore never produce a
+        cacheable response — it still serves, but as private."""
+        admin_id = await _get_admin_id(test_db_session)
+        _record, dataset, _asset = await _create_raster_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+
+        current = str(dataset.tile_cache_version)
+
+        # Matching v: cacheable, exactly like an unversioned request.
+        resp = await client.get(
+            "/tiles/raster-auth-check/",
+            params={"dataset_id": str(dataset.id), "v": current},
+        )
+        assert resp.status_code == 200
+        assert resp.headers.get("x-geolens-cache-status") == "public"
+
+        # Future/wrong v: served, but never cached under the wrong key.
+        resp = await client.get(
+            "/tiles/raster-auth-check/",
+            params={"dataset_id": str(dataset.id), "v": "999"},
+        )
+        assert resp.status_code == 200
+        assert resp.headers.get("x-geolens-cache-status") == "private"
+
+        # fix(#1372 codex r4): duplicate v — nginx keys on the FIRST value,
+        # Starlette's .get() would return the LAST, so a naive check passes
+        # while nginx caches under the future key. Exactly one v is required.
+        resp = await client.get(
+            f"/tiles/raster-auth-check/?dataset_id={dataset.id}&v=999&v={current}",
+        )
+        assert resp.status_code == 200
+        assert resp.headers.get("x-geolens-cache-status") == "private"
+
+        # fix(#1372 codex r4): nginx matches the param NAME case-insensitively
+        # ($arg_v sees V=999); an exact-case backend check would miss it.
+        resp = await client.get(
+            "/tiles/raster-auth-check/",
+            params={"dataset_id": str(dataset.id), "V": "999"},
+        )
+        assert resp.status_code == 200
+        assert resp.headers.get("x-geolens-cache-status") == "private"
+
+        # No v (copied connect URLs): unchanged legacy behavior.
+        resp = await client.get(
+            "/tiles/raster-auth-check/",
+            params={"dataset_id": str(dataset.id)},
+        )
+        assert resp.status_code == 200
+        assert resp.headers.get("x-geolens-cache-status") == "public"
+
     async def test_auth_check_returns_open_path_for_authenticated_user(
         self, client: AsyncClient, test_db_session
     ):
@@ -735,6 +792,32 @@ class TestRasterTokenEndpoint:
         assert "format" in data
         assert data["tile_size"] == 256
         assert data["format"] == "png"
+
+    async def test_raster_token_url_carries_tile_cache_version(
+        self, client: AsyncClient, test_db_session
+    ):
+        """fix(#1372): the signed template carries v=<tile_cache_version>, the
+        segment nginx's shared raster cache keys on ($arg_v) — a raster replace
+        bumps the version, so the shared cache rolls instead of serving
+        pre-replace bytes for up to proxy_cache_valid."""
+        from urllib.parse import parse_qs
+
+        admin_id = await _get_admin_id(test_db_session)
+        _record, dataset, _asset = await _create_raster_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+
+        resp = await client.get(f"/tiles/token/{dataset.id}/")
+        assert resp.status_code == 200
+        query = parse_qs(resp.json()["tile_url"].split("?", 1)[1])
+        assert query["v"] == [str(dataset.tile_cache_version)]
+
+        dataset.bump_tile_cache_version()
+        await test_db_session.commit()
+
+        resp = await client.get(f"/tiles/token/{dataset.id}/")
+        query = parse_qs(resp.json()["tile_url"].split("?", 1)[1])
+        assert query["v"] == [str(dataset.tile_cache_version)]
 
     async def test_raster_token_derives_maxzoom_from_raster_metadata(
         self, client: AsyncClient, test_db_session

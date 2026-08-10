@@ -848,11 +848,16 @@ async def list_collections(
                 }
             )
         else:
+            # fix(#1372 codex r2): versioned like every rendered template so a
+            # refetching client stops sharing the unversioned cache entry.
+            raster_tiles_path = f"/raster-tiles/{ds.id}/tiles/{{z}}/{{x}}/{{y}}.png"
+            if ds.tile_cache_version:
+                raster_tiles_path = f"{raster_tiles_path}?v={ds.tile_cache_version}"
             links.append(
                 {
                     "rel": "tiles",
                     "href": build_url(
-                        f"/raster-tiles/{ds.id}/tiles/{{z}}/{{x}}/{{y}}.png",
+                        raster_tiles_path,
                         base_url=public_app_url,
                     ),
                     "type": "image/png",

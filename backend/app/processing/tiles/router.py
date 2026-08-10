@@ -292,6 +292,7 @@ class _RasterMeta(NamedTuple):
     is_dem: bool | None
     band_info: list | None
     nodata: str | None
+    tile_cache_version: int
 
 
 # WR-02 (Phase 1210): bounded LRU — mirrors the vector _dataset_cache (PERF-006).
@@ -706,7 +707,8 @@ async def _resolve_raster_meta(
                 ra.dtype,
                 ra.is_dem,
                 ra.band_info,
-                ra.nodata
+                ra.nodata,
+                d.tile_cache_version
             FROM catalog.datasets d
             JOIN catalog.records r ON d.record_id = r.id
             LEFT JOIN catalog.raster_assets ra ON ra.dataset_id = d.id
@@ -744,6 +746,7 @@ async def _resolve_raster_meta(
         is_dem=row["is_dem"],
         band_info=row["band_info"],
         nodata=row["nodata"],
+        tile_cache_version=row["tile_cache_version"] or 1,
     )
     with _raster_meta_cache_lock:
         _raster_meta_cache[cache_key] = (now, meta)
@@ -922,6 +925,34 @@ async def raster_auth_check(
         if _is_publicly_cacheable(meta.visibility, meta.record_status)
         else "private"
     )
+    # fix(#1372 codex r3): a shared-cache entry must only ever be written under
+    # the dataset's CURRENT tile_cache_version. The counter is advertised in
+    # public URLs and increments predictably, so an unvalidated `v` would let a
+    # caller pre-warm the NEXT version's cache key with pre-replace bytes and
+    # defeat the invalidation for a full TTL. A mismatched `v` still serves —
+    # a stale tab keeps rendering current bytes — but as `private, no-store`,
+    # so the wrong key is never populated. Compared against the same cached
+    # meta snapshot the bytes come from (`_RASTER_META_CACHE_TTL` note above),
+    # so version and content can never disagree within one response.
+    #
+    # fix(#1372 codex r4): the match must mirror nginx's `$arg_v` semantics,
+    # not Starlette's. nginx keys on the FIRST occurrence and matches the
+    # param NAME case-insensitively; `QueryParams.get()` returns the LAST
+    # occurrence of an exact-case name — so `?v=<future>&v=<current>` (or
+    # `?V=<future>`) would pass a naive check while nginx keys on the future
+    # value. Cacheable requires exactly one case-insensitive `v`, equal to
+    # the current version; anything else is served no-store.
+    v_values = [
+        value
+        for name, value in request.query_params.multi_items()
+        if name.lower() == "v"
+    ]
+    if (
+        cache_status == "public"
+        and v_values
+        and (len(v_values) != 1 or v_values[0] != str(meta.tile_cache_version))
+    ):
+        cache_status = "private"
     if meta.is_dem:
         # DEM terrain: use terrainrgb algorithm with NO rescale — the algorithm
         # reads raw elevation values and encodes them into RGB channels directly.
@@ -1302,7 +1333,13 @@ def _build_tile_token_for_dataset(
         raster_scope = tenant_bound_scope(str(dataset.id))
         raster_sig = generate_tile_signature(raster_scope, raster_exp)
         tile_path = f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png"
-        query = urlencode({"sig": raster_sig, "exp": raster_exp, "scope": raster_scope})
+        # fix(#1372): `v` rides outside the signature (which binds scope+exp
+        # only, like the colormap params) and feeds nginx's $arg_v cache-key
+        # segment, so a raster replace rolls the shared tile cache.
+        query_params = {"sig": raster_sig, "exp": raster_exp, "scope": raster_scope}
+        if dataset.tile_cache_version:
+            query_params["v"] = dataset.tile_cache_version
+        query = urlencode(query_params)
 
         return RasterTileToken(
             kind="raster",

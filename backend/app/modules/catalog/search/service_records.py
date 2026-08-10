@@ -118,9 +118,16 @@ def build_assets(
 
     elif record_type in RASTER_FAMILY_RECORD_TYPES:
         # Raster tile endpoint -- served at the public APP origin, not /api.
+        # fix(#1372 codex r2): versioned like every rendered template — these
+        # documents are generated per request, so a refetching STAC/OGC client
+        # gets a fresh v and stops sharing the unversioned cache entry.
+        raster_tiles_path = f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png"
+        tile_version = getattr(dataset, "tile_cache_version", None)
+        if tile_version:
+            raster_tiles_path = f"{raster_tiles_path}?v={tile_version}"
         assets["raster_tiles"] = {
             "href": build_url(
-                f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png",
+                raster_tiles_path,
                 base_url=(public_app_url or public_api_url),
             ),
             "type": "image/png",
