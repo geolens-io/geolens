@@ -1049,4 +1049,60 @@ describe('ReuploadDialog raster reupload', () => {
       expect(onReplaceComplete).toHaveBeenCalledTimes(1);
     });
   });
+
+  // codex(#1362 r3): the await above leaves the completion continuation in
+  // flight across renders — closing the dialog before it settles must not
+  // let it apply setStep('complete')/onReplaceComplete on top of the reset
+  // state (or, worse, on top of a second reupload started in the meantime).
+  it('ignores a stale completion once the dialog resets mid-invalidation', async () => {
+    const user = userEvent.setup();
+    const onReplaceComplete = vi.fn();
+    mockUseJobStatus.mockReturnValue({
+      data: { status: 'complete' },
+    } as unknown as ReturnType<typeof useJobStatus>);
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
+    });
+    const pendingResolvers: Array<() => void> = [];
+    vi.spyOn(queryClient, 'invalidateQueries').mockImplementation(
+      () => new Promise<void>((resolve) => { pendingResolvers.push(resolve); }),
+    );
+
+    rtlRender(
+      <QueryClientProvider client={queryClient}>
+        <ReuploadDialog
+          dataset={makeRasterDataset()}
+          open
+          onOpenChange={vi.fn()}
+          onReplaceComplete={onReplaceComplete}
+        />
+      </QueryClientProvider>,
+    );
+
+    await openFileSource(user);
+    await dropFile('ortho.tif');
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+    await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+    await waitFor(() => {
+      expect(pendingResolvers.length).toBeGreaterThan(0);
+    });
+
+    // User closes the dialog (its own X button) while the invalidation is
+    // still in flight — this resets `step` out from under the pending run.
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+    await screen.findByTestId('reupload-source-selector');
+
+    // Let the stale invalidation settle now.
+    await act(async () => {
+      pendingResolvers.forEach((resolve) => resolve());
+      await Promise.resolve();
+    });
+
+    expect(onReplaceComplete).not.toHaveBeenCalled();
+    expect(screen.queryByText('Re-upload complete!')).not.toBeInTheDocument();
+    // Reset really did win: still on the reset source-selector screen.
+    expect(screen.getByTestId('reupload-source-selector')).toBeInTheDocument();
+  });
 });

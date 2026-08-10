@@ -189,6 +189,15 @@ export function ReuploadDialog({
     if (step !== 'tracking' || !jobData) return;
 
     if (jobData.status === 'complete') {
+      // fix(#1362 codex r3): the await below leaves this continuation
+      // in flight across a render where `step`/`jobId` can change under it —
+      // closing the dialog (resetState) or starting a second reupload before
+      // the first's invalidation settles must not let this stale run apply
+      // its 'complete' transition on top of whatever is current. `cancelled`
+      // is flipped by the effect cleanup, which fires on any dependency
+      // change (step leaving 'tracking' included) before this branch's next
+      // invocation runs.
+      let cancelled = false;
       // fix(#1362 codex r2): invalidateQueries only SCHEDULES a refetch —
       // firing onReplaceComplete without waiting for it raced the remount
       // against the still-in-flight dataset-detail refetch, so a replacement
@@ -205,6 +214,7 @@ export function ReuploadDialog({
           queryClient.invalidateQueries({ queryKey: queryKeys.datasets.all }),
           queryClient.invalidateQueries({ queryKey: queryKeys.search.all }),
         ]);
+        if (cancelled) return;
         // fix(#1362 codex r1): a raster's tile URL is a fixed per-dataset
         // route, not versioned by content — invalidating the dataset query
         // alone doesn't touch the hero map's already-added MapLibre raster
@@ -218,6 +228,9 @@ export function ReuploadDialog({
         setStep('complete');
         toast.success(t('reupload.toastSuccess'));
       })();
+      return () => {
+        cancelled = true;
+      };
     } else if (jobData.status === 'failed') {
       const message = jobData.error_message ?? t('reupload.jobFailed');
       setError(
