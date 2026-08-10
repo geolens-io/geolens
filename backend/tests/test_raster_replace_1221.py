@@ -34,6 +34,7 @@ block, because this suite runs against the shared dev Postgres.
 
 from __future__ import annotations
 
+import contextlib
 import io
 import json as _json
 import re
@@ -41,11 +42,11 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import numpy as np
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from rasterio.crs import CRS
 from rasterio.io import MemoryFile
 from rasterio.transform import from_bounds
@@ -455,6 +456,76 @@ async def _purge(session, *, dataset_id: uuid.UUID, record_id: uuid.UUID) -> Non
     await session.execute(delete(Dataset).where(Dataset.id == dataset_id))
     await session.execute(delete(Record).where(Record.id == record_id))
     await session.commit()
+
+
+async def _make_owner(session) -> uuid.UUID:
+    """Commit a throwaway user and return its id.
+
+    The quota tests measure one identity's usage exactly, and `admin` is shared
+    with every other suite running against this database — so they own their
+    subject rather than borrowing it.
+    """
+    from app.modules.auth.models import User as UserModel
+
+    suffix = uuid.uuid4().hex[:8]
+    user = UserModel(
+        username=f"quota_owner_{suffix}",
+        email=f"quota_owner_{suffix}@example.invalid",
+        password_hash="x",
+    )
+    session.add(user)
+    await session.commit()
+    return user.id
+
+
+async def _drop_owner(session, user_id: uuid.UUID) -> None:
+    """Remove a throwaway user once its datasets are gone.
+
+    Order matters and is the point: `records.created_by` is ON DELETE SET NULL,
+    so deleting the user first would orphan the very rows the test is about
+    rather than remove them.
+    """
+    from app.modules.auth.models import User as UserModel
+
+    await session.execute(delete(UserModel).where(UserModel.id == user_id))
+    await session.commit()
+
+
+async def _set_counted_data_bytes(session, dataset_id: uuid.UUID, size: int) -> None:
+    """Give a dataset `size` bytes of QUOTA-COUNTED storage.
+
+    The `data` row in `dataset_assets` is what `get_user_quota_usage` sums, so
+    this is the only way to make a dataset weigh anything as far as the caps are
+    concerned — the RasterAsset's own `size_bytes` is not counted.
+    """
+    await session.execute(
+        text(
+            "INSERT INTO catalog.dataset_assets (dataset_id, key, href, size_bytes) "
+            "VALUES (:id, 'data', 'x', :size) "
+            "ON CONFLICT ON CONSTRAINT uq_dataset_assets_key "
+            "DO UPDATE SET size_bytes = EXCLUDED.size_bytes"
+        ),
+        {"id": dataset_id, "size": size},
+    )
+    await session.commit()
+
+
+@contextlib.contextmanager
+def _capped(*, storage_cap: int = 0, count_cap: int = 0):
+    """Run the block with both quota caps forced (0 is the unlimited default)."""
+    with (
+        patch(
+            "app.modules.quota.service.MAX_STORAGE_BYTES_PER_USER.get",
+            new_callable=AsyncMock,
+            return_value=storage_cap,
+        ),
+        patch(
+            "app.modules.quota.service.MAX_DATASETS_PER_USER.get",
+            new_callable=AsyncMock,
+            return_value=count_cap,
+        ),
+    ):
+        yield
 
 
 # ---------------------------------------------------------------------------
@@ -3128,22 +3199,328 @@ class TestDoorAdmitsAgainstTheOwner:
             )
             await test_db_session.commit()
 
-    async def test_an_ownerless_dataset_reads_as_zero_usage_on_both_sides(
-        self, test_db_session
-    ) -> None:
-        """The NULL-owner policy, pinned so door and worker cannot diverge.
 
-        `get_user_quota_usage` filters `records.created_by = :user_id`, which
-        matches nothing for NULL — so an ownerless dataset counts against
-        nobody and the cap is effectively unenforced. That is what
-        `reserve_storage_bytes` already does with the same value at publish
-        time; the door mirrors it rather than inventing a stricter rule.
+class TestOwnerlessDatasetsAreExemptAtEverySeam:
+    """The ownerless-dataset policy (#1293), pinned seam by seam.
+
+    A dataset whose `records.created_by` is NULL is exempt from quota
+    accounting everywhere: its bytes and its row count against nobody, and no
+    seam substitutes a stand-in identity for it. The policy, and why it beats
+    refusing the mutation or billing the instance admin, is stated once in
+    `app.modules.quota.service`'s module docstring; these tests hold the
+    behaviour to it so that changing the policy has to be deliberate rather
+    than a side effect. #998 tracks the ownership adoption that would end it.
+
+    Ownerless is reachable today and not only from pre-0019 legacy rows:
+    `catalog.records.created_by` is ON DELETE SET NULL, so hard-deleting a user
+    leaves every dataset they created ownerless and still serving.
+    """
+
+    async def test_a_null_identity_reads_as_zero_usage(self, test_db_session) -> None:
+        """The mechanism the whole policy rests on, at its source.
+
+        `get_user_quota_usage` filters `records.created_by = :user_id`, and
+        `= NULL` is never true, so a NULL identity matches no rows at all. Every
+        other seam reads its usage through this aggregate, which is why one
+        filter delivers the exemption to all of them without an `is None`
+        branch anywhere.
         """
         from app.modules.quota.service import get_user_quota_usage
 
         usage = await get_user_quota_usage(test_db_session, None)
         assert usage.bytes_used == 0
         assert usage.dataset_count == 0
+
+    async def test_an_ownerless_datasets_bytes_are_charged_to_no_user(
+        self, test_db_session, raster_storage
+    ) -> None:
+        """Exempt means charged to NOBODY, not quietly reassigned to someone.
+
+        Two datasets of identical size sit side by side, one owned and one
+        orphaned. The owner's usage must come to exactly the owned one — the
+        orphan lands neither on the user beside it nor on the NULL identity.
+        Asserted through the bulk aggregate as well as the single-user read,
+        because the bulk one backs the admin user list and resolves the same
+        column by GROUP BY, so a misattribution would surface there first.
+        """
+        from app.modules.quota.service import (
+            get_user_quota_usage,
+            get_user_quota_usage_bulk,
+        )
+
+        owner_id = await _make_owner(test_db_session)
+        orphaned = await _make_live_raster(
+            test_db_session, raster_storage, created_by=None
+        )
+        owned = await _make_live_raster(
+            test_db_session, raster_storage, created_by=owner_id
+        )
+        await _set_counted_data_bytes(test_db_session, orphaned.dataset.id, 5_000_000)
+        await _set_counted_data_bytes(test_db_session, owned.dataset.id, 5_000_000)
+
+        try:
+            usage = await get_user_quota_usage(test_db_session, owner_id)
+            assert usage.bytes_used == 5_000_000, (
+                "the orphaned dataset's bytes landed on the user beside it — "
+                "the exemption reassigns storage instead of exempting it "
+                f"(#1293): {usage.bytes_used}"
+            )
+            assert usage.dataset_count == 1
+
+            bulk = await get_user_quota_usage_bulk(test_db_session, [owner_id])
+            assert bulk[owner_id].bytes_used == 5_000_000, (
+                "the admin user list bills the orphan to a user while the "
+                "single-user read does not — the two seams disagree"
+            )
+            assert bulk[owner_id].dataset_count == 1
+
+            assert (await get_user_quota_usage(test_db_session, None)).bytes_used == 0
+        finally:
+            for live in (orphaned, owned):
+                await _purge(
+                    test_db_session,
+                    dataset_id=live.dataset.id,
+                    record_id=live.dataset.record_id,
+                )
+            await _drop_owner(test_db_session, owner_id)
+
+    async def test_the_door_admits_what_it_would_refuse_for_a_real_owner(
+        self, test_db_session, raster_storage
+    ) -> None:
+        """Door admission, with ownership as the only variable.
+
+        The same two datasets, the same cap, the same replacement — judged once
+        while a real user owns them and once after they are orphaned, which is
+        the transition an admin deleting that user actually performs. Owned,
+        the ballast puts the owner over the cap and the replacement is refused;
+        ownerless, the same bytes count against nobody and it is admitted.
+        """
+        from app.modules.quota.service import check_replacement_quota
+
+        owner_id = await _make_owner(test_db_session)
+        target = await _make_live_raster(
+            test_db_session, raster_storage, created_by=owner_id
+        )
+        ballast = await _make_live_raster(
+            test_db_session, raster_storage, created_by=owner_id
+        )
+        await _set_counted_data_bytes(test_db_session, target.dataset.id, 100)
+        await _set_counted_data_bytes(test_db_session, ballast.dataset.id, 5_000_000)
+
+        request = MagicMock(spec=Request)
+
+        try:
+            with _capped(storage_cap=1_000_000):
+                with pytest.raises(HTTPException) as exc_info:
+                    await check_replacement_quota(
+                        test_db_session,
+                        owner_id,
+                        100,
+                        request,
+                        dataset_id=target.dataset.id,
+                    )
+                assert exc_info.value.status_code == 413
+
+                await test_db_session.execute(
+                    text(
+                        "UPDATE catalog.records SET created_by = NULL "
+                        "WHERE id IN (:a, :b)"
+                    ),
+                    {"a": target.dataset.record_id, "b": ballast.dataset.record_id},
+                )
+                await test_db_session.commit()
+
+                await check_replacement_quota(
+                    test_db_session,
+                    None,
+                    100,
+                    request,
+                    dataset_id=target.dataset.id,
+                )
+        finally:
+            for live in (target, ballast):
+                await _purge(
+                    test_db_session,
+                    dataset_id=live.dataset.id,
+                    record_id=live.dataset.record_id,
+                )
+            await _drop_owner(test_db_session, owner_id)
+
+    async def test_reserve_storage_bytes_accumulates_nothing_for_a_null_owner(
+        self, test_db_session, raster_storage
+    ) -> None:
+        """The publish-time seam, and the one edge the exemption does NOT cover.
+
+        Ownerless bytes never accumulate, so a reservation that fits under the
+        cap on its own is admitted no matter how much orphaned storage exists.
+        But the recount reading zero is not the same as the seam
+        short-circuiting: `incoming_bytes` is still weighed against the cap by
+        itself, so a single reservation larger than the whole cap is still
+        refused. Pinned because an `if user_id is None: return` would look
+        equivalent and is not.
+        """
+        from app.modules.quota.service import (
+            StorageQuotaExceededError,
+            reserve_storage_bytes,
+        )
+
+        owner_id = await _make_owner(test_db_session)
+        orphaned = await _make_live_raster(
+            test_db_session, raster_storage, created_by=None
+        )
+        owned = await _make_live_raster(
+            test_db_session, raster_storage, created_by=owner_id
+        )
+        await _set_counted_data_bytes(test_db_session, orphaned.dataset.id, 5_000_000)
+        await _set_counted_data_bytes(test_db_session, owned.dataset.id, 5_000_000)
+
+        try:
+            with _capped(storage_cap=1_000_000):
+                await reserve_storage_bytes(test_db_session, None, 900_000)
+
+                with pytest.raises(StorageQuotaExceededError):
+                    await reserve_storage_bytes(test_db_session, owner_id, 900_000)
+
+                with pytest.raises(StorageQuotaExceededError):
+                    await reserve_storage_bytes(test_db_session, None, 1_000_001)
+        finally:
+            for live in (orphaned, owned):
+                await _purge(
+                    test_db_session,
+                    dataset_id=live.dataset.id,
+                    record_id=live.dataset.record_id,
+                )
+            await _drop_owner(test_db_session, owner_id)
+
+    async def test_reserve_dataset_slot_cannot_refuse_a_null_owner(
+        self, test_db_session, raster_storage
+    ) -> None:
+        """The count seam answers the same way, and cannot refuse at all.
+
+        Zero is below every positive cap, so the count cap has no residual edge
+        the way the byte cap does. Not reachable today — every caller creates a
+        Record for an authenticated uploader — but pinned so the two caps give
+        one answer if an adoption or re-ingest path ever reaches it.
+        """
+        from app.modules.quota.service import (
+            DatasetQuotaExceededError,
+            reserve_dataset_slot,
+        )
+
+        owner_id = await _make_owner(test_db_session)
+        orphaned = await _make_live_raster(
+            test_db_session, raster_storage, created_by=None
+        )
+        owned = await _make_live_raster(
+            test_db_session, raster_storage, created_by=owner_id
+        )
+
+        try:
+            with _capped(count_cap=1):
+                await reserve_dataset_slot(test_db_session, None)
+
+                with pytest.raises(DatasetQuotaExceededError):
+                    await reserve_dataset_slot(test_db_session, owner_id)
+        finally:
+            for live in (orphaned, owned):
+                await _purge(
+                    test_db_session,
+                    dataset_id=live.dataset.id,
+                    record_id=live.dataset.record_id,
+                )
+            await _drop_owner(test_db_session, owner_id)
+
+    async def test_the_worker_reserve_hands_a_null_owner_straight_through(
+        self, test_db_session, raster_storage
+    ) -> None:
+        """The worker-side replacement seam substitutes no identity of its own.
+
+        `reserve_replacement_bytes` computes the net increase and delegates the
+        cap decision, so it must pass the owner it was given — including None.
+        Resolving a fallback here is exactly how the worker would start
+        refusing replacements the door already admitted.
+        """
+        from app.processing.ingest.tasks_raster_swap import reserve_replacement_bytes
+
+        orphaned = await _make_live_raster(
+            test_db_session, raster_storage, created_by=None
+        )
+        dataset_id = orphaned.dataset.id
+        await _set_counted_data_bytes(test_db_session, dataset_id, 400)
+
+        seen: list[tuple] = []
+
+        async def _spy(session, user_id, incoming_bytes):
+            seen.append((user_id, incoming_bytes))
+
+        try:
+            with patch("app.modules.quota.service.reserve_storage_bytes", new=_spy):
+                await reserve_replacement_bytes(
+                    test_db_session,
+                    dataset_id=dataset_id,
+                    owner_id=None,
+                    new_size=1000,
+                )
+            assert seen == [(None, 600)], (
+                "the worker named an identity the door never used — door and "
+                "worker can now disagree about an ownerless replacement (#1293)"
+            )
+        finally:
+            await _purge(
+                test_db_session,
+                dataset_id=dataset_id,
+                record_id=orphaned.dataset.record_id,
+            )
+
+    def test_every_replacement_admission_point_bills_the_datasets_owner(self) -> None:
+        """Why the exemption reaches all three doors: they resolve one column.
+
+        Structural, because the third admission point is the presigned
+        FINALIZER — reached only after a real multipart upload completes, which
+        is why it was the one that drifted in #1290 round 8. Each door has to
+        bill `dataset.record.created_by`, the nullable column the policy is
+        about; a door that resolved the REQUESTER instead would both break the
+        owner rule and quietly opt out of the exemption.
+        """
+        import ast
+        import inspect
+
+        from app.modules.catalog.datasets.api import router_reupload
+        from app.processing.ingest import presigned
+
+        owner_expr = "dataset.record.created_by"
+        billed: list[str] = []
+        for node in ast.walk(ast.parse(inspect.getsource(router_reupload))):
+            if not isinstance(node, ast.Call):
+                continue
+            if getattr(node.func, "id", None) == "check_replacement_quota":
+                billed.append(ast.unparse(node.args[1]))
+            elif getattr(node.func, "attr", None) == "finalize_presigned_object":
+                billed.extend(
+                    ast.unparse(kw.value) for kw in node.keywords if kw.arg == "user_id"
+                )
+
+        assert len(billed) == 3, (
+            "expected the two request-time doors plus the completion "
+            f"finalizer to bill an identity, found {billed}"
+        )
+        assert set(billed) == {owner_expr}, (
+            f"a replacement admission point bills someone other than the "
+            f"dataset owner: {billed}"
+        )
+
+        # The finalizer must not re-resolve an identity of its own either: it
+        # bills the one the door handed it, nullable and all.
+        finalizer_billed = [
+            ast.unparse(node.args[1])
+            for node in ast.walk(ast.parse(inspect.getsource(presigned)))
+            if isinstance(node, ast.Call)
+            and getattr(node.func, "id", None) == "check_replacement_quota"
+        ]
+        assert finalizer_billed == ["user_id"], (
+            "the presigned finalizer resolves its own identity instead of "
+            f"passing through the owner the door named: {finalizer_billed}"
+        )
 
 
 class TestEveryKeptOriginalIsCounted:

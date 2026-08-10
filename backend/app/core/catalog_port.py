@@ -53,6 +53,10 @@ class CatalogPort(Protocol):
         job_id: uuid.UUID,
     ) -> None: ...
 
+    # Here and on `finalize_presigned_object`, `user_id` is the dataset OWNER
+    # when the flow is a replacement and the uploader when it is a creation, so
+    # it is nullable: an ownerless dataset has no owner to name (#1293 — the
+    # policy is stated in app.modules.quota.service).
     async def verify_completed_presigned_upload(
         self,
         *,
@@ -60,7 +64,7 @@ class CatalogPort(Protocol):
         storage: Any,
         key: str,
         expected_size: Any,
-        user_id: uuid.UUID,
+        user_id: uuid.UUID | None,
         request: Any,
         job_id: uuid.UUID,
     ) -> int: ...
@@ -93,7 +97,7 @@ class CatalogPort(Protocol):
         logical_key: str,
         expected_size: Any,
         filename: str,
-        user_id: uuid.UUID,
+        user_id: uuid.UUID | None,
         request: Any,
     ) -> str: ...
 
