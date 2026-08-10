@@ -75,12 +75,12 @@ from app.platform.refresh.service import (
     claim_run_for_job,
     create_pending_run,
     record_refresh_failure,
-    record_refresh_success,
     sweep_abandoned_refresh_runs,
 )
 from app.processing.ingest import tasks_postgis_refresh
 from app.processing.ingest.tasks_postgis_refresh import refresh_postgis
 from app.processing.ingest.tasks_raster_replace import reupload_raster
+from app.processing.ingest.tasks_reupload import reupload_service
 from app.processing.ingest.tasks_stac_refresh import refresh_stac
 from app.processing.raster.models import RasterAsset, VrtGeneration
 from app.platform.storage.local import LocalStorageProvider
@@ -232,6 +232,67 @@ async def _service_dataset(
     return dataset
 
 
+async def _execute_service(task_kwargs: dict) -> None:
+    """Drive ``reupload_service`` to a genuine success through its real
+    worker entry point (fix(#1330 review) — the prior version of this braid
+    called ``record_refresh_success`` directly, so "protected refresh
+    succeeds" was never actually exercised end to end).
+
+    Only the outbound boundary is faked: the ogr2ogr subprocess
+    (``run_ogr2ogr_service``) and the SSRF check the fixture's fake domain
+    would fail for real. Everything downstream — column renaming, geometry
+    detection, metadata extraction, the swap, and the run's own
+    ``record_refresh_success`` call — runs unmocked against a genuine
+    staging table, so the terminal state is produced by the code under
+    test. Mirrors ``test_reupload_service.py``'s own success-path recipe,
+    trimmed: that suite mocks the metadata pipeline too to pin exact
+    values for its own identity-preservation assertions, which this braid
+    does not need.
+    """
+
+    async def _fake_run_ogr2ogr_service(
+        gdal_source: str,
+        layer_name: str,
+        table_name: str,
+        db_conn_str: str,
+        service_type: str,
+        timeout: float = 1800.0,
+        token: str | None = None,
+        is_non_spatial: bool = False,
+        append: bool = False,
+        *,
+        schema: str,
+        on_spawn=None,
+    ) -> None:
+        if on_spawn is not None:
+            on_spawn()
+        from app.core.db import async_session as _async_session
+
+        async with _async_session() as fake_session:
+            await fake_session.execute(
+                text(f'DROP TABLE IF EXISTS "{schema}"."{table_name}"')
+            )
+            await fake_session.execute(
+                text(
+                    f'CREATE TABLE "{schema}"."{table_name}" '
+                    "(gid serial PRIMARY KEY, name text)"
+                )
+            )
+            await fake_session.commit()
+
+    with (
+        patch(
+            "app.modules.catalog.sources.security.validate_url_for_ssrf",
+            new=AsyncMock(),
+        ),
+        patch(
+            "app.processing.ingest.ogr.run_ogr2ogr_service", new_callable=AsyncMock
+        ) as mock_run_ogr2ogr_service,
+    ):
+        mock_run_ogr2ogr_service.side_effect = _fake_run_ogr2ogr_service
+        await reupload_service.func(**task_kwargs)
+
+
 # --- PostGIS-origin helpers --------------------------------------------------
 
 
@@ -378,10 +439,13 @@ def _install_stac_transport(
         async def _handle(request: httpx.Request) -> httpx.Response:
             return _handler(request)
 
+        # fix(#1330 review): no route table this stub serves ever answers a
+        # 3xx, so `follow_redirects` is dead weight on a raw AsyncClient —
+        # exactly the shape Rule 2's hook flags. Dropped rather than routed
+        # through `make_safe_client()`, since there is no redirect for it to
+        # revalidate.
         return httpx.AsyncClient(
-            transport=httpx.MockTransport(_handle),
-            timeout=timeout,
-            follow_redirects=True,
+            transport=httpx.MockTransport(_handle), timeout=timeout
         )
 
     monkeypatch.setattr(
@@ -764,27 +828,20 @@ class TestLifecycleBraids:
         dataset = await _service_dataset(test_db_session, created_by=admin_id)
 
         secret = "tok-" + uuid.uuid4().hex
-        async with _dispatch_harness():
+        async with _dispatch_harness() as task:
             resp = await client.post(
                 f"/datasets/{dataset.id}/refresh",
                 json={"token": secret},
                 headers=admin_auth_header,
             )
         assert resp.status_code == 202, resp.text
-        job_id = uuid.UUID(resp.json()["job_id"])
 
-        await claim_run_for_job(test_db_session, job_id)
-        await test_db_session.commit()
-        await record_refresh_success(
-            test_db_session,
-            ingest_job_id=job_id,
-            dataset=dataset,
-            dataset_version_id=None,
-            feature_count_after=None,
-            schema_diff=None,
-            contacted_origin=True,
-        )
-        await test_db_session.commit()
+        # Drive the real worker to succeed (fix(#1330 review) — "protected
+        # refresh succeeds" must be produced by the code under test, not
+        # composed via record_refresh_success directly). task_kwargs IS what
+        # a live worker would have received off the queue.
+        task_kwargs = task.defer_async.call_args.kwargs
+        await _execute_service(task_kwargs)
 
         runs = await _runs_ordered(test_db_session, dataset.id)
         assert [r.status for r in runs] == ["succeeded"]
