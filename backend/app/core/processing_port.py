@@ -348,6 +348,22 @@ class ProcessingPort(Protocol):
 
     def create_ingestion_result(self, **kwargs: Any) -> Any: ...  # -> IngestionResult
 
+    # fix(#1314): the refresh and reupload paths can change a dataset's
+    # modality, and the auto-generated `record_distributions` rows have to
+    # follow. The reconcile — including its preservation policy for
+    # user-authored rows — belongs beside `generate_distributions` in the
+    # catalog domain, which processing/ may not import. Returns the rows
+    # created and the (distribution_type, format) pairs removed; the created
+    # rows are catalog ORM instances, typed Any for the same reason.
+    async def reconcile_distributions(
+        self,
+        session: AsyncSession,
+        dataset_id: uuid.UUID,
+        record_id: uuid.UUID,
+        table_name: str,
+        geometry_type: str | None = None,
+    ) -> tuple[list[Any], list[tuple[str, str]]]: ...
+
     # -------------------------------------------------------------------------
     # Source preview helper (D-08)
     # -------------------------------------------------------------------------

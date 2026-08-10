@@ -1744,6 +1744,7 @@ async def _apply_reupload_swap(
     )  # LAZY — preserved per D-17
     from app.platform.extensions import get_processing_port
     from app.processing.ingest.metadata import (
+        _table_has_geometry,
         compute_quality_score,
         refresh_attribute_metadata,
     )
@@ -1862,6 +1863,9 @@ async def _apply_reupload_swap(
 
     # Update dataset metadata in the same transaction as swap
     dataset.srid = metadata["srid"]
+    # fix(#1314): read before the overwrite — the reconcile below is the only
+    # thing that needs the PRE-swap modality, and one line later it is gone.
+    previous_geometry_type = dataset.geometry_type
     dataset.geometry_type = metadata["geometry_type"]
     dataset.feature_count = metadata["feature_count"]
     if metadata["extent_wkt"] is not None:
@@ -1878,6 +1882,56 @@ async def _apply_reupload_swap(
         geometry_type=metadata.get("geometry_type"),
         sample_values=sample_values,
     )
+
+    # fix(#1314): a reupload can replace a spatial dataset with a non-spatial
+    # one (or the reverse), and the auto-generated `record_distributions` rows
+    # are as stale afterwards as they are on the refresh path — same one-shot
+    # generation at creation, same never re-derived. Gated on the modality FLIP
+    # for the same reason as there: reconcile normalizes `is_primary`, and a
+    # reupload that kept the modality has no business rewriting it.
+    #
+    # NOT fixed here, and filed as #1361: this path leaves
+    # `dataset.record.record_type` at whatever creation derived, so a
+    # de-spatialized reupload still reads as a `vector_dataset` and
+    # `build_assets` still emits tile links from it. That is a different field
+    # with a different derivation (the refresh path owns the only copy of it),
+    # and folding it in would widen this change past the distributions #1314
+    # asked for.
+    #
+    # fix(#1314 review round 2): the demote needs positive evidence, and
+    # `metadata["geometry_type"]` is not it. `extract_metadata` derives the
+    # type by sampling a row (`GeometryType(geom) ... LIMIT 1`), so a spatial
+    # reupload carrying zero features — or only NULL geometries — reports None
+    # while the relation it just installed still has its geometry column.
+    # Reconciling on that would DELETE the GeoPackage, GeoJSON, Shapefile,
+    # GeoParquet and vector-tile rows of a dataset that is still spatial.
+    # #1313 hit the identical trap on the refresh path (review round 5) and
+    # answered it by deriving the type from the COLUMN rather than the rows;
+    # here the column's presence is the entire question, and
+    # `_table_has_geometry` is the codebase's existing way to ask it.
+    #
+    # Only the demote pays for that query, and the third case falls through
+    # deliberately: a TABULAR dataset reuploaded from an empty spatial file
+    # measures None, so there is no type to promote to and no distribution set
+    # to promote it into. Nothing changes until a reupload or a refresh
+    # actually measures geometry, which is the same answer
+    # `dataset.geometry_type` gets on that path.
+    measured_geometry_type = metadata["geometry_type"]
+    was_spatial = previous_geometry_type is not None
+    demoted = (
+        was_spatial
+        and measured_geometry_type is None
+        and not await _table_has_geometry(session, table_name, schema=_tenant_schema)
+    )
+    promoted = not was_spatial and measured_geometry_type is not None
+    if demoted or promoted:
+        await port.reconcile_distributions(
+            session,
+            dataset.id,
+            dataset.record_id,
+            table_name,
+            geometry_type=measured_geometry_type,
+        )
 
     dataset.source_format = source_format
     dataset.source_filename = source_filename

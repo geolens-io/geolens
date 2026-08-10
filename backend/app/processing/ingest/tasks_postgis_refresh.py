@@ -746,6 +746,10 @@ async def refresh_postgis(
                 dataset.feature_count,
                 feature_count,
             )
+            # Read before `_apply_measurement` overwrites it, for the same
+            # reason the diff above is: this is the only place the PRE-refresh
+            # value is still available.
+            stored_geometry_type = dataset.geometry_type
 
             _apply_measurement(
                 dataset,
@@ -777,6 +781,25 @@ async def refresh_postgis(
                         AttributeMetadata.field_name == "geom",
                     )
                     .values(is_current=False)
+                )
+            # fix(#1314): the persisted half of the modality change.
+            # `_apply_measurement` restamps `record_type`, which is what
+            # `build_assets` computes its links from — but
+            # `record_distributions` rows are generated once, at creation, and
+            # nothing re-derives them. Left
+            # alone, a table that just gained geometry never advertises vector
+            # tiles or GeoPackage in the catalog record, and one that lost it
+            # goes on advertising both against a relation that cannot serve
+            # them. Gated on the modality FLIP rather than run unconditionally:
+            # reconcile normalizes `is_primary` across the generated rows, and
+            # a refresh that changed no modality has no business rewriting it.
+            if (stored_geometry_type is None) != (effective_geometry_type is None):
+                await port.reconcile_distributions(
+                    session,
+                    dataset.id,
+                    dataset.record_id,
+                    dataset.table_name,
+                    geometry_type=effective_geometry_type,
                 )
             dataset.quality_detail = quality_detail
 

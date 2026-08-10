@@ -1773,7 +1773,10 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # fix(#1266 review round 9): +1 — the resolution takes the item's
         # recorded id as well, so a catalog whose URLs state no identity can
         # still have an answer checked against the binding. Cap 481 -> 482.
-        "backend/app/platform/extensions/defaults_processing_port.py": 482,
+        # fix(#1314): +12 — reconcile_distributions, the seam the refresh and
+        # reupload paths cross to bring auto-generated distribution rows in
+        # line with a modality that changed under them. Cap 482 -> 494.
+        "backend/app/platform/extensions/defaults_processing_port.py": 494,
         # fix(#929): +2 over the 350 default — the creator exemption on the
         # restricted branch of filter_visible/can_access_dataset plus its
         # rationale comments. fix(#930): +20 — the internal branch on the same
@@ -2225,7 +2228,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # tasks_reupload. Moved here rather than duplicated, so the two strategies
     # share one implementation and #1313's file shrank by the same lines.
     # Cap 1902 -> 1968, exact.
-    "backend/app/processing/ingest/tasks_common.py": 1968,
+    # fix(#1314): +26 — _apply_reupload_swap reconciles the auto-generated
+    # distribution rows when the swap changes the dataset's modality. Most of
+    # the lines are the note recording what this deliberately does NOT fix on
+    # this path (record_type, filed as #1361) so the asymmetry is a decision
+    # rather than an oversight. Cap 1968 -> 1994, exact.
+    # fix(#1314 review round 2): +28 — the demote needs positive evidence that
+    # the relation is not spatial, because a spatial reupload of an empty file
+    # measures None while its geom column is still there. Most of the lines are
+    # the note saying why the sampled value is not that evidence, which is the
+    # same trap #1313 fell into on the refresh path. Cap 1994 -> 2022, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2022,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed

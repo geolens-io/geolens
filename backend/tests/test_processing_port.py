@@ -226,6 +226,14 @@ class FakeProcessingPort:
             setattr(result, k, v)
         return result
 
+    async def reconcile_distributions(
+        self, session, dataset_id, record_id, table_name, geometry_type=None
+    ):
+        # fix(#1314): reports "nothing changed", the outcome that leaves the
+        # stored distribution set alone — a double that invented rows would
+        # make every caller's test depend on this fake's template table.
+        return [], []
+
     # -------------------------------------------------------------------------
     # Source preview helper
     # -------------------------------------------------------------------------
@@ -355,6 +363,50 @@ async def test_fake_processing_port_satisfies_protocol() -> None:
 
     bbox = port.extract_bbox(datasets[0])
     assert bbox == [-74.0, 40.7, -73.9, 40.8]
+
+
+@pytest.mark.asyncio
+async def test_the_shipped_port_implements_the_contract_it_declares() -> None:
+    """The default is held to the same Protocol the fake is.
+
+    Without this, ``ProcessingPort`` is only ever checked against a test
+    double, and a method added to the contract could be missing from the
+    implementation every non-overlay install actually runs.
+    """
+    from app.core.processing_port import ProcessingPort
+    from app.platform.extensions.defaults import DefaultProcessingPort
+
+    assert isinstance(DefaultProcessingPort(), ProcessingPort)
+
+
+@pytest.mark.asyncio
+async def test_a_port_missing_reconcile_distributions_does_not_satisfy_the_contract() -> (
+    None
+):
+    """fix(#1314 review round 1): why EXTENSION_API_VERSION went 4 -> 5.
+
+    ``reconcile_distributions`` is a REQUIRED method, not an optional one: the
+    registered-PostGIS refresh and the reupload swap call it inside their write
+    transactions whenever the modality changed. An overlay that replaces the
+    ``processing_port`` slot without it would raise AttributeError there, which
+    is why the loader has to refuse the overlay at boot instead — and the
+    version bump is what makes it refuse.
+    """
+    from app.core.processing_port import ProcessingPort
+
+    class _OverlayPortWithoutIt:
+        """Everything the fake offers, minus the one method under test."""
+
+        def __init__(self) -> None:
+            self._inner = FakeProcessingPort()
+
+        def __getattr__(self, name):
+            if name == "reconcile_distributions":
+                raise AttributeError(name)
+            return getattr(self._inner, name)
+
+    assert isinstance(FakeProcessingPort(), ProcessingPort)
+    assert not isinstance(_OverlayPortWithoutIt(), ProcessingPort)
 
 
 @pytest.mark.asyncio

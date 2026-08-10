@@ -491,6 +491,49 @@ _DISTRIBUTION_TEMPLATES = [
     ),
 ]
 
+# Vector tiles are not in the template table because their URL is built from
+# ``table_name`` rather than ``dataset_id``. The pair still belongs to the
+# generated set, so reconcile has to see it.
+_VECTOR_TILES_PAIR = ("vector_tiles", "pbf")
+
+# Every (distribution_type, format) pair this module owns. A row outside this
+# set was written by something else — the raster and VRT ingest tails add their
+# own ``download`` rows — and reconcile must leave those alone even when they
+# are flagged auto-generated.
+_GENERATED_PAIRS: frozenset[tuple[str, str]] = frozenset(
+    {(tpl[0], tpl[1]) for tpl in _DISTRIBUTION_TEMPLATES} | {_VECTOR_TILES_PAIR}
+)
+
+
+def _pair_applies(dist_type: str, fmt: str, geometry_type: str | None) -> bool:
+    """Whether the modality implied by ``geometry_type`` advertises this pair.
+
+    One spelling of the modality filter, so the set a promote INSERTS and the
+    set a demote REMOVES cannot drift apart.
+    """
+    if geometry_type is not None:
+        return True
+    return (dist_type == "download" and fmt == "csv") or dist_type == "ogc_features"
+
+
+# Which generated row carries ``is_primary``, best first. GeoPackage is what
+# the template table marks primary; CSV is the fallback, both for a modality
+# that generates no GeoPackage row at all and — on reconcile — for a promote
+# where no generated GeoPackage row exists to promote because a user's own row
+# already occupies that pair.
+_PRIMARY_PREFERENCE: tuple[tuple[str, str], ...] = (
+    ("download", "gpkg"),
+    ("download", "csv"),
+)
+
+
+def _primary_pair(geometry_type: str | None) -> tuple[str, str]:
+    """The one generated row that carries ``is_primary`` for this modality."""
+    for pair in _PRIMARY_PREFERENCE:
+        if _pair_applies(*pair, geometry_type):
+            return pair
+    return _PRIMARY_PREFERENCE[-1]
+
 
 async def generate_distributions(
     session: AsyncSession,
@@ -529,6 +572,7 @@ async def generate_distributions(
     # single batch rather than as individual INSERT statements. SQLAlchemy 2.0
     # batches `add_all()` + `flush()` via insertmanyvalues when supported.
     to_add: list[RecordDistribution] = []
+    primary_pair = _primary_pair(geometry_type)
 
     for (
         dist_type,
@@ -537,15 +581,11 @@ async def generate_distributions(
         title,
         protocol,
         media_type,
-        is_primary,
+        _is_primary,
     ) in _DISTRIBUTION_TEMPLATES:
         # Non-spatial datasets: only csv download + ogc_features
-        if geometry_type is None:
-            if not (
-                (dist_type == "download" and fmt == "csv")
-                or dist_type == "ogc_features"
-            ):
-                continue
+        if not _pair_applies(dist_type, fmt, geometry_type):
+            continue
 
         # Skip if already exists
         if (dist_type, fmt) in existing_set:
@@ -554,9 +594,7 @@ async def generate_distributions(
         url = url_tpl.format(dataset_id=dataset_id)
 
         # For non-spatial datasets, CSV download becomes primary (gpkg is filtered out)
-        effective_primary = is_primary
-        if geometry_type is None and dist_type == "download" and fmt == "csv":
-            effective_primary = True
+        effective_primary = (dist_type, fmt) == primary_pair
 
         to_add.append(
             RecordDistribution(
@@ -573,7 +611,10 @@ async def generate_distributions(
         )
 
     # Vector tiles (uses table_name, not dataset_id) — skip for non-spatial datasets
-    if geometry_type is not None and ("vector_tiles", "pbf") not in existing_set:
+    if (
+        _pair_applies(*_VECTOR_TILES_PAIR, geometry_type)
+        and _VECTOR_TILES_PAIR not in existing_set
+    ):
         to_add.append(
             RecordDistribution(
                 record_id=record_id,
@@ -592,3 +633,113 @@ async def generate_distributions(
         session.add_all(to_add)
         await session.flush()
     return to_add
+
+
+async def reconcile_distributions(
+    session: AsyncSession,
+    dataset_id: uuid.UUID,
+    record_id: uuid.UUID,
+    table_name: str,
+    geometry_type: str | None = None,
+) -> tuple[list[RecordDistribution], list[tuple[str, str]]]:
+    """Bring a record's AUTO-GENERATED distributions in line with a modality.
+
+    fix(#1314): ``generate_distributions`` runs once, at dataset creation, and
+    merges rather than replaces — so a registered table that later gains a
+    geometry column never starts advertising vector tiles, and one that loses
+    its geometry goes on advertising GeoPackage, GeoJSON, Shapefile,
+    GeoParquet and tiles against a relation that cannot serve any of them.
+    This is the write that closes both directions: it inserts what the new
+    modality adds (by delegating to ``generate_distributions``) and removes
+    what the new modality excludes.
+
+    **Preservation policy.** Deliberately narrow, and the reason is that
+    ``record_distributions`` carries a single ``auto_generated`` boolean and no
+    per-field provenance — there is no ``user_modified_fields`` here the way
+    ``attribute_metadata`` has one:
+
+    - Rows with ``auto_generated=False`` ALWAYS survive, in both directions.
+      Those are the rows a user authored through ``create_distribution``, and
+      nothing in this function reads or writes them.
+    - Rows outside ``_GENERATED_PAIRS`` always survive, even when flagged
+      auto-generated. The raster and VRT ingest tails write their own
+      ``download`` rows (geotiff, vrt) and this function does not own them.
+    - Auto-generated rows the new modality excludes are DELETED. Any user edit
+      to such a row — title, media type, ``is_primary`` — is lost with it, and
+      the row is recreated from the template if the modality flips back.
+    - ``is_primary`` is NORMALIZED across the surviving generated rows, so
+      exactly one of them is primary for the new modality (GeoPackage when
+      there is geometry, CSV when there is not). A promote that left the old
+      CSV primary beside a new primary GeoPackage would advertise two. The
+      winner is picked from the rows that exist rather than from the modality
+      alone — if a user's own row occupies the preferred pair there is no
+      generated row to promote, and the fallback takes it.
+
+    The lost-edit case is narrower than it reads: ``update_distribution`` and
+    ``delete_distribution`` both refuse to touch a row with
+    ``auto_generated=True``, so the API offers no way to edit one in the first
+    place. An edit could only exist from a direct database write, or from a
+    future path that relaxes that refusal — which is when this policy needs
+    revisiting, not before.
+
+    Returns ``(created, removed)``: the rows inserted, and the
+    ``(distribution_type, format)`` pairs deleted.
+    """
+    result = await session.execute(
+        select(RecordDistribution).where(
+            RecordDistribution.record_id == record_id,
+            RecordDistribution.auto_generated.is_(True),
+        )
+    )
+    existing = list(result.scalars().all())
+
+    removed: list[tuple[str, str]] = []
+    survivors: list[RecordDistribution] = []
+    for row in existing:
+        pair = (row.distribution_type, row.format)
+        if pair in _GENERATED_PAIRS and not _pair_applies(*pair, geometry_type):
+            await session.delete(row)
+            removed.append(pair)
+        else:
+            survivors.append(row)
+
+    # Before the insert, so the existence probe inside generate_distributions
+    # sees the post-delete state rather than the rows this call just retired.
+    if removed:
+        await session.flush()
+
+    created = await generate_distributions(
+        session, dataset_id, record_id, table_name, geometry_type=geometry_type
+    )
+
+    # fix(#1314 review round 1): chosen from the rows that ACTUALLY exist, not
+    # from the modality alone. `generate_distributions` skips any pair a row
+    # already occupies, including a user-authored one — so a promote of a
+    # dataset whose owner had added their own GeoPackage entry generates no
+    # GeoPackage row for the preferred pair to name. Naming it anyway cleared
+    # the CSV flag and promoted nothing, leaving the record with no primary
+    # distribution at all.
+    generated = [
+        row
+        for row in survivors + created
+        if (row.distribution_type, row.format) in _GENERATED_PAIRS
+    ]
+    by_pair = {(row.distribution_type, row.format): row for row in generated}
+    primary = next(
+        (
+            by_pair[pair]
+            for pair in _PRIMARY_PREFERENCE
+            if _pair_applies(*pair, geometry_type) and pair in by_pair
+        ),
+        None,
+    )
+    # No candidate means every preferred pair is occupied by a row this
+    # function does not own, and there is nothing to promote. Leave the flags
+    # as they are rather than clearing them: an unchanged primary is a worse
+    # answer than the right one and a better answer than none.
+    if primary is not None:
+        for row in generated:
+            row.is_primary = row is primary
+    await session.flush()
+
+    return created, removed
