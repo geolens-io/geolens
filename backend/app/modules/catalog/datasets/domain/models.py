@@ -416,6 +416,63 @@ class Dataset(Base):
             "origin_uri",
             postgresql_where=text("origin_uri IS NOT NULL"),
         ),
+        # perf(#1324): backs the origin_ref-keyed duplicate-source guards in
+        # sources/router.py (service preview) and stac_router.py (STAC
+        # import) — migration 0036 indexed origin_uri only, so PR #1320's
+        # re-key onto origin_ref left both guards doing a seq scan with
+        # per-row JSONB extraction. Declared here so `alembic check` sees
+        # them; migration 0040_dataset_origin_ref_indexes is the source of
+        # truth for the actual (concurrent, resumable) DDL and carries the
+        # full history of why every index below is USING hash.
+        #
+        # Scoped with IS NOT NULL on the indexed expression itself rather
+        # than on source_format, so the partial predicate stays provable
+        # under a generic query plan (source_format arrives as a bound
+        # parameter, and postgres cannot prove `source_format = $1` implies
+        # `source_format IN (...)` without knowing $1's value once the plan
+        # cache promotes the query past a custom plan).
+        #
+        # The `::text` casts and inner parens are not stylistic — they are
+        # what postgres reflects back for a `->>'` expression index, which is
+        # what autogenerate compares against (see ix_records_title_trgm above
+        # for the same trap on a different operator).
+        #
+        # USING hash, single-column only (codex review rounds 2 and 4): a
+        # btree index stores the value itself and has a ~2704-byte
+        # tuple-size ceiling; a multibyte-heavy origin_ref->>'url' combined
+        # with a multibyte origin_ref->>'layer_id' (WFS/OGC API layer names
+        # allow up to 500 characters, no charset restriction) can exceed it
+        # in the composite key. `layer_id` is therefore NOT part of this
+        # index — postgres hash indexes are single-column — and the
+        # service-preview guard's layer_id check becomes a residual Filter
+        # instead of an Index Cond; url alone is the selective key.
+        Index(
+            "ix_datasets_origin_ref_url",
+            text("(origin_ref ->> 'url'::text)"),
+            postgresql_using="hash",
+            postgresql_where=text("(origin_ref ->> 'url'::text) IS NOT NULL"),
+        ),
+        Index(
+            "ix_datasets_origin_ref_asset_href",
+            text("(origin_ref ->> 'asset_href'::text)"),
+            postgresql_using="hash",
+            postgresql_where=text("(origin_ref ->> 'asset_href'::text) IS NOT NULL"),
+        ),
+        # perf(#1324 / codex review): not one of the two shapes the issue
+        # named, but required for the two above to do anything -- both guard
+        # queries are `(origin_ref match) OR (origin_ref incomplete AND
+        # source_url = ...)`, and postgres only folds an OR into a bitmap
+        # index scan when every disjunct has an index path. Without this,
+        # the origin_ref indexes are never chosen for either guard's real
+        # query. With it, postgres builds a BitmapOr of this index and the
+        # matching origin_ref index. See migration
+        # 0040_dataset_origin_ref_indexes for the EXPLAIN evidence.
+        Index(
+            "ix_datasets_source_url",
+            "source_url",
+            postgresql_using="hash",
+            postgresql_where=text("source_url IS NOT NULL"),
+        ),
         Index(
             "uq_datasets_table_name_global",
             "table_name",
