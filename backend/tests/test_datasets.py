@@ -2011,3 +2011,48 @@ class TestBulkDeleteDatasets:
             and record.get("dataset_id") == str(ds.id)
             for record in captured
         ), f"expected the exception to be logged server-side; got: {captured}"
+
+
+class TestSingleDeleteDataset:
+    """Tests for DELETE /datasets/{dataset_id}."""
+
+    async def test_unexpected_value_error_hides_detail(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """fix(#1317): unexpected delete errors do not reach the client."""
+        import structlog
+
+        from app.modules.catalog.datasets.api import router as datasets_router
+
+        user_id = await _get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session, created_by=user_id, name="Single Delete Leak Check"
+        )
+
+        sentinel = "Invalid table name: secret_table_xyz"
+
+        async def _boom(db, dataset_id, confirm_title):
+            raise ValueError(sentinel)
+
+        monkeypatch.setattr(datasets_router, "delete_dataset", _boom)
+
+        with structlog.testing.capture_logs() as captured:
+            resp = await client.request(
+                "DELETE",
+                f"/datasets/{ds.id}",
+                json={"confirm_title": "Single Delete Leak Check"},
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 500
+        assert sentinel not in resp.text
+        assert resp.json()["detail"] == "Dataset deletion failed unexpectedly"
+        assert any(
+            record.get("event") == "Unexpected error during dataset delete"
+            and record.get("dataset_id") == str(ds.id)
+            for record in captured
+        ), f"expected the exception to be logged server-side; got: {captured}"
