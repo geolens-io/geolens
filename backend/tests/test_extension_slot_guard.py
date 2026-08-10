@@ -60,7 +60,6 @@ class TestSingleSlotConflictGuard:
             "catalog_port",
             "workflow",
             "branding",
-            "audit",
             "auth",
             "entitlement",  # Phase 1207 / ENTSEAM-01
             "connectors",
@@ -284,7 +283,6 @@ class TestSingleSlotKeySet:
                 "catalog_port",
                 "workflow",
                 "branding",
-                "audit",
                 "auth",
                 "entitlement",  # Phase 1207 / ENTSEAM-01
                 "connectors",
