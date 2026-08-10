@@ -433,6 +433,52 @@ def _absolute_http(href: Any) -> str | None:
     return href if urlsplit(href).scheme in ("http", "https") else None
 
 
+def _identity_refusal(
+    item: Any,
+    *,
+    document_url: str,
+    expected_item_id: str | None,
+    collection_id: str | None,
+    collection_affirmed: bool,
+) -> StacResolution | None:
+    """The refusal this document earns on identity alone, or None to proceed.
+
+    Extracted so the identity rules read as one gate rather than as branches
+    interleaved with asset resolution — every round of review has added one,
+    and they belong together.
+
+    Three questions, and the third is why they cannot be collapsed: does the
+    BODY state an identity other than the stored one; does the URL the
+    document CAME from state one (round 17 — that URL is the base relative
+    asset hrefs resolve against, so a redirect into another collection's
+    same-id item steers the asset); and, when NOTHING trustworthy states the
+    collection, does the body affirm it.
+
+    That last one closes the permalink case (fix #1266 review round 18). A
+    non-standard item URL states no collection, so a permalink re-pointed at
+    another collection's same-id item, in a body that omits its optional
+    ``collection`` field, has nothing anywhere to contradict — and the bound
+    key would then select the other collection's asset. Where no URL can
+    speak for the collection, the document has to.
+    """
+    if not isinstance(item, dict):
+        return _NOT_AN_ITEM
+    if not isinstance(item.get("assets"), dict):
+        return _NOT_AN_ITEM
+    if _contradicts_stored_identity(
+        item, expected_item_id=expected_item_id, collection_id=collection_id
+    ):
+        return _NOT_THIS_ITEM
+    if _url_contradicts_identity(
+        document_url, item_id=item.get("id"), collection_id=collection_id
+    ):
+        return _NOT_THIS_ITEM
+    if collection_id and not collection_affirmed:
+        if item.get("collection") != collection_id:
+            return _NOT_THIS_ITEM
+    return None
+
+
 async def _resolve_from_item(
     item: dict[str, Any],
     *,
@@ -441,6 +487,7 @@ async def _resolve_from_item(
     fallback_item_href: str,
     expected_item_id: str | None,
     collection_id: str | None,
+    collection_affirmed: bool,
     asset_href: str | None,
     asset_key: str | None,
 ) -> StacResolution:
@@ -449,29 +496,25 @@ async def _resolve_from_item(
     One reading of one document, used by both paths, so the direct fetch and
     the re-search cannot reach different verdicts about the same shape.
     """
-    if not isinstance(item, dict):
-        return _NOT_AN_ITEM
-    assets = item.get("assets")
-    if not isinstance(assets, dict):
-        return _NOT_AN_ITEM
-    if _contradicts_stored_identity(
-        item, expected_item_id=expected_item_id, collection_id=collection_id
-    ):
-        return _NOT_THIS_ITEM
-    # fix(#1266 review round 17): the URL the document CAME from states an
-    # identity too, and round 15 made it authoritative — it is the base for
-    # relative asset hrefs whenever the self link is absent or was dropped.
-    # A stored URL that redirects from one collection to another's same-id
-    # item, in a body that omits its optional `collection` field, would
-    # otherwise pass every check here and resolve the other collection's
-    # asset. On the search path this URL is the `/search` endpoint, which
-    # states no identity and so cannot contradict one.
-    if _url_contradicts_identity(
-        document_url, item_id=item.get("id"), collection_id=collection_id
-    ):
-        return _NOT_THIS_ITEM
+    refusal = _identity_refusal(
+        item,
+        document_url=document_url,
+        expected_item_id=expected_item_id,
+        collection_id=collection_id,
+        collection_affirmed=collection_affirmed,
+    )
+    if refusal is not None:
+        return refusal
+    assets = item["assets"]
     key = _bound_asset_key(assets, asset_href=asset_href, asset_key=asset_key)
     if key is None:
+        # fix(#1266 review round 18): a binding that RECORDED its key knows
+        # exactly which entry disappeared, so its absence is a removed asset
+        # and reports as one — even when the item still publishes something
+        # the import rule would have picked. Only a keyless binding is
+        # genuinely unable to tell removal from ambiguity.
+        if asset_key:
+            return _ASSET_GONE
         # Two different facts, and they read differently to whoever acts on
         # them. An item that publishes no usable data asset at all has lost
         # the asset — authoritative, and `missing` is the honest verdict. An
@@ -615,39 +658,28 @@ async def _storable_item_pointer(self_href: str | None, fallback: str) -> str:
     successful refresh and then permanently locked-out ones, with the usable
     pointer already overwritten.
 
-    The test is "would the DOOR accept this next time", and answering it
-    takes both checks — each round of review found the gap the other leaves.
+    The test is simply whether GeoLens can READ the replacement, and that
+    one condition replaces the pair of checks the previous two rounds
+    accumulated. A probe that comes back healthy has resolved the hostname,
+    passed the guard transport's per-hop validation and pinning, and been
+    served — so it satisfies the door's own check by construction, and a
+    separate call to that check adds nothing.
 
-    ``validate_url_for_ssrf`` is the door's own function, so it answers the
-    question exactly: bad scheme, missing hostname, DNS that does not
-    resolve, an address in a blocked range. fix(#1266 review round 16): a
-    self link whose hostname does not resolve is the case that matters, and
-    the probe cannot see it — it reports NXDOMAIN as ``network_error``,
-    indistinguishable from a host that is merely down. Storing one would be
-    unrecoverable: the door raises on it before any fetch, so neither the
-    old pointer nor the search fallback can ever run again.
-
-    The probe covers what the validator cannot. fix(#1266 review round 15):
-    the validator checks the hostname it is handed and nothing further, so a
-    public URL whose FIRST HOP redirects into a blocked target clears it —
-    which is the case Rule 2's per-hop revalidation exists for. Only a policy
-    refusal from the probe disqualifies: a self link that merely 404s is
-    still the publisher's own word on where the item lives, and adopting it
-    costs at most one wasted fetch before the search fallback recovers.
-
-    The fallback needs no check: it is the value that got this refresh
-    admitted in the first place.
+    Anything else keeps the pointer already stored, and the reason is the
+    same in every case (fix #1266 review rounds 15, 16, 17): a replacement
+    GeoLens cannot read is one the NEXT refresh cannot get past. A blocked
+    or unresolvable link is refused by the door before a job exists; a
+    protected one (401/403) or a failing one is fetched, reports
+    inconclusive, and never reaches the search fallback, which only runs for
+    an item that is authoritatively gone. Each of those strands the dataset
+    on a pointer that used to work — so the bar is "demonstrably readable",
+    not "not obviously bad".
     """
     if self_href is None or self_href == fallback:
         return fallback
-    try:
-        await validate_url_for_ssrf(self_href)
-    except SSRFError:
-        logger.info("stac_self_link_refused_by_door_policy")
-        return fallback
     probed = await probe_remote_uri(self_href)
-    if probed.detail == BLOCKED_BY_POLICY:
-        logger.info("stac_self_link_blocked_by_policy")
+    if not probed.ok:
+        logger.info("stac_self_link_not_adopted", detail=probed.detail)
         return fallback
     return self_href
 
@@ -762,6 +794,8 @@ async def _resolve_by_search(
         fallback_item_href=item_href,
         expected_item_id=wanted_id,
         collection_id=collection_id,
+        # `_searched_feature` already required the feature to affirm it.
+        collection_affirmed=True,
         asset_href=asset_href,
         asset_key=asset_key,
     )
@@ -807,6 +841,9 @@ async def resolve_stac_binding(
             fallback_item_href=item_href,
             expected_item_id=expected_item_id,
             collection_id=collection_id,
+            # Only a standard-layout URL speaks for the collection; a
+            # permalink does not, and then the body has to.
+            collection_affirmed=_standard_item_path(item_url) is not None,
             asset_href=asset_href,
             asset_key=asset_key,
         )

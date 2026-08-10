@@ -594,6 +594,9 @@ class TestResolution:
                         ]
                     },
                 ),
+                # The item's new address answers — a replacement pointer is
+                # adopted only if GeoLens can demonstrably read it.
+                _MOVED_ITEM: (200, None),
                 _MOVED_ASSET: (206, None),
             }
         )
@@ -738,6 +741,63 @@ class TestResolution:
         install({_ITEM: (404, None), _SEARCH: (200, {"features": []})})
         empty = await _resolve(item_href=_ITEM)
         assert (empty.health, empty.detail) == ("missing", "item_withdrawn")
+
+    async def test_a_permalink_body_must_affirm_the_stored_collection(
+        self, stac_transport
+    ) -> None:
+        """fix(#1266 review round 18): where no URL can speak for the
+        collection, the document has to.
+
+        A permalink states no collection, so a permalink re-pointed at
+        another collection's same-id item — in a body that omits its optional
+        `collection` field — had nothing anywhere to contradict, and the
+        bound key would then select the other collection's asset.
+        """
+        install, _ = stac_transport
+        permalink = "https://origin.test/permalink/abc123"
+        nameless = _item_doc(asset_href=_MOVED_ASSET, self_href=None)
+        del nameless["collection"]
+        install({permalink: (200, nameless), _MOVED_ASSET: (206, None)})
+
+        result = await _resolve(item_href=permalink)
+        assert not result.resolved
+        assert (result.health, result.detail) == ("inaccessible", "unexpected_status")
+
+        # Affirming it is all that was ever asked.
+        install(
+            {
+                permalink: (200, _item_doc(asset_href=_MOVED_ASSET, self_href=None)),
+                _MOVED_ASSET: (206, None),
+            }
+        )
+        affirmed = await _resolve(item_href=permalink)
+        assert affirmed.resolved
+        assert affirmed.asset_href == _MOVED_ASSET
+
+    async def test_a_keyed_binding_whose_asset_vanished_reports_removal(
+        self, stac_transport
+    ) -> None:
+        """fix(#1266 review round 18): a binding that recorded its key knows
+        exactly which entry disappeared.
+
+        Reporting that as "cannot identify the asset" sent the reader to the
+        wrong diagnosis, even though the item still publishes something the
+        import rule would have picked.
+        """
+        install, _ = stac_transport
+        install(
+            {
+                _ITEM: (
+                    200,
+                    _item_doc(
+                        assets={"data": {"href": _MOVED_ASSET, "roles": ["data"]}}
+                    ),
+                )
+            }
+        )
+        result = await _resolve(item_href=_ITEM, asset_key="visual")
+        assert not result.resolved
+        assert (result.health, result.detail) == ("missing", "not_found")
 
     async def test_a_redirect_into_another_collection_binds_nothing(
         self, stac_transport
@@ -1090,6 +1150,9 @@ class TestResolution:
                         ]
                     },
                 ),
+                # The item's new address answers — a replacement pointer is
+                # only adopted if GeoLens can actually read it.
+                _MOVED_ITEM: (200, None),
                 moved_relative: (206, None),
             }
         )
@@ -1155,6 +1218,9 @@ class TestResolution:
         install(
             {
                 _ITEM: (200, _item_doc(asset_href=_MOVED_ASSET, self_href=permalink)),
+                # It answers, which is the bar a replacement pointer has to
+                # clear: GeoLens adopts only what it can demonstrably read.
+                permalink: (200, None),
                 _MOVED_ASSET: (206, None),
             }
         )
