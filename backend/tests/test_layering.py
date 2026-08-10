@@ -2280,6 +2280,18 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # as durable truth, and a caller who learns that immediately can act on
     # it, where one who learns it from a failed run cannot. Cap 1091 -> 1119.
     "backend/app/modules/catalog/datasets/api/router_refresh.py": 1119,
+    # --- entered by the inclusion rule, feat(#1266) -----------------------
+    # The STAC re-resolution policy, entered at its measured size. It is one
+    # question asked of a third party — "where does this dataset's asset live
+    # now" — and almost all of its length is the answer's edges, each one a
+    # review round: which document is this item, which asset in it is ours,
+    # which URL may be stored, which may be a base for a relative href, and
+    # what each failure is allowed to conclude. The comments carry WHICH of
+    # those a given line closes, because the invariant they share ("adopt
+    # nothing unverifiable") reads as redundancy without them. Splitting it
+    # would put the identity rules in one file and the fetches they guard in
+    # another, which is the seam every one of those rounds found a hole in.
+    "backend/app/modules/catalog/sources/stac_resolve.py": 1005,
     # --- entered by the inclusion rule, fix(#958) -------------------------
     # These five were the ungated modules at or above _RATCHET_INCLUSION_LOC
     # when the rule was written. They arrive at their measured size with no

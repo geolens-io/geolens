@@ -2315,6 +2315,10 @@ class TestWorker:
             [10.0, 45.0, 100.0, 11.0, 46.0, 900.0]
         ) == [10.0, 45.0, 11.0, 46.0]
         assert stac_resolve._horizontal_bbox([10.0, 45.0, 11.0]) is None
+        # SEC-FU-06's rule, which `parse_bbox` already applies: JSON 1e400
+        # parses as infinity and PostGIS handles it inconsistently.
+        assert stac_resolve._horizontal_bbox([10.0, 45.0, float("inf"), 46.0]) is None
+        assert stac_resolve._horizontal_bbox([10.0, float("nan"), 11.0, 46.0]) is None
         assert stac_resolve._horizontal_bbox([10.0, 45.0, "x", 46.0]) is None
         assert stac_resolve._horizontal_bbox(None) is None
 

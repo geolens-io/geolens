@@ -63,6 +63,7 @@ pointer.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import unquote, urlsplit, urlunsplit
@@ -799,8 +800,15 @@ def _horizontal_bbox(stated: Any) -> list[float] | None:
         return None
     indices = (0, 1, 2, 3) if len(stated) == 4 else (0, 1, 3, 4)
     values = [stated[index] for index in indices]
+    # `math.isfinite` mirrors SEC-FU-06 in `parse_bbox` (fix #1266 review
+    # round 27): JSON `1e400` parses as infinity and the NaN extension is
+    # commonly accepted, PostGIS handles neither consistently, and either
+    # would reach `ST_GeomFromText` — failing a refresh that had otherwise
+    # resolved, or persisting a malformed extent.
     if not all(
-        isinstance(value, (int, float)) and not isinstance(value, bool)
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
         for value in values
     ):
         return None
