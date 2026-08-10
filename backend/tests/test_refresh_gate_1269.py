@@ -232,7 +232,7 @@ async def _service_dataset(
     return dataset
 
 
-async def _execute_service(task_kwargs: dict) -> None:
+async def _execute_service(task_kwargs: dict, *, expected_token: str | None) -> None:
     """Drive ``reupload_service`` to a genuine success through its real
     worker entry point (fix(#1330 review) — the prior version of this braid
     called ``record_refresh_success`` directly, so "protected refresh
@@ -248,6 +248,14 @@ async def _execute_service(task_kwargs: dict) -> None:
     trimmed: that suite mocks the metadata pipeline too to pin exact
     values for its own identity-preservation assertions, which this braid
     does not need.
+
+    ``expected_token`` closes the seam one level deeper (fix(#1330 review
+    round 6)): the fake used to create the staging table regardless of
+    ``token``, so this braid would still pass a world where
+    ``reupload_service`` stopped redeeming ``credential_ref`` or forwarded
+    ``None``. The fake now refuses to run unless the planted secret
+    actually reached this call, so that drift fails loudly instead of
+    silently.
     """
 
     async def _fake_run_ogr2ogr_service(
@@ -264,6 +272,12 @@ async def _execute_service(task_kwargs: dict) -> None:
         schema: str,
         on_spawn=None,
     ) -> None:
+        if token != expected_token:
+            raise AssertionError(
+                f"run_ogr2ogr_service received token={token!r}, expected the "
+                f"planted secret {expected_token!r} — the credential never "
+                "crossed the last boundary"
+            )
         if on_spawn is not None:
             on_spawn()
         from app.core.db import async_session as _async_session
@@ -841,7 +855,7 @@ class TestLifecycleBraids:
         # composed via record_refresh_success directly). task_kwargs IS what
         # a live worker would have received off the queue.
         task_kwargs = task.defer_async.call_args.kwargs
-        await _execute_service(task_kwargs)
+        await _execute_service(task_kwargs, expected_token=secret)
 
         runs = await _runs_ordered(test_db_session, dataset.id)
         assert [r.status for r in runs] == ["succeeded"]
