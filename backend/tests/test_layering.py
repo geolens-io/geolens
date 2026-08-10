@@ -2300,7 +2300,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # +12, fix(#1331): the two truthiness reads of the bound key became
     # `is not None`, each with a docstring note on why — `""` is a legal
     # asset key and a binding that recorded it names a real asset.
-    "backend/app/modules/catalog/sources/stac_resolve.py": 1025,
+    # +15, fix(#1334 review): the resolved EPSG is reconciled with the
+    # probe's own CRS here, once, where both facts are already in hand —
+    # keeping `processing/` from ever needing to import from `catalog/`
+    # to get the same preference.
+    "backend/app/modules/catalog/sources/stac_resolve.py": 1040,
     # --- entered by the inclusion rule, fix(#958) -------------------------
     # These five were the ungated modules at or above _RATCHET_INCLUSION_LOC
     # when the rule was written. They arrive at their measured size with no

@@ -36,7 +36,7 @@ from app.modules.catalog.sources.adapters.stac import (
     list_stac_collections,
     search_stac_items,
 )
-from app.modules.catalog.sources.cog_info import fetch_cog_info
+from app.modules.catalog.sources.cog_info import fetch_cog_info, reconcile_epsg
 from app.modules.catalog.sources.security import SSRFError, validate_url_for_ssrf
 
 
@@ -613,21 +613,22 @@ async def stac_import(
                 ci = cog_info_map.get(item.data_asset_href)
                 if ci is not None:
                     dataset.last_checked_at = datetime.now(timezone.utc)
-                    # fix(#1334 review): the dataset-level mirror of the
-                    # raster row's EPSG preference below — both come from
-                    # the same probe, so both must prefer it the same way,
-                    # or the OGC Records properties block (dataset.srid as
-                    # `crs`, RasterAsset fields as `proj:code`/`proj:wkt2`)
-                    # would publish two disagreeing declarations for one
-                    # dataset. Only overwritten when the probe actually
-                    # yielded an EPSG.
-                    probed_epsg = ci.get("epsg")
-                    if probed_epsg is not None:
-                        dataset.srid = probed_epsg
+                ci = ci or {}
+                # fix(#1334 review): the dataset-level mirror of the raster
+                # row's EPSG preference below — both come from the same
+                # probe, so both must prefer it the same way, or the OGC
+                # Records properties block (dataset.srid as `crs`,
+                # RasterAsset fields as `proj:code`/`proj:wkt2`) would
+                # publish two disagreeing declarations for one dataset.
+                # `reconcile_epsg` is the one place that decides when the
+                # probe outranks the item's declared value; see its
+                # docstring for why "no EPSG" and "no CRS at all" are
+                # different questions.
+                reconciled_epsg = reconcile_epsg(ci, item.epsg)
+                dataset.srid = reconciled_epsg
                 db.add(dataset)
                 await db.flush()
 
-                ci = ci or {}
                 nodata_raw = ci.get("nodata")
 
                 raster_asset = get_catalog_port().raster_asset_orm_class()(
@@ -635,13 +636,7 @@ async def stac_import(
                     asset_uri=item.data_asset_href,
                     storage_backend="remote",
                     cog_status="verified",
-                    # fix(#1334 review): the probe's own EPSG, in preference
-                    # to the item's declared one — both now land on this row
-                    # (crs_wkt below), and a stale or wrong publisher
-                    # declaration must not describe a DIFFERENT projection
-                    # than the WKT read off the same probe. Falls back to
-                    # the item's value only when the probe yielded no EPSG.
-                    epsg=(ci.get("epsg") if ci.get("epsg") is not None else item.epsg),
+                    epsg=reconciled_epsg,
                     band_count=ci.get("band_count"),
                     dtype=ci.get("dtype"),
                     width=ci.get("width"),

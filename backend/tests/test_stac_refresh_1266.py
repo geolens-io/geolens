@@ -173,8 +173,12 @@ def cog_info(monkeypatch):
         # against this fixture exercise the same fields the refresh path
         # now writes to the asset row. No res_x/res_y — fetch_cog_info
         # deliberately does not compute them (cog_info.py's
-        # _georeferencing docstring explains why).
+        # _georeferencing docstring explains why). crs_wkt and epsg are a
+        # matched pair, same as a real _georeferencing result: leaving epsg
+        # out here would make reconcile_epsg read as "a CRS with no mappable
+        # EPSG" rather than "the fixture just didn't set it".
         "crs_wkt": 'PROJCS["WGS 84 / UTM zone 33N",AUTHORITY["EPSG","32633"]]',
+        "epsg": 32633,
     }
     calls: list[str] = []
 
@@ -1197,10 +1201,17 @@ class TestResolution:
         assert (result.health, result.detail) == ("missing", "not_found")
 
     async def test_the_projection_comes_from_the_document_the_asset_did(
-        self, stac_transport
+        self, stac_transport, monkeypatch
     ) -> None:
         """fix(#1266 review round 24): a canonical document that supersedes
-        the representation supersedes its projection too."""
+        the representation supersedes its projection too.
+
+        fix(#1334 review): stubs the probe to report no CRS at all — its OWN
+        reading would otherwise outrank the document's declared one
+        (``reconcile_epsg``), which is a different concern from the one this
+        test isolates: WHICH document's declaration wins, not probe-vs-
+        declared precedence.
+        """
         install, _ = stac_transport
         canonical = f"{_ROOT}/v2/collections/scenes/items/scene-1"
         newer_asset = "https://origin.test/v2/tiles/new.tif"
@@ -1213,6 +1224,13 @@ class TestResolution:
                 _ASSET: (206, None),
                 newer_asset: (206, None),
             }
+        )
+
+        async def _no_crs(url: str):
+            return {"band_count": 1, "dtype": "uint16", "band_info": None}
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.stac_resolve.fetch_cog_info", _no_crs
         )
         result = await _resolve(item_href=_ITEM)
         assert result.asset_href == newer_asset

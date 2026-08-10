@@ -87,6 +87,32 @@ def _georeferencing(info: dict) -> dict:
     return {"crs_wkt": crs_wkt, "epsg": epsg}
 
 
+def reconcile_epsg(probe: dict, declared: int | None) -> int | None:
+    """The EPSG to store: the probe's, when it established any CRS at all.
+
+    fix(#1334 review, round 3): "the probe returned no EPSG" is not the same
+    question as "the probe returned no CRS at all", and the two callers'
+    first attempt at this answered the wrong one — falling back to
+    ``declared`` whenever ``probe["epsg"]`` was None, which also fires for a
+    custom or exotic CRS that Titiler opened successfully but that PROJ
+    cannot map to an authority code. That case answers ``crs_wkt`` with
+    something real and ``epsg`` with None; falling back to a DECLARED code
+    there would pair the probed WKT with a code that may name a different
+    projection — reproducing on this row the exact contradiction this
+    reconciliation exists to prevent, just with a null-vs-populated EPSG
+    instead of two populated ones.
+
+    The declared value is trustworthy only when the probe established
+    NOTHING about the CRS — no ``crs_wkt`` at all, from a failed probe or an
+    unparseable ``crs`` string. Whatever the probe DID establish, including
+    "a WKT with no mappable EPSG", is what a caller must keep rather than
+    patch over with an unrelated source.
+    """
+    if probe.get("crs_wkt") is not None:
+        return probe.get("epsg")
+    return declared
+
+
 async def fetch_cog_info(url: str) -> dict | None:
     """Fetch COG metadata + statistics from Titiler for a remote asset URL.
 

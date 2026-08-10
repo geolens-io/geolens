@@ -20,7 +20,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from app.modules.catalog.sources.cog_info import fetch_cog_info
+from app.modules.catalog.sources.cog_info import fetch_cog_info, reconcile_epsg
 
 pytestmark = pytest.mark.anyio
 
@@ -136,3 +136,32 @@ class TestGeoreferencing:
         result = await fetch_cog_info("https://origin.test/scene.tif")
         assert result is not None
         assert result["crs_wkt"] is None
+
+
+class TestReconcileEpsg:
+    """fix(#1334 review, round 3): the two questions this function tells
+    apart. "The probe returned no EPSG" and "the probe established no CRS
+    at all" look the same from ``epsg is None`` alone, but only one of them
+    means the declared value is trustworthy."""
+
+    def test_no_crs_from_the_probe_falls_back_to_declared(self) -> None:
+        assert reconcile_epsg({}, 4326) == 4326
+        assert reconcile_epsg({"crs_wkt": None, "epsg": None}, 4326) == 4326
+
+    def test_a_probed_crs_wins_even_when_it_disagrees_with_declared(self) -> None:
+        probe = {"crs_wkt": 'PROJCS["UTM 21N"]', "epsg": 32621}
+        assert reconcile_epsg(probe, 4326) == 32621
+
+    def test_a_probed_crs_with_no_mappable_epsg_stays_unset(self) -> None:
+        """The exact case round 3 caught: a real, successfully-probed WKT
+        that PROJ cannot map to an authority code must not fall back to the
+        item's declared EPSG — that would pair the probed WKT with a
+        DECLARED code that may name a different projection, reproducing the
+        contradiction this function exists to prevent."""
+        probe = {"crs_wkt": 'LOCAL_CS["some custom engineering CRS"]', "epsg": None}
+        assert reconcile_epsg(probe, 4326) is None
+
+    def test_no_probe_data_at_all_falls_back_to_declared(self) -> None:
+        """An unmoved asset never calls fetch_cog_info; the caller passes an
+        empty dict rather than None."""
+        assert reconcile_epsg({}, None) is None
