@@ -402,7 +402,7 @@ async def reserve_replacement_bytes(
     session,
     *,
     dataset_id: uuid.UUID,
-    owner_id: uuid.UUID,
+    owner_id: uuid.UUID | None,
     new_size: int,
     archived_bytes: int = 0,
     archived_asset_key: str | None = None,
@@ -432,6 +432,12 @@ async def reserve_replacement_bytes(
 
     A shrinking replacement reserves nothing and needs no special case — usage
     is a live sum, so it self-corrects the moment the smaller row commits.
+
+    ``owner_id`` is None for an ownerless dataset and is handed to
+    ``reserve_storage_bytes`` unexamined, which is what makes this seam and the
+    request-time door reach the same answer through the same code. The policy
+    those two share, and why it is an exemption rather than a bug, is stated
+    once in ``app.modules.quota.service``'s module docstring (#1293).
     """
     from sqlalchemy import text
 

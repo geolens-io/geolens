@@ -3,6 +3,65 @@
 Core check is authoritative for community and enterprise editions.
 The EntitlementPort enforce_limit calls are an additive cloud seam (QUOTA-03):
 in OSS/Enterprise the DefaultEntitlementPort is grant-all and never raises.
+
+Ownerless datasets are exempt (policy, #1293)
+---------------------------------------------
+Every seam in this module resolves the billed identity from
+``catalog.records.created_by``, and that column is nullable. A dataset whose
+``created_by`` is NULL is EXEMPT from quota accounting at every seam: its bytes
+and its dataset row count against nobody, and no seam substitutes a stand-in
+identity for it. That is the decided policy, not an accident of the SQL.
+
+The exemption is one mechanism repeated rather than six special cases.
+``get_user_quota_usage`` filters ``records.created_by = :user_id``, and
+``= NULL`` is never true, so the aggregate returns zeros for a NULL identity
+and skips ownerless rows for every real one. Every other function here reads
+its usage through that aggregate, so all of them inherit the same answer;
+``reserve_replacement_bytes`` in ``app.processing.ingest.tasks_raster_swap``
+inherits it by delegating to ``reserve_storage_bytes``. Nothing needs an
+``if owner_id is None`` branch, and adding one to a single seam is how the
+seams would start to disagree.
+
+Ownerless is a LIVE state, not only a pre-0019 legacy one:
+``records.created_by`` is ``ON DELETE SET NULL``, so hard-deleting a user
+orphans every dataset they created (``AdminService.delete_user`` relies on
+exactly that) while the datasets themselves survive and keep serving.
+
+Why not the alternatives:
+
+- *Refuse mutation until ownership is assigned.* There is no
+  ownership-assignment surface in the product, and the migration-0019 adoption
+  path is not reachable without a destructive downgrade (#998) — so a refusal
+  has no remedy the operator can actually apply. It would permanently brick
+  every legacy dataset, and, because of the SET NULL above, deleting one user
+  would freeze their datasets for everyone forever.
+- *Bill the instance-admin pool.* That misattributes storage rather than
+  measuring it: the admin user list reads ``get_user_quota_usage_bulk``, so one
+  operator would appear to hold the entire orphaned catalog, and once caps are
+  enabled that phantom usage would refuse the admin's own legitimate uploads.
+- *Leave it exempt (chosen).* Both caps default to 0 (unlimited), so only an
+  instance that opts into enforcement has a gap at all, and the gap has a
+  ceiling: creation always carries an authenticated uploader, so no NEW dataset
+  can be born into it. It is not frozen, though, and this is the cost being
+  accepted rather than a claim of harmlessness — replacing an
+  already-orphaned dataset writes uncounted bytes, so the exempt pool can grow
+  by the size of the datasets already in it, times however often an operator
+  replaces them.
+
+Scope of the exemption, stated precisely so nobody "simplifies" it into an
+early return: usage reads zero, which is not the same as a seam
+short-circuiting. Accumulated ownerless storage is never charged to anyone, and
+the dataset-count cap can never refuse a NULL owner (a zero count is below every
+positive cap). The byte cap still measures the INCOMING amount on its own,
+though — net of whatever credit the seam applies — so one reservation larger
+than the whole cap is still refused for a NULL owner. Nothing accumulates; an
+oversized single file is still oversized. An early return would drop that and
+change behaviour.
+
+The durable fix is ownership adoption, tracked by #998. When it lands, this
+section, the seams that point at it, and
+``TestOwnerlessDatasetsAreExemptAtEverySeam`` in
+``backend/tests/test_raster_replace_1221.py`` are what has to change together.
 """
 
 from __future__ import annotations
@@ -23,7 +82,7 @@ from app.platform.extensions.entitlement import enforce_limit
 
 async def get_user_quota_usage(
     db: AsyncSession,
-    user_id: uuid.UUID,
+    user_id: uuid.UUID | None,
 ) -> UserQuotaUsage:
     """Return current bytes-used and dataset-count for a user in one SQL round-trip.
 
@@ -41,6 +100,12 @@ async def get_user_quota_usage(
     ``file.size`` regardless of type.  A true cross-type storage total (e.g.
     ``pg_total_relation_size`` per vector table + VRT source attribution) is
     intentionally deferred to the metered/per-tenant (cloud) quota work.
+
+    This is where the ownerless-dataset exemption physically lives: the
+    ``created_by = :user_id`` filter is never true for NULL, so an ownerless
+    dataset counts against nobody and a NULL ``user_id`` reads zero. Every
+    other seam inherits that answer through this function. See the module
+    docstring for the policy and #998 for the adoption path that ends it.
 
     T-1224-01 mitigation: user_id is bound via SQLAlchemy parameterisation —
     never string-formatted into the SQL text.
@@ -226,13 +291,11 @@ async def check_replacement_quota(
     and admissions the worker's authoritative reserve then failed. One identity,
     one authority, no disagreement possible.
 
-    ``owner_id`` may be None for a legacy ownerless dataset. That is not
-    special-cased, deliberately: ``get_user_quota_usage`` filters
-    ``records.created_by = :user_id``, which matches nothing for NULL, so usage
-    reads zero and the cap is effectively unenforced — exactly what
-    ``reserve_storage_bytes`` does with the same value at publish time. Mirrored
-    rather than corrected so the two cannot diverge; changing the policy means
-    changing both.
+    ``owner_id`` may be None for an ownerless dataset, and is passed straight
+    through: see the module docstring's ownerless-dataset policy, which
+    ``reserve_storage_bytes`` reaches by the same route at publish time. Door
+    and worker inherit one mechanism rather than mirroring two rules, so
+    changing the policy is one edit there, not a hunt through the seams.
     """
     usage = await get_user_quota_usage(db, owner_id)
     counted = await db.scalar(
@@ -269,7 +332,7 @@ class DatasetQuotaExceededError(Exception):
     """
 
 
-async def reserve_dataset_slot(db: AsyncSession, user_id: uuid.UUID) -> None:
+async def reserve_dataset_slot(db: AsyncSession, user_id: uuid.UUID | None) -> None:
     """Atomically reserve a dataset-count slot for ``user_id`` (fix #302).
 
     ``check_upload_quota`` runs at upload time, but the ``Record`` rows the
@@ -282,6 +345,14 @@ async def reserve_dataset_slot(db: AsyncSession, user_id: uuid.UUID) -> None:
     The lock is released automatically at commit/rollback.
 
     No-op when the cap is 0 (the default unlimited config).
+
+    ``user_id`` is nullable for the same reason as on every other seam here —
+    it is a ``records.created_by`` value — though no current caller passes None,
+    because a Record is only ever created on behalf of an authenticated
+    uploader. Should an adoption or re-ingest path reach it, the
+    ownerless-dataset policy in the module docstring applies unchanged and this
+    seam cannot refuse: a NULL identity aggregates to a count of zero, which is
+    below every positive cap.
     """
     cap = await MAX_DATASETS_PER_USER.get(db)
     if cap <= 0:
@@ -311,7 +382,7 @@ class StorageQuotaExceededError(Exception):
 
 
 async def reserve_storage_bytes(
-    db: AsyncSession, user_id: uuid.UUID, incoming_bytes: int
+    db: AsyncSession, user_id: uuid.UUID | None, incoming_bytes: int
 ) -> None:
     """Atomically reserve ``incoming_bytes`` against the per-user byte cap (BA-23).
 
@@ -324,6 +395,12 @@ async def reserve_storage_bytes(
     overshoot ``max_storage_bytes_per_user``.
 
     No-op when the cap is 0 (the default unlimited config).
+
+    ``user_id`` is None for an ownerless dataset (the replacement path passes
+    ``record.created_by`` through unchanged). Nothing accumulates against that
+    identity — see the module docstring's ownerless-dataset policy for why, and
+    for the one thing the exemption does not cover: the recount reads zero, so
+    ``incoming_bytes`` is still weighed against the cap on its own.
     """
     cap = await MAX_STORAGE_BYTES_PER_USER.get(db)
     if cap <= 0:

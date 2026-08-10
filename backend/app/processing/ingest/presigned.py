@@ -187,7 +187,7 @@ async def verify_completed_presigned_upload(
     storage: StorageProvider,
     key: str,
     expected_size: object,
-    user_id: uuid.UUID,
+    user_id: uuid.UUID | None,
     request: Request,
     job_id: uuid.UUID,
     replacing_dataset_id: uuid.UUID | None = None,
@@ -203,6 +203,11 @@ async def verify_completed_presigned_upload(
 
     ``replacing_dataset_id`` is the reupload doors' way of saying which it is.
     None means a genuine creation and keeps the original check.
+
+    ``user_id`` is the OWNER on the replacement path (the reupload door passes
+    ``dataset.record.created_by``) and the uploader on the creation path. Only
+    the first can be None, for an ownerless dataset — see the ownerless-dataset
+    policy in ``app.modules.quota.service``'s module docstring (#1293).
     """
     actual_size = await storage.size(key)
     max_size_mb = await UPLOAD_MAX_SIZE_MB.get(db)
@@ -427,7 +432,7 @@ async def finalize_presigned_object(
     logical_key: str,
     expected_size: object,
     filename: str,
-    user_id: uuid.UUID,
+    user_id: uuid.UUID | None,
     request: Request,
     replacing_dataset_id: uuid.UUID | None = None,
 ) -> str:
