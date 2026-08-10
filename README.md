@@ -131,7 +131,7 @@ Each example above has a full guide in the [docs](https://docs.getgeolens.com/gu
 - **Buffer** (metres, kilometres, feet, or miles), **centroid**, **clip** by a drawn area or by another polygon layer, and **dissolve** with an optional group-by column; **spatial join** and **select by location** match features on intersection, **measure** adds `area_sqm` and `length_m` columns, and **intersect** writes the pairwise overlay with attributes from both sides
 - All operations preview on the map except dissolve, which is materialize-only; previews are capped at 500 features. **Create dataset** then runs any of the eight over every feature as a background job, within per-operation source limits (250k features for dissolve, 500k for buffer)
 - The output is an ordinary vector dataset — styleable, exportable, and served through the OGC API endpoints like any other
-- The chat assistant can run buffer and centroid previews on request
+- The chat assistant can run buffer, centroid, and layer-based clip previews on request
 
 ### Standards and interop
 

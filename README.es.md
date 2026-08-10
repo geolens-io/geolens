@@ -126,7 +126,7 @@ Cada ejemplo anterior tiene una guía completa en la [documentación](https://do
 - **Área de influencia** (metros, kilómetros, pies o millas), **centroide**, **recorte** por un área dibujada o por otra capa de polígonos, y **disolución** con columna de agrupación opcional; la **unión espacial** y la **selección por ubicación** emparejan entidades por intersección, la **medición** añade las columnas `area_sqm` y `length_m`, y la **intersección** escribe la superposición por pares con atributos de ambos lados
 - Todas las operaciones se previsualizan en el mapa salvo la disolución, que solo se puede materializar; las previsualizaciones tienen un límite de 500 entidades. **Crear conjunto de datos** ejecuta después cualquiera de las ocho sobre todas las entidades como trabajo en segundo plano, dentro de los límites por operación (250k entidades para disolución, 500k para área de influencia)
 - La salida es un conjunto de datos vectorial normal: se puede estilizar, exportar y servir a través de los endpoints de la API OGC como cualquier otro
-- El asistente de chat puede generar previsualizaciones de área de influencia y centroide cuando se le pide
+- El asistente de chat puede generar previsualizaciones de área de influencia, centroide y recorte contra otra capa cuando se le pide
 
 ### Estándares e interoperabilidad
 

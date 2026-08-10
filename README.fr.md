@@ -125,7 +125,7 @@ Chaque exemple ci-dessus dispose d’un guide complet dans la [documentation](ht
 - **Zone tampon** (mètres, kilomètres, pieds ou milles), **centroïde**, **découpage** par une zone dessinée ou par une autre couche de polygones, et **fusion** avec colonne de regroupement facultative ; la **jointure spatiale** et la **sélection par emplacement** apparient les entités par intersection, la **mesure** ajoute les colonnes `area_sqm` et `length_m`, et l’**intersection** écrit la superposition entité par entité avec les attributs des deux côtés
 - Toutes les opérations s’affichent en aperçu sur la carte sauf la fusion, qui n’existe qu’en création de jeu de données ; les aperçus sont limités à 500 entités. **Créer un jeu de données** exécute ensuite l’une des huit opérations sur toutes les entités sous forme de tâche en arrière-plan, dans la limite fixée par opération (250k entités pour la fusion, 500k pour la zone tampon)
 - La sortie est un jeu de données vectoriel ordinaire : stylisable, exportable et servi via les points de terminaison de l’API OGC comme n’importe quel autre
-- L’assistant de discussion peut générer des aperçus de zone tampon et de centroïde à la demande
+- L’assistant de discussion peut générer des aperçus de zone tampon, de centroïde et de découpage par rapport à une autre couche à la demande
 
 ### Normes et interopérabilité
 
