@@ -41,24 +41,6 @@ class BrandingExtension(Protocol):
 
 
 @runtime_checkable
-class AuditExtension(Protocol):
-    """DEPRECATED compatibility alias — scheduled for removal at the next
-    EXTENSION_API_VERSION bump.
-
-    fix(#873 review r1+r3): the seam has no consumer (core never calls
-    ``get_export_formats`` and no overlay registers the ``audit`` slot), but
-    removing any part of it before the coordinated EXTENSION_API_VERSION bump
-    (removal tracked in #1303) breaks the compatibility contract: a deleted
-    symbol ImportErrors an overlay into a silent ``load_extensions()`` skip,
-    and a dispatch-less accessor silently no-ops a registered overlay.
-    Protocol, default, accessor, and dispatch therefore all stay until that
-    bump removes the seam wholesale.
-    """
-
-    def get_export_formats(self) -> list[str]: ...
-
-
-@runtime_checkable
 class AuthExtension(Protocol):
     """Extension point for additional auth methods."""
 
@@ -70,10 +52,7 @@ class AuditSink(Protocol):
     """Write-side hook for audit event emission (Phase 222 D-01).
 
     A SIEM streamer does not change the bounded CSV and JSON export provided by
-    Core. (fix(#836): the companion ``AuditExtension`` format-metadata seam is
-    deprecated — no core caller and no overlay ever consumed it — and survives
-    only as an import-compatibility alias until the next EXTENSION_API_VERSION
-    bump.)
+    Core.
 
     Enterprise overlays subscribe by appending instances to
     ``_extensions["audit_sinks"]`` in their ``register_extensions(registry)``

@@ -104,5 +104,4 @@ def test_audit_router_rejects_unknown_formats():
     text = router_path.read_text()
     assert "FORMAT_HANDLERS" in text
     assert "HTTP_404_NOT_FOUND" in text
-    assert "get_audit_extension" not in text
     assert "require_enterprise" not in text

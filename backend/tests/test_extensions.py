@@ -210,33 +210,6 @@ class TestProtocolDefaults:
 
         assert DefaultAuthExtension().get_auth_methods() == []
 
-    def test_audit_alias_stays_importable_until_version_bump(self):
-        """fix(#836 / #873 review r1): the AuditExtension seam is deprecated.
-
-        Its registry dispatch is gone, but the three public names must stay
-        importable until the next EXTENSION_API_VERSION bump (removal tracked
-        in #1303) — an overlay built against v2 or any later version that
-        imports them would otherwise ImportError into a silent
-        load_extensions() skip. Delete this test with the aliases at that
-        bump.
-        """
-        # fix(#873 review r2): import the protocol exactly the way an overlay
-        # would — from the package root, at runtime. A TYPE_CHECKING-only
-        # re-export made this line ImportError while the protocols-module
-        # import below still worked, recreating the silent-skip failure mode.
-        from app.platform.extensions import AuditExtension, get_audit_extension
-        from app.platform.extensions.defaults import DefaultAuditExtension
-        from app.platform.extensions.protocols import (
-            AuditExtension as ProtocolAuditExtension,
-        )
-
-        assert AuditExtension is ProtocolAuditExtension
-        assert isinstance(DefaultAuditExtension(), AuditExtension)
-        # Nothing registered: the accessor falls back to the no-op default,
-        # which advertises nothing.
-        assert isinstance(get_audit_extension(), DefaultAuditExtension)
-        assert get_audit_extension().get_export_formats() == []
-
     def test_pre_pr_import_surface_is_intact(self):
         """fix(#873 review r4): the #836 split must not shrink the importable surface.
 
@@ -245,31 +218,12 @@ class TestProtocolDefaults:
         ``.protocols`` were AST-diffed against origin/main; every name present
         pre-split must import from its old path and be the SAME object as the
         canonical symbol. Extend this list rather than letting a review round
-        find the next stripped name; delete the audit-seam rows with the
-        aliases at the next EXTENSION_API_VERSION bump.
+        find the next stripped name.
         """
         import importlib
 
         surface = [
             # (legacy import path, name, canonical module, canonical name)
-            (
-                "app.platform.extensions",
-                "AuditExtension",
-                "app.platform.extensions.protocols",
-                "AuditExtension",
-            ),
-            (
-                "app.platform.extensions",
-                "DefaultAuditExtension",
-                "app.platform.extensions.defaults_extensions",
-                "DefaultAuditExtension",
-            ),
-            (
-                "app.platform.extensions.defaults",
-                "DefaultAuditExtension",
-                "app.platform.extensions.defaults_extensions",
-                "DefaultAuditExtension",
-            ),
             (
                 "app.platform.extensions.defaults",
                 "defer_async_with_tenant",
@@ -296,10 +250,6 @@ class TestProtocolDefaults:
                 f"{legacy_module}.{name} is not the canonical "
                 f"{canonical_module}.{canonical_name}"
             )
-        # The accessor is a callable, not a re-export — assert it separately.
-        from app.platform.extensions import get_audit_extension
-
-        assert callable(get_audit_extension)
 
     def test_pre_pr_wildcard_surface_is_intact(self):
         """fix(#873 review r5): pin the ``import *`` surface of the facade.
@@ -309,14 +259,12 @@ class TestProtocolDefaults:
         classes plus the two incidental helper bindings. The facade's
         ``__all__`` must keep every one of them wildcard-visible; a name
         importable directly but absent from ``__all__`` still NameErrors a
-        star-importing overlay into a silent load_extensions() skip. Drop the
-        audit/helper rows with the seam at the next EXTENSION_API_VERSION bump.
+        star-importing overlay into a silent load_extensions() skip.
         """
         import app.platform.extensions.defaults as defaults_facade
 
         pre_split_wildcard_names = {
             "DefaultAnthropicProvider",
-            "DefaultAuditExtension",
             "DefaultAuditSink",
             "DefaultAuthExtension",
             "DefaultBillingExtension",
@@ -340,35 +288,6 @@ class TestProtocolDefaults:
             "facade __all__ dropped pre-split wildcard-visible names "
             f"(silent star-import regression): {sorted(missing)}"
         )
-
-    def test_audit_alias_dispatch_still_honors_a_registered_overlay(self):
-        """fix(#873 review r3): the v2 slot must BEHAVE, not merely import.
-
-        Until the EXTENSION_API_VERSION bump removes the seam wholesale, an
-        API-v2 overlay registered under the ``audit`` single-slot key must be
-        returned by the accessor — a dispatch-less alias would silently no-op
-        it. Delete this test with the aliases at the bump.
-        """
-        from app.platform.extensions import _extensions, get_audit_extension
-        from app.platform.extensions.defaults import DefaultAuditExtension
-
-        class FakeAuditOverlay:
-            def get_export_formats(self) -> list[str]:
-                return ["overlay-format"]
-
-        previous = _extensions.get("audit")
-        _extensions["audit"] = FakeAuditOverlay()
-        try:
-            ext = get_audit_extension()
-            assert isinstance(ext, FakeAuditOverlay)
-            assert ext.get_export_formats() == ["overlay-format"]
-        finally:
-            if previous is None:
-                _extensions.pop("audit", None)
-            else:
-                _extensions["audit"] = previous
-
-        assert isinstance(get_audit_extension(), DefaultAuditExtension)
 
 
 class TestGetIdentityExtension:
@@ -639,9 +558,6 @@ class TestProtocolOverlayDispatch:
 
         # Post-condition: registry is restored
         assert isinstance(get_branding_extension(), DefaultBrandingExtension)
-
-    # fix(#836): test_audit_extension_overlay_dispatch was deleted together
-    # with the AuditExtension seam it exercised.
 
     def test_auth_extension_overlay_dispatch(self):
         """Phase 276 CODE-03: A registered overlay under 'auth' is returned by the accessor.
