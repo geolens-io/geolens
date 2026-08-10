@@ -388,12 +388,11 @@ def _bound_asset_key(
     None. Which asset a dataset serves is not something a refresh may decide.
 
     fix(#1331): the key is read with ``is not None``, not truthiness. ``""``
-    is a legal JSON property name and a legal asset key, and a binding that
-    recorded it names a real asset — treating it like no key was recorded is
-    exactly the bug: capture already refuses to ever STORE ``""`` (see
-    ``storable_asset_key``), so a stored value here is honest by
-    construction, and reading it with truthiness would only reintroduce the
-    special case capture was written to remove.
+    is a legal JSON property name and a legal asset key, and capture (see
+    ``storable_asset_key``) preserves it and distinguishes it from no key at
+    all — a binding that recorded it names a real asset, and treating it
+    like no key was recorded is exactly the bug this reads honestly instead
+    of reintroducing.
     """
     if asset_key is not None and isinstance(assets.get(asset_key), dict):
         return asset_key
