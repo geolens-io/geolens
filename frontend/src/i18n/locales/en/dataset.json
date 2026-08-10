@@ -294,6 +294,13 @@
       "previewLayer": "Preview Layer",
       "tableLabel": "File layers"
     },
+    "raster": {
+      "previewDescription": "Confirm to replace the raster.",
+      "previewNote": "Raster re-uploads skip schema comparison. Confirming starts a Cloud Optimized GeoTIFF conversion, which can take several minutes.",
+      "trackingDescription": "Converting to Cloud Optimized GeoTIFF. This can take several minutes.",
+      "processingMessage": "Converting to Cloud Optimized GeoTIFF...",
+      "trackingBackground": "This can take a few minutes. You can close this dialog — the map updates automatically once the conversion finishes."
+    },
     "dropzone": "Drag and drop a file here, or click to browse",
     "uploadingMessage": "Uploading and analyzing file...",
     "file": "File:",

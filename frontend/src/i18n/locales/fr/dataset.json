@@ -343,6 +343,13 @@
       "previewLayer": "Prévisualiser la couche",
       "tableLabel": "Couches du fichier"
     },
+    "raster": {
+      "previewDescription": "Confirmez pour remplacer le raster.",
+      "previewNote": "Les re-téléversements raster n'affichent pas de comparaison de schéma. Confirmer démarre une conversion en GeoTIFF optimisé pour le cloud, ce qui peut prendre plusieurs minutes.",
+      "trackingDescription": "Conversion en GeoTIFF optimisé pour le cloud. Cela peut prendre plusieurs minutes.",
+      "processingMessage": "Conversion en GeoTIFF optimisé pour le cloud...",
+      "trackingBackground": "Cela peut prendre quelques minutes. Vous pouvez fermer cette boîte de dialogue — la carte se mettra à jour automatiquement une fois la conversion terminée."
+    },
     "dropzone": "Glissez-déposez un fichier ici, ou cliquez pour parcourir",
     "uploadingMessage": "Téléchargement et analyse du fichier...",
     "file": "Fichier :",

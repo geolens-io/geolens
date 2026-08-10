@@ -114,6 +114,22 @@ function makeDataset(): DatasetResponse {
   };
 }
 
+// #1289: raster reupload fixture — upload -> commit, no schema preview.
+function makeRasterDataset(): DatasetResponse {
+  return {
+    ...makeDataset(),
+    id: 'dataset-raster-1',
+    table_name: 'ortho',
+    title: 'Orthophoto',
+    source_format: 'GeoTIFF',
+    source_filename: 'ortho.tif',
+    record_type: 'raster_dataset',
+    raster: {
+      tile_url: '/raster-tiles/dataset-raster-1/{z}/{x}/{y}.png',
+    } as DatasetResponse['raster'],
+  };
+}
+
 function makeProbeResponse(): ProbeResponse {
   return {
     service_type: 'WFS',
@@ -175,6 +191,16 @@ function renderDialog() {
   render(
     <ReuploadDialog
       dataset={makeDataset()}
+      open
+      onOpenChange={vi.fn()}
+    />,
+  );
+}
+
+function renderRasterDialog() {
+  render(
+    <ReuploadDialog
+      dataset={makeRasterDataset()}
       open
       onOpenChange={vi.fn()}
     />,
@@ -789,5 +815,116 @@ describe('ReuploadDialog file path multi-layer', () => {
 
     // Advisory banner should NOT be rendered
     expect(screen.queryByTestId('schema-change-advisory')).not.toBeInTheDocument();
+  });
+});
+
+// #1289: raster reupload — upload -> commit, skipping the vector
+// schema-preview step (the preview endpoint 400s for raster by design).
+describe('ReuploadDialog raster reupload', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    dropHandler = null;
+
+    uploadMutateAsync.mockResolvedValue({ job_id: 'raster-job' });
+    commitMutateAsync.mockResolvedValue({
+      job_id: 'commit-job',
+      status: 'pending',
+      message: 'queued',
+    });
+
+    mockUseReuploadDataset.mockReturnValue({
+      mutateAsync: uploadMutateAsync,
+    } as unknown as ReturnType<typeof useReuploadDataset>);
+    mockUseReuploadPreview.mockReturnValue({
+      mutateAsync: previewMutateAsync,
+    } as unknown as ReturnType<typeof useReuploadPreview>);
+    mockUseReuploadServicePreview.mockReturnValue({
+      mutateAsync: servicePreviewMutateAsync,
+    } as unknown as ReturnType<typeof useReuploadServicePreview>);
+    mockUseReuploadCommit.mockReturnValue({
+      mutateAsync: commitMutateAsync,
+    } as unknown as ReturnType<typeof useReuploadCommit>);
+    mockUseUploadConfig.mockReturnValue({
+      data: {
+        presigned_uploads: false,
+        presigned_threshold_bytes: 10485760,
+        max_file_size_bytes: 524288000,
+        allowed_extensions: '.zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls',
+      },
+    } as unknown as ReturnType<typeof useUploadConfig>);
+    mockUseJobStatus.mockReturnValue({
+      data: null,
+    } as unknown as ReturnType<typeof useJobStatus>);
+  });
+
+  it('advertises only raster formats for raster reupload', async () => {
+    const user = userEvent.setup();
+    renderRasterDialog();
+
+    await openFileSource(user);
+
+    // deriveFormatBadges collapses the .tif/.tiff alias pair into one badge.
+    expect(screen.getByText('.tif')).toBeInTheDocument();
+    expect(screen.queryByText('.tiff')).not.toBeInTheDocument();
+    expect(screen.queryByText('.geojson')).not.toBeInTheDocument();
+    expect(screen.queryByText('.gpkg')).not.toBeInTheDocument();
+    expect(screen.queryByText('.vrt')).not.toBeInTheDocument();
+  });
+
+  it('skips the schema-preview call and lands on the confirm gate', async () => {
+    const user = userEvent.setup();
+    renderRasterDialog();
+
+    await openFileSource(user);
+    await dropFile('ortho.tif');
+
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+
+    // The preview endpoint 400s for raster by design — the raster branch
+    // must never call it.
+    expect(previewMutateAsync).not.toHaveBeenCalled();
+    expect(servicePreviewMutateAsync).not.toHaveBeenCalled();
+    // No schema diff to show for raster.
+    expect(screen.queryByTestId('schema-change-advisory')).not.toBeInTheDocument();
+    expect(screen.getByTestId('raster-preview-note')).toBeInTheDocument();
+    expect(screen.getByText(/ortho\.tif/)).toBeInTheDocument();
+  });
+
+  it('commits using the uploaded job id when confirmed', async () => {
+    const user = userEvent.setup();
+    renderRasterDialog();
+
+    await openFileSource(user);
+    await dropFile('ortho.tif');
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+
+    await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+    await waitFor(() => {
+      expect(commitMutateAsync).toHaveBeenCalled();
+    });
+    const payload = commitMutateAsync.mock.calls[0][0];
+    expect(payload.datasetId).toBe('dataset-raster-1');
+    expect(payload.jobId).toBe('raster-job');
+    expect(payload.token).toBeUndefined();
+    expect(payload.layerName).toBeUndefined();
+  });
+
+  it('shows COG-conversion progress copy while tracking the background job', async () => {
+    const user = userEvent.setup();
+    mockUseJobStatus.mockReturnValue({
+      data: { status: 'pending' },
+    } as unknown as ReturnType<typeof useJobStatus>);
+    renderRasterDialog();
+
+    await openFileSource(user);
+    await dropFile('ortho.tif');
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+    await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+    await screen.findByText('Converting to Cloud Optimized GeoTIFF...');
+    expect(
+      screen.getByText(/This can take a few minutes/),
+    ).toBeInTheDocument();
   });
 });

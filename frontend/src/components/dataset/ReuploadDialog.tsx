@@ -74,7 +74,14 @@ const AUTH_ERROR_HINTS = [
   'auth',
 ];
 
-const UNSUPPORTED_REUPLOAD_EXTENSIONS = new Set(['.tif', '.tiff', '.vrt']);
+// VRT datasets never reach this dialog (DatasetPage keeps them on the
+// regenerate flow) and no reupload source produces a .vrt, so it stays
+// excluded from every reupload context as a defensive floor.
+const VRT_EXTENSION = '.vrt';
+// #1289: raster reupload accepts only raster source formats; vector/table
+// reupload accepts everything the backend allows except raster/VRT formats
+// (rasters go through the branch below, VRTs through the regenerate flow).
+const RASTER_REUPLOAD_EXTENSIONS = new Set(['.tif', '.tiff']);
 
 interface ReuploadDialogProps {
   dataset: DatasetResponse;
@@ -114,6 +121,10 @@ export function ReuploadDialog({
   onOpenChange,
 }: ReuploadDialogProps) {
   const { t } = useTranslation('dataset');
+  // #1289: raster datasets now reach this dialog (DatasetPage relaxes its
+  // gate to canEdit && !isVrt); this flag drives the upload -> commit
+  // shortcut below and the raster-specific copy in the preview/tracking steps.
+  const isRaster = dataset.record_type === 'raster_dataset';
   const [step, setStep] = useState<ReuploadStep>('source-select');
   const [sourceType, setSourceType] = useState<ReuploadSourceType | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
@@ -223,6 +234,15 @@ export function ReuploadDialog({
           });
         }
         setJobId(uploadResult.job_id);
+
+        // #1289: raster has no schema-preview step — the preview endpoint
+        // returns 400 for raster by design (nothing for ogrinfo to diff a
+        // COG against). Skip straight to the confirm gate.
+        if (isRaster) {
+          setStep('preview');
+          return;
+        }
+
         const previewResult = await previewMutation.mutateAsync({
           datasetId: dataset.id,
           jobId: uploadResult.job_id,
@@ -257,7 +277,7 @@ export function ReuploadDialog({
         setStep('error');
       }
     },
-    [dataset.id, uploadMutation, previewMutation, uploadConfig?.presigned_uploads, t],
+    [dataset.id, isRaster, uploadMutation, previewMutation, uploadConfig?.presigned_uploads, t],
   );
 
   const handleServiceConnect = useCallback(
@@ -429,12 +449,16 @@ export function ReuploadDialog({
     () => uploadConfig?.allowed_extensions
       ?.split(',')
       .map((extension) => extension.trim())
-      .filter(
-        (extension) =>
-          Boolean(extension) &&
-          !UNSUPPORTED_REUPLOAD_EXTENSIONS.has(extension.toLowerCase()),
-      ),
-    [uploadConfig?.allowed_extensions],
+      .filter((extension) => {
+        if (!extension) return false;
+        const normalized = extension.toLowerCase();
+        if (normalized === VRT_EXTENSION) return false;
+        // #1289: raster reupload offers only raster formats; every other
+        // reupload (vector/table) offers everything except raster/VRT.
+        const isRasterExtension = RASTER_REUPLOAD_EXTENSIONS.has(normalized);
+        return isRaster ? isRasterExtension : !isRasterExtension;
+      }),
+    [uploadConfig?.allowed_extensions, isRaster],
   );
   const reuploadAccept = useMemo(
     () => reuploadExtensions ? buildAcceptMap(reuploadExtensions) : undefined,
@@ -491,9 +515,19 @@ export function ReuploadDialog({
     previewing: t('reupload.service.previewing', {
       defaultValue: 'Preparing re-upload preview...',
     }),
-    preview: t('reupload.descriptions.preview'),
+    // #1289: raster has no schema diff to review, so the preview/tracking
+    // copy swaps to describe the COG conversion instead.
+    preview: isRaster
+      ? t('reupload.raster.previewDescription', {
+        defaultValue: 'Confirm to replace the raster.',
+      })
+      : t('reupload.descriptions.preview'),
     committing: t('reupload.descriptions.committing'),
-    tracking: t('reupload.descriptions.tracking'),
+    tracking: isRaster
+      ? t('reupload.raster.trackingDescription', {
+        defaultValue: 'Converting to Cloud Optimized GeoTIFF. This can take several minutes.',
+      })
+      : t('reupload.descriptions.tracking'),
     complete: t('reupload.descriptions.complete'),
     error: t('reupload.descriptions.error'),
   };
@@ -821,7 +855,10 @@ export function ReuploadDialog({
           </div>
         )}
 
-        {step === 'preview' && preview && (
+        {/* #1289: raster has no preview payload to render (schema-preview is
+            skipped in handleUpload above), so this step renders on isRaster
+            alone rather than waiting for `preview`. */}
+        {step === 'preview' && (preview || isRaster) && (
           <div className="space-y-4">
             {/* GPKG-02 Phase 1058: file-path multi-layer shows File + Layer lines; single-layer or service shows one line */}
             {sourceType === 'file' && selectedFileLayer !== null ? (
@@ -841,23 +878,36 @@ export function ReuploadDialog({
                 <span className="font-medium">{previewSourceValue}</span>
               </p>
             )}
-            {/* GPKG-02 Phase 1058: schema-change advisory banner (informational, distinct from hasWarning) */}
-            {hasSchemaChange && (
-              <div
-                className="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm"
-                data-testid="schema-change-advisory"
+            {isRaster ? (
+              <p
+                className="rounded-md border border-muted-foreground/20 bg-muted/40 p-3 text-sm text-muted-foreground"
+                data-testid="raster-preview-note"
               >
-                {t('reupload.schemaChangeAdvisory', {
-                  added: preview.schema_diff.columns_added.length,
-                  removed: preview.schema_diff.columns_removed.length,
+                {t('reupload.raster.previewNote', {
+                  defaultValue: 'Raster re-uploads skip schema comparison. Confirming starts a Cloud Optimized GeoTIFF conversion, which can take several minutes.',
                 })}
-              </div>
-            )}
-            <SchemaDiffView schemaDiff={preview.schema_diff} />
-            {hasWarning && (
-              <p className="text-sm text-warning">
-                {t('reupload.warningSchemaChanges')}
               </p>
+            ) : preview && (
+              <>
+                {/* GPKG-02 Phase 1058: schema-change advisory banner (informational, distinct from hasWarning) */}
+                {hasSchemaChange && (
+                  <div
+                    className="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm"
+                    data-testid="schema-change-advisory"
+                  >
+                    {t('reupload.schemaChangeAdvisory', {
+                      added: preview.schema_diff.columns_added.length,
+                      removed: preview.schema_diff.columns_removed.length,
+                    })}
+                  </div>
+                )}
+                <SchemaDiffView schemaDiff={preview.schema_diff} />
+                {hasWarning && (
+                  <p className="text-sm text-warning">
+                    {t('reupload.warningSchemaChanges')}
+                  </p>
+                )}
+              </>
             )}
             <DialogFooter>
               <Button
@@ -886,10 +936,20 @@ export function ReuploadDialog({
           <div className="flex flex-col items-center justify-center gap-3 py-8">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             <p className="text-sm text-muted-foreground">
-              {t('reupload.processingMessage')}
+              {/* #1289: COG conversion runs on the raster queue and takes
+                  minutes, not the seconds a vector reupload takes. */}
+              {isRaster
+                ? t('reupload.raster.processingMessage', {
+                  defaultValue: 'Converting to Cloud Optimized GeoTIFF...',
+                })
+                : t('reupload.processingMessage')}
             </p>
             <p className="text-xs text-muted-foreground">
-              {t('reupload.trackingBackground')}
+              {isRaster
+                ? t('reupload.raster.trackingBackground', {
+                  defaultValue: 'This can take a few minutes. You can close this dialog — the map updates automatically once the conversion finishes.',
+                })
+                : t('reupload.trackingBackground')}
             </p>
           </div>
         )}

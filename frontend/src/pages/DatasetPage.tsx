@@ -465,7 +465,10 @@ export function DatasetPage() {
       icon: Upload,
       onSelect: () => setActiveDialog('reupload'),
       priority: 10,
-      visible: canEdit && !isRaster && !isVrt,
+      // #1289: raster now has a reupload flow too (upload -> commit,
+      // skipping the vector schema-preview step); VRT stays excluded — VRT
+      // datasets keep the regenerate action instead.
+      visible: canEdit && !isVrt,
       variant: 'outline',
     },
     {
@@ -661,7 +664,7 @@ export function DatasetPage() {
         />
       )}
 
-      {canEdit && !isRaster && !isVrt && (
+      {canEdit && !isVrt && (
         <Suspense fallback={null}>
           <ReuploadDialog
             dataset={dataset}
