@@ -518,16 +518,24 @@ async def delete_dataset_endpoint(
                 "dependent_vrts": exc.dependents,
             },
         )
-    except ValueError as exc:
-        msg = str(exc)
-        if "not found" in msg.lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=msg,
-            )
+    except DatasetTitleMismatchError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=msg,
+            detail=str(exc),
+        )
+    except ValueError as exc:
+        if str(exc) == "Dataset not found":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Dataset not found",
+            )
+        logger.exception(
+            "Unexpected error during dataset delete",
+            dataset_id=str(dataset_id),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Dataset deletion failed unexpectedly",
         )
 
     await audit_emit(
