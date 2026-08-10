@@ -9,9 +9,9 @@ with its owning PR) a per-suite owner test that proves the row's own
 behavior in isolation. This suite owns only what no per-suite test can see:
 cross-origin sequencing and whole-system invariants.
 
-1. Lifecycle braids — one per origin family (upload, service, postgis),
-   asserting ledger continuity (run rows accumulate, one-active-run holds
-   at every step) rather than re-proving per-step behavior.
+1. Lifecycle braids — one per origin family (upload, service, postgis,
+   stac), asserting ledger continuity (run rows accumulate, one-active-run
+   holds at every step) rather than re-proving per-step behavior.
 2. The sentinel-token sweep — one test proving a credential never reaches
    any surface it should not: dispatch args, ``ingest_jobs``,
    ``dataset_refresh_runs`` (including a forced failure's
@@ -27,11 +27,10 @@ cross-origin sequencing and whole-system invariants.
    interfere with each other's rows.
 
 **Sequencing.** #1267 (VRT recovery) has landed and is exercised in group 4.
-#1266 (STAC re-resolution, PR #1326) is still in flight — its row is
-deliberately NOT added here yet; it lands as a follow-up commit once #1326
-merges, per the design comment's own sequencing note. Adding it eagerly
-against unmerged code would either import something that does not exist yet
-or silently test a mock standing in for the real thing.
+The stac braid in group 1 is drafted against ``origin/feat/1266-stac-refresh``
+(PR #1326) ahead of that PR landing on ``main``, per the assignment's
+early-prep signal — it has not been run against the real merged code and is
+not part of this suite's own codex loop until it has been.
 
 **Out of scope** (per the design comment): live HTTP to external
 STAC/service endpoints (this suite never crosses the ``make_safe_client``
@@ -46,6 +45,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import numpy as np
 import pytest
 import structlog
@@ -59,7 +59,11 @@ from app.modules.audit.models import AuditLog
 from app.modules.catalog.collections.models import DatasetVersion
 from app.modules.catalog.datasets.api import router_refresh
 from app.modules.catalog.datasets.domain.models import Dataset
-from app.platform.dataset_origin import set_dataset_origin, set_postgis_origin
+from app.platform.dataset_origin import (
+    build_origin_ref,
+    set_dataset_origin,
+    set_postgis_origin,
+)
 from app.platform.jobs.models import IngestJob
 from app.platform.jobs.router import sweep_stale_vrt_assets
 from app.platform.refresh import credentials as creds
@@ -77,6 +81,7 @@ from app.platform.refresh.service import (
 from app.processing.ingest import tasks_postgis_refresh
 from app.processing.ingest.tasks_postgis_refresh import refresh_postgis
 from app.processing.ingest.tasks_raster_replace import reupload_raster
+from app.processing.ingest.tasks_stac_refresh import refresh_stac
 from app.processing.raster.models import RasterAsset, VrtGeneration
 from app.platform.storage.local import LocalStorageProvider
 from tests.factories import create_dataset, get_user_id
@@ -163,6 +168,7 @@ async def _dispatch_harness():
     port = MagicMock()
     port.refresh_postgis_task.return_value = task
     port.reupload_service_task.return_value = task
+    port.refresh_stac_task.return_value = task
     with (
         patch.object(router_refresh, "validate_url_for_ssrf", AsyncMock()),
         patch.object(router_refresh, "get_catalog_port", return_value=port),
@@ -288,6 +294,196 @@ async def _execute_postgis(session, payload: dict) -> None:
         dataset_id=payload["dataset_id"],
         attempt_id=str(job.attempt_id),
     )
+
+
+# --- STAC-origin helpers -----------------------------------------------------
+#
+# DRAFTED against origin/feat/1266-stac-refresh (PR #1326), not yet merged as
+# of this commit. Mirrors that PR's own test_stac_refresh_1266.py: `_ROOT`/
+# `_ITEM`/`_SEARCH`/`_ASSET` naming, `_item_doc`, `_routes`, `stac_transport`,
+# `cog_info` and `_stac_dataset` are all shrunk copies of that suite's
+# fixtures of the same purpose. That suite owns every resolution-rule test
+# (search derivation, asset identification, the withdrawn-vs-removed
+# distinction); this only drives the real worker end to end to prove the
+# checklist's two STAC rows compose into the same ledger the other three
+# origin families do.
+
+_STAC_ROOT = "https://stac.example.com/api"
+_STAC_ITEM = f"{_STAC_ROOT}/collections/scenes/items/scene-1"
+_STAC_SEARCH = f"{_STAC_ROOT}/search"
+_STAC_ASSET = "https://stac.example.com/tiles/scene.tif"
+_STAC_MOVED_ASSET = "https://stac.example.com/v2/tiles/scene.tif"
+
+
+def _stac_item_doc(*, asset_href: str = _STAC_ASSET, asset_key: str = "data") -> dict:
+    return {
+        "type": "Feature",
+        "id": "scene-1",
+        "collection": "scenes",
+        "properties": {"proj:code": "EPSG:32633"},
+        "bbox": [10.0, 45.0, 11.0, 46.0],
+        "links": [{"rel": "self", "href": _STAC_ITEM}],
+        "assets": {
+            asset_key: {
+                "href": asset_href,
+                "roles": ["data"],
+                "type": "image/tiff",
+            }
+        },
+    }
+
+
+def _stub_stac_resolution_seams(monkeypatch) -> None:
+    """The two seams the resolver reaches for directly, not through the
+    door: the SSRF check (real DNS resolution against a name nothing
+    answers for) and the COG read Titiler would do against a moved asset.
+    """
+    monkeypatch.setattr(
+        "app.modules.catalog.sources.stac_resolve.validate_url_for_ssrf",
+        AsyncMock(),
+    )
+    monkeypatch.setattr(
+        "app.modules.catalog.sources.stac_resolve.fetch_cog_info",
+        AsyncMock(
+            return_value={
+                "band_count": 1,
+                "dtype": "uint16",
+                "nodata": 0,
+                "band_info": [{"min": 0, "max": 4095, "mean": 1200}],
+            }
+        ),
+    )
+
+
+def _install_stac_transport(
+    monkeypatch, routes: dict[str, tuple[int, object | None]]
+) -> None:
+    """Answer each URL from a table; anything unlisted is a 404 (mirrors
+    test_stac_refresh_1266's `_routes`). Reinstalled between phases of the
+    same test, since each phase asks a different question of the origin.
+    """
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        entry = routes.get(str(request.url))
+        if entry is None:
+            return httpx.Response(404)
+        status_code, payload = entry
+        return (
+            httpx.Response(status_code)
+            if payload is None
+            else httpx.Response(status_code, json=payload)
+        )
+
+    def _factory(timeout=10.0, **_kwargs) -> httpx.AsyncClient:
+        async def _handle(request: httpx.Request) -> httpx.Response:
+            return _handler(request)
+
+        return httpx.AsyncClient(
+            transport=httpx.MockTransport(_handle),
+            timeout=timeout,
+            follow_redirects=True,
+        )
+
+    monkeypatch.setattr(
+        "app.modules.catalog.sources.origin_probe.make_safe_client", _factory
+    )
+
+
+async def _stac_dataset(session, *, created_by: uuid.UUID) -> Dataset:
+    """A STAC dataset with a remote raster asset, mirroring
+    test_stac_refresh_1266's `_stac_dataset` fixture.
+    """
+    dataset = await create_dataset(
+        session,
+        created_by=created_by,
+        source_format="stac",
+        source_filename="scene-1",
+        srid=4326,
+    )
+    dataset.record.record_type = "raster_dataset"
+    dataset.origin_uri = _STAC_ASSET
+    dataset.origin_ref = build_origin_ref(
+        "stac",
+        asset_href=_STAC_ASSET,
+        item_href=_STAC_ITEM,
+        item_id="scene-1",
+        collection_id="scenes",
+        asset_key="data",
+    )
+    dataset.source_health = "healthy"
+    dataset.last_refreshed_at = datetime.now(timezone.utc) - timedelta(days=30)
+    session.add(
+        RasterAsset(
+            dataset_id=dataset.id,
+            asset_uri=_STAC_ASSET,
+            storage_backend="remote",
+            cog_status="verified",
+            epsg=4326,
+            ingested_at=datetime.now(timezone.utc) - timedelta(days=30),
+        )
+    )
+    await session.commit()
+    await session.refresh(dataset)
+    return dataset
+
+
+async def _dispatch_stac(
+    client: AsyncClient, headers: dict, dataset_id: uuid.UUID
+) -> dict:
+    async with _dispatch_harness():
+        resp = await client.post(f"/datasets/{dataset_id}/refresh", headers=headers)
+    assert resp.status_code == 202, resp.text
+    return resp.json()
+
+
+async def _execute_stac(session, payload: dict) -> None:
+    job = await _job_for(session, uuid.UUID(payload["job_id"]))
+    await refresh_stac.func(
+        job_id=payload["job_id"],
+        dataset_id=payload["dataset_id"],
+        attempt_id=str(job.attempt_id),
+    )
+
+
+async def _reload_stac_dataset(dataset_id: uuid.UUID) -> Dataset:
+    """A fresh session, independent of the test's. `refresh_stac.func` commits
+    from a session the test does not own, so reading the dataset back through
+    the test's own (already identity-mapped) session would return the
+    pre-refresh cached attributes rather than proving the write landed —
+    mirrors test_stac_refresh_1266's `_reload`/`_fresh_session` pair.
+    """
+    from app.core.db import async_session
+
+    async with async_session() as session:
+        return (
+            await session.execute(select(Dataset).where(Dataset.id == dataset_id))
+        ).scalar_one()
+
+
+async def _reload_stac_asset(dataset_id: uuid.UUID) -> RasterAsset:
+    from app.core.db import async_session
+
+    async with async_session() as session:
+        return (
+            await session.execute(
+                select(RasterAsset).where(RasterAsset.dataset_id == dataset_id)
+            )
+        ).scalar_one()
+
+
+async def _stac_extent_wkt(dataset_id: uuid.UUID) -> str | None:
+    from app.core.db import async_session
+
+    async with async_session() as session:
+        return await session.scalar(
+            text(
+                "SELECT ST_AsText(ST_Envelope(spatial_extent)) "
+                "FROM catalog.records r "
+                "JOIN catalog.datasets d ON d.record_id = r.id "
+                "WHERE d.id = :dataset_id"
+            ),
+            {"dataset_id": dataset_id},
+        )
 
 
 # --- Raster/upload-origin helpers -------------------------------------------
@@ -648,6 +844,84 @@ class TestLifecycleBraids:
         third = await _dispatch_postgis(client, admin_auth_header, dataset.id)
         runs = await _runs_ordered(test_db_session, dataset.id)
         assert [r.status for r in runs] == ["succeeded", "failed", "pending"]
+        assert third["run_id"] not in {str(r.id) for r in runs[:2]}
+
+    async def test_stac_family_missing_then_moved_pointer_reresolves(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ) -> None:
+        """The checklist's two STAC rows, walked as one sequence: the stored
+        item 404s and the re-search finds nothing (failed run, `missing`,
+        every pointer retained — invariant 10, for an origin kind whose
+        pointer IS its data) -> the same item resolves again, this time
+        naming a moved asset (re-resolved: pointer, the moved object's own
+        metadata, its extent and the tile-cache version all move together)
+        -> ledger continuity and one-active-run hold at every step, same as
+        the other three families. Per-outcome resolution rules (search
+        derivation, asset identification, the withdrawn-vs-removed
+        distinction) are test_stac_refresh_1266.py's own concern; this only
+        proves the sequence composes.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+        before_uri = dataset.origin_uri
+        before_version = dataset.tile_cache_version
+
+        _stub_stac_resolution_seams(monkeypatch)
+
+        # -- 1. the stored item is gone, and the re-search finds nothing. --
+        _install_stac_transport(
+            monkeypatch,
+            {_STAC_ITEM: (404, None), _STAC_SEARCH: (200, {"features": []})},
+        )
+        payload = await _dispatch_stac(client, admin_auth_header, dataset.id)
+        with pytest.raises(Exception):
+            await _execute_stac(test_db_session, payload)
+
+        runs = await _runs_ordered(test_db_session, dataset.id)
+        assert [r.status for r in runs] == ["failed"]
+        assert runs[0].error_code == "source_missing"
+
+        reloaded = await _reload_stac_dataset(dataset.id)
+        assert reloaded.origin_uri == before_uri
+        assert reloaded.origin_ref["asset_href"] == before_uri
+        assert reloaded.source_health == "missing"
+        assert reloaded.tile_cache_version == before_version
+
+        # -- 2. the same item resolves again, naming a moved asset. --
+        moved_doc = _stac_item_doc(asset_href=_STAC_MOVED_ASSET)
+        moved_doc["bbox"] = [30.0, 60.0, 31.0, 61.0]
+        _install_stac_transport(monkeypatch, {_STAC_ITEM: (200, moved_doc)})
+        payload = await _dispatch_stac(client, admin_auth_header, dataset.id)
+        await _execute_stac(test_db_session, payload)
+
+        runs = await _runs_ordered(test_db_session, dataset.id)
+        assert [r.status for r in runs] == ["failed", "succeeded"]
+
+        reloaded = await _reload_stac_dataset(dataset.id)
+        assert reloaded.origin_uri == _STAC_MOVED_ASSET, "the pointer moved"
+        assert reloaded.origin_ref["asset_href"] == _STAC_MOVED_ASSET
+        assert reloaded.source_health == "healthy"
+        assert reloaded.tile_cache_version != before_version, (
+            "a moved asset must bust the tile cache"
+        )
+
+        asset = await _reload_stac_asset(dataset.id)
+        assert asset.asset_uri == _STAC_MOVED_ASSET
+        assert asset.epsg == 32633, "the moved object's own metadata, not the old one's"
+
+        extent = await _stac_extent_wkt(dataset.id)
+        assert extent is not None
+        assert "30" in extent and "60" in extent, "the moved object's footprint"
+
+        # -- 3. one-active-run holds: both prior runs are terminal, so a
+        # third reservation is admitted, not refused as dataset_busy. --
+        third = await _dispatch_stac(client, admin_auth_header, dataset.id)
+        runs = await _runs_ordered(test_db_session, dataset.id)
+        assert [r.status for r in runs] == ["failed", "succeeded", "pending"]
         assert third["run_id"] not in {str(r.id) for r in runs[:2]}
 
 
