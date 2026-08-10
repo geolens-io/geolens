@@ -630,6 +630,11 @@ async def stac_import(
                 await db.flush()
 
                 nodata_raw = ci.get("nodata")
+                pixel_geometry = (
+                    {k: ci[k] for k in ("res_x", "res_y", "is_rotated")}
+                    if "res_x" in ci
+                    else {}
+                )
 
                 raster_asset = get_catalog_port().raster_asset_orm_class()(
                     dataset_id=dataset.id,
@@ -648,18 +653,21 @@ async def stac_import(
                     # row.
                     crs_wkt=ci.get("crs_wkt"),
                     # fix(#1375): the resolution pair, and the rotation flag
-                    # that makes it readable. Both come off /cog/stac's
+                    # that makes it readable. All three come off /cog/stac's
                     # proj:transform, the same six affine numbers the
                     # local-upload path reads from rasterio — see
-                    # cog_info.py's _geotransform. Absent when the transform
-                    # probe found nothing, which leaves the columns NULL and
-                    # the UI's "—" rather than asserting a measurement.
-                    res_x=ci.get("res_x"),
-                    res_y=ci.get("res_y"),
-                    # The column is NOT NULL; False is what it defaulted to
-                    # before this probe existed, so an unanswered probe keeps
-                    # the historical value rather than inventing a new one.
-                    is_rotated=ci.get("is_rotated", False),
+                    # cog_info.py's _geotransform.
+                    #
+                    # fix(#1375 review): they are ONE fact, so they are
+                    # written together or not at all. A probe that read no
+                    # transform leaves all three to their column defaults
+                    # rather than asserting `is_rotated=False`, which the
+                    # NOT NULL column cannot distinguish from a measurement.
+                    # The refresh path states the full argument at
+                    # `_pixel_geometry` in processing/ingest/tasks_stac_refresh.py;
+                    # the two cannot share a helper because `processing/` may
+                    # not import `catalog/` and this module is the catalog side.
+                    **pixel_geometry,
                 )
                 db.add(raster_asset)
 
