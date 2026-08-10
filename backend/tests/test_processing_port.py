@@ -226,6 +226,14 @@ class FakeProcessingPort:
             setattr(result, k, v)
         return result
 
+    async def reconcile_distributions(
+        self, session, dataset_id, record_id, table_name, geometry_type=None
+    ):
+        # fix(#1314): reports "nothing changed", the outcome that leaves the
+        # stored distribution set alone — a double that invented rows would
+        # make every caller's test depend on this fake's template table.
+        return [], []
+
     # -------------------------------------------------------------------------
     # Source preview helper
     # -------------------------------------------------------------------------

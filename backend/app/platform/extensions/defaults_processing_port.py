@@ -377,6 +377,18 @@ class DefaultProcessingPort:
 
         return IngestionResult(**kwargs)
 
+    async def reconcile_distributions(  # type: ignore[no-untyped-def]
+        self, session, dataset_id, record_id, table_name, geometry_type=None
+    ):
+        # fix(#1314): the preservation policy for user-authored rows lives in
+        # the function's docstring, not here — this is the seam, not a second
+        # place to state the rule.
+        from app.modules.catalog.records.service import reconcile_distributions
+
+        return await reconcile_distributions(
+            session, dataset_id, record_id, table_name, geometry_type=geometry_type
+        )
+
     # -------------------------------------------------------------------------
     # Source preview helper (D-08)
     # -------------------------------------------------------------------------

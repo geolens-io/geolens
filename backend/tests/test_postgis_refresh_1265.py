@@ -34,7 +34,11 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import joinedload
 
 from app.modules.catalog.datasets.api import router_refresh
-from app.modules.catalog.datasets.domain.models import Dataset
+from app.modules.catalog.datasets.domain.models import Dataset, RecordDistribution
+from app.modules.catalog.records.service import (
+    create_distribution,
+    generate_distributions,
+)
 from app.platform.dataset_origin import set_dataset_origin, set_postgis_origin
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
@@ -158,6 +162,38 @@ async def _reload(session, dataset_id: uuid.UUID) -> Dataset:
             .where(Dataset.id == dataset_id)
         )
     ).scalar_one()
+
+
+async def _distribution_pairs(session, record_id: uuid.UUID) -> set[tuple[str, str]]:
+    """The (distribution_type, format) pairs this record currently advertises.
+
+    A column select rather than an entity one, deliberately: the worker writes
+    these rows from its own session, and a query that went through this
+    session's identity map could answer from objects loaded before it ran.
+    """
+    rows = (
+        await session.execute(
+            select(
+                RecordDistribution.distribution_type,
+                RecordDistribution.format,
+            ).where(RecordDistribution.record_id == record_id)
+        )
+    ).all()
+    return {(row[0], row[1]) for row in rows}
+
+
+async def _distribution_ids(session, record_id: uuid.UUID) -> set[uuid.UUID]:
+    return set(
+        (
+            await session.execute(
+                select(RecordDistribution.id).where(
+                    RecordDistribution.record_id == record_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
 
 
 async def _dispatch(client: AsyncClient, headers: dict, dataset_id: uuid.UUID) -> dict:
@@ -1078,6 +1114,133 @@ class TestPostgisRefreshExecution:
             {"did": refreshed.id},
         )
         assert geom_current is False
+
+    async def test_a_table_that_gains_geometry_advertises_the_spatial_formats(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """fix(#1314): the persisted half of the modality change.
+
+        ``record_type`` is re-derived above, and ``build_assets`` computes its
+        links from it live — but ``record_distributions`` rows are generated
+        once, at creation, and nothing re-derived them. A table registered
+        while it was still empty kept only its CSV and OGC Features rows
+        forever, however much geometry it later grew.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _registered_dataset(test_db_session, created_by=admin_id)
+        record_id = dataset.record_id
+        dataset.record.record_type = "table"
+        dataset.geometry_type = None
+        await generate_distributions(
+            test_db_session,
+            dataset.id,
+            record_id,
+            dataset.table_name,
+            geometry_type=None,
+        )
+        await test_db_session.commit()
+        assert await _distribution_pairs(test_db_session, record_id) == {
+            ("download", "csv"),
+            ("ogc_features", "geojson"),
+        }
+
+        await _execute(
+            test_db_session, await _dispatch(client, admin_auth_header, dataset.id)
+        )
+
+        assert await _distribution_pairs(test_db_session, record_id) == {
+            ("download", "gpkg"),
+            ("download", "geojson"),
+            ("download", "shp"),
+            ("download", "parquet"),
+            ("download", "csv"),
+            ("ogc_features", "geojson"),
+            ("vector_tiles", "pbf"),
+        }
+
+    async def test_a_dataset_that_loses_geometry_stops_advertising_them(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """The inverse, and the one that offers what the relation cannot serve.
+
+        The user-authored row is here rather than in a test of its own because
+        the preservation policy only means anything at the call site: it is
+        this refresh that has to leave somebody's hand-written entry alone
+        while removing the generated ones beside it.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _registered_dataset(test_db_session, created_by=admin_id)
+        record_id = dataset.record_id
+        await generate_distributions(
+            test_db_session,
+            dataset.id,
+            record_id,
+            dataset.table_name,
+            geometry_type="POLYGON",
+        )
+        mine = await create_distribution(
+            test_db_session,
+            record_id,
+            distribution_type="download",
+            format="shp",
+            url="https://example.org/mine.zip",
+        )
+        mine_id = mine.id
+        await test_db_session.commit()
+
+        await test_db_session.execute(
+            text(  # noqa: S608
+                f"ALTER TABLE data.{dataset.table_name} "
+                f"DROP COLUMN geom, DROP COLUMN geom_4326"
+            )
+        )
+        await test_db_session.commit()
+
+        await _execute(
+            test_db_session, await _dispatch(client, admin_auth_header, dataset.id)
+        )
+
+        assert await _distribution_pairs(test_db_session, record_id) == {
+            ("download", "csv"),
+            ("ogc_features", "geojson"),
+            # The user's own Shapefile row, which the demote must not sweep up
+            # with the generated one that shared its pair.
+            ("download", "shp"),
+        }
+        assert (
+            await test_db_session.scalar(
+                select(RecordDistribution.id).where(RecordDistribution.id == mine_id)
+            )
+            is not None
+        )
+
+    async def test_a_refresh_that_keeps_the_modality_leaves_distributions_alone(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """Why the reconcile is gated on the flip rather than run every time.
+
+        It normalizes ``is_primary`` across the generated rows, so calling it
+        on every refresh would make an ordinary re-measurement rewrite a field
+        the refresh has no opinion about.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _registered_dataset(test_db_session, created_by=admin_id)
+        record_id = dataset.record_id
+        await generate_distributions(
+            test_db_session,
+            dataset.id,
+            record_id,
+            dataset.table_name,
+            geometry_type="POLYGON",
+        )
+        await test_db_session.commit()
+        before = await _distribution_ids(test_db_session, record_id)
+
+        await _execute(
+            test_db_session, await _dispatch(client, admin_auth_header, dataset.id)
+        )
+
+        assert await _distribution_ids(test_db_session, record_id) == before
 
     async def test_the_quality_score_uses_the_measured_modality(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session

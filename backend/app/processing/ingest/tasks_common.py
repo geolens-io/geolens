@@ -1862,6 +1862,9 @@ async def _apply_reupload_swap(
 
     # Update dataset metadata in the same transaction as swap
     dataset.srid = metadata["srid"]
+    # fix(#1314): read before the overwrite — the reconcile below is the only
+    # thing that needs the PRE-swap modality, and one line later it is gone.
+    previous_geometry_type = dataset.geometry_type
     dataset.geometry_type = metadata["geometry_type"]
     dataset.feature_count = metadata["feature_count"]
     if metadata["extent_wkt"] is not None:
@@ -1878,6 +1881,29 @@ async def _apply_reupload_swap(
         geometry_type=metadata.get("geometry_type"),
         sample_values=sample_values,
     )
+
+    # fix(#1314): a reupload can replace a spatial dataset with a non-spatial
+    # one (or the reverse), and the auto-generated `record_distributions` rows
+    # are as stale afterwards as they are on the refresh path — same one-shot
+    # generation at creation, same never re-derived. Gated on the modality FLIP
+    # for the same reason as there: reconcile normalizes `is_primary`, and a
+    # reupload that kept the modality has no business rewriting it.
+    #
+    # NOT fixed here, and filed as #1361: this path leaves
+    # `dataset.record.record_type` at whatever creation derived, so a
+    # de-spatialized reupload still reads as a `vector_dataset` and
+    # `build_assets` still emits tile links from it. That is a different field
+    # with a different derivation (the refresh path owns the only copy of it),
+    # and folding it in would widen this change past the distributions #1314
+    # asked for.
+    if (previous_geometry_type is None) != (metadata["geometry_type"] is None):
+        await port.reconcile_distributions(
+            session,
+            dataset.id,
+            dataset.record_id,
+            table_name,
+            geometry_type=metadata["geometry_type"],
+        )
 
     dataset.source_format = source_format
     dataset.source_filename = source_filename

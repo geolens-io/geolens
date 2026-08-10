@@ -32,7 +32,15 @@ from httpx import AsyncClient
 
 import app.modules.catalog.datasets.domain.models  # noqa: F401
 from app.core.db import Base
-from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.modules.catalog.datasets.domain.models import (
+    Dataset,
+    Record,
+    RecordDistribution,
+)
+from app.modules.catalog.records.service import (
+    create_distribution,
+    generate_distributions,
+)
 from app.platform.jobs.models import IngestJob
 from app.platform.dataset_origin import (
     ORIGIN_KINDS,
@@ -1472,8 +1480,15 @@ _SWAP_METADATA = {
 }
 
 
-async def _run_reupload_swap(session, dataset, *, admin_id, **kwargs) -> None:
-    """Drive _apply_reupload_swap against a real staging table."""
+async def _run_reupload_swap(
+    session, dataset, *, admin_id, metadata: dict | None = None, **kwargs
+) -> None:
+    """Drive _apply_reupload_swap against a real staging table.
+
+    ``metadata`` overrides the spatial default, for the callers that need the
+    swap to install a measurement of a DIFFERENT modality than the one the
+    dataset was created with (#1314).
+    """
     from unittest.mock import AsyncMock, patch
 
     from app.processing.ingest.tasks import _apply_reupload_swap
@@ -1515,7 +1530,7 @@ async def _run_reupload_swap(session, dataset, *, admin_id, **kwargs) -> None:
             session,
             dataset=dataset,
             staging_table=staging_table,
-            metadata=_SWAP_METADATA,
+            metadata=_SWAP_METADATA if metadata is None else metadata,
             sample_values={"name": ["A"]},
             user_id=str(admin_id),
             original_srid=4326,
@@ -1644,6 +1659,111 @@ class TestReuploadRestampsTheBinding:
                 origin_ref={"filename": "parcels.geojson", "token": "leaked"},
             )
         await test_db_session.rollback()
+
+
+class TestReuploadReconcilesDistributions:
+    """fix(#1314): a reupload can change modality, and the rows must follow.
+
+    Same gap as the registered-PostGIS refresh had, reached a different way:
+    ``_apply_reupload_swap`` writes the new ``geometry_type`` onto the dataset
+    and nothing re-derives the distribution rows generated at creation.
+    """
+
+    async def _pairs(self, session, record_id) -> set[tuple[str, str]]:
+        rows = (
+            await session.execute(
+                sa.select(
+                    RecordDistribution.distribution_type,
+                    RecordDistribution.format,
+                ).where(RecordDistribution.record_id == record_id)
+            )
+        ).all()
+        return {(row[0], row[1]) for row in rows}
+
+    async def _seed(self, session, *, admin_id, geometry_type):
+        ds = await _create_dataset(
+            session,
+            created_by=admin_id,
+            name="Reupload Distributions",
+            # Private: these rows outlive the test on the shared
+            # per-worker DB, so keep them out of public-list assertions.
+            visibility="private",
+            source_format="geojson",
+            geometry_type=geometry_type,
+        )
+        await generate_distributions(
+            session, ds.id, ds.record_id, ds.table_name, geometry_type=geometry_type
+        )
+        await session.commit()
+        return ds
+
+    async def test_a_reupload_that_removes_geometry_drops_the_spatial_rows(
+        self, test_db_session
+    ) -> None:
+        """A CSV over a shapefile leaves a relation with nothing to tile."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await self._seed(test_db_session, admin_id=admin_id, geometry_type="POINT")
+        record_id = ds.record_id
+        mine = await create_distribution(
+            test_db_session,
+            record_id,
+            distribution_type="download",
+            format="gpkg",
+            url="https://example.org/mine.gpkg",
+        )
+        mine_id = mine.id
+        await test_db_session.commit()
+
+        await _run_reupload_swap(
+            test_db_session,
+            ds,
+            admin_id=admin_id,
+            metadata={**_SWAP_METADATA, "geometry_type": None, "extent_wkt": None},
+            source_filename="rows.csv",
+            source_format="csv",
+            origin_ref={"filename": "rows.csv"},
+        )
+        await test_db_session.commit()
+
+        assert await self._pairs(test_db_session, record_id) == {
+            ("download", "csv"),
+            ("ogc_features", "geojson"),
+            # The user's own row, on a pair the demote otherwise removes.
+            ("download", "gpkg"),
+        }
+        assert (
+            await test_db_session.scalar(
+                sa.select(RecordDistribution.id).where(RecordDistribution.id == mine_id)
+            )
+            is not None
+        )
+
+    async def test_a_reupload_that_adds_geometry_advertises_the_spatial_rows(
+        self, test_db_session
+    ) -> None:
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await self._seed(test_db_session, admin_id=admin_id, geometry_type=None)
+        record_id = ds.record_id
+
+        await _run_reupload_swap(
+            test_db_session,
+            ds,
+            admin_id=admin_id,
+            source_filename="points.geojson",
+            source_format="geojson",
+            origin_ref={"filename": "points.geojson"},
+        )
+        await test_db_session.commit()
+
+        assert await self._pairs(test_db_session, record_id) == {
+            ("download", "gpkg"),
+            ("download", "geojson"),
+            ("download", "shp"),
+            ("download", "parquet"),
+            ("download", "csv"),
+            ("ogc_features", "geojson"),
+            ("vector_tiles", "pbf"),
+        }
 
 
 class TestFirstIngestStampsLastRefreshed:
