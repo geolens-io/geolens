@@ -21818,7 +21818,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description Forbidden — caller lacks write access */
+            /** @description Forbidden — caller lacks access to this resource */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -24671,7 +24671,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description Forbidden — caller lacks write access */
+            /** @description Forbidden — caller lacks access to this resource */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -24885,7 +24885,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description Forbidden — caller lacks write access */
+            /** @description Forbidden — caller lacks access to this resource */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -25102,7 +25102,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description Forbidden — caller lacks write access */
+            /** @description Forbidden — caller lacks access to this resource */
             403: {
                 headers: {
                     [name: string]: unknown;

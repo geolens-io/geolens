@@ -16349,7 +16349,7 @@ export type GetSingleDatasetDatasetsDatasetIdGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -18223,7 +18223,7 @@ export type GetDatasetHistoryDatasetsDatasetIdHistoryGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -18363,7 +18363,7 @@ export type GetQuicklookDatasetsDatasetIdQuicklookGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -18497,7 +18497,7 @@ export type ListDatasetRefreshRunsDatasetsDatasetIdRefreshRunsGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
