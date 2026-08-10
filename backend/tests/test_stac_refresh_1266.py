@@ -117,6 +117,21 @@ def _routes(mapping: dict[str, tuple[int, object | None]]):
         if entry is None:
             return httpx.Response(404)
         status_code, payload = entry
+        if 300 <= status_code < 400:
+            # A redirect points at the one other URL in the table that shares
+            # this one's final path segment — enough for the one case that
+            # needs to express "the document came from somewhere else".
+            target = next(
+                (
+                    url
+                    for url in mapping
+                    if url != str(request.url)
+                    and url.rsplit("/", 1)[-1] == str(request.url).rsplit("/", 1)[-1]
+                ),
+                None,
+            )
+            if target is not None:
+                return httpx.Response(status_code, headers={"Location": target})
         if payload is None:
             return httpx.Response(status_code)
         return httpx.Response(status_code, json=payload)
@@ -195,8 +210,14 @@ def stac_transport(monkeypatch):
                 recorded.append(request)
                 return handler(request)
 
+            # follow_redirects mirrors `make_safe_client`, so a route table
+            # can express a redirect and `response.url` reports where the
+            # document actually came from — which is what relative hrefs
+            # resolve against.
             return httpx.AsyncClient(
-                transport=httpx.MockTransport(_handle), timeout=timeout
+                transport=httpx.MockTransport(_handle),
+                timeout=timeout,
+                follow_redirects=True,
             )
 
         monkeypatch.setattr(
@@ -1020,6 +1041,44 @@ class TestResolution:
         result = await _resolve(item_href=_ITEM)
         assert result.resolved
         assert result.item_href == _ITEM
+
+    async def test_a_redirected_document_bases_relative_assets_on_where_it_came_from(
+        self, stac_transport
+    ) -> None:
+        """fix(#1266 review round 22): the self link plays two roles.
+
+        A document served from a new directory while still declaring the old
+        self link resolved its relative assets under the STALE directory —
+        and a COG sitting at that sibling path would have been adopted. The
+        pointer is the address the publisher declares; the base is the
+        address that answered.
+        """
+        install, _ = stac_transport
+        served_from = f"{_ROOT}/v2/collections/scenes/items/scene-1"
+        correct = f"{_ROOT}/v2/collections/scenes/items/tiles/scene.tif"
+        stale = f"{_ROOT}/collections/scenes/items/tiles/scene.tif"
+
+        install(
+            {
+                # The stored URL redirects into a new directory...
+                _ITEM: (302, None),
+                # ...and the document served there still declares the old
+                # self link, which is the fast path's input.
+                served_from: (
+                    200,
+                    _item_doc(
+                        self_href=_ITEM,
+                        assets={"data": {"href": "tiles/scene.tif"}},
+                    ),
+                ),
+                correct: (206, None),
+                stale: (206, None),
+            }
+        )
+        result = await _resolve(item_href=_ITEM)
+        assert result.resolved
+        assert result.asset_href != stale
+        assert result.asset_href == correct
 
     async def test_a_self_link_that_redirects_into_a_blocked_target_is_refused(
         self, stac_transport

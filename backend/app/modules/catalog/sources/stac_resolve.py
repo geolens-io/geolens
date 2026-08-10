@@ -542,7 +542,7 @@ async def _resolve_from_item(
     # only on the way to storage left the first one reading from an untrusted
     # URL, so an item advertising a login page could still have a COG resolved
     # under that page's path and persisted as this dataset's asset.
-    self_href = await _trustworthy_self_href(
+    self_href, self_base = await _trustworthy_self_href(
         item,
         document_url=document_url,
         fallback=fallback_item_href,
@@ -564,7 +564,7 @@ async def _resolve_from_item(
     # composes a path under the query endpoint, and the danger is precisely
     # that something might be served there.
     raw_href = assets[key].get("href")
-    asset_base = self_href or item_base or _absolute_http(raw_href)
+    asset_base = self_base or item_base or _absolute_http(raw_href)
     if asset_base is None:
         return _ASSET_UNADDRESSABLE
 
@@ -662,8 +662,17 @@ async def _trustworthy_self_href(
     fallback_is_live: bool,
     collection_id: str | None,
     asset_key: str,
-) -> str | None:
-    """The item's advertised address, if it can be trusted, else None.
+) -> tuple[str | None, str | None]:
+    """``(pointer to store, base for relative hrefs)``, either may be None.
+
+    fix(#1266 review round 22): two values, because the self link plays two
+    roles and they do not always name the same URL. The POINTER is the
+    address the publisher declares as canonical. The BASE is the address the
+    document was actually SERVED from, which is what RFC 3986 and STAC both
+    resolve relative hrefs against — and under a redirect those differ. A
+    document served from a new directory while still declaring the old self
+    link would otherwise resolve its relative assets under the stale
+    directory, and a COG sitting at that sibling path would be adopted.
 
     One decision for the two things a self link steers: the base that
     relative asset hrefs resolve against, and the pointer that gets stored.
@@ -682,14 +691,15 @@ async def _trustworthy_self_href(
       the dataset needs, and an address that has the item without the asset
       is one the next refresh cannot get anything from.
 
-    None means "keep what you have": the document in hand is still this
-    item, so the refresh proceeds from the URL it demonstrably came from, and
-    the working pointer is not overwritten. Dropped rather than fatal,
-    matching how #1222 treats every other unusable self link.
+    A None pointer means "keep what you have": the document in hand is still
+    this item, so the refresh proceeds from the URL it demonstrably came
+    from, and the working pointer is not overwritten. Dropped rather than
+    fatal, matching how #1222 treats every other unusable self link. A None
+    base means the caller's own document URL is the better one.
     """
     self_href = self_link_href(item, document_url)
     if self_href is None:
-        return None
+        return None, None
     if self_href == fallback and fallback_is_live:
         # Nothing to prove: this is the URL the document was just fetched
         # from. fix(#1266 review round 21): only on the direct path. The
@@ -697,16 +707,21 @@ async def _trustworthy_self_href(
         # searched feature advertising that same stale URL must still be
         # checked — skipping it would make a known-dead address the base a
         # relative asset href resolves against.
-        return self_href
+        #
+        # No base comes back with it (fix #1266 review round 22): this URL is
+        # the one the caller ASKED for, and the caller's `item_base` is the
+        # one that answered. Under a redirect those differ, and the relative
+        # hrefs belong to the address that served the document.
+        return self_href, None
     if _url_contradicts_identity(
         self_href, item_id=item.get("id"), collection_id=collection_id
     ):
         logger.info("stac_self_link_identity_mismatch", item_id=item.get("id"))
-        return None
+        return None, None
     result, document, final_url = await fetch_json_document(self_href)
     if not result.ok:
         logger.info("stac_self_link_not_adopted", detail=result.detail)
-        return None
+        return None, None
     stated_id = item.get("id")
     refusal = _identity_refusal(
         document,
@@ -717,7 +732,7 @@ async def _trustworthy_self_href(
     )
     if refusal is not None:
         logger.info("stac_self_link_does_not_serve_this_item")
-        return None
+        return None, None
     replacement_asset = document.get("assets", {}).get(asset_key)
     if not isinstance(replacement_asset, dict) or (
         # fix(#1266 review round 21): present is not the same as usable. A
@@ -727,8 +742,10 @@ async def _trustworthy_self_href(
         storable_href(replacement_asset.get("href"), final_url) is None
     ):
         logger.info("stac_self_link_lacks_the_bound_asset", asset_key=asset_key)
-        return None
-    return self_href
+        return None, None
+    # The final URL, not the declared one: this fetch may have redirected
+    # too, and the base is always where the document came from.
+    return self_href, final_url
 
 
 def _searched_feature(
