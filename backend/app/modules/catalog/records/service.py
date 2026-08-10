@@ -496,6 +496,13 @@ _DISTRIBUTION_TEMPLATES = [
 # generated set, so reconcile has to see it.
 _VECTOR_TILES_PAIR = ("vector_tiles", "pbf")
 
+# The four-column unique constraint on ``record_distributions``
+# (record_id, distribution_type, format, url) — see RecordDistribution's
+# ``__table_args__``. Named here because the generated-row insert has to be
+# conflict-tolerant against it; a rename that missed this constant fails loudly
+# on the next insert ("constraint ... does not exist") rather than silently.
+_DISTRIBUTION_UNIQUE_CONSTRAINT = "uq_record_distribution"
+
 # Every (distribution_type, format) pair this module owns. A row outside this
 # set was written by something else — the raster and VRT ingest tails add their
 # own ``download`` rows — and reconcile must leave those alone even when they
@@ -520,7 +527,7 @@ def _pair_applies(dist_type: str, fmt: str, geometry_type: str | None) -> bool:
 # the template table marks primary; CSV is the fallback, both for a modality
 # that generates no GeoPackage row at all and — on reconcile — for a promote
 # where no generated GeoPackage row exists to promote because a user's own row
-# already occupies that pair.
+# already sits at the exact url the GeoPackage template would have inserted.
 _PRIMARY_PREFERENCE: tuple[tuple[str, str], ...] = (
     ("download", "gpkg"),
     ("download", "csv"),
@@ -549,9 +556,20 @@ async def generate_distributions(
     For non-spatial datasets (geometry_type is None): creates only csv download
     + OGC features (2 rows).
 
-    All are marked auto_generated=True. Uses merge semantics: existing rows with
-    the same (record_id, distribution_type, format) are left untouched (INSERT ON
-    CONFLICT DO NOTHING equivalent via check-then-insert).
+    All are marked auto_generated=True. Merge semantics: an AUTO-GENERATED row
+    already holding a (distribution_type, format) pair is left untouched, and
+    the insert itself is ``ON CONFLICT DO NOTHING`` against
+    ``uq_record_distribution``.
+
+    fix(#1370): the existence probe reads only auto-generated rows. It used to
+    read every row, so a distribution a user authored through
+    ``create_distribution`` counted as "the pair is taken" — and once somebody
+    added their own ``download``/``gpkg`` entry, the built-in
+    ``/datasets/{id}/export?format=gpkg`` row could never be generated for that
+    record again, by this call or by a later ``reconcile_distributions``
+    promote. The export endpoint kept working; the catalog record, the DCAT
+    feeds and the STAC assets simply stopped naming it. Two rows advertising
+    one format is the intended end state: one the user's, one the platform's.
 
     Args:
         dataset_id: Dataset PK (used in URL paths).
@@ -559,19 +577,22 @@ async def generate_distributions(
         table_name: Dataset table name (used in vector tile URL).
         geometry_type: Geometry type string, or None for non-spatial datasets.
     """
-    # Fetch all existing distributions for this record in a single query
+    # Fetch the pairs this function owns for this record in a single query.
+    # Anything a user wrote is deliberately invisible here — see above.
     existing_result = await session.execute(
         select(
             RecordDistribution.distribution_type,
             RecordDistribution.format,
-        ).where(RecordDistribution.record_id == record_id)
+        ).where(
+            RecordDistribution.record_id == record_id,
+            RecordDistribution.auto_generated.is_(True),
+        )
     )
     existing_set = {(row[0], row[1]) for row in existing_result.all()}
 
-    # Build all new distributions in one list so they can be flushed in a
-    # single batch rather than as individual INSERT statements. SQLAlchemy 2.0
-    # batches `add_all()` + `flush()` via insertmanyvalues when supported.
-    to_add: list[RecordDistribution] = []
+    # Build all new distributions in one list so they go out as a single
+    # multi-VALUES INSERT rather than one statement per row.
+    to_add: list[dict] = []
     primary_pair = _primary_pair(geometry_type)
 
     for (
@@ -597,17 +618,17 @@ async def generate_distributions(
         effective_primary = (dist_type, fmt) == primary_pair
 
         to_add.append(
-            RecordDistribution(
-                record_id=record_id,
-                distribution_type=dist_type,
-                format=fmt,
-                url=url,
-                title=title,
-                protocol=protocol,
-                media_type=media_type,
-                is_primary=effective_primary,
-                auto_generated=True,
-            )
+            {
+                "record_id": record_id,
+                "distribution_type": dist_type,
+                "format": fmt,
+                "url": url,
+                "title": title,
+                "protocol": protocol,
+                "media_type": media_type,
+                "is_primary": effective_primary,
+                "auto_generated": True,
+            }
         )
 
     # Vector tiles (uses table_name, not dataset_id) — skip for non-spatial datasets
@@ -616,23 +637,45 @@ async def generate_distributions(
         and _VECTOR_TILES_PAIR not in existing_set
     ):
         to_add.append(
-            RecordDistribution(
-                record_id=record_id,
-                distribution_type="vector_tiles",
-                format="pbf",
-                url=f"/tiles/data.{table_name}/{{z}}/{{x}}/{{y}}.pbf",
-                title="Vector Tiles",
-                protocol="OGC:WMTS",
-                media_type="application/vnd.mapbox-vector-tile",
-                is_primary=False,
-                auto_generated=True,
-            )
+            {
+                "record_id": record_id,
+                "distribution_type": "vector_tiles",
+                "format": "pbf",
+                "url": f"/tiles/data.{table_name}/{{z}}/{{x}}/{{y}}.pbf",
+                "title": "Vector Tiles",
+                "protocol": "OGC:WMTS",
+                "media_type": "application/vnd.mapbox-vector-tile",
+                "is_primary": False,
+                "auto_generated": True,
+            }
         )
 
-    if to_add:
-        session.add_all(to_add)
-        await session.flush()
-    return to_add
+    if not to_add:
+        return []
+
+    # fix(#1370): ON CONFLICT DO NOTHING, not check-then-insert. Now that a
+    # user's row no longer hides its pair from the probe above, a user row
+    # whose url happens to equal the template's is a live collision on
+    # `uq_record_distribution` rather than a skipped pair — and
+    # `/datasets/{id}/export?format=gpkg` is a guessable thing to type. Catching
+    # IntegrityError instead would be a worse mechanism than it looks: the
+    # reconcile caller runs inside the write transaction of a registered-PostGIS
+    # refresh or a reupload swap, and a raised constraint violation aborts that
+    # whole transaction, turning a metadata correction into a failed job. A
+    # conflict resolved in the statement never opens that hole.
+    #
+    # Skipped rows are absent from RETURNING, so `created` stays a truthful
+    # list of what was inserted — which is what reconcile's is_primary
+    # normalization picks the primary from.
+    result = await session.execute(
+        insert(RecordDistribution)
+        .values(to_add)
+        .on_conflict_do_nothing(constraint=_DISTRIBUTION_UNIQUE_CONSTRAINT)
+        .returning(RecordDistribution)
+    )
+    created = list(result.scalars().all())
+    await session.flush()
+    return created
 
 
 async def reconcile_distributions(
@@ -672,8 +715,14 @@ async def reconcile_distributions(
       there is geometry, CSV when there is not). A promote that left the old
       CSV primary beside a new primary GeoPackage would advertise two. The
       winner is picked from the rows that exist rather than from the modality
-      alone — if a user's own row occupies the preferred pair there is no
-      generated row to promote, and the fallback takes it.
+      alone — a generated row the conflict-tolerant insert skipped is not
+      there to promote, and the fallback takes it.
+
+    Normalization spans the generated rows only, which is the same boundary as
+    every other bullet here. A user who flags their OWN row primary keeps that
+    flag through a reconcile, so that record advertises two primaries — see
+    #1383, which is reachable from a single POST on any dataset and predates
+    #1370 rather than being introduced by it.
 
     The lost-edit case is narrower than it reads: ``update_distribution`` and
     ``delete_distribution`` both refuse to touch a row with
@@ -713,12 +762,12 @@ async def reconcile_distributions(
     )
 
     # fix(#1314 review round 1): chosen from the rows that ACTUALLY exist, not
-    # from the modality alone. `generate_distributions` skips any pair a row
-    # already occupies, including a user-authored one — so a promote of a
-    # dataset whose owner had added their own GeoPackage entry generates no
-    # GeoPackage row for the preferred pair to name. Naming it anyway cleared
-    # the CSV flag and promoted nothing, leaving the record with no primary
-    # distribution at all.
+    # from the modality alone. Naming a pair with no generated row behind it
+    # cleared the CSV flag and promoted nothing, leaving the record with no
+    # primary distribution at all. fix(#1370) narrowed when that happens — a
+    # user's own GeoPackage entry no longer suppresses the generated one — but
+    # did not remove it: a user row sitting at the exact template url makes the
+    # insert a no-op, and then there is again no GeoPackage row to name.
     generated = [
         row
         for row in survivors + created
