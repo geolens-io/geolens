@@ -112,6 +112,16 @@ const EXACT_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
     'errors.refreshOriginChanged',
   'This dataset is backed by a registered table in this instance, which needs no service credential. Send the request without a token.':
     'errors.refreshCredentialNotApplicable',
+  // fix(#1332): the STAC door's wordings of the same taxonomy states,
+  // introduced by #1326 after this table was written.
+  'This dataset was not imported from a STAC item, so there is no item to re-resolve.':
+    'errors.refreshNotApplicable',
+  "This dataset's source binding does not record the STAC item its asset was published in, so GeoLens cannot ask the catalog where that asset is now. Re-import it from the STAC catalog to record one.":
+    'errors.refreshOriginUnavailable',
+  "GeoLens cannot tell this dataset's STAC item from another one its stored URL might serve: the binding predates item-identity tracking and the catalog's item URLs carry no identity of their own. Re-import it from the STAC catalog to record one.":
+    'errors.refreshOriginUnavailable',
+  'Refreshing a STAC dataset re-reads a public item document and needs no credential. Send the request without a token.':
+    'errors.refreshCredentialNotApplicable',
   'Refreshing a protected service needs a shared credential store so the token can reach the worker without being written to disk. Set REDIS_URL and try again.':
     'errors.refreshCredentialStoreUnavailable',
   'Could not stage the service credential for this refresh. Check that the credential store is reachable and try again.':
@@ -214,7 +224,8 @@ function descriptorForMessage(message: string, status: number): ApiErrorDescript
   // exception text after the colon, which is diagnostic detail (resolved IP,
   // blocked range) rather than something a non-admin reader should see.
   // Anchored on the fixed prefix only; the dynamic suffix is dropped.
-  if (/^This dataset's stored source URL is not reachable:/i.test(message)) {
+  // fix(#1332): the STAC door words the same refusal around its item URL.
+  if (/^This dataset's stored (?:source URL|STAC item URL) is not reachable:/i.test(message)) {
     return { key: 'errors.refreshSourceUrlBlocked' };
   }
 

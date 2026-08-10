@@ -92,6 +92,48 @@ describe('API error localization boundary', () => {
     ).toEqual({ key: 'errors.refreshDatasetBusy' });
   });
 
+  it('maps the STAC door refusal wordings introduced by #1266 (#1332)', () => {
+    expect(
+      classifyApiError(
+        {
+          code: 'refresh_not_applicable',
+          message: 'This dataset was not imported from a STAC item, so there is no item to re-resolve.',
+        },
+        409,
+      ),
+    ).toEqual({ key: 'errors.refreshNotApplicable' });
+    expect(
+      classifyApiError(
+        {
+          code: 'origin_unavailable',
+          message:
+            "This dataset's source binding does not record the STAC item its asset was published in, so GeoLens cannot ask the catalog where that asset is now. Re-import it from the STAC catalog to record one.",
+        },
+        409,
+      ),
+    ).toEqual({ key: 'errors.refreshOriginUnavailable' });
+    expect(
+      classifyApiError(
+        {
+          code: 'origin_unavailable',
+          message:
+            "GeoLens cannot tell this dataset's STAC item from another one its stored URL might serve: the binding predates item-identity tracking and the catalog's item URLs carry no identity of their own. Re-import it from the STAC catalog to record one.",
+        },
+        409,
+      ),
+    ).toEqual({ key: 'errors.refreshOriginUnavailable' });
+    expect(
+      classifyApiError(
+        {
+          code: 'credential_not_applicable',
+          message:
+            'Refreshing a STAC dataset re-reads a public item document and needs no credential. Send the request without a token.',
+        },
+        422,
+      ),
+    ).toEqual({ key: 'errors.refreshCredentialNotApplicable' });
+  });
+
   it('interpolates the dynamic token policy for invalid_service_token without a static key', () => {
     const detail = {
       code: 'invalid_service_token',
@@ -111,6 +153,15 @@ describe('API error localization boundary', () => {
     expect(
       translateApiErrorDetail(
         "This dataset's stored source URL is not reachable: DNS resolved to a private address",
+        400,
+      ),
+    ).toBe(
+      "This dataset's stored source URL failed a safety check and can't be refreshed automatically. Contact an administrator.",
+    );
+    // fix(#1332): the STAC door words the same refusal around its item URL.
+    expect(
+      translateApiErrorDetail(
+        "This dataset's stored STAC item URL is not reachable: DNS resolved to a private address",
         400,
       ),
     ).toBe(
