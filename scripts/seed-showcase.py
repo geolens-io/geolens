@@ -358,6 +358,15 @@ class Api:
         self.base = base_url.rstrip("/")
         self.client = httpx.Client(timeout=180.0, follow_redirects=True)
         self.h = {"Authorization": f"Bearer {token}"}
+        # The username the SERVER has for this token, not the one typed on the
+        # command line. list_maps filters on the server's own
+        # created_by_username; a login spelling that differs from the stored
+        # username would match nothing, and "no maps of mine exist" is exactly
+        # what makes every builder rebuild from scratch. Trailing slash
+        # required (redirect_slashes=False).
+        r = self.client.get(f"{self.base}/api/auth/me/", headers=self.h)
+        r.raise_for_status()
+        self.username = r.json()["username"]
 
     @classmethod
     def login(cls, base_url: str, username: str, password: str) -> "Api":
@@ -472,11 +481,49 @@ class Api:
         return r.json()["id"]
 
     def list_maps(self) -> dict[str, str]:
-        """Map name -> id from the catalog (up to 200)."""
-        r = self.client.get(f"{self.base}/api/maps?limit=200", headers=self.h)
-        r.raise_for_status()
-        data = r.json()
-        return {m["name"]: m["id"] for m in data.get("maps", data.get("items", []))}
+        """This account's OWN maps, name -> id, newest-created match winning.
+
+        A map name is not a key, and three separate things follow from that
+        (fix(#1404 review)):
+
+        * Keep the FIRST match and only maps this account created. `--force`
+          creates a SECOND map with the same name rather than replacing the
+          first, and an admin token sees every user's maps, so a plain
+          name->id comprehension resolves to whichever duplicate the page
+          happened to end on. That is the same rule datasets_by_title already
+          applies to titles for the same reason (fix(#389)) - the maps side
+          just never had a caller that MUTATED what it resolved. It does now:
+          _map_exists would read a stranger's map as "already built", prune
+          would delete it, and apply_globe_projection would project it while
+          the real showcase map stayed Mercator.
+        * Sort by created_at, not the endpoint's updated_at default. The
+          default order is mutable - apply_globe_projection's own PUT bumps
+          updated_at and reshuffles the list - so it cannot answer which
+          duplicate is the one this seeder just made.
+        * PAGINATE, exactly like list_datasets_full: a single limit=200 page
+          silently hides a showcase map once an instance crosses 200 maps, and
+          every caller reads that absence as "not built yet".
+        """
+        out: dict[str, str] = {}
+        seen = 0
+        while True:
+            r = self.client.get(
+                f"{self.base}/api/maps?limit=200&skip={seen}"
+                "&sort_by=created_at&sort_dir=desc",
+                headers=self.h,
+            )
+            r.raise_for_status()
+            d = r.json()
+            page = d.get("maps", d.get("items", []))
+            for m in page:
+                if m.get("created_by_username") == self.username:
+                    out.setdefault(m["name"], m["id"])
+            # Count ROWS SEEN, not entries kept - the owner filter drops rows,
+            # so len(out) would stall the loop short of the last page.
+            seen += len(page)
+            total = d.get("total")
+            if not page or total is None or seen >= total:
+                return out
 
     def list_datasets_full(self) -> list[dict]:
         """All datasets, PAGINATED - this seeder alone creates ~85 datasets
