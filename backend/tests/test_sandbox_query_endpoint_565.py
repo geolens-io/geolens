@@ -697,6 +697,61 @@ async def test_values_cross_join_explosion_is_rejected(
     assert resp.json()["detail"] == _REPETITION_MESSAGE
 
 
+async def test_distinct_values_cross_join_explosion_is_rejected(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P1 r18): three SEPARATELY-written VALUES cross-joined are
+    still 256^3 combinations — distinct constant sources must combine in the
+    cross-product, not hide under per-node keys."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = await _make_table(test_db_session, owner)
+    v = ", ".join(f"({i})" for i in range(10))
+
+    resp = await client.post(
+        "/query/",
+        json={
+            "sql": (
+                f"SELECT 1 FROM data.{tbl} f "
+                f"CROSS JOIN (VALUES {v}) a(x) CROSS JOIN (VALUES {v}) b(y) "
+                f"CROSS JOIN (VALUES {v}) c(z)"
+            ),
+            "restrict_tables": [tbl],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == _REPETITION_MESSAGE
+
+
+@pytest.mark.parametrize(
+    "expr",
+    [
+        "replace(gid::text, '1', 'bbbbbbbb')",
+        "regexp_replace(gid::text, '1', 'bbbbbbbb')",
+    ],
+)
+async def test_output_amplifying_string_functions_are_rejected(
+    client: AsyncClient, admin_auth_header, test_db_session, expr
+):
+    """fix(#565 codex P1 r18): replace / regexp_replace expand a small input to
+    a huge cell (~100 MB) under the 20 KB request limit — also dropped."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = await _make_table(test_db_session, owner)
+
+    resp = await client.post(
+        "/query/",
+        json={
+            "sql": f"SELECT {expr} FROM data.{tbl} LIMIT 1",
+            "restrict_tables": [tbl],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "Query uses a disallowed function"
+
+
 async def test_oversized_values_is_rejected(
     client: AsyncClient, admin_auth_header, test_db_session
 ):

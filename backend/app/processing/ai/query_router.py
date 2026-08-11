@@ -130,11 +130,32 @@ _QUERY_MAX_ROW_LIMIT = 1000
 # on this endpoint — AI chat passes no cap, so its behavior is unchanged.
 _QUERY_MAX_TABLE_REPEATS = 2
 
-# Output-amplifying functions dropped on this raw surface (#565 codex P1 r17):
-# ``format`` with a giant width builds hundreds of MB from a one-row query, and
-# neither the SQL-length cap nor row_limit bounds a single cell's size. AI chat
-# keeps them (it passes no extra-blocked set).
-_QUERY_BLOCKED_FUNCTIONS: frozenset[str] = frozenset({"format"})
+# Output-amplifying functions dropped on this raw surface (#565 codex P1
+# r17/r18). Each turns a small input into an arbitrarily large single cell via
+# a width / count / replacement argument, which neither the SQL-length cap nor
+# row_limit nor the statement timeout bounds. The allowlist currently admits
+# only format / replace / regexp_replace of this set; the rest are listed
+# defensively so a future allowlist addition cannot silently reopen the hole on
+# this endpoint. AI chat keeps them all (it passes no extra-blocked set).
+_QUERY_BLOCKED_FUNCTIONS: frozenset[str] = frozenset(
+    {
+        "format",
+        "replace",
+        "regexp_replace",
+        "repeat",
+        "lpad",
+        "rpad",
+        "space",
+        "overlay",
+        # concatenating aggregates build one huge cell from many rows
+        "string_agg",
+        "group_concat",  # sqlglot's canonical name for STRING_AGG
+        "array_agg",
+        "json_agg",
+        "jsonb_agg",
+        "xmlagg",
+    }
+)
 
 # Cap on inline VALUES rows: a large constant relation cross-joined a few times
 # is a row explosion the base-table fan-out cap cannot see (#565 codex P1 r17).

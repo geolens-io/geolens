@@ -2830,11 +2830,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # runs per input row) so that reduction cannot hide it; P1 r16 costs
     # subqueries buried in a non-scope LATERAL (VALUES/function) and adds a
     # per-STATEMENT bucket (LIMIT/OFFSET, evaluated once, no row multiplier);
-    # and P1 r17 counts a VALUES relation as a fan-out source (a constant CTE
-    # cross-joined k times is a k-way explosion), caps VALUES cardinality, and
-    # threads an endpoint-only extra-blocked-function set (output-amplifying
-    # format). Most of the added lines are that rationale. Cap at the exact size.
-    "backend/app/platform/sandbox/validator.py": 1637,
+    # and P1 r17/r18 counts a VALUES relation as a fan-out source under ONE
+    # shared key so distinct constant sources combine in the cross-product,
+    # caps VALUES cardinality, and threads an endpoint-only extra-blocked-
+    # function set (output-amplifying format/replace/regexp_replace + defensive
+    # siblings). Most of the added lines are that rationale. Cap at the exact
+    # size.
+    "backend/app/platform/sandbox/validator.py": 1636,
 }
 
 

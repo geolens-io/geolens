@@ -1220,15 +1220,14 @@ def _source_fanout(source: exp.Expression, memo: _FanoutMemo) -> _FanoutMap:
         # cross join inside the parentheses is not a fan-out of 0.
         return _group_fanout(inner, memo)
     if isinstance(source, exp.Values):
-        # fix(#565 codex P1 r17): a constant VALUES relation contributes rows
-        # too. Cross-joining one k times is a k-way row explosion — a large CTE
-        # ``WITH v AS (VALUES ...)`` referenced ``v a CROSS JOIN v b CROSS JOIN
-        # v c`` reported zero fan-out and slipped the cap. Keyed by node id so
-        # references to the SAME relation accumulate (memoized, so every CTE
-        # reference resolves to one VALUES node) while two distinct inline
-        # VALUES stay independent. Cardinality is separately capped in
-        # validate_sql.
-        return {("", f"__values__{id(source)}"): 1}
+        # fix(#565 codex P1 r17/r18): a constant VALUES relation contributes
+        # rows too. Cross-joining VALUES k times is a k-way row explosion —
+        # whether the same CTE referenced k times or k separately-written
+        # inline literals. All VALUES share ONE fan-out key so distinct
+        # constant sources combine in the cross-product (r18: per-node ids let
+        # k distinct VALUES each report 1 and slip 256^k combinations); each
+        # literal's own cardinality is separately capped in validate_sql.
+        return {("", "__values__"): 1}
     # Anything else in a FROM (an allowlisted table function) does not open a
     # base-table cross-join vector; the function/table checks bound it.
     return {}
