@@ -224,7 +224,9 @@ describe('DistributionsList', () => {
       // non-primary OGC Features row) never get the control — the backend
       // rejects any PATCH against an auto_generated distribution.
       expect(screen.getAllByRole('button', { name: /as primary/i })).toHaveLength(1);
-      expect(screen.getByRole('button', { name: 'Set Viewer App as primary' })).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: 'Set Viewer App (https://example.com/app) as primary' }),
+      ).toBeInTheDocument();
     });
 
     // fix(#1395 codex round 1): the accessible name names the row, so two
@@ -235,15 +237,15 @@ describe('DistributionsList', () => {
       // getByRole computes the accessible name; a <label for> stealing a
       // button's name (as opposed to a plain aria-label) would make this
       // query fail even though the button is visible.
-      const button = screen.getByRole('button', { name: 'Set Viewer App as primary' });
+      const button = screen.getByRole('button', { name: /^Set Viewer App/ });
       expect(button).toBeInTheDocument();
-      expect(button).toHaveAccessibleName('Set Viewer App as primary');
+      expect(button).toHaveAccessibleName('Set Viewer App (https://example.com/app) as primary');
     });
 
     it('PATCHes the clicked row when an owner sets it primary', () => {
       render(<DistributionsList recordId="record-1" canEdit />);
 
-      fireEvent.click(screen.getByRole('button', { name: 'Set Viewer App as primary' }));
+      fireEvent.click(screen.getByRole('button', { name: /^Set Viewer App/ }));
 
       expect(mutate).toHaveBeenCalledTimes(1);
       expect(mutate).toHaveBeenCalledWith('app-1');
@@ -258,7 +260,7 @@ describe('DistributionsList', () => {
 
       render(<DistributionsList recordId="record-1" canEdit />);
 
-      expect(screen.getByRole('button', { name: 'Set Viewer App as primary' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /^Set Viewer App/ })).toBeDisabled();
     });
 
     // fix(#1395 codex round 1): a second manual, non-primary row must go
@@ -298,8 +300,59 @@ describe('DistributionsList', () => {
 
       render(<DistributionsList recordId="record-1" canEdit />);
 
-      expect(screen.getByRole('button', { name: 'Set Viewer App as primary' })).toBeDisabled();
-      expect(screen.getByRole('button', { name: 'Set Offline Bundle as primary' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /^Set Viewer App/ })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /^Set Offline Bundle/ })).toBeDisabled();
+    });
+
+    // fix(#1395 codex round 2): uq_record_distribution covers
+    // (record_id, distribution_type, format, url), not title — two manual
+    // rows are free to share a title, and the accessible name must still
+    // tell them apart.
+    it('gives two manual rows with the same title distinct accessible names', () => {
+      mockUseDistributions.mockReturnValue({
+        data: {
+          distributions: [
+            {
+              id: 'mirror-1',
+              record_id: 'record-1',
+              distribution_type: 'download',
+              format: 'zip',
+              url: 'https://mirror-a.example.com/archive.zip',
+              title: 'Mirror',
+              description: null,
+              protocol: 'HTTPS',
+              media_type: 'application/zip',
+              is_primary: false,
+              auto_generated: false,
+            },
+            {
+              id: 'mirror-2',
+              record_id: 'record-1',
+              distribution_type: 'download',
+              format: 'zip',
+              url: 'https://mirror-b.example.com/archive.zip',
+              title: 'Mirror',
+              description: null,
+              protocol: 'HTTPS',
+              media_type: 'application/zip',
+              is_primary: false,
+              auto_generated: false,
+            },
+          ],
+          total: 2,
+        },
+        isLoading: false,
+      } as unknown as ReturnType<typeof useDistributions>);
+
+      render(<DistributionsList recordId="record-1" canEdit />);
+
+      const buttons = screen.getAllByRole('button', { name: /^Set Mirror/ });
+      expect(buttons).toHaveLength(2);
+      const names = buttons.map((b) => b.getAttribute('aria-label'));
+      expect(new Set(names).size).toBe(2);
+
+      fireEvent.click(buttons[1]);
+      expect(mutate).toHaveBeenCalledWith('mirror-2');
     });
   });
 });

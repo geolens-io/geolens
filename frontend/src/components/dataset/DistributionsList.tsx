@@ -14,6 +14,7 @@ import {
   getPublicApiBaseUrl,
   resolveDistributionUrl,
 } from '@/lib/dataset-access';
+import { truncateGraphemes } from '@/lib/text';
 import type { DistributionResponse } from '@/types/api';
 
 interface DistributionsListProps {
@@ -91,6 +92,17 @@ function CopyableUrl({ url, publicApiUrl }: { url: string; publicApiUrl: string 
   );
 }
 
+/** fix(#1395 codex round 2): title alone can collide — `uq_record_distribution`
+ * covers (record_id, distribution_type, format, url), not title, so two
+ * manual rows are free to share one. The URL is always part of that
+ * constraint, so appending it (truncated) is what actually guarantees two
+ * rows never produce the same accessible name. */
+function distributionLabel(distribution: DistributionResponse): string {
+  const base =
+    distribution.title?.trim() || distribution.format || distribution.distribution_type;
+  return `${base} (${truncateGraphemes(distribution.url, 40)})`;
+}
+
 /** feat(#1395): radio-style set-primary control. Rendered only for manual
  * (non-auto_generated) rows — `update_distribution` rejects any write,
  * `is_primary` included, against an auto_generated row with a 400, so a
@@ -105,7 +117,7 @@ function CopyableUrl({ url, publicApiUrl }: { url: string; publicApiUrl: string 
  * concurrent PATCH, and since both transactions demote-then-promote against
  * `uq_record_distribution_primary`, which one wins is transaction order, not
  * click order. `isPendingThisRow` only decides which button shows the
- * spinner. The accessible name interpolates the row's own title/format so a
+ * spinner. The accessible name (`distributionLabel`) identifies the row so a
  * screen reader can tell two "Set as primary" buttons apart. */
 function SetPrimaryControl({
   distribution,
@@ -119,7 +131,7 @@ function SetPrimaryControl({
   isPendingThisRow: boolean;
 }) {
   const { t } = useTranslation('dataset');
-  const name = distribution.title || distribution.format || distribution.distribution_type;
+  const name = distributionLabel(distribution);
   const label = distribution.is_primary
     ? t('distributions.currentPrimary', { name })
     : t('distributions.setPrimary', { name });
