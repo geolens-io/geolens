@@ -493,8 +493,11 @@ END
 $$
 """
 
-#: Hand back every membership in the five fixed roles that a fresh-cluster run
-#: leaves on the migrator, keeping only the one it needs to come back.
+#: Hand back the usable provisioner edge this run took, if it took one.
+#:
+#: Gated by the caller on whether the run actually acquired it: an operator on
+#: PostgreSQL 13-15 may have granted the migrator this same shape by hand before
+#: recovery, and revoking somebody else's grant is not this tool's business.
 #:
 #: ``CLUSTER_ROLE_VALIDATE_SQL`` rejects *any* direct member of these roles
 #: except the role running it, so anything left here makes the next recovery
@@ -509,10 +512,8 @@ $$
 #: re-grant by hand after every recovery.  What goes is the usable edge this run
 #: granted (grantor ``CURRENT_USER``, no ``ADMIN``) and the gateway memberships,
 #: which nothing in this tool ever reads.
-RELEASE_BOOTSTRAP_MEMBERSHIP_SQL = f"""
+RELEASE_PROVISIONER_EDGE_SQL = f"""
 DO $$
-DECLARE
-    group_name text;
 BEGIN
     IF EXISTS (
         SELECT 1
@@ -532,7 +533,17 @@ BEGIN
             'REVOKE {PROVISIONER} FROM %I GRANTED BY %I', CURRENT_USER, CURRENT_USER
         );
     END IF;
+END
+$$
+"""
 
+#: The gateway half, which needs no such flag: it targets the automatic creator
+#: shape only, and that shape is never something an operator sets up to use.
+RELEASE_GATEWAY_EDGES_SQL = f"""
+DO $$
+DECLARE
+    group_name text;
+BEGIN
     -- The four gateways get the same automatic creator membership, and nothing
     -- in this tool ever needs it: the provisioning function grants tenant roles
     -- TO the gateways using ADMIN on the *tenant* role, not on the gateway.
@@ -602,6 +613,8 @@ DECLARE
     pending_owner_transfer bigint;
     reader_privilege_gap bigint;
     reader_oid oid;
+    writer_oid oid;
+    grantee_name text;
     temporary_writer_membership boolean := false;
 BEGIN
     schema_name := 'data_t_' || pg_catalog.replace(tenant_id::text, '-', '_');
@@ -780,6 +793,7 @@ BEGIN
     PERFORM catalog.provision_tenant_data_schema(tenant_id);
 
     SELECT oid INTO reader_oid FROM pg_catalog.pg_roles WHERE rolname = reader_name;
+    SELECT oid INTO writer_oid FROM pg_catalog.pg_roles WHERE rolname = writer_name;
 
     -- The provisioning function grants the reader USAGE; it never takes CREATE
     -- away, and a restored schema can arrive carrying it.  The sandbox and tile
@@ -824,11 +838,13 @@ BEGIN
           -- write path into tenant data. Read out of the ACL rather than named
           -- one by one, because the set of privilege types grows by release.
           -- Grantee 0 is PUBLIC, which the reader holds too — along with every
-          -- other role that can reach the schema.
+          -- other role that can reach the schema. And a named role with its own
+          -- grant plus USAGE on the schema reads or writes tenant data without
+          -- going near either tenant role.
           OR EXISTS (
               SELECT 1
               FROM LATERAL pg_catalog.aclexplode(relation.relacl) AS acl
-              WHERE acl.grantee = 0
+              WHERE acl.grantee NOT IN (writer_oid, reader_oid)
                  OR (
                      acl.grantee = reader_oid
                      AND acl.privilege_type <> 'SELECT'
@@ -889,6 +905,9 @@ BEGIN
                 schema_name, object_row.relname, writer_name
             );
         ELSE
+            -- ALTER TABLE ... OWNER TO is the right statement for every other
+            -- kind here, views and materialized views included: PostgreSQL
+            -- accepts it for relkind v/m/f as well as r/p (measured on 18).
             EXECUTE pg_catalog.format(
                 'ALTER TABLE %I.%I OWNER TO %I',
                 schema_name, object_row.relname, writer_name
@@ -929,6 +948,28 @@ BEGIN
     EXECUTE pg_catalog.format(
         'REVOKE ALL ON ALL SEQUENCES IN SCHEMA %I FROM PUBLIC', schema_name
     );
+    -- And every other grantee the restore carried in. Only the writer (as
+    -- owner) and the reader belong on a tenant relation.
+    FOR grantee_name IN
+        SELECT DISTINCT grantee_role.rolname
+        FROM pg_catalog.pg_class AS relation
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = relation.relnamespace
+        JOIN LATERAL pg_catalog.aclexplode(relation.relacl) AS acl ON true
+        JOIN pg_catalog.pg_roles AS grantee_role ON grantee_role.oid = acl.grantee
+        WHERE namespace.nspname = schema_name
+          AND relation.relkind IN ({_RELATION_KINDS})
+          AND grantee_role.rolname NOT IN (writer_name, reader_name)
+    LOOP
+        EXECUTE pg_catalog.format(
+            'REVOKE ALL ON ALL TABLES IN SCHEMA %I FROM %I', schema_name, grantee_name
+        );
+        EXECUTE pg_catalog.format(
+            'REVOKE ALL ON ALL SEQUENCES IN SCHEMA %I FROM %I',
+            schema_name,
+            grantee_name
+        );
+    END LOOP;
     EXECUTE pg_catalog.format(
         'GRANT SELECT ON ALL TABLES IN SCHEMA %I TO %I', schema_name, reader_name
     );

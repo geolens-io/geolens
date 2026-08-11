@@ -60,7 +60,8 @@ from app.core.db.tenant_adoption_report import (
     rls_gaps,
 )
 from app.core.db.tenant_adoption_sql import (
-    RELEASE_BOOTSTRAP_MEMBERSHIP_SQL,
+    RELEASE_GATEWAY_EDGES_SQL,
+    RELEASE_PROVISIONER_EDGE_SQL,
     SANDBOX,
     TILE,
 )
@@ -780,6 +781,47 @@ class TestReportedStateMatchesWhatApplyEnforces:
             await _drop_tenant(engine, tenant_id)
             await engine.dispose()
 
+    async def test_a_stray_grantee_on_a_tenant_relation_is_revoked(
+        self, multi_tenant_row_security
+    ):
+        """A named role with its own grant needs neither tenant role."""
+        tenant_id, schema, _reader, _writer = _new_tenant()
+        stray = f"w998_stray_{tenant_id.replace('-', '_')}"
+        engine = _make_engine()
+        try:
+            await _seed_restored_tenant(engine, tenant_id, schema)
+            assert (await run_adoption(engine, apply=True)).ok
+
+            async with engine.begin() as conn:
+                await conn.execute(sa.text(f"CREATE ROLE {stray} NOLOGIN"))
+                await conn.execute(
+                    sa.text(f"GRANT SELECT ON {schema}.parcels TO {stray}")
+                )
+
+            async with engine.connect() as conn:
+                state = await tenant_ownership_state(conn, tenant_id)
+            assert state.relations_with_unsafe_acl == 1
+            assert not state.adopted
+
+            repaired = await run_adoption(engine, apply=True)
+            assert repaired.failures == {}, repaired.failures
+            assert repaired.ok
+
+            async with engine.connect() as conn:
+                stray_select = (
+                    await conn.execute(
+                        sa.text("SELECT has_table_privilege(:role, :table, 'SELECT')"),
+                        {"role": stray, "table": f"{schema}.parcels"},
+                    )
+                ).scalar_one()
+            assert stray_select is False
+        finally:
+            async with engine.begin() as conn:
+                await conn.execute(sa.text(f"DROP OWNED BY {stray}"))
+                await conn.execute(sa.text(f"DROP ROLE IF EXISTS {stray}"))
+            await _drop_tenant(engine, tenant_id)
+            await engine.dispose()
+
     async def test_public_grants_on_tenant_relations_are_revoked(
         self, multi_tenant_row_security
     ):
@@ -1170,7 +1212,7 @@ class TestAdoptionWithRestoredBoundaryFunctions:
                     )
                     assert len(await edges()) == 1
 
-                    await conn.execute(sa.text(RELEASE_BOOTSTRAP_MEMBERSHIP_SQL))
+                    await conn.execute(sa.text(RELEASE_PROVISIONER_EDGE_SQL))
                     assert await edges() == []
 
                     # The provisioner's ADMIN edge is what lets the same
@@ -1180,7 +1222,7 @@ class TestAdoptionWithRestoredBoundaryFunctions:
                             f"GRANT {PROVISIONER} TO current_user WITH ADMIN OPTION"
                         )
                     )
-                    await conn.execute(sa.text(RELEASE_BOOTSTRAP_MEMBERSHIP_SQL))
+                    await conn.execute(sa.text(RELEASE_GATEWAY_EDGES_SQL))
                     assert [admin for _grantor, admin in await edges()] == [True]
 
                     # The four gateways get the same automatic creator edge —
@@ -1213,7 +1255,7 @@ class TestAdoptionWithRestoredBoundaryFunctions:
                             )
                         )
                     assert await gateway_edges() == 4
-                    await conn.execute(sa.text(RELEASE_BOOTSTRAP_MEMBERSHIP_SQL))
+                    await conn.execute(sa.text(RELEASE_GATEWAY_EDGES_SQL))
                     assert await gateway_edges() == 0
 
                     # A usable edge is somebody's decision, not this run's
@@ -1224,7 +1266,7 @@ class TestAdoptionWithRestoredBoundaryFunctions:
                             "WITH ADMIN TRUE, INHERIT TRUE, SET TRUE"
                         )
                     )
-                    await conn.execute(sa.text(RELEASE_BOOTSTRAP_MEMBERSHIP_SQL))
+                    await conn.execute(sa.text(RELEASE_GATEWAY_EDGES_SQL))
                     assert await gateway_edges() == 1
                 finally:
                     await transaction.rollback()

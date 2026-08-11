@@ -71,7 +71,8 @@ from app.core.db.tenant_adoption_sql import (
     CONTROL,
     PROVISIONER,
     PROVISIONER_DATABASE_GRANT_SQL,
-    RELEASE_BOOTSTRAP_MEMBERSHIP_SQL,
+    RELEASE_GATEWAY_EDGES_SQL,
+    RELEASE_PROVISIONER_EDGE_SQL,
     SANDBOX,
     SECURE_BOUNDARY_FUNCTIONS_SQL,
     TENANT_GUC,
@@ -589,10 +590,16 @@ async def tenant_ownership_state(conn, tenant_id: str) -> TenantOwnershipState:
                               AS acl ON true
                             WHERE relation.oid = relations.oid
                               AND (
-                                  -- grantee 0 is PUBLIC: the reader holds
-                                  -- whatever PUBLIC holds, and so does everyone
-                                  -- else with USAGE on the schema.
-                                  acl.grantee = 0
+                                  -- Anything but the owning writer and the
+                                  -- reader. Grantee 0 is PUBLIC, which the
+                                  -- reader holds along with everyone else who
+                                  -- can reach the schema; a named role with its
+                                  -- own grant reads tenant data without going
+                                  -- near either tenant role.
+                                  acl.grantee NOT IN (
+                                      COALESCE((SELECT oid FROM writer), 0),
+                                      (SELECT oid FROM reader)
+                                  )
                                   OR (
                                       acl.grantee = (SELECT oid FROM reader)
                                       AND acl.privilege_type <> 'SELECT'
@@ -680,13 +687,30 @@ async def tenant_ownership_state(conn, tenant_id: str) -> TenantOwnershipState:
 # ---------------------------------------------------------------------------
 
 
-async def ensure_cluster_roles(conn) -> None:
-    """Create the fixed role topology if absent, and refuse an unsafe one."""
+async def _holds_provisioner_privileges(conn) -> bool:
+    result = await conn.execute(
+        text("SELECT pg_catalog.pg_has_role(CURRENT_USER, :owner, 'USAGE')"),
+        {"owner": PROVISIONER},
+    )
+    return bool(result.scalar_one())
+
+
+async def ensure_cluster_roles(conn) -> bool:
+    """Create the fixed role topology if absent, and refuse an unsafe one.
+
+    Returns whether *this* run had to take a usable membership in the
+    provisioner, which is what decides whether the run gives one back.  An
+    operator may have granted the migrator that role by hand — especially before
+    PostgreSQL 16, where CREATEROLE leaves no automatic membership to compare
+    against — and revoking somebody else's grant is not this tool's business.
+    """
+    held_before = await _holds_provisioner_privileges(conn)
     await conn.execute(text(CLUSTER_ROLE_CREATE_SQL))
     await conn.execute(text(CLUSTER_ROLE_VALIDATE_SQL))
     await conn.execute(text(PROVISIONER_DATABASE_GRANT_SQL))
     await conn.execute(text(f"GRANT USAGE ON SCHEMA catalog TO {PROVISIONER}"))
     await conn.execute(text(f"GRANT SELECT ON TABLE catalog.tenants TO {PROVISIONER}"))
+    return not held_before and await _holds_provisioner_privileges(conn)
 
 
 async def secure_boundary_functions(conn) -> list[BoundaryFunctionState]:
@@ -720,16 +744,19 @@ async def secure_boundary_functions(conn) -> list[BoundaryFunctionState]:
     return await boundary_function_states(conn)
 
 
-async def release_bootstrap_membership(engine) -> None:
-    """Give back the provisioner membership a fresh-cluster run had to take.
+async def release_bootstrap_membership(engine, *, took_provisioner_edge: bool) -> None:
+    """Give back what a fresh-cluster run had to take to get going.
 
-    Leaving it would make the next recovery depend on the same migrator
-    credential, because the cluster guard rejects every direct member of the
-    provisioner except the role running it.  A no-op unless this run created the
-    role and granted itself the edge.
+    Leaving any of it would make the next recovery depend on the same migrator
+    credential, because the cluster guard rejects every direct member of these
+    roles except the one running it.  The gateway half runs unconditionally —
+    it targets the automatic creator shape, which nobody sets up to use — while
+    the provisioner edge goes back only when this run is the one that took it.
     """
     async with engine.begin() as conn:
-        await conn.execute(text(RELEASE_BOOTSTRAP_MEMBERSHIP_SQL))
+        if took_provisioner_edge:
+            await conn.execute(text(RELEASE_PROVISIONER_EDGE_SQL))
+        await conn.execute(text(RELEASE_GATEWAY_EDGES_SQL))
 
 
 async def adopt_tenant(conn, tenant_id: str) -> None:
@@ -767,7 +794,7 @@ async def run_adoption(engine, *, apply: bool) -> AdoptionReport:
         )
 
     async with engine.begin() as conn:
-        await ensure_cluster_roles(conn)
+        took_provisioner_edge = await ensure_cluster_roles(conn)
         functions = await secure_boundary_functions(conn)
 
     failures: dict[str, str] = {}
@@ -781,7 +808,9 @@ async def run_adoption(engine, *, apply: bool) -> AdoptionReport:
                 "tenant_adoption: tenant failed", tenant_id=tenant_id, exc_info=True
             )
 
-    await release_bootstrap_membership(engine)
+    await release_bootstrap_membership(
+        engine, took_provisioner_edge=took_provisioner_edge
+    )
 
     topology = await cluster_topology_error(engine)
     async with engine.connect() as conn:
