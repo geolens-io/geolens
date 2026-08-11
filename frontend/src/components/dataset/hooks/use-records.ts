@@ -109,6 +109,25 @@ export function useSetPrimaryDistribution(recordId: string | undefined) {
   });
 }
 
+// fix(#1395 codex round 3): the only write DistributionsList offers back
+// once a manual row has claimed is_primary. `is_primary: false` demotes the
+// row without deleting it — `update_distribution` rejects any other write
+// against an auto_generated row, so there is no PATCH that hands the flag
+// straight back to the generated GeoPackage/CSV default. The record is left
+// with no primary until the next ingest/refresh reconcile fills one back in.
+export function useClearPrimaryDistribution(recordId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (distributionId: string) =>
+      updateDistribution(recordId!, distributionId, { is_primary: false }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.records.distributions(recordId) });
+      toast.success(i18n.t('dataset:distributions.primaryCleared'));
+    },
+    onError: (err) => { toast.error(formatMutationError('dataset:distributions.clearPrimaryFailed', err)); },
+  });
+}
+
 export function useRelatedDatasets(datasetId: string) {
   return useQuery({
     queryKey: queryKeys.datasets.related(datasetId),

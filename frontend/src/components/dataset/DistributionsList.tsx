@@ -3,18 +3,18 @@ import { useTranslation } from 'react-i18next';
 import {
   useDistributions,
   useSetPrimaryDistribution,
+  useClearPrimaryDistribution,
 } from '@/components/dataset/hooks/use-records';
 import { useTileConfig } from '@/hooks/use-settings';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Copy, Check, Circle, CircleDot, Loader2 } from 'lucide-react';
+import { Copy, Check, Circle, CircleDot, Loader2, X } from 'lucide-react';
 import { LoadingState } from '@/components/layout/LoadingState';
 import {
   getPublicApiBaseUrl,
   resolveDistributionUrl,
 } from '@/lib/dataset-access';
-import { truncateGraphemes } from '@/lib/text';
 import type { DistributionResponse } from '@/types/api';
 
 interface DistributionsListProps {
@@ -92,15 +92,16 @@ function CopyableUrl({ url, publicApiUrl }: { url: string; publicApiUrl: string 
   );
 }
 
-/** fix(#1395 codex round 2): title alone can collide — `uq_record_distribution`
+/** fix(#1395 codex round 3): title alone can collide — `uq_record_distribution`
  * covers (record_id, distribution_type, format, url), not title, so two
- * manual rows are free to share one. The URL is always part of that
- * constraint, so appending it (truncated) is what actually guarantees two
- * rows never produce the same accessible name. */
+ * manual rows are free to share one, and a truncated URL is only unique
+ * up to whatever the truncation cuts off (round 2's fix). The row's own
+ * `id` is the one field the database actually guarantees is unique — use it
+ * untruncated instead of a heuristic. */
 function distributionLabel(distribution: DistributionResponse): string {
   const base =
     distribution.title?.trim() || distribution.format || distribution.distribution_type;
-  return `${base} (${truncateGraphemes(distribution.url, 40)})`;
+  return `${base} (${distribution.id})`;
 }
 
 /** feat(#1395): radio-style set-primary control. Rendered only for manual
@@ -156,6 +157,44 @@ function SetPrimaryControl({
   );
 }
 
+/** fix(#1395 codex round 3): once a manual row is promoted, nothing in this
+ * view could give the flag back — `update_distribution` rejects any write
+ * against an auto_generated row, so there is no "set the GeoPackage primary
+ * again" PATCH to send. `is_primary: false` is the one write the backend
+ * documents as safe here (it demotes, not deletes — the row and its URL
+ * stay put): the record goes back to having no primary until the next
+ * ingest/refresh reconcile fills the generated default back in (#1383's
+ * `update_distribution` docstring: "a record with no primary is a
+ * representable state the next reconcile fills"). Rendered only on the
+ * currently-primary manual row, so at most one exists at a time. */
+function ClearPrimaryControl({
+  distribution,
+  onClear,
+  isMutating,
+  isPendingThisRow,
+}: {
+  distribution: DistributionResponse;
+  onClear: (distributionId: string) => void;
+  isMutating: boolean;
+  isPendingThisRow: boolean;
+}) {
+  const { t } = useTranslation('dataset');
+  const label = t('distributions.clearPrimary', { name: distributionLabel(distribution) });
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon-xs"
+      onClick={() => onClear(distribution.id)}
+      disabled={isMutating}
+      aria-label={label}
+      title={label}
+    >
+      {isPendingThisRow ? <Loader2 className="h-3 w-3 animate-spin" /> : <X className="h-3 w-3" />}
+    </Button>
+  );
+}
+
 export function getDistributionGroup(distributionType: string): DistributionGroup {
   return DISTRIBUTION_GROUPS[distributionType] ?? 'other';
 }
@@ -179,6 +218,11 @@ export function DistributionsList({ recordId, canEdit = false }: DistributionsLi
   const { data: tileConfig } = useTileConfig();
   const publicApiBaseUrl = getPublicApiBaseUrl(tileConfig);
   const setPrimary = useSetPrimaryDistribution(recordId);
+  const clearPrimary = useClearPrimaryDistribution(recordId);
+  // fix(#1395 codex round 3): one shared "in flight" flag across both
+  // mutations — a set-primary and a clear-primary PATCH would otherwise be
+  // free to race each other the same way two set-primary clicks could.
+  const isMutatingPrimary = setPrimary.isPending || clearPrimary.isPending;
 
   if (isLoading) {
     return <LoadingState className="py-6" />;
@@ -232,8 +276,16 @@ export function DistributionsList({ recordId, canEdit = false }: DistributionsLi
                     <SetPrimaryControl
                       distribution={dist}
                       onSelect={(distributionId) => setPrimary.mutate(distributionId)}
-                      isMutating={setPrimary.isPending}
+                      isMutating={isMutatingPrimary}
                       isPendingThisRow={setPrimary.isPending && setPrimary.variables === dist.id}
+                    />
+                  )}
+                  {canEdit && !dist.auto_generated && dist.is_primary && (
+                    <ClearPrimaryControl
+                      distribution={dist}
+                      onClear={(distributionId) => clearPrimary.mutate(distributionId)}
+                      isMutating={isMutatingPrimary}
+                      isPendingThisRow={clearPrimary.isPending && clearPrimary.variables === dist.id}
                     />
                   )}
                 </div>

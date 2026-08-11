@@ -26,6 +26,7 @@ import {
   useKeywords,
   useRelatedDatasets,
   useSetPrimaryDistribution,
+  useClearPrimaryDistribution,
 } from '@/components/dataset/hooks/use-records';
 import { queryKeys } from '@/lib/query-keys';
 
@@ -171,6 +172,56 @@ describe('useSetPrimaryDistribution', () => {
     mockUpdateDistribution.mockRejectedValueOnce(
       new Error('Cannot update auto-generated distributions'),
     );
+    const { result, qc } = renderWithClient('rec-1');
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+
+    await expect(result.current.mutateAsync('dist-1')).rejects.toThrow();
+
+    expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+// fix(#1395 codex round 3): clear-primary — the one write that gives an
+// owner back a way to undo a set-primary PATCH without deleting the row.
+describe('useClearPrimaryDistribution', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function renderWithClient(recordId: string | undefined) {
+    let captured: QueryClient | null = null;
+    const { result } = renderHook(() => {
+      const qc = useQueryClient();
+      const ref = useRef<QueryClient | null>(null);
+      if (ref.current === null) ref.current = qc;
+      captured = ref.current;
+      return useClearPrimaryDistribution(recordId);
+    });
+    if (!captured) throw new Error('QueryClient capture failed');
+    return { result, qc: captured as QueryClient };
+  }
+
+  it('PATCHes the chosen distribution with is_primary: false', async () => {
+    mockUpdateDistribution.mockResolvedValueOnce({ id: 'dist-2', is_primary: false } as never);
+    const { result } = renderWithClient('rec-1');
+
+    await result.current.mutateAsync('dist-2');
+
+    expect(mockUpdateDistribution).toHaveBeenCalledWith('rec-1', 'dist-2', { is_primary: false });
+  });
+
+  it('invalidates the distributions list on success', async () => {
+    mockUpdateDistribution.mockResolvedValueOnce({ id: 'dist-2', is_primary: false } as never);
+    const { result, qc } = renderWithClient('rec-1');
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+
+    await result.current.mutateAsync('dist-2');
+
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: queryKeys.records.distributions('rec-1'),
+    });
+  });
+
+  it('does not invalidate when the PATCH is rejected', async () => {
+    mockUpdateDistribution.mockRejectedValueOnce(new Error('boom'));
     const { result, qc } = renderWithClient('rec-1');
     const spy = vi.spyOn(qc, 'invalidateQueries');
 

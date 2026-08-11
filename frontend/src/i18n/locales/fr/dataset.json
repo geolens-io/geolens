@@ -590,7 +590,10 @@
     "setPrimary": "Définir {{name}} comme principal",
     "currentPrimary": "{{name}} est la distribution principale",
     "primaryUpdated": "Distribution principale mise à jour.",
-    "setPrimaryFailed": "Impossible de définir la distribution principale."
+    "setPrimaryFailed": "Impossible de définir la distribution principale.",
+    "clearPrimary": "Retirer le statut principal de {{name}}",
+    "primaryCleared": "Statut principal retiré. La distribution par défaut sera restaurée lors de la prochaine actualisation.",
+    "clearPrimaryFailed": "Impossible de retirer la distribution principale."
   },
   "publish": {
     "publish": "Publier",

@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@/test/test-utils';
 import {
   useDistributions,
   useSetPrimaryDistribution,
+  useClearPrimaryDistribution,
 } from '@/components/dataset/hooks/use-records';
 import { useUpdateDataset } from '@/components/dataset/hooks/use-dataset';
 import { useTileConfig } from '@/hooks/use-settings';
@@ -12,10 +13,11 @@ import type { DatasetResponse } from '@/types/api';
 
 vi.mock('@/components/dataset/hooks/use-records', () => ({
   useDistributions: vi.fn(),
-  // feat(#1395): DistributionsList calls this unconditionally; AccessTab's
-  // own tests don't exercise the set-primary control, so a stable no-op
-  // mutate is enough to keep it from throwing.
+  // feat(#1395): DistributionsList calls these unconditionally; AccessTab's
+  // own tests don't exercise the set/clear-primary controls, so a stable
+  // no-op mutate is enough to keep them from throwing.
   useSetPrimaryDistribution: vi.fn(),
+  useClearPrimaryDistribution: vi.fn(),
 }));
 
 // feat(#1070): the visibility change probes the keywords endpoint for
@@ -38,6 +40,7 @@ vi.mock('sonner', () => ({
 
 const mockUseDistributions = vi.mocked(useDistributions);
 const mockUseSetPrimaryDistribution = vi.mocked(useSetPrimaryDistribution);
+const mockUseClearPrimaryDistribution = vi.mocked(useClearPrimaryDistribution);
 const mockUseTileConfig = vi.mocked(useTileConfig);
 const mockUseUpdateDataset = vi.mocked(useUpdateDataset);
 const mockListKeywords = vi.mocked(listKeywords);
@@ -131,6 +134,11 @@ describe('AccessTab', () => {
       isPending: false,
       variables: undefined,
     } as unknown as ReturnType<typeof useSetPrimaryDistribution>);
+    mockUseClearPrimaryDistribution.mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+      variables: undefined,
+    } as unknown as ReturnType<typeof useClearPrimaryDistribution>);
     mutate.mockReset();
     mockListKeywords.mockReset();
     mockListKeywords.mockResolvedValue({
