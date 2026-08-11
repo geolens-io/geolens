@@ -12,7 +12,7 @@ from a clock at all.
 The decision logic is exercised against a fake storage layer with a REAL
 database session: the row lookups are the whole point, so a mocked session
 would assert nothing about whether they are even valid SQL. The provider
-halves (`list_objects` on local + S3) are pinned separately, and one
+halves (`iter_object_pages` on local + S3) are pinned separately, and one
 end-to-end case runs the whole pass against a real ``LocalStorageProvider``
 with a backdated mtime — no sleeps anywhere, every wait is a fact the test
 sets up rather than one it hopes for.
@@ -59,24 +59,35 @@ def _young() -> datetime:
 class FakeStorage:
     """Just enough provider to drive the reconciliation deterministically."""
 
-    def __init__(self, objects: dict[str, datetime]) -> None:
+    def __init__(self, objects: dict[str, datetime], *, page_size: int = 1000) -> None:
         self.objects = dict(objects)
+        self.page_size = page_size
         self.deleted: list[str] = []
         self.listed_prefixes: list[str] = []
+        # One entry per page of the PREFIX walk actually fetched, so a test can
+        # prove the pass stopped paging rather than merely stopped acting. The
+        # per-object pre-delete re-reads pass a complete key (no trailing "/")
+        # and are excluded — they are not the walk.
+        self.pages_served: list[int] = []
         self.delete_error: Exception | None = None
         # Called with the key right before its pre-delete re-read, so a test
         # can mutate the world exactly at the moment the race would happen.
         self.on_recheck = None
 
-    async def list_objects(self, prefix: str) -> list[StoredObject]:
+    async def iter_object_pages(self, prefix: str):
         self.listed_prefixes.append(prefix)
         if self.on_recheck is not None and prefix != STAGING_PREFIX:
             await self.on_recheck(prefix)
-        return [
+        matching = [
             StoredObject(key=key, last_modified=modified)
             for key, modified in sorted(self.objects.items())
             if key.startswith(prefix)
         ]
+        for start in range(0, max(len(matching), 1), self.page_size):
+            page = matching[start : start + self.page_size]
+            if prefix.endswith("/"):
+                self.pages_served.append(len(page))
+            yield page
 
     async def delete(self, key: str) -> None:
         if self.delete_error is not None:
@@ -303,13 +314,60 @@ class TestReconciliationDecision:
         self, test_db_session: AsyncSession
     ) -> None:
         storage = AsyncMock()
-        storage.list_objects.side_effect = RuntimeError("provider down")
+
+        async def _explode(prefix: str):
+            raise RuntimeError("provider down")
+            yield []  # unreachable; makes this an async generator
+
+        storage.iter_object_pages = _explode
 
         with patch("app.platform.storage.get_storage", return_value=storage):
             outcome = await reconcile_orphaned_staging_objects(test_db_session, now=NOW)
 
         assert outcome.ran is False
         storage.delete.assert_not_awaited()
+
+    async def test_the_pass_stops_paging_once_its_delete_budget_is_spent(
+        self, test_db_session: AsyncSession, monkeypatch
+    ) -> None:
+        """fix(#1249) review r1: a large `staging/` prefix is not materialized.
+
+        The pass holds a transaction (and its connection) open for the advisory
+        lock, so both budgets are checked BETWEEN pages — it must stop asking
+        the provider for more, not merely stop deleting what it was handed.
+        """
+        import app.platform.jobs.staging_reconcile as module
+
+        monkeypatch.setattr(module, "_MAX_DELETES_PER_PASS", 2)
+        orphans = {
+            f"staging/{uuid.uuid4()}/f{index}.geojson": _old() for index in range(9)
+        }
+        storage = FakeStorage(orphans, page_size=3)
+
+        outcome = await _run(test_db_session, storage)
+
+        assert outcome.orphans_deleted == 2
+        # One page fetched, not three: the budget was spent inside the first.
+        assert storage.pages_served == [3]
+        assert outcome.objects_listed == 3
+
+    async def test_the_scan_budget_bounds_a_prefix_with_nothing_to_delete(
+        self, test_db_session: AsyncSession, monkeypatch
+    ) -> None:
+        """The other half of the bound: no orphans is not a licence to walk forever."""
+        import app.platform.jobs.staging_reconcile as module
+
+        monkeypatch.setattr(module, "_MAX_OBJECTS_SCANNED_PER_PASS", 4)
+        young = {
+            f"staging/{uuid.uuid4()}/f{index}.geojson": _young() for index in range(12)
+        }
+        storage = FakeStorage(young, page_size=2)
+
+        outcome = await _run(test_db_session, storage)
+
+        assert outcome.orphans_deleted == 0
+        assert outcome.objects_listed == 4
+        assert storage.pages_served == [2, 2]
 
     async def test_the_callers_orm_instances_survive_the_pass(
         self, test_db_session: AsyncSession
@@ -397,7 +455,11 @@ class TestAgainstRealLocalStorage:
         assert not await storage.exists(orphan_key)
 
 
-class TestProviderListObjects:
+async def _all_entries(storage, prefix: str) -> list[StoredObject]:
+    return [entry async for page in storage.iter_object_pages(prefix) for entry in page]
+
+
+class TestProviderIterObjectPages:
     """The new provider call, on both backends that can serve staging keys."""
 
     async def test_local_reports_mtime_as_aware_utc(self, tmp_path) -> None:
@@ -409,7 +471,7 @@ class TestProviderListObjects:
         backdated = _old().timestamp()
         os.utime(tmp_path / "staging/a/one.txt", (backdated, backdated))
 
-        entries = {e.key: e for e in await storage.list_objects("staging/")}
+        entries = {e.key: e for e in await _all_entries(storage, "staging/")}
 
         assert set(entries) == {"staging/a/one.txt", "staging/b/two.txt"}
         assert entries["staging/a/one.txt"].last_modified.tzinfo is not None
@@ -425,7 +487,7 @@ class TestProviderListObjects:
         await storage.put("staging/a/one.txt", b"1")
         await storage.put("staging/a/one.txt.part", b"partial")
 
-        entries = await storage.list_objects("staging/a/one.txt")
+        entries = await _all_entries(storage, "staging/a/one.txt")
 
         # A prefix listing also returns siblings sharing the prefix, which is
         # exactly why the caller filters for an exact key match.
@@ -434,13 +496,18 @@ class TestProviderListObjects:
             "staging/a/one.txt.part",
         }
 
-    async def test_s3_reports_aware_timestamps_and_paginates(self) -> None:
+    async def test_s3_pages_and_stops_when_the_consumer_does(self) -> None:
+        """Real ListObjectsV2 continuation, and a consumer that breaks early.
+
+        The second assertion is the one review r1 asked for: abandoning the
+        generator must abandon the round trips too, not just the results.
+        """
         from app.platform.storage.s3 import S3StorageProvider
 
         with mock_aws():
             client = boto3.client("s3", region_name="us-east-1")
             client.create_bucket(Bucket="orphan-bucket")
-            for index in range(3):
+            for index in range(5):
                 client.put_object(
                     Bucket="orphan-bucket", Key=f"staging/j/{index}.txt", Body=b"x"
                 )
@@ -452,14 +519,27 @@ class TestProviderListObjects:
                 secret_access_key="testing",
             )
 
-            entries = await provider.list_objects("staging/")
+            entries = await _all_entries(provider, "staging/")
+
+            calls: list[dict] = []
+            unpatched = provider.client.list_objects_v2
+
+            def _counting(**kwargs):
+                calls.append(kwargs)
+                return unpatched(**kwargs, MaxKeys=2)
+
+            provider.client.list_objects_v2 = _counting
+            first_page = None
+            async for page in provider.iter_object_pages("staging/"):
+                first_page = page
+                break
 
         assert {e.key for e in entries} == {
-            "staging/j/0.txt",
-            "staging/j/1.txt",
-            "staging/j/2.txt",
+            f"staging/j/{index}.txt" for index in range(5)
         }
         assert all(e.last_modified.tzinfo is not None for e in entries)
+        assert first_page is not None and len(first_page) == 2
+        assert len(calls) == 1, "breaking out must stop the paging, not just the loop"
 
 
 async def test_the_stale_job_sweep_runs_the_reconciliation(

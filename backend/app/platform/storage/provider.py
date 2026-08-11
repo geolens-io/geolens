@@ -93,18 +93,25 @@ class StorageProvider(Protocol):
         """List keys matching a prefix."""
         ...
 
-    async def list_objects(self, prefix: str) -> "builtins.list[StoredObject]":
-        """List objects under a prefix, each with its last-modified time.
+    def iter_object_pages(
+        self, prefix: str
+    ) -> AsyncIterator["builtins.list[StoredObject]"]:
+        """Yield objects under a prefix one provider page at a time.
 
         feat(#1249): ``list`` answers which keys exist; this also answers how
         old each one is, which is what tells an abandoned staging object from
         one whose upload landed a second ago.
 
+        Pages rather than one list, and for the same reason ``get_stream``
+        exists (fix(#1249) review r1): a caller that can act on a bounded
+        amount of work must not have to materialize an unbounded prefix first.
+        A consumer that stops early stops the provider's paging with it.
+
         A COMPLETE key is a valid ``prefix`` and is how a caller re-reads one
         object's timestamp immediately before acting on it. Implementations
-        return every entry whose key STARTS WITH ``prefix`` — matching
-        ``list`` — so a caller that means one exact object must filter for
-        ``entry.key == key`` rather than trusting the result length.
+        yield every entry whose key STARTS WITH ``prefix`` — matching ``list``
+        — so a caller that means one exact object must filter for
+        ``entry.key == key`` rather than trusting the page length.
         """
         ...
 

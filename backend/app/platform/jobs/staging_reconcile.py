@@ -76,12 +76,19 @@ log = structlog.get_logger()
 # upload system does not own can reach the delete path at all.
 STAGING_PREFIX = "staging/"
 
-# Deletes per pass. The pass holds one transaction open for its advisory lock,
-# and each delete costs a row recheck plus an age re-read, so an unbounded loop
-# over a pathological bucket would keep a session idle-in-transaction for a
-# long time. Leftovers are not urgent — they are already-leaked bytes, and the
-# sweep runs every few minutes.
+# Two budgets, both checked between provider pages, because the pass holds a
+# transaction (and its connection) open for its advisory lock the whole time
+# and a `staging/` prefix has no upper bound on an unhealthy deployment
+# (fix(#1249) review r1). Leftovers are not urgent — they are already-leaked
+# bytes, and the sweep runs every few minutes.
+#
+# Deletes: each one costs a row recheck plus an age re-read, so this bounds
+# how long the lock is held once there IS work.
 _MAX_DELETES_PER_PASS = 200
+# Objects examined: bounds the walk when there is NOT. Without it a prefix of
+# a million tracked-and-old objects would be paged through in full every
+# cycle to delete nothing.
+_MAX_OBJECTS_SCANNED_PER_PASS = 20_000
 
 
 @dataclass(frozen=True)
@@ -120,6 +127,39 @@ class StagingReconcileOutcome:
         }
 
 
+@dataclass
+class _Tally:
+    """Mutable accumulator for one pass; frozen into the outcome at the end.
+
+    The pass runs page by page and every helper contributes to the same
+    numbers, so the counters are carried rather than returned and re-summed —
+    which is how a helper's contribution gets dropped without anything failing.
+    """
+
+    objects_listed: int = 0
+    orphans_deleted: int = 0
+    delete_failures: int = 0
+    skipped_recent: int = 0
+    skipped_object_changed: int = 0
+    skipped_row_appeared: int = 0
+    skipped_unattributable: int = 0
+
+    def as_log_fields(self) -> dict[str, int]:
+        return self.freeze().as_log_fields()
+
+    def freeze(self) -> StagingReconcileOutcome:
+        return StagingReconcileOutcome(
+            ran=True,
+            objects_listed=self.objects_listed,
+            orphans_deleted=self.orphans_deleted,
+            delete_failures=self.delete_failures,
+            skipped_recent=self.skipped_recent,
+            skipped_object_changed=self.skipped_object_changed,
+            skipped_row_appeared=self.skipped_row_appeared,
+            skipped_unattributable=self.skipped_unattributable,
+        )
+
+
 def _job_id_from_key(logical_key: str) -> uuid.UUID | None:
     """Extract the owning job id from a `staging/{job_id}/…` key.
 
@@ -154,15 +194,16 @@ async def _job_row_exists(db: AsyncSession, job_id: uuid.UUID) -> bool:
 async def _current_entry(storage, physical_key: str) -> StoredObject | None:
     """Re-read one object's last-modified time, or None if it is gone.
 
-    ``list_objects`` with a COMPLETE key rather than a directory prefix: the
-    Protocol has no head-with-timestamp call, and a prefix listing of one exact
-    key is the portable way to ask every provider the same question. The result
-    is filtered for an exact match because a prefix listing also returns
-    siblings whose keys merely start with this one.
+    ``iter_object_pages`` with a COMPLETE key rather than a directory prefix:
+    the Protocol has no head-with-timestamp call, and a prefix listing of one
+    exact key is the portable way to ask every provider the same question. The
+    entries are filtered for an exact match because a prefix listing also
+    returns siblings whose keys merely start with this one.
     """
-    for entry in await storage.list_objects(physical_key):
-        if entry.key == physical_key:
-            return entry
+    async for page in storage.iter_object_pages(physical_key):
+        for entry in page:
+            if entry.key == physical_key:
+                return entry
     return None
 
 
@@ -246,43 +287,93 @@ async def _reconcile_locked(
     physical_prefix: str,
     storage,
 ) -> StagingReconcileOutcome:
-    """The pass body, entered only with the advisory lock held."""
+    """The pass body, entered only with the advisory lock held.
+
+    Page at a time, and both budgets below are checked between pages, so the
+    pass never holds more than one provider page in memory and never issues
+    another listing round trip once it has enough work (fix(#1249) review r1).
+    """
     # Clock skew between this process and the object store is immaterial at a
     # threshold measured in hours, which is one more reason the threshold is
     # not a tuned estimate of transfer duration.
     cutoff = now - timedelta(seconds=settings.staging_orphan_min_age_seconds)
-    listed = await storage.list_objects(physical_prefix)
+    tally = _Tally()
 
-    skipped_recent = 0
-    skipped_unattributable = 0
+    async for page in storage.iter_object_pages(physical_prefix):
+        tally.objects_listed += len(page)
+        candidates = _page_candidates(
+            page, physical_prefix=physical_prefix, cutoff=cutoff, tally=tally
+        )
+        if candidates:
+            await _delete_page_orphans(
+                db,
+                candidates,
+                now=now,
+                cutoff=cutoff,
+                storage=storage,
+                tally=tally,
+            )
+        if (
+            tally.orphans_deleted + tally.delete_failures >= _MAX_DELETES_PER_PASS
+            or tally.objects_listed >= _MAX_OBJECTS_SCANNED_PER_PASS
+        ):
+            log.info(
+                "Staging orphan reconciliation stopped at its per-pass budget",
+                **tally.as_log_fields(),
+            )
+            break
+
+    if tally.orphans_deleted:
+        # After the deletes returned, never before: the counter records
+        # completed deletions, not intentions.
+        staging_orphans_deleted_total.inc(tally.orphans_deleted)
+
+    return tally.freeze()
+
+
+def _page_candidates(
+    page: list[StoredObject],
+    *,
+    physical_prefix: str,
+    cutoff: datetime,
+    tally: "_Tally",
+) -> list[tuple[str, uuid.UUID]]:
+    """Which entries on one page are old enough and attributable."""
     candidates: list[tuple[str, uuid.UUID]] = []
-    for entry in listed:
+    for entry in page:
         # Defensive: a provider that returned a key outside the prefix it was
         # asked for must not be trusted to name a deletable object.
         if not entry.key.startswith(physical_prefix):
-            skipped_unattributable += 1
+            tally.skipped_unattributable += 1
             continue
         logical_key = STAGING_PREFIX + entry.key[len(physical_prefix) :]
         job_id = _job_id_from_key(logical_key)
         if job_id is None:
-            skipped_unattributable += 1
+            tally.skipped_unattributable += 1
             continue
         if entry.last_modified >= cutoff:
-            skipped_recent += 1
+            tally.skipped_recent += 1
             continue
         candidates.append((entry.key, job_id))
+    return candidates
 
-    if not candidates:
-        return StagingReconcileOutcome(
-            ran=True,
-            objects_listed=len(listed),
-            skipped_recent=skipped_recent,
-            skipped_unattributable=skipped_unattributable,
-        )
 
-    # One query for the common case (everything is tracked); the per-object
-    # recheck below is the authority, this only avoids paying for it per object
-    # on a healthy bucket.
+async def _delete_page_orphans(
+    db: AsyncSession,
+    candidates: list[tuple[str, uuid.UUID]],
+    *,
+    now: datetime,
+    cutoff: datetime,
+    storage,
+    tally: "_Tally",
+) -> None:
+    """Delete the untracked candidates from ONE page."""
+    # One query per page, never per pass: the id set is bounded by the page
+    # size the provider chose (1000 for S3 and Azure), so this expanding IN can
+    # never approach the driver's bind-parameter ceiling no matter how large
+    # the orphan backlog grows (fix(#1249) review r1). The per-object recheck
+    # below is the authority; this only avoids paying for it per object on a
+    # healthy bucket.
     live_ids = set(
         (
             await db.execute(
@@ -293,39 +384,35 @@ async def _reconcile_locked(
         ).scalars()
     )
 
-    deleted = 0
-    failures = 0
-    skipped_object_changed = 0
-    skipped_row_appeared = 0
     for physical_key, job_id in sorted(candidates):
         if job_id in live_ids:
             continue
-        if deleted + failures >= _MAX_DELETES_PER_PASS:
-            break
+        if tally.orphans_deleted + tally.delete_failures >= _MAX_DELETES_PER_PASS:
+            return
         # Deliberately OUTSIDE the try below. A database error here is not a
         # per-object problem to count and move past — it leaves the
         # transaction unusable, so every remaining candidate would "fail" on a
         # recheck that never ran. Let it reach the wrapper and end the pass.
         if await _job_row_exists(db, job_id):
-            skipped_row_appeared += 1
+            tally.skipped_row_appeared += 1
             continue
         try:
             entry = await _current_entry(storage, physical_key)
             if entry is None or entry.last_modified >= cutoff:
                 # Gone already, or rewritten since the listing. Either way
                 # this pass has nothing it can honestly delete.
-                skipped_object_changed += 1
+                tally.skipped_object_changed += 1
                 continue
             await storage.delete(physical_key)
         except Exception:  # broad: best-effort per object, the pass continues
-            failures += 1
+            tally.delete_failures += 1
             log.warning(
                 "Failed to delete orphaned staging object",
                 storage_key=physical_key,
                 job_id=str(job_id),
             )
             continue
-        deleted += 1
+        tally.orphans_deleted += 1
         log.warning(
             "Deleted orphaned staging object with no ingest job row",
             storage_key=physical_key,
@@ -333,19 +420,3 @@ async def _reconcile_locked(
             last_modified=entry.last_modified.isoformat(),
             age_seconds=int((now - entry.last_modified).total_seconds()),
         )
-
-    if deleted:
-        # After the deletes returned, never before: the counter records
-        # completed deletions, not intentions.
-        staging_orphans_deleted_total.inc(deleted)
-
-    return StagingReconcileOutcome(
-        ran=True,
-        objects_listed=len(listed),
-        orphans_deleted=deleted,
-        delete_failures=failures,
-        skipped_recent=skipped_recent,
-        skipped_object_changed=skipped_object_changed,
-        skipped_row_appeared=skipped_row_appeared,
-        skipped_unattributable=skipped_unattributable,
-    )

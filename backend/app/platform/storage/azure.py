@@ -222,13 +222,27 @@ class AzureBlobStorageProvider:
 
         return await asyncio.to_thread(_list)
 
-    async def list_objects(self, prefix: str) -> list[StoredObject]:
-        """List blobs under a prefix with their last-modified timestamps."""
+    async def iter_object_pages(self, prefix: str) -> AsyncIterator[list[StoredObject]]:
+        """Yield blob pages under a prefix, each entry with its last-modified.
 
-        def _list_objects() -> list[StoredObject]:
-            container_client = self._client.get_container_client(self.container)
-            objects: list[StoredObject] = []
-            for blob in container_client.list_blobs(name_starts_with=prefix):
+        ``by_page()`` rather than the flat iterator so a consumer that stops
+        early stops the service round trips with it (fix(#1249) review r1).
+        """
+        container_client = self._client.get_container_client(self.container)
+        pages = container_client.list_blobs(name_starts_with=prefix).by_page()
+
+        def _next_page() -> list | None:
+            try:
+                return list(next(pages))
+            except StopIteration:
+                return None
+
+        while True:
+            blobs = await asyncio.to_thread(_next_page)
+            if blobs is None:
+                return
+            page: list[StoredObject] = []
+            for blob in blobs:
                 last_modified = getattr(blob, "last_modified", None)
                 if last_modified is None:
                     # feat(#1249): a blob the SDK cannot date cannot be aged,
@@ -236,15 +250,13 @@ class AzureBlobStorageProvider:
                     # delete". Dropping it here keeps that decision out of the
                     # caller, which only ever sees datable objects.
                     continue
-                objects.append(
+                page.append(
                     StoredObject(
                         key=blob.name,
                         last_modified=_as_utc(last_modified),
                     )
                 )
-            return objects
-
-        return await asyncio.to_thread(_list_objects)
+            yield page
 
     async def health_check(self) -> None:
         """Verify the Azure container is reachable via get_container_properties."""

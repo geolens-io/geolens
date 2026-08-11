@@ -237,27 +237,27 @@ class S3StorageProvider:
 
         return await asyncio.to_thread(_list)
 
-    async def list_objects(self, prefix: str) -> list[StoredObject]:
-        """List objects under a prefix with their last-modified timestamps."""
+    async def iter_object_pages(self, prefix: str) -> AsyncIterator[list[StoredObject]]:
+        """Yield ListObjectsV2 pages, each entry with its last-modified time.
 
-        def _list_objects() -> list[StoredObject]:
-            objects: list[StoredObject] = []
-            params: dict = {"Bucket": self.bucket, "Prefix": prefix}
-            while True:
-                response = self.client.list_objects_v2(**params)
-                objects.extend(
-                    StoredObject(
-                        key=obj["Key"],
-                        last_modified=_as_utc(obj["LastModified"]),
-                    )
-                    for obj in response.get("Contents", [])
+        One request per page rather than a drain-then-return: a consumer that
+        stops after the first page never issues the second, so a caller with a
+        bounded work budget pays for a bounded number of round trips against an
+        arbitrarily large prefix (fix(#1249) review r1).
+        """
+        params: dict = {"Bucket": self.bucket, "Prefix": prefix}
+        while True:
+            response = await asyncio.to_thread(self.client.list_objects_v2, **params)
+            yield [
+                StoredObject(
+                    key=obj["Key"],
+                    last_modified=_as_utc(obj["LastModified"]),
                 )
-                if not response.get("IsTruncated"):
-                    break
-                params["ContinuationToken"] = response["NextContinuationToken"]
-            return objects
-
-        return await asyncio.to_thread(_list_objects)
+                for obj in response.get("Contents", [])
+            ]
+            if not response.get("IsTruncated"):
+                return
+            params["ContinuationToken"] = response["NextContinuationToken"]
 
     async def health_check(self) -> None:
         """Verify the S3 bucket is reachable via head_bucket."""

@@ -193,8 +193,13 @@ class LocalStorageProvider:
 
         return await asyncio.to_thread(_list)
 
-    async def list_objects(self, prefix: str) -> list[StoredObject]:
-        """List keys matching a prefix with their mtimes (feat #1249)."""
+    async def iter_object_pages(self, prefix: str) -> AsyncIterator[list[StoredObject]]:
+        """Yield keys matching a prefix with their mtimes (feat #1249).
+
+        A local walk has no service-side paging to mirror, so this is a single
+        page. The signature matches the Protocol so the caller's bounded-work
+        loop is provider-agnostic.
+        """
         resolved_prefix = self._resolve_contained(prefix)
         resolved_base = self.base_dir.resolve()
 
@@ -216,7 +221,7 @@ class LocalStorageProvider:
                 )
             return objects
 
-        return await asyncio.to_thread(_list_objects)
+        yield await asyncio.to_thread(_list_objects)
 
     async def health_check(self) -> None:
         """Verify the storage directory exists."""
