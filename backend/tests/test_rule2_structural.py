@@ -1580,6 +1580,34 @@ def _target_names(target: ast.expr) -> set[str]:
     return {path} if path else set()
 
 
+def _is_value_position(current: ast.AST, parent: ast.AST) -> bool:
+    """True when ``parent`` can EVALUATE TO ``current``.
+
+    Not every field of a value wrapper is one of its values, and the two that
+    are not both showed up as false positives (codex rounds 7 and 8).
+
+    A ternary yields one of its two RESULTS; its condition is only read for
+    truthiness, so ``[] if commands else ()`` is never ``commands``.
+
+    A boolean operator yields a non-final operand only when that operand
+    DECIDES the expression, and the two operators decide on opposite
+    truthiness. ``or`` yields it when truthy, so ``commands or ()`` really can
+    be ``commands`` with argvs in it. ``and`` yields it when FALSY, so
+    ``commands and ()`` can only ever be an EMPTY ``commands`` — iterating that
+    runs nothing. The final operand is a possible result for both.
+
+    Everything else in ``_VALUE_WRAPPERS`` (the ``+`` chain) passes its value
+    through from any operand.
+    """
+    if isinstance(parent, ast.IfExp):
+        return current is parent.body or current is parent.orelse
+    if isinstance(parent, ast.BoolOp):
+        return bool(parent.values) and (
+            isinstance(parent.op, ast.Or) or current is parent.values[-1]
+        )
+    return isinstance(parent, _VALUE_WRAPPERS)
+
+
 def _intact_loop_target(target: ast.expr) -> ast.expr | None:
     """The part of a loop target that receives an element WHOLE, or None.
 
@@ -1610,9 +1638,9 @@ def _depth_preserving_ancestor(expr: ast.AST) -> ast.AST:
     (fix(#1394), codex round 6):
 
     * a VALUE wrapper — ``commands or ()``, ``commands if flag else ()``,
-      ``commands + extra`` — which evaluates to the thing it wraps. A ternary
-      qualifies through its two RESULTS only; its condition is not part of its
-      value (codex round 7).
+      ``commands + extra`` — in a position it can actually evaluate to, which
+      rules out a ternary's condition and a non-final ``and`` operand (see
+      ``_is_value_position``).
     * a star inside a display, ``(*commands,)``, which splices ``commands``'
       elements into a new one and so preserves its depth (codex round 5). The
       pair counts once, exactly as it does in ``_binding_targets``.
@@ -1623,17 +1651,7 @@ def _depth_preserving_ancestor(expr: ast.AST) -> ast.AST:
     current: ast.AST = expr
     while True:
         parent = getattr(current, "_rule2_parent", None)
-        if isinstance(parent, ast.IfExp):
-            # codex round 7 on #1394: a ternary's TEST is not part of its
-            # value. `[] if commands else ()` evaluates to one of two empty
-            # displays and has nothing to do with `commands`, so climbing from
-            # the condition claimed the loop iterated the container and
-            # reported an argv that never runs.
-            if current is parent.body or current is parent.orelse:
-                current = parent
-                continue
-            return current
-        if isinstance(parent, _VALUE_WRAPPERS):
+        if parent is not None and _is_value_position(current, parent):
             current = parent
             continue
         if isinstance(parent, ast.Starred):
@@ -1865,6 +1883,17 @@ def _binding_targets(node: ast.AST) -> tuple[set[str], str | None]:
     index_in_parent: int | None = None
     container_kind: str | None = None
     while isinstance(parent, _TRANSPARENT_WRAPPERS):
+        # fix(#1394), codex round 8: a VALUE wrapper only carries the value in
+        # a position it can evaluate to. `empty = [] if commands else ()` never
+        # binds `commands` to `empty`, and neither does
+        # `nothing = commands and ()`; climbing anyway put an always-empty name
+        # on the follow list, where the loop rule then reported an argv that
+        # cannot run. Stopping here leaves no branch below matching, which is
+        # the accurate answer: nothing above binds this value.
+        if isinstance(parent, _VALUE_WRAPPERS) and not _is_value_position(
+            current, parent
+        ):
+            break
         # fix(#1394), codex rounds 4 and 5: a star and the display around it
         # are ONE level, not two. `*X` splices X's ELEMENTS into that display,
         # which PRESERVES X's own depth rather than adding or removing one:
@@ -3547,6 +3576,18 @@ def test_guard_a_wrapped_iterable_is_still_the_same_loop():
         loop_targets_of("for cmd in ([] if commands else ()):\n    pass\n", "commands")
         == set()
     )
+    # codex round 8: `and` yields a non-final operand only when it is FALSY,
+    # so an `and`-guarded container can never be iterated with anything in it.
+    # `or` yields it when truthy, and the final operand is a result for both.
+    assert (
+        loop_targets_of("for cmd in commands and ():\n    pass\n", "commands") == set()
+    )
+    assert loop_targets_of("for cmd in () and commands:\n    pass\n", "commands") == {
+        "cmd"
+    }
+    assert loop_targets_of("for cmd in () or commands:\n    pass\n", "commands") == {
+        "cmd"
+    }
 
     violations, total = _collect_gdal_cli_violations(
         _mod(
@@ -3571,12 +3612,59 @@ def test_guard_a_wrapped_iterable_is_still_the_same_loop():
             "    commands = [['gdal_translate', path]]\n"
             "    for cmd in ([] if commands else ()):\n"
             "        subprocess.run(cmd)\n"
+            "def and_guarded(path):\n"
+            "    commands = [['nearblack', path]]\n"
+            "    for cmd in commands and ():\n"
+            "        subprocess.run(cmd)\n"
         ),
         {},
     )
     assert total == 4, (total, violations)
     assert len(violations) == 4, violations
-    assert not any("(condition_only)" in v for v in violations), violations
+    for quiet in ("(condition_only)", "(and_guarded)"):
+        assert not any(quiet in v for v in violations), (quiet, violations)
+
+
+def test_guard_a_dead_wrapper_alias_is_not_followed_either():
+    """fix(#1394), codex round 8: the same rule one alias hop away.
+
+    ``empty = [] if commands else ()`` and ``nothing = commands and ()`` are
+    always empty, so a later ``for cmd in empty:`` runs nothing. The wrapper
+    rule lived only where the loop reads its iterable, and ``_binding_targets``
+    climbed every value wrapper unconditionally, so the alias inherited the
+    container kind and the loop rule reported an argv that cannot run. Both
+    now stop at the wrapper, and the live spellings beside them still report.
+    """
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def dead_condition(path):\n"
+            "    commands = [['gdalinfo', path]]\n"
+            "    empty = [] if commands else ()\n"
+            "    for cmd in empty:\n"
+            "        subprocess.run(cmd)\n"
+            "def dead_and(path):\n"
+            "    commands = [['ogrinfo', path]]\n"
+            "    nothing = commands and ()\n"
+            "    for cmd in nothing:\n"
+            "        subprocess.run(cmd)\n"
+            "def live_result(path, flag):\n"
+            "    commands = [['gdalwarp', path]]\n"
+            "    chosen = commands if flag else ()\n"
+            "    for cmd in chosen:\n"
+            "        subprocess.run(cmd)\n"
+            "def live_or(path):\n"
+            "    commands = [['gdaladdo', path]]\n"
+            "    chosen = commands or ()\n"
+            "    for cmd in chosen:\n"
+            "        subprocess.run(cmd)\n"
+        ),
+        {},
+    )
+    assert total == 2, (total, violations)
+    assert len(violations) == 2, violations
+    for live in ("(live_result)", "(live_or)"):
+        assert any(live in v for v in violations), (live, violations)
 
 
 def test_guard_conflicting_container_kinds_merge_to_the_louder():
