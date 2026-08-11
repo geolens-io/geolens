@@ -146,6 +146,7 @@ class TenantOwnershipState:
     reader_exists: bool
     writer_exists: bool
     relations: int
+    unsafe_routines: int
     relations_not_owned_by_writer: int
     relations_without_reader_select: int
     relations_with_unsafe_acl: int
@@ -168,6 +169,7 @@ class TenantOwnershipState:
             and self.schema_owner == PROVISIONER
             and self.reader_exists
             and self.writer_exists
+            and self.unsafe_routines == 0
             and self.relations_not_owned_by_writer == 0
             and self.relations_without_reader_select == 0
             and self.relations_with_unsafe_acl == 0
@@ -447,6 +449,7 @@ def _format_tenants(report: AdoptionReport) -> list[str]:
         after = after_by_id[before.tenant_id]
         detail = [
             f"{after.relations} relation(s)",
+            f"{after.unsafe_routines} routine(s) out of shape",
             f"{after.relations_not_owned_by_writer} not owned by the writer",
             f"{after.relations_without_reader_select} without reader SELECT",
             f"{after.relations_with_unsafe_acl} with an ACL beyond reader SELECT",

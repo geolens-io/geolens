@@ -932,6 +932,86 @@ class TestReportedStateMatchesWhatApplyEnforces:
             await _drop_tenant(engine, tenant_id)
             await engine.dispose()
 
+    async def test_a_restored_routine_is_re_owned_and_taken_off_public(
+        self, multi_tenant_row_security
+    ):
+        """Routines live in pg_proc, so no relation sweep sees them."""
+        tenant_id, schema, reader, writer = _new_tenant()
+        engine = _make_engine()
+        try:
+            await _seed_restored_tenant(engine, tenant_id, schema)
+            assert (await run_adoption(engine, apply=True)).ok
+
+            # What pg_restore --no-owner --no-acl leaves: owned by the restore
+            # login, executable by PUBLIC.
+            async with engine.begin() as conn:
+                await conn.execute(
+                    sa.text(
+                        f"CREATE FUNCTION {schema}.parcel_count() RETURNS bigint "
+                        "LANGUAGE sql AS $$ SELECT count(*) FROM "
+                        f"{schema}.parcels $$"
+                    )
+                )
+
+            async with engine.connect() as conn:
+                state = await tenant_ownership_state(conn, tenant_id)
+            assert state.unsafe_routines == 1
+            assert not state.adopted
+
+            repaired = await run_adoption(engine, apply=True)
+            assert repaired.failures == {}, repaired.failures
+            assert repaired.ok
+
+            async with engine.connect() as conn:
+                owner, public_execute, reader_execute = (
+                    await conn.execute(
+                        sa.text(
+                            "SELECT pg_get_userbyid(routine.proowner), "
+                            "has_function_privilege('public', routine.oid, 'EXECUTE'), "
+                            "has_function_privilege(:reader, routine.oid, 'EXECUTE') "
+                            "FROM pg_proc AS routine "
+                            "JOIN pg_namespace AS namespace "
+                            "  ON namespace.oid = routine.pronamespace "
+                            "WHERE namespace.nspname = :schema "
+                            "AND routine.proname = 'parcel_count'"
+                        ),
+                        {"reader": reader, "schema": schema},
+                    )
+                ).one()
+            assert owner == writer
+            assert public_execute is False
+            assert reader_execute is True
+        finally:
+            await _drop_tenant(engine, tenant_id)
+            await engine.dispose()
+
+    async def test_a_security_definer_routine_in_a_tenant_schema_is_refused(
+        self, multi_tenant_row_security
+    ):
+        """Re-owning one would bless a body with no migration behind it."""
+        tenant_id, schema, _reader, _writer = _new_tenant()
+        engine = _make_engine()
+        try:
+            await _seed_restored_tenant(engine, tenant_id, schema)
+            assert (await run_adoption(engine, apply=True)).ok
+
+            async with engine.begin() as conn:
+                await conn.execute(
+                    sa.text(
+                        f"CREATE FUNCTION {schema}.planted() RETURNS void "
+                        "LANGUAGE sql SECURITY DEFINER AS $$ SELECT NULL::void $$"
+                    )
+                )
+
+            refused = await run_adoption(engine, apply=True)
+            assert tenant_id in refused.failures
+            assert "SECURITY DEFINER routine" in refused.failures[tenant_id]
+            assert "SECURITY INVOKER" in refused.failures[tenant_id]
+            assert not refused.ok
+        finally:
+            await _drop_tenant(engine, tenant_id)
+            await engine.dispose()
+
     async def test_column_level_grants_are_revoked(self, multi_tenant_row_security):
         """Column grants live in pg_attribute; a table REVOKE ALL misses them."""
         tenant_id, schema, reader, _writer = _new_tenant()
@@ -2184,6 +2264,7 @@ def _adopted_tenant_state() -> TenantOwnershipState:
         reader_exists=True,
         writer_exists=True,
         relations=1,
+        unsafe_routines=0,
         relations_not_owned_by_writer=0,
         relations_without_reader_select=0,
         relations_with_unsafe_acl=0,

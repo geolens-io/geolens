@@ -565,16 +565,27 @@ Keep `.env` loaded in this shell (`set -a; . ./.env; set +a`, as in step 1) —
 The dump path is a host path; copy the dump out of the `backup_data` volume
 first, exactly as in "Step-by-step: full restore" below.
 
-**2a. Stop the services, then restore the dump.**
+**2a. Check the archive, stop the services, restore the dump.**
 
-`restore.sh` stops `api` and `worker` before it restores and restarts them on
-the way out; this recipe replaces it, so the stop is yours to do. Without it,
-traffic races a `--clean` restore and can reach the restore-owned SECURITY
-DEFINER functions during the window where `PUBLIC` can execute them. Nothing
-starts again until 2f is done.
+`restore.sh` validates the archive, stops `api` and `worker`, restores, and
+restarts them on the way out; this recipe replaces it, so all of that is yours
+to do. Without the stop, traffic races a `--clean` restore and can reach the
+restore-owned SECURITY DEFINER functions during the window where `PUBLIC` can
+execute them. Nothing starts again until 2g is done.
 
-The stop applies to managed/external Postgres too: the database is elsewhere,
-but `api` and `worker` are still the things that would write to it.
+Validate the archive before anything destructive, exactly as `restore.sh` does:
+`--list` only reads the table of contents, which a truncated file still passes,
+so read every data block. A `--clean` restore that discovers the corruption
+halfway through has already dropped the database that was working.
+
+```bash
+docker compose exec -T db pg_restore -f /dev/null \
+  < ./restore/geolens_<timestamp>.dump
+```
+
+Then stop the services. That applies to managed/external Postgres too: the
+database is elsewhere, but `api` and `worker` are still the things that would
+write to it.
 
 ```bash
 docker compose stop api worker

@@ -612,6 +612,32 @@ async def tenant_ownership_state(conn, tenant_id: str) -> TenantOwnershipState:
                     WHERE rolname = (SELECT writer_name FROM names)
                 ) AS writer_exists,
                 (SELECT count(*) FROM relations) AS relations,
+                -- Routines live in pg_proc, so none of the relation reads see
+                -- them. A restore brings one back owned by the restore login
+                -- with PUBLIC EXECUTE; a SECURITY DEFINER one is refused
+                -- outright rather than re-owned.
+                CASE
+                    WHEN NOT EXISTS (SELECT 1 FROM reader) THEN 0
+                    ELSE (
+                        SELECT count(*)
+                        FROM pg_catalog.pg_proc AS routine
+                        JOIN pg_catalog.pg_namespace AS namespace
+                          ON namespace.oid = routine.pronamespace
+                        WHERE namespace.nspname = (SELECT schema_name FROM names)
+                          AND (
+                              routine.proowner IS DISTINCT FROM (
+                                  SELECT oid FROM writer
+                              )
+                              OR routine.prosecdef
+                              OR pg_catalog.has_function_privilege(
+                                  'public', routine.oid, 'EXECUTE'
+                              )
+                              OR NOT pg_catalog.has_function_privilege(
+                                  (SELECT oid FROM reader), routine.oid, 'EXECUTE'
+                              )
+                          )
+                    )
+                END AS unsafe_routines,
                 (
                     SELECT count(*) FROM relations
                     WHERE owner <> (SELECT writer_name FROM names)

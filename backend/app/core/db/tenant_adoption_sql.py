@@ -698,6 +698,7 @@ DECLARE
     pending_owner_transfer bigint;
     reader_privilege_gap bigint;
     default_acl_gap bigint;
+    routine_gap bigint;
     reader_oid oid;
     writer_oid oid;
     grantee_name text;
@@ -1062,9 +1063,25 @@ BEGIN
 
     -- Nothing to move and nothing to grant: an already-adopted tenant issues
     -- zero DDL here, which is what makes a re-run a genuine no-op.
+    SELECT pg_catalog.count(*) INTO routine_gap
+    FROM pg_catalog.pg_proc AS routine
+    JOIN pg_catalog.pg_namespace AS namespace
+      ON namespace.oid = routine.pronamespace
+    JOIN pg_catalog.pg_roles AS owner_role ON owner_role.oid = routine.proowner
+    WHERE namespace.nspname = schema_name
+      AND (
+          owner_role.rolname <> writer_name
+          OR routine.prosecdef
+          OR pg_catalog.has_function_privilege('public', routine.oid, 'EXECUTE')
+          OR NOT pg_catalog.has_function_privilege(
+              reader_name, routine.oid, 'EXECUTE'
+          )
+      );
+
     IF pending_owner_transfer = 0
        AND reader_privilege_gap = 0
-       AND default_acl_gap = 0 THEN
+       AND default_acl_gap = 0
+       AND routine_gap = 0 THEN
         RETURN;
     END IF;
 
@@ -1235,6 +1252,57 @@ BEGIN
                 'restore the built-in default; then re-run adoption';
     END IF;
 
+    -- Routines in a tenant schema. They live in pg_proc, so none of the
+    -- relation sweeps above sees them, and a restore brings one back owned by
+    -- the restore login — normally the superuser — with the default PUBLIC
+    -- EXECUTE. The shared `data` schema has the same rule and the same reason
+    -- (see scripts/lib/configure-runtime-db-role.sh): the runtime owns what it
+    -- can create, and PUBLIC never executes it.
+    --
+    -- SECURITY DEFINER is the exception, and a refusal. Re-owning one is
+    -- blessing a body adoption cannot vouch for — there is no migration behind
+    -- it, unlike the two boundary functions — and leaving it is worse.
+    FOR object_row IN
+        SELECT routine.proname AS relname,
+               pg_catalog.pg_get_function_identity_arguments(routine.oid) AS relkind
+        FROM pg_catalog.pg_proc AS routine
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = routine.pronamespace
+        WHERE namespace.nspname = schema_name
+          AND routine.prosecdef
+    LOOP
+        RAISE EXCEPTION
+            'tenant schema % contains a SECURITY DEFINER routine adoption will '
+            'not re-own: %(%)',
+            schema_name,
+            object_row.relname,
+            object_row.relkind
+            USING HINT =
+                'inspect it, then either ALTER FUNCTION ' || schema_name || '.' ||
+                pg_catalog.quote_ident(object_row.relname) || '(' ||
+                object_row.relkind || ') SECURITY INVOKER or DROP it; '
+                'then re-run adoption';
+    END LOOP;
+
+    FOR object_row IN
+        SELECT routine.proname AS relname,
+               pg_catalog.pg_get_function_identity_arguments(routine.oid) AS relkind
+        FROM pg_catalog.pg_proc AS routine
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = routine.pronamespace
+        JOIN pg_catalog.pg_roles AS owner_role ON owner_role.oid = routine.proowner
+        WHERE namespace.nspname = schema_name
+          AND owner_role.rolname <> writer_name
+    LOOP
+        EXECUTE pg_catalog.format(
+            'ALTER ROUTINE %I.%I(%s) OWNER TO %I',
+            schema_name,
+            object_row.relname,
+            object_row.relkind,
+            writer_name
+        );
+    END LOOP;
+
     EXECUTE pg_catalog.format('SET ROLE %I', writer_name);
     -- Revoke first, then grant back exactly the read privileges: ALTER TABLE …
     -- OWNER TO re-attributes the restored grants to the writer, so the writer
@@ -1312,6 +1380,12 @@ BEGIN
     EXECUTE pg_catalog.format(
         'GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA %I TO %I',
         schema_name, reader_name
+    );
+    EXECUTE pg_catalog.format(
+        'REVOKE ALL ON ALL ROUTINES IN SCHEMA %I FROM PUBLIC', schema_name
+    );
+    EXECUTE pg_catalog.format(
+        'GRANT EXECUTE ON ALL ROUTINES IN SCHEMA %I TO %I', schema_name, reader_name
     );
     RESET ROLE;
 
