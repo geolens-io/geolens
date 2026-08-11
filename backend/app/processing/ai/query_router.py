@@ -159,6 +159,11 @@ _QUERY_BLOCKED_FUNCTIONS: frozenset[str] = frozenset(
         "json_agg",
         "jsonb_agg",
         "xmlagg",
+        # JSON/array builders double a value the same way via repeated args —
+        # jsonb_build_object('a', s, 'b', s) or array_to_string(ARRAY[s, s]).
+        "json_build_object",
+        "jsonb_build_object",
+        "array_to_string",
     }
 )
 
