@@ -674,7 +674,25 @@ below.
 A dump carries row-security state, so a source cluster that was already
 enforcing it restores with it still on.
 
-**2d. Give the temporary privileges back.**
+**2d. Re-apply the runtime grants.**
+
+`--no-acl` drops them and this recipe does not run `scripts/restore.sh`, which
+is what normally re-applies them. The same privileged reconciler the bootstrap
+and restore paths use lives in the `db` container:
+
+```bash
+docker compose exec -T db /usr/local/bin/configure-runtime-db-role
+```
+
+Then check it took, the way `restore.sh` does — a reader without schema access
+breaks every read-only consumer silently:
+
+```bash
+docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
+  "SELECT has_schema_privilege('geolens_reader', 'data', 'USAGE');"
+```
+
+**2e. Give the temporary privileges back.**
 
 Only if you granted them in 2b. Adoption manages its own borrow when it has to
 take one, and hands that back on its own; these two are yours, and left in place

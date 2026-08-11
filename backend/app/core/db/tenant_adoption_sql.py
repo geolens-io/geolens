@@ -425,6 +425,7 @@ BEGIN
                   JOIN pg_catalog.pg_roles AS grantee_role
                     ON grantee_role.oid = acl.grantee
                   WHERE grantee_role.rolname NOT IN ('{PROVISIONER}', '{CONTROL}')
+                     OR (grantee_role.rolname = '{CONTROL}' AND acl.is_grantable)
               )
           )
     ) INTO repair_pending;
@@ -456,6 +457,12 @@ BEGIN
         );
         EXECUTE pg_catalog.format(
             'REVOKE ALL ON FUNCTION catalog.%I(uuid) FROM PUBLIC', routine_name
+        );
+        -- Revoke before granting: a re-GRANT does not clear an existing GRANT
+        -- OPTION, and a grantable EXECUTE lets a control-role member delegate
+        -- provisioner-owned tenant management to anyone.
+        EXECUTE pg_catalog.format(
+            'REVOKE ALL ON FUNCTION catalog.%I(uuid) FROM {CONTROL}', routine_name
         );
         EXECUTE pg_catalog.format(
             'GRANT EXECUTE ON FUNCTION catalog.%I(uuid) TO {CONTROL}', routine_name
@@ -822,6 +829,27 @@ BEGIN
         );
     END IF;
 
+    -- A grantable schema privilege survives the provisioning function's GRANT,
+    -- which adds privileges rather than replacing them. REVOKE GRANT OPTION FOR
+    -- takes the delegation away and leaves the privilege.
+    FOREACH grantee_name IN ARRAY ARRAY[reader_name, writer_name] LOOP
+        IF EXISTS (
+            SELECT 1
+            FROM pg_catalog.pg_namespace AS namespace
+            JOIN LATERAL pg_catalog.aclexplode(namespace.nspacl) AS acl ON true
+            JOIN pg_catalog.pg_roles AS grantee_role ON grantee_role.oid = acl.grantee
+            WHERE namespace.nspname = schema_name
+              AND grantee_role.rolname = grantee_name
+              AND acl.is_grantable
+        ) THEN
+            EXECUTE pg_catalog.format(
+                'REVOKE GRANT OPTION FOR ALL ON SCHEMA %I FROM %I',
+                schema_name,
+                grantee_name
+            );
+        END IF;
+    END LOOP;
+
     -- And anyone else the restore left on the schema. The provisioning function
     -- revokes PUBLIC and grants the two tenant roles; a named grantee with
     -- USAGE, or worse CREATE, is a path around the writer boundary that nothing
@@ -886,6 +914,7 @@ BEGIN
               SELECT 1
               FROM LATERAL pg_catalog.aclexplode(relation.relacl) AS acl
               WHERE acl.grantee NOT IN (writer_oid, reader_oid)
+                 OR (acl.grantee = reader_oid AND acl.is_grantable)
                  OR (
                      acl.grantee = reader_oid
                      AND acl.privilege_type <> 'SELECT'

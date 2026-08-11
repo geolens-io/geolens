@@ -781,6 +781,63 @@ class TestReportedStateMatchesWhatApplyEnforces:
             await _drop_tenant(engine, tenant_id)
             await engine.dispose()
 
+    async def test_grant_options_on_reader_privileges_are_cleared(
+        self, multi_tenant_row_security
+    ):
+        """A grantable privilege is a delegation the gateways can use.
+
+        The sandbox and tile logins SET ROLE to the reader; with GRANT OPTION on
+        the schema and the relation, either can hand tenant reads to any role.
+        """
+        tenant_id, schema, reader, _writer = _new_tenant()
+        engine = _make_engine()
+        try:
+            await _seed_restored_tenant(engine, tenant_id, schema)
+            assert (await run_adoption(engine, apply=True)).ok
+
+            async with engine.begin() as conn:
+                await conn.execute(
+                    sa.text(
+                        f"GRANT USAGE ON SCHEMA {schema} TO {reader} WITH GRANT OPTION"
+                    )
+                )
+                await conn.execute(
+                    sa.text(
+                        f"GRANT SELECT ON {schema}.parcels TO {reader} "
+                        "WITH GRANT OPTION"
+                    )
+                )
+
+            async with engine.connect() as conn:
+                state = await tenant_ownership_state(conn, tenant_id)
+            assert not state.schema_privileges_secure
+            assert state.relations_with_unsafe_acl == 1
+            assert not state.adopted
+
+            repaired = await run_adoption(engine, apply=True)
+            assert repaired.failures == {}, repaired.failures
+            assert repaired.ok
+
+            async with engine.connect() as conn:
+                grantable = (
+                    await conn.execute(
+                        sa.text(
+                            "SELECT count(*) FROM pg_namespace AS namespace "
+                            "JOIN LATERAL aclexplode(namespace.nspacl) AS acl "
+                            "  ON true "
+                            "JOIN pg_roles AS grantee "
+                            "  ON grantee.oid = acl.grantee "
+                            "WHERE namespace.nspname = :schema "
+                            "AND grantee.rolname = :reader AND acl.is_grantable"
+                        ),
+                        {"schema": schema, "reader": reader},
+                    )
+                ).scalar_one()
+            assert grantable == 0
+        finally:
+            await _drop_tenant(engine, tenant_id)
+            await engine.dispose()
+
     async def test_a_stray_grantee_on_the_tenant_schema_is_revoked(
         self, multi_tenant_row_security
     ):
@@ -1439,6 +1496,32 @@ class TestAdoptionWithRestoredBoundaryFunctions:
                     repaired = await secure_boundary_functions(conn)
                     assert all(state.unexpected_grantees == 0 for state in repaired)
                     assert all(state.secured for state in repaired)
+                finally:
+                    await transaction.rollback()
+        finally:
+            await engine.dispose()
+
+    async def test_a_grantable_execute_for_the_control_role_is_downgraded(self):
+        """A re-GRANT does not clear an existing GRANT OPTION."""
+        engine = _make_engine()
+        try:
+            async with engine.connect() as conn:
+                transaction = await conn.begin()
+                try:
+                    for name in BOUNDARY_FUNCTIONS:
+                        await conn.execute(
+                            sa.text(
+                                f"GRANT EXECUTE ON FUNCTION catalog.{name}(uuid) "
+                                f"TO {CONTROL} WITH GRANT OPTION"
+                            )
+                        )
+                    before = await boundary_function_states(conn)
+                    assert all(state.unexpected_grantees == 1 for state in before)
+                    assert not any(state.secured for state in before)
+
+                    repaired = await secure_boundary_functions(conn)
+                    assert all(state.secured for state in repaired)
+                    assert all(state.control_execute for state in repaired)
                 finally:
                     await transaction.rollback()
         finally:

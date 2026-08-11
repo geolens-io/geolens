@@ -243,6 +243,10 @@ async def boundary_function_states(conn) -> list[BoundaryFunctionState]:
                        JOIN pg_catalog.pg_roles AS grantee_role
                          ON grantee_role.oid = acl.grantee
                        WHERE grantee_role.rolname NOT IN (:provisioner, :control)
+                          -- A grantable EXECUTE lets a control-role member
+                          -- delegate provisioner-owned tenant management to
+                          -- anyone; the canonical grant is plain.
+                          OR (grantee_role.rolname = :control AND acl.is_grantable)
                    ) AS unexpected_grantees,
                    CASE
                        WHEN EXISTS (
@@ -600,6 +604,13 @@ async def tenant_ownership_state(conn, tenant_id: str) -> TenantOwnershipState:
                                       COALESCE((SELECT oid FROM writer), 0),
                                       (SELECT oid FROM reader)
                                   )
+                                  -- Grantable SELECT lets a gateway that SET
+                                  -- ROLEs to the reader hand tenant reads to
+                                  -- any role it likes.
+                                  OR (
+                                      acl.grantee = (SELECT oid FROM reader)
+                                      AND acl.is_grantable
+                                  )
                                   OR (
                                       acl.grantee = (SELECT oid FROM reader)
                                       AND acl.privilege_type <> 'SELECT'
@@ -653,15 +664,30 @@ async def tenant_ownership_state(conn, tenant_id: str) -> TenantOwnershipState:
                              WHERE namespace.nspname = (
                                  SELECT schema_name FROM names
                              )
-                               AND acl.grantee NOT IN (
-                                   COALESCE((SELECT oid FROM reader), 0),
-                                   COALESCE((SELECT oid FROM writer), 0),
-                                   COALESCE(
-                                       (
-                                           SELECT oid FROM pg_catalog.pg_roles
-                                           WHERE rolname = :provisioner
-                                       ),
-                                       0
+                               AND (
+                                   acl.grantee NOT IN (
+                                       COALESCE((SELECT oid FROM reader), 0),
+                                       COALESCE((SELECT oid FROM writer), 0),
+                                       COALESCE(
+                                           (
+                                               SELECT oid FROM pg_catalog.pg_roles
+                                               WHERE rolname = :provisioner
+                                           ),
+                                           0
+                                       )
+                                   )
+                                   -- Same delegation problem one level up: a
+                                   -- grantable USAGE on the schema travels with
+                                   -- a grantable SELECT on the relations.
+                                   OR (
+                                       acl.is_grantable
+                                       AND acl.grantee <> COALESCE(
+                                           (
+                                               SELECT oid FROM pg_catalog.pg_roles
+                                               WHERE rolname = :provisioner
+                                           ),
+                                           0
+                                       )
                                    )
                                )
                          )
@@ -813,19 +839,25 @@ async def run_adoption(engine, *, apply: bool) -> AdoptionReport:
         functions = await secure_boundary_functions(conn)
 
     failures: dict[str, str] = {}
-    for tenant_id in tenants:
-        try:
-            async with engine.begin() as conn:
-                await adopt_tenant(conn, tenant_id)
-        except Exception as exc:  # broad: one tenant's refusal must not strand the rest
-            failures[tenant_id] = str(exc).strip().splitlines()[0]
-            logger.error(
-                "tenant_adoption: tenant failed", tenant_id=tenant_id, exc_info=True
-            )
-
-    await release_bootstrap_membership(
-        engine, took_provisioner_edge=took_provisioner_edge
-    )
+    try:
+        for tenant_id in tenants:
+            try:
+                async with engine.begin() as conn:
+                    await adopt_tenant(conn, tenant_id)
+            except (
+                Exception
+            ) as exc:  # broad: one tenant's refusal must not strand the rest
+                failures[tenant_id] = str(exc).strip().splitlines()[0]
+                logger.error(
+                    "tenant_adoption: tenant failed", tenant_id=tenant_id, exc_info=True
+                )
+    finally:
+        # A bare finally, so a Ctrl-C (CancelledError, a BaseException) hands the
+        # edge back too. Only a SIGKILL can leave it now, and the next run's
+        # topology validation is where that would surface.
+        await release_bootstrap_membership(
+            engine, took_provisioner_edge=took_provisioner_edge
+        )
 
     topology = await cluster_topology_error(engine)
     async with engine.connect() as conn:
