@@ -595,7 +595,7 @@ privileges first, because 0024's upgrade transfers ownership of the boundary
 functions to `geolens_tenant_provisioner`, and PostgreSQL wants the incoming
 owner to hold `CREATE` on the schema and the caller to hold that owner's
 privileges. A superuser has both implicitly and can skip this. Grant them as the
-same admin identity that ran step 1's role block, and hand them back in 2d:
+same admin identity that ran step 1's role block, and hand them back in 2f:
 
 ```bash
 docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
@@ -726,14 +726,16 @@ either. These are the grants `.env.example` documents alongside
 tile login any of the first three:
 
 ```bash
-docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
+docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -v db="$POSTGRES_DB" <<'SQL'
 GRANT geolens_tenant_control TO "<runtime-login>" WITH INHERIT TRUE, SET FALSE;
 GRANT geolens_tenant_writer  TO "<runtime-login>" WITH INHERIT FALSE, SET TRUE;
 GRANT geolens_tenant_sandbox TO "<runtime-login>" WITH INHERIT FALSE, SET TRUE;
 GRANT geolens_tile_gateway   TO "<tile-login>"    WITH INHERIT FALSE, SET TRUE;
 -- 2d's reconciler revokes PUBLIC CONNECT and grants it back to the current,
--- migration and runtime roles only, so the tile login needs its own.
-GRANT CONNECT ON DATABASE "$POSTGRES_DB" TO "<tile-login>";
+-- migration and runtime roles only, so the tile login needs its own. The
+-- heredoc is quoted, so the database name arrives as a psql variable.
+GRANT CONNECT ON DATABASE :"db" TO "<tile-login>";
 SQL
 ```
 
@@ -742,12 +744,13 @@ drop every `WITH` clause, and the `NOINHERIT` attribute on the login is what
 makes the membership SET-only:
 
 ```bash
-docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
+docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -v db="$POSTGRES_DB" <<'SQL'
 GRANT geolens_tenant_control TO "<runtime-login>";
 GRANT geolens_tenant_writer  TO "<runtime-login>";
 GRANT geolens_tenant_sandbox TO "<runtime-login>";
 GRANT geolens_tile_gateway   TO "<tile-login>";
-GRANT CONNECT ON DATABASE "$POSTGRES_DB" TO "<tile-login>";
+GRANT CONNECT ON DATABASE :"db" TO "<tile-login>";
 SQL
 ```
 
