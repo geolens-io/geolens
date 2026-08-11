@@ -6,7 +6,7 @@ the single authoritative metadata path. No dual-write to legacy JSONB/tags colum
 
 import uuid
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -337,6 +337,56 @@ async def count_distributions(session: AsyncSession, record_id: uuid.UUID) -> in
     return result.scalar_one()
 
 
+async def _demote_other_primaries(
+    session: AsyncSession,
+    record_id: uuid.UUID,
+    *,
+    keep_id: uuid.UUID | None = None,
+    generated_only: bool = False,
+) -> None:
+    """Clear ``is_primary`` on the record's other distributions (#1383).
+
+    One UPDATE, issued BEFORE the row that claims the flag is written, and the
+    ordering is the whole point. ``uq_record_distribution_primary`` (migration
+    0042) is a plain, non-deferrable partial unique index, so a second primary
+    fails at statement time rather than at COMMIT; leaving the demote to the
+    ORM's unit of work would make that failure depend on flush ordering
+    between an UPDATE and an INSERT that SQLAlchemy is free to choose.
+
+    ``generated_only`` restricts the demote to ``auto_generated`` rows. It is
+    what lets ``reconcile_distributions`` normalize its own rows without
+    writing a user's — see the preservation policy on its docstring.
+    """
+    stmt = update(RecordDistribution).where(
+        RecordDistribution.record_id == record_id,
+        RecordDistribution.is_primary.is_(True),
+    )
+    if keep_id is not None:
+        stmt = stmt.where(RecordDistribution.id != keep_id)
+    if generated_only:
+        stmt = stmt.where(RecordDistribution.auto_generated.is_(True))
+    await session.execute(
+        stmt.values(is_primary=False),
+        execution_options={"synchronize_session": "fetch"},
+    )
+
+
+async def _record_has_primary(
+    session: AsyncSession,
+    record_id: uuid.UUID,
+    *,
+    user_authored_only: bool = False,
+) -> bool:
+    """Whether some row on the record already holds ``is_primary``."""
+    stmt = select(RecordDistribution.id).where(
+        RecordDistribution.record_id == record_id,
+        RecordDistribution.is_primary.is_(True),
+    )
+    if user_authored_only:
+        stmt = stmt.where(RecordDistribution.auto_generated.is_(False))
+    return (await session.execute(stmt.limit(1))).scalar_one_or_none() is not None
+
+
 async def create_distribution(
     session: AsyncSession,
     record_id: uuid.UUID,
@@ -351,11 +401,35 @@ async def create_distribution(
     is_primary: bool = False,
     record: Record | None = None,
 ) -> RecordDistribution:
-    """Create a manual distribution for a record."""
+    """Create a manual distribution for a record.
+
+    **Primary semantics (#1383): the last write wins.** A row written with
+    ``is_primary=True`` demotes every other distribution on the record, the
+    generated ones included, in this transaction. Before this, the flag was
+    stored verbatim and every dataset already carries a generated primary
+    (GeoPackage when it has geometry, CSV when it does not), so one POST left
+    the record advertising two primaries with no tiebreak for the OGC Record
+    and STAC consumers that read ``properties.distributions``.
+
+    Rejecting the write with a 409 while another row holds the flag was the
+    alternative. It was not taken: the API has no demote verb, so "make this
+    one primary" would become a two-request dance with an unavoidable window
+    where the record has no primary at all, and every existing caller sending
+    ``is_primary=true`` would start failing. Demoting keeps the request
+    meaning what it says.
+
+    Enforcement does not live here. ``uq_record_distribution_primary``
+    (migration 0042) is the invariant — at most one primary row per record,
+    in the database, where no API path can route around it. The demote is
+    what keeps well-behaved callers from ever meeting it.
+    """
     if record is None:
         record = await get_record(session, record_id)
     if record is None:
         raise ValueError(f"Record {record_id} not found")
+
+    if is_primary:
+        await _demote_other_primaries(session, record_id)
 
     dist = RecordDistribution(
         record_id=record_id,
@@ -383,6 +457,13 @@ async def update_distribution(
     """Update a distribution. Explicitly-set fields are applied, nulls included.
 
     Auto-generated distributions cannot be updated (raises ValueError).
+
+    ``is_primary=True`` follows the same last-write-wins rule
+    ``create_distribution`` states (#1383): the record's other distributions
+    are demoted here, in this transaction. Clearing the flag
+    (``is_primary=False``) promotes nothing — a caller saying "this is not the
+    primary" is not saying which one is, and a record with no primary is a
+    representable state that the next ``reconcile_distributions`` fills.
     """
     result = await session.execute(
         select(RecordDistribution).where(
@@ -396,6 +477,11 @@ async def update_distribution(
 
     if dist.auto_generated:
         raise ValueError("Cannot update auto-generated distributions")
+
+    # Before the setattr loop, so the demote UPDATE is on the wire ahead of
+    # the promote this flush will emit — see _demote_other_primaries.
+    if kwargs.get("is_primary") is True:
+        await _demote_other_primaries(session, record_id, keep_id=distribution_id)
 
     # fix(#458 E-46): apply explicitly-set nulls too — see update_contact.
     for key, value in kwargs.items():
@@ -411,6 +497,14 @@ async def delete_distribution(
     """Delete a distribution by ID.
 
     Auto-generated distributions cannot be deleted (raises ValueError).
+
+    Deleting the row that holds ``is_primary`` hands the flag back to the
+    generated default (#1383). Without that, the demote-on-write rule would
+    make "no primary at all" reachable in one more request than it used to
+    be: the user's row took the flag off the generated GeoPackage when it was
+    created, and deleting it would leave nothing holding it. Withdrawing a
+    row withdraws its claim; the platform's own default is what the record
+    had before the claim.
     """
     result = await session.execute(
         select(RecordDistribution).where(
@@ -425,8 +519,46 @@ async def delete_distribution(
     if dist.auto_generated:
         raise ValueError("Cannot delete auto-generated distributions")
 
+    was_primary = dist.is_primary
     await session.delete(dist)
     await session.flush()
+
+    if was_primary:
+        await _restore_generated_primary(session, record_id)
+
+
+async def _restore_generated_primary(
+    session: AsyncSession, record_id: uuid.UUID
+) -> RecordDistribution | None:
+    """Give ``is_primary`` back to the best generated row, if there is one.
+
+    Same preference order ``reconcile_distributions`` normalizes with
+    (GeoPackage, then CSV), restricted to generated rows that actually exist —
+    a record whose modality generates neither is simply left without a
+    primary, the state it was in before. Called only after the flush that
+    removed the previous holder, and it re-checks that nothing else holds the
+    flag, so it can never be the write that trips
+    ``uq_record_distribution_primary``.
+    """
+    if await _record_has_primary(session, record_id):
+        return None
+
+    rows = (
+        await session.execute(
+            select(RecordDistribution).where(
+                RecordDistribution.record_id == record_id,
+                RecordDistribution.auto_generated.is_(True),
+            )
+        )
+    ).scalars()
+    by_pair = {(row.distribution_type, row.format): row for row in rows}
+    for pair in _PRIMARY_PREFERENCE:
+        row = by_pair.get(pair)
+        if row is not None:
+            row.is_primary = True
+            await session.flush()
+            return row
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -561,6 +693,11 @@ async def generate_distributions(
     the insert itself is ``ON CONFLICT DO NOTHING`` against
     ``uq_record_distribution``.
 
+    fix(#1383): the template's ``is_primary`` is inserted only when no row on
+    the record already holds the flag. At creation none does; on a reconcile
+    the holder is a survivor or a user's own row, and the caller's
+    normalization step is what moves the flag afterwards.
+
     fix(#1370): the existence probe reads only auto-generated rows. It used to
     read every row, so a distribution a user authored through
     ``create_distribution`` counted as "the pair is taken" — and once somebody
@@ -590,6 +727,17 @@ async def generate_distributions(
     )
     existing_set = {(row[0], row[1]) for row in existing_result.all()}
 
+    # fix(#1383): the template's primary flag yields to whoever already holds
+    # it. At dataset creation nothing does and the GeoPackage (or CSV) row
+    # takes it exactly as before; on a reconcile the holder is a surviving
+    # generated row or a user's own, and inserting a second primary would
+    # violate `uq_record_distribution_primary` — aborting the refresh
+    # transaction the caller runs inside, which is the failure mode the
+    # ON CONFLICT clause below exists to avoid for the other unique index.
+    # Moving the flag afterwards is reconcile's normalization step, which
+    # demotes before it promotes.
+    record_has_primary = await _record_has_primary(session, record_id)
+
     # Build all new distributions in one list so they go out as a single
     # multi-VALUES INSERT rather than one statement per row.
     to_add: list[dict] = []
@@ -615,7 +763,7 @@ async def generate_distributions(
         url = url_tpl.format(dataset_id=dataset_id)
 
         # For non-spatial datasets, CSV download becomes primary (gpkg is filtered out)
-        effective_primary = (dist_type, fmt) == primary_pair
+        effective_primary = (dist_type, fmt) == primary_pair and not record_has_primary
 
         to_add.append(
             {
@@ -718,11 +866,26 @@ async def reconcile_distributions(
       alone — a generated row the conflict-tolerant insert skipped is not
       there to promote, and the fallback takes it.
 
-    Normalization spans the generated rows only, which is the same boundary as
-    every other bullet here. A user who flags their OWN row primary keeps that
-    flag through a reconcile, so that record advertises two primaries — see
-    #1383, which is reachable from a single POST on any dataset and predates
-    #1370 rather than being introduced by it.
+    **Where the primary flag fits the policy (#1383).** ``is_primary`` is a
+    per-RECORD invariant, not a per-row field: ``uq_record_distribution_primary``
+    (migration 0042) allows one primary row per record, and
+    ``create_distribution``/``update_distribution`` hold it up by demoting
+    everything else when a user claims the flag. That crosses this function's
+    boundary in exactly one place, and the boundary holds:
+
+    - The demote this normalization issues is scoped to ``auto_generated``
+      rows, so a user's row is still never written here. It does span
+      generated rows OUTSIDE ``_GENERATED_PAIRS`` — those survive, as the
+      bullet above promises, but they cannot keep a primary flag the record's
+      new winner needs, because the invariant is per record.
+    - A USER-authored primary outranks this normalization entirely: when one
+      exists, no generated row is promoted and the flags are left alone. The
+      explicit choice wins over the platform default, and a background
+      refresh never takes back what a user asked for.
+
+    Deleting that user row is what hands the flag back — see
+    ``delete_distribution`` — so the record does not sit primary-less waiting
+    for a refresh that may never come.
 
     The lost-edit case is narrower than it reads: ``update_distribution`` and
     ``delete_distribution`` both refuse to touch a row with
@@ -782,13 +945,25 @@ async def reconcile_distributions(
         ),
         None,
     )
+    # fix(#1383): a user's own row holding the flag outranks this
+    # normalization, and skipping is what keeps the preservation policy above
+    # literally true — the demote below is scoped to generated rows, so it
+    # could not clear a user's flag anyway, and promoting beside one would
+    # advertise two primaries (now a `uq_record_distribution_primary`
+    # violation rather than a silent ambiguity).
+    user_primary = await _record_has_primary(
+        session, record_id, user_authored_only=True
+    )
     # No candidate means every preferred pair is occupied by a row this
     # function does not own, and there is nothing to promote. Leave the flags
     # as they are rather than clearing them: an unchanged primary is a worse
     # answer than the right one and a better answer than none.
-    if primary is not None:
-        for row in generated:
-            row.is_primary = row is primary
+    if primary is not None and not user_primary:
+        # Demote first, promote second — one statement each, in that order.
+        await _demote_other_primaries(
+            session, record_id, keep_id=primary.id, generated_only=True
+        )
+        primary.is_primary = True
     await session.flush()
 
     return created, removed

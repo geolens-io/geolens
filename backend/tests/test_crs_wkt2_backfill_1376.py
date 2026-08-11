@@ -130,13 +130,13 @@ async def _seed_raster_asset(session, admin_id: uuid.UUID, crs_wkt: str) -> uuid
     return asset_id
 
 
-def _wkt1_root_re() -> str:
-    """The migration's predicate, loaded from the migration itself.
+def _migration_0041():
+    """The migration module this file is about, loaded for its own constants.
 
-    Copying the pattern here would let the two drift, and a predicate that
-    silently stopped matching would show up as a migration that converts
-    nothing — which looks exactly like a database that had nothing to
-    convert.
+    Copying anything out of it by hand would let the two drift, and a
+    predicate that silently stopped matching would show up as a migration
+    that converts nothing — which looks exactly like a database that had
+    nothing to convert.
     """
     import importlib.util
     from pathlib import Path
@@ -151,7 +151,27 @@ def _wkt1_root_re() -> str:
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module._WKT1_ROOT_RE
+    return module
+
+
+def _wkt1_root_re() -> str:
+    """The migration's predicate, loaded from the migration itself."""
+    return _migration_0041()._WKT1_ROOT_RE
+
+
+def _revision_below_0041() -> str:
+    """The revision 0041 sits on, read from 0041's own ``down_revision``.
+
+    fix(#1383): this round trip used ``downgrade -1``, which reverts whatever
+    the CURRENT head is — 0041 only while nothing sat above it. The moment a
+    new migration landed (0042, the distribution primary-flag index), the
+    downgrade stepped over THAT one and the re-upgrade re-ran nothing, so the
+    WKT1 row came back unconverted and this test failed for a reason that had
+    nothing to do with the backfill. Naming the target keeps the test about
+    its own migration whatever else is stacked on top; reading it from the
+    module keeps it correct if 0041 is ever re-chained.
+    """
+    return _migration_0041().down_revision
 
 
 class TestWkt1Predicate:
@@ -225,9 +245,10 @@ class TestCrsWkt2Backfill:
         wkt2_id = await _seed_raster_asset(test_db_session, admin_id, already_wkt2)
 
         try:
-            down = _run_alembic("downgrade", "-1")
+            target = _revision_below_0041()
+            down = _run_alembic("downgrade", target)
             assert down.returncode == 0, (
-                f"alembic downgrade -1 failed (rc={down.returncode}):\n"
+                f"alembic downgrade {target} failed (rc={down.returncode}):\n"
                 f"stdout: {down.stdout}\nstderr: {down.stderr}"
             )
             up = _run_alembic("upgrade", "head")
