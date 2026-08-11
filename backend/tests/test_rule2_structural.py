@@ -1606,6 +1606,12 @@ def _is_value_position(current: ast.AST, parent: ast.AST) -> bool:
     two exclusions above are not folding — they read which FIELD an operator
     can return, with no claim about any operand's value.
     """
+    if isinstance(parent, ast.NamedExpr):
+        # A walrus BINDS its value and also evaluates to it, so
+        # `for cmd in (alias := commands):` iterates `commands` (codex round
+        # 10). The binding half is recorded elsewhere and does not help here:
+        # the target is a Store, and the alias walk only follows Loads.
+        return current is parent.value
     if isinstance(parent, ast.IfExp):
         return current is parent.body or current is parent.orelse
     if isinstance(parent, ast.BoolOp):
@@ -1640,14 +1646,14 @@ def _depth_preserving_ancestor(expr: ast.AST) -> ast.AST:
     """The outermost expression around ``expr`` that is still the same value.
 
     Same value meaning the same thing at the same container depth, so a caller
-    holding a container of argvs still holds one at the top. Two wrappers
-    qualify, both of them already named elsewhere in this module
-    (fix(#1394), codex round 6):
+    holding a container of argvs still holds one at the top. Four wrappers
+    qualify, each already named elsewhere in this module (fix(#1394), codex
+    round 6 and after):
 
     * a VALUE wrapper — ``commands or ()``, ``commands if flag else ()``,
-      ``commands + extra`` — in a position it can actually evaluate to, which
-      rules out a ternary's condition and a non-final ``and`` operand (see
-      ``_is_value_position``).
+      ``commands + extra`` — or a walrus, in a position the wrapper can
+      actually evaluate to, which rules out a ternary's condition and a
+      non-final ``and`` operand (see ``_is_value_position``).
     * a star inside a display, ``(*commands,)``, which splices ``commands``'
       elements into a new one and so preserves its depth (codex round 5). The
       pair counts once, exactly as it does in ``_binding_targets``.
@@ -3617,6 +3623,14 @@ def test_guard_a_wrapped_iterable_is_still_the_same_loop():
     assert loop_targets_of("for cmd in () or commands:\n    pass\n", "commands") == {
         "cmd"
     }
+    # codex round 10: a walrus evaluates to its value as well as binding it,
+    # and its target is a Store that the Load-only alias walk never sees.
+    assert loop_targets_of(
+        "for cmd in (alias := commands):\n    pass\n", "commands"
+    ) == {"cmd"}
+    assert loop_targets_of(
+        "for cmd in (alias := commands) or ():\n    pass\n", "commands"
+    ) == {"cmd"}
 
     violations, total = _collect_gdal_cli_violations(
         _mod(
@@ -3645,12 +3659,21 @@ def test_guard_a_wrapped_iterable_is_still_the_same_loop():
             "    commands = [['nearblack', path]]\n"
             "    for cmd in commands and ():\n"
             "        subprocess.run(cmd)\n"
+            "def walrus(path):\n"
+            "    commands = [['gdalinfo', path]]\n"
+            "    for cmd in (alias := commands):\n"
+            "        subprocess.run(cmd)\n"
+            "def walrus_vector(path):\n"
+            "    cmd = ['ogrinfo', path]\n"
+            "    for part in (alias := cmd):\n"
+            "        consume(part)\n"
         ),
         {},
     )
-    assert total == 4, (total, violations)
-    assert len(violations) == 4, violations
-    for quiet in ("(condition_only)", "(and_guarded)"):
+    assert total == 5, (total, violations)
+    assert len(violations) == 5, violations
+    assert any("(walrus)" in v for v in violations), violations
+    for quiet in ("(condition_only)", "(and_guarded)", "(walrus_vector)"):
         assert not any(quiet in v for v in violations), (quiet, violations)
 
 
