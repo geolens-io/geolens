@@ -610,6 +610,10 @@ class TestMigrationRepair:
                     )
                     assert await self._primary_count(conn, record_id) == 2
 
+                    # Same three statements ``upgrade()`` issues, in the same
+                    # order: the lock is what stops a writer from putting a
+                    # second primary back between the repair and the index.
+                    await conn.execute(sa.text(migration._LOCK_SQL))
                     await conn.execute(sa.text(migration._REPAIR_SQL))
 
                     rows = (
@@ -696,6 +700,7 @@ class TestMigrationRepair:
                         {"rid": record_id},
                     )
 
+                    await conn.execute(sa.text(migration._LOCK_SQL))
                     await conn.execute(sa.text(migration._REPAIR_SQL))
 
                     rows = (

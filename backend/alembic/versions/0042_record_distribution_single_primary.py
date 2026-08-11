@@ -37,6 +37,19 @@ Everything else on that record has ``is_primary`` cleared. No row is deleted:
 a demoted distribution is still a distribution, and the DCAT/GeoDCAT-AP feeds
 never serialized the flag at all, so nothing disappears from them.
 
+**No window between the repair and the index.** The migration takes
+``LOCK TABLE catalog.record_distributions IN SHARE MODE`` before it repairs
+anything. Without it, a rolling deployment leaves the PRE-upgrade API writable
+while this runs, and that code stores ``is_primary`` verbatim: a POST that
+commits after the repair statement's snapshot — or one already in flight and
+therefore invisible to it — puts a second primary back on a record the repair
+had just cleaned. ``CREATE UNIQUE INDEX`` then waits for that writer, scans the
+duplicated rows and fails, turning a deploy migration into an aborted one. The
+lock closes the window at both ends: it waits out the in-flight writers, and it
+blocks new ones until this transaction commits. SHARE is the mode
+``CREATE INDEX`` acquires anyway, so this only moves the acquisition earlier —
+by one small UPDATE — rather than holding a stronger lock.
+
 Plain, transactional ``CREATE UNIQUE INDEX`` — not ``CONCURRENTLY``, following
 0040's reasoning verbatim: a CIC interrupted mid-build (lock contention from a
 sibling pytest-xdist worker migrating its own database, a killed process)
@@ -102,8 +115,15 @@ ON catalog.record_distributions (record_id)
 WHERE is_primary
 """
 
+# Excludes writers for the whole migration — see the module docstring's
+# "no window between the repair and the index" paragraph. SHARE is exactly
+# what `CREATE INDEX` takes on its own; taking it up front only moves the
+# acquisition earlier, it does not escalate.
+_LOCK_SQL = "LOCK TABLE catalog.record_distributions IN SHARE MODE"
+
 
 def upgrade() -> None:
+    op.execute(_LOCK_SQL)
     # Repair first: the index cannot be built over a record that still has two.
     op.execute(_REPAIR_SQL)
     op.execute(_CREATE_INDEX_SQL)
