@@ -211,10 +211,10 @@ def render_dateline_safe(geom_expr: str, *, alias: str = "_dl") -> str:
     Probed on PostGIS 3.6, a 10 km buffer of a point at lon 179.95 / lat 45
     returns a self-intersecting POLYGON whose planar envelope is 359.99° wide.
     Registration stores that envelope verbatim into ``records.spatial_extent``
-    (``ingest/metadata.py`` computes a bare ``ST_Extent``), so the saved dataset
-    published a near-global bbox on the datasets API and the OGC Features
-    collection extent, and the stored geometry itself matched a bbox query over
-    central France — a feature-level false positive, ~15 000 km off.
+    (``ingest/metadata_extent.py`` computes a bare ``ST_Extent``), so the saved
+    dataset published a near-global bbox on the datasets API and the OGC
+    Features collection extent, and the stored geometry itself matched a bbox
+    query over central France — a feature-level false positive, ~15 000 km off.
 
     The split shifts into the 0..360 domain so the ring is coherent again, cuts
     at x=180, translates the far side back by -360, and keeps the polygonal

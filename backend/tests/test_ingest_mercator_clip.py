@@ -645,13 +645,17 @@ class TestDegenerateEnvelopeSkip(_FixtureTable):
         """Ordering constraint from the issue: skipping the clip must still
         leave the 0..360 shift applied. No real degree-geographic CRS
         degenerates, so the probe is forced True to pin the ordering."""
-        from app.processing.ingest import metadata as metadata_module
+        # fix(#1042): patched on metadata_mercator, not on the metadata façade
+        # that re-exports it. `clip_to_mercator_bounds` resolves this name from
+        # its own module globals, so a patch on the façade would bind a name
+        # nothing reads and the probe would still run for real.
+        from app.processing.ingest import metadata_mercator
 
         async def _always_degenerate(*_args, **_kwargs):
             return True
 
         monkeypatch.setattr(
-            metadata_module,
+            metadata_mercator,
             "_mercator_envelope_degenerates",
             _always_degenerate,
         )

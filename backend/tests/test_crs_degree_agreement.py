@@ -26,7 +26,7 @@ import pytest
 from sqlalchemy import text
 
 from app.core.geo import crs_has_degree_unit, wkt_has_degree_unit, wkt_is_geographic
-from app.processing.ingest.metadata import (
+from app.processing.ingest.metadata_mercator import (
     _DEGREE_UNIT_SRTEXT_RE,
     _GEOGRAPHIC_SRTEXT_RE,
 )

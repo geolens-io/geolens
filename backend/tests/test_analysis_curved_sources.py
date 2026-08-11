@@ -2,7 +2,7 @@
 
 WFS ingest admits CURVED geometries — GeoServer MultiSurface/CompoundCurve
 layers load as stored, and ingest classifies the dataset by the closest
-concrete linear type (metadata.py's _ABSTRACT_TO_CONCRETE_GEOMETRY_TYPE).
+concrete linear type (metadata_extent.py's _ABSTRACT_TO_CONCRETE_GEOMETRY_TYPE).
 Verified against PostGIS 3.6: ``::geography``, ``ST_MakeValid``,
 ``ST_AsGeoJSON`` and ``ST_AsMVTGeom`` all RAISE on curved input. fix(#1104):
 ingest therefore linearizes ``geom_4326`` itself (add_4326_column applies
@@ -66,7 +66,7 @@ async def _create_curved_polygon_layer(session: AsyncSession, *, created_by):
         session,
         created_by=created_by,
         column_type="Geometry",
-        # What ingest records for a MultiSurface source (metadata.py).
+        # What ingest records for a MultiSurface source (metadata_extent.py).
         geometry_type="MULTIPOLYGON",
         values_sql=f"('circle', {CURVED_POLYGON}, {CURVED_POLYGON})",
         feature_count=1,

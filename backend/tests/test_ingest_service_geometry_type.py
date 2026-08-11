@@ -17,7 +17,7 @@ ogr2ogr to emit a generic ``geometry(Geometry, 4326)`` PostGIS column with no
 subtype constraint, so any concrete geometry subtype can be stored freely.
 
 The concrete subtype for ``Dataset.geometry_type`` is derived post-ingest via
-``get_geometry_type()`` (``metadata.py:165``), which queries
+``get_geometry_type()`` (``metadata_extent.py``), which queries
 ``SELECT GeometryType(geom) … LIMIT 1``.  The file-ingest sibling
 ``run_ogr2ogr()`` is unaffected and continues to use ``PROMOTE_TO_MULTI``.
 

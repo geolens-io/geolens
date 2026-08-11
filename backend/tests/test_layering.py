@@ -1993,72 +1993,29 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # direct property values only, because a `stops` key inside an expression
     # operand is data, not a legacy function. Cap 1379 -> 1369, still exact.
     "backend/app/modules/catalog/maps/schemas.py": 1369,
-    # fix(#888): +117. `clip_to_mercator_bounds` used to lose data twice over
-    # in silence — it clipped away everything east of lon 180 in a 0..360
-    # source, and it reduced valid polar geometry to EMPTY without telling
-    # anyone. The added lines are `_shift_zero_to_360_longitudes` plus the
-    # clip accounting the warning is built from, and roughly half of them are
-    # the four-condition guard write-up: #883 established that a
-    # single-condition guard on antimeridian/longitude-convention problems is
-    # a coin flip, so the conditions and their near misses are documented at
-    # the code rather than only in the issue. Ratchet stays exact.
-    # fix(#899 codex r1): +23 — the angular-unit half of guard condition 1
-    # (14 stock SRIDs are GEOGCS in grads, where -360 is not a whole turn) and
-    # the note that the envelope bounds X at ±180 too, so the warning built
-    # from its counts cannot blame latitude for a lon-400 drop.
-    # fix(#906): +83 — the degenerate-envelope guard for narrow-validity CRSs
-    # (_mercator_envelope_degenerates plus the skip branch and clip_skipped
-    # accounting): 4415 of 8500 stock SRIDs collapse the safe envelope under
-    # ST_Transform and the clip then emptied the whole table silently.
-    # fix(#934): +52 — the seam-aware extent-producer override: the
-    # `_seam_crossing_extent_wkt` gate (naive width > 180 is the only case
-    # where the shifted domain can win, so the common path skips the second
-    # aggregate) and the crossing override wiring in `get_extent` and the
-    # extract_metadata CTE. Ratchet stays exact.
-    # fix(#961 review): +29 — the anchor on `_GEOGRAPHIC_SRTEXT_RE` is now
-    # documented as load-bearing rather than incidental. Un-anchoring it (so it
-    # would agree with `core.geo.wkt_is_geographic` and with the floor below on
-    # wrapped CRSs) was tried and reverted: the companion degree test is a flat
-    # substring scan, so a grads BOUNDCRS would have matched an unrelated
-    # `degree` on its target and been translated by 360 with a 400-unit turn.
-    # This is the shift that moves geometry, so the reasoning lives at the code
-    # rather than only in the issue. Ratchet stays exact.
-    # fix(#958): now five carve-outs deep, which is the ratchet taxing
-    # correctness work on a module nobody has had time to split.
-    # Decomposition tracked in #1042; the cap stays exact until then.
-    # fix(#1104): +7 — add_4326_column linearizes curved sources with
-    # ST_CurveToLine (an exact no-op on linear input), so geom_4326 can never
-    # hold a type that ST_AsMVTGeom/ST_AsGeoJSON/::geography/ST_MakeValid
-    # raise on. Most of the lines are the docstring recording that invariant.
-    # Ratchet stays exact.
-    # fix(#1113 review): +28 — linearize_existing_4326 enforces the same
-    # invariant on the register path, the one app-controlled writer of a
-    # geom_4326 the ingest normalizer never touched (a pre-existing column on
-    # a BYO table registered after migration 0034's backfill ran).
-    # Cap 2038 -> 2066, still exact.
-    # fix(#1113 review r4): +25 — a BYO column can DECLARE a curved typmod
-    # (geometry(CurvePolygon, 4326)), which rejects the linear UPDATE result
-    # outright; such a column is loosened to generic geometry first.
-    # Cap 2066 -> 2091, still exact.
-    # fix(#1113 review r5): +12 — the loosened typmod preserves Z/M flags
-    # (plain Geometry rejects Z values), and rtrim(...,'M') matching catches
-    # the M-suffixed curve names in both the typmod lookup and the UPDATE
-    # predicate. Cap 2091 -> 2103, still exact.
-    # fix(#1113 review r7): +16 — a STORED GENERATED geom_4326 rejects any
-    # UPDATE at parse time and cannot be repaired in place, so the enforcer
-    # skips it (#1114 tracks generation expressions that yield curves).
-    # Cap 2103 -> 2119, still exact.
-    # fix(#1113 review r16): +8 — linearize in the SOURCE CRS, then
-    # reproject: transforms are nonlinear, so densifying after ST_Transform
-    # traces the arc in the wrong space. Cap 2147 -> 2151 net (see r8/r9).
-    # fix(#1113 review r8): +24 — a generated column whose CURRENT rows are
-    # curved refuses registration with the actionable cause, instead of
-    # admitting a dataset broken on every surface. Cap 2119 -> 2143, exact.
-    # fix(#1113 review r9): +4 — the reject test becomes "would linearization
-    # change the value" (byte-compare), catching curve containers nested in a
-    # GEOMETRYCOLLECTION without over-rejecting all-linear collections.
-    # Cap 2143 -> 2147, still exact.
-    "backend/app/processing/ingest/metadata.py": 2151,
+    # fix(#1042): decomposed. The file reached 2151 lines with five carve-outs
+    # on this cap, each one a correctness fix that had to argue for its lines:
+    # #888 (+117, shift a 0..360 source instead of clipping it, plus the clip
+    # accounting), #899 codex r1 (+23, the angular-unit half of that guard —
+    # 14 stock SRIDs are GEOGCS in grads, where -360 is not a whole turn),
+    # #906 (+83, the degenerate-envelope guard: 4415 of 8500 stock SRIDs
+    # collapse the safe envelope under ST_Transform and the clip then emptied
+    # the table silently), #934 (+52, the seam-aware extent-producer override),
+    # #961 review (+29, the anchor on `_GEOGRAPHIC_SRTEXT_RE` documented as
+    # load-bearing), and then #1104/#1113's eight rounds (+124, the
+    # geom_4326-is-always-linear invariant and its BYO-column enforcement).
+    # #958 named the pattern — the ratchet taxing correctness work on a module
+    # nobody had time to split — and filed #1042 to split it.
+    #
+    # Every one of those clusters now has its own file, so the next carve-out
+    # argues against a few hundred lines instead of two thousand:
+    # metadata_sql (60), metadata_quality (190), metadata_projection (266),
+    # metadata_attributes (352), metadata_mercator (361), metadata_geometry
+    # (424), metadata_extent (633). None is near the 1000-line inclusion
+    # threshold, so none needs an entry here yet. What is left below is the
+    # re-export façade every existing importer and mock.patch target resolves
+    # against. Cap 2151 -> 144, exact.
+    "backend/app/processing/ingest/metadata.py": 144,
     # ingest/router.py is also scanned by the router-glob gate; this exact
     # ratchet overrides its 1500 default so the remaining runway to the cliff
     # cannot be spent silently.
