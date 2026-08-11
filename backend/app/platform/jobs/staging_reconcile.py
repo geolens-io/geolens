@@ -30,8 +30,12 @@ from causes no margin ever addressed: a delete that failed inside a
 best-effort reaper, a row purged while its object delete errored, a worker
 killed between writing an object and committing the row that names it.
 
-"Any row", not "the row whose id is in the key" — see `_reference_clause` for
-why fan-out makes that distinction load-bearing rather than pedantic.
+"Still needs", not "still exists", and the difference took two review rounds
+to get right in both directions: a fan-out child's inherited `file_path`
+(`_can_still_consume`) and the owning row's own finished lifecycle
+(`_owner_still_manages`). Either read as an unconditional shield leaves an
+object nothing will ever clean up, including — in the second case — the very
+late-PUT leak this module exists to close.
 
 ### The two races, handled by construction
 
@@ -66,7 +70,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.observability.metrics.jobs import staging_orphans_deleted_total
-from app.platform.jobs.models import STATUSES_NEEDING_STAGED_INPUT, IngestJob
+from app.platform.jobs.models import (
+    STAGING_REAPED_FINAL_MARKER,
+    STATUSES_NEEDING_STAGED_INPUT,
+    IngestJob,
+)
 from app.platform.storage.provider import StoredObject
 from app.platform.storage.titiler_url import resolve_current_storage_key
 
@@ -245,42 +253,74 @@ def _reference_clause(job_id: uuid.UUID | None, logical_keys: set[str]):
     delete the input the child (or its retry) is about to read.
 
     So the question is "does any row still NEED this key", which is two
-    different questions with two different answers:
+    different questions with two different answers — ``_owner_still_manages``
+    for the row whose id the key names, ``_can_still_consume`` for every other
+    row. Neither is "a row exists", and both took a review round to learn.
 
-    - The row whose id the key names owns it outright, at any status. That row
-      is where ``_sweep_expired_presigned_staging``'s markers live and it is
-      the row the retention purge holds back while a PUT URL may still be
-      live, so while it exists the key has a lifecycle and this reconciler is
-      not it.
-    - Any OTHER row only counts while it can still consume the bytes, which is
-      ``STATUSES_NEEDING_STAGED_INPUT`` (fix(#1249) review r4, codex P2).
-      Unconditional was wrong in the direction that never self-corrects: a
-      fan-out child stays ``complete`` forever and is exempt from retention
-      indefinitely as a dataset's latest complete job, so its inherited
-      ``file_path`` would answer "still referenced" on every future pass and
-      the leaked parent object could never be repaired. That is the same rule
-      the retention purge's own survivor query applies, now read from one
-      place so the two cannot drift.
-
-    ``user_metadata->>'s3_key'`` is deliberately NOT consulted. It is cloned
-    onto fan-out children wholesale, and ``owned_presigned_staging_key``
-    already settles that an inherited copy is not ownership; the only row for
-    which it IS ownership is the one whose id the key names, which the first
-    clause covers already.
+    ``user_metadata->>'s3_key'`` is deliberately NOT consulted as a reference.
+    It is cloned onto fan-out children wholesale, and
+    ``owned_presigned_staging_key`` already settles that an inherited copy is
+    not ownership; the only row for which it IS ownership is the one whose id
+    the key names, which the first branch covers.
 
     Comparisons are against the LOGICAL key. The provider reports physical
     keys, which carry the ``tenants/{id}/`` namespace in multi-tenant mode,
-    while these columns deliberately persist the tenant-agnostic form.
+    while ``file_path`` deliberately persists the tenant-agnostic form.
     """
-    clauses = [
-        and_(
-            IngestJob.file_path.in_(logical_keys),
-            IngestJob.status.in_(STATUSES_NEEDING_STAGED_INPUT),
-        )
-    ]
+    clauses = [and_(IngestJob.file_path.in_(logical_keys), _can_still_consume())]
     if job_id is not None:
-        clauses.insert(0, IngestJob.id == job_id)
+        clauses.insert(0, and_(IngestJob.id == job_id, _owner_still_manages()))
     return or_(*clauses)
+
+
+def _can_still_consume():
+    """Predicate: this row can still read the staged input it points at.
+
+    fix(#1249 review r4, codex P2): a reference is only a reference while the
+    row can act on it. Unconditional was wrong in the direction that never
+    self-corrects — a fan-out child stays ``complete`` forever and is exempt
+    from retention indefinitely as a dataset's latest complete job, so its
+    inherited ``file_path`` would answer "still referenced" on every future
+    pass and the leaked parent object could never be repaired. Same line the
+    retention purge's own survivor query draws, read from one place so the two
+    cannot drift.
+    """
+    return IngestJob.status.in_(STATUSES_NEEDING_STAGED_INPUT)
+
+
+def _owner_still_manages():
+    """Predicate: some mechanism OTHER than this sweep still owns the row's keys.
+
+    The row whose id a staging key names is not a reference to it, it is its
+    lifecycle — so the question for that row is not "does it exist" but "is
+    anything still going to act on this key". Exactly two things do:
+
+    - The task tails and the retention purge, while the row can still consume
+      the bytes (``_can_still_consume``).
+    - ``_sweep_expired_presigned_staging``, while the row carries an ``s3_key``
+      it has not yet finalized.
+
+    fix(#1249 review r6, codex P2): existence alone was a permanent shield, and
+    it shielded the exact leak this whole change exists to close. Once the
+    post-expiry sweep sets ``STAGING_REAPED_FINAL_MARKER`` it never looks at
+    that key again; if the row is also its dataset's latest complete job, the
+    retention purge exempts it indefinitely. A PUT that lands after that final
+    delete recreates an object that every row-driven reaper is now finished
+    with — and, before this predicate, one this reconciler declined forever
+    because the row was still there.
+
+    The ``s3_key IS NOT NULL`` half matters as much as the marker half: a
+    direct upload (or any job that never presigned) has no such key, so the
+    presigned sweep will never set a marker on it, and treating a missing
+    marker as "not yet finalized" would shield those rows forever instead.
+    """
+    return or_(
+        _can_still_consume(),
+        and_(
+            IngestJob.user_metadata["s3_key"].astext.is_not(None),
+            IngestJob.user_metadata[STAGING_REAPED_FINAL_MARKER].astext.is_(None),
+        ),
+    )
 
 
 async def _staging_reference_exists(
@@ -511,31 +551,35 @@ async def _delete_page_orphans(
     # large the orphan backlog grows (fix(#1249) review r1). The per-object
     # recheck below is the authority; this only avoids paying for it per object
     # on a healthy bucket.
+    # Two halves of `_reference_clause`, asked in bulk with the SAME two
+    # predicates rather than a Python re-derivation of them — a pre-filter that
+    # shields more than the recheck would silently skip candidates the recheck
+    # never gets to see, which is how r4 and r6 each hid a permanent leak.
     logical_keys = {candidate.logical_key for candidate in candidates}
-    referenced_rows = (
-        await db.execute(
-            select(IngestJob.id, IngestJob.file_path, IngestJob.status).where(
-                or_(
+    shielding_ids = set(
+        (
+            await db.execute(
+                select(IngestJob.id).where(
                     IngestJob.id.in_({c.job_id for c in candidates}),
-                    IngestJob.file_path.in_(logical_keys),
+                    _owner_still_manages(),
                 )
             )
-        )
-    ).all()
-    live_ids = {row_id for row_id, _file_path, _status in referenced_rows}
-    # A row's file_path only shields the object while that row can still
-    # consume it — see `_reference_clause`, whose per-object recheck applies
-    # the identical rule and is the authority.
-    referenced_keys = {
-        file_path
-        for _row_id, file_path, status in referenced_rows
-        if file_path and status in STATUSES_NEEDING_STAGED_INPUT
-    }
+        ).scalars()
+    )
+    referenced_keys = set(
+        (
+            await db.execute(
+                select(IngestJob.file_path).where(
+                    IngestJob.file_path.in_(logical_keys), _can_still_consume()
+                )
+            )
+        ).scalars()
+    )
 
     processed: str | None = None
     for candidate in sorted(candidates):
         physical_key, logical_key, job_id = candidate
-        if job_id in live_ids or logical_key in referenced_keys:
+        if job_id in shielding_ids or logical_key in referenced_keys:
             continue
         if tally.orphans_deleted + tally.delete_failures >= _MAX_DELETES_PER_PASS:
             return processed

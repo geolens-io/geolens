@@ -32,7 +32,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.platform.jobs.models import IngestJob
+from app.platform.jobs.models import STAGING_REAPED_FINAL_MARKER, IngestJob
 from app.platform.jobs.staging_reconcile import (
     STAGING_PREFIX,
     _job_id_from_key,
@@ -130,6 +130,21 @@ async def _job(
     return job_id
 
 
+async def _job_with_id(
+    session: AsyncSession, job_id: uuid.UUID, *, status: str, user_metadata: dict
+) -> None:
+    """Insert a committed row at a CHOSEN id, for keys that name their job."""
+    session.add(
+        IngestJob(
+            id=job_id,
+            source_filename="orphan-test",
+            status=status,
+            user_metadata=user_metadata,
+        )
+    )
+    await session.commit()
+
+
 @pytest.fixture(autouse=True)
 def _front_of_the_prefix():
     """Start every test's first pass at the front of the keyspace.
@@ -186,10 +201,10 @@ class TestJobIdFromKey:
 class TestReconciliationDecision:
     """Row present / absent+young / absent+old, plus both races."""
 
-    async def test_an_object_whose_job_row_still_exists_is_kept(
+    async def test_an_object_whose_job_is_still_running_is_kept(
         self, test_db_session: AsyncSession
     ) -> None:
-        job_id = await _job(test_db_session)
+        job_id = await _job(test_db_session, status="running")
         key = f"staging/{job_id}/roads.geojson"
         storage = FakeStorage({key: _old()})
 
@@ -267,23 +282,79 @@ class TestReconciliationDecision:
         assert storage.deleted == [shared_input]
         assert outcome.orphans_deleted == 1
 
-    async def test_the_owning_row_shields_its_key_at_any_status(
+    async def test_the_owning_row_shields_while_the_post_expiry_sweep_owns_the_key(
         self, test_db_session: AsyncSession
     ) -> None:
-        """The status rule applies to OTHER rows, never to the key's own job.
+        """A complete presigned job that has not been finalized yet.
 
-        That row is where the post-expiry sweep's markers live and the one
-        retention holds back while a PUT URL may still be live, so while it
-        exists the key has a lifecycle and this reconciler is not it.
+        `_sweep_expired_presigned_staging` is still going to act on this key,
+        so this reconciler must not race it — the status rule alone would have
+        called a complete row done with the bytes.
         """
-        job_id = await _job(test_db_session, status="complete")
+        # The key names the job it belongs to, so the row is created first and
+        # its metadata written in a second statement.
+        job_id = uuid.uuid4()
         upload_key = f"staging/{job_id}/roads.geojson"
+        await _job_with_id(
+            test_db_session,
+            job_id,
+            status="complete",
+            user_metadata={"s3_key": upload_key},
+        )
         storage = FakeStorage({upload_key: _old()})
 
         outcome = await _run(test_db_session, storage)
 
         assert storage.deleted == []
         assert outcome.orphans_deleted == 0
+
+    async def test_a_finally_reaped_owner_no_longer_shields_a_recreated_upload(
+        self, test_db_session: AsyncSession
+    ) -> None:
+        """fix(#1249 review r6, codex P2): #1249's own scenario, end to end.
+
+        A single-part PUT that lands after the post-expiry sweep's FINAL delete
+        recreates the object. That sweep never looks at the key again once its
+        final marker is set, and retention exempts a dataset's latest
+        complete job indefinitely — so "the row still exists" as a shield left
+        the recreated object unreachable by every reaper including this one,
+        which is the exact leak this module was written to close.
+        """
+        job_id = uuid.uuid4()
+        upload_key = f"staging/{job_id}/roads.geojson"
+        await _job_with_id(
+            test_db_session,
+            job_id,
+            status="complete",
+            user_metadata={
+                "s3_key": upload_key,
+                STAGING_REAPED_FINAL_MARKER: True,
+            },
+        )
+        storage = FakeStorage({upload_key: _old()})
+
+        outcome = await _run(test_db_session, storage)
+
+        assert storage.deleted == [upload_key]
+        assert outcome.orphans_deleted == 1
+
+    async def test_a_complete_direct_uploads_leftover_is_reclaimable(
+        self, test_db_session: AsyncSession
+    ) -> None:
+        """A job that never presigned gets no marker, ever.
+
+        Reading a missing marker as "not finalized yet" would shield every
+        direct-upload row forever — the same permanent-shield shape, arrived at
+        from the other side.
+        """
+        job_id = await _job(test_db_session, status="complete")
+        leftover = f"staging/{job_id}/roads.geojson"
+        storage = FakeStorage({leftover: _old()})
+
+        outcome = await _run(test_db_session, storage)
+
+        assert storage.deleted == [leftover]
+        assert outcome.orphans_deleted == 1
 
     async def test_a_reference_that_appears_before_the_delete_saves_the_object(
         self, test_db_session: AsyncSession
@@ -702,7 +773,7 @@ class TestAgainstRealLocalStorage:
             "app.platform.storage.get_storage", lambda: storage, raising=True
         )
 
-        tracked_id = await _job(test_db_session)
+        tracked_id = await _job(test_db_session, status="running")
         orphan_id = uuid.uuid4()
         tracked_key = f"staging/{tracked_id}/tracked.geojson"
         orphan_key = f"staging/{orphan_id}/orphan.geojson"

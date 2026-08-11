@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import MAX_PRESIGNED_URL_LIFETIME_SECONDS, settings
 from app.observability.metrics.refresh import refresh_sweep_reconciled_total
 from app.platform.jobs.models import (
+    STAGING_REAPED_FINAL_MARKER,
     STATUSES_NEEDING_STAGED_INPUT,
     IngestJob,
     owned_presigned_staging_key,
@@ -278,7 +279,7 @@ _STAGING_REAPED_MARKER = "s3_key_reaped"
 # latest moment any URL for the job, signed under any setting the deployment
 # ever ran, can still be live. Only rows carrying this marker are excluded
 # from every future pass; _STAGING_REAPED_MARKER alone no longer is.
-_STAGING_REAPED_FINAL_MARKER = "s3_key_reaped_final"
+_STAGING_REAPED_FINAL_MARKER = STAGING_REAPED_FINAL_MARKER
 
 # fix(#1236 review, codex P1): SigV4 bounds when a URL may be SIGNED for, not
 # when an already-accepted PUT finishes transferring bytes — S3 validates the

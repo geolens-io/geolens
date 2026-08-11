@@ -2322,7 +2322,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # direction and a deletion of live input in the other. The lines are the
     # multi-name import that replaced the single-name one. Cap 1375 -> 1379,
     # exact.
-    "backend/app/platform/jobs/sweep.py": 1379,
+    # fix(#1249 review r6): +1 — STAGING_REAPED_FINAL_MARKER moved to
+    # jobs/models.py too. Its presence is what tells the reconciliation the
+    # post-expiry sweep is finished with a key, and a copy of the string in
+    # each module is one rename away from a row that shields an object
+    # forever. Cap 1379 -> 1380, exact.
+    "backend/app/platform/jobs/sweep.py": 1380,
     # fix(second-opinion review on #1236 review r3): first entry — crossed
     # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
     # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side
