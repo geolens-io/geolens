@@ -112,6 +112,12 @@ async def live_tenant_boundary(conn) -> list[BoundaryTableState]:
                          AND NOT trigger_row.tgisinternal
                          AND trigger_row.tgenabled IN ('O', 'A')
                          AND trigger_row.tgtype = :before_insert_row
+                         -- 0018 installs it unconditional and argument-free. A
+                         -- WHEN clause that is false for some rows leaves those
+                         -- inserts unstamped while everything else still checks
+                         -- out.
+                         AND trigger_row.tgqual IS NULL
+                         AND trigger_row.tgnargs = 0
                          AND trigger_row.tgfoid = (
                              SELECT routine.oid
                              FROM pg_catalog.pg_proc AS routine
@@ -146,6 +152,9 @@ async def live_tenant_boundary(conn) -> list[BoundaryTableState]:
                          AND policy.polname = 'tenant_isolation_' || relation.relname
                          AND policy.polcmd = '*'
                          AND policy.polpermissive
+                         -- polroles {0} is TO PUBLIC. Narrowed to a named list,
+                         -- every role outside it takes the implicit deny.
+                         AND policy.polroles = '{0}'::oid[]
                          AND pg_catalog.pg_get_expr(
                              policy.polqual, policy.polrelid
                          ) = :isolation_expression
@@ -252,6 +261,7 @@ async def stamping_function_shape(conn) -> str | None:
         text(
             f"""
             SELECT language.lanname AS language,
+                   routine.prosecdef AS security_definer,
                    routine.prorettype = 'trigger'::regtype AS returns_trigger,
                    COALESCE(routine.proconfig::text LIKE '%search_path=%', false)
                        AS search_path_pinned,
@@ -281,6 +291,13 @@ async def stamping_function_shape(conn) -> str | None:
         )
     if not row.returns_trigger:
         return f"catalog.{BOUNDARY_TRIGGER_FUNCTION}() does not return trigger"
+    if row.security_definer:
+        # 0018 installs it SECURITY INVOKER on purpose: it runs on every insert,
+        # and after a --no-owner restore its owner is the restoring superuser.
+        return (
+            f"catalog.{BOUNDARY_TRIGGER_FUNCTION}() is SECURITY DEFINER — 0018 "
+            "installs it SECURITY INVOKER, and it fires on every insert"
+        )
     if not row.search_path_pinned:
         return f"catalog.{BOUNDARY_TRIGGER_FUNCTION}() has no pinned search_path"
     if not row.body_markers_present:

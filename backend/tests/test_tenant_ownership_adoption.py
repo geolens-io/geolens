@@ -1186,6 +1186,80 @@ class TestLiveTenantBoundary:
         finally:
             await engine.dispose()
 
+    async def test_a_conditional_stamping_trigger_is_not_a_live_boundary(self):
+        """A WHEN clause leaves the rows it excludes unstamped."""
+        engine = _make_engine()
+        table = "embed_tokens"
+        try:
+            async with engine.connect() as conn:
+                transaction = await conn.begin()
+                try:
+                    await conn.execute(
+                        sa.text(
+                            "DROP TRIGGER trg_stamp_current_tenant_on_insert "
+                            f"ON catalog.{table}"
+                        )
+                    )
+                    await conn.execute(
+                        sa.text(
+                            "CREATE TRIGGER trg_stamp_current_tenant_on_insert "
+                            f"BEFORE INSERT ON catalog.{table} FOR EACH ROW "
+                            "WHEN (NEW.tenant_id IS NOT NULL) "
+                            "EXECUTE FUNCTION catalog.stamp_current_tenant_on_insert()"
+                        )
+                    )
+                    boundary = await live_tenant_boundary(conn)
+                    state = next(entry for entry in boundary if entry.name == table)
+                    assert not state.has_stamping_trigger
+                    assert state.stamping_trigger_inert
+                finally:
+                    await transaction.rollback()
+        finally:
+            await engine.dispose()
+
+    async def test_a_security_definer_stamping_function_is_reported(self):
+        """0018 installs it SECURITY INVOKER; it fires on every insert."""
+        engine = _make_engine()
+        try:
+            async with engine.connect() as conn:
+                transaction = await conn.begin()
+                try:
+                    await conn.execute(
+                        sa.text(
+                            "ALTER FUNCTION catalog.stamp_current_tenant_on_insert() "
+                            "SECURITY DEFINER"
+                        )
+                    )
+                    reason = await stamping_function_shape(conn)
+                    assert reason is not None
+                    assert "SECURITY DEFINER" in reason
+                finally:
+                    await transaction.rollback()
+        finally:
+            await engine.dispose()
+
+    async def test_an_isolation_policy_narrowed_off_public_is_reported(self):
+        """Every role outside a named list takes the implicit RLS deny."""
+        engine = _make_engine()
+        table = "embed_tokens"
+        try:
+            async with engine.connect() as conn:
+                transaction = await conn.begin()
+                try:
+                    await conn.execute(
+                        sa.text(
+                            f"ALTER POLICY tenant_isolation_{table} "
+                            f"ON catalog.{table} TO geolens_reader"
+                        )
+                    )
+                    boundary = await live_tenant_boundary(conn)
+                    state = next(entry for entry in boundary if entry.name == table)
+                    assert not state.isolation_policy_intact
+                finally:
+                    await transaction.rollback()
+        finally:
+            await engine.dispose()
+
     async def test_a_missing_isolation_policy_is_reported(self):
         """Boot enables RLS; nothing recreates the rule RLS enforces."""
         engine = _make_engine()
