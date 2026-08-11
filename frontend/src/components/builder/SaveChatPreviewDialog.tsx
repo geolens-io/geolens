@@ -22,7 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { truncateGraphemes } from '@/lib/text';
+import { splitGraphemes, truncateGraphemes } from '@/lib/text';
 import type { CommitImportRequest } from '@/types/api';
 
 /** RFC 7946: GeoJSON is WGS 84 by definition, so nothing has to detect it. */
@@ -30,6 +30,21 @@ const GEOJSON_EPSG = 4326;
 
 /** Keeps a suggested name readable; the server's own bound is 500. */
 const MAX_SUGGESTED_TITLE = 80;
+
+const GEOJSON_EXT = '.geojson';
+
+/**
+ * feat(#1241 codex r5): the byte budget for the name the file is UPLOADED
+ * under. Graphemes are the wrong unit for a filesystem: 80 emoji plus the
+ * extension is 328 bytes, and local staging writes
+ * `<job-uuid>_<basename>` into a directory entry Linux caps at 255 bytes, so a
+ * multibyte prompt that passes the grapheme cap fails the upload with
+ * ENAMETOOLONG (a 500). 120 leaves room for the uuid prefix and then some.
+ */
+const MAX_UPLOAD_NAME_BYTES = 120;
+
+/** ASCII, so it always fits, for the case where not one grapheme does. */
+const FALLBACK_UPLOAD_BASE = 'chat-result';
 
 /**
  * The chat prompt, shaped into the name of the file we are about to upload.
@@ -49,7 +64,29 @@ export function chatPreviewFileName(prompt: string | undefined, fallbackTitle: s
     .replace(/\s+/g, ' ')
     .trim();
   const title = truncateGraphemes(collapsed, MAX_SUGGESTED_TITLE, '').trim() || fallbackTitle;
-  return `${title}.geojson`;
+  return `${title}${GEOJSON_EXT}`;
+}
+
+/**
+ * The same name, bounded by UTF-8 BYTES so it can be a filesystem entry.
+ *
+ * Kept separate from the name above deliberately: that one only ever reaches
+ * the metadata form, where it becomes the suggested dataset title and no byte
+ * limit applies. Trimming happens by grapheme, so a multibyte name loses whole
+ * characters rather than splitting one down the middle.
+ */
+export function chatPreviewUploadName(fileName: string): string {
+  const encoder = new TextEncoder();
+  if (encoder.encode(fileName).length <= MAX_UPLOAD_NAME_BYTES) return fileName;
+
+  const base = fileName.slice(0, -GEOJSON_EXT.length);
+  let kept = '';
+  for (const grapheme of splitGraphemes(base)) {
+    const next = kept + grapheme;
+    if (encoder.encode(`${next}${GEOJSON_EXT}`).length > MAX_UPLOAD_NAME_BYTES) break;
+    kept = next;
+  }
+  return `${kept.trim() || FALLBACK_UPLOAD_BASE}${GEOJSON_EXT}`;
 }
 
 /**
@@ -114,7 +151,7 @@ export function SaveChatPreviewDialog({
     setIsCommitting(true);
     try {
       if (!stagedRef.current) {
-        const file = new File([JSON.stringify(geojson)], fileName, {
+        const file = new File([JSON.stringify(geojson)], chatPreviewUploadName(fileName), {
           type: 'application/geo+json',
         });
         const { job_id } = await uploadFile(file);

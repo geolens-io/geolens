@@ -3,7 +3,11 @@
 // preview, commit — as a .geojson file, so the result is a dataset with
 // nothing special about it downstream.
 import { fireEvent, render, screen, waitFor } from '@/test/test-utils';
-import { SaveChatPreviewDialog, chatPreviewFileName } from '../SaveChatPreviewDialog';
+import {
+  SaveChatPreviewDialog,
+  chatPreviewFileName,
+  chatPreviewUploadName,
+} from '../SaveChatPreviewDialog';
 import { ApiError } from '@/api/client';
 
 const { uploadFile, previewFile, commitImport, getJobStatus } = vi.hoisted(() => ({
@@ -87,6 +91,41 @@ describe('chatPreviewFileName', () => {
   it('caps a rambling prompt instead of making a 900-character name', () => {
     const name = chatPreviewFileName('a'.repeat(400), 'Fallback');
     expect(name).toBe(`${'a'.repeat(80)}.geojson`);
+  });
+});
+
+// feat(#1241 codex r5): graphemes are the wrong unit for a filesystem entry.
+// 80 emoji plus the extension is 328 bytes, and local staging writes
+// `<job-uuid>_<basename>` into a directory entry Linux caps at 255 — the
+// upload then fails with ENAMETOOLONG, which the endpoint returns as a 500.
+describe('chatPreviewUploadName', () => {
+  const bytes = (value: string) => new TextEncoder().encode(value).length;
+
+  it('leaves an ordinary name alone', () => {
+    expect(chatPreviewUploadName('show me the latest earthquake.geojson')).toBe(
+      'show me the latest earthquake.geojson',
+    );
+  });
+
+  it('bounds a multibyte name that passed the grapheme cap', () => {
+    const emoji = chatPreviewFileName('🌍'.repeat(120), 'Fallback');
+    expect(bytes(emoji)).toBeGreaterThan(255);
+
+    const uploaded = chatPreviewUploadName(emoji);
+    expect(bytes(uploaded)).toBeLessThanOrEqual(120);
+    expect(uploaded.endsWith('.geojson')).toBe(true);
+  });
+
+  it('keeps whole characters when it trims', () => {
+    // A split surrogate pair would encode as U+FFFD and corrupt the name.
+    const uploaded = chatPreviewUploadName(chatPreviewFileName('🌍'.repeat(120), 'Fallback'));
+    expect(uploaded).toBe(`${'🌍'.repeat(28)}.geojson`);
+  });
+
+  it('bounds a long non-Latin name without losing the extension', () => {
+    const uploaded = chatPreviewUploadName(chatPreviewFileName('東京'.repeat(40), 'Fallback'));
+    expect(bytes(uploaded)).toBeLessThanOrEqual(120);
+    expect(uploaded.endsWith('.geojson')).toBe(true);
   });
 });
 

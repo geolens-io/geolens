@@ -148,6 +148,19 @@ class TestSafeValue:
     def test_bytes_converted(self):
         assert _safe_value(b"raw") == str(b"raw")
 
+    # fix(#1241 codex r5): the browser's JSON.parse rounds an integer past
+    # 2**53-1 to the nearest double, so the exact digits only survive as a
+    # string. The builder can now save a chat preview as a dataset, which
+    # writes whatever the client parsed straight into it.
+    def test_int_beyond_js_safe_range_converted(self):
+        assert _safe_value(9007199254740993) == "9007199254740993"
+        assert _safe_value(-9007199254740993) == "-9007199254740993"
+
+    def test_int_at_js_safe_boundary_stays_numeric(self):
+        # 2**53-1 is exactly representable — an ordinary id must keep its type.
+        assert _safe_value(9007199254740991) == 9007199254740991
+        assert _safe_value(-9007199254740991) == -9007199254740991
+
 
 class TestExtractGeojson:
     def test_wkb_rows_to_feature_collection(self):
