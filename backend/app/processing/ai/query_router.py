@@ -367,4 +367,27 @@ async def sandbox_query_endpoint(
     await _audit_query(
         request, user, body, row_count=result.row_count, truncated=result.truncated
     )
+    # fix(#565 codex P2 r15): a bytea / bytea[] column comes back from the
+    # driver as raw bytes, which Pydantic's JSON serializer treats as UTF-8 and
+    # 500s on for arbitrary byte sequences — after the success was already
+    # audited. Encode binary cells as \x-hex, matching to_jsonb / the analysis
+    # endpoint's _json_safe, so the same column reads the same everywhere.
+    result.rows = [[_json_safe(cell) for cell in row] for row in result.rows]
     return result
+
+
+def _json_safe(value: object) -> object:
+    """Make one result cell JSON-serializable (binary → ``\\x``-hex), recursive.
+
+    Mirrors ``service_analysis._json_safe`` — duplicated because ``processing/``
+    may not import ``modules.catalog``. Recurses into containers so a
+    ``bytea[]`` array of bytes becomes an array of hex strings; scalar driver
+    types Pydantic serializes natively (datetime, Decimal, UUID) pass through.
+    """
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return "\\x" + bytes(value).hex()
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    return value

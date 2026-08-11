@@ -2825,9 +2825,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # false-reject; and P2 r14 splits per-row work into per-INPUT (WHERE/JOIN-ON/
     # sources) and per-OUTPUT (projection/HAVING/ORDER), collapsing the latter's
     # multiplier for an ungrouped aggregate (_is_ungrouped_aggregate) so a
-    # projection subquery over an aggregate query is additive, not multiplied.
-    # Most of the added lines are that rationale. Cap at the exact size.
-    "backend/app/platform/sandbox/validator.py": 1559,
+    # projection subquery over an aggregate query is additive, not multiplied;
+    # and P1 r15 keeps a subquery beneath an aggregate ARGUMENT per-input (it
+    # runs per input row) so that reduction cannot hide it. Most of the added
+    # lines are that rationale. Cap at the exact size.
+    "backend/app/platform/sandbox/validator.py": 1568,
 }
 
 

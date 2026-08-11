@@ -1362,6 +1362,7 @@ def _correlated_scopes(
         prev: exp.Expression = node
         ancestor = node.parent
         clause: exp.Expression | None = None
+        under_aggregate = False
         while ancestor is not None:
             if ancestor is select:
                 clause = prev
@@ -1377,6 +1378,13 @@ def _correlated_scopes(
                 # A CTE body, or nested inside another subquery scope: not this
                 # SELECT's own per-row predicate.
                 break
+            elif isinstance(ancestor, exp.AggFunc):
+                # fix(#565 codex P1 r15): the scope is an aggregate ARGUMENT (or
+                # FILTER), which the aggregate evaluates for every INPUT row —
+                # ``sum((SELECT ... WHERE b.gid = a.gid))`` runs the correlated
+                # subquery per outer row, so the ungrouped-aggregate reduction
+                # must NOT zero its multiplier.
+                under_aggregate = True
             prev = ancestor
             ancestor = ancestor.parent
         if clause is None:
@@ -1385,8 +1393,9 @@ def _correlated_scopes(
         # WHERE / JOIN-ON / GROUP BY are evaluated per INPUT row (before
         # aggregation); the SELECT list, HAVING, ORDER BY, QUALIFY run per
         # OUTPUT row (after aggregation). Only per-output work shrinks when the
-        # SELECT aggregates to fewer rows.
-        if isinstance(clause, (exp.Where, exp.Join, exp.Group)):
+        # SELECT aggregates to fewer rows — EXCEPT an aggregate argument, which
+        # still runs per input row (fix(#565 codex P1 r15)).
+        if isinstance(clause, (exp.Where, exp.Join, exp.Group)) or under_aggregate:
             per_input.append(node)
         else:
             per_output.append(node)

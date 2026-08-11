@@ -671,6 +671,60 @@ async def test_sibling_scalar_subqueries_are_allowed(
     assert resp.status_code == 200, resp.text
 
 
+async def test_aggregate_argument_subquery_is_rejected(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P1 r15): a correlated subquery INSIDE an aggregate
+    argument runs per input row (the aggregate consumes per-input values), so
+    the ungrouped-aggregate reduction must not zero its multiplier — N^3."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = await _make_table(test_db_session, owner)
+
+    resp = await client.post(
+        "/query/",
+        json={
+            "sql": (
+                f"SELECT sum((SELECT count(*) FROM data.{tbl} b "
+                f"CROSS JOIN data.{tbl} c WHERE b.gid = a.gid)) FROM data.{tbl} a"
+            ),
+            "restrict_tables": [tbl],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == _REPETITION_MESSAGE
+
+
+async def test_bytea_column_is_serialized_as_hex(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P2 r15): a bytea column returns raw bytes that Pydantic's
+    JSON serializer 500s on for non-UTF-8 sequences. Result cells are encoded
+    as \\x-hex, matching to_jsonb, so a successful query stays a 200."""
+    from sqlalchemy import text
+
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = f"q565bytea_{uuid.uuid4().hex[:8]}"
+    await test_db_session.execute(
+        text(f"CREATE TABLE data.{tbl} (gid int, blob bytea)")
+    )
+    await test_db_session.execute(
+        text(f"INSERT INTO data.{tbl} VALUES (1, '\\xdeadbeef'::bytea)")
+    )
+    await test_db_session.commit()
+    await create_dataset(test_db_session, created_by=owner, table_name=tbl)
+
+    resp = await client.post(
+        "/query/",
+        json={"sql": f"SELECT blob FROM data.{tbl}", "restrict_tables": [tbl]},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["rows"] == [["\\xdeadbeef"]]
+
+
 async def test_ungrouped_aggregate_with_projection_subquery_is_allowed(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
