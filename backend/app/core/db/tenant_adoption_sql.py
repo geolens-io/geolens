@@ -566,6 +566,32 @@ BEGIN
         END IF;
     END IF;
 
+    -- The writer's counterpart to the reader normalization above, and the same
+    -- cause: PostgreSQL 16+ grants the creating role an automatic ADMIN
+    -- membership, so a non-superuser CREATEROLE migrator that replayed the
+    -- globals dump is a direct member of every restored writer, which the
+    -- provisioning function refuses outright.
+    --
+    -- It sits *here*, after the provisioner's ADMIN grants rather than beside
+    -- the reader's loop, because that creator membership can be the only ADMIN
+    -- path this transaction has: revoking it any earlier would strand the grant
+    -- above. Afterwards the caller reaches the writer through the provisioner,
+    -- whose privileges it must hold to have got this far.
+    FOR legacy_member_row IN
+        SELECT member_role.rolname AS member_name
+        FROM pg_catalog.pg_auth_members AS membership
+        JOIN pg_catalog.pg_roles AS granted_role
+          ON granted_role.oid = membership.roleid
+        JOIN pg_catalog.pg_roles AS member_role
+          ON member_role.oid = membership.member
+        WHERE granted_role.rolname = writer_name
+          AND member_role.rolname NOT IN ('{PROVISIONER}', '{WRITER}')
+    LOOP
+        EXECUTE pg_catalog.format(
+            'REVOKE %I FROM %I', writer_name, legacy_member_row.member_name
+        );
+    END LOOP;
+
     -- The guarded boundary owns schema creation, role creation, gateway
     -- memberships, and schema-level privileges.  Since 0024 it deliberately
     -- does NOT touch per-relation ACLs, which is why the reader grants below

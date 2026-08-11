@@ -540,6 +540,9 @@ async def tenant_ownership_state(conn, tenant_id: str) -> TenantOwnershipState:
                     ) OR NOT EXISTS (SELECT 1 FROM reader)
                       OR NOT EXISTS (SELECT 1 FROM writer)
                     THEN false
+                    -- One privilege per call: a comma-separated list is an
+                    -- any-of test, so 'USAGE, CREATE' stays true on a writer
+                    -- that has lost one of them.
                     ELSE NOT pg_catalog.has_schema_privilege(
                              'public', (SELECT schema_name FROM names), 'USAGE'
                          )
@@ -554,7 +557,12 @@ async def tenant_ownership_state(conn, tenant_id: str) -> TenantOwnershipState:
                      AND pg_catalog.has_schema_privilege(
                              (SELECT oid FROM writer),
                              (SELECT schema_name FROM names),
-                             'USAGE, CREATE'
+                             'USAGE'
+                         )
+                     AND pg_catalog.has_schema_privilege(
+                             (SELECT oid FROM writer),
+                             (SELECT schema_name FROM names),
+                             'CREATE'
                          )
                 END AS schema_privileges_secure
             """

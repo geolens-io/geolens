@@ -37,6 +37,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.core.db.rls import RLS_TABLES
+from app.core.db.tenant_adoption_sql import WRITER as WRITER_GATEWAY
 from app.core.db.tenant_adoption import (
     BOUNDARY_FUNCTIONS,
     CONTROL,
@@ -505,6 +506,85 @@ class TestReportedStateMatchesWhatApplyEnforces:
         finally:
             async with engine.begin() as conn:
                 await conn.execute(sa.text(f"DROP ROLE IF EXISTS {stray}"))
+            await _drop_tenant(engine, tenant_id)
+            await engine.dispose()
+
+    async def test_creator_membership_on_the_writer_is_normalized(
+        self, multi_tenant_row_security
+    ):
+        """PostgreSQL 16+ makes the role creator a direct member of the writer.
+
+        A non-superuser CREATEROLE migrator replaying the fresh-cluster globals
+        dump therefore holds that edge on every restored writer, and
+        `provision_tenant_data_schema` refuses an unexpected direct member
+        outright — so every tenant would fail adoption on exactly the managed
+        deployment the runbook points at.
+        """
+        tenant_id, schema, _reader, writer = _new_tenant()
+        creator = f"w998_creator_{tenant_id.replace('-', '_')}"
+        engine = _make_engine()
+        try:
+            await _seed_restored_tenant(engine, tenant_id, schema)
+            async with engine.begin() as conn:
+                await conn.execute(sa.text(f"CREATE ROLE {creator} NOLOGIN CREATEROLE"))
+                await conn.execute(
+                    sa.text(
+                        f"CREATE ROLE {writer} NOLOGIN NOSUPERUSER NOCREATEDB "
+                        "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS"
+                    )
+                )
+                await conn.execute(
+                    sa.text(f"GRANT {writer} TO {creator} WITH ADMIN OPTION")
+                )
+
+            report = await run_adoption(engine, apply=True)
+            assert report.failures == {}, report.failures
+            assert report.ok
+
+            async with engine.connect() as conn:
+                members = [
+                    row[0]
+                    for row in await conn.execute(
+                        sa.text(
+                            "SELECT member.rolname FROM pg_auth_members AS membership "
+                            "JOIN pg_roles AS granted ON granted.oid = membership.roleid "
+                            "JOIN pg_roles AS member ON member.oid = membership.member "
+                            "WHERE granted.rolname = :writer ORDER BY member.rolname"
+                        ),
+                        {"writer": writer},
+                    )
+                ]
+            assert members == [PROVISIONER, WRITER_GATEWAY]
+        finally:
+            async with engine.begin() as conn:
+                await conn.execute(sa.text(f"DROP ROLE IF EXISTS {creator}"))
+            await _drop_tenant(engine, tenant_id)
+            await engine.dispose()
+
+    async def test_writer_missing_one_schema_privilege_is_not_adopted(
+        self, multi_tenant_row_security
+    ):
+        """`has_schema_privilege(role, schema, 'USAGE, CREATE')` is any-of."""
+        tenant_id, schema, _reader, writer = _new_tenant()
+        engine = _make_engine()
+        try:
+            await _seed_restored_tenant(engine, tenant_id, schema)
+            assert (await run_adoption(engine, apply=True)).ok
+
+            async with engine.begin() as conn:
+                await conn.execute(
+                    sa.text(f"REVOKE CREATE ON SCHEMA {schema} FROM {writer}")
+                )
+
+            async with engine.connect() as conn:
+                state = await tenant_ownership_state(conn, tenant_id)
+            assert not state.schema_privileges_secure
+            assert not state.adopted
+
+            repaired = await run_adoption(engine, apply=True)
+            assert repaired.failures == {}, repaired.failures
+            assert repaired.ok
+        finally:
             await _drop_tenant(engine, tenant_id)
             await engine.dispose()
 
