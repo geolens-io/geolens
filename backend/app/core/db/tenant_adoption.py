@@ -56,6 +56,7 @@ from app.core.db.tenant_adoption_report import (
     BOUNDARY_TRIGGER_FUNCTION,
     BOUNDARY_TRIGGER_TYPE,
     ISOLATION_POLICY_EXPRESSION,
+    STAMPING_FUNCTION_SEARCH_PATH,
     AdoptionReport,
     BoundaryFunctionState,
     BoundaryTableState,
@@ -70,6 +71,7 @@ from app.core.db.tenant_adoption_sql import (
     CONTROL,
     PROVISIONER,
     PROVISIONER_DATABASE_GRANT_SQL,
+    RELEASE_BOOTSTRAP_MEMBERSHIP_SQL,
     SANDBOX,
     SECURE_BOUNDARY_FUNCTIONS_SQL,
     TENANT_GUC,
@@ -263,8 +265,9 @@ async def stamping_function_shape(conn) -> str | None:
             SELECT language.lanname AS language,
                    routine.prosecdef AS security_definer,
                    routine.prorettype = 'trigger'::regtype AS returns_trigger,
-                   COALESCE(routine.proconfig::text LIKE '%search_path=%', false)
-                       AS search_path_pinned,
+                   COALESCE(
+                       :stamping_search_path = ANY(routine.proconfig), false
+                   ) AS search_path_pinned,
                    (
                        {_EXECUTABLE_BODY} LIKE '%app.current_tenant%'
                        AND {_EXECUTABLE_BODY} LIKE '%NEW.tenant_id%'
@@ -279,7 +282,10 @@ async def stamping_function_shape(conn) -> str | None:
               AND routine.pronargs = 0
             """
         ),
-        {"name": BOUNDARY_TRIGGER_FUNCTION},
+        {
+            "name": BOUNDARY_TRIGGER_FUNCTION,
+            "stamping_search_path": STAMPING_FUNCTION_SEARCH_PATH,
+        },
     )
     row = result.one_or_none()
     if row is None:
@@ -299,7 +305,11 @@ async def stamping_function_shape(conn) -> str | None:
             "installs it SECURITY INVOKER, and it fires on every insert"
         )
     if not row.search_path_pinned:
-        return f"catalog.{BOUNDARY_TRIGGER_FUNCTION}() has no pinned search_path"
+        return (
+            f"catalog.{BOUNDARY_TRIGGER_FUNCTION}() does not carry "
+            f"`SET {STAMPING_FUNCTION_SEARCH_PATH}` — an unqualified name in it "
+            "can resolve through a writable schema"
+        )
     if not row.body_markers_present:
         return (
             f"catalog.{BOUNDARY_TRIGGER_FUNCTION}() has a body that no longer "
@@ -558,6 +568,14 @@ async def tenant_ownership_state(conn, tenant_id: str) -> TenantOwnershipState:
                              (SELECT schema_name FROM names),
                              'USAGE'
                          )
+                     -- The reader is the SET target of the sandbox and tile
+                     -- gateways. CREATE there would let either of them build
+                     -- objects in a schema meant to be read-only.
+                     AND NOT pg_catalog.has_schema_privilege(
+                             (SELECT oid FROM reader),
+                             (SELECT schema_name FROM names),
+                             'CREATE'
+                         )
                      AND pg_catalog.has_schema_privilege(
                              (SELECT oid FROM writer),
                              (SELECT schema_name FROM names),
@@ -622,6 +640,18 @@ async def secure_boundary_functions(conn) -> list[BoundaryFunctionState]:
     return await boundary_function_states(conn)
 
 
+async def release_bootstrap_membership(engine) -> None:
+    """Give back the provisioner membership a fresh-cluster run had to take.
+
+    Leaving it would make the next recovery depend on the same migrator
+    credential, because the cluster guard rejects every direct member of the
+    provisioner except the role running it.  A no-op unless this run created the
+    role and granted itself the edge.
+    """
+    async with engine.begin() as conn:
+        await conn.execute(text(RELEASE_BOOTSTRAP_MEMBERSHIP_SQL))
+
+
 async def adopt_tenant(conn, tenant_id: str) -> None:
     """Move one tenant's schema, roles, and relations under the boundary."""
     normalized = str(uuid.UUID(tenant_id))
@@ -670,6 +700,8 @@ async def run_adoption(engine, *, apply: bool) -> AdoptionReport:
             logger.error(
                 "tenant_adoption: tenant failed", tenant_id=tenant_id, exc_info=True
             )
+
+    await release_bootstrap_membership(engine)
 
     topology = await cluster_topology_error(engine)
     async with engine.connect() as conn:

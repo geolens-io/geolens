@@ -436,6 +436,46 @@ END
 $$
 """
 
+#: Hand back the membership ``CLUSTER_ROLE_CREATE_SQL`` took when it created the
+#: provisioner on a fresh cluster.
+#:
+#: It cannot be left behind.  ``CLUSTER_ROLE_VALIDATE_SQL`` rejects *any* direct
+#: member of the provisioner except the role running it, so a later recovery
+#: with a rotated migrator credential would refuse the topology before adopting
+#: a single tenant — future recovery would depend on retaining the original
+#: credential.  A run that ends here has already used the edge for everything it
+#: needed it for; the next run either creates the role again or is told the
+#: exact ``GRANT`` to run.
+#:
+#: Only the edge this run granted: grantor ``CURRENT_USER`` and no ``ADMIN``.
+#: The automatic creator membership PostgreSQL adds has a different grantor and
+#: carries ADMIN, and an operator-established edge has a different grantor too.
+RELEASE_BOOTSTRAP_MEMBERSHIP_SQL = f"""
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_auth_members AS membership
+        JOIN pg_catalog.pg_roles AS granted_role
+          ON granted_role.oid = membership.roleid
+        JOIN pg_catalog.pg_roles AS member_role
+          ON member_role.oid = membership.member
+        JOIN pg_catalog.pg_roles AS grantor_role
+          ON grantor_role.oid = membership.grantor
+        WHERE granted_role.rolname = '{PROVISIONER}'
+          AND member_role.rolname = CURRENT_USER
+          AND grantor_role.rolname = CURRENT_USER
+          AND NOT membership.admin_option
+    ) THEN
+        EXECUTE pg_catalog.format(
+            'REVOKE {PROVISIONER} FROM %I GRANTED BY %I',
+            CURRENT_USER, CURRENT_USER
+        );
+    END IF;
+END
+$$
+"""
+
 PROVISIONER_DATABASE_GRANT_SQL = f"""
 DO $$
 BEGIN
@@ -645,6 +685,16 @@ BEGIN
     -- does NOT touch per-relation ACLs, which is why the reader grants below
     -- are issued by the writer instead of by this function.
     PERFORM catalog.provision_tenant_data_schema(tenant_id);
+
+    -- The provisioning function grants the reader USAGE; it never takes CREATE
+    -- away, and a restored schema can arrive carrying it.  The sandbox and tile
+    -- gateways SET ROLE to this reader, so CREATE there is a write path into a
+    -- schema that is supposed to be read-only.
+    IF pg_catalog.has_schema_privilege(reader_name, schema_name, 'CREATE') THEN
+        EXECUTE pg_catalog.format(
+            'REVOKE CREATE ON SCHEMA %I FROM %I', schema_name, reader_name
+        );
+    END IF;
 
     SELECT pg_catalog.count(*) INTO pending_owner_transfer
     FROM pg_catalog.pg_class AS relation

@@ -59,6 +59,7 @@ from app.core.db.tenant_adoption_report import (
     format_report,
     rls_gaps,
 )
+from app.core.db.tenant_adoption_sql import RELEASE_BOOTSTRAP_MEMBERSHIP_SQL
 from app.core.db.tenant_adoption_sql import WRITER as WRITER_GATEWAY
 
 pytestmark = pytest.mark.anyio
@@ -660,6 +661,48 @@ class TestReportedStateMatchesWhatApplyEnforces:
             await _drop_tenant(engine, tenant_id)
             await engine.dispose()
 
+    async def test_reader_create_on_the_tenant_schema_is_revoked(
+        self, multi_tenant_row_security
+    ):
+        """CREATE on a read-only schema is a write path through two gateways.
+
+        The sandbox and tile gateways SET ROLE to the reader, and the
+        provisioning function grants USAGE without ever taking CREATE away.
+        """
+        tenant_id, schema, reader, _writer = _new_tenant()
+        engine = _make_engine()
+        try:
+            await _seed_restored_tenant(engine, tenant_id, schema)
+            assert (await run_adoption(engine, apply=True)).ok
+
+            async with engine.begin() as conn:
+                await conn.execute(
+                    sa.text(f"GRANT CREATE ON SCHEMA {schema} TO {reader}")
+                )
+
+            async with engine.connect() as conn:
+                state = await tenant_ownership_state(conn, tenant_id)
+            assert not state.schema_privileges_secure
+            assert not state.adopted
+
+            repaired = await run_adoption(engine, apply=True)
+            assert repaired.failures == {}, repaired.failures
+            assert repaired.ok
+
+            async with engine.connect() as conn:
+                can_create = (
+                    await conn.execute(
+                        sa.text(
+                            "SELECT has_schema_privilege(:role, :schema, 'CREATE')"
+                        ),
+                        {"role": reader, "schema": schema},
+                    )
+                ).scalar_one()
+            assert can_create is False
+        finally:
+            await _drop_tenant(engine, tenant_id)
+            await engine.dispose()
+
     async def test_legacy_reader_default_privileges_are_not_adopted(
         self, multi_tenant_row_security
     ):
@@ -960,6 +1003,62 @@ class TestAdoptionWithRestoredBoundaryFunctions:
                         )
                     )
                     assert await creator_holds_privileges()
+                finally:
+                    await transaction.rollback()
+        finally:
+            await engine.dispose()
+
+    async def test_the_bootstrap_membership_is_handed_back(self):
+        """A fresh-cluster run must not leave the credential that made it special.
+
+        The cluster guard rejects every direct member of the provisioner except
+        the role running it, so an edge left behind makes the next recovery
+        depend on reusing the same migrator credential. Only the edge this run
+        granted goes: grantor CURRENT_USER, no ADMIN. Rolled back.
+        """
+        engine = _make_engine()
+        try:
+            async with engine.connect() as conn:
+                transaction = await conn.begin()
+                try:
+
+                    async def edges() -> list[tuple]:
+                        rows = await conn.execute(
+                            sa.text(
+                                "SELECT pg_get_userbyid(membership.grantor), "
+                                "membership.admin_option "
+                                "FROM pg_auth_members AS membership "
+                                "JOIN pg_roles AS granted "
+                                "  ON granted.oid = membership.roleid "
+                                "JOIN pg_roles AS member "
+                                "  ON member.oid = membership.member "
+                                "WHERE granted.rolname = :owner "
+                                "AND member.rolname = current_user"
+                            ),
+                            {"owner": PROVISIONER},
+                        )
+                        return [tuple(row) for row in rows]
+
+                    assert await edges() == []
+                    await conn.execute(
+                        sa.text(
+                            f"GRANT {PROVISIONER} TO current_user "
+                            "WITH INHERIT TRUE, SET TRUE"
+                        )
+                    )
+                    assert len(await edges()) == 1
+
+                    await conn.execute(sa.text(RELEASE_BOOTSTRAP_MEMBERSHIP_SQL))
+                    assert await edges() == []
+
+                    # An ADMIN-carrying edge is somebody else's decision.
+                    await conn.execute(
+                        sa.text(
+                            f"GRANT {PROVISIONER} TO current_user WITH ADMIN OPTION"
+                        )
+                    )
+                    await conn.execute(sa.text(RELEASE_BOOTSTRAP_MEMBERSHIP_SQL))
+                    assert [admin for _grantor, admin in await edges()] == [True]
                 finally:
                     await transaction.rollback()
         finally:

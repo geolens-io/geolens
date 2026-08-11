@@ -37,6 +37,11 @@ BOUNDARY_TRIGGER = "trg_stamp_current_tenant_on_insert"
 #: recreated under the boundary name but pointed at a different function, or
 #: fired on a different event, stamps nothing.
 BOUNDARY_TRIGGER_FUNCTION = "stamp_current_tenant_on_insert"
+
+#: The search path 0018 pins on that function.  Compared exactly, like the
+#: isolation expression: an unqualified name resolved through a writable
+#: schema is the classic SECURITY-adjacent function hijack.
+STAMPING_FUNCTION_SEARCH_PATH = "search_path=pg_catalog, catalog"
 BOUNDARY_TRIGGER_TYPE = 7
 
 #: The isolation rule 0006 installs, as PostgreSQL canonicalizes it.  Pinned
