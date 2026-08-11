@@ -894,6 +894,24 @@ async def adopt_tenant(conn, tenant_id: str) -> None:
     await conn.execute(text(ADOPT_TENANT_SQL))
 
 
+def _failure_message(exc: BaseException) -> str:
+    """One line, plus the remediation PostgreSQL attached to it.
+
+    The refusals this module raises carry the exact statement to run and the
+    role to run it as in the exception's HINT, and the driver leaves that out of
+    ``str(exc)``.  Dropping it would report a tenant as incomplete without
+    saying what to do about it.
+    """
+    message = str(exc).strip().splitlines()[0]
+    cause: BaseException | None = exc
+    while cause is not None:
+        hint = getattr(cause, "hint", None)
+        if hint:
+            return f"{message} — {hint}"
+        cause = cause.__cause__
+    return message
+
+
 async def run_adoption(engine, *, apply: bool) -> AdoptionReport:
     """Report the ownership gap and, with ``apply``, close it."""
     topology = await cluster_topology_error(engine)
@@ -931,7 +949,7 @@ async def run_adoption(engine, *, apply: bool) -> AdoptionReport:
             except (
                 Exception
             ) as exc:  # broad: one tenant's refusal must not strand the rest
-                failures[tenant_id] = str(exc).strip().splitlines()[0]
+                failures[tenant_id] = _failure_message(exc)
                 logger.error(
                     "tenant_adoption: tenant failed", tenant_id=tenant_id, exc_info=True
                 )

@@ -1182,6 +1182,11 @@ BEGIN
         JOIN pg_catalog.pg_namespace AS namespace
           ON namespace.oid = default_acl.defaclnamespace
         WHERE namespace.nspname = schema_name
+          -- aclexplode also returns the owner's own baseline entry. Revoking
+          -- that turns an ordinary additive default into a subtractive one,
+          -- which is a worse state than the one being cleared and which only
+          -- the owner could then reset.
+          AND acl.grantee IS DISTINCT FROM default_acl.defaclrole
     LOOP
         IF default_acl_row.owner_name <> CURRENT_USER THEN
             EXECUTE pg_catalog.format('SET ROLE %I', default_acl_row.owner_name);

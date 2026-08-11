@@ -595,7 +595,7 @@ privileges first, because 0024's upgrade transfers ownership of the boundary
 functions to `geolens_tenant_provisioner`, and PostgreSQL wants the incoming
 owner to hold `CREATE` on the schema and the caller to hold that owner's
 privileges. A superuser has both implicitly and can skip this. Grant them as the
-same admin identity that ran step 1's role block, and hand them back in 2f:
+same admin identity that ran step 1's role block, and hand them back in 2g:
 
 ```bash
 docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
@@ -618,7 +618,46 @@ docker compose run --rm --no-deps -e DATABASE_URL_OVERRIDE="<migrator-url>" \
 Skip the upgrade only if the dump came from the running release. Running it
 anyway is a no-op on a database already at head.
 
-**2c. Adopt the restored tenant objects.**
+**2c. Normalize the fixed-group memberships.**
+
+Run these whatever step 1 did, and run them before adoption. They are needed
+outright when the roles were rebuilt by hand, and still needed after a globals
+replay from a PostgreSQL 13-15 cluster: those dumps carry plain grants, which
+pick up the target server's defaults rather than the control inherit-only and
+writer/sandbox/tile SET-only shapes adoption requires. Adoption refuses a wrong
+shape rather than rewriting somebody else's grant, so leaving one here stops 2d
+before it starts. Re-issuing them is a no-op when they already match.
+
+These are the grants `.env.example` documents alongside
+`GEOLENS_RUNTIME_DB_ROLE`; substitute your own login names, and never give the
+tile login any of the first three:
+
+```bash
+docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
+GRANT geolens_tenant_control TO "<runtime-login>" WITH INHERIT TRUE, SET FALSE;
+GRANT geolens_tenant_writer  TO "<runtime-login>" WITH INHERIT FALSE, SET TRUE;
+GRANT geolens_tenant_sandbox TO "<runtime-login>" WITH INHERIT FALSE, SET TRUE;
+GRANT geolens_tile_gateway   TO "<tile-login>"    WITH INHERIT FALSE, SET TRUE;
+SQL
+```
+
+That is the PostgreSQL 16+ form. On 13-15 there are no per-membership options,
+so drop every `WITH` clause. Leave the runtime login `INHERIT` there: it calls
+the provisioning functions directly and needs `geolens_tenant_control`'s
+`EXECUTE` to arrive by inheritance. What keeps the per-tenant roles behind a
+`SET ROLE` on those releases is the `NOINHERIT` attribute on the four fixed
+gateway roles, not anything about the login:
+
+```bash
+docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
+GRANT geolens_tenant_control TO "<runtime-login>";
+GRANT geolens_tenant_writer  TO "<runtime-login>";
+GRANT geolens_tenant_sandbox TO "<runtime-login>";
+GRANT geolens_tile_gateway   TO "<tile-login>";
+SQL
+```
+
+**2d. Adopt the restored tenant objects.**
 
 Replaying globals restores role definitions only. The restored tables, views,
 and sequences are all owned by whoever ran `pg_restore`, with no per-tenant
@@ -691,7 +730,7 @@ below.
 A dump carries row-security state, so a source cluster that was already
 enforcing it restores with it still on.
 
-**2d. Re-apply the runtime grants.**
+**2e. Re-apply the runtime grants.**
 
 `--no-acl` drops them and this recipe does not run `scripts/restore.sh`, which
 is what normally re-applies them. The same privileged reconciler the bootstrap
@@ -716,10 +755,9 @@ docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
   "SELECT has_schema_privilege('geolens_reader', 'data', 'USAGE');"
 ```
 
-**2e. Let the tile login connect, and put the runtime logins back in the fixed
-groups.**
+**2f. Let the tile login connect.**
 
-The `CONNECT` grant is unconditional. 2d's reconciler revokes `PUBLIC CONNECT`
+Unconditional, and after 2e: that reconciler revokes `PUBLIC CONNECT`
 and grants it back to the current, migration and runtime roles only, in every
 path, so the tile login cannot reach the database at all after a restart without
 this — including when a globals replay restored everything else about it:
@@ -731,42 +769,7 @@ GRANT CONNECT ON DATABASE :"db" TO "<tile-login>";
 SQL
 ```
 
-Run the group memberships below whatever step 1 did. They are needed outright
-when the roles were rebuilt by hand, and they are still needed after a globals
-replay from a PostgreSQL 13-15 cluster: those dumps carry plain grants, which
-pick up the target server's defaults rather than the control inherit-only and
-writer/sandbox/tile SET-only shapes that adoption requires — and it refuses on
-the wrong shape rather than rewriting somebody else's grant. Re-issuing them
-explicitly is a no-op when they already match. These are the grants
-`.env.example` documents alongside `GEOLENS_RUNTIME_DB_ROLE`; substitute your own
-login names, and never give the tile login any of the first three:
-
-```bash
-docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
-GRANT geolens_tenant_control TO "<runtime-login>" WITH INHERIT TRUE, SET FALSE;
-GRANT geolens_tenant_writer  TO "<runtime-login>" WITH INHERIT FALSE, SET TRUE;
-GRANT geolens_tenant_sandbox TO "<runtime-login>" WITH INHERIT FALSE, SET TRUE;
-GRANT geolens_tile_gateway   TO "<tile-login>"    WITH INHERIT FALSE, SET TRUE;
-SQL
-```
-
-That is the PostgreSQL 16+ form. On 13-15 there are no per-membership options,
-so drop every `WITH` clause. Leave the runtime login `INHERIT` there: it calls
-the provisioning functions directly and needs `geolens_tenant_control`'s
-`EXECUTE` to arrive by inheritance. What keeps the per-tenant roles behind a
-`SET ROLE` on those releases is the `NOINHERIT` attribute on the four fixed
-gateway roles, not anything about the login:
-
-```bash
-docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
-GRANT geolens_tenant_control TO "<runtime-login>";
-GRANT geolens_tenant_writer  TO "<runtime-login>";
-GRANT geolens_tenant_sandbox TO "<runtime-login>";
-GRANT geolens_tile_gateway   TO "<tile-login>";
-SQL
-```
-
-**2f. Give the temporary privileges back.**
+**2g. Give the temporary privileges back.**
 
 Only if you granted them in 2b. Adoption manages its own borrow when it has to
 take one, and hands that back on its own; these two are yours, and left in place

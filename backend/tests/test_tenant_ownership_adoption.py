@@ -521,6 +521,10 @@ class TestReportedStateMatchesWhatApplyEnforces:
             refused = await run_adoption(engine, apply=True)
             assert tenant_id in refused.failures
             assert "will not rewrite" in refused.failures[tenant_id]
+            # The remediation PostgreSQL attached to the refusal survives
+            # into the report; without it the operator is told a tenant is
+            # incomplete and not what to run.
+            assert "REVOKE" in refused.failures[tenant_id]
             assert not refused.ok
         finally:
             async with engine.begin() as conn:
