@@ -615,11 +615,18 @@ while the rest continue, and adopted tenants stay adopted.
 **What it does not do.** Reapply the runtime login grants from `.env.example`
 afterwards; those login credentials are deliberately not stored in the database
 dump. Enabling and FORCEing row-level security stays the API's job at boot
-(`apply_tenancy_rls`) — the report lists which boundary tables are not enabled or
-not FORCEd, read from the live insert-stamping triggers rather than from any list
+(`apply_tenancy_rls`), and adoption does not turn it on for you. It does refuse
+to report a clean database while any boundary table on a control plane that has
+tenants is missing it, and while any table has row security enabled without
+`FORCE` — the table owner bypasses a policy that is not FORCEd. Which tables
+those are is read from the live insert-stamping triggers rather than from a list
 frozen into a migration, so a table that joined the boundary after 0018 is
-visible here. Object storage is a separate artifact; see step 0 of the full
-restore below.
+visible here, and a trigger left DISABLED by a restore is reported rather than
+counted. Object storage is a separate artifact; see step 0 of the full restore
+below.
+
+A dump carries row-security state, so a healthy multi-tenant source cluster
+restores with it already on.
 
 Then verify by hand: the API login can `SET ROLE` to one tenant writer/reader,
 the tile login can set only that tenant reader, and neither login owns catalog

@@ -27,6 +27,7 @@ Run:
 from __future__ import annotations
 
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
@@ -48,6 +49,7 @@ from app.core.db.tenant_adoption import (
     format_report,
     live_tenant_boundary,
     missing_provisioner_grants,
+    TenantOwnershipState,
     run_adoption,
     tenant_ownership_state,
 )
@@ -78,6 +80,54 @@ def _make_engine():
     from app.core.config import settings
 
     return create_async_engine(settings.test_database_url, poolclass=NullPool)
+
+
+@asynccontextmanager
+async def _row_security_enabled(engine):
+    """Give the worker's database the multi-tenant row-security posture.
+
+    Tenant rows in ``catalog.tenants`` are what make a control plane
+    multi-tenant, so they are what makes row security mandatory to
+    ``AdoptionReport.ok``. The suite's shared database is single-tenant with RLS
+    off, so a test that inserts a tenant has to supply the posture and hand it
+    back. The connecting login is a superuser, which is never subject to RLS
+    even under FORCE, so nothing but the catalog flags changes here.
+    """
+    async with engine.begin() as conn:
+        for table in RLS_TABLES:
+            await conn.execute(
+                sa.text(f"ALTER TABLE catalog.{table} ENABLE ROW LEVEL SECURITY")
+            )
+            await conn.execute(
+                sa.text(f"ALTER TABLE catalog.{table} FORCE ROW LEVEL SECURITY")
+            )
+    try:
+        yield
+    finally:
+        async with engine.begin() as conn:
+            for table in RLS_TABLES:
+                await conn.execute(
+                    sa.text(f"ALTER TABLE catalog.{table} NO FORCE ROW LEVEL SECURITY")
+                )
+                await conn.execute(
+                    sa.text(f"ALTER TABLE catalog.{table} DISABLE ROW LEVEL SECURITY")
+                )
+
+
+@pytest.fixture
+async def multi_tenant_row_security():
+    """For any test that puts a tenant row in the control plane.
+
+    Tenants present is what makes row security mandatory to
+    ``AdoptionReport.ok``, so a test that seeds one has to supply the posture a
+    real multi-tenant database would already have.
+    """
+    engine = _make_engine()
+    try:
+        async with _row_security_enabled(engine):
+            yield
+    finally:
+        await engine.dispose()
 
 
 async def _seed_restored_tenant(engine, tenant_id: str, schema: str) -> None:
@@ -241,7 +291,7 @@ async def _restore_boundary_functions(engine) -> None:
 class TestAdoptionReconstructsOwnership:
     """A: the 0019 end state, reached forward-only at head."""
 
-    async def test_restored_tenant_is_adopted(self):
+    async def test_restored_tenant_is_adopted(self, multi_tenant_row_security):
         tenant_id, schema, reader, writer = _new_tenant()
         engine = _make_engine()
         try:
@@ -338,7 +388,9 @@ class TestAdoptionReconstructsOwnership:
             await _drop_tenant(engine, tenant_id)
             await engine.dispose()
 
-    async def test_column_owned_sequence_follows_its_table(self):
+    async def test_column_owned_sequence_follows_its_table(
+        self, multi_tenant_row_security
+    ):
         """``bigserial``/identity sequences cannot be re-owned directly.
 
         0019's loop issued ``ALTER SEQUENCE … OWNER TO`` unconditionally, which
@@ -390,7 +442,9 @@ class TestReportedStateMatchesWhatApplyEnforces:
     and a superuser one satisfies `has_table_privilege` by fiat.
     """
 
-    async def test_unsafe_reader_attributes_are_not_adopted(self):
+    async def test_unsafe_reader_attributes_are_not_adopted(
+        self, multi_tenant_row_security
+    ):
         """A LOGIN reader is refused, and the dry run says so before `--apply`.
 
         The role is left un-adopted (no provisioner membership) on purpose:
@@ -419,7 +473,9 @@ class TestReportedStateMatchesWhatApplyEnforces:
             await _drop_tenant(engine, tenant_id)
             await engine.dispose()
 
-    async def test_stray_reader_member_is_not_adopted_and_is_repaired(self):
+    async def test_stray_reader_member_is_not_adopted_and_is_repaired(
+        self, multi_tenant_row_security
+    ):
         tenant_id, schema, reader, _writer = _new_tenant()
         stray = f"w998_stray_{tenant_id.replace('-', '_')}"
         engine = _make_engine()
@@ -450,7 +506,9 @@ class TestReportedStateMatchesWhatApplyEnforces:
             await _drop_tenant(engine, tenant_id)
             await engine.dispose()
 
-    async def test_legacy_reader_default_privileges_are_not_adopted(self):
+    async def test_legacy_reader_default_privileges_are_not_adopted(
+        self, multi_tenant_row_security
+    ):
         """The pre-0019 helper's ALTER DEFAULT PRIVILEGES entry is a live grant.
 
         Nothing else in the report sees it: ownership and per-relation
@@ -538,7 +596,9 @@ class TestReportedStateMatchesWhatApplyEnforces:
 class TestAdoptionIsIdempotent:
     """B: re-running changes nothing, and says so."""
 
-    async def test_second_run_leaves_the_catalog_byte_identical(self):
+    async def test_second_run_leaves_the_catalog_byte_identical(
+        self, multi_tenant_row_security
+    ):
         tenant_id, schema, _reader, _writer = _new_tenant()
         engine = _make_engine()
         try:
@@ -562,7 +622,7 @@ class TestAdoptionIsIdempotent:
             await _drop_tenant(engine, tenant_id)
             await engine.dispose()
 
-    async def test_dry_run_makes_no_changes(self):
+    async def test_dry_run_makes_no_changes(self, multi_tenant_row_security):
         tenant_id, schema, _reader, _writer = _new_tenant()
         engine = _make_engine()
         try:
@@ -589,7 +649,9 @@ class TestAdoptionIsIdempotent:
 class TestAdoptionWithRestoredBoundaryFunctions:
     """C: no CREATE FUNCTION collision, and the PUBLIC grant goes away."""
 
-    async def test_restored_functions_are_re_owned_and_re_restricted(self):
+    async def test_restored_functions_are_re_owned_and_re_restricted(
+        self, multi_tenant_row_security
+    ):
         tenant_id, schema, _reader, _writer = _new_tenant()
         engine = _make_engine()
         try:
@@ -674,6 +736,45 @@ class TestLiveTenantBoundary:
         # ago. Anything reading that constant would under-report by three.
         assert len(stamped) > 6
 
+    async def test_a_disabled_stamping_trigger_is_not_a_live_boundary(self):
+        """`tgenabled = 'D'` keeps the name and stamps nothing.
+
+        Nothing at boot re-enables it, so an insert on that table lands with no
+        `tenant_id` on any path that reaches it.
+        """
+        engine = _make_engine()
+        table = "embed_tokens"
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(
+                    sa.text(
+                        f"ALTER TABLE catalog.{table} "
+                        "DISABLE TRIGGER trg_stamp_current_tenant_on_insert"
+                    )
+                )
+
+            async with engine.connect() as conn:
+                boundary = await live_tenant_boundary(conn)
+            state = next(entry for entry in boundary if entry.name == table)
+            assert not state.has_stamping_trigger
+            assert state.stamping_trigger_disabled
+
+            # It is in RLS_TABLES but no longer stamped, so it reads as drift.
+            assert boundary_drift(boundary) == ([], [table])
+
+            report = await run_adoption(engine, apply=False)
+            assert not report.ok
+            assert "DISABLED" in format_report(report)
+        finally:
+            async with engine.begin() as conn:
+                await conn.execute(
+                    sa.text(
+                        f"ALTER TABLE catalog.{table} "
+                        "ENABLE TRIGGER trg_stamp_current_tenant_on_insert"
+                    )
+                )
+            await engine.dispose()
+
     async def test_dormant_tenant_id_columns_are_reported_outside_the_boundary(self):
         """0037's ``dataset_refresh_runs.tenant_id`` is deliberately dormant.
 
@@ -744,12 +845,31 @@ def _clean_boundary() -> list[BoundaryTableState]:
         BoundaryTableState(
             name=name,
             has_stamping_trigger=True,
+            stamping_trigger_disabled=False,
             has_tenant_id=True,
             rls_enabled=True,
             rls_forced=True,
         )
         for name in RLS_TABLES
     ]
+
+
+def _adopted_tenant_state() -> TenantOwnershipState:
+    return TenantOwnershipState(
+        tenant_id="00000000-0000-0000-0000-000000000998",
+        schema_name="data_t_00000000_0000_0000_0000_000000000998",
+        schema_exists=True,
+        schema_owner=PROVISIONER,
+        reader_exists=True,
+        writer_exists=True,
+        relations=1,
+        relations_not_owned_by_writer=0,
+        relations_without_reader_select=0,
+        reader_default_acls=0,
+        reader_role_secure=True,
+        writer_role_secure=True,
+        schema_privileges_secure=True,
+    )
 
 
 def _report(**overrides) -> AdoptionReport:
@@ -764,6 +884,10 @@ def _report(**overrides) -> AdoptionReport:
         "provisioner_grants_missing": [],
     }
     fields.update(overrides)
+    # The report renders `after` against `before`, so a caller that overrides
+    # only one of them still gets a coherent report.
+    if "before" in overrides and "after" not in overrides:
+        fields["after"] = fields["before"]
     return AdoptionReport(**fields)
 
 
@@ -799,13 +923,66 @@ class TestSuccessPredicate:
             BoundaryTableState(
                 name="w998_late_arrival",
                 has_stamping_trigger=True,
+                stamping_trigger_disabled=False,
                 has_tenant_id=True,
-                rls_enabled=False,
-                rls_forced=False,
+                rls_enabled=True,
+                rls_forced=True,
             )
         ]
         report = _report(boundary=boundary)
         assert boundary_drift(boundary) == (["w998_late_arrival"], [])
+        assert not report.ok
+
+    def test_row_security_off_with_tenants_present_is_not_ok(self) -> None:
+        """A tenant-carrying control plane with RLS off has no isolation."""
+        boundary = [
+            BoundaryTableState(
+                name=table.name,
+                has_stamping_trigger=True,
+                stamping_trigger_disabled=False,
+                has_tenant_id=True,
+                rls_enabled=False,
+                rls_forced=False,
+            )
+            for table in _clean_boundary()
+        ]
+        report = _report(boundary=boundary, before=[_adopted_tenant_state()])
+        assert report.rls_gaps
+        assert not report.ok
+        assert "NOT SAFE TO SERVE" in format_report(report)
+
+    def test_row_security_off_with_no_tenants_is_ok(self) -> None:
+        """Single-tenant is the default posture; RLS is correctly off there."""
+        boundary = [
+            BoundaryTableState(
+                name=table.name,
+                has_stamping_trigger=True,
+                stamping_trigger_disabled=False,
+                has_tenant_id=True,
+                rls_enabled=False,
+                rls_forced=False,
+            )
+            for table in _clean_boundary()
+        ]
+        report = _report(boundary=boundary)
+        assert report.rls_gaps == []
+        assert report.ok
+
+    def test_row_security_without_force_is_not_ok(self) -> None:
+        """The table owner bypasses a non-FORCEd policy in any mode."""
+        boundary = [
+            BoundaryTableState(
+                name=table.name,
+                has_stamping_trigger=True,
+                stamping_trigger_disabled=False,
+                has_tenant_id=True,
+                rls_enabled=True,
+                rls_forced=False,
+            )
+            for table in _clean_boundary()
+        ]
+        report = _report(boundary=boundary)
+        assert report.rls_gaps
         assert not report.ok
 
     def test_declared_table_without_a_stamping_trigger_is_not_ok(self) -> None:

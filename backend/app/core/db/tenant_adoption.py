@@ -152,9 +152,32 @@ class BoundaryTableState:
 
     name: str
     has_stamping_trigger: bool
+    stamping_trigger_disabled: bool
     has_tenant_id: bool
     rls_enabled: bool
     rls_forced: bool
+
+
+def rls_gaps(boundary: list[BoundaryTableState], *, tenants_present: bool) -> list[str]:
+    """Boundary tables whose row-security posture is not safe to serve.
+
+    ``apply_tenancy_rls`` is mode-gated and a single-tenant install correctly
+    keeps row security off, so a uniformly disabled boundary on a control plane
+    with no tenants is not a finding — and this module cannot read the mode out
+    of the database, only the tenants.  Two states always are findings: a
+    control plane that *has* tenants with row security off, where the isolation
+    boundary simply is not there; and row security enabled without ``FORCE``,
+    where the table owner bypasses every policy.
+    """
+    gaps: list[str] = []
+    for table in boundary:
+        if not table.has_stamping_trigger:
+            continue
+        if tenants_present and not table.rls_enabled:
+            gaps.append(f"{table.name} (row security disabled)")
+        elif table.rls_enabled and not table.rls_forced:
+            gaps.append(f"{table.name} (row security not FORCEd)")
+    return gaps
 
 
 def boundary_drift(boundary: list[BoundaryTableState]) -> tuple[list[str], list[str]]:
@@ -193,12 +216,25 @@ async def live_tenant_boundary(conn) -> list[BoundaryTableState]:
         text(
             """
             SELECT relation.relname AS name,
+                   -- tgenabled 'O'/'A' are the only states that fire for an
+                   -- ordinary application session. A restored trigger left
+                   -- 'D' (disabled) or 'R' (replica-only) still exists under
+                   -- this name and stamps nothing, and nothing at boot
+                   -- re-enables it.
                    EXISTS (
                        SELECT 1 FROM pg_catalog.pg_trigger AS trigger_row
                        WHERE trigger_row.tgrelid = relation.oid
                          AND trigger_row.tgname = :trigger_name
                          AND NOT trigger_row.tgisinternal
+                         AND trigger_row.tgenabled IN ('O', 'A')
                    ) AS has_stamping_trigger,
+                   EXISTS (
+                       SELECT 1 FROM pg_catalog.pg_trigger AS trigger_row
+                       WHERE trigger_row.tgrelid = relation.oid
+                         AND trigger_row.tgname = :trigger_name
+                         AND NOT trigger_row.tgisinternal
+                         AND trigger_row.tgenabled NOT IN ('O', 'A')
+                   ) AS stamping_trigger_disabled,
                    EXISTS (
                        SELECT 1 FROM pg_catalog.pg_attribute AS attribute
                        WHERE attribute.attrelid = relation.oid
@@ -219,7 +255,11 @@ async def live_tenant_boundary(conn) -> list[BoundaryTableState]:
     )
     states = [BoundaryTableState(**dict(row._mapping)) for row in result]
     return [
-        state for state in states if state.has_stamping_trigger or state.has_tenant_id
+        state
+        for state in states
+        if state.has_stamping_trigger
+        or state.stamping_trigger_disabled
+        or state.has_tenant_id
     ]
 
 
@@ -616,6 +656,15 @@ class AdoptionReport:
         return [name for name in BOUNDARY_FUNCTIONS if name not in present]
 
     @property
+    def rls_gaps(self) -> list[str]:
+        """Boundary tables that cannot enforce tenant isolation as they stand.
+
+        Tenant rows in the control plane are what makes a database
+        multi-tenant, so they are what makes row security mandatory here.
+        """
+        return rls_gaps(self.boundary, tenants_present=bool(self.before))
+
+    @property
     def ok(self) -> bool:
         """True when nothing is left to do — the exit code in both modes.
 
@@ -624,14 +673,16 @@ class AdoptionReport:
         Every condition the report surfaces has to be in here, or the check
         passes on a database the report itself calls broken: a missing boundary
         function, a fixed-role topology ``--apply`` would refuse, a provisioner
-        grant a restore dropped, and boundary drift that leaves a stamped table
-        without RLS at boot all count.
+        grant a restore dropped, boundary drift that leaves a stamped table
+        without RLS at boot, and a boundary table that cannot enforce isolation
+        as it stands all count.
         """
         if (
             self.failures
             or self.missing_functions
             or self.cluster_topology
             or self.provisioner_grants_missing
+            or self.rls_gaps
         ):
             return False
         if not all(function.secured for function in self.functions):
@@ -735,20 +786,31 @@ def _format_functions(report: AdoptionReport) -> list[str]:
     return lines
 
 
-def _boundary_table_markers(table: BoundaryTableState) -> list[str]:
+def _boundary_table_markers(
+    table: BoundaryTableState, *, tenants_present: bool
+) -> list[str]:
+    if table.stamping_trigger_disabled:
+        return [
+            f"{BOUNDARY_TRIGGER} exists but is DISABLED — it stamps nothing, and "
+            "nothing at boot re-enables it"
+        ]
     if not table.has_stamping_trigger:
         return ["tenant_id column only, outside the stamped boundary"]
     if not table.rls_enabled:
-        return ["RLS not enabled (the API enables it at boot in multi_tenant)"]
+        if tenants_present:
+            return ["RLS not enabled on a control plane that has tenants"]
+        return ["RLS not enabled (correct while the control plane has no tenants)"]
     if not table.rls_forced:
         return ["RLS enabled but not FORCEd — the table owner bypasses it"]
     return []
 
 
-def _format_boundary(boundary: list[BoundaryTableState]) -> list[str]:
+def _format_boundary(report: AdoptionReport) -> list[str]:
+    boundary = report.boundary
+    tenants_present = bool(report.before)
     lines = [f"Live tenant boundary ({BOUNDARY_TRIGGER}), read from the database:"]
     for table in boundary:
-        markers = _boundary_table_markers(table)
+        markers = _boundary_table_markers(table, tenants_present=tenants_present)
         suffix = f" — {'; '.join(markers)}" if markers else ""
         lines.append(f"  catalog.{table.name}{suffix}")
 
@@ -761,8 +823,13 @@ def _format_boundary(boundary: list[BoundaryTableState]) -> list[str]:
         )
     if constant_only:
         lines.append(
-            "  DRIFT: listed in app.core.db.rls.RLS_TABLES but carrying no "
+            "  DRIFT: listed in app.core.db.rls.RLS_TABLES but carrying no live "
             f"stamping trigger here: {', '.join(constant_only)}"
+        )
+    if report.rls_gaps:
+        lines.append(
+            "  NOT SAFE TO SERVE until row security is repaired: "
+            f"{', '.join(report.rls_gaps)}"
         )
     return lines
 
@@ -817,7 +884,7 @@ def format_report(report: AdoptionReport) -> str:
         [f"Tenant-ownership adoption — {mode}"],
         _format_cluster_roles(report),
         _format_functions(report),
-        _format_boundary(report.boundary),
+        _format_boundary(report),
         _format_tenants(report),
     ]
     if report.failures:
