@@ -589,9 +589,15 @@ same admin identity that ran step 1's role block, and hand them back in 2d:
 ```bash
 docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
 GRANT CREATE ON SCHEMA catalog TO geolens_tenant_provisioner;
-GRANT geolens_tenant_provisioner TO "<migrator-role>" WITH ADMIN OPTION;
+GRANT geolens_tenant_provisioner TO "<migrator-role>" WITH INHERIT TRUE, SET TRUE;
 SQL
 ```
+
+No `ADMIN OPTION`: if the migrator is the same identity that ran step 1's block,
+PostgreSQL 16+ already gave it ADMIN there and refuses to grant ADMIN back to
+its own grantor. On PostgreSQL 13-15 drop the `WITH` clause — per-membership
+`INHERIT`/`SET` arrived in 16, and before that a membership simply carries the
+member's privileges.
 
 ```bash
 docker compose run --rm --no-deps -e DATABASE_URL_OVERRIDE="<migrator-url>" \
@@ -707,6 +713,19 @@ GRANT geolens_tenant_control TO "<runtime-login>" WITH INHERIT TRUE, SET FALSE;
 GRANT geolens_tenant_writer  TO "<runtime-login>" WITH INHERIT FALSE, SET TRUE;
 GRANT geolens_tenant_sandbox TO "<runtime-login>" WITH INHERIT FALSE, SET TRUE;
 GRANT geolens_tile_gateway   TO "<tile-login>"    WITH INHERIT FALSE, SET TRUE;
+SQL
+```
+
+That is the PostgreSQL 16+ form. On 13-15 there are no per-membership options —
+drop every `WITH` clause, and the `NOINHERIT` attribute on the login is what
+makes the membership SET-only:
+
+```bash
+docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
+GRANT geolens_tenant_control TO "<runtime-login>";
+GRANT geolens_tenant_writer  TO "<runtime-login>";
+GRANT geolens_tenant_sandbox TO "<runtime-login>";
+GRANT geolens_tile_gateway   TO "<tile-login>";
 SQL
 ```
 

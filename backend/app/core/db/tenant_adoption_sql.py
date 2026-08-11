@@ -536,9 +536,20 @@ BEGIN
           AND grantor_role.rolname = CURRENT_USER
           AND NOT membership.admin_option
     ) THEN
-        EXECUTE pg_catalog.format(
-            'REVOKE {PROVISIONER} FROM %I GRANTED BY %I', CURRENT_USER, CURRENT_USER
-        );
+        IF pg_catalog.current_setting('server_version_num')::integer >= 160000 THEN
+            EXECUTE pg_catalog.format(
+                'REVOKE {PROVISIONER} FROM %I GRANTED BY %I',
+                CURRENT_USER,
+                CURRENT_USER
+            );
+        ELSE
+            -- GRANTED BY on REVOKE ROLE arrived in 16. Before that a role can
+            -- hold only one membership in another, and this branch runs only
+            -- when the run granted it, so the plain form removes exactly it.
+            EXECUTE pg_catalog.format(
+                'REVOKE {PROVISIONER} FROM %I', CURRENT_USER
+            );
+        END IF;
     END IF;
 END
 $$
