@@ -823,12 +823,19 @@ BEGIN
           -- the sandbox and tile gateways, so any privilege beyond reading is a
           -- write path into tenant data. Read out of the ACL rather than named
           -- one by one, because the set of privilege types grows by release.
+          -- Grantee 0 is PUBLIC, which the reader holds too — along with every
+          -- other role that can reach the schema.
           OR EXISTS (
               SELECT 1
               FROM LATERAL pg_catalog.aclexplode(relation.relacl) AS acl
-              WHERE acl.grantee = reader_oid
-                AND acl.privilege_type <> 'SELECT'
-                AND NOT (relation.relkind = 'S' AND acl.privilege_type = 'USAGE')
+              WHERE acl.grantee = 0
+                 OR (
+                     acl.grantee = reader_oid
+                     AND acl.privilege_type <> 'SELECT'
+                     AND NOT (
+                         relation.relkind = 'S' AND acl.privilege_type = 'USAGE'
+                     )
+                 )
           )
       );
 
@@ -913,6 +920,14 @@ BEGIN
     );
     EXECUTE pg_catalog.format(
         'REVOKE ALL ON ALL SEQUENCES IN SCHEMA %I FROM %I', schema_name, reader_name
+    );
+    -- Tenant data is never PUBLIC, in either direction: a PUBLIC SELECT is a
+    -- cross-tenant read and a PUBLIC INSERT is a cross-tenant write.
+    EXECUTE pg_catalog.format(
+        'REVOKE ALL ON ALL TABLES IN SCHEMA %I FROM PUBLIC', schema_name
+    );
+    EXECUTE pg_catalog.format(
+        'REVOKE ALL ON ALL SEQUENCES IN SCHEMA %I FROM PUBLIC', schema_name
     );
     EXECUTE pg_catalog.format(
         'GRANT SELECT ON ALL TABLES IN SCHEMA %I TO %I', schema_name, reader_name

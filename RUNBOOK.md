@@ -515,11 +515,14 @@ For managed/external Postgres there is no `db` container to exec into: drop the
 `docker compose exec -T db` prefix and pass the provider's `-h`, `-p`, and `-U`
 to `pg_dumpall`/`psql` directly.
 
-If no globals dump exists, step 2 creates the five fixed NOLOGIN groups itself,
-so you can skip ahead. The equivalent by hand, for a cluster where you want them
-in place first or where step 2 refused on the existing topology — it is
-idempotent, needs CREATEROLE, and the attributes match what 0019 creates and
-validates:
+If no globals dump exists, create the five fixed NOLOGIN groups with the block
+below. Step 2c creates them too, but that is too late in one case that matters:
+a dump stamped anywhere in 0019-0023 has to be upgraded first (2b), and 0024's
+upgrade runs `ALTER FUNCTION … OWNER TO geolens_tenant_provisioner`, which fails
+outright when that role does not exist. Skip this only when the dump already
+matches the running release, or when a globals replay has already put the roles
+back. The block is idempotent, needs CREATEROLE, and the attributes match what
+0019 creates and validates:
 
 ```sql
 DO $$

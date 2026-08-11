@@ -148,7 +148,15 @@ async def live_tenant_boundary(conn) -> list[BoundaryTableState]:
                    -- policy denies every runtime read, and an altered one can
                    -- return another tenant's rows. Its expression has been
                    -- byte-identical since 0006, so it is compared exactly.
-                   EXISTS (
+                   -- ...and the only permissive one. PostgreSQL ORs permissive
+                   -- policies, so a second `USING (true)` beside the canonical
+                   -- rule returns every tenant's rows with RLS fully enabled.
+                   (
+                       SELECT count(*) FROM pg_catalog.pg_policy AS policy
+                       WHERE policy.polrelid = relation.oid
+                         AND policy.polpermissive
+                   ) = 1
+                   AND EXISTS (
                        SELECT 1 FROM pg_catalog.pg_policy AS policy
                        WHERE policy.polrelid = relation.oid
                          AND policy.polname = 'tenant_isolation_' || relation.relname
@@ -552,15 +560,23 @@ async def tenant_ownership_state(conn, tenant_id: str) -> TenantOwnershipState:
                             JOIN LATERAL pg_catalog.aclexplode(relation.relacl)
                               AS acl ON true
                             WHERE relation.oid = relations.oid
-                              AND acl.grantee = (SELECT oid FROM reader)
-                              AND acl.privilege_type <> 'SELECT'
-                              AND NOT (
-                                  relations.relkind = 'S'
-                                  AND acl.privilege_type = 'USAGE'
+                              AND (
+                                  -- grantee 0 is PUBLIC: the reader holds
+                                  -- whatever PUBLIC holds, and so does everyone
+                                  -- else with USAGE on the schema.
+                                  acl.grantee = 0
+                                  OR (
+                                      acl.grantee = (SELECT oid FROM reader)
+                                      AND acl.privilege_type <> 'SELECT'
+                                      AND NOT (
+                                          relations.relkind = 'S'
+                                          AND acl.privilege_type = 'USAGE'
+                                      )
+                                  )
                               )
                         )
                     )
-                END AS relations_with_reader_write,
+                END AS relations_with_unsafe_acl,
                 -- The pre-0019 runtime helper left an ALTER DEFAULT PRIVILEGES
                 -- entry behind; ADOPT_TENANT_SQL revokes it, so a tenant still
                 -- carrying one is not adopted however correct the rest looks.

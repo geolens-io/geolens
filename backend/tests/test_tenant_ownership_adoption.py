@@ -730,7 +730,7 @@ class TestReportedStateMatchesWhatApplyEnforces:
             async with engine.connect() as conn:
                 state = await tenant_ownership_state(conn, tenant_id)
             assert state.relations_without_reader_select == 0
-            assert state.relations_with_reader_write == 1
+            assert state.relations_with_unsafe_acl == 1
             assert not state.adopted
 
             repaired = await run_adoption(engine, apply=True)
@@ -749,6 +749,51 @@ class TestReportedStateMatchesWhatApplyEnforces:
                     )
                 ).one()
             assert tuple(privileges) == (True, False, False)
+        finally:
+            await _drop_tenant(engine, tenant_id)
+            await engine.dispose()
+
+    async def test_public_grants_on_tenant_relations_are_revoked(
+        self, multi_tenant_row_security
+    ):
+        """PUBLIC reaches the reader, and everyone else with schema USAGE."""
+        tenant_id, schema, reader, _writer = _new_tenant()
+        engine = _make_engine()
+        try:
+            await _seed_restored_tenant(engine, tenant_id, schema)
+            assert (await run_adoption(engine, apply=True)).ok
+
+            async with engine.begin() as conn:
+                await conn.execute(
+                    sa.text(f"GRANT SELECT, INSERT ON {schema}.parcels TO PUBLIC")
+                )
+
+            async with engine.connect() as conn:
+                state = await tenant_ownership_state(conn, tenant_id)
+            assert state.relations_with_unsafe_acl == 1
+            assert not state.adopted
+
+            repaired = await run_adoption(engine, apply=True)
+            assert repaired.failures == {}, repaired.failures
+            assert repaired.ok
+
+            async with engine.connect() as conn:
+                public_select = (
+                    await conn.execute(
+                        sa.text(
+                            "SELECT has_table_privilege('public', :table, 'SELECT')"
+                        ),
+                        {"table": f"{schema}.parcels"},
+                    )
+                ).scalar_one()
+                reader_select = (
+                    await conn.execute(
+                        sa.text("SELECT has_table_privilege(:role, :table, 'SELECT')"),
+                        {"role": reader, "table": f"{schema}.parcels"},
+                    )
+                ).scalar_one()
+            assert public_select is False
+            assert reader_select is True
         finally:
             await _drop_tenant(engine, tenant_id)
             await engine.dispose()
@@ -1529,6 +1574,27 @@ class TestLiveTenantBoundary:
         finally:
             await engine.dispose()
 
+    async def test_an_extra_permissive_policy_is_reported(self):
+        """Permissive policies OR: one `USING (true)` beside the rule undoes it."""
+        engine = _make_engine()
+        table = "embed_tokens"
+        try:
+            async with engine.connect() as conn:
+                transaction = await conn.begin()
+                try:
+                    await conn.execute(
+                        sa.text(
+                            f"CREATE POLICY w998_extra ON catalog.{table} USING (true)"
+                        )
+                    )
+                    boundary = await live_tenant_boundary(conn)
+                    state = next(entry for entry in boundary if entry.name == table)
+                    assert not state.isolation_policy_intact
+                finally:
+                    await transaction.rollback()
+        finally:
+            await engine.dispose()
+
     async def test_dormant_tenant_id_columns_are_reported_outside_the_boundary(self):
         """0037's ``dataset_refresh_runs.tenant_id`` is deliberately dormant.
 
@@ -1624,7 +1690,7 @@ def _adopted_tenant_state() -> TenantOwnershipState:
         relations=1,
         relations_not_owned_by_writer=0,
         relations_without_reader_select=0,
-        relations_with_reader_write=0,
+        relations_with_unsafe_acl=0,
         reader_default_acls=0,
         reader_role_secure=True,
         writer_role_secure=True,
