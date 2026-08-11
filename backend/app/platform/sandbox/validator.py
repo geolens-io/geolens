@@ -1087,6 +1087,19 @@ def _source_fanout(source: exp.Expression, memo: _FanoutMemo) -> _FanoutMap:
         # A base table (real, or an out-of-scope name the access check will
         # reject) is scanned once.
         return {(source.db or "", source.name): 1}
+    if isinstance(source, exp.Lateral):
+        # fix(#565 codex P1 r6): a LATERAL re-evaluates its subquery per outer
+        # row, and its OUTPUT rows join into the FROM product, so it is a row
+        # source like a derived table — `CROSS JOIN LATERAL (SELECT ... FROM
+        # data.foo c ...)` beside `data.foo a CROSS JOIN data.foo b` is N^3.
+        # Unwrap to the inner scope; a LATERAL over a table function (not a
+        # scope) opens no base-table cross-join vector.
+        inner = source.this
+        if isinstance(inner, exp.Subquery):
+            inner = inner.this
+        if isinstance(inner, _SCOPE_TYPES):
+            return _rows_fanout(inner, memo)
+        return {}
     if isinstance(source, exp.Subquery):
         return _rows_fanout(source.this, memo)
     # Anything else in a FROM (VALUES, an allowlisted table function) does not

@@ -347,6 +347,54 @@ async def test_join_on_subquery_self_join_is_rejected(
     assert resp.json()["detail"] == _REPETITION_MESSAGE
 
 
+async def test_lateral_self_join_is_rejected(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P1 r6): a repeated table wrapped in a LATERAL source is
+    still an N^3 cross join — the LATERAL subquery must be costed as a source."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = await _make_table(test_db_session, owner)
+
+    resp = await client.post(
+        "/query/",
+        json={
+            "sql": (
+                f"SELECT a.gid FROM data.{tbl} a CROSS JOIN data.{tbl} b "
+                f"CROSS JOIN LATERAL "
+                f"(SELECT c.gid FROM data.{tbl} c WHERE a.gid IS NOT NULL) x"
+            ),
+            "restrict_tables": [tbl],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == _REPETITION_MESSAGE
+
+
+async def test_lateral_over_other_table_is_allowed(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """A LATERAL over a DIFFERENT table (fan-out 1) is a legitimate shape."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    t1 = await _make_table(test_db_session, owner)
+    t2 = await _make_table(test_db_session, owner)
+
+    resp = await client.post(
+        "/query/",
+        json={
+            "sql": (
+                f"SELECT a.gid FROM data.{t1} a CROSS JOIN LATERAL "
+                f"(SELECT b.gid FROM data.{t2} b WHERE b.gid = a.gid) x"
+            ),
+            "restrict_tables": [t1, t2],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+
 async def test_union_with_cte_resolves(
     client: AsyncClient, admin_auth_header, test_db_session
 ):

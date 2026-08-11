@@ -2806,9 +2806,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # self-join hidden in a scalar/EXISTS/WHERE subquery. P1 r5 extended the
     # per-row term to JOIN ... ON predicates (a join's ON is not a source), and
     # P2 r5 taught _resolve_cte that a WITH can be owned by a set operation, not
-    # only a SELECT. Most of the added lines are that rationale. Cap at the
-    # exact size.
-    "backend/app/platform/sandbox/validator.py": 1247,
+    # only a SELECT; P1 r6 unwraps exp.Lateral so a repeated table hidden in a
+    # LATERAL source is costed. Most of the added lines are that rationale. Cap
+    # at the exact size.
+    "backend/app/platform/sandbox/validator.py": 1260,
 }
 
 
