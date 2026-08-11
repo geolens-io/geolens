@@ -69,19 +69,24 @@ class FakeStorage:
         # per-object pre-delete re-reads pass a complete key (no trailing "/")
         # and are excluded — they are not the walk.
         self.pages_served: list[int] = []
+        # The `start_after` each prefix walk was handed, so the cursor's
+        # advance is observable rather than inferred from what got deleted.
+        self.resumed_from: list[str | None] = []
         self.delete_error: Exception | None = None
         # Called with the key right before its pre-delete re-read, so a test
         # can mutate the world exactly at the moment the race would happen.
         self.on_recheck = None
 
-    async def iter_object_pages(self, prefix: str):
+    async def iter_object_pages(self, prefix: str, *, start_after: str | None = None):
         self.listed_prefixes.append(prefix)
+        if prefix.endswith("/"):
+            self.resumed_from.append(start_after)
         if self.on_recheck is not None and prefix != STAGING_PREFIX:
             await self.on_recheck(prefix)
         matching = [
             StoredObject(key=key, last_modified=modified)
             for key, modified in sorted(self.objects.items())
-            if key.startswith(prefix)
+            if key.startswith(prefix) and (start_after is None or key > start_after)
         ]
         for start in range(0, max(len(matching), 1), self.page_size):
             page = matching[start : start + self.page_size]
@@ -104,6 +109,23 @@ async def _job(session: AsyncSession, *, status: str = "complete") -> uuid.UUID:
     job_id = job.id
     await session.commit()
     return job_id
+
+
+@pytest.fixture(autouse=True)
+def _front_of_the_prefix():
+    """Start every test's first pass at the front of the keyspace.
+
+    The cursor seeds itself at a RANDOM point on first use per process (so a
+    restart-prone worker still covers the whole prefix), which would otherwise
+    make every assertion here depend on a uuid draw. Tests that care about the
+    cursor set it themselves.
+    """
+    import app.platform.jobs.staging_reconcile as module
+
+    module._scan_cursors.clear()
+    module._scan_cursors[STAGING_PREFIX] = None
+    yield
+    module._scan_cursors.clear()
 
 
 async def _run(session: AsyncSession, storage: FakeStorage):
@@ -368,6 +390,80 @@ class TestReconciliationDecision:
         assert outcome.orphans_deleted == 0
         assert outcome.objects_listed == 4
         assert storage.pages_served == [2, 2]
+
+
+class TestScanCursor:
+    """fix(#1249) review r2: a capped walk without a cursor is a blind spot.
+
+    Without one, every pass re-walks the same lexicographically first window,
+    and an orphan sorting after a window full of tracked, recent, or
+    unattributable keys is never reached at all.
+    """
+
+    async def test_a_budget_stop_resumes_the_next_pass_where_it_stopped(
+        self, test_db_session: AsyncSession, monkeypatch
+    ) -> None:
+        import app.platform.jobs.staging_reconcile as module
+
+        monkeypatch.setattr(module, "_MAX_OBJECTS_SCANNED_PER_PASS", 2)
+        # Young, so nothing is deleted and only the cursor can explain progress.
+        keys = [f"staging/{uuid.uuid4()}/f.geojson" for _ in range(6)]
+        storage = FakeStorage(dict.fromkeys(keys, _young()), page_size=2)
+
+        first = await _run(test_db_session, storage)
+        second = await _run(test_db_session, storage)
+
+        in_key_order = sorted(keys)
+        assert storage.resumed_from == [None, in_key_order[1]]
+        assert first.objects_listed == 2 and second.objects_listed == 2
+        assert module._scan_cursors[STAGING_PREFIX] == in_key_order[3]
+
+    async def test_a_completed_walk_wraps_to_the_front(
+        self, test_db_session: AsyncSession
+    ) -> None:
+        """Seeing everything after the start point means starting over next time."""
+        import app.platform.jobs.staging_reconcile as module
+
+        module._scan_cursors[STAGING_PREFIX] = "staging/zzz"
+        storage = FakeStorage({f"staging/{uuid.uuid4()}/f.geojson": _young()})
+
+        await _run(test_db_session, storage)
+
+        assert storage.resumed_from == ["staging/zzz"]
+        assert module._scan_cursors[STAGING_PREFIX] is None
+
+    async def test_a_delete_budget_stop_resumes_at_the_last_candidate_processed(
+        self, test_db_session: AsyncSession, monkeypatch
+    ) -> None:
+        """Not at the end of the page — the rest of it was never worked."""
+        import app.platform.jobs.staging_reconcile as module
+
+        monkeypatch.setattr(module, "_MAX_DELETES_PER_PASS", 1)
+        keys = sorted(f"staging/{uuid.uuid4()}/f.geojson" for _ in range(4))
+        storage = FakeStorage(dict.fromkeys(keys, _old()), page_size=4)
+
+        await _run(test_db_session, storage)
+
+        assert storage.deleted == [keys[0]]
+        assert module._scan_cursors[STAGING_PREFIX] == keys[0], (
+            "resuming past the unprocessed candidates would skip them until the wrap"
+        )
+
+    def test_the_first_pass_of_a_process_starts_somewhere_random(self) -> None:
+        """A worker recycled more often than a full walk completes must not
+        keep restarting at the front — that is the starvation the cursor
+        exists to remove, reintroduced by the restart."""
+        import app.platform.jobs.staging_reconcile as module
+
+        module._scan_cursors.clear()
+        seeds = set()
+        for _ in range(3):
+            module._scan_cursors.clear()
+            seed = module._resume_point("staging/")
+            assert seed is not None and seed.startswith("staging/")
+            seeds.add(seed)
+
+        assert len(seeds) == 3, "a fixed seed would make every process walk alike"
 
     async def test_the_callers_orm_instances_survive_the_pass(
         self, test_db_session: AsyncSession

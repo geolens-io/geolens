@@ -94,7 +94,7 @@ class StorageProvider(Protocol):
         ...
 
     def iter_object_pages(
-        self, prefix: str
+        self, prefix: str, *, start_after: str | None = None
     ) -> AsyncIterator["builtins.list[StoredObject]"]:
         """Yield objects under a prefix one provider page at a time.
 
@@ -106,6 +106,14 @@ class StorageProvider(Protocol):
         exists (fix(#1249) review r1): a caller that can act on a bounded
         amount of work must not have to materialize an unbounded prefix first.
         A consumer that stops early stops the provider's paging with it.
+
+        ``start_after`` resumes a walk: only keys strictly greater than it are
+        yielded, in ascending key order, so a caller with a per-pass budget can
+        continue where the last one stopped instead of re-reading the front of
+        the prefix forever (fix(#1249) review r2). S3 pushes it down as
+        ``StartAfter``; the other backends filter, which costs them nothing
+        that matters — neither can hold a presigned staging object, since
+        presigned uploads refuse anything but the S3 backend at request time.
 
         A COMPLETE key is a valid ``prefix`` and is how a caller re-reads one
         object's timestamp immediately before acting on it. Implementations

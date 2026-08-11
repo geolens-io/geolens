@@ -16,6 +16,10 @@ from app.platform.storage.provider import StoredObject
 # per concurrent download stays bounded.
 _STREAM_CHUNK_BYTES = 1024 * 1024  # 1 MiB
 
+# Page size for ``iter_object_pages``. Matches the ListObjectsV2 default so a
+# consumer's per-page budget behaves the same on every backend (feat #1249).
+_OBJECT_PAGE_SIZE = 1000
+
 
 class LocalStorageProvider:
     """Storage provider wrapping local filesystem operations under a base directory."""
@@ -193,12 +197,18 @@ class LocalStorageProvider:
 
         return await asyncio.to_thread(_list)
 
-    async def iter_object_pages(self, prefix: str) -> AsyncIterator[list[StoredObject]]:
+    async def iter_object_pages(
+        self, prefix: str, *, start_after: str | None = None
+    ) -> AsyncIterator[list[StoredObject]]:
         """Yield keys matching a prefix with their mtimes (feat #1249).
 
-        A local walk has no service-side paging to mirror, so this is a single
-        page. The signature matches the Protocol so the caller's bounded-work
-        loop is provider-agnostic.
+        Chunked into ``_OBJECT_PAGE_SIZE`` pages even though a local walk has
+        no service-side paging to mirror (fix(#1249) review r2): returning the
+        whole prefix as one page would hand the consumer an unbounded page and
+        defeat the between-pages budget it relies on. Key-sorted so
+        ``start_after`` means the same thing here as the S3 ``StartAfter`` it
+        mirrors, and so successive pages are a stable sequence rather than
+        whatever order ``rglob`` produced.
         """
         resolved_prefix = self._resolve_contained(prefix)
         resolved_base = self.base_dir.resolve()
@@ -206,6 +216,9 @@ class LocalStorageProvider:
         def _list_objects() -> list[StoredObject]:
             objects: list[StoredObject] = []
             for path in self._matching_files(prefix, resolved_prefix):
+                key = str(path.relative_to(resolved_base))
+                if start_after is not None and key <= start_after:
+                    continue
                 try:
                     mtime = path.stat().st_mtime
                 except OSError:
@@ -215,13 +228,16 @@ class LocalStorageProvider:
                     continue
                 objects.append(
                     StoredObject(
-                        key=str(path.relative_to(resolved_base)),
+                        key=key,
                         last_modified=datetime.fromtimestamp(mtime, tz=timezone.utc),
                     )
                 )
+            objects.sort(key=lambda entry: entry.key)
             return objects
 
-        yield await asyncio.to_thread(_list_objects)
+        objects = await asyncio.to_thread(_list_objects)
+        for start in range(0, max(len(objects), 1), _OBJECT_PAGE_SIZE):
+            yield objects[start : start + _OBJECT_PAGE_SIZE]
 
     async def health_check(self) -> None:
         """Verify the storage directory exists."""

@@ -237,15 +237,25 @@ class S3StorageProvider:
 
         return await asyncio.to_thread(_list)
 
-    async def iter_object_pages(self, prefix: str) -> AsyncIterator[list[StoredObject]]:
+    async def iter_object_pages(
+        self, prefix: str, *, start_after: str | None = None
+    ) -> AsyncIterator[list[StoredObject]]:
         """Yield ListObjectsV2 pages, each entry with its last-modified time.
 
         One request per page rather than a drain-then-return: a consumer that
         stops after the first page never issues the second, so a caller with a
         bounded work budget pays for a bounded number of round trips against an
         arbitrarily large prefix (fix(#1249) review r1).
+
+        ``start_after`` becomes S3's own ``StartAfter``, so a resumed walk skips
+        the earlier keys server-side rather than fetching and discarding them
+        (fix(#1249) review r2). It applies to the FIRST request only —
+        ListObjectsV2 ignores it once a ``ContinuationToken`` is present, and
+        sending both would only invite a reader to think otherwise.
         """
         params: dict = {"Bucket": self.bucket, "Prefix": prefix}
+        if start_after is not None:
+            params["StartAfter"] = start_after
         while True:
             response = await asyncio.to_thread(self.client.list_objects_v2, **params)
             yield [
@@ -257,6 +267,7 @@ class S3StorageProvider:
             ]
             if not response.get("IsTruncated"):
                 return
+            params.pop("StartAfter", None)
             params["ContinuationToken"] = response["NextContinuationToken"]
 
     async def health_check(self) -> None:

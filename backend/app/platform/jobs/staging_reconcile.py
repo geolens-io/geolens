@@ -90,6 +90,39 @@ _MAX_DELETES_PER_PASS = 200
 # cycle to delete nothing.
 _MAX_OBJECTS_SCANNED_PER_PASS = 20_000
 
+# Where the next pass resumes, per physical prefix (fix(#1249) review r2). A
+# cap without a cursor is not a bound, it is a blind spot: every pass would
+# re-walk the same lexicographically first window, and an orphan sorting after
+# a window full of tracked, recent, or unattributable keys would never be
+# reached at all.
+#
+# Advanced to the last key examined when a pass stops on a budget, and CLEARED
+# when a walk reaches the end of the prefix — a completed walk has seen
+# everything, so the next one starts at the front again.
+#
+# Process-local rather than a new persisted row, seeded at a RANDOM point the
+# first time a process walks a given prefix. Both halves of that matter. Per
+# process is enough because every pass is independently correct — the cursor
+# only decides where to look first, never what may be deleted — so the worst a
+# lost cursor costs is re-examining keys that were already cheap to skip. And
+# seeding randomly is what keeps that true under `UVICORN_MAX_REQUESTS`
+# recycling: a worker that restarts more often than a full walk completes would,
+# from a fixed start, never reach the tail — the exact starvation the cursor
+# exists to remove, reintroduced by the restart. From a random start, every
+# region of the prefix is equally likely to be walked first, so coverage does
+# not depend on any process living long enough to earn it.
+_scan_cursors: dict[str, str | None] = {}
+
+
+def _resume_point(physical_prefix: str) -> str | None:
+    """Where this pass starts, seeding a random point on first use."""
+    if physical_prefix not in _scan_cursors:
+        # A uuid in the same alphabet as the job segment of every staging key,
+        # so the seed lands uniformly inside the keyspace rather than before
+        # or after all of it.
+        _scan_cursors[physical_prefix] = f"{physical_prefix}{uuid.uuid4()}"
+    return _scan_cursors[physical_prefix]
+
 
 @dataclass(frozen=True)
 class StagingReconcileOutcome:
@@ -292,20 +325,31 @@ async def _reconcile_locked(
     Page at a time, and both budgets below are checked between pages, so the
     pass never holds more than one provider page in memory and never issues
     another listing round trip once it has enough work (fix(#1249) review r1).
+    A pass that stops on a budget leaves a cursor behind so the next one
+    resumes where it stopped rather than re-walking the same window forever
+    (review r2 — see ``_scan_cursors``).
     """
     # Clock skew between this process and the object store is immaterial at a
     # threshold measured in hours, which is one more reason the threshold is
     # not a tuned estimate of transfer duration.
     cutoff = now - timedelta(seconds=settings.staging_orphan_min_age_seconds)
     tally = _Tally()
+    last_examined: str | None = None
+    stopped_early = False
 
-    async for page in storage.iter_object_pages(physical_prefix):
+    async for page in storage.iter_object_pages(
+        physical_prefix, start_after=_resume_point(physical_prefix)
+    ):
         tally.objects_listed += len(page)
+        if page:
+            # Pages arrive in ascending key order, so the last entry is the
+            # high-water mark whether or not this page produced any deletes.
+            last_examined = page[-1].key
         candidates = _page_candidates(
             page, physical_prefix=physical_prefix, cutoff=cutoff, tally=tally
         )
         if candidates:
-            await _delete_page_orphans(
+            unfinished_at = await _delete_page_orphans(
                 db,
                 candidates,
                 now=now,
@@ -313,15 +357,32 @@ async def _reconcile_locked(
                 storage=storage,
                 tally=tally,
             )
+            if unfinished_at is not None:
+                # The delete budget ran out partway through this page. Resume
+                # from the last candidate actually PROCESSED, not from the end
+                # of the page, so the ones it never reached are not skipped
+                # until the walk wraps.
+                last_examined = unfinished_at
         if (
             tally.orphans_deleted + tally.delete_failures >= _MAX_DELETES_PER_PASS
             or tally.objects_listed >= _MAX_OBJECTS_SCANNED_PER_PASS
         ):
+            stopped_early = True
             log.info(
                 "Staging orphan reconciliation stopped at its per-pass budget",
+                resume_after=last_examined,
                 **tally.as_log_fields(),
             )
             break
+
+    # A completed walk has seen everything after its start point, so the next
+    # pass begins at the front. Only a budget stop carries a resume point, and
+    # only when the walk actually got somewhere — a budget stop with no page
+    # yielded would otherwise clear the cursor and undo the pass's progress.
+    if stopped_early and last_examined is not None:
+        _scan_cursors[physical_prefix] = last_examined
+    else:
+        _scan_cursors[physical_prefix] = None
 
     if tally.orphans_deleted:
         # After the deletes returned, never before: the counter records
@@ -366,8 +427,13 @@ async def _delete_page_orphans(
     cutoff: datetime,
     storage,
     tally: "_Tally",
-) -> None:
-    """Delete the untracked candidates from ONE page."""
+) -> str | None:
+    """Delete the untracked candidates from ONE page.
+
+    Returns the last key it PROCESSED if the delete budget stopped it partway,
+    so the caller can resume there rather than past the candidates it never
+    reached; ``None`` when the whole page was worked through.
+    """
     # One query per page, never per pass: the id set is bounded by the page
     # size the provider chose (1000 for S3 and Azure), so this expanding IN can
     # never approach the driver's bind-parameter ceiling no matter how large
@@ -384,11 +450,13 @@ async def _delete_page_orphans(
         ).scalars()
     )
 
+    processed: str | None = None
     for physical_key, job_id in sorted(candidates):
         if job_id in live_ids:
             continue
         if tally.orphans_deleted + tally.delete_failures >= _MAX_DELETES_PER_PASS:
-            return
+            return processed
+        processed = physical_key
         # Deliberately OUTSIDE the try below. A database error here is not a
         # per-object problem to count and move past — it leaves the
         # transaction unusable, so every remaining candidate would "fail" on a
@@ -420,3 +488,4 @@ async def _delete_page_orphans(
             last_modified=entry.last_modified.isoformat(),
             age_seconds=int((now - entry.last_modified).total_seconds()),
         )
+    return None

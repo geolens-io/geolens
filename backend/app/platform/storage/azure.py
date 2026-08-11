@@ -222,11 +222,22 @@ class AzureBlobStorageProvider:
 
         return await asyncio.to_thread(_list)
 
-    async def iter_object_pages(self, prefix: str) -> AsyncIterator[list[StoredObject]]:
+    async def iter_object_pages(
+        self, prefix: str, *, start_after: str | None = None
+    ) -> AsyncIterator[list[StoredObject]]:
         """Yield blob pages under a prefix, each entry with its last-modified.
 
         ``by_page()`` rather than the flat iterator so a consumer that stops
         early stops the service round trips with it (fix(#1249) review r1).
+
+        ``start_after`` is filtered client-side: Azure's flat listing takes a
+        name PREFIX, not a start marker, and its own continuation tokens are
+        service-issued handles rather than a key a later pass could reconstruct
+        (fix(#1249) review r2). Blob listings are name-ordered, so the filter
+        yields the same sequence S3's ``StartAfter`` does; only the skipped
+        pages still cross the wire. Nothing this backend serves makes that
+        matter — presigned uploads refuse anything but S3 at request time, so
+        an Azure container holds no `staging/` objects to walk.
         """
         container_client = self._client.get_container_client(self.container)
         pages = container_client.list_blobs(name_starts_with=prefix).by_page()
@@ -243,6 +254,8 @@ class AzureBlobStorageProvider:
                 return
             page: list[StoredObject] = []
             for blob in blobs:
+                if start_after is not None and blob.name <= start_after:
+                    continue
                 last_modified = getattr(blob, "last_modified", None)
                 if last_modified is None:
                     # feat(#1249): a blob the SDK cannot date cannot be aged,
