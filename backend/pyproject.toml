@@ -42,7 +42,7 @@ dependencies = [
     # azure.identity. Reintroduce it only alongside a real DefaultAzureCredential path.
     "azure-storage-blob>=12.24.0",
     # PERF-01 (Phase 274): in-memory LRU fallback for tile cache when REDIS_URL is unset
-    "cachetools>=7.1.6",
+    "cachetools>=7.1.7",
     "redis>=7.4.1",
     "jsonschema>=4.19",
     "puremagic>=2.2.0",
