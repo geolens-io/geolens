@@ -3,6 +3,44 @@
 Defense layer 1: Parse SQL via sqlglot, validate it is a single SELECT
 (including set operations), extract table references, and check them
 against the user's RBAC-visible datasets.
+
+Two kinds of check live here, and they are NOT the same trust class.
+
+Hard boundaries (must be correct): single-SELECT enforcement, the blocked
+function/operator list, the OID/regclass rejection, and — above all — RBAC
+table-access (``check_table_access`` against the allowlist). A miss here
+lets a query reach data or side effects it must not. These are security
+boundaries and are tested as such.
+
+The fan-out / output-width COST MODEL (``_max_table_fanout``, the projection
+width cap, the cross-product degree) is explicitly best-effort pre-filtering,
+NOT a security boundary. Its only job is to turn an obviously-expensive query
+into a fast 422 instead of letting it burn its execution budget. It runs on a
+static AST with no catalog statistics, so it cannot be complete: some
+cost-multiplying constructs (a same-side ``ON a.x = a.x``, a value laundered
+through a cast or CASE, a set-returning function) will be under-counted, and
+that is acceptable BY DESIGN because every executed query is already bounded
+at runtime (see ``validate_and_execute`` / ``execute_safe``):
+
+  * one in-flight query per user — ``pg_try_advisory_xact_lock`` on the caller
+    identity, so a user cannot stack concurrent queries;
+  * a global concurrency ceiling — the capacity semaphore (pool//3), so N
+    distinct users cannot exhaust the pool or memory in parallel;
+  * a hard ``SET LOCAL statement_timeout`` — runaway work is killed, not
+    awaited;
+  * a READ ONLY transaction on a restricted, fail-closed reader role — no
+    writes, no reach beyond granted data;
+  * an outer row-limit and a post-fetch serialized-byte cap — the returned
+    result is clamped regardless of how the query tried to inflate it;
+  * an isolated request-session release so an in-flight query holds one pool
+    slot, not two.
+
+So the worst case of ANY cost-model under-count is: one query, for one user,
+on the reader role, killed at the timeout, with its output clamped by the row
+and byte caps. That is the designed floor. New cost-model bypasses that stay
+within this floor are therefore documented and left as-is rather than chased
+construct-by-construct (an unbounded enumeration); only a finding that shows a
+RUNTIME bound above is missing or bypassable is a real defect to fix here.
 """
 
 from __future__ import annotations
@@ -1217,6 +1255,21 @@ def _is_cte_reference(table: exp.Table) -> bool:
     """Whether an unqualified table node resolves to an in-scope CTE."""
     return _resolve_cte(table) is not None
 
+
+# ---------------------------------------------------------------------------
+# Fan-out cost model (best-effort pre-filter, NOT a security boundary)
+#
+# Everything from here down estimates how many times a query multiplies work,
+# so an obviously-expensive statement gets a fast 422. It is deliberately
+# incomplete: it reads a static AST with no catalog statistics, so a construct
+# that launders or hides a multiplier (a same-side equality, a cast/CASE around
+# a wide tuple, a set-returning function) can be under-counted. That is safe by
+# design — see the module docstring: every executed query is bounded at runtime
+# (one-per-user advisory lock, capacity semaphore, statement_timeout, READ ONLY
+# reader role, row + serialized-byte caps), so the worst case of an under-count
+# is one query burning its own timeout with clamped output. Under-counts that
+# stay within that floor are documented, not chased construct-by-construct.
+# ---------------------------------------------------------------------------
 
 # Fan-out saturation ceiling. A CTE chain built to blow past the cap produces
 # an astronomically large multiplicity (2**depth); clamping keeps the

@@ -2841,8 +2841,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # cap (repeated projections amplify response width). P1 r21 makes the join
     # constraint recursive (an equality inside `... OR TRUE` does not constrain)
     # and counts composite-constructor value slots / rejects `*` for the width
-    # cap. Most of the added lines are that rationale. Cap at the exact size.
-    "backend/app/platform/sandbox/validator.py": 1812,
+    # cap. r22 documents the runtime floor: the fan-out/width model is
+    # best-effort pre-filtering, non-security, because every executed query is
+    # runtime-bounded (advisory lock, semaphore, timeout, reader role, row+byte
+    # caps) — the module docstring and a section anchor state it so cost-model
+    # under-counts are documented, not chased. Most of the added lines are that
+    # rationale. Cap at the exact size.
+    "backend/app/platform/sandbox/validator.py": 1865,
 }
 
 
