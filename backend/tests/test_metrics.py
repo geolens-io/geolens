@@ -823,13 +823,46 @@ def _await_marker(marker_path):
         if time.monotonic() > deadline:
             raise AssertionError("timed out waiting for " + marker_path)
         time.sleep(0.001)
+
+
+def _read_events(log_path):
+    try:
+        with open(log_path) as f:
+            return f.read().split()
+    except FileNotFoundError:
+        return []
+
+
+def _await_event(log_path, name):
+    deadline = time.monotonic() + 30
+    while name not in _read_events(log_path):
+        if time.monotonic() > deadline:
+            raise AssertionError("timed out waiting for event " + name)
+        time.sleep(0.001)
+
+
+def _await_any_event(log_path, names, timeout):
+    deadline = time.monotonic() + timeout
+    while True:
+        events = _read_events(log_path)
+        if any(name in events for name in names):
+            return True
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.001)
 """
 
-# How long the fake scrape keeps holding the shared lock after the sweeper has
-# announced it is loaded and ready to run. A sweep that ignored the lock would
-# reach its os.rename() well inside this window (it is already past every
-# import by then), so its event would land before "scrape_pre_unlock".
-_SCRAPE_HOLD_AFTER_SWEEPER_READY_SECONDS = 0.5
+# fix(#1295 review round 1): events the sweep can only emit once it is PAST
+# the exclusive lock. "sweep_lock_attempt" is deliberately not in this set --
+# it is emitted before the blocking flock() call, so it is expected to appear
+# while the scrape still holds the shared lock. That is the handshake.
+_POST_LOCK_SWEEP_EVENTS = ("sweep_lock_acquired", "sweep_rename")
+
+# Upper bound on how long the fake scrape keeps holding the shared lock after
+# the sweep has announced it is entering the production flock(LOCK_EX) call.
+# Only a CORRECT sweep waits this out; a sweep that got through the lock
+# records a _POST_LOCK_SWEEP_EVENTS entry and the scrape stops waiting at once.
+_SCRAPE_HOLD_AFTER_SWEEP_LOCK_ATTEMPT_SECONDS = 0.5
 
 
 def test_sweep_waits_for_inflight_scrape_before_renaming(tmp_path):
@@ -867,6 +900,20 @@ def test_sweep_waits_for_inflight_scrape_before_renaming(tmp_path):
     ordering with the sweep's flock stubbed out, which inverts the log every
     run.
 
+    fix(#1295 review round 1): the two sides synchronize on the sweep's LOCK
+    ATTEMPT, not on a timing window. The sweeper emits "sweep_lock_attempt"
+    immediately before the real flock(LOCK_EX) call and the scrape blocks
+    until it sees that event, so an arbitrarily long stall anywhere earlier
+    in the sweeper (imports, being descheduled on a loaded runner) cannot
+    consume the window and let a broken lock pass unnoticed. After the
+    handshake the scrape waits on the sweep's post-lock events with a bound:
+    a correct sweep is parked inside flock() and waits the bound out, while
+    a sweep that got through records its acquire/rename within microseconds
+    and releases the scrape immediately -- so the violation is always logged
+    before the scrape's own release, whatever the bound is. If the
+    production lock were deleted outright there would be no attempt event at
+    all, and the scrape fails on its bounded wait for it.
+
     The rename event is recorded by wrapping os.rename in the sweeper
     subprocess, so it observes the real production claim step inside
     _consolidate_dead_cumulative_metric_files(), not a stand-in for it.
@@ -886,7 +933,6 @@ def test_sweep_waits_for_inflight_scrape_before_renaming(tmp_path):
 
     order_log = tmp_path / "lock_order.log"
     holding_marker = tmp_path / "scrape_holding"
-    sweeper_ready_marker = tmp_path / "sweeper_ready"
 
     fake_scrape_script = f"""
 {_LOCK_ORDER_PRELUDE}
@@ -898,12 +944,23 @@ with open(_sweep_lock_path({multiproc_dir!r}), "a+b") as lock_file:
     fcntl.flock(lock_file, fcntl.LOCK_SH)
     _ev({str(order_log)!r}, "scrape_acquired")
     open({str(holding_marker)!r}, "w").close()
-    # Hold until the sweeper is loaded and waiting, so the window below is
-    # time a lock-ignoring sweep could actually use, not import overhead.
-    _await_marker({str(sweeper_ready_marker)!r})
-    time.sleep({_SCRAPE_HOLD_AFTER_SWEEPER_READY_SECONDS})
+    # Handshake, not a timing window: block until the sweep says it is
+    # entering the production flock(LOCK_EX) call. Nothing below depends on
+    # how long the sweeper took to import, or on whether it was descheduled
+    # on the way here -- this waits for the lock attempt itself.
+    _await_event({str(order_log)!r}, "sweep_lock_attempt")
+    # From here the only thing between the sweep and its rename is that one
+    # flock() call. A correct sweep is parked in the kernel and this waits
+    # the whole bound out; a sweep that got through records an acquire/rename
+    # within microseconds and this returns immediately -- so the violation is
+    # always on record BEFORE this process releases.
+    _await_any_event(
+        {str(order_log)!r},
+        {_POST_LOCK_SWEEP_EVENTS!r},
+        {_SCRAPE_HOLD_AFTER_SWEEP_LOCK_ATTEMPT_SECONDS},
+    )
     # Still holding the shared lock here: this event happens-before the
-    # release below, and therefore before any sweep event.
+    # release below, and therefore before any post-lock sweep event.
     _ev({str(order_log)!r}, "scrape_pre_unlock")
     fcntl.flock(lock_file, fcntl.LOCK_UN)
 """
@@ -922,6 +979,10 @@ _real_flock = fcntl.flock
 
 
 def _recording_flock(fd, operation):
+    if operation == fcntl.LOCK_EX:
+        # Emitted immediately before the real blocking call, so the scrape
+        # can synchronize on the lock attempt itself rather than on a clock.
+        _ev(_ORDER_LOG, "sweep_lock_attempt")
     result = _real_flock(fd, operation)
     if operation == fcntl.LOCK_EX:
         _ev(_ORDER_LOG, "sweep_lock_acquired")
@@ -940,7 +1001,6 @@ def _recording_rename(*args, **kwargs):
 
 os.rename = _recording_rename
 
-open({str(sweeper_ready_marker)!r}, "w").close()
 _await_marker({str(holding_marker)!r})
 
 _consolidate_dead_cumulative_metric_files()
@@ -965,9 +1025,11 @@ _consolidate_dead_cumulative_metric_files()
     assert sweep_proc.returncode == 0, sweep_stderr
 
     events = order_log.read_text().split()
-    # Not vacuous: the sweep really took the exclusive lock and really
-    # renamed the dead pid's file, and the consolidation landed.
+    # Not vacuous: the scrape really did wait for the sweep's lock attempt
+    # (rather than for a clock), the sweep really took the exclusive lock and
+    # really renamed the dead pid's file, and the consolidation landed.
     assert events[:1] == ["scrape_acquired"], events
+    assert "sweep_lock_attempt" in events, events
     assert "scrape_pre_unlock" in events, events
     assert "sweep_lock_acquired" in events, events
     assert "sweep_rename" in events, events
@@ -977,7 +1039,7 @@ _consolidate_dead_cumulative_metric_files()
     raced = [
         f"{name}@{i}"
         for i, name in enumerate(events)
-        if name.startswith("sweep_") and i < pre_unlock_index
+        if name in _POST_LOCK_SWEEP_EVENTS and i < pre_unlock_index
     ]
     assert not raced, (
         f"sweep events {raced} landed while the scrape still held the shared "
