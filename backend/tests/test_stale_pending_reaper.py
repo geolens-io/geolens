@@ -470,13 +470,15 @@ def test_every_pending_fail_site_uses_the_shared_clauses() -> None:
     import inspect
 
     from app.platform.jobs import router as jobs_router
+    from app.platform.jobs import sweep as jobs_sweep
     from app.platform.jobs import worker as jobs_worker
 
-    for module in (jobs_router, jobs_worker):
+    for module in (jobs_router, jobs_sweep, jobs_worker):
         source = inspect.getsource(module)
-        # The only legitimate definition site is the helper itself.
+        # The only legitimate definition site is the helper itself — moved
+        # from router.py into sweep.py by #1335's recovery/sweep split.
         inline = source.count('IngestJob.status == "pending",')
-        allowed = 1 if module is jobs_router else 0
+        allowed = 1 if module is jobs_sweep else 0
         assert inline == allowed, (
             f"{module.__name__} builds the pending-fail predicates inline "
             f"({inline} occurrences, expected {allowed}) — route it through "

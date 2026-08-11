@@ -2328,27 +2328,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # as durable truth, and a caller who learns that immediately can act on
     # it, where one who learns it from a failed run cannot. Cap 1091 -> 1119.
     "backend/app/modules/catalog/datasets/api/router_refresh.py": 1119,
-    # --- entered by the inclusion rule, feat(#1266) -----------------------
-    # The STAC re-resolution policy, entered at its measured size. It is one
-    # question asked of a third party — "where does this dataset's asset live
-    # now" — and almost all of its length is the answer's edges, each one a
-    # review round: which document is this item, which asset in it is ours,
-    # which URL may be stored, which may be a base for a relative href, and
-    # what each failure is allowed to conclude. The comments carry WHICH of
-    # those a given line closes, because the invariant they share ("adopt
-    # nothing unverifiable") reads as redundancy without them. Splitting it
-    # would put the identity rules in one file and the fetches they guard in
-    # another, which is the seam every one of those rounds found a hole in.
-    # +8: the collection a null-collection binding is verified against is
-    # reported back so the binding can learn it, the same way item_id is.
-    # +12, fix(#1331): the two truthiness reads of the bound key became
-    # `is not None`, each with a docstring note on why — `""` is a legal
-    # asset key and a binding that recorded it names a real asset.
-    # +15, fix(#1334 review): the resolved EPSG is reconciled with the
-    # probe's own CRS here, once, where both facts are already in hand —
-    # keeping `processing/` from ever needing to import from `catalog/`
-    # to get the same preference.
-    "backend/app/modules/catalog/sources/stac_resolve.py": 1040,
+    # fix(#1335): stac_resolve.py's 1040 lines were split along their natural
+    # seams — verdict taxonomy, identity checks, the asset gate (SSRF + COG
+    # probe), and the by-search fallback each moved into a sibling module,
+    # leaving this file as the by-URL entry point plus the façade the split's
+    # external callers and tests still import through. No entry needed below
+    # 1000 lines; see stac_resolve_asset_gate.py etc. for the pieces that
+    # carried the length.
     # --- entered by the inclusion rule, fix(#958) -------------------------
     # These five were the ungated modules at or above _RATCHET_INCLUSION_LOC
     # when the rule was written. They arrive at their measured size with no
@@ -2356,183 +2342,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # line: that is the gap #958 was filed about. The next change to any of
     # them writes the first entry.
     "backend/app/platform/config_ops/service.py": 1201,
-    # fix(#1236): first entry — crossed the router-glob gate's default
-    # 1500-line cap. The lines bought a bounded re-check pass for
-    # `_sweep_expired_presigned_staging` (closes the #1235 review r5 known
-    # gap: a timeout-lowering restart could orphan a recreated staging
-    # object forever), a further-bounded finalization margin for a PUT still
-    # transferring past the SigV4 ceiling (codex P1), and deferring the
-    # terminal-job retention purge for presigned rows a live URL could still
-    # recreate (codex P1). Cap 1500 -> 1501, exact.
-    # fix(#1236 review r2, codex P1 x2): +33 — the finalization margin was
-    # reusing `_COMMIT_HEADROOM_SECONDS`, an APPLICATION commit-round-trip
-    # number that never bounded a presigned PUT (which bypasses the app
-    # entirely) and didn't scale with `presigned_multipart_threshold_mb`.
-    # Replaced with `recheck_transfer_margin_seconds()`, derived from that
-    # setting's max single-part size and an assumed floor throughput; the
-    # retention purge's deferral now adds the same margin instead of stopping
-    # at the bare SigV4 ceiling. Cap 1501 -> 1534, exact.
-    # fix(#1236 review r3, codex P1): +41 — that margin still read the
-    # CURRENT `presigned_multipart_threshold_mb`, so lowering it during a
-    # restart could shrink the margin under a transfer issued when it was
-    # higher — the #1236 class again, one level down. The sweep now derives
-    # each job's margin from its own persisted `expected_size` (computed per
-    # row, in the loop, since a bulk DELETE cannot); the retention purge,
-    # which cannot branch per row, falls back to S3's own single-PUT ceiling
-    # instead of the current setting. Cap 1534 -> 1575, exact.
-    # fix(second-opinion review on #1236 review r3): +13 — the setting has no
-    # configured upper bound, so a declared `expected_size` could exceed the
-    # purge fallback's 5GiB assumption whenever an operator raised it past
-    # that. `recheck_transfer_margin_seconds()` now clamps unconditionally at
-    # `_S3_SINGLE_PUT_MAX_BYTES` rather than trusting either the job's
-    # declared size or the setting. Cap 1575 -> 1588, exact.
-    # fix(#1236 review r4, codex P1): -43 — rounds r2/r3 both scaled the
-    # margin from a client-declared size (a setting, then a job's own
-    # `expected_size`); r4 found neither was ever enforced —
-    # `generate_presigned_put_url` signs no content-length constraint, so a
-    # declaration bounds nothing. The margin is now a single fixed constant
-    # (S3's own single-PUT ceiling) for every job, which let the per-row
-    # `expected_size` branch in the sweep's loop and the whole
-    # `recheck_transfer_margin_seconds()` function collapse back out. Ratchet
-    # DOWN in the same commit, per the no-headroom rule. Cap 1588 -> 1545,
-    # exact.
-    # fix(#1236 review r5, codex P2): +16 — a non-null `s3_key` was treated
-    # as ownership in the retention purge's deferral predicate, but
-    # `create_fan_out_jobs` clones the parent's `user_metadata` wholesale, so
-    # every fan-out child inherits the PARENT's `s3_key` too. The predicate
-    # now requires the key's prefix match the ROW'S OWN id (a LIKE string
-    # match, same ownership rule `owned_presigned_staging_key` already
-    # enforces), so a terminal child no longer rides along on the parent's
-    # ~8.9-day exemption. Cap 1545 -> 1561, exact.
-    # feat(#1219): +12 — the abandoned-refresh-run sweep runs in this pass,
-    # placed after the two job sweeps because a job flipped to `failed` by
-    # them is one of the two proofs the run sweep needs. Most of the lines are
-    # the comment recording that ordering and why the count is logged rather
-    # than added to StaleCleanupOutcome (several callers rebuild that dataclass
-    # field by field). Cap 1561 -> 1573, exact.
-    # feat(#1268): +7 — the sweep now increments a Prometheus counter, with
-    # the comment explaining why this one is a real counter while the refresh
-    # run series beside it are derived gauges: the sweep runs inside one API
-    # request on one worker, so nothing sums it twice. Cap 1573 -> 1580, exact.
-    # fix(#1277 review): +25 — the increment moved off the sweep call site and
-    # behind the commit, because a counter cannot be decremented: a pass that
-    # rolled back left the metric permanently claiming cancellations that
-    # never happened. That bought `publish_refresh_reconciliation` and its
-    # docstring, the private `_refresh_runs_reconciled` field carrying the
-    # count out to whichever caller owns the commit (the admin path passes
-    # commit=False), and the comment at the second commit site.
-    # Cap 1580 -> 1605, exact.
-    # feat(#1265): +10 — a `refresh` branch in `_retry_capability`. A
-    # registered-PostGIS refresh job carries neither a file path nor a source
-    # URL, so it fell through to the import copy and told the user their
-    # source was gone for a dataset that was never imported from one. Most of
-    # the lines are the comment recording why the branch sits AFTER the
-    # reupload check: a service refresh job carries both markers, and moving
-    # this one first would silently reword an existing message.
-    # Cap 1605 -> 1615, exact.
-    # feat(#1267): +77 — sweep_stale_vrt_assets now restores 'ready' instead
-    # of 'failed' (the dead attempt never touched the published pointer, so
-    # the VRT keeps serving what it served before), the VrtGeneration
-    # RETURNING widened to (id, vrt_dataset_id) so the pairing survives to a
-    # new _reap_stale_generation_storage helper, and that helper best-effort
-    # reaps the dead attempt's own generation-scoped storage objects via the
-    # existing _cleanup_orphaned_storage_keys, keyed through current_tenant_var
-    # the same way regenerate_vrt itself resolves those keys. Most of the
-    # lines are the docstring recording why 'ready' is the correct restore
-    # target and why the pairing cannot come from the asset UPDATE's own
-    # RETURNING (its current_generation_id is nulled in the same statement).
-    # Cap 1615 -> 1692, exact.
-    # fix(#1322 review): +78 — storage deletion for a dead VRT regeneration's
-    # generation-scoped objects had run inside sweep_stale_vrt_assets itself,
-    # before its caller's commit. A rolled-back reconciliation could then
-    # leave a `'ready'` asset pointing at a generation whose bytes were
-    # already gone. Deletion is now split from resolution:
-    # _stale_generation_storage_keys (pure, no I/O) computes the keys inside
-    # the sweep; _reap_stale_generation_storage (I/O, no DB) deletes them,
-    # called only by each caller strictly after ITS OWN commit lands —
-    # threaded through StaleCleanupOutcome exactly like _staged_paths for the
-    # fail_stale_jobs path, and directly in worker.py's startup recovery
-    # path. Most of the lines are the docstrings recording why the ordering
-    # is load-bearing on both call sites. Cap 1692 -> 1770, exact.
-    # fix(#1322 review round 3): +104 — restoring 'ready' was only honest for
-    # a composition-PRESERVING dead attempt. add_vrt_source/remove_vrt_source
-    # commit their vrt_source_links mutation before the (now-dead)
-    # regeneration ever runs, so a dead attempt of that kind leaves the
-    # catalog's stated composition already ahead of the served bytes;
-    # restoring 'ready' there erased the only visible signal of that drift.
-    # The RasterAsset UPDATE split into two — composition-preserving (->
-    # 'ready') and composition-changed (-> 'failed', the same conservative
-    # outcome a NULL/non-object built_from also falls to) — discriminated by
-    # a shared SQL fragment (_COMPOSITION_PRESERVED_SQL) comparing
-    # built_from's key set against the live vrt_source_links set, reused
-    # verbatim and negated for the mirror statement. Most of the lines are
-    # the docstrings recording why this reads stored state rather than
-    # attempt provenance (no such field exists) and the jsonb_typeof(...) =
-    # 'object' guard a real-DB test proved necessary over a bare IS NOT NULL
-    # (SQLAlchemy's plain JSONB serializes Python None to the JSON scalar
-    # null, not SQL NULL). Cap 1770 -> 1874, exact.
-    # fix(#1322 review round 4): +68 — composition-preserving was necessary
-    # but not sufficient: regenerate_vrt_endpoint's guard rejects only
-    # 'regenerating', so a caller may retry an already-'failed' asset, and a
-    # dead retry whose membership still matched would have restored 'ready'
-    # and erased a real failure the crash had nothing to do with. Added a
-    # second, independent SQL fragment (_PRIOR_ATTEMPT_WAS_READY_SQL) reading
-    # the immediately-prior vrt_generations row's terminal status — 'failed'
-    # blocks the restore, 'completed' or no such row (first-ever attempt)
-    # allows it — combined into _READY_WORTHY_SQL with the composition check.
-    # Most of the lines are the docstring recording why no stored "attempt
-    # type" column exists to key off directly, and the accepted conservative
-    # cost this heuristic carries: a generation this sweep itself restores to
-    # 'ready' still leaves its OWN vrt_generations row 'failed', so a LATER
-    # dead attempt on the same dataset can read that earlier row and stay
-    # 'failed' one cycle longer than strictly necessary — the safe direction
-    # for a reconciler that must never manufacture a resolution that didn't
-    # happen. Cap 1874 -> 1942, exact.
-    # fix(#1322 review round 5): +29 — the prior-ready marker read raw
-    # generation STATUS, but regenerate_vrt_endpoint's orphan-guard rollback
-    # marks a generation 'failed' on a synchronous ENQUEUE failure (the task
-    # never reached a worker) while reverting the asset to whatever it
-    # already was — so that row's 'failed' status says nothing about the
-    # asset. Added `heartbeat_at IS NOT NULL` to the marker's subquery:
-    # heartbeat_at is set in exactly one place (tasks_vrt.regenerate_vrt's
-    # Phase-1 claim), so its absence proves a generation never actually ran,
-    # and excluding those rows finds the nearest OTHER generation that did.
-    # Most of the lines are the docstring distinguishing this from a
-    # genuine build failure (which always sets heartbeat_at during its own
-    # Phase-1 claim before anything can fail) and from a claim-starved
-    # 'pending' row swept as its own dead attempt (same "never ran" fact,
-    # consistently excluded either way). Cap 1942 -> 1971, exact.
-    # fix(#1322 review round 6): +45 — the timeout predicate for a 'pending'
-    # VrtGeneration lacked the same live-Procrastinate-job exclusion
-    # stale_pending_clauses already applies to IngestJob's pending sweep, for
-    # the identical reason: queue waits are unbounded, so started_at age
-    # alone cannot tell a genuine orphan from a regeneration still sitting
-    # in a sustained worker backlog. Split the staleness check by status —
-    # 'running' keeps the heartbeat-only proof (sufficient on its own, and
-    # required: a crashed worker can leave its procrastinate_jobs row
-    # reading 'doing' until the separate stalled-queue sweep prunes it, so a
-    # live-job requirement there would make a genuinely-dead running
-    # generation unsweepable until that other sweep runs); 'pending' now
-    # additionally requires _NO_LIVE_GENERATION_JOB_SQL, correlated via the
-    # `generation_id` kwarg every dispatch site passes (mirrors
-    # _ABANDONED_RUN_SQL's `args->>'job_id'` correlation in
-    # platform/refresh/service.py). Most of the lines are the docstring
-    # distinguishing the two branches' proof requirements. Cap 1971 -> 2016,
-    # exact.
-    # fix(#1322 review round 6, completed): +31 — the live-Procrastinate-job
-    # correlation for a 'pending' generation matched only the modern
-    # `generation_id` args shape. A pre-upgrade delivery queued without that
-    # argument (regenerate_vrt explicitly still accepts it, adopting
-    # RasterAsset.current_generation_id — rolling-deploy compatibility) was
-    # invisible to it, so a live legacy task's generation could still be
-    # reconciled out from under it. Added a second correlation form: a live
-    # row with no `generation_id` counts as live for a generation if that
-    # generation is CURRENTLY the dataset's RasterAsset.current_generation_id
-    # — the exact row such a delivery adopts on execution. Most of the lines
-    # are the docstring explaining the two delivery shapes and why the
-    # ambiguous case must resolve toward "still live," not toward sweeping.
-    # Cap 2016 -> 2047, exact.
-    "backend/app/platform/jobs/router.py": 2047,
+    # fix(#1335): jobs/router.py's 2047 lines carried the sweep SQL
+    # constants and every stale-job recovery/sweep handler alongside the
+    # plain CRUD routes. The two were split along that seam: the sweep
+    # handlers (fail_stale_jobs, sweep_stale_vrt_assets, the presigned-
+    # staging reapers) and their SQL constants moved to sweep.py, leaving
+    # router.py under the router-glob gate's default 1500-line cap with no
+    # entry needed here. The line-by-line growth history that used to live
+    # on this entry (fix #1236, fix #1322 rounds 1-6, ...) is unchanged and
+    # readable via `git log` on the pre-split file; sweep.py is entered
+    # fresh at its measured size below.
+    "backend/app/platform/jobs/sweep.py": 1366,
     # fix(second-opinion review on #1236 review r3): first entry — crossed
     # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
     # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side

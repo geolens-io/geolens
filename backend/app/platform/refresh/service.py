@@ -767,10 +767,9 @@ _NO_OTHER_LIVE_LEGACY_TASK = """
 #
 # 1. No Procrastinate job in a live state references the bound ingest job.
 #    Correlated on args->>'job_id', which every task in this codebase passes —
-#    the same correlation `no_live_procrastinate_job` in platform/jobs/router.py
-#    uses for ingest rows. Inlined rather than imported because that helper
-#    lives in a router module, and importing an API-edge module executes route
-#    registration as a side effect.
+#    the same correlation `no_live_procrastinate_job` in platform/jobs/sweep.py
+#    uses for ingest rows. Inlined rather than imported to avoid a
+#    platform/jobs -> platform/refresh dependency in the other direction.
 #
 #    A NULL ingest_job_id makes the comparison NULL, so the NOT EXISTS holds:
 #    the job row was purged by retention, which means its task is long gone.

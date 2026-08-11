@@ -414,11 +414,11 @@ def _stub_stac_resolution_seams(monkeypatch) -> None:
     answers for) and the COG read Titiler would do against a moved asset.
     """
     monkeypatch.setattr(
-        "app.modules.catalog.sources.stac_resolve.validate_url_for_ssrf",
+        "app.modules.catalog.sources.stac_resolve_asset_gate.validate_url_for_ssrf",
         AsyncMock(),
     )
     monkeypatch.setattr(
-        "app.modules.catalog.sources.stac_resolve.fetch_cog_info",
+        "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_info",
         AsyncMock(
             return_value={
                 "band_count": 1,
