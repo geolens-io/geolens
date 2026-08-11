@@ -629,8 +629,8 @@ visible here, and a trigger left DISABLED by a restore is reported rather than
 counted. Object storage is a separate artifact; see step 0 of the full restore
 below.
 
-A dump carries row-security state, so a healthy multi-tenant source cluster
-restores with it already on.
+A dump carries row-security state, so a source cluster that was already
+enforcing it restores with it still on.
 
 Then verify by hand: the API login can `SET ROLE` to one tenant writer/reader,
 the tile login can set only that tenant reader, and neither login owns catalog

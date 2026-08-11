@@ -46,12 +46,22 @@ from __future__ import annotations
 import argparse
 import asyncio
 import uuid
-from dataclasses import dataclass, field
 
 import structlog
 from sqlalchemy import text
 
-from app.core.db.rls import RLS_TABLES
+from app.core.db.tenant_adoption_report import (
+    BOUNDARY_FUNCTIONS,
+    BOUNDARY_TRIGGER,
+    BOUNDARY_TRIGGER_FUNCTION,
+    BOUNDARY_TRIGGER_TYPE,
+    AdoptionReport,
+    BoundaryFunctionState,
+    BoundaryTableState,
+    TenantOwnershipState,
+    format_report,
+    unexpected_shape,
+)
 from app.core.db.tenant_adoption_sql import (
     ADOPT_TENANT_SQL,
     CLUSTER_ROLE_CREATE_SQL,
@@ -67,135 +77,6 @@ from app.core.db.tenant_adoption_sql import (
 )
 
 logger = structlog.stdlib.get_logger(__name__)
-
-#: The two migration-owned SECURITY DEFINER entry points.  Adoption verifies and
-#: re-secures them; it never rewrites their bodies.
-BOUNDARY_FUNCTIONS = (
-    "provision_tenant_data_schema",
-    "deprovision_tenant_data_schema",
-)
-
-#: The insert-stamping trigger 0018 installs.  Its presence — not any constant
-#: frozen into a migration — is what marks a table as tenant-scoped.
-BOUNDARY_TRIGGER = "trg_stamp_current_tenant_on_insert"
-
-
-# ---------------------------------------------------------------------------
-# Report types
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class BoundaryFunctionState:
-    """Live state of one migration-owned SECURITY DEFINER entry point."""
-
-    name: str
-    owner: str
-    security_definer: bool
-    search_path_pinned: bool
-    public_execute: bool
-    control_execute: bool
-
-    @property
-    def secured(self) -> bool:
-        return (
-            self.owner == PROVISIONER
-            and self.security_definer
-            and self.search_path_pinned
-            and not self.public_execute
-            and self.control_execute
-        )
-
-
-@dataclass(frozen=True)
-class TenantOwnershipState:
-    """Live ownership state of one tenant's data plane."""
-
-    tenant_id: str
-    schema_name: str
-    schema_exists: bool
-    schema_owner: str | None
-    reader_exists: bool
-    writer_exists: bool
-    relations: int
-    relations_not_owned_by_writer: int
-    relations_without_reader_select: int
-    reader_default_acls: int
-    reader_role_secure: bool
-    writer_role_secure: bool
-    schema_privileges_secure: bool
-
-    @property
-    def adopted(self) -> bool:
-        """Every invariant ``--apply`` enforces, not just the visible ones.
-
-        Ownership and effective privileges alone would call a reader carrying
-        ``LOGIN``/``SUPERUSER``/``BYPASSRLS`` adopted — a superuser satisfies the
-        ``SELECT`` check by fiat — and would miss a stray member or a missing
-        gateway edge, both of which ``ADOPT_TENANT_SQL`` refuses or repairs.
-        """
-        return (
-            self.schema_exists
-            and self.schema_owner == PROVISIONER
-            and self.reader_exists
-            and self.writer_exists
-            and self.relations_not_owned_by_writer == 0
-            and self.relations_without_reader_select == 0
-            and self.reader_default_acls == 0
-            and self.reader_role_secure
-            and self.writer_role_secure
-            and self.schema_privileges_secure
-        )
-
-
-@dataclass(frozen=True)
-class BoundaryTableState:
-    """A ``catalog`` table carrying tenant state, as the database reports it."""
-
-    name: str
-    has_stamping_trigger: bool
-    stamping_trigger_disabled: bool
-    has_tenant_id: bool
-    rls_enabled: bool
-    rls_forced: bool
-
-
-def rls_gaps(boundary: list[BoundaryTableState], *, tenants_present: bool) -> list[str]:
-    """Boundary tables whose row-security posture is not safe to serve.
-
-    ``apply_tenancy_rls`` is mode-gated and a single-tenant install correctly
-    keeps row security off, so a uniformly disabled boundary on a control plane
-    with no tenants is not a finding — and this module cannot read the mode out
-    of the database, only the tenants.  Two states always are findings: a
-    control plane that *has* tenants with row security off, where the isolation
-    boundary simply is not there; and row security enabled without ``FORCE``,
-    where the table owner bypasses every policy.
-    """
-    gaps: list[str] = []
-    for table in boundary:
-        if not table.has_stamping_trigger:
-            continue
-        if tenants_present and not table.rls_enabled:
-            gaps.append(f"{table.name} (row security disabled)")
-        elif table.rls_enabled and not table.rls_forced:
-            gaps.append(f"{table.name} (row security not FORCEd)")
-    return gaps
-
-
-def boundary_drift(boundary: list[BoundaryTableState]) -> tuple[list[str], list[str]]:
-    """Compare the live boundary against the runtime constant that drives RLS.
-
-    ``apply_tenancy_rls`` enables and FORCEs row security from
-    ``app.core.db.rls.RLS_TABLES``.  A table that joined the live boundary
-    without joining that tuple is silently skipped at boot, which is exactly the
-    failure a restored multi-tenant cluster cannot afford.  The other direction
-    is drift too: a table named in the tuple but carrying no stamping trigger
-    accepts an insert with no ``tenant_id`` at all.  Returns
-    ``(live_only, constant_only)``.
-    """
-    live = {state.name for state in boundary if state.has_stamping_trigger}
-    declared = set(RLS_TABLES)
-    return sorted(live - declared), sorted(declared - live)
 
 
 # ---------------------------------------------------------------------------
@@ -229,14 +110,22 @@ async def live_tenant_boundary(conn) -> list[BoundaryTableState]:
                          AND trigger_row.tgname = :trigger_name
                          AND NOT trigger_row.tgisinternal
                          AND trigger_row.tgenabled IN ('O', 'A')
+                         AND trigger_row.tgtype = :before_insert_row
+                         AND trigger_row.tgfoid = (
+                             SELECT routine.oid
+                             FROM pg_catalog.pg_proc AS routine
+                             JOIN pg_catalog.pg_namespace AS routine_schema
+                               ON routine_schema.oid = routine.pronamespace
+                             WHERE routine_schema.nspname = 'catalog'
+                               AND routine.proname = :trigger_function
+                         )
                    ) AS has_stamping_trigger,
                    EXISTS (
                        SELECT 1 FROM pg_catalog.pg_trigger AS trigger_row
                        WHERE trigger_row.tgrelid = relation.oid
                          AND trigger_row.tgname = :trigger_name
                          AND NOT trigger_row.tgisinternal
-                         AND trigger_row.tgenabled NOT IN ('O', 'A')
-                   ) AS stamping_trigger_disabled,
+                   ) AS stamping_trigger_present,
                    EXISTS (
                        SELECT 1 FROM pg_catalog.pg_attribute AS attribute
                        WHERE attribute.attrelid = relation.oid
@@ -253,14 +142,18 @@ async def live_tenant_boundary(conn) -> list[BoundaryTableState]:
             ORDER BY relation.relname
             """
         ),
-        {"trigger_name": BOUNDARY_TRIGGER},
+        {
+            "trigger_name": BOUNDARY_TRIGGER,
+            "trigger_function": BOUNDARY_TRIGGER_FUNCTION,
+            "before_insert_row": BOUNDARY_TRIGGER_TYPE,
+        },
     )
     states = [BoundaryTableState(**dict(row._mapping)) for row in result]
     return [
         state
         for state in states
         if state.has_stamping_trigger
-        or state.stamping_trigger_disabled
+        or state.stamping_trigger_present
         or state.has_tenant_id
     ]
 
@@ -276,6 +169,13 @@ async def boundary_function_states(conn) -> list[BoundaryFunctionState]:
                    COALESCE(
                        'search_path=pg_catalog' = ANY(routine.proconfig), false
                    ) AS search_path_pinned,
+                   language.lanname AS language,
+                   routine.prorettype = 'void'::regtype AS returns_void,
+                   (
+                       routine.prosrc LIKE '%catalog.tenants%'
+                       AND routine.prosrc LIKE '%data_t_%'
+                       AND routine.prosrc LIKE '%pg_advisory_xact_lock%'
+                   ) AS body_markers_present,
                    pg_catalog.has_function_privilege(
                        'public', routine.oid, 'EXECUTE'
                    ) AS public_execute,
@@ -292,6 +192,8 @@ async def boundary_function_states(conn) -> list[BoundaryFunctionState]:
             FROM pg_catalog.pg_proc AS routine
             JOIN pg_catalog.pg_namespace AS namespace
               ON namespace.oid = routine.pronamespace
+            JOIN pg_catalog.pg_language AS language
+              ON language.oid = routine.prolang
             WHERE namespace.nspname = 'catalog'
               AND routine.proname = ANY(:names)
               AND routine.pronargs = 1
@@ -606,16 +508,12 @@ async def secure_boundary_functions(conn) -> list[BoundaryFunctionState]:
             "`alembic upgrade heads` against this database first."
         )
     for name, state in states.items():
-        if not state.security_definer:
+        reason = unexpected_shape(state)
+        if reason is not None:
             raise RuntimeError(
-                f"catalog.{name}(uuid) is not SECURITY DEFINER. This is not the "
-                "migration-installed boundary function; refusing to adopt it."
-            )
-        if not state.search_path_pinned:
-            raise RuntimeError(
-                f"catalog.{name}(uuid) has no `SET search_path = pg_catalog`. "
-                "This is not the migration-installed boundary function; "
-                "refusing to adopt it."
+                f"catalog.{name}(uuid) {reason}. This is not the shape the "
+                "migrations install; refusing to give it to "
+                f"{PROVISIONER} or to grant {CONTROL} execution on it."
             )
 
     await conn.execute(text(SECURE_BOUNDARY_FUNCTIONS_SQL))
@@ -630,88 +528,6 @@ async def adopt_tenant(conn, tenant_id: str) -> None:
         {"guc": TENANT_GUC, "tenant_id": normalized},
     )
     await conn.execute(text(ADOPT_TENANT_SQL))
-
-
-# ---------------------------------------------------------------------------
-# Orchestration + CLI
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class AdoptionReport:
-    """What adoption found, and what it changed."""
-
-    applied: bool
-    functions: list[BoundaryFunctionState]
-    boundary: list[BoundaryTableState]
-    before: list[TenantOwnershipState]
-    after: list[TenantOwnershipState]
-    failures: dict[str, str]
-    cluster_topology: str | None = None
-    provisioner_grants_missing: list[str] = field(default_factory=list)
-
-    @property
-    def missing_functions(self) -> list[str]:
-        """Boundary functions the schema does not have.
-
-        ``boundary_function_states`` omits what it cannot find, so an absent
-        function shortens the list rather than marking one unsecured.  Naming
-        the gap keeps ``all(... .secured)`` from passing vacuously.
-        """
-        present = {function.name for function in self.functions}
-        return [name for name in BOUNDARY_FUNCTIONS if name not in present]
-
-    @property
-    def disabled_stamping_triggers(self) -> list[str]:
-        """Boundary tables whose stamping trigger exists but does not fire.
-
-        Its own condition, not a corollary of the drift check: a table that is
-        newly tenant-scoped *and* absent from ``RLS_TABLES`` lands in neither
-        drift direction and has no row-security requirement to miss, so a
-        disabled trigger there would otherwise be printed and then ignored.
-        """
-        return sorted(
-            table.name for table in self.boundary if table.stamping_trigger_disabled
-        )
-
-    @property
-    def rls_gaps(self) -> list[str]:
-        """Boundary tables that cannot enforce tenant isolation as they stand.
-
-        Tenant rows in the control plane are what makes a database
-        multi-tenant, so they are what makes row security mandatory here.
-        """
-        return rls_gaps(self.boundary, tenants_present=bool(self.before))
-
-    @property
-    def ok(self) -> bool:
-        """True when nothing is left to do — the exit code in both modes.
-
-        A dry run that reports pending work therefore exits non-zero, which is
-        what makes ``--apply``-less invocation usable as a post-restore check.
-        Every condition the report surfaces has to be in here, or the check
-        passes on a database the report itself calls broken: a missing boundary
-        function, a fixed-role topology ``--apply`` would refuse, a provisioner
-        grant a restore dropped, boundary drift that leaves a stamped table
-        without RLS at boot, a stamping trigger that does not fire, and a
-        boundary table that cannot enforce isolation as it stands all count.
-        """
-        if (
-            self.failures
-            or self.missing_functions
-            or self.cluster_topology
-            or self.provisioner_grants_missing
-            or self.rls_gaps
-            or self.disabled_stamping_triggers
-        ):
-            return False
-        if not all(function.secured for function in self.functions):
-            return False
-        live_only, constant_only = boundary_drift(self.boundary)
-        if live_only or constant_only:
-            return False
-        states = self.after if self.applied else self.before
-        return all(state.adopted for state in states)
 
 
 async def run_adoption(engine, *, apply: bool) -> AdoptionReport:
@@ -767,154 +583,6 @@ async def run_adoption(engine, *, apply: bool) -> AdoptionReport:
         cluster_topology=topology,
         provisioner_grants_missing=grants,
     )
-
-
-def _format_cluster_roles(report: AdoptionReport) -> list[str]:
-    if report.cluster_topology is not None:
-        return [
-            f"Fixed cluster roles: NEEDS ATTENTION — {report.cluster_topology}",
-            "  --apply creates a missing role; it refuses an unsafe one.",
-        ]
-    lines = [
-        f"Fixed cluster roles ({PROVISIONER} and the four gateways): "
-        "present, with safe attributes and memberships."
-    ]
-    if report.provisioner_grants_missing:
-        lines.append(
-            f"  {PROVISIONER} is missing "
-            f"{', '.join(report.provisioner_grants_missing)} — tenant "
-            "provisioning cannot run without them; --apply re-grants them."
-        )
-    return lines
-
-
-def _format_functions(report: AdoptionReport) -> list[str]:
-    lines = ["Boundary functions:"]
-    for function in report.functions:
-        flags = [f"owner={function.owner}"]
-        if function.public_execute:
-            flags.append("EXECUTE granted to PUBLIC")
-        if not function.control_execute:
-            flags.append(f"no EXECUTE for {CONTROL}")
-        verdict = "secured" if function.secured else "NEEDS REPAIR"
-        lines.append(f"  catalog.{function.name}(uuid): {verdict} — {', '.join(flags)}")
-    for name in report.missing_functions:
-        lines.append(
-            f"  catalog.{name}(uuid): MISSING — this database is not at the head "
-            "schema; run `alembic upgrade heads` first"
-        )
-    return lines
-
-
-def _boundary_table_markers(
-    table: BoundaryTableState, *, tenants_present: bool
-) -> list[str]:
-    if table.stamping_trigger_disabled:
-        return [
-            f"{BOUNDARY_TRIGGER} exists but is DISABLED — it stamps nothing, and "
-            "nothing at boot re-enables it"
-        ]
-    if not table.has_stamping_trigger:
-        return ["tenant_id column only, outside the stamped boundary"]
-    if not table.rls_enabled:
-        if tenants_present:
-            return ["RLS not enabled on a control plane that has tenants"]
-        return ["RLS not enabled (correct while the control plane has no tenants)"]
-    if not table.rls_forced:
-        return ["RLS enabled but not FORCEd — the table owner bypasses it"]
-    return []
-
-
-def _format_boundary(report: AdoptionReport) -> list[str]:
-    boundary = report.boundary
-    tenants_present = bool(report.before)
-    lines = [f"Live tenant boundary ({BOUNDARY_TRIGGER}), read from the database:"]
-    for table in boundary:
-        markers = _boundary_table_markers(table, tenants_present=tenants_present)
-        suffix = f" — {'; '.join(markers)}" if markers else ""
-        lines.append(f"  catalog.{table.name}{suffix}")
-
-    live_only, constant_only = boundary_drift(boundary)
-    if live_only:
-        lines.append(
-            "  DRIFT: stamped in the database but absent from "
-            "app.core.db.rls.RLS_TABLES, so boot never enables RLS on them: "
-            f"{', '.join(live_only)}"
-        )
-    if constant_only:
-        lines.append(
-            "  DRIFT: listed in app.core.db.rls.RLS_TABLES but carrying no live "
-            f"stamping trigger here: {', '.join(constant_only)}"
-        )
-    if report.rls_gaps:
-        lines.append(
-            "  NOT SAFE TO SERVE until row security is repaired: "
-            f"{', '.join(report.rls_gaps)}"
-        )
-    return lines
-
-
-def _tenant_verdict(
-    before: TenantOwnershipState, after: TenantOwnershipState, applied: bool
-) -> str:
-    if not applied:
-        return "adopted" if before.adopted else "needs adoption"
-    if not after.adopted:
-        return "STILL INCOMPLETE"
-    return "already adopted (no changes)" if before.adopted else "adopted"
-
-
-def _format_tenants(report: AdoptionReport) -> list[str]:
-    if not report.before:
-        return ["Tenants: none. Nothing to adopt (single-tenant control plane)."]
-
-    lines = [f"Tenants: {len(report.before)}"]
-    after_by_id = {state.tenant_id: state for state in report.after}
-    for before in report.before:
-        after = after_by_id[before.tenant_id]
-        detail = [
-            f"{after.relations} relation(s)",
-            f"{after.relations_not_owned_by_writer} not owned by the writer",
-            f"{after.relations_without_reader_select} without reader SELECT",
-        ]
-        if after.reader_default_acls:
-            detail.append(
-                f"{after.reader_default_acls} legacy default-privilege "
-                "entr(ies) for the reader"
-            )
-        if not after.reader_role_secure:
-            detail.append(
-                "reader role attributes or memberships are not the safe shape"
-            )
-        if not after.writer_role_secure:
-            detail.append(
-                "writer role attributes or memberships are not the safe shape"
-            )
-        if not after.schema_privileges_secure:
-            detail.append("schema privileges are not the safe shape")
-        verdict = _tenant_verdict(before, after, report.applied)
-        lines.append(f"  {before.tenant_id}: {verdict} — {', '.join(detail)}")
-    return lines
-
-
-def format_report(report: AdoptionReport) -> str:
-    """Render the report an operator reads mid-recovery."""
-    mode = "APPLIED" if report.applied else "DRY RUN (no changes made)"
-    sections = [
-        [f"Tenant-ownership adoption — {mode}"],
-        _format_cluster_roles(report),
-        _format_functions(report),
-        _format_boundary(report),
-        _format_tenants(report),
-    ]
-    if report.failures:
-        failures = ["Failures (re-run after fixing; adopted tenants stay adopted):"]
-        failures += [
-            f"  {tenant_id}: {message}"
-            for tenant_id, message in report.failures.items()
-        ]
-        sections.append(failures)
-    return "\n\n".join("\n".join(section) for section in sections)
 
 
 def _build_parser() -> argparse.ArgumentParser:

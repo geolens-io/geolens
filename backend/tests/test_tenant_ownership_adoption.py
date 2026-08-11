@@ -37,25 +37,27 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.core.db.rls import RLS_TABLES
-from app.core.db.tenant_adoption_sql import WRITER as WRITER_GATEWAY
 from app.core.db.tenant_adoption import (
-    BOUNDARY_FUNCTIONS,
     CONTROL,
     PROVISIONER,
-    AdoptionReport,
-    BoundaryFunctionState,
-    BoundaryTableState,
-    TenantOwnershipState,
-    boundary_drift,
     boundary_function_states,
     cluster_topology_error,
-    format_report,
     live_tenant_boundary,
     missing_provisioner_grants,
     run_adoption,
     secure_boundary_functions,
     tenant_ownership_state,
 )
+from app.core.db.tenant_adoption_report import (
+    BOUNDARY_FUNCTIONS,
+    AdoptionReport,
+    BoundaryFunctionState,
+    BoundaryTableState,
+    TenantOwnershipState,
+    boundary_drift,
+    format_report,
+)
+from app.core.db.tenant_adoption_sql import WRITER as WRITER_GATEWAY
 
 pytestmark = pytest.mark.anyio
 
@@ -995,6 +997,33 @@ class TestAdoptionWithRestoredBoundaryFunctions:
         finally:
             await engine.dispose()
 
+    async def test_a_substituted_function_body_is_refused(self):
+        """A `(uuid)` SECURITY DEFINER function is not automatically the one.
+
+        Adoption gives the boundary functions to the provisioner and grants the
+        control role execution, so it refuses anything that is not structurally
+        what the migrations install. Rolled back either way.
+        """
+        engine = _make_engine()
+        try:
+            async with engine.connect() as conn:
+                transaction = await conn.begin()
+                try:
+                    await conn.execute(
+                        sa.text(
+                            "CREATE OR REPLACE FUNCTION "
+                            "catalog.provision_tenant_data_schema(p_tenant_id uuid) "
+                            "RETURNS void LANGUAGE sql SECURITY DEFINER "
+                            "SET search_path = pg_catalog AS $$ SELECT NULL::void $$"
+                        )
+                    )
+                    with pytest.raises(RuntimeError, match="not plpgsql"):
+                        await secure_boundary_functions(conn)
+                finally:
+                    await transaction.rollback()
+        finally:
+            await engine.dispose()
+
     async def test_missing_function_refuses_instead_of_installing_one(self):
         """Bodies belong to the migrations; adoption never writes one."""
         from app.core.db.tenant_adoption import secure_boundary_functions
@@ -1071,14 +1100,14 @@ class TestLiveTenantBoundary:
                 boundary = await live_tenant_boundary(conn)
             state = next(entry for entry in boundary if entry.name == table)
             assert not state.has_stamping_trigger
-            assert state.stamping_trigger_disabled
+            assert state.stamping_trigger_inert
 
             # It is in RLS_TABLES but no longer stamped, so it reads as drift.
             assert boundary_drift(boundary) == ([], [table])
 
             report = await run_adoption(engine, apply=False)
             assert not report.ok
-            assert "DISABLED" in format_report(report)
+            assert "does not stamp" in format_report(report)
         finally:
             async with engine.begin() as conn:
                 await conn.execute(
@@ -1087,6 +1116,43 @@ class TestLiveTenantBoundary:
                         "ENABLE TRIGGER trg_stamp_current_tenant_on_insert"
                     )
                 )
+            await engine.dispose()
+
+    async def test_a_trigger_on_the_wrong_event_is_not_a_live_boundary(self):
+        """The name alone proves nothing about what fires.
+
+        A trigger recreated under the boundary name but wired to the wrong
+        timing stamps no ordinary insert, and nothing at boot notices. Rolled
+        back, so the worker's schema is unchanged either way.
+        """
+        engine = _make_engine()
+        table = "embed_tokens"
+        try:
+            async with engine.connect() as conn:
+                transaction = await conn.begin()
+                try:
+                    await conn.execute(
+                        sa.text(
+                            f"DROP TRIGGER trg_stamp_current_tenant_on_insert "
+                            f"ON catalog.{table}"
+                        )
+                    )
+                    await conn.execute(
+                        sa.text(
+                            "CREATE TRIGGER trg_stamp_current_tenant_on_insert "
+                            f"AFTER INSERT ON catalog.{table} FOR EACH ROW "
+                            "EXECUTE FUNCTION catalog.stamp_current_tenant_on_insert()"
+                        )
+                    )
+
+                    boundary = await live_tenant_boundary(conn)
+                    state = next(entry for entry in boundary if entry.name == table)
+                    assert not state.has_stamping_trigger
+                    assert state.stamping_trigger_inert
+                    assert boundary_drift(boundary) == ([], [table])
+                finally:
+                    await transaction.rollback()
+        finally:
             await engine.dispose()
 
     async def test_dormant_tenant_id_columns_are_reported_outside_the_boundary(self):
@@ -1149,6 +1215,9 @@ def _secured_function(name: str) -> BoundaryFunctionState:
         owner=PROVISIONER,
         security_definer=True,
         search_path_pinned=True,
+        language="plpgsql",
+        returns_void=True,
+        body_markers_present=True,
         public_execute=False,
         control_execute=True,
     )
@@ -1159,7 +1228,7 @@ def _clean_boundary() -> list[BoundaryTableState]:
         BoundaryTableState(
             name=name,
             has_stamping_trigger=True,
-            stamping_trigger_disabled=False,
+            stamping_trigger_present=True,
             has_tenant_id=True,
             rls_enabled=True,
             rls_forced=True,
@@ -1237,7 +1306,7 @@ class TestSuccessPredicate:
             BoundaryTableState(
                 name="w998_late_arrival",
                 has_stamping_trigger=True,
-                stamping_trigger_disabled=False,
+                stamping_trigger_present=True,
                 has_tenant_id=True,
                 rls_enabled=True,
                 rls_forced=True,
@@ -1253,7 +1322,7 @@ class TestSuccessPredicate:
             BoundaryTableState(
                 name=table.name,
                 has_stamping_trigger=True,
-                stamping_trigger_disabled=False,
+                stamping_trigger_present=True,
                 has_tenant_id=True,
                 rls_enabled=False,
                 rls_forced=False,
@@ -1271,7 +1340,7 @@ class TestSuccessPredicate:
             BoundaryTableState(
                 name=table.name,
                 has_stamping_trigger=True,
-                stamping_trigger_disabled=False,
+                stamping_trigger_present=True,
                 has_tenant_id=True,
                 rls_enabled=False,
                 rls_forced=False,
@@ -1288,7 +1357,7 @@ class TestSuccessPredicate:
             BoundaryTableState(
                 name=table.name,
                 has_stamping_trigger=True,
-                stamping_trigger_disabled=False,
+                stamping_trigger_present=True,
                 has_tenant_id=True,
                 rls_enabled=True,
                 rls_forced=False,
@@ -1299,7 +1368,7 @@ class TestSuccessPredicate:
         assert report.rls_gaps
         assert not report.ok
 
-    def test_disabled_trigger_on_an_undeclared_table_is_not_ok(self) -> None:
+    def test_inert_trigger_on_an_undeclared_table_is_not_ok(self) -> None:
         """The one combination neither drift direction can see.
 
         A newly tenant-scoped table absent from ``RLS_TABLES`` with its stamping
@@ -1311,7 +1380,7 @@ class TestSuccessPredicate:
             BoundaryTableState(
                 name="w998_new_and_undeclared",
                 has_stamping_trigger=False,
-                stamping_trigger_disabled=True,
+                stamping_trigger_present=True,
                 has_tenant_id=True,
                 rls_enabled=False,
                 rls_forced=False,
@@ -1320,9 +1389,9 @@ class TestSuccessPredicate:
         report = _report(boundary=boundary)
         assert boundary_drift(boundary) == ([], [])
         assert report.rls_gaps == []
-        assert report.disabled_stamping_triggers == ["w998_new_and_undeclared"]
+        assert report.inert_stamping_triggers == ["w998_new_and_undeclared"]
         assert not report.ok
-        assert "DISABLED" in format_report(report)
+        assert "does not stamp" in format_report(report)
 
     def test_declared_table_without_a_stamping_trigger_is_not_ok(self) -> None:
         """The other direction: inserts land with no tenant_id at all."""
