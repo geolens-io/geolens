@@ -2,9 +2,9 @@
 
 Apache-2.0 read-only [Model Context Protocol](https://modelcontextprotocol.io) server for [GeoLens](https://github.com/geolens-io/geolens).
 
-Point a coding agent (Claude Code, Cursor, Codex, …) at a GeoLens instance so it can discover datasets, inspect schemas, and read features and maps from inside a dev session.
+Point a coding agent (Claude Code, Cursor, Codex, …) at a GeoLens instance so it can discover datasets, inspect schemas, read features and maps, and run read-only SQL from inside a dev session.
 
-**Read-only by design.** Every tool is a `GET` against an existing API endpoint — no writes, ingest, or admin. Calls are scoped to the caller's access: with an API key, the agent sees the datasets that key's user can see; with no credential it sees only public/published data.
+**Read-only by design.** No writes, ingest, or admin. The discovery tools are `GET`s against existing API endpoints; `query` is a `POST` mechanically but executes inside the server's READ ONLY SQL sandbox, so it cannot modify anything. Calls are scoped to the caller's access: with an API key, the agent sees the datasets that key's user can see; with no credential it sees only public/published data (`query` additionally requires a credential whose user holds the AI-chat permission — `read_only` API keys work, via a route-specific server-side carve-out).
 
 ## Install
 
@@ -56,10 +56,7 @@ Cursor / Codex / any client that reads an `mcpServers` block:
 | `get_features` | Bounded GeoJSON features for a dataset (OGC API — Features), with optional bbox. |
 | `list_maps` | Saved maps (id, name, visibility, layer count). |
 | `get_map` | One saved map's full metadata, including layers and view state. |
-
-## Not yet included
-
-A `query` tool (run SQL through GeoLens's read-only sandbox) is intentionally **not** in this release. The sandbox has no direct REST endpoint today, and exposing raw SQL over HTTP needs security hardening (cost/DoS bounds, rate limiting, mandatory dataset scope) before it's safe to point at a production instance. Tracked in [#565](https://github.com/geolens-io/geolens/issues/565).
+| `query` | One read-only SQL `SELECT` through the server's hardened sandbox ([#565](https://github.com/geolens-io/geolens/issues/565)): single statement over `data.*` tables, allowlisted functions, a mandatory `restrict_tables` scope, and a strict server-side budget (statement timeout, self-join cap, row limit, rate limits). Needs a credential whose user has the AI-chat permission; requires GeoLens ≥ the release that ships `POST /api/query/`. |
 
 ## Develop
 

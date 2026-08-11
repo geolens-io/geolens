@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from app.modules.admin.router import router as admin_router
+from app.processing.ai.query_router import router as query_router
 from app.processing.ai.router import router as ai_router
 from app.modules.audit.router import audit_datasets_router, router as audit_router
 from app.modules.auth.oauth.router import router as oauth_router
@@ -87,6 +88,9 @@ api_router.include_router(ogc_features_router)
 
 api_router.include_router(maps_router)
 api_router.include_router(ai_router)
+# feat(#565): raw sandbox SQL endpoint (POST /query/), consumed by the MCP
+# `query` tool. Auth-only; see processing/ai/query_router.py.
+api_router.include_router(query_router)
 api_router.include_router(services_router)
 api_router.include_router(stac_import_router)
 api_router.include_router(layers_router)

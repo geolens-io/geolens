@@ -279,3 +279,76 @@ def test_http_error_surfaces_detail():
         api.get_dataset_schema(DS)
     assert "404" in str(exc.value)
     assert "Dataset not found" in str(exc.value)
+
+
+# --- query (#565: the one POST — read-only semantically) ---
+
+
+def test_query_posts_json_to_the_slashed_route():
+    api, seen = _api(
+        _ok({"columns": ["n"], "rows": [[1]], "row_count": 1, "truncated": False})
+    )
+    out = api.query(
+        "SELECT count(*) AS n FROM data.roads",
+        restrict_tables=["roads"],
+        row_limit=5,
+    )
+    assert out["rows"] == [[1]]
+    req = seen[-1]
+    assert req.method == "POST"
+    # Trailing slash is load-bearing: it is the canonical registration AND the
+    # exact template of the read_only-key carve-out pair (#875/#565).
+    assert req.url.path == "/api/query/"
+    import json as _json
+
+    body = _json.loads(req.content.decode())
+    assert body == {
+        "sql": "SELECT count(*) AS n FROM data.roads",
+        "restrict_tables": ["roads"],
+        "row_limit": 5,
+    }
+
+
+def test_query_defaults_row_limit():
+    api, seen = _api(_ok({"columns": [], "rows": [], "row_count": 0, "truncated": False}))
+    api.query("SELECT gid FROM data.roads", restrict_tables=["roads"])
+    import json as _json
+
+    assert _json.loads(seen[-1].content.decode())["row_limit"] == 100
+
+
+def test_query_error_surfaces_sanitized_detail():
+    def handler(request):
+        return httpx.Response(
+            422, json={"detail": "Query references the same table too many times"}
+        )
+
+    api, _ = _api(handler)
+    with pytest.raises(RuntimeError) as exc:
+        api.query("SELECT 1", restrict_tables=["roads"])
+    assert "422" in str(exc.value)
+    assert "same table too many times" in str(exc.value)
+
+
+def test_query_stringifies_structured_validation_detail():
+    # FastAPI 422 body-validation errors carry a LIST detail; the client must
+    # surface something readable rather than crash on .get of a list element.
+    def handler(request):
+        return httpx.Response(
+            422,
+            json={
+                "detail": [
+                    {
+                        "loc": ["body", "restrict_tables"],
+                        "msg": "Field required",
+                        "type": "missing",
+                    }
+                ]
+            },
+        )
+
+    api, _ = _api(handler)
+    with pytest.raises(RuntimeError) as exc:
+        api.query("SELECT 1", restrict_tables=[])
+    assert "422" in str(exc.value)
+    assert "Field required" in str(exc.value)

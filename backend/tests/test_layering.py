@@ -2796,6 +2796,60 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # (first occurrence, case-insensitive name), closing the duplicate-param
     # and name-case parser-disagreement variants of the same pre-warm attack.
     "backend/app/processing/tiles/router.py": 2191,
+    # feat(#565): the SQL sandbox validator crossed 1000 lines across the codex
+    # rounds on the query endpoint: the lexical CTE-scope fix (P1) and its
+    # pg_catalog.pg_user rationale, the declaration-order refinement (P1 r2),
+    # the transitive fan-out cost model (P1 r3) — _resolve_cte plus the
+    # rows/work graph walk that catches a CTE chain multiplying one base table
+    # to N^8 while every per-name count stays at 2 — and the per-row correlated
+    # subquery term (P1 r4, _correlated_scopes/_work_fanout) that costs a
+    # self-join hidden in a scalar/EXISTS/WHERE subquery. P1 r5 extended the
+    # per-row term to JOIN ... ON predicates (a join's ON is not a source), and
+    # P2 r5 taught _resolve_cte that a WITH can be owned by a set operation, not
+    # only a SELECT; P1 r6 unwraps exp.Lateral so a repeated table hidden in a
+    # LATERAL source is costed; P1 r7 adds a LATERAL's own internal per-row work
+    # (its excess over its row count) so a correlated subquery inside a LATERAL
+    # is bounded too; P1 r8 costs a parenthesized FROM join group's rows; and P1
+    # r9 unifies group costing (_group_work/_add_source_excess/_outermost_scopes)
+    # so a group's ON-predicate and internal LATERAL work is a first-class
+    # candidate in the statement-wide max; P1 r10 propagates a CTE reference's
+    # own internal work (an inlined / NOT MATERIALIZED CTE re-executes per outer
+    # row) through _add_source_excess; P1 r11 rejects casts to OID-alias types
+    # (regrole/regclass/…) that resolve catalog names with no table reference;
+    # and P1 r12 matches those casts by normalized name (schema-qualified
+    # pg_catalog.regrole is a DataType, not ObjectIdentifier), folds CTE
+    # identifiers per PostgreSQL quoting so "PG_USER" cannot bind an unquoted
+    # pg_user, and propagates ordinary derived-table excess; and P2 r13
+    # combines sibling per-row subquery/source work by per-table MAX rather than
+    # summing (_merge_max), so two scalar subqueries over one table no longer
+    # false-reject; and P2 r14 splits per-row work into per-INPUT (WHERE/JOIN-ON/
+    # sources) and per-OUTPUT (projection/HAVING/ORDER), collapsing the latter's
+    # multiplier for an ungrouped aggregate (_is_ungrouped_aggregate) so a
+    # projection subquery over an aggregate query is additive, not multiplied;
+    # and P1 r15 keeps a subquery beneath an aggregate ARGUMENT per-input (it
+    # runs per input row) so that reduction cannot hide it; P1 r16 costs
+    # subqueries buried in a non-scope LATERAL (VALUES/function) and adds a
+    # per-STATEMENT bucket (LIMIT/OFFSET, evaluated once, no row multiplier);
+    # and P1 r17/r18 counts a VALUES relation as a fan-out source under ONE
+    # shared key so distinct constant sources combine in the cross-product,
+    # caps VALUES cardinality, threads an endpoint-only extra-blocked-function
+    # set (output-amplifying format/replace/regexp_replace/concat + defensive
+    # siblings), and P1 r19 blocks the `||` (exp.DPipe) concatenation operator
+    # when concat is blocked (chained s||s doubling); P1 r20 adds the
+    # cross-product degree (_XPROD_KEY / _join_is_constrained: distinct tables
+    # cross-joined multiply even at per-table exponent 1) and an output-column
+    # cap (repeated projections amplify response width). P1 r21 makes the join
+    # constraint recursive (an equality inside `... OR TRUE` does not constrain)
+    # and counts composite-constructor value slots / rejects `*` for the width
+    # cap. r22 documents the runtime floor: the fan-out/width model is
+    # best-effort pre-filtering, non-security, because every executed query is
+    # runtime-bounded (advisory lock, semaphore, timeout, reader role, row+byte
+    # caps) — the module docstring and a section anchor state it so cost-model
+    # under-counts are documented, not chased. r23 folds unquoted table
+    # identifiers (DATA.ROADS → data.roads) before the access check so a
+    # PostgreSQL-valid reference is not false-404'd. Most of the added lines are
+    # that rationale. Cap at the exact size.
+    "backend/app/platform/sandbox/validator.py": 1871,
 }
 
 

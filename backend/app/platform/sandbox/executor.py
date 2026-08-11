@@ -25,6 +25,11 @@ logger = structlog.stdlib.get_logger(__name__)
 DEFAULT_ROW_LIMIT = 1000
 DEFAULT_TIMEOUT_MS = 10_000
 
+# Single-tenant restricted execution role (migration 0007 + init-db.sh).
+# Module-level so tests can point it at a nonexistent role to exercise both
+# the legacy best-effort fallback and the feat(#565) fail-closed binding.
+_SINGLE_TENANT_READER_ROLE = "geolens_reader"
+
 # fix(#557): sqlglot's postgres dialect mis-parses the pgvector cosine operator
 # `<=>` as NullSafeEQ, so re-serializing the AST rewrites it to
 # `IS NOT DISTINCT FROM` — silently turning nearest-neighbor ranking into a
@@ -115,6 +120,7 @@ async def execute_safe(
     row_limit: int = DEFAULT_ROW_LIMIT,
     timeout_ms: int = DEFAULT_TIMEOUT_MS,
     concurrency_key: str | None = None,
+    require_reader_role: bool = False,
 ) -> SandboxResult:
     """Execute validated SQL inside a READ ONLY transaction with timeout and row cap.
 
@@ -127,6 +133,13 @@ async def execute_safe(
         row_limit: Maximum rows to return (default 1000).
         timeout_ms: Statement timeout in milliseconds (default 10000).
         concurrency_key: Stable caller key for a cross-worker, fail-fast query lock.
+        require_reader_role: feat(#565): when True, the single-tenant
+            ``SET LOCAL ROLE`` binding fails CLOSED — a query that cannot be
+            bound to the restricted reader role raises a sanitized
+            SandboxError instead of running with the application login's
+            (superuser) privileges. Default False preserves the legacy
+            best-effort fallback for AI chat. Multi-tenant binding is
+            unconditionally fail-closed either way.
 
     Returns:
         SandboxResult with rows, columns, row_count, and truncated flag.
@@ -195,14 +208,25 @@ async def execute_safe(
                         )
                         raise SandboxError("query_failed", "Query failed") from exc
                 else:
-                    _role = "geolens_reader"
+                    _role = _SINGLE_TENANT_READER_ROLE
                     # Preserve the legacy single-tenant compatibility fallback for
-                    # deployments upgraded from versions that predate this role.
+                    # deployments upgraded from versions that predate this role —
+                    # unless the caller required the reader role (feat(#565):
+                    # the raw-SQL endpoint must never fall back to superuser).
                     try:
                         await conn.execute(text("SAVEPOINT _role_check"))
                         await conn.execute(text(f"SET LOCAL ROLE {_role}"))
-                    except Exception:  # broad: single-tenant legacy role may be absent
+                    except (
+                        Exception
+                    ) as exc:  # broad: single-tenant legacy role may be absent
                         await conn.execute(text("ROLLBACK TO SAVEPOINT _role_check"))
+                        if require_reader_role:
+                            logger.error(
+                                "sandbox.reader_role_bind_failed",
+                                role=_role,
+                                error_type=type(exc).__name__,
+                            )
+                            raise SandboxError("query_failed", "Query failed") from exc
                     finally:
                         try:
                             await conn.execute(text("RELEASE SAVEPOINT _role_check"))

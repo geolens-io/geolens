@@ -387,3 +387,36 @@ def test_get_map_contract(live):
     ):
         assert key in result, key
     assert isinstance(result["layers"], list)
+
+
+def test_query_contract(live):
+    """feat(#565): the tool's promised workflow, end to end — schema for the
+    table name, then a scoped SELECT, then the columns/rows shape."""
+    schema = server.get_dataset_schema(live.dataset_id)
+    table = schema["table_name"]
+
+    out = server.query(
+        f"SELECT count(*) AS n FROM data.{table}",
+        restrict_tables=[table],
+        row_limit=5,
+    )
+    assert out["columns"] == ["n"]
+    assert out["row_count"] == 1
+    assert out["truncated"] is False
+    expected = 1 if live.feature_inserted else 0
+    assert out["rows"] == [[expected]]
+
+
+def test_query_refuses_an_unscoped_table(live):
+    """The mandatory scope is live: referencing a table not named in
+    restrict_tables is refused with the uniform not-accessible error."""
+    schema = server.get_dataset_schema(live.dataset_id)
+    table = schema["table_name"]
+
+    with pytest.raises(RuntimeError) as exc:
+        server.query(
+            f"SELECT count(*) AS n FROM data.{table}",
+            restrict_tables=["not_the_table_the_sql_uses"],
+        )
+    assert "404" in str(exc.value)
+    assert "Table not accessible" in str(exc.value)

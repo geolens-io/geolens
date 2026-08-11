@@ -121,6 +121,8 @@ const CURRENT_AUDIT_ACTIONS = [
   'oauth_provider.update',
   'preview_service_layer',
   'probe_service',
+  'query.execute',
+  'query.reject',
   'refresh.abandoned',
   'refresh.dispatch',
   'refresh.failed',

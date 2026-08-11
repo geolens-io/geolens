@@ -8393,6 +8393,58 @@ export type SseToolStartEvent = {
 };
 
 /**
+ * SandboxQueryRequest
+ *
+ * One read-only SELECT plus its mandatory table scope.
+ */
+export type SandboxQueryRequest = {
+    /**
+     * Sql
+     *
+     * A single SELECT statement over `data.*` tables.
+     */
+    sql: string;
+    /**
+     * Restrict Tables
+     *
+     * Table names (without the `data.` prefix) the query may touch. Required and non-empty; intersected with your access — it can only narrow what you already see, never widen it.
+     */
+    restrict_tables: Array<string>;
+    /**
+     * Row Limit
+     *
+     * Maximum rows to return.
+     */
+    row_limit?: number;
+};
+
+/**
+ * SandboxResult
+ *
+ * Structured result from sandbox query execution.
+ *
+ * Uses list-of-lists for rows (not list-of-dicts) for serialization performance.
+ */
+export type SandboxResult = {
+    /**
+     * Rows
+     */
+    rows: Array<Array<unknown>>;
+    /**
+     * Columns
+     */
+    columns: Array<string>;
+    /**
+     * Row Count
+     */
+    row_count: number;
+    /**
+     * Truncated
+     */
+    truncated: boolean;
+};
+
+/**
  * SavedSearchCreate
  *
  * Request body for creating a saved search.
@@ -23405,6 +23457,59 @@ export type VisibilityCheckEndpointMapsMapIdVisibilityCheckGetResponses = {
 };
 
 export type VisibilityCheckEndpointMapsMapIdVisibilityCheckGetResponse = VisibilityCheckEndpointMapsMapIdVisibilityCheckGetResponses[keyof VisibilityCheckEndpointMapsMapIdVisibilityCheckGetResponses];
+
+export type SandboxQueryEndpointQueryPostData = {
+    body: SandboxQueryRequest;
+    path?: never;
+    query?: never;
+    url: '/query/';
+};
+
+export type SandboxQueryEndpointQueryPostErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks access to this resource
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type SandboxQueryEndpointQueryPostError = SandboxQueryEndpointQueryPostErrors[keyof SandboxQueryEndpointQueryPostErrors];
+
+export type SandboxQueryEndpointQueryPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: SandboxResult;
+};
+
+export type SandboxQueryEndpointQueryPostResponse = SandboxQueryEndpointQueryPostResponses[keyof SandboxQueryEndpointQueryPostResponses];
 
 export type ListContactsEndpointRecordsRecordIdContactsGetData = {
     body?: never;

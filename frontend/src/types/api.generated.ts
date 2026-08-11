@@ -3901,6 +3901,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/query/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run a read-only SQL query
+         * @description Execute one SELECT through the read-only SQL sandbox.
+         *
+         *     The statement must be a single SELECT over `data.*` tables you can
+         *     access, name every table in `restrict_tables`, and fit the sandbox's
+         *     function allowlist and cost bounds. Rows are capped by `row_limit` and
+         *     execution by a server-side statement timeout.
+         */
+        post: operations["sandbox_query_endpoint_query__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/records/{record_id}/contacts/": {
         parameters: {
             query?: never;
@@ -11309,6 +11334,44 @@ export interface components {
             tool: string;
             /** Label */
             label: string;
+        };
+        /**
+         * SandboxQueryRequest
+         * @description One read-only SELECT plus its mandatory table scope.
+         */
+        SandboxQueryRequest: {
+            /**
+             * Sql
+             * @description A single SELECT statement over `data.*` tables.
+             */
+            sql: string;
+            /**
+             * Restrict Tables
+             * @description Table names (without the `data.` prefix) the query may touch. Required and non-empty; intersected with your access — it can only narrow what you already see, never widen it.
+             */
+            restrict_tables: string[];
+            /**
+             * Row Limit
+             * @description Maximum rows to return.
+             * @default 100
+             */
+            row_limit: number;
+        };
+        /**
+         * SandboxResult
+         * @description Structured result from sandbox query execution.
+         *
+         *     Uses list-of-lists for rows (not list-of-dicts) for serialization performance.
+         */
+        SandboxResult: {
+            /** Rows */
+            rows: unknown[][];
+            /** Columns */
+            columns: string[];
+            /** Row Count */
+            row_count: number;
+            /** Truncated */
+            truncated: boolean;
         };
         /**
          * SavedSearchCreate
@@ -33403,6 +33466,104 @@ export interface operations {
             };
             /** @description Conflict — resource state prevents the operation */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    sandbox_query_endpoint_query__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SandboxQueryRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SandboxResult"];
+                };
+            };
+            /** @description Bad request — invalid query parameters or payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks access to this resource */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

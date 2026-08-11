@@ -14324,6 +14324,78 @@
         "title": "SSEToolStartEvent",
         "type": "object"
       },
+      "SandboxQueryRequest": {
+        "description": "One read-only SELECT plus its mandatory table scope.",
+        "properties": {
+          "sql": {
+            "description": "A single SELECT statement over `data.*` tables.",
+            "maxLength": 20000,
+            "minLength": 1,
+            "title": "Sql",
+            "type": "string"
+          },
+          "restrict_tables": {
+            "description": "Table names (without the `data.` prefix) the query may touch. Required and non-empty; intersected with your access \u2014 it can only narrow what you already see, never widen it.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 25,
+            "minItems": 1,
+            "title": "Restrict Tables",
+            "type": "array"
+          },
+          "row_limit": {
+            "default": 100,
+            "description": "Maximum rows to return.",
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Row Limit",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sql",
+          "restrict_tables"
+        ],
+        "title": "SandboxQueryRequest",
+        "type": "object"
+      },
+      "SandboxResult": {
+        "description": "Structured result from sandbox query execution.\n\nUses list-of-lists for rows (not list-of-dicts) for serialization performance.",
+        "properties": {
+          "rows": {
+            "items": {
+              "items": {},
+              "type": "array"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "row_count": {
+            "title": "Row Count",
+            "type": "integer"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "rows",
+          "columns",
+          "row_count",
+          "truncated"
+        ],
+        "title": "SandboxResult",
+        "type": "object"
+      },
       "SavedSearchCreate": {
         "description": "Request body for creating a saved search.",
         "properties": {
@@ -48159,6 +48231,138 @@
         "summary": "Visibility Check Endpoint",
         "tags": [
           "Maps"
+        ]
+      }
+    },
+    "/query/": {
+      "post": {
+        "description": "Execute one SELECT through the read-only SQL sandbox.\n\nThe statement must be a single SELECT over `data.*` tables you can\naccess, name every table in `restrict_tables`, and fit the sandbox's\nfunction allowlist and cost bounds. Rows are capped by `row_limit` and\nexecution by a server-side statement timeout.",
+        "operationId": "sandbox_query_endpoint_query__post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SandboxQueryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SandboxResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Forbidden \u2014 caller lacks access to this resource"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many requests \u2014 retry after the advertised interval",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the request may be retried",
+                "schema": {
+                  "minimum": 0.0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Service unavailable \u2014 the database could not serve the request"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          },
+          {
+            "ApiKeyHeader": []
+          },
+          {
+            "ApiKeyQuery": []
+          }
+        ],
+        "summary": "Run a read-only SQL query",
+        "tags": [
+          "Query"
         ]
       }
     },

@@ -3,9 +3,49 @@
 Defense layer 1: Parse SQL via sqlglot, validate it is a single SELECT
 (including set operations), extract table references, and check them
 against the user's RBAC-visible datasets.
+
+Two kinds of check live here, and they are NOT the same trust class.
+
+Hard boundaries (must be correct): single-SELECT enforcement, the blocked
+function/operator list, the OID/regclass rejection, and — above all — RBAC
+table-access (``check_table_access`` against the allowlist). A miss here
+lets a query reach data or side effects it must not. These are security
+boundaries and are tested as such.
+
+The fan-out / output-width COST MODEL (``_max_table_fanout``, the projection
+width cap, the cross-product degree) is explicitly best-effort pre-filtering,
+NOT a security boundary. Its only job is to turn an obviously-expensive query
+into a fast 422 instead of letting it burn its execution budget. It runs on a
+static AST with no catalog statistics, so it cannot be complete: some
+cost-multiplying constructs (a same-side ``ON a.x = a.x``, a value laundered
+through a cast or CASE, a set-returning function) will be under-counted, and
+that is acceptable BY DESIGN because every executed query is already bounded
+at runtime (see ``validate_and_execute`` / ``execute_safe``):
+
+  * one in-flight query per user — ``pg_try_advisory_xact_lock`` on the caller
+    identity, so a user cannot stack concurrent queries;
+  * a global concurrency ceiling — the capacity semaphore (pool//3), so N
+    distinct users cannot exhaust the pool or memory in parallel;
+  * a hard ``SET LOCAL statement_timeout`` — runaway work is killed, not
+    awaited;
+  * a READ ONLY transaction on a restricted, fail-closed reader role — no
+    writes, no reach beyond granted data;
+  * an outer row-limit and a post-fetch serialized-byte cap — the returned
+    result is clamped regardless of how the query tried to inflate it;
+  * an isolated request-session release so an in-flight query holds one pool
+    slot, not two.
+
+So the worst case of ANY cost-model under-count is: one query, for one user,
+on the reader role, killed at the timeout, with its output clamped by the row
+and byte caps. That is the designed floor. New cost-model bypasses that stay
+within this floor are therefore documented and left as-is rather than chased
+construct-by-construct (an unbounded enumeration); only a finding that shows a
+RUNTIME bound above is missing or bypassable is a real defect to fix here.
 """
 
 from __future__ import annotations
+
+import re
 
 import structlog
 from sqlalchemy import select
@@ -20,6 +60,34 @@ from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Re
 from app.platform.sandbox.schemas import SandboxError, ValidatedQuery
 
 logger = structlog.stdlib.get_logger(__name__)
+
+# PostgreSQL OID / OID-alias types. The ``reg*`` family resolves an integer OID
+# to a catalog NAME (role, relation, namespace, function, type…); ``oid`` and
+# the other system column types have no legitimate use in a read-only analytics
+# query over ``data.*`` tables and are the building blocks of ``::oid::regrole``
+# chains, so the whole family is rejected (fix(#565 codex P1 r11/r12)).
+_OID_ALIAS_TYPES: frozenset[str] = frozenset(
+    {
+        "oid",
+        "regrole",
+        "regclass",
+        "regnamespace",
+        "regproc",
+        "regprocedure",
+        "regoper",
+        "regoperator",
+        "regtype",
+        "regconfig",
+        "regdictionary",
+        "regcollation",
+        "xid",
+        "xid8",
+        "cid",
+        "tid",
+    }
+)
+
+_IDENTIFIER_TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 # ---------------------------------------------------------------------------
 # Defense-in-depth: always denied regardless of allowlist membership.
@@ -808,6 +876,78 @@ def _reject_nested_mutation(stmt: exp.Expression, sql: str) -> None:
         raise SandboxError("invalid_query", "Only SELECT queries are allowed")
 
 
+def _is_wildcard_projection(proj: exp.Expression) -> bool:
+    """Whether a top-level projection is ``*`` or ``t.*`` (not ``count(*)``)."""
+    return isinstance(proj, exp.Star) or (
+        isinstance(proj, exp.Column) and isinstance(proj.this, exp.Star)
+    )
+
+
+def _projection_slots(expr: exp.Expression) -> int:
+    """Value slots a single projection materializes, expanding constructors.
+
+    A scalar (column, arithmetic, function call) is one slot; a composite VALUE
+    constructor — a row ``(a, b, c)``, ``ARRAY[…]``, or a struct — materializes
+    one slot per element and nests, so ``(payload, payload, … 1600x)`` counts as
+    1600 even though it is one AST projection.
+    """
+    if isinstance(expr, exp.Alias):
+        expr = expr.this
+    if isinstance(expr, exp.Paren):
+        return _projection_slots(expr.this)
+    if isinstance(expr, (exp.Tuple, exp.Array, exp.Struct)):
+        elements = expr.expressions
+        return sum(_projection_slots(e) for e in elements) if elements else 1
+    return 1
+
+
+def _reject_too_many_output_columns(
+    stmt: exp.Expression, sql: str, cap: int | None
+) -> None:
+    """Reject a statement whose output row is too wide.
+
+    fix(#565 codex P1 r20/r21): response width amplifies with no function at
+    all. Three forms, all bounded here by counting VALUE SLOTS (not AST
+    projections): ``SELECT payload, payload, … 1600x`` (many projections);
+    ``SELECT (payload, payload, …)`` (one composite projection, r21); and
+    ``SELECT *`` / ``t.*`` against a wide table, which expands to an unknown
+    count and so is refused outright — the raw endpoint requires explicit
+    columns (r21). The result columns are the outermost scope's projections (a
+    set op's branches must match, so the first branch is representative).
+    """
+    if cap is None:
+        return
+    outer = stmt
+    while isinstance(outer, (exp.Union, exp.Intersect, exp.Except)):
+        outer = outer.this
+    if not isinstance(outer, exp.Select):
+        return
+    if any(_is_wildcard_projection(proj) for proj in outer.expressions):
+        logger.info("sandbox.wildcard_projection", sql=sql)
+        raise SandboxError("invalid_query", "Query must select explicit columns, not *")
+    width = sum(_projection_slots(proj) for proj in outer.expressions)
+    if width > cap:
+        logger.info("sandbox.too_many_columns", sql=sql, columns=width, cap=cap)
+        raise SandboxError("invalid_query", "Query selects too many columns")
+
+
+def _reject_oversized_values(stmt: exp.Expression, sql: str, cap: int | None) -> None:
+    """Reject an inline VALUES relation with more than ``cap`` tuples (#565 r17)."""
+    if cap is None:
+        return
+    for values in stmt.find_all(exp.Values):
+        if len(values.expressions) > cap:
+            logger.info(
+                "sandbox.values_too_large",
+                sql=sql,
+                rows=len(values.expressions),
+                cap=cap,
+            )
+            raise SandboxError(
+                "invalid_query", "Query uses too many inline VALUES rows"
+            )
+
+
 def _reject_recursive_cte(stmt: exp.Expression, sql: str) -> None:
     """Reject recursive CTEs, which are unbounded row generators."""
     if any(
@@ -817,7 +957,35 @@ def _reject_recursive_cte(stmt: exp.Expression, sql: str) -> None:
         raise SandboxError("invalid_query", "Recursive queries are not allowed")
 
 
-def _check_function_allowlist(stmt: exp.Expression, sql: str) -> None:
+def _reject_oid_alias_casts(stmt: exp.Expression, sql: str) -> None:
+    """Reject casts to PostgreSQL OID-alias types (``regrole``, ``regclass``…).
+
+    fix(#565 codex P1 r11): a cast to a ``reg*`` OID-alias type resolves an
+    integer OID to a catalog name — ``SELECT v::regrole FROM data.foo CROSS
+    JOIN (VALUES (10), (16384)) AS x(v)`` reads database role names without
+    referencing any catalog table, the same disclosure the CTE-scope fixes
+    close from the other direction.
+
+    fix(#565 codex P1 r12): match by the NORMALIZED type NAME, not the node
+    type. A bare ``regrole`` parses as ``exp.ObjectIdentifier`` but a
+    schema-qualified ``pg_catalog.regrole`` parses as a USER-DEFINED
+    ``exp.DataType``, so a node-type check missed the qualified spelling. The
+    rendered target's identifier tokens are checked against the OID-alias set
+    instead, which catches every spelling. Normal types (``int``, ``text``,
+    ``numeric(10,2)``, a user enum) never render one of these tokens.
+    """
+    for cast in stmt.find_all(exp.Cast):
+        rendered = cast.to.sql(dialect="postgres").lower()
+        if set(_IDENTIFIER_TOKEN_RE.findall(rendered)) & _OID_ALIAS_TYPES:
+            logger.info("sandbox.oid_alias_cast", sql=sql, target=rendered)
+            raise SandboxError("invalid_query", "Query uses a disallowed type cast")
+
+
+def _check_function_allowlist(
+    stmt: exp.Expression,
+    sql: str,
+    extra_blocked: frozenset[str] | None = None,
+) -> None:
     """Fail-closed function check (SEC-025).
 
     For each Func node in the AST, extract its canonical lowercase name:
@@ -852,7 +1020,13 @@ def _check_function_allowlist(stmt: exp.Expression, sql: str) -> None:
             continue
         fn_name = _func_name(func)
 
-        if fn_name in _BLOCKED_FUNCTIONS:
+        if fn_name in _BLOCKED_FUNCTIONS or (
+            extra_blocked is not None and fn_name in extra_blocked
+        ):
+            # fix(#565 codex P1 r17): extra_blocked lets the raw-SQL endpoint
+            # drop output-amplifying functions (e.g. ``format`` with a giant
+            # width) that neither the SQL-length cap nor row_limit bounds, while
+            # AI chat keeps them.
             logger.info("sandbox.blocked_function", sql=sql, function=fn_name)
             raise SandboxError("invalid_query", "Query uses a disallowed function")
 
@@ -879,11 +1053,23 @@ def _check_function_allowlist(stmt: exp.Expression, sql: str) -> None:
         _validate_function_cost(func, fn_name, sql)
 
 
-def validate_sql(sql: str) -> ValidatedQuery:
+def validate_sql(
+    sql: str,
+    *,
+    extra_blocked_functions: frozenset[str] | None = None,
+    max_values_rows: int | None = None,
+    max_output_columns: int | None = None,
+) -> ValidatedQuery:
     """Parse and validate SQL. Returns validated query or raises SandboxError.
 
     Accepts: single SELECT, UNION, INTERSECT, EXCEPT.
     Rejects: INSERT, UPDATE, DELETE, DROP, CREATE, multi-statement, SELECT INTO.
+
+    ``extra_blocked_functions``, ``max_values_rows``, and ``max_output_columns``
+    (fix(#565 codex P1 r17/r20)) are the raw-SQL endpoint's extra guards —
+    output-amplifying function names to reject, a per-VALUES tuple-count cap,
+    and a projection-count cap (repeated columns amplify response width) — left
+    None (off) for AI chat so its behavior is unchanged.
     """
     # Parse with postgres dialect
     try:
@@ -912,27 +1098,725 @@ def validate_sql(sql: str) -> ValidatedQuery:
         logger.info("sandbox.select_into", sql=sql)
         raise SandboxError("invalid_query", "Only SELECT queries are allowed")
 
+    _reject_too_many_output_columns(stmt, sql, max_output_columns)
+
     _reject_nested_mutation(stmt, sql)
 
     _reject_recursive_cte(stmt, sql)
 
-    _check_function_allowlist(stmt, sql)
+    _reject_oid_alias_casts(stmt, sql)
 
-    # Extract CTE names to exclude from table validation
+    _reject_oversized_values(stmt, sql, max_values_rows)
+
+    # fix(#565 codex P1 r19): the `||` operator is string concatenation, an
+    # output amplifier equivalent to concat — `s || s` chained through
+    # MATERIALIZED CTEs doubles a value each stage into hundreds of MB. It is an
+    # exp.DPipe operator, not a Func, so the function blocklist misses it. When
+    # the caller blocks concat (the raw endpoint), block `||` for the same
+    # reason; AI chat blocks neither.
+    if (
+        extra_blocked_functions
+        and "concat" in extra_blocked_functions
+        and stmt.find(exp.DPipe)
+    ):
+        logger.info("sandbox.blocked_concat_operator", sql=sql)
+        raise SandboxError("invalid_query", "Query uses a disallowed operator")
+
+    _check_function_allowlist(stmt, sql, extra_blocked=extra_blocked_functions)
+
+    # Extract CTE names (global) for the ValidatedQuery contract and the
+    # emptiness gate. Table ACCESS classification below is lexical, not by
+    # membership in this flat set (see _is_cte_reference / fix(#565 codex P1)).
     cte_names: set[str] = set()
     for cte in stmt.find_all(exp.CTE):
         if cte.alias:
             cte_names.add(cte.alias)
 
-    # Extract all table references as (schema, name) tuples
+    # Extract table references as (schema, name) tuples. An unqualified name
+    # that resolves to a lexically in-scope CTE is a CTE reference, not a real
+    # table, and is excluded here so it is never access-checked. Everything
+    # left — schema-qualified tables AND unqualified names with no in-scope CTE
+    # — must pass the data.* check in check_table_access.
     tables: set[tuple[str, str]] = set()
     for table in stmt.find_all(exp.Table):
-        schema = table.db or ""
-        name = table.name
-        if name:
-            tables.add((schema, name))
+        # fix(#565 codex P2 r23): fold unquoted identifiers the way PostgreSQL
+        # resolves them (unquoted → lowercase, quoted → verbatim) BEFORE the
+        # access check. `FROM DATA.ROADS` resolves to `data.roads` in the
+        # server, so comparing sqlglot's preserved `("DATA", "ROADS")` against
+        # the lowercase allowlist would 404 a table the caller can read. Mirrors
+        # the CTE resolver's folding.
+        schema = _folded_identifier(table.args.get("db")) or ""
+        name = _folded_identifier(table.this)
+        if not name:
+            continue
+        if _is_cte_reference(table):
+            continue
+        tables.add((schema, name))
 
-    return ValidatedQuery(sql=sql, tables=tables, cte_names=cte_names)
+    # Transitive self-join fan-out: the largest number of times any one base
+    # table is multiplied into the statement's cardinality, following the CTE
+    # dependency graph (feat(#565); fix(#565 codex P1 r3)). Callers bound this
+    # to reject cross-join cost amplification.
+    max_table_fanout = _max_table_fanout(stmt)
+
+    return ValidatedQuery(
+        sql=sql,
+        tables=tables,
+        cte_names=cte_names,
+        max_table_fanout=max_table_fanout,
+    )
+
+
+def _resolve_cte(table: exp.Table) -> exp.CTE | None:
+    """The CTE an unqualified table node references, honoring lexical scope.
+
+    fix(#565 codex P1): validation used to collect every CTE name in the
+    statement into one flat set and treat any unqualified table matching a
+    member as a CTE reference to skip. A CTE named after a catalog relation in
+    another scope masked an unqualified reference of the same name, so a
+    top-level ``pg_user`` (or one in an earlier WITH item) was skipped instead
+    of rejected, and PostgreSQL resolved it to the readable
+    ``pg_catalog.pg_user`` view under the reader role — a restrict_tables
+    bypass that discloses catalog metadata including role names.
+
+    The name is resolved against the WITH clauses actually in scope for THIS
+    node, honoring PostgreSQL's declaration order (fix(#565 codex P1 r2)):
+    within one WITH, a CTE body sees only siblings declared strictly BEFORE it,
+    while the owner query body sees them all. The nearest enclosing binding
+    wins (lexical shadowing). Recursive WITHs — the one case where a CTE would
+    see itself — are already rejected upstream (``_reject_recursive_cte``), so
+    forward/self references never resolve here.
+
+    A schema-qualified name (``data.foo``, ``pg_catalog.pg_user``) is never a
+    CTE reference. Returns None when the name does not resolve to an in-scope
+    CTE, so the reference is treated as a real table (fail-closed).
+
+    fix(#565 codex P1 r12): identifiers are matched with PostgreSQL case
+    folding — an UNQUOTED name folds to lowercase, a QUOTED one keeps its case.
+    ``WITH "PG_USER" AS (...) SELECT FROM PG_USER`` does NOT bind: the quoted
+    CTE is ``PG_USER`` while the unquoted reference folds to ``pg_user``, which
+    PostgreSQL then resolves to the ``pg_catalog.pg_user`` view — so the
+    reference must stay unresolved and fall through to the data.* check.
+    """
+    if table.db:
+        return None
+    target = _folded_identifier(table.this)
+    child: exp.Expression = table
+    node = table.parent
+    while node is not None:
+        if isinstance(node, exp.With) and isinstance(child, exp.CTE):
+            # The reference lives inside `child`'s body. Only CTEs declared
+            # before it in this WITH are visible (non-recursive semantics).
+            # Identity, not ``==``: sqlglot nodes compare by structure, so two
+            # structurally identical CTE bodies must not be conflated.
+            ctes = [c for c in node.expressions if isinstance(c, exp.CTE)]
+            idx = next((i for i, c in enumerate(ctes) if c is child), None)
+            if idx is not None:
+                for c in reversed(ctes[:idx]):
+                    if _folded_cte_alias(c) == target:
+                        return c
+        elif isinstance(node, _SCOPE_TYPES):
+            # The WITH is a child of its owner scope under a sqlglot arg key
+            # that has drifted across releases ("with" -> "with_"), so find it
+            # by type rather than by key (same reason _own_sources iterates).
+            # The owner is a SELECT *or* a set operation: fix(#565 codex P2 r5)
+            # — `WITH a AS (...) SELECT FROM a UNION ALL SELECT FROM a` attaches
+            # the WITH to the exp.Union, not its branch SELECTs, so a
+            # Select-only check left both `a` references unresolved and 404'd a
+            # valid UNION.
+            with_clause = next(
+                (c for c in node.iter_expressions() if isinstance(c, exp.With)),
+                None,
+            )
+            # An owner query body (we did NOT ascend from this scope's own WITH
+            # node — that path is handled above) sees every CTE it declares.
+            if with_clause is not None and child is not with_clause:
+                for c in with_clause.expressions:
+                    if isinstance(c, exp.CTE) and _folded_cte_alias(c) == target:
+                        return c
+        child = node
+        node = node.parent
+    return None
+
+
+def _folded_identifier(identifier: exp.Expression | None) -> str | None:
+    """A PostgreSQL-folded identifier: unquoted → lowercase, quoted → verbatim.
+
+    Returns None when the identifier is absent, so an unresolvable reference
+    fails closed rather than matching a folded empty string.
+    """
+    if not isinstance(identifier, exp.Identifier):
+        return None
+    return identifier.name if identifier.quoted else identifier.name.lower()
+
+
+def _folded_cte_alias(cte: exp.CTE) -> str | None:
+    """The folded alias of a CTE, honoring quoting on its ``AS name``."""
+    alias = cte.args.get("alias")
+    ident = alias.this if isinstance(alias, exp.TableAlias) else None
+    return _folded_identifier(ident)
+
+
+def _is_cte_reference(table: exp.Table) -> bool:
+    """Whether an unqualified table node resolves to an in-scope CTE."""
+    return _resolve_cte(table) is not None
+
+
+# ---------------------------------------------------------------------------
+# Fan-out cost model (best-effort pre-filter, NOT a security boundary)
+#
+# Everything from here down estimates how many times a query multiplies work,
+# so an obviously-expensive statement gets a fast 422. It is deliberately
+# incomplete: it reads a static AST with no catalog statistics, so a construct
+# that launders or hides a multiplier (a same-side equality, a cast/CASE around
+# a wide tuple, a set-returning function) can be under-counted. That is safe by
+# design — see the module docstring: every executed query is bounded at runtime
+# (one-per-user advisory lock, capacity semaphore, statement_timeout, READ ONLY
+# reader role, row + serialized-byte caps), so the worst case of an under-count
+# is one query burning its own timeout with clamped output. Under-counts that
+# stay within that floor are documented, not chased construct-by-construct.
+# ---------------------------------------------------------------------------
+
+# Fan-out saturation ceiling. A CTE chain built to blow past the cap produces
+# an astronomically large multiplicity (2**depth); clamping keeps the
+# validator's own arithmetic O(1) per node — it never materializes a bignum —
+# while any real cap sits far below this, so a saturated value still trips it.
+_FANOUT_CEILING = 1 << 16
+
+
+_FanoutMap = dict[tuple[str, str], int]
+_FanoutMemo = dict[int, _FanoutMap | None]
+_SCOPE_TYPES: tuple[type[exp.Expression], ...] = (
+    exp.Select,
+    exp.Union,
+    exp.Intersect,
+    exp.Except,
+)
+
+# fix(#565 codex P1 r20): a synthetic key tracking the TOTAL cross-product
+# degree — how many relations a statement multiplies together via UNCONSTRAINED
+# (cross / cartesian) joins. Per-base-table exponents catch SELF-join
+# amplification (N^k on one table), but three DISTINCT tables cross-joined is
+# N×M×K and each carries exponent 1, so the per-table max misses it. This key
+# accumulates one unit per unconstrained source, folded into the same cap.
+_XPROD_KEY: tuple[str, str] = ("", "__xprod__")
+
+
+def _set_op_branches(node: exp.Expression) -> list[exp.Expression]:
+    """The two operands of a UNION/INTERSECT/EXCEPT node."""
+    return [b for b in (node.this, node.args.get("expression")) if b is not None]
+
+
+def _join_is_constrained(join: exp.Join) -> bool:
+    """Whether a JOIN reduces cardinality (an equijoin) rather than multiplying.
+
+    A USING clause, or an ON with an equality whose two sides each reference a
+    column, is a lookup that keeps the output near the larger input. A CROSS
+    JOIN, a comma-join, ``ON true`` or ``ON 1=1`` do not constrain and multiply
+    the cross product. The distinction lets legit multi-table equijoins pass
+    while cartesian products of distinct tables are bounded (fix(#565 codex P1
+    r20)).
+    """
+    if join.args.get("using"):
+        return True
+    return _predicate_constrains(join.args.get("on"))
+
+
+def _predicate_constrains(node: exp.Expression | None) -> bool:
+    """Whether a boolean predicate genuinely narrows the join it gates.
+
+    fix(#565 codex P1 r21): an equality merely OCCURRING in the ON is not
+    enough — ``a.gid = b.gid OR TRUE`` is always true, so the join is still a
+    cartesian product. The predicate constrains only if an ``AND`` has a
+    constraining side, an ``OR`` has ALL sides constraining, or it is itself a
+    column-to-column equality. ``TRUE`` / ``1=1`` / an inequality do not.
+    """
+    if node is None:
+        return False
+    if isinstance(node, exp.Paren):
+        return _predicate_constrains(node.this)
+    if isinstance(node, exp.And):
+        return _predicate_constrains(node.this) or _predicate_constrains(
+            node.expression
+        )
+    if isinstance(node, exp.Or):
+        return _predicate_constrains(node.this) and _predicate_constrains(
+            node.expression
+        )
+    if isinstance(node, exp.EQ):
+        return (
+            node.this is not None
+            and node.expression is not None
+            and node.this.find(exp.Column) is not None
+            and node.expression.find(exp.Column) is not None
+        )
+    return False
+
+
+def _from_join_pairs(select: exp.Select) -> list[tuple[exp.Expression, bool]]:
+    """(source, multiplies) for the FROM source and each JOIN of ``select``.
+
+    The FROM source always contributes to the cross product; a JOIN multiplies
+    it only when unconstrained (see _join_is_constrained).
+    """
+    pairs: list[tuple[exp.Expression, bool]] = []
+    for child in select.iter_expressions():
+        if isinstance(child, exp.From):
+            pairs.append((child.this, True))
+        elif isinstance(child, exp.Join):
+            pairs.append((child.this, not _join_is_constrained(child)))
+    return pairs
+
+
+def _rows_fanout(node: exp.Expression, memo: _FanoutMemo) -> _FanoutMap:
+    """Worst-case ROW multiplicity of each base table produced by ``node``.
+
+    Maps ``(schema, name)`` to the exponent that base table carries in the
+    node's cardinality: a SELECT's rows are at most the PRODUCT of its
+    from/join sources, so exponents SUM across sources and a source referenced
+    twice counts twice; a set operation's rows are bounded by the larger
+    branch, so exponents take the elementwise MAX. Memoized by node id so a CTE
+    referenced k times is costed once, not 2**depth times. Also accumulates
+    ``_XPROD_KEY`` — the cross-product degree over unconstrained joins.
+    """
+    key = id(node)
+    if key in memo:
+        # None marks a node currently being resolved: a cycle (defensive —
+        # recursion is already rejected) contributes nothing further.
+        return memo[key] or {}
+    memo[key] = None
+
+    out: _FanoutMap = {}
+    if isinstance(node, exp.Select):
+        for source, multiplies in _from_join_pairs(node):
+            _accumulate_source(out, _source_fanout(source, memo), multiplies)
+    elif isinstance(node, (exp.Union, exp.Intersect, exp.Except)):
+        for branch in _set_op_branches(node):
+            for base, weight in _rows_fanout(branch, memo).items():
+                out[base] = min(max(out.get(base, 0), weight), _FANOUT_CEILING)
+
+    memo[key] = out
+    return out
+
+
+def _accumulate_source(
+    out: _FanoutMap, source_fanout: _FanoutMap, multiplies: bool
+) -> None:
+    """Fold one from/join source into a running rows map (base keys + xprod).
+
+    Base-table exponents SUM (the join product). The cross-product degree grows
+    only when the source ``multiplies`` (an unconstrained join): by the source's
+    own nested degree if it has one, else its base-scan count.
+    """
+    base_degree = 0
+    for base, weight in source_fanout.items():
+        if base == _XPROD_KEY:
+            continue
+        out[base] = min(out.get(base, 0) + weight, _FANOUT_CEILING)
+        base_degree += weight
+    if multiplies:
+        degree = source_fanout.get(_XPROD_KEY, base_degree)
+        out[_XPROD_KEY] = min(out.get(_XPROD_KEY, 0) + degree, _FANOUT_CEILING)
+
+
+def _source_fanout(source: exp.Expression, memo: _FanoutMemo) -> _FanoutMap:
+    """Base-table row multiplicity contributed by one from/join source."""
+    if isinstance(source, exp.Table):
+        cte = _resolve_cte(source)
+        if cte is not None:
+            return _rows_fanout(cte.this, memo)
+        # A base table (real, or an out-of-scope name the access check will
+        # reject) is scanned once.
+        return {(source.db or "", source.name): 1}
+    if isinstance(source, exp.Lateral):
+        # fix(#565 codex P1 r6): a LATERAL re-evaluates its subquery per outer
+        # row, and its OUTPUT rows join into the FROM product, so it is a row
+        # source like a derived table — `CROSS JOIN LATERAL (SELECT ... FROM
+        # data.foo c ...)` beside `data.foo a CROSS JOIN data.foo b` is N^3.
+        # (Its INTERNAL per-row work is added separately in _work_fanout.)
+        inner = _lateral_inner_scope(source)
+        return _rows_fanout(inner, memo) if inner is not None else {}
+    if isinstance(source, exp.Subquery):
+        inner = source.this
+        if isinstance(inner, _SCOPE_TYPES):
+            return _rows_fanout(inner, memo)
+        # fix(#565 codex P1 r8): a parenthesized FROM join group —
+        # `(data.foo a CROSS JOIN data.foo b CROSS JOIN data.foo c)` — is a
+        # Subquery wrapping a Table that carries its joins in `.args["joins"]`,
+        # not a SELECT. Cost the head source and every joined source, so the
+        # cross join inside the parentheses is not a fan-out of 0.
+        return _group_fanout(inner, memo)
+    if isinstance(source, exp.Values):
+        # fix(#565 codex P1 r17/r18): a constant VALUES relation contributes
+        # rows too. Cross-joining VALUES k times is a k-way row explosion —
+        # whether the same CTE referenced k times or k separately-written
+        # inline literals. All VALUES share ONE fan-out key so distinct
+        # constant sources combine in the cross-product (r18: per-node ids let
+        # k distinct VALUES each report 1 and slip 256^k combinations); each
+        # literal's own cardinality is separately capped in validate_sql.
+        return {("", "__values__"): 1}
+    # Anything else in a FROM (an allowlisted table function) does not open a
+    # base-table cross-join vector; the function/table checks bound it.
+    return {}
+
+
+def _group_fanout(head: exp.Expression, memo: _FanoutMemo) -> _FanoutMap:
+    """Row multiplicity of a join group: its head source times each join.
+
+    ``head`` may itself carry ``.args["joins"]`` (a parenthesized cross join);
+    the product is the head's fan-out plus each join source's, mirroring how a
+    SELECT's sources compose, and accumulating the cross-product degree over
+    the group's unconstrained joins.
+    """
+    out: _FanoutMap = {}
+    _accumulate_source(out, _source_fanout(head, memo), True)
+    for join in head.args.get("joins") or []:
+        multiplies = not _join_is_constrained(join)
+        _accumulate_source(out, _source_fanout(join.this, memo), multiplies)
+    return out
+
+
+def _group_sources(head: exp.Expression) -> list[exp.Expression]:
+    """The head source plus every joined source of a parenthesized group."""
+    return [head] + [join.this for join in head.args.get("joins") or []]
+
+
+def _group_head(source: exp.Expression) -> exp.Expression | None:
+    """The join-group head under a parenthesized FROM source, else None.
+
+    A parenthesized group is a Subquery wrapping a NON-scope (a Table that
+    carries its joins); a Subquery wrapping a SELECT/set-op is a derived table.
+    """
+    if isinstance(source, exp.Subquery) and not isinstance(source.this, _SCOPE_TYPES):
+        return source.this
+    return None
+
+
+def _group_work(head: exp.Expression, wm: _FanoutMemo, rm: _FanoutMemo) -> _FanoutMap:
+    """Work of building a parenthesized join group ONCE.
+
+    fix(#565 codex P1 r9): its rows are the head/joins cross product, PLUS each
+    join's ON predicate runs per group row (a correlated ON scan is N^k the row
+    count missed), PLUS any LATERAL among its sources carries its own excess. A
+    group builds once, so this stands as its own candidate in the
+    statement-wide max rather than multiplying an enclosing SELECT.
+    """
+    key = id(head)
+    if key in wm:
+        return wm[key] or {}
+    wm[key] = None
+    out = dict(_group_fanout(head, rm))
+    # Per-group-row work — the group's LATERAL/derived source excesses and its
+    # joins' ON-predicate subqueries — are siblings, so combine them by MAX and
+    # add once to the group's row fan-out (fix(#565 codex P2 r13)).
+    per_row: _FanoutMap = {}
+    for source in _group_sources(head):
+        _merge_max(per_row, _source_excess(source, wm, rm))
+    for join in head.args.get("joins") or []:
+        on = join.args.get("on")
+        if on is not None:
+            for scope in _outermost_scopes(on):
+                _merge_max(per_row, _work_fanout(scope, wm, rm))
+    for base, weight in per_row.items():
+        out[base] = min(out.get(base, 0) + weight, _FANOUT_CEILING)
+    wm[key] = out
+    return out
+
+
+def _outermost_scopes(root: exp.Expression) -> list[exp.Expression]:
+    """Top-level subquery scopes within a predicate expression (an ON/WHERE).
+
+    A scope whose nearest scope-ancestor lies OUTSIDE ``root`` is top-level in
+    it; deeper scopes are reached by recursion when their parent is costed.
+    """
+    out: list[exp.Expression] = []
+    for node in root.find_all(*_SCOPE_TYPES):
+        ancestor = node.parent
+        outermost = True
+        while ancestor is not None and ancestor is not root:
+            if isinstance(ancestor, _SCOPE_TYPES):
+                outermost = False
+                break
+            ancestor = ancestor.parent
+        if outermost:
+            out.append(node)
+    return out
+
+
+def _source_excess(
+    source: exp.Expression, wm: _FanoutMemo, rm: _FanoutMemo
+) -> _FanoutMap:
+    """A per-outer-row source's EXCESS work (work minus its own rows).
+
+    A LATERAL re-evaluates per outer row; its rows are already in the product,
+    so only its internal correlated/nested work beyond its row count adds
+    (fix(#565 codex P1 r7)). A parenthesized group's excess is folded in the
+    same way when the group sits in a per-row position (e.g. inside a LATERAL).
+
+    fix(#565 codex P1 r10): a CTE reference carries excess too. PostgreSQL
+    inlines a non-recursive CTE — always for ``NOT MATERIALIZED``, and by
+    default when referenced once — so its internal correlated work re-executes
+    per outer row rather than materializing once. Costing a reference as
+    rows-only let ``a p CROSS JOIN a q`` over a CTE with a correlated scan slip
+    the bound; propagating its excess treats every reference as inlined, the
+    worst case.
+
+    fix(#565 codex P1 r12): an ordinary derived table (a subquery in FROM/JOIN)
+    is the same worst case — PostgreSQL can FLATTEN it, pulling its correlated
+    subquery up to run per outer row, so ``(SELECT x.gid, (correlated) n FROM
+    foo x) p CROSS JOIN foo q`` is N^3. Its excess propagates like a CTE's.
+
+    fix(#565 codex P1 r16): a LATERAL over a NON-scope — ``LATERAL (VALUES
+    ((SELECT ... a CROSS JOIN b ...)))`` — carries no inner scope to unwrap,
+    but the subqueries buried in it still run per outer row. Cost those
+    directly as the lateral's per-row work.
+    """
+    work: _FanoutMap
+    rows: _FanoutMap
+    inner_scope: exp.Expression | None = None
+    if isinstance(source, exp.Table):
+        cte = _resolve_cte(source)
+        inner_scope = cte.this if cte is not None else None
+    elif isinstance(source, exp.Lateral):
+        inner_scope = _lateral_inner_scope(source)
+    elif isinstance(source, exp.Subquery) and isinstance(source.this, _SCOPE_TYPES):
+        inner_scope = source.this
+
+    if inner_scope is not None and isinstance(inner_scope, _SCOPE_TYPES):
+        work = _work_fanout(inner_scope, wm, rm)
+        rows = _rows_fanout(inner_scope, rm)
+    elif isinstance(source, exp.Lateral):
+        # Non-scope LATERAL (VALUES / table function): it produces no
+        # base-table rows, so its whole per-outer-row cost is the subqueries
+        # buried inside it, combined by MAX (siblings).
+        per_row: _FanoutMap = {}
+        for scope in _outermost_scopes(source):
+            _merge_max(per_row, _work_fanout(scope, wm, rm))
+        return per_row
+    else:
+        head = _group_head(source)
+        if head is None:
+            return {}
+        work = _group_work(head, wm, rm)
+        rows = _group_fanout(head, rm)
+    # _XPROD_KEY is an input-cardinality metric (computed by _rows_fanout /
+    # _group_fanout); it is not per-row EXCESS work, so drop it here.
+    return {
+        base: weight - rows.get(base, 0)
+        for base, weight in work.items()
+        if base != _XPROD_KEY and weight - rows.get(base, 0) > 0
+    }
+
+
+def _lateral_inner_scope(source: exp.Lateral) -> exp.Expression | None:
+    """The SELECT/set-op beneath a LATERAL source, or None for a table function."""
+    inner = source.this
+    if isinstance(inner, exp.Subquery):
+        inner = inner.this
+    return inner if isinstance(inner, _SCOPE_TYPES) else None
+
+
+def _correlated_scopes(
+    select: exp.Select,
+) -> tuple[list[exp.Expression], list[exp.Expression], list[exp.Expression]]:
+    """Per-INPUT-row and per-OUTPUT-row subquery scopes of ``select``.
+
+    fix(#565 codex P1 r4): a scalar/EXISTS/IN/WHERE subquery executes per row
+    of the enclosing SELECT, so its work multiplies by that row count — a
+    triple self-join hidden in ``SELECT (SELECT ... a CROSS JOIN b CROSS JOIN
+    c) FROM ...`` is N^3 work the row-only cost missed. These are the outermost
+    such scopes directly under ``select``; its FROM/JOIN sources (folded into
+    ``_rows_fanout``) and its WITH bodies (costed where referenced) are
+    excluded, and deeper nesting is reached by recursion on each scope.
+
+    Returns ``(per_input, per_output, per_statement)``: whether the scope runs
+    per INPUT row (WHERE / JOIN-ON / GROUP BY, before aggregation), per OUTPUT
+    row (SELECT list / HAVING / ORDER BY, after it), or ONCE per statement
+    (LIMIT / OFFSET — evaluated a single time, never correlated). Only per-output
+    work shrinks when the SELECT aggregates (fix(#565 codex P2 r14)); per-
+    statement work never gets a row multiplier (fix(#565 codex P2 r16)).
+
+    A JOIN contributes BOTH a source (``join.this``) and an ``ON`` predicate,
+    so it cannot be skipped wholesale: fix(#565 codex P1 r5) — a correlated
+    subquery in ``JOIN ... ON`` runs per row like a WHERE and must be costed,
+    while a derived table in the join's source position is a row source. The
+    walk distinguishes them by which side of the join it ascended from.
+    """
+    per_input: list[exp.Expression] = []
+    per_output: list[exp.Expression] = []
+    per_statement: list[exp.Expression] = []
+    for node in select.find_all(*_SCOPE_TYPES):
+        if node is select:
+            continue
+        prev: exp.Expression = node
+        ancestor = node.parent
+        clause: exp.Expression | None = None
+        under_aggregate = False
+        while ancestor is not None:
+            if ancestor is select:
+                clause = prev
+                break
+            if isinstance(ancestor, exp.From):
+                break
+            if isinstance(ancestor, exp.Join):
+                # In the join's SOURCE -> a row source (costed by _rows_fanout).
+                # In its ON/USING predicate -> keep ascending toward `select`.
+                if prev is ancestor.this:
+                    break
+            elif isinstance(ancestor, (exp.With, exp.CTE, *_SCOPE_TYPES)):
+                # A CTE body, or nested inside another subquery scope: not this
+                # SELECT's own per-row predicate.
+                break
+            elif isinstance(ancestor, exp.AggFunc):
+                # fix(#565 codex P1 r15): the scope is an aggregate ARGUMENT (or
+                # FILTER), which the aggregate evaluates for every INPUT row —
+                # ``sum((SELECT ... WHERE b.gid = a.gid))`` runs the correlated
+                # subquery per outer row, so the ungrouped-aggregate reduction
+                # must NOT zero its multiplier.
+                under_aggregate = True
+            prev = ancestor
+            ancestor = ancestor.parent
+        if clause is None:
+            continue
+        # fix(#565 codex P2 r14): classify by the clause that runs the scope.
+        # WHERE / JOIN-ON / GROUP BY are evaluated per INPUT row (before
+        # aggregation); the SELECT list, HAVING, ORDER BY, QUALIFY run per
+        # OUTPUT row (after aggregation). Only per-output work shrinks when the
+        # SELECT aggregates to fewer rows — EXCEPT an aggregate argument, which
+        # still runs per input row (fix(#565 codex P1 r15)). LIMIT / OFFSET are
+        # evaluated ONCE (fix(#565 codex P2 r16)).
+        if isinstance(clause, (exp.Limit, exp.Offset)):
+            per_statement.append(node)
+        elif isinstance(clause, (exp.Where, exp.Join, exp.Group)) or under_aggregate:
+            per_input.append(node)
+        else:
+            per_output.append(node)
+    return per_input, per_output, per_statement
+
+
+def _work_fanout(
+    node: exp.Expression, work_memo: _FanoutMemo, rows_memo: _FanoutMemo
+) -> _FanoutMap:
+    """Worst-case WORK multiplicity: rows plus per-row correlated subquery work.
+
+    A set operation's work is the larger branch's; a SELECT's is its row
+    fan-out plus, for each correlated subquery it runs once per row, that
+    subquery's own work (exponents add — the subquery repeats for every row).
+    """
+    key = id(node)
+    if key in work_memo:
+        return work_memo[key] or {}
+    work_memo[key] = None
+
+    if isinstance(node, (exp.Union, exp.Intersect, exp.Except)):
+        out: _FanoutMap = {}
+        for branch in _set_op_branches(node):
+            for base, weight in _work_fanout(branch, work_memo, rows_memo).items():
+                out[base] = min(max(out.get(base, 0), weight), _FANOUT_CEILING)
+        work_memo[key] = out
+        return out
+
+    input_rows = _rows_fanout(node, rows_memo)
+    out = dict(input_rows)
+    if isinstance(node, exp.Select):
+        # Per-row subquery/source work at THIS level. SIBLINGS run additively —
+        # PostgreSQL evaluates them sequentially per row — so combine each group
+        # by the per-table MAX, not the sum (fix(#565 codex P2 r13): summing
+        # rejected a legit query with two scalar subqueries over one table).
+        # Genuine NESTING adds, and the recursion inside each scope's own
+        # _work_fanout already handles that.
+        per_input, per_output, per_statement = _correlated_scopes(node)
+        pin: _FanoutMap = {}
+        for scope in per_input:
+            _merge_max(pin, _work_fanout(scope, work_memo, rows_memo))
+        for source in _own_sources(node):
+            _merge_max(pin, _source_excess(source, work_memo, rows_memo))
+        pout: _FanoutMap = {}
+        for scope in per_output:
+            _merge_max(pout, _work_fanout(scope, work_memo, rows_memo))
+        pstmt: _FanoutMap = {}
+        for scope in per_statement:
+            _merge_max(pstmt, _work_fanout(scope, work_memo, rows_memo))
+        # _XPROD_KEY is an input-cardinality metric already in `out` from
+        # input_rows; per-row work must not re-multiply it.
+        for bucket in (pin, pout, pstmt):
+            bucket.pop(_XPROD_KEY, None)
+
+        # A per-INPUT-row scope multiplies by the input scan; a per-OUTPUT-row
+        # scope by the output cardinality, which an ungrouped aggregate
+        # collapses to one row (exponent 0) — fix(#565 codex P2 r14); a
+        # per-STATEMENT scope (LIMIT/OFFSET) runs once, multiplier 0
+        # (fix(#565 codex P2 r16)). Each term is additive with the scan, so
+        # combine by MAX.
+        aggregated = _is_ungrouped_aggregate(node)
+        for base, weight in pin.items():
+            total = min(input_rows.get(base, 0) + weight, _FANOUT_CEILING)
+            out[base] = max(out.get(base, 0), total)
+        for base, weight in pout.items():
+            multiplier = 0 if aggregated else input_rows.get(base, 0)
+            total = min(multiplier + weight, _FANOUT_CEILING)
+            out[base] = max(out.get(base, 0), total)
+        for base, weight in pstmt.items():
+            out[base] = max(out.get(base, 0), weight)
+    work_memo[key] = out
+    return out
+
+
+def _is_ungrouped_aggregate(select: exp.Select) -> bool:
+    """Whether ``select`` collapses its input to a single row.
+
+    True when it has an aggregate in its own SELECT list and no GROUP BY, so
+    per-output-row work runs once (fix(#565 codex P2 r14)). A GROUP BY is
+    treated conservatively as not reducing (its output cardinality is unknown).
+    """
+    if select.args.get("group"):
+        return False
+    for projection in select.expressions:
+        for agg in projection.find_all(exp.AggFunc):
+            if agg.find_ancestor(exp.Select) is select:
+                return True
+    return False
+
+
+def _merge_max(target: _FanoutMap, other: _FanoutMap) -> None:
+    """Per-table MAX-merge ``other`` into ``target`` (sibling combination)."""
+    for base, weight in other.items():
+        target[base] = min(max(target.get(base, 0), weight), _FANOUT_CEILING)
+
+
+def _max_table_fanout(stmt: exp.Expression) -> int:
+    """The largest base-table WORK multiplicity anywhere in the statement.
+
+    fix(#565 codex P1 r3): a per-reference count cannot see fan-out that
+    COMPOSES through the CTE graph — ``WITH a AS (...foo), b AS (a CROSS JOIN
+    a), c AS (b CROSS JOIN b) SELECT c CROSS JOIN c`` keeps every name at two
+    references while multiplying ``data.foo`` to the eighth power.
+
+    Taking the max over EVERY scope (fix(#565 codex P1 r4)) — not just the
+    root's row fan-out — also catches a heavy self-join buried in a scalar or
+    predicate subquery, or inside a CTE body's projection, wherever it sits.
+    Parenthesized join groups (fix(#565 codex P1 r9)) are costed as their own
+    candidates too, since their ON-predicate work has no wrapping SELECT. A
+    plain pairwise self-join stays at 2, so a cap bounds real work rather than
+    surface spellings.
+    """
+    rows_memo: _FanoutMemo = {}
+    work_memo: _FanoutMemo = {}
+    largest = 0
+
+    def _consider(fanout: _FanoutMap) -> None:
+        nonlocal largest
+        if fanout:
+            largest = max(largest, max(fanout.values()))
+
+    for scope in stmt.find_all(*_SCOPE_TYPES):
+        _consider(_work_fanout(scope, work_memo, rows_memo))
+    # Parenthesized join groups have no wrapping SELECT, so cost them directly.
+    for subquery in stmt.find_all(exp.Subquery):
+        head = _group_head(subquery)
+        if head is not None:
+            _consider(_group_work(head, work_memo, rows_memo))
+    return largest
 
 
 async def build_table_allowlist(db: AsyncSession, user: Identity | None) -> set[str]:

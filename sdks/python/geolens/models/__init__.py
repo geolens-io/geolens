@@ -599,6 +599,8 @@ from .reupload_preview_response_sample_rows_item import (
 )
 from .reupload_response import ReuploadResponse
 from .reupload_service_preview_request import ReuploadServicePreviewRequest
+from .sandbox_query_request import SandboxQueryRequest
+from .sandbox_result import SandboxResult
 from .saved_search_create import SavedSearchCreate
 from .saved_search_create_params import SavedSearchCreateParams
 from .saved_search_list_response import SavedSearchListResponse
@@ -1172,6 +1174,8 @@ __all__ = (
     "ReuploadPreviewResponseSampleRowsItem",
     "ReuploadResponse",
     "ReuploadServicePreviewRequest",
+    "SandboxQueryRequest",
+    "SandboxResult",
     "SavedSearchCreate",
     "SavedSearchCreateParams",
     "SavedSearchListResponse",

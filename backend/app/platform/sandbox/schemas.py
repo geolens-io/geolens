@@ -26,11 +26,19 @@ class SandboxError(Exception):
 
 @dataclass
 class ValidatedQuery:
-    """Result of successful SQL validation."""
+    """Result of successful SQL validation.
+
+    ``max_table_fanout`` is the largest number of times any single base table
+    is multiplied into the statement's worst-case cardinality, computed through
+    the CTE dependency graph (a plain pairwise self-join is 2). feat(#565): the
+    raw-SQL endpoint bounds it to reject cross-join cost amplification; see
+    ``validate_and_execute(max_table_repeats=...)``.
+    """
 
     sql: str
     tables: set[tuple[str, str]] = field(default_factory=set)
     cte_names: set[str] = field(default_factory=set)
+    max_table_fanout: int = 0
 
 
 class SandboxResult(BaseModel):
