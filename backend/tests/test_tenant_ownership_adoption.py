@@ -487,6 +487,47 @@ class TestReportedStateMatchesWhatApplyEnforces:
             await _drop_tenant(engine, tenant_id)
             await engine.dispose()
 
+    async def test_a_third_party_gateway_grant_is_revoked(
+        self, multi_tenant_row_security
+    ):
+        """The unsafe row belongs to another grantor, not to the adopter.
+
+        A plain REVOKE removes only the caller's own grant, so this is the case
+        that separates targeting the row from targeting the grantor the adopter
+        happens to be.
+        """
+        tenant_id, schema, reader, _writer = _new_tenant()
+        grantor = f"w998_grantor_{tenant_id.replace('-', '_')}"
+        engine = _make_engine()
+        try:
+            await _seed_restored_tenant(engine, tenant_id, schema)
+            assert (await run_adoption(engine, apply=True)).ok
+
+            async with engine.begin() as conn:
+                await conn.execute(sa.text(f"CREATE ROLE {grantor} NOLOGIN CREATEROLE"))
+                await conn.execute(
+                    sa.text(f"GRANT {reader} TO {grantor} WITH ADMIN OPTION")
+                )
+                await conn.execute(sa.text(f"SET LOCAL ROLE {grantor}"))
+                await conn.execute(
+                    sa.text(f"GRANT {reader} TO {TILE} WITH INHERIT TRUE, SET TRUE")
+                )
+                await conn.execute(sa.text("RESET ROLE"))
+
+            async with engine.connect() as conn:
+                state = await tenant_ownership_state(conn, tenant_id)
+            assert not state.reader_role_secure
+
+            repaired = await run_adoption(engine, apply=True)
+            assert repaired.failures == {}, repaired.failures
+            assert repaired.ok
+        finally:
+            async with engine.begin() as conn:
+                await conn.execute(sa.text(f"DROP OWNED BY {grantor}"))
+                await conn.execute(sa.text(f"DROP ROLE IF EXISTS {grantor}"))
+            await _drop_tenant(engine, tenant_id)
+            await engine.dispose()
+
     async def test_a_duplicate_provisioner_edge_is_normalized(
         self, multi_tenant_row_security
     ):

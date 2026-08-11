@@ -827,50 +827,115 @@ BEGIN
     -- ADMIN above. Afterwards the caller reaches both roles through the
     -- provisioner, whose privileges it must hold to have got this far.
     FOR legacy_member_row IN
-        SELECT member_role.rolname AS member_name
+        SELECT member_role.rolname AS member_name,
+               grantor_role.rolname AS grantor_name
         FROM pg_catalog.pg_auth_members AS membership
         JOIN pg_catalog.pg_roles AS granted_role
           ON granted_role.oid = membership.roleid
         JOIN pg_catalog.pg_roles AS member_role
           ON member_role.oid = membership.member
+        JOIN pg_catalog.pg_roles AS grantor_role
+          ON grantor_role.oid = membership.grantor
         WHERE granted_role.rolname = reader_name
           AND (
               member_role.rolname NOT IN ('{PROVISIONER}', '{SANDBOX}', '{TILE}')
-              -- ...or an allowed gateway holding an unsafe duplicate from
-              -- another grantor. A plain REVOKE drops every row for the pair
-              -- and the provisioning function below re-adds the canonical
-              -- SET-only one; leaving it makes the tenant permanently
-              -- unadoptable, since nothing else removes it.
+              -- ...or an allowed gateway holding an unsafe duplicate. Nothing
+              -- else removes that row, so leaving it makes the tenant
+              -- permanently unadoptable.
               OR (
                   member_role.rolname IN ('{SANDBOX}', '{TILE}')
                   AND NOT {_MEMBERSHIP_SET_ONLY}
               )
           )
     LOOP
-        EXECUTE pg_catalog.format(
-            'REVOKE %I FROM %I', reader_name, legacy_member_row.member_name
-        );
+        -- GRANTED BY targets the specific row: a plain REVOKE only removes the
+        -- grant this role made, and PostgreSQL keeps one row per grantor. It
+        -- needs a path to that grantor, so a row from a role this credential
+        -- cannot assume is a refusal with the command to run, not a silent skip.
+        BEGIN
+            IF pg_catalog.current_setting('server_version_num')::integer >= 160000 THEN
+                EXECUTE pg_catalog.format(
+                    'REVOKE %I FROM %I GRANTED BY %I CASCADE',
+                    reader_name,
+                    legacy_member_row.member_name,
+                    legacy_member_row.grantor_name
+                );
+            ELSE
+                EXECUTE pg_catalog.format(
+                    'REVOKE %I FROM %I CASCADE',
+                    reader_name,
+                    legacy_member_row.member_name
+                );
+            END IF;
+        EXCEPTION
+            WHEN insufficient_privilege THEN
+                RAISE EXCEPTION
+                    'cannot revoke % from % : the grant was made by %, which '
+                    'this role cannot assume',
+                    reader_name,
+                    legacy_member_row.member_name,
+                    legacy_member_row.grantor_name
+                    USING HINT =
+                        'run REVOKE ' || reader_name || ' FROM ' ||
+                        legacy_member_row.member_name || ' GRANTED BY ' ||
+                        legacy_member_row.grantor_name || ' CASCADE as a role that can';
+        END;
     END LOOP;
 
     FOR legacy_member_row IN
-        SELECT member_role.rolname AS member_name
+        SELECT member_role.rolname AS member_name,
+               grantor_role.rolname AS grantor_name
         FROM pg_catalog.pg_auth_members AS membership
         JOIN pg_catalog.pg_roles AS granted_role
           ON granted_role.oid = membership.roleid
         JOIN pg_catalog.pg_roles AS member_role
           ON member_role.oid = membership.member
+        JOIN pg_catalog.pg_roles AS grantor_role
+          ON grantor_role.oid = membership.grantor
         WHERE granted_role.rolname = writer_name
           AND (
               member_role.rolname NOT IN ('{PROVISIONER}', '{WRITER}')
+              -- ...or an allowed gateway holding an unsafe duplicate. Nothing
+              -- else removes that row, so leaving it makes the tenant
+              -- permanently unadoptable.
               OR (
-                  member_role.rolname = '{WRITER}'
+                  member_role.rolname IN ('{WRITER}')
                   AND NOT {_MEMBERSHIP_SET_ONLY}
               )
           )
     LOOP
-        EXECUTE pg_catalog.format(
-            'REVOKE %I FROM %I', writer_name, legacy_member_row.member_name
-        );
+        -- GRANTED BY targets the specific row: a plain REVOKE only removes the
+        -- grant this role made, and PostgreSQL keeps one row per grantor. It
+        -- needs a path to that grantor, so a row from a role this credential
+        -- cannot assume is a refusal with the command to run, not a silent skip.
+        BEGIN
+            IF pg_catalog.current_setting('server_version_num')::integer >= 160000 THEN
+                EXECUTE pg_catalog.format(
+                    'REVOKE %I FROM %I GRANTED BY %I CASCADE',
+                    writer_name,
+                    legacy_member_row.member_name,
+                    legacy_member_row.grantor_name
+                );
+            ELSE
+                EXECUTE pg_catalog.format(
+                    'REVOKE %I FROM %I CASCADE',
+                    writer_name,
+                    legacy_member_row.member_name
+                );
+            END IF;
+        EXCEPTION
+            WHEN insufficient_privilege THEN
+                RAISE EXCEPTION
+                    'cannot revoke % from % : the grant was made by %, which '
+                    'this role cannot assume',
+                    writer_name,
+                    legacy_member_row.member_name,
+                    legacy_member_row.grantor_name
+                    USING HINT =
+                        'run REVOKE ' || writer_name || ' FROM ' ||
+                        legacy_member_row.member_name || ' GRANTED BY ' ||
+                        legacy_member_row.grantor_name || ' CASCADE as a role that can';
+        END;
     END LOOP;
 
     -- The provisioner's own duplicates, which the loops above deliberately do
@@ -894,11 +959,24 @@ BEGIN
               AND member_role.rolname = '{PROVISIONER}'
               AND NOT {_MEMBERSHIP_ADMIN_ONLY}
         LOOP
-            EXECUTE pg_catalog.format(
-                'REVOKE %I FROM {PROVISIONER} GRANTED BY %I',
-                legacy_member_row.granted_name,
-                legacy_member_row.member_name
-            );
+            BEGIN
+                EXECUTE pg_catalog.format(
+                    'REVOKE %I FROM {PROVISIONER} GRANTED BY %I CASCADE',
+                    legacy_member_row.granted_name,
+                    legacy_member_row.member_name
+                );
+            EXCEPTION
+                WHEN insufficient_privilege THEN
+                    RAISE EXCEPTION
+                        'cannot revoke % from {PROVISIONER}: the grant was made '
+                        'by %, which this role cannot assume',
+                        legacy_member_row.granted_name,
+                        legacy_member_row.member_name
+                        USING HINT =
+                            'run REVOKE ' || legacy_member_row.granted_name ||
+                            ' FROM {PROVISIONER} GRANTED BY ' ||
+                            legacy_member_row.member_name || ' CASCADE as a role that can';
+            END;
         END LOOP;
     END IF;
 
