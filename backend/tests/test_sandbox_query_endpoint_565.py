@@ -671,6 +671,56 @@ async def test_sibling_scalar_subqueries_are_allowed(
     assert resp.status_code == 200, resp.text
 
 
+async def test_lateral_values_nested_subquery_is_rejected(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P1 r16): a LATERAL over VALUES has no inner scope to
+    unwrap, but a self-join subquery buried in it still runs per outer row —
+    N^3 — so its work must be costed as the lateral's per-row work."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = await _make_table(test_db_session, owner)
+
+    resp = await client.post(
+        "/query/",
+        json={
+            "sql": (
+                f"SELECT f.gid, v.n FROM data.{tbl} f CROSS JOIN LATERAL "
+                f"(VALUES ((SELECT count(*) FROM data.{tbl} a "
+                f"CROSS JOIN data.{tbl} b WHERE a.gid + f.gid IS NOT NULL))) v(n)"
+            ),
+            "restrict_tables": [tbl],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == _REPETITION_MESSAGE
+
+
+async def test_dynamic_limit_subquery_is_allowed(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P2 r16): a LIMIT/OFFSET subquery is evaluated once
+    (statement-level), so its work is additive with the scan — not multiplied
+    by the outer rows. It must not false-reject."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = await _make_table(test_db_session, owner)
+
+    resp = await client.post(
+        "/query/",
+        json={
+            "sql": (
+                f"SELECT x.gid FROM data.{tbl} x LIMIT "
+                f"(SELECT count(*) FROM data.{tbl} y CROSS JOIN data.{tbl} z)"
+            ),
+            "restrict_tables": [tbl],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+
 async def test_aggregate_argument_subquery_is_rejected(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
