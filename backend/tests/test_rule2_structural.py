@@ -1580,8 +1580,39 @@ def _target_names(target: ast.expr) -> set[str]:
     return {path} if path else set()
 
 
+def _depth_preserving_ancestor(expr: ast.AST) -> ast.AST:
+    """The outermost expression around ``expr`` that is still the same value.
+
+    Same value meaning the same thing at the same container depth, so a caller
+    holding a container of argvs still holds one at the top. Two wrappers
+    qualify, both of them already named elsewhere in this module
+    (fix(#1394), codex round 6):
+
+    * a VALUE wrapper — ``commands or ()``, ``commands if flag else ()``,
+      ``commands + extra`` — which evaluates to the thing it wraps.
+    * a star inside a display, ``(*commands,)``, which splices ``commands``'
+      elements into a new one and so preserves its depth (codex round 5). The
+      pair counts once, exactly as it does in ``_binding_targets``.
+
+    A CONTAINER wrapper is deliberately absent: ``[commands]`` is a level
+    deeper, and pretending otherwise is the container mistake #996 is about.
+    """
+    current: ast.AST = expr
+    while True:
+        parent = getattr(current, "_rule2_parent", None)
+        if isinstance(parent, _VALUE_WRAPPERS):
+            current = parent
+            continue
+        if isinstance(parent, ast.Starred):
+            display = getattr(parent, "_rule2_parent", None)
+            if isinstance(display, (ast.List, ast.Tuple, ast.Set)):
+                current = display
+                continue
+        return current
+
+
 def _loop_target_paths(iterable: ast.AST) -> set[str]:
-    """The paths a loop binds when ``iterable`` is the thing being iterated.
+    """The paths a loop binds when ``iterable`` is (part of) the thing iterated.
 
     ``for cmd in commands:`` binds ``"cmd"``; ``async for`` and a
     comprehension's generator bind the same way. Empty when ``iterable`` is not
@@ -1605,11 +1636,18 @@ def _loop_target_paths(iterable: ast.AST) -> set[str]:
     is the command vector rather than a tuple of unrelated values. Returning
     nothing is the accurate answer within this model, in which the element of a
     container IS the vector: destructuring a vector yields strings.
+
+    codex round 6 on #1394: the iterable is reached through
+    ``_depth_preserving_ancestor``, so ``for cmd in commands or ():`` is the
+    same loop as ``for cmd in commands:``. Requiring the load to be the direct
+    child of ``For.iter`` let a value wrapper — the ternary, ``+`` and ``or``
+    forms #996 already follows everywhere else — hide a real argv.
     """
-    parent = getattr(iterable, "_rule2_parent", None)
+    iterated = _depth_preserving_ancestor(iterable)
+    parent = getattr(iterated, "_rule2_parent", None)
     if (
         isinstance(parent, (ast.For, ast.AsyncFor, ast.comprehension))
-        and parent.iter is iterable
+        and parent.iter is iterated
         and not isinstance(parent.target, (ast.Tuple, ast.List))
     ):
         return _target_names(parent.target)
@@ -3395,6 +3433,66 @@ def test_guard_starring_an_argv_splices_it_into_the_display():
     assert len(wrapped) == 2, wrapped
     assert any("(iterated)" in v for v in wrapped)
     assert any("(indexed)" in v for v in wrapped)
+
+
+def test_guard_a_wrapped_iterable_is_still_the_same_loop():
+    """fix(#1394), codex round 6: the value wrappers reach the loop too.
+
+    ``for cmd in commands or ():`` iterates ``commands``. Requiring the load to
+    be the direct child of ``For.iter`` let the ternary, ``+`` and ``or`` forms
+    #996 follows everywhere else hide a real argv — a silent miss. A star into
+    a display preserves depth the same way (round 5), so it reaches the loop
+    too.
+
+    A CONTAINER wrapper must NOT reach it: ``for held in [commands]:`` binds
+    the container, one level above the argv. Pinned on the helper, because
+    end-to-end the container escapes into the loop body either way and the two
+    answers are indistinguishable from the verdict.
+    """
+
+    def loop_targets_of(src: str, name: str) -> set[str]:
+        tree = ast.parse(src)
+        _annotate_parents(tree)
+        load = next(
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, ast.Name) and n.id == name and isinstance(n.ctx, ast.Load)
+        )
+        return _loop_target_paths(load)
+
+    assert loop_targets_of("for cmd in commands:\n    pass\n", "commands") == {"cmd"}
+    assert loop_targets_of("for cmd in commands or ():\n    pass\n", "commands") == {
+        "cmd"
+    }
+    assert loop_targets_of("for cmd in (*commands,):\n    pass\n", "commands") == {
+        "cmd"
+    }
+    assert loop_targets_of("for held in [commands]:\n    pass\n", "commands") == set()
+
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def fallback(path):\n"
+            "    commands = [['gdalinfo', path]]\n"
+            "    for cmd in commands or ():\n"
+            "        subprocess.run(cmd)\n"
+            "def ternary(path, flag):\n"
+            "    commands = [['ogrinfo', path]]\n"
+            "    for cmd in commands if flag else []:\n"
+            "        subprocess.run(cmd)\n"
+            "def concatenated(path, extra):\n"
+            "    commands = [['gdalwarp', path]]\n"
+            "    for cmd in commands + extra:\n"
+            "        subprocess.run(cmd)\n"
+            "def starred(path):\n"
+            "    commands = [['gdaladdo', path]]\n"
+            "    for cmd in (*commands,):\n"
+            "        subprocess.run(cmd)\n"
+        ),
+        {},
+    )
+    assert total == 4, (total, violations)
+    assert len(violations) == 4, violations
 
 
 def test_guard_conflicting_container_kinds_merge_to_the_louder():
