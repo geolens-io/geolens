@@ -175,6 +175,35 @@ describe('SaveChatPreviewDialog', () => {
     expect(toastSuccess).toHaveBeenCalled();
   });
 
+  // feat(#1241 codex r3): the ambiguous case. A commit that reached the server
+  // with only its response lost leaves a queued import behind, and the backend
+  // refuses the repeat with 400 "Job already processed" — forever. Without
+  // this the dialog can never close over a dataset that already exists.
+  it('treats "job already processed" on a retry as the success it describes', async () => {
+    commitImport
+      .mockRejectedValueOnce(new ApiError('Network unavailable', 0))
+      .mockRejectedValueOnce(new ApiError('Job already processed', 400));
+    const { onOpenChange } = renderDialog();
+
+    submit();
+    await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1));
+
+    submit();
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(toastError).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not swallow a 400 on the first commit attempt', async () => {
+    commitImport.mockRejectedValue(new ApiError('Job has no file', 400));
+    const { onOpenChange } = renderDialog();
+
+    submit();
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith('Job has no file'));
+    expect(toastSuccess).not.toHaveBeenCalled();
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
   it('re-runs only the failed step when the preview is what failed', async () => {
     previewFile.mockRejectedValueOnce(new ApiError('Unable to preview file.', 422));
     renderDialog();

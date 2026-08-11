@@ -75,9 +75,13 @@ export function SaveChatPreviewDialog({
   // first job staged with nothing pointing at it, and worse: if a commit was
   // accepted and only its response was lost, a fresh job would queue a second
   // dataset from the same answer. Resuming puts that retry back on the job the
-  // server already has, where a repeat commit is refused ("Job already
-  // processed") instead of duplicating.
-  const stagedRef = useRef<{ jobId: string; previewed: boolean } | null>(null);
+  // server already has, where the outcome is one dataset either way.
+  const stagedRef = useRef<{
+    jobId: string;
+    previewed: boolean;
+    /** Whether a commit for this job has already been sent (landed or not). */
+    committed: boolean;
+  } | null>(null);
 
   const fileName = chatPreviewFileName(prompt, t('savePreview.fallbackTitle'));
 
@@ -90,7 +94,7 @@ export function SaveChatPreviewDialog({
           type: 'application/geo+json',
         });
         const { job_id } = await uploadFile(file);
-        stagedRef.current = { jobId: job_id, previewed: false };
+        stagedRef.current = { jobId: job_id, previewed: false, committed: false };
       }
       const staged = stagedRef.current;
       if (!staged.previewed) {
@@ -102,7 +106,26 @@ export function SaveChatPreviewDialog({
         await previewFile(staged.jobId);
         staged.previewed = true;
       }
-      await commitImport(staged.jobId, metadata);
+      const isRecommit = staged.committed;
+      staged.committed = true;
+      try {
+        await commitImport(staged.jobId, metadata);
+      } catch (err) {
+        // feat(#1241 codex r3): a commit whose response was lost still queued
+        // the import, and the backend then refuses the repeat with 400 "Job
+        // already processed". That refusal IS the confirmation the import
+        // exists, so swallowing it here is what stops the dialog looping over
+        // a dataset the server already has. Only ever on a RE-commit: a 400 on
+        // the first attempt is a real rejection.
+        //
+        // Sending the second commit at all is safe. The worker claims a job
+        // with one conditional UPDATE (pending -> running, fenced on
+        // attempt_id, backend/app/platform/jobs/heartbeat.py), so if the
+        // repeat is accepted instead of refused — the response was lost before
+        // the worker picked the job up — the redundant task finds the row
+        // claimed and no-ops. One dataset either way.
+        if (!isRecommit || !(err instanceof ApiError) || err.status !== 400) throw err;
+      }
       toast.success(t('savePreview.started'));
       onOpenChange(false);
     } catch (err) {
