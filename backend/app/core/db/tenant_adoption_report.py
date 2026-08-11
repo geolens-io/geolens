@@ -455,7 +455,13 @@ def _format_tenants(report: AdoptionReport) -> list[str]:
         )
     after_by_id = {state.tenant_id: state for state in report.after}
     for before in report.before:
-        after = after_by_id[before.tenant_id]
+        # A tenant deleted while this ran has no post-state; its transaction
+        # either completed or did not, and either way the row it describes is
+        # gone. The counterpart to the concurrent-addition case below.
+        after = after_by_id.get(before.tenant_id)
+        if after is None:
+            lines.append(f"  {before.tenant_id}: deleted while this ran")
+            continue
         detail = [
             f"{after.relations} relation(s)",
             f"{after.unsafe_routines} routine(s) out of shape",

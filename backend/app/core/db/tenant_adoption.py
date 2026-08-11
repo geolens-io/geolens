@@ -282,6 +282,9 @@ async def boundary_function_states(conn) -> list[BoundaryFunctionState]:
               AND routine.proname = ANY(:names)
               AND routine.pronargs = 1
               AND routine.proargtypes[0] = 'uuid'::regtype
+              -- A procedure with the same signature is not callable where the
+              -- runtime calls these, so it is not one of them.
+              AND routine.prokind = 'f'
             ORDER BY routine.proname
             """
         ),

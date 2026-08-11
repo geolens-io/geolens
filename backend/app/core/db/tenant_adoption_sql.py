@@ -1517,7 +1517,18 @@ BEGIN
         FROM pg_catalog.pg_class AS relation
         JOIN pg_catalog.pg_namespace AS namespace
           ON namespace.oid = relation.relnamespace
-        JOIN LATERAL pg_catalog.aclexplode(relation.relacl) AS acl ON true
+        JOIN LATERAL (
+            SELECT acl.grantor
+            FROM pg_catalog.aclexplode(relation.relacl) AS acl
+            UNION ALL
+            -- Column grants have their own grantor, and the writer's REVOKE
+            -- cannot reach a foreign one any more than it can at table level.
+            SELECT acl.grantor
+            FROM pg_catalog.pg_attribute AS column_row
+            JOIN LATERAL pg_catalog.aclexplode(column_row.attacl) AS acl ON true
+            WHERE column_row.attrelid = relation.oid
+              AND NOT column_row.attisdropped
+        ) AS acl ON true
         JOIN pg_catalog.pg_roles AS grantor_role ON grantor_role.oid = acl.grantor
         WHERE namespace.nspname = schema_name
           AND grantor_role.rolname <> writer_name
