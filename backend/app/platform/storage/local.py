@@ -197,47 +197,122 @@ class LocalStorageProvider:
 
         return await asyncio.to_thread(_list)
 
+    def _walk_in_key_order(
+        self, root: Path, resolved_base: Path, start_after: str | None
+    ):
+        """Lazily yield ``(path, key)`` under *root* in ascending key order.
+
+        Blocking, and a generator on purpose (fix(#1249) review r5): building
+        the whole list first would put an unbounded walk in front of the first
+        page, so a consumer's per-page budget bounded its SQL but neither the
+        filesystem traversal nor the memory it took to hold the result. Only
+        one directory level is materialized at a time, and a subtree entirely
+        below ``start_after`` is skipped without being entered at all.
+
+        Entries sort by ``name + "/"`` for directories so this matches the
+        lexicographic order of the FULL keys, which is what ``start_after``
+        and the S3 ``StartAfter`` it mirrors are defined against — plain name
+        order disagrees whenever a directory and a file share a stem (``/`` is
+        0x2F, so ``frozen/x`` sorts after ``frozen.txt``).
+
+        Symlinks are not followed. A staging tree has none, and for a walk
+        that feeds a deleter, declining to leave the tree through one is the
+        posture to keep.
+        """
+        try:
+            with os.scandir(root) as entries:
+                ordered = sorted(
+                    entries,
+                    key=lambda e: (
+                        e.name + "/" if e.is_dir(follow_symlinks=False) else e.name
+                    ),
+                )
+        except (FileNotFoundError, NotADirectoryError, PermissionError):
+            return
+        for entry in ordered:
+            path = Path(entry.path)
+            key = str(path.relative_to(resolved_base))
+            if entry.is_dir(follow_symlinks=False):
+                child_prefix = key + "/"
+                if (
+                    start_after is not None
+                    and child_prefix <= start_after
+                    and not start_after.startswith(child_prefix)
+                ):
+                    continue  # every key in here sorts at or before the cursor
+                yield from self._walk_in_key_order(path, resolved_base, start_after)
+            elif entry.is_file(follow_symlinks=False):
+                if start_after is not None and key <= start_after:
+                    continue
+                yield path, key
+
+    def _keys_in_order(
+        self,
+        prefix: str,
+        resolved_prefix: Path,
+        resolved_base: Path,
+        start_after: str | None,
+    ):
+        """``(path, key)`` pairs matching *prefix*, ascending, lazily."""
+        if not prefix or prefix.endswith("/") or resolved_prefix == resolved_base:
+            yield from self._walk_in_key_order(
+                resolved_prefix, resolved_base, start_after
+            )
+            return
+        # File prefix: one directory's glob, already bounded by construction.
+        # This is the pre-delete re-read's shape — a complete key.
+        parent = resolved_prefix.parent
+        if not parent.exists():
+            return
+        for path in sorted(parent.glob(resolved_prefix.name + "*")):
+            if not path.is_file():
+                continue
+            key = str(path.relative_to(resolved_base))
+            if start_after is None or key > start_after:
+                yield path, key
+
     async def iter_object_pages(
         self, prefix: str, *, start_after: str | None = None
     ) -> AsyncIterator[list[StoredObject]]:
         """Yield keys matching a prefix with their mtimes (feat #1249).
 
         Chunked into ``_OBJECT_PAGE_SIZE`` pages even though a local walk has
-        no service-side paging to mirror (fix(#1249) review r2): returning the
-        whole prefix as one page would hand the consumer an unbounded page and
-        defeat the between-pages budget it relies on. Key-sorted so
-        ``start_after`` means the same thing here as the S3 ``StartAfter`` it
-        mirrors, and so successive pages are a stable sequence rather than
-        whatever order ``rglob`` produced.
+        no service-side paging to mirror (fix(#1249) review r2): an unbounded
+        page defeats the between-pages budget the consumer relies on. The walk
+        behind it is lazy, so a consumer that stops after one page has not paid
+        for the rest of the tree either (review r5).
         """
         resolved_prefix = self._resolve_contained(prefix)
         resolved_base = self.base_dir.resolve()
+        walker = self._keys_in_order(
+            prefix, resolved_prefix, resolved_base, start_after
+        )
 
-        def _list_objects() -> list[StoredObject]:
-            objects: list[StoredObject] = []
-            for path in self._matching_files(prefix, resolved_prefix):
-                key = str(path.relative_to(resolved_base))
-                if start_after is not None and key <= start_after:
-                    continue
+        def _take_page() -> list[StoredObject]:
+            page: list[StoredObject] = []
+            for path, key in walker:
                 try:
                     mtime = path.stat().st_mtime
                 except OSError:
-                    # Deleted between the glob and the stat. An entry that
+                    # Deleted between the walk and the stat. An entry that
                     # cannot be dated must not reach the caller, which would
                     # otherwise have to invent an age for it.
                     continue
-                objects.append(
+                page.append(
                     StoredObject(
                         key=key,
                         last_modified=datetime.fromtimestamp(mtime, tz=timezone.utc),
                     )
                 )
-            objects.sort(key=lambda entry: entry.key)
-            return objects
+                if len(page) >= _OBJECT_PAGE_SIZE:
+                    break
+            return page
 
-        objects = await asyncio.to_thread(_list_objects)
-        for start in range(0, max(len(objects), 1), _OBJECT_PAGE_SIZE):
-            yield objects[start : start + _OBJECT_PAGE_SIZE]
+        while True:
+            page = await asyncio.to_thread(_take_page)
+            if not page:
+                return
+            yield page
 
     async def health_check(self) -> None:
         """Verify the storage directory exists."""

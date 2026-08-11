@@ -73,6 +73,9 @@ class FakeStorage:
         # advance is observable rather than inferred from what got deleted.
         self.resumed_from: list[str | None] = []
         self.delete_error: Exception | None = None
+        # Raise from the prefix walk after this many pages, to model a pass
+        # that dies partway through with deletes already committed.
+        self.fail_after_pages: int | None = None
         # Called with the key right before its pre-delete re-read, so a test
         # can mutate the world exactly at the moment the race would happen.
         self.on_recheck = None
@@ -91,6 +94,11 @@ class FakeStorage:
         for start in range(0, max(len(matching), 1), self.page_size):
             page = matching[start : start + self.page_size]
             if prefix.endswith("/"):
+                if (
+                    self.fail_after_pages is not None
+                    and len(self.pages_served) >= self.fail_after_pages
+                ):
+                    raise RuntimeError("provider down mid-walk")
                 self.pages_served.append(len(page))
             yield page
 
@@ -346,7 +354,35 @@ class TestReconciliationDecision:
         assert storage.deleted == [key]
         assert outcome.orphans_deleted == 1
         assert outcome.delete_failures == 0
-        counter.inc.assert_called_once_with(1)
+        # Once per completed delete, not once per pass: a pass that fails
+        # after partial progress must not take the count with it, since the
+        # objects are already gone and nothing can recover it (review r5).
+        counter.inc.assert_called_once_with()
+
+    async def test_deletes_already_done_are_counted_when_the_pass_then_fails(
+        self, test_db_session: AsyncSession
+    ) -> None:
+        """fix(#1249 review r5, codex P2): the object is gone either way.
+
+        A pass that dies after partial progress used to discard its tally
+        before the end-of-pass increment ran, so the counter permanently
+        under-reported cleanup that really happened — nothing later can
+        recover a count for an object that no longer exists.
+        """
+        orphans = {
+            f"staging/{uuid.uuid4()}/f{index}.geojson": _old() for index in range(3)
+        }
+        storage = FakeStorage(orphans, page_size=1)
+        storage.fail_after_pages = 1
+
+        with patch(
+            "app.platform.jobs.staging_reconcile.staging_orphans_deleted_total"
+        ) as counter:
+            outcome = await _run(test_db_session, storage)
+
+        assert outcome.ran is False, "precondition: the pass failed"
+        assert len(storage.deleted) == 1, "precondition: one delete got through"
+        assert counter.inc.call_count == 1
 
     async def test_a_row_that_appears_before_the_delete_saves_the_object(
         self, test_db_session: AsyncSession
@@ -726,6 +762,62 @@ class TestProviderIterObjectPages:
             "staging/a/one.txt",
             "staging/a/one.txt.part",
         }
+
+    async def test_local_orders_a_dir_and_file_sharing_a_stem_by_full_key(
+        self, tmp_path
+    ) -> None:
+        """Plain per-name ordering disagrees with full-key ordering here.
+
+        ``/`` is 0x2F and ``.`` is 0x2E, so ``frozen.txt`` sorts BEFORE
+        ``frozen/x.txt`` even though the bare names sort the other way — and
+        `frozen/` is a real segment of every presigned staging layout, next to
+        a filename the uploader chose. Getting this backwards would make
+        `start_after` skip or repeat entries on a resumed walk.
+        """
+        from app.platform.storage.local import LocalStorageProvider
+
+        storage = LocalStorageProvider(str(tmp_path))
+        await storage.put("staging/a/frozen.txt", b"1")
+        await storage.put("staging/a/frozen/x.txt", b"2")
+
+        keys = [e.key for e in await _all_entries(storage, "staging/")]
+
+        assert keys == ["staging/a/frozen.txt", "staging/a/frozen/x.txt"]
+        assert keys == sorted(keys), "the walk must be in full-key order"
+
+    async def test_local_does_not_walk_past_the_page_the_consumer_took(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """fix(#1249 review r5): the walk itself is lazy, not just its slicing.
+
+        Counted in ``scandir`` calls rather than results, because a walk that
+        materializes everything and then hands back one page returns the same
+        results while costing the whole tree.
+        """
+        import app.platform.storage.local as local_module
+        from app.platform.storage.local import LocalStorageProvider
+
+        storage = LocalStorageProvider(str(tmp_path))
+        for name in ("a", "b", "c"):
+            await storage.put(f"staging/{name}/f.txt", b"x")
+        monkeypatch.setattr(local_module, "_OBJECT_PAGE_SIZE", 1)
+
+        scans: list[str] = []
+        real_scandir = local_module.os.scandir
+
+        def _counting_scandir(path):
+            scans.append(str(path))
+            return real_scandir(path)
+
+        monkeypatch.setattr(local_module.os, "scandir", _counting_scandir)
+
+        async for page in storage.iter_object_pages("staging/"):
+            assert [e.key for e in page] == ["staging/a/f.txt"]
+            break
+
+        # staging/ plus staging/a/ only. An eager walk would have entered b/
+        # and c/ as well before returning anything.
+        assert len(scans) == 2, scans
 
     async def test_s3_pages_and_stops_when_the_consumer_does(self) -> None:
         """Real ListObjectsV2 continuation, and a consumer that breaks early.

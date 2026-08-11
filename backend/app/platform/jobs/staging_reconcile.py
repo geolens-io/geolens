@@ -460,11 +460,6 @@ async def _reconcile_locked(
     else:
         _scan_cursors[physical_prefix] = None
 
-    if tally.orphans_deleted:
-        # After the deletes returned, never before: the counter records
-        # completed deletions, not intentions.
-        staging_orphans_deleted_total.inc(tally.orphans_deleted)
-
     return tally.freeze()
 
 
@@ -569,6 +564,15 @@ async def _delete_page_orphans(
             )
             continue
         tally.orphans_deleted += 1
+        # Published here rather than once at the end of the pass (fix(#1249)
+        # review r5, codex P2). The object is already gone, so a later page
+        # listing or database error that ends the pass must not take this
+        # number with it — nothing can recover the count afterwards, and a
+        # counter that silently under-reports completed cleanup is worse than
+        # one incremented a few statements earlier. The durability rule is
+        # unchanged: this runs strictly after the provider's delete returned,
+        # so it still counts completions rather than intentions.
+        staging_orphans_deleted_total.inc()
         log.warning(
             "Deleted orphaned staging object no ingest job row references",
             storage_key=physical_key,
