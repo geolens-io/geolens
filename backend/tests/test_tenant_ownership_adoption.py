@@ -1111,31 +1111,49 @@ class TestAdoptionWithRestoredBoundaryFunctions:
                     await conn.execute(sa.text(RELEASE_BOOTSTRAP_MEMBERSHIP_SQL))
                     assert [admin for _grantor, admin in await edges()] == [True]
 
-                    # The four gateways get the same automatic creator edge and
-                    # nothing in the tool reads it, so all four go.
+                    # The four gateways get the same automatic creator edge —
+                    # ADMIN, no INHERIT, no SET — and nothing in the tool reads
+                    # it, so all four go.
                     gateways = [CONTROL, WRITER_GATEWAY, SANDBOX, TILE]
+
+                    async def gateway_edges() -> int:
+                        return (
+                            await conn.execute(
+                                sa.text(
+                                    "SELECT count(*) FROM pg_auth_members "
+                                    "AS membership "
+                                    "JOIN pg_roles AS granted "
+                                    "  ON granted.oid = membership.roleid "
+                                    "JOIN pg_roles AS member "
+                                    "  ON member.oid = membership.member "
+                                    "WHERE granted.rolname = ANY(:gateways) "
+                                    "AND member.rolname = current_user"
+                                ),
+                                {"gateways": gateways},
+                            )
+                        ).scalar_one()
+
                     for gateway in gateways:
                         await conn.execute(
                             sa.text(
-                                f"GRANT {gateway} TO current_user WITH ADMIN OPTION"
+                                f"GRANT {gateway} TO current_user "
+                                "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
                             )
                         )
+                    assert await gateway_edges() == 4
                     await conn.execute(sa.text(RELEASE_BOOTSTRAP_MEMBERSHIP_SQL))
-                    remaining = (
-                        await conn.execute(
-                            sa.text(
-                                "SELECT count(*) FROM pg_auth_members AS membership "
-                                "JOIN pg_roles AS granted "
-                                "  ON granted.oid = membership.roleid "
-                                "JOIN pg_roles AS member "
-                                "  ON member.oid = membership.member "
-                                "WHERE granted.rolname = ANY(:gateways) "
-                                "AND member.rolname = current_user"
-                            ),
-                            {"gateways": gateways},
+                    assert await gateway_edges() == 0
+
+                    # A usable edge is somebody's decision, not this run's
+                    # leftover, and survives.
+                    await conn.execute(
+                        sa.text(
+                            f"GRANT {CONTROL} TO current_user "
+                            "WITH ADMIN TRUE, INHERIT TRUE, SET TRUE"
                         )
-                    ).scalar_one()
-                    assert remaining == 0
+                    )
+                    await conn.execute(sa.text(RELEASE_BOOTSTRAP_MEMBERSHIP_SQL))
+                    assert await gateway_edges() == 1
                 finally:
                     await transaction.rollback()
         finally:
@@ -1197,6 +1215,35 @@ class TestAdoptionWithRestoredBoundaryFunctions:
                     )
                     with pytest.raises(RuntimeError, match="not plpgsql"):
                         await secure_boundary_functions(conn)
+                finally:
+                    await transaction.rollback()
+        finally:
+            await engine.dispose()
+
+    async def test_a_direct_execute_grant_outside_the_pair_is_revoked(self):
+        """REVOKE … FROM PUBLIC does not touch a grant to a named role."""
+        stray = f"w998_stray_{uuid.uuid4().hex[:12]}"
+        engine = _make_engine()
+        try:
+            async with engine.connect() as conn:
+                transaction = await conn.begin()
+                try:
+                    await conn.execute(sa.text(f"CREATE ROLE {stray} NOLOGIN"))
+                    for name in BOUNDARY_FUNCTIONS:
+                        await conn.execute(
+                            sa.text(
+                                f"GRANT EXECUTE ON FUNCTION catalog.{name}(uuid) "
+                                f"TO {stray}"
+                            )
+                        )
+
+                    before = await boundary_function_states(conn)
+                    assert all(state.unexpected_grantees == 1 for state in before)
+                    assert not any(state.secured for state in before)
+
+                    repaired = await secure_boundary_functions(conn)
+                    assert all(state.unexpected_grantees == 0 for state in repaired)
+                    assert all(state.secured for state in repaired)
                 finally:
                     await transaction.rollback()
         finally:
@@ -1547,6 +1594,7 @@ def _secured_function(name: str) -> BoundaryFunctionState:
         body_markers_present=True,
         public_execute=False,
         control_execute=True,
+        unexpected_grantees=0,
     )
 
 

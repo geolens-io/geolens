@@ -569,7 +569,22 @@ docker compose exec -T db pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
   --clean --if-exists --no-owner --no-acl < ./restore/geolens_<timestamp>.dump
 ```
 
-**2b. Adopt the restored tenant objects.**
+**2b. Bring the restored schema to head.**
+
+A dump older than the running release restores an older schema, and adoption
+works only at head — it refuses on a boundary function that a later migration
+installed. `--no-deps` is what stops the `migrate` one-shot and the API
+entrypoint from doing this for you, so do it here, with the same override:
+
+```bash
+docker compose run --rm --no-deps -e DATABASE_URL_OVERRIDE="<migrator-url>" \
+  migrate sh -c "uv run --no-dev alembic upgrade heads"
+```
+
+Skip it only if the dump came from the running release. Running it anyway is a
+no-op on a database already at head.
+
+**2c. Adopt the restored tenant objects.**
 
 Replaying globals restores role definitions only. The restored tables, views,
 and sequences are all owned by whoever ran `pg_restore`, with no per-tenant

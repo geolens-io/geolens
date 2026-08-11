@@ -398,6 +398,7 @@ SECURE_BOUNDARY_FUNCTIONS_SQL = f"""
 DO $$
 DECLARE
     routine_name text;
+    grantee_name text;
     temporary_schema_create boolean := false;
     repair_pending boolean;
 BEGIN
@@ -417,6 +418,13 @@ BEGIN
               OR pg_catalog.has_function_privilege('public', routine.oid, 'EXECUTE')
               OR NOT pg_catalog.has_function_privilege(
                   '{CONTROL}', routine.oid, 'EXECUTE'
+              )
+              OR EXISTS (
+                  SELECT 1
+                  FROM LATERAL pg_catalog.aclexplode(routine.proacl) AS acl
+                  JOIN pg_catalog.pg_roles AS grantee_role
+                    ON grantee_role.oid = acl.grantee
+                  WHERE grantee_role.rolname NOT IN ('{PROVISIONER}', '{CONTROL}')
               )
           )
     ) INTO repair_pending;
@@ -452,6 +460,30 @@ BEGIN
         EXECUTE pg_catalog.format(
             'GRANT EXECUTE ON FUNCTION catalog.%I(uuid) TO {CONTROL}', routine_name
         );
+
+        -- REVOKE … FROM PUBLIC does not touch a direct grant to a named role,
+        -- and a restore or an old deployment can leave one. Anything outside
+        -- the canonical pair can call provisioner-owned tenant management.
+        FOR grantee_name IN
+            SELECT DISTINCT grantee_role.rolname
+            FROM pg_catalog.pg_proc AS routine
+            JOIN pg_catalog.pg_namespace AS namespace
+              ON namespace.oid = routine.pronamespace
+            JOIN LATERAL pg_catalog.aclexplode(routine.proacl) AS acl ON true
+            JOIN pg_catalog.pg_roles AS grantee_role
+              ON grantee_role.oid = acl.grantee
+            WHERE namespace.nspname = 'catalog'
+              AND routine.proname = routine_name
+              AND routine.pronargs = 1
+              AND routine.proargtypes[0] = 'uuid'::regtype
+              AND grantee_role.rolname NOT IN ('{PROVISIONER}', '{CONTROL}')
+        LOOP
+            EXECUTE pg_catalog.format(
+                'REVOKE ALL ON FUNCTION catalog.%I(uuid) FROM %I',
+                routine_name,
+                grantee_name
+            );
+        END LOOP;
     END LOOP;
 
     IF temporary_schema_create THEN
@@ -505,24 +537,33 @@ BEGIN
     -- in this tool ever needs it: the provisioning function grants tenant roles
     -- TO the gateways using ADMIN on the *tenant* role, not on the gateway.
     -- Left behind, each one is a landmine for the next recovery.
-    FOREACH group_name IN ARRAY ARRAY[
-        '{CONTROL}', '{WRITER}', '{SANDBOX}', '{TILE}'
-    ] LOOP
-        IF EXISTS (
-            SELECT 1
-            FROM pg_catalog.pg_auth_members AS membership
-            JOIN pg_catalog.pg_roles AS granted_role
-              ON granted_role.oid = membership.roleid
-            JOIN pg_catalog.pg_roles AS member_role
-              ON member_role.oid = membership.member
-            WHERE granted_role.rolname = group_name
-              AND member_role.rolname = CURRENT_USER
-        ) THEN
-            EXECUTE pg_catalog.format(
-                'REVOKE %I FROM %I', group_name, CURRENT_USER
-            );
-        END IF;
-    END LOOP;
+    --
+    -- Only edges with the automatic creator's exact shape — ADMIN, and neither
+    -- INHERIT nor SET — and only on 16+, which is the only place that shape is
+    -- created. Before 16 there is no automatic membership at all, so any edge
+    -- there is somebody's decision and stays. An operator who wants the
+    -- migrator to *use* a gateway grants it usably, which this leaves alone.
+    IF pg_catalog.current_setting('server_version_num')::integer >= 160000 THEN
+        FOREACH group_name IN ARRAY ARRAY[
+            '{CONTROL}', '{WRITER}', '{SANDBOX}', '{TILE}'
+        ] LOOP
+            IF EXISTS (
+                SELECT 1
+                FROM pg_catalog.pg_auth_members AS membership
+                JOIN pg_catalog.pg_roles AS granted_role
+                  ON granted_role.oid = membership.roleid
+                JOIN pg_catalog.pg_roles AS member_role
+                  ON member_role.oid = membership.member
+                WHERE granted_role.rolname = group_name
+                  AND member_role.rolname = CURRENT_USER
+                  AND {_MEMBERSHIP_ADMIN_ONLY}
+            ) THEN
+                EXECUTE pg_catalog.format(
+                    'REVOKE %I FROM %I', group_name, CURRENT_USER
+                );
+            END IF;
+        END LOOP;
+    END IF;
 END
 $$
 """

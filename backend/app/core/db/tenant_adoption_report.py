@@ -73,6 +73,7 @@ class BoundaryFunctionState:
     body_markers_present: bool
     public_execute: bool
     control_execute: bool
+    unexpected_grantees: int
 
     @property
     def migration_shaped(self) -> bool:
@@ -108,6 +109,7 @@ class BoundaryFunctionState:
             and self.migration_shaped
             and not self.public_execute
             and self.control_execute
+            and self.unexpected_grantees == 0
         )
 
 
@@ -355,6 +357,11 @@ def _format_functions(report: AdoptionReport) -> list[str]:
             flags.append("EXECUTE granted to PUBLIC")
         if not function.control_execute:
             flags.append(f"no EXECUTE for {CONTROL}")
+        if function.unexpected_grantees:
+            flags.append(
+                f"{function.unexpected_grantees} role(s) outside "
+                f"{PROVISIONER}/{CONTROL} hold EXECUTE"
+            )
         verdict = "secured" if function.secured else "NEEDS REPAIR"
         lines.append(f"  catalog.{function.name}(uuid): {verdict} — {', '.join(flags)}")
     for name in report.missing_functions:

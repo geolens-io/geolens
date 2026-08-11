@@ -223,6 +223,16 @@ async def boundary_function_states(conn) -> list[BoundaryFunctionState]:
                    pg_catalog.has_function_privilege(
                        'public', routine.oid, 'EXECUTE'
                    ) AS public_execute,
+                   -- A direct EXECUTE to a named role survives REVOKE … FROM
+                   -- PUBLIC, and lets that role call provisioner-owned tenant
+                   -- management.
+                   (
+                       SELECT count(DISTINCT grantee_role.rolname)
+                       FROM LATERAL pg_catalog.aclexplode(routine.proacl) AS acl
+                       JOIN pg_catalog.pg_roles AS grantee_role
+                         ON grantee_role.oid = acl.grantee
+                       WHERE grantee_role.rolname NOT IN (:provisioner, :control)
+                   ) AS unexpected_grantees,
                    CASE
                        WHEN EXISTS (
                            SELECT 1 FROM pg_catalog.pg_roles
@@ -245,7 +255,11 @@ async def boundary_function_states(conn) -> list[BoundaryFunctionState]:
             ORDER BY routine.proname
             """
         ),
-        {"control": CONTROL, "names": list(BOUNDARY_FUNCTIONS)},
+        {
+            "control": CONTROL,
+            "provisioner": PROVISIONER,
+            "names": list(BOUNDARY_FUNCTIONS),
+        },
     )
     return [BoundaryFunctionState(**dict(row._mapping)) for row in result]
 
