@@ -321,6 +321,56 @@ async def test_subquery_hidden_self_join_is_rejected(
     assert resp.json()["detail"] == _REPETITION_MESSAGE
 
 
+async def test_join_on_subquery_self_join_is_rejected(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P1 r5): a correlated subquery in JOIN ... ON runs per
+    row like a WHERE, so its self-join work must be costed — a join's ON side
+    is not a row source."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = await _make_table(test_db_session, owner)
+
+    resp = await client.post(
+        "/query/",
+        json={
+            "sql": (
+                f"SELECT a.gid FROM data.{tbl} a JOIN data.{tbl} b ON a.gid = "
+                f"(SELECT count(*) FROM data.{tbl} c "
+                f"CROSS JOIN data.{tbl} d CROSS JOIN data.{tbl} e)"
+            ),
+            "restrict_tables": [tbl],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == _REPETITION_MESSAGE
+
+
+async def test_union_with_cte_resolves(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P2 r5): a WITH on a set operation attaches to the UNION,
+    not its branch SELECTs. Resolving CTE references must inspect set-op scopes
+    or a valid UNION over a CTE 404s."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = await _make_table(test_db_session, owner)
+
+    resp = await client.post(
+        "/query/",
+        json={
+            "sql": (
+                f"WITH a AS (SELECT gid FROM data.{tbl}) "
+                "SELECT gid FROM a UNION ALL SELECT gid FROM a"
+            ),
+            "restrict_tables": [tbl],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+
 async def test_scalar_subquery_on_another_table_is_allowed(
     client: AsyncClient, admin_auth_header, test_db_session
 ):

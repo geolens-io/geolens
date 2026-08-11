@@ -996,15 +996,20 @@ def _resolve_cte(table: exp.Table) -> exp.CTE | None:
                 for c in reversed(ctes[:idx]):
                     if c.alias == name:
                         return c
-        elif isinstance(node, exp.Select):
-            # The WITH is a child of its owner SELECT under a sqlglot arg key
+        elif isinstance(node, _SCOPE_TYPES):
+            # The WITH is a child of its owner scope under a sqlglot arg key
             # that has drifted across releases ("with" -> "with_"), so find it
             # by type rather than by key (same reason _own_sources iterates).
+            # The owner is a SELECT *or* a set operation: fix(#565 codex P2 r5)
+            # — `WITH a AS (...) SELECT FROM a UNION ALL SELECT FROM a` attaches
+            # the WITH to the exp.Union, not its branch SELECTs, so a
+            # Select-only check left both `a` references unresolved and 404'd a
+            # valid UNION.
             with_clause = next(
                 (c for c in node.iter_expressions() if isinstance(c, exp.With)),
                 None,
             )
-            # An owner query body (we did NOT ascend from this SELECT's own WITH
+            # An owner query body (we did NOT ascend from this scope's own WITH
             # node — that path is handled above) sees every CTE it declares.
             if with_clause is not None and child is not with_clause:
                 for c in with_clause.expressions:
@@ -1099,23 +1104,38 @@ def _correlated_scopes(select: exp.Select) -> list[exp.Expression]:
     the outermost such scopes directly under ``select``; its FROM/JOIN sources
     (folded into ``_rows_fanout``) and its WITH bodies (costed where referenced)
     are excluded, and deeper nesting is reached by recursion on each scope.
+
+    A JOIN contributes BOTH a source (``join.this``) and an ``ON`` predicate,
+    so it cannot be skipped wholesale: fix(#565 codex P1 r5) — a correlated
+    subquery in ``JOIN ... ON`` runs per row like a WHERE and must be costed,
+    while a derived table in the join's source position is a row source. The
+    walk distinguishes them by which side of the join it ascended from.
     """
     scopes: list[exp.Expression] = []
     for node in select.find_all(*_SCOPE_TYPES):
         if node is select:
             continue
+        prev: exp.Expression = node
         ancestor = node.parent
-        nearest_scope: exp.Expression | None = None
-        via_source = False
-        while ancestor is not None and ancestor is not select:
-            if isinstance(ancestor, (exp.From, exp.Join, exp.With, exp.CTE)):
-                via_source = True
+        include = False
+        while ancestor is not None:
+            if ancestor is select:
+                include = True
                 break
-            if isinstance(ancestor, _SCOPE_TYPES):
-                nearest_scope = ancestor
+            if isinstance(ancestor, exp.From):
                 break
+            if isinstance(ancestor, exp.Join):
+                # In the join's SOURCE -> a row source (costed by _rows_fanout).
+                # In its ON/USING predicate -> keep ascending toward `select`.
+                if prev is ancestor.this:
+                    break
+            elif isinstance(ancestor, (exp.With, exp.CTE, *_SCOPE_TYPES)):
+                # A CTE body, or nested inside another subquery scope: not this
+                # SELECT's own per-row predicate.
+                break
+            prev = ancestor
             ancestor = ancestor.parent
-        if not via_source and nearest_scope is None:
+        if include:
             scopes.append(node)
     return scopes
 

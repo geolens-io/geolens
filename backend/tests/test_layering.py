@@ -2803,9 +2803,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # rows/work graph walk that catches a CTE chain multiplying one base table
     # to N^8 while every per-name count stays at 2 — and the per-row correlated
     # subquery term (P1 r4, _correlated_scopes/_work_fanout) that costs a
-    # self-join hidden in a scalar/EXISTS/WHERE subquery. Most of the added
-    # lines are that rationale. Cap set at the exact size.
-    "backend/app/platform/sandbox/validator.py": 1227,
+    # self-join hidden in a scalar/EXISTS/WHERE subquery. P1 r5 extended the
+    # per-row term to JOIN ... ON predicates (a join's ON is not a source), and
+    # P2 r5 taught _resolve_cte that a WITH can be owned by a set operation, not
+    # only a SELECT. Most of the added lines are that rationale. Cap at the
+    # exact size.
+    "backend/app/platform/sandbox/validator.py": 1247,
 }
 
 
