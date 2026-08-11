@@ -302,6 +302,92 @@ END
 $$
 """
 
+#: Re-own and re-restrict the two migration-owned SECURITY DEFINER functions
+#: after a ``pg_restore --no-owner --no-acl``.  Bodies are never touched.
+#:
+#: ``ALTER FUNCTION … OWNER TO`` wants two things PostgreSQL does not spell out
+#: in the error message: the incoming owner must hold ``CREATE`` on the
+#: containing schema, and the caller must hold the *privileges* of that owner,
+#: not merely ``ADMIN`` on it.  A superuser migrator has both implicitly.  The
+#: migrator this module documents — ``CREATEROLE`` plus authority over the
+#: restored objects, which is what a managed provider hands out — has neither by
+#: default, and would otherwise stop here with the restored functions still
+#: owned by the restore login and still executable by ``PUBLIC``.
+#:
+#: The schema privilege is borrowed for the repair and given back before commit,
+#: the same shape the per-tenant writer edge uses below; a database already in
+#: the right state borrows nothing.  The role edge is *not* borrowed: rewriting
+#: the operator's own membership in the provisioner would mean guessing what to
+#: restore it to, so a caller without those privileges gets the exact ``GRANT``
+#: to run instead.
+
+SECURE_BOUNDARY_FUNCTIONS_SQL = f"""
+DO $$
+DECLARE
+    routine_name text;
+    temporary_schema_create boolean := false;
+    repair_pending boolean;
+BEGIN
+    SELECT EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_proc AS routine
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = routine.pronamespace
+        WHERE namespace.nspname = 'catalog'
+          AND routine.proname IN (
+              'provision_tenant_data_schema', 'deprovision_tenant_data_schema'
+          )
+          AND routine.pronargs = 1
+          AND routine.proargtypes[0] = 'uuid'::regtype
+          AND (
+              pg_catalog.pg_get_userbyid(routine.proowner) <> '{PROVISIONER}'
+              OR pg_catalog.has_function_privilege('public', routine.oid, 'EXECUTE')
+              OR NOT pg_catalog.has_function_privilege(
+                  '{CONTROL}', routine.oid, 'EXECUTE'
+              )
+          )
+    ) INTO repair_pending;
+
+    IF NOT repair_pending THEN
+        RETURN;
+    END IF;
+
+    IF NOT pg_catalog.pg_has_role(CURRENT_USER, '{PROVISIONER}', 'USAGE') THEN
+        RAISE EXCEPTION
+            'current role % does not hold the privileges of {PROVISIONER}, '
+            'which PostgreSQL requires to give it ownership of the tenant '
+            'boundary functions', CURRENT_USER
+            USING HINT =
+                'run GRANT {PROVISIONER} TO "' || CURRENT_USER ||
+                '" WITH INHERIT TRUE, or adopt with a superuser migrator';
+    END IF;
+
+    IF NOT pg_catalog.has_schema_privilege('{PROVISIONER}', 'catalog', 'CREATE') THEN
+        temporary_schema_create := true;
+        GRANT CREATE ON SCHEMA catalog TO {PROVISIONER};
+    END IF;
+
+    FOREACH routine_name IN ARRAY ARRAY[
+        'provision_tenant_data_schema', 'deprovision_tenant_data_schema'
+    ] LOOP
+        EXECUTE pg_catalog.format(
+            'ALTER FUNCTION catalog.%I(uuid) OWNER TO {PROVISIONER}', routine_name
+        );
+        EXECUTE pg_catalog.format(
+            'REVOKE ALL ON FUNCTION catalog.%I(uuid) FROM PUBLIC', routine_name
+        );
+        EXECUTE pg_catalog.format(
+            'GRANT EXECUTE ON FUNCTION catalog.%I(uuid) TO {CONTROL}', routine_name
+        );
+    END LOOP;
+
+    IF temporary_schema_create THEN
+        REVOKE CREATE ON SCHEMA catalog FROM {PROVISIONER};
+    END IF;
+END
+$$
+"""
+
 PROVISIONER_DATABASE_GRANT_SQL = f"""
 DO $$
 BEGIN

@@ -32,6 +32,7 @@ from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -43,14 +44,15 @@ from app.core.db.tenant_adoption import (
     AdoptionReport,
     BoundaryFunctionState,
     BoundaryTableState,
+    TenantOwnershipState,
     boundary_drift,
     boundary_function_states,
     cluster_topology_error,
     format_report,
     live_tenant_boundary,
     missing_provisioner_grants,
-    TenantOwnershipState,
     run_adoption,
+    secure_boundary_functions,
     tenant_ownership_state,
 )
 
@@ -679,6 +681,115 @@ class TestAdoptionWithRestoredBoundaryFunctions:
         finally:
             await _restore_boundary_functions(engine)
             await _drop_tenant(engine, tenant_id)
+            await engine.dispose()
+
+    async def test_a_non_superuser_migrator_can_transfer_ownership(self):
+        """The documented CREATEROLE migrator, not just a bundled superuser.
+
+        `ALTER FUNCTION ... OWNER TO` needs the incoming owner to hold CREATE on
+        the containing schema, which the provisioner deliberately does not have.
+        A superuser is exempt from neither requirement but satisfies both by
+        fiat, so this path only shows up on a managed provider.
+
+        Everything here runs in one transaction that is rolled back: the role
+        and its membership in the provisioner are cluster objects that every
+        other xdist worker's database shares, and an uncommitted grant is
+        invisible to them.
+        """
+        migrator = f"w998_mig_{uuid.uuid4().hex[:12]}"
+        engine = _make_engine()
+        try:
+            async with engine.connect() as conn:
+                transaction = await conn.begin()
+                try:
+                    await conn.execute(
+                        sa.text(f"CREATE ROLE {migrator} NOSUPERUSER CREATEROLE")
+                    )
+                    await conn.execute(
+                        sa.text(
+                            f"GRANT CREATE, USAGE ON SCHEMA catalog TO {migrator} "
+                            "WITH GRANT OPTION"
+                        )
+                    )
+                    await conn.execute(
+                        sa.text(f"GRANT {PROVISIONER} TO {migrator} WITH INHERIT TRUE")
+                    )
+                    # What pg_restore --no-owner leaves behind.
+                    for name in BOUNDARY_FUNCTIONS:
+                        await conn.execute(
+                            sa.text(
+                                f"ALTER FUNCTION catalog.{name}(uuid) "
+                                f"OWNER TO {migrator}"
+                            )
+                        )
+                        await conn.execute(
+                            sa.text(
+                                f"GRANT EXECUTE ON FUNCTION catalog.{name}(uuid) "
+                                "TO PUBLIC"
+                            )
+                        )
+
+                    await conn.execute(sa.text(f"SET LOCAL ROLE {migrator}"))
+                    assert not (
+                        await conn.execute(
+                            sa.text(
+                                "SELECT has_schema_privilege("
+                                ":provisioner, 'catalog', 'CREATE')"
+                            ),
+                            {"provisioner": PROVISIONER},
+                        )
+                    ).scalar_one()
+
+                    repaired = await secure_boundary_functions(conn)
+                    assert all(state.secured for state in repaired), repaired
+
+                    # The borrowed schema privilege is given back, not kept.
+                    assert not (
+                        await conn.execute(
+                            sa.text(
+                                "SELECT has_schema_privilege("
+                                ":provisioner, 'catalog', 'CREATE')"
+                            ),
+                            {"provisioner": PROVISIONER},
+                        )
+                    ).scalar_one()
+                finally:
+                    await transaction.rollback()
+        finally:
+            await engine.dispose()
+
+    async def test_a_migrator_without_provisioner_privileges_is_told_what_to_run(self):
+        migrator = f"w998_mig_{uuid.uuid4().hex[:12]}"
+        engine = _make_engine()
+        try:
+            async with engine.connect() as conn:
+                transaction = await conn.begin()
+                try:
+                    await conn.execute(
+                        sa.text(f"CREATE ROLE {migrator} NOSUPERUSER CREATEROLE")
+                    )
+                    await conn.execute(
+                        sa.text(
+                            f"GRANT CREATE, USAGE ON SCHEMA catalog TO {migrator} "
+                            "WITH GRANT OPTION"
+                        )
+                    )
+                    for name in BOUNDARY_FUNCTIONS:
+                        await conn.execute(
+                            sa.text(
+                                f"ALTER FUNCTION catalog.{name}(uuid) "
+                                f"OWNER TO {migrator}"
+                            )
+                        )
+                    await conn.execute(sa.text(f"SET LOCAL ROLE {migrator}"))
+
+                    with pytest.raises(
+                        DBAPIError, match="does not hold the privileges"
+                    ):
+                        await secure_boundary_functions(conn)
+                finally:
+                    await transaction.rollback()
+        finally:
             await engine.dispose()
 
     async def test_missing_function_refuses_instead_of_installing_one(self):

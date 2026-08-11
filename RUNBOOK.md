@@ -582,7 +582,11 @@ runtime credential rather than your override. The `migrate` service has
 ask and nothing else. The migrator credential is required: the least-privilege
 runtime login in `.env` is deliberately not allowed to do any of this.
 Managed/external Postgres uses the same command with `DATABASE_URL_OVERRIDE`
-pointed at the provider.
+pointed at the provider. A non-superuser migrator there needs `CREATEROLE`,
+ownership of the restored objects, and the privileges of
+`geolens_tenant_provisioner`, because PostgreSQL will not hand that role
+ownership of the boundary functions otherwise; the command prints the exact
+`GRANT` if it is missing.
 
 Drop `--apply` for a read-only report of what it would change. That form exits
 non-zero while anything is still pending, so it also works as a post-restore

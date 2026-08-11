@@ -31,8 +31,9 @@ second run over an adopted tenant issues no DDL at all, and a run interrupted
 partway is resumed by running it again — every tenant is adopted in its own
 transaction, so completed tenants stay completed.
 
-Run it with the migrator credential (``CREATEROLE``, plus authority over the
-restored objects), against a database already at head::
+Run it with the migrator credential — ``CREATEROLE``, authority over the
+restored objects, and, on a non-superuser migrator, the privileges of
+``geolens_tenant_provisioner`` — against a database already at head::
 
     docker compose run --rm --no-deps -e DATABASE_URL_OVERRIDE="<migrator-url>" \\
       migrate sh -c "uv run --no-dev python -m app.core.db.tenant_adoption --apply"
@@ -59,6 +60,7 @@ from app.core.db.tenant_adoption_sql import (
     PROVISIONER,
     PROVISIONER_DATABASE_GRANT_SQL,
     SANDBOX,
+    SECURE_BOUNDARY_FUNCTIONS_SQL,
     TENANT_GUC,
     TILE,
     WRITER,
@@ -608,11 +610,7 @@ async def secure_boundary_functions(conn) -> list[BoundaryFunctionState]:
                 "refusing to adopt it."
             )
 
-    for name in BOUNDARY_FUNCTIONS:
-        signature = f"catalog.{name}(uuid)"
-        await conn.execute(text(f"ALTER FUNCTION {signature} OWNER TO {PROVISIONER}"))
-        await conn.execute(text(f"REVOKE ALL ON FUNCTION {signature} FROM PUBLIC"))
-        await conn.execute(text(f"GRANT EXECUTE ON FUNCTION {signature} TO {CONTROL}"))
+    await conn.execute(text(SECURE_BOUNDARY_FUNCTIONS_SQL))
     return await boundary_function_states(conn)
 
 
