@@ -149,7 +149,7 @@ class TenantOwnershipState:
     relations_not_owned_by_writer: int
     relations_without_reader_select: int
     relations_with_unsafe_acl: int
-    reader_default_acls: int
+    unexpected_default_acls: int
     reader_role_secure: bool
     writer_role_secure: bool
     schema_privileges_secure: bool
@@ -171,7 +171,7 @@ class TenantOwnershipState:
             and self.relations_not_owned_by_writer == 0
             and self.relations_without_reader_select == 0
             and self.relations_with_unsafe_acl == 0
-            and self.reader_default_acls == 0
+            and self.unexpected_default_acls == 0
             and self.reader_role_secure
             and self.writer_role_secure
             and self.schema_privileges_secure
@@ -451,10 +451,10 @@ def _format_tenants(report: AdoptionReport) -> list[str]:
             f"{after.relations_without_reader_select} without reader SELECT",
             f"{after.relations_with_unsafe_acl} with an ACL beyond reader SELECT",
         ]
-        if after.reader_default_acls:
+        if after.unexpected_default_acls:
             detail.append(
-                f"{after.reader_default_acls} legacy default-privilege "
-                "entr(ies) for the reader"
+                f"{after.unexpected_default_acls} default-privilege entr(ies) "
+                "in the schema"
             )
         if not after.reader_role_secure:
             detail.append(

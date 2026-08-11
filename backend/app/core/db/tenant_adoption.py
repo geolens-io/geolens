@@ -615,20 +615,18 @@ async def tenant_ownership_state(conn, tenant_id: str) -> TenantOwnershipState:
                 -- The pre-0019 runtime helper left an ALTER DEFAULT PRIVILEGES
                 -- entry behind; ADOPT_TENANT_SQL revokes it, so a tenant still
                 -- carrying one is not adopted however correct the rest looks.
-                CASE
-                    WHEN NOT EXISTS (SELECT 1 FROM reader) THEN 0
-                    ELSE (
-                        SELECT count(DISTINCT default_acl.oid)
-                        FROM pg_catalog.pg_default_acl AS default_acl
-                        JOIN LATERAL pg_catalog.aclexplode(default_acl.defaclacl)
-                          AS acl ON true
-                        JOIN pg_catalog.pg_namespace AS namespace
-                          ON namespace.oid = default_acl.defaclnamespace
-                        WHERE namespace.nspname = (SELECT schema_name FROM names)
-                          AND default_acl.defaclobjtype = 'r'
-                          AND acl.grantee = (SELECT oid FROM reader)
-                    )
-                END AS reader_default_acls,
+                -- Any of them, for any object kind and any grantee: the
+                -- contract in a tenant schema is that the writer grants the
+                -- reader explicitly on each relation, so a default ACL here
+                -- hands out privileges on relations that do not exist yet, to
+                -- whoever it names.
+                (
+                    SELECT count(*)
+                    FROM pg_catalog.pg_default_acl AS default_acl
+                    JOIN pg_catalog.pg_namespace AS namespace
+                      ON namespace.oid = default_acl.defaclnamespace
+                    WHERE namespace.nspname = (SELECT schema_name FROM names)
+                ) AS unexpected_default_acls,
                 """
             + _role_secure_sql("reader", (PROVISIONER, SANDBOX, TILE), (SANDBOX, TILE))
             + " AS reader_role_secure, "
@@ -644,11 +642,28 @@ async def tenant_ownership_state(conn, tenant_id: str) -> TenantOwnershipState:
                     -- One privilege per call: a comma-separated list is an
                     -- any-of test, so 'USAGE, CREATE' stays true on a writer
                     -- that has lost one of them.
-                    ELSE NOT pg_catalog.has_schema_privilege(
-                             'public', (SELECT schema_name FROM names), 'USAGE'
-                         )
-                     AND NOT pg_catalog.has_schema_privilege(
-                             'public', (SELECT schema_name FROM names), 'CREATE'
+                    ELSE NOT EXISTS (
+                             -- Nobody outside the three belongs on the schema.
+                             -- A stray USAGE plus a relation grant, or a stray
+                             -- CREATE, is a path around the writer boundary.
+                             SELECT 1
+                             FROM pg_catalog.pg_namespace AS namespace
+                             JOIN LATERAL pg_catalog.aclexplode(namespace.nspacl)
+                               AS acl ON true
+                             WHERE namespace.nspname = (
+                                 SELECT schema_name FROM names
+                             )
+                               AND acl.grantee NOT IN (
+                                   COALESCE((SELECT oid FROM reader), 0),
+                                   COALESCE((SELECT oid FROM writer), 0),
+                                   COALESCE(
+                                       (
+                                           SELECT oid FROM pg_catalog.pg_roles
+                                           WHERE rolname = :provisioner
+                                       ),
+                                       0
+                                   )
+                               )
                          )
                      AND pg_catalog.has_schema_privilege(
                              (SELECT oid FROM reader),
@@ -676,7 +691,7 @@ async def tenant_ownership_state(conn, tenant_id: str) -> TenantOwnershipState:
                 END AS schema_privileges_secure
             """
         ),
-        {"tenant_id": tenant_id},
+        {"tenant_id": tenant_id, "provisioner": PROVISIONER},
     )
     row = result.one()
     return TenantOwnershipState(tenant_id=tenant_id, **dict(row._mapping))

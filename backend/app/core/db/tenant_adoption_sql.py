@@ -665,23 +665,40 @@ BEGIN
         );
     END LOOP;
 
+    -- Every default-privilege entry in the schema, for any object kind and any
+    -- grantee — not just the reader's, which is only the shape the pre-0019
+    -- runtime helper happened to leave. The contract inside a tenant schema is
+    -- that the writer grants the reader explicitly on each relation, so an
+    -- entry here hands out privileges on relations that do not exist yet.
     FOR default_acl_row IN
-        SELECT DISTINCT owner_role.rolname AS owner_name
+        SELECT owner_role.rolname AS owner_name,
+               default_acl.defaclobjtype AS object_type,
+               CASE
+                   WHEN acl.grantee = 0 THEN 'PUBLIC'
+                   ELSE pg_catalog.quote_ident(grantee_role.rolname)
+               END AS grantee_name
         FROM pg_catalog.pg_default_acl AS default_acl
         JOIN pg_catalog.pg_roles AS owner_role
           ON owner_role.oid = default_acl.defaclrole
         JOIN LATERAL pg_catalog.aclexplode(default_acl.defaclacl) AS acl ON true
-        JOIN pg_catalog.pg_roles AS grantee_role ON grantee_role.oid = acl.grantee
+        LEFT JOIN pg_catalog.pg_roles AS grantee_role
+          ON grantee_role.oid = acl.grantee
         JOIN pg_catalog.pg_namespace AS namespace
           ON namespace.oid = default_acl.defaclnamespace
         WHERE namespace.nspname = schema_name
-          AND default_acl.defaclobjtype = 'r'
-          AND grantee_role.rolname = reader_name
     LOOP
         EXECUTE pg_catalog.format(
-            'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I '
-            'REVOKE ALL ON TABLES FROM %I',
-            default_acl_row.owner_name, schema_name, reader_name
+            'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I REVOKE ALL ON %s FROM %s',
+            default_acl_row.owner_name,
+            schema_name,
+            CASE default_acl_row.object_type
+                WHEN 'r' THEN 'TABLES'
+                WHEN 'S' THEN 'SEQUENCES'
+                WHEN 'f' THEN 'FUNCTIONS'
+                WHEN 'T' THEN 'TYPES'
+                ELSE 'SCHEMAS'
+            END,
+            default_acl_row.grantee_name
         );
     END LOOP;
 
@@ -804,6 +821,30 @@ BEGIN
             'REVOKE CREATE ON SCHEMA %I FROM %I', schema_name, reader_name
         );
     END IF;
+
+    -- And anyone else the restore left on the schema. The provisioning function
+    -- revokes PUBLIC and grants the two tenant roles; a named grantee with
+    -- USAGE, or worse CREATE, is a path around the writer boundary that nothing
+    -- else here would take away.
+    FOR grantee_name IN
+        SELECT DISTINCT
+            CASE
+                WHEN acl.grantee = 0 THEN 'PUBLIC'
+                ELSE pg_catalog.quote_ident(grantee_role.rolname)
+            END
+        FROM pg_catalog.pg_namespace AS namespace
+        JOIN LATERAL pg_catalog.aclexplode(namespace.nspacl) AS acl ON true
+        LEFT JOIN pg_catalog.pg_roles AS grantee_role
+          ON grantee_role.oid = acl.grantee
+        WHERE namespace.nspname = schema_name
+          AND COALESCE(grantee_role.rolname, '') NOT IN (
+              '{PROVISIONER}', reader_name, writer_name
+          )
+    LOOP
+        EXECUTE pg_catalog.format(
+            'REVOKE ALL ON SCHEMA %I FROM %s', schema_name, grantee_name
+        );
+    END LOOP;
 
     SELECT pg_catalog.count(*) INTO pending_owner_transfer
     FROM pg_catalog.pg_class AS relation

@@ -781,6 +781,87 @@ class TestReportedStateMatchesWhatApplyEnforces:
             await _drop_tenant(engine, tenant_id)
             await engine.dispose()
 
+    async def test_a_stray_grantee_on_the_tenant_schema_is_revoked(
+        self, multi_tenant_row_security
+    ):
+        """USAGE on the schema is half of a path around the writer boundary."""
+        tenant_id, schema, _reader, _writer = _new_tenant()
+        stray = f"w998_nsp_{tenant_id.replace('-', '_')}"
+        engine = _make_engine()
+        try:
+            await _seed_restored_tenant(engine, tenant_id, schema)
+            assert (await run_adoption(engine, apply=True)).ok
+
+            async with engine.begin() as conn:
+                await conn.execute(sa.text(f"CREATE ROLE {stray} NOLOGIN"))
+                await conn.execute(
+                    sa.text(f"GRANT USAGE, CREATE ON SCHEMA {schema} TO {stray}")
+                )
+
+            async with engine.connect() as conn:
+                state = await tenant_ownership_state(conn, tenant_id)
+            assert not state.schema_privileges_secure
+            assert not state.adopted
+
+            repaired = await run_adoption(engine, apply=True)
+            assert repaired.failures == {}, repaired.failures
+            assert repaired.ok
+
+            async with engine.connect() as conn:
+                usage = (
+                    await conn.execute(
+                        sa.text("SELECT has_schema_privilege(:role, :schema, 'USAGE')"),
+                        {"role": stray, "schema": schema},
+                    )
+                ).scalar_one()
+            assert usage is False
+        finally:
+            async with engine.begin() as conn:
+                await conn.execute(sa.text(f"DROP OWNED BY {stray}"))
+                await conn.execute(sa.text(f"DROP ROLE IF EXISTS {stray}"))
+            await _drop_tenant(engine, tenant_id)
+            await engine.dispose()
+
+    async def test_default_privileges_for_any_grantee_are_cleared(
+        self, multi_tenant_row_security
+    ):
+        """A default ACL hands out privileges on relations that do not exist yet."""
+        tenant_id, schema, _reader, _writer = _new_tenant()
+        engine = _make_engine()
+        try:
+            await _seed_restored_tenant(engine, tenant_id, schema)
+            assert (await run_adoption(engine, apply=True)).ok
+
+            async with engine.begin() as conn:
+                await conn.execute(
+                    sa.text(
+                        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} "
+                        "GRANT SELECT ON TABLES TO PUBLIC"
+                    )
+                )
+                await conn.execute(
+                    sa.text(
+                        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} "
+                        "GRANT USAGE ON SEQUENCES TO PUBLIC"
+                    )
+                )
+
+            async with engine.connect() as conn:
+                state = await tenant_ownership_state(conn, tenant_id)
+            assert state.unexpected_default_acls == 2
+            assert not state.adopted
+
+            repaired = await run_adoption(engine, apply=True)
+            assert repaired.failures == {}, repaired.failures
+            assert repaired.ok
+            async with engine.connect() as conn:
+                assert (
+                    await tenant_ownership_state(conn, tenant_id)
+                ).unexpected_default_acls == 0
+        finally:
+            await _drop_tenant(engine, tenant_id)
+            await engine.dispose()
+
     async def test_a_stray_grantee_on_a_tenant_relation_is_revoked(
         self, multi_tenant_row_security
     ):
@@ -892,7 +973,7 @@ class TestReportedStateMatchesWhatApplyEnforces:
 
             async with engine.connect() as conn:
                 state = await tenant_ownership_state(conn, tenant_id)
-            assert state.reader_default_acls == 1
+            assert state.unexpected_default_acls == 1
             assert state.relations_not_owned_by_writer == 0
             assert not state.adopted
 
@@ -902,7 +983,7 @@ class TestReportedStateMatchesWhatApplyEnforces:
             async with engine.connect() as conn:
                 assert (
                     await tenant_ownership_state(conn, tenant_id)
-                ).reader_default_acls == 0
+                ).unexpected_default_acls == 0
         finally:
             await _drop_tenant(engine, tenant_id)
             await engine.dispose()
@@ -1782,7 +1863,7 @@ def _adopted_tenant_state() -> TenantOwnershipState:
         relations_not_owned_by_writer=0,
         relations_without_reader_select=0,
         relations_with_unsafe_acl=0,
-        reader_default_acls=0,
+        unexpected_default_acls=0,
         reader_role_secure=True,
         writer_role_secure=True,
         schema_privileges_secure=True,

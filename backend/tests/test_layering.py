@@ -1938,6 +1938,14 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 #     this module by the overlay's 1214-05 static AST proof, so the tile_seams.py split
 #     must update the overlay in lockstep.
 _MODULE_LOC_CAPS: dict[str, int] = {
+    # fix(#998): the DDL ported from migration 0019 so tenant-ownership adoption
+    # is reachable forward-only at head. Almost all of it is SQL text, and it is
+    # one artifact on purpose — the module is reviewed line-by-line against
+    # 0019_tenant_provisioning_boundary.py, which splitting the blocks across
+    # files would make harder, not easier. The Python that drives it and the
+    # report types already live in tenant_adoption.py and
+    # tenant_adoption_report.py.
+    "backend/app/core/db/tenant_adoption_sql.py": 1028,
     # fix(#836): the five path-gated additions. Caps are exact (zero headroom),
     # matching the #435 convention: growth needs a reviewed carve-out here,
     # shrinking must lower the cap in the same commit.
