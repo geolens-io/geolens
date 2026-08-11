@@ -7,6 +7,7 @@ import { sendChatMessage, streamChatMessage } from '@/api/maps';
 import { ApiError } from '@/api/client';
 import { cn } from '@/lib/utils';
 import { truncateGraphemes } from '@/lib/text';
+import { chatOverlayCompleteness, overlayFeatureCount } from '@/lib/chat-result-completeness';
 import { assertNever, normalizeLayerOpacity } from '@/components/builder/builder-action-contract';
 import { validateRawFilter, FilterValidationError } from '@/lib/maplibre-filter-utils';
 import { getLayerType, filterPaintForLayerType, clampPaintBounds } from '@/components/builder/layer-adapters/shared';
@@ -538,10 +539,14 @@ export function ChatPanel({
       // The producer half is #1071: until that lands, collect_run_analysis_action
       // still omits `truncated` whenever the total is absent, so this branch is
       // correct and simply not yet reachable for a clip.
-      const total = typeof action.row_count === 'number' ? action.row_count : undefined;
-      const truncation = action.truncated === true
-        ? { truncated: true, ...(total != null ? { totalCount: total } : {}) }
-        : undefined;
+      //
+      // feat(#1241 codex r1): the pair no longer comes from `truncated` alone.
+      // That flag is the SQL row cap; the overlay is clipped to its own render
+      // budget after it, so a 300-row answer can arrive as 50 features with
+      // truncated=false. chatOverlayCompleteness compares what we hold against
+      // row_count and calls that clipped too — see its docstring.
+      const preview = geojson as GeoJSON.FeatureCollection;
+      const truncation = chatOverlayCompleteness(action, overlayFeatureCount(preview));
       // feat(#675): a run_analysis action carries its reconstruction params so
       // the preview surface can offer "Save as dataset" (prefilled Analysis
       // panel) — fix(#1009): the stack row in this path, the badge in the rail.
@@ -559,7 +564,7 @@ export function ChatPanel({
       // no `analysis` behind it, which #675 could not offer anything for — can
       // be saved as a dataset with its question already suggested as the title.
       onQueryResult?.(
-        geojson as GeoJSON.FeatureCollection,
+        preview,
         [minX, minY, maxX, maxY],
         {
           ...truncation,

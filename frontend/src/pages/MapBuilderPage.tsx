@@ -369,7 +369,17 @@ export function MapBuilderPage() {
       return prev;
     }, { replace: true });
     const result = takeChatResult();
-    if (result) handleChatQueryResult(result.geojson, result.bbox);
+    // feat(#1241 codex r1): forward everything the stash carries, not just the
+    // geometry. Without the completeness pair a clipped carried result reads as
+    // a complete one here, and the save this issue adds would persist it as the
+    // whole answer.
+    if (result) {
+      handleChatQueryResult(result.geojson, result.bbox, {
+        ...(result.truncated ? { truncated: true } : {}),
+        ...(result.totalCount != null ? { totalCount: result.totalCount } : {}),
+        ...(result.prompt ? { prompt: result.prompt } : {}),
+      });
+    }
   }, [mapInstance, searchParams, setSearchParams, handleChatQueryResult]);
 
   const pluginCtx = useMemo(

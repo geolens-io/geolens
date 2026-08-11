@@ -38,6 +38,12 @@ function makeLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse 
   };
 }
 
+/** One overlay feature. feat(#1241 codex r1): overlay completeness is judged
+ *  against row_count, so a fixture's feature COUNT is now load-bearing. */
+function feature() {
+  return { type: 'Feature', geometry: { type: 'Point', coordinates: [-73.9, 40.8] }, properties: {} };
+}
+
 function renderPanel(
   propOverrides: Partial<React.ComponentProps<typeof ChatPanel>> & Partial<LayerActions> = {},
 ) {
@@ -236,15 +242,22 @@ describe('ChatPanel', () => {
 
   // The other direction: an uncapped result must forward nothing, or the
   // preview discloses a truncation that did not happen.
+  //
+  // feat(#1241 codex r1): the fixture holds one feature per matched row. The
+  // overlay is complete only when it carries every row the answer matched, and
+  // the server never emits an empty FeatureCollection (_extract_geojson
+  // returns None when no row is mappable), so a features:[] fixture with
+  // row_count: 12 describes a state that cannot occur — and now reads, as it
+  // should, as a clipped result.
   it('forwards no truncation for an uncapped result', async () => {
-    const geojson = { type: 'FeatureCollection', features: [] };
+    const geojson = { type: 'FeatureCollection', features: [feature()] };
     const bbox = [-74, 40, -73, 41];
 
     mockStreamChat.mockImplementation(async function* () {
       yield {
         event: 'actions',
         data: {
-          actions: [{ type: 'show_query_result', geojson, bbox, row_count: 12 }],
+          actions: [{ type: 'show_query_result', geojson, bbox, row_count: 1 }],
         },
       };
       yield { event: 'done', data: { explanation: 'Clipped' } };
@@ -258,6 +271,41 @@ describe('ChatPanel', () => {
       // No `truncated` key at all — an uncapped result must not disclose one.
       expect(props.onQueryResult).toHaveBeenCalledWith(geojson, bbox, {
         prompt: 'clip the buildings to the flood zone',
+      });
+    });
+  });
+
+  // feat(#1241 codex r1): `truncated` is the SQL sandbox's row cap. When the
+  // model selects geometry itself the sandbox runs at its 1000-row default and
+  // the server then slices the OVERLAY to its own 50-row budget, so a 300-row
+  // answer arrives as a short FeatureCollection with the flag false. Believing
+  // the flag there labels a clipped preview complete — and would let the #1241
+  // save file it in the catalog as the whole answer.
+  it('discloses an overlay clipped below row_count even with truncated false', async () => {
+    const geojson = { type: 'FeatureCollection', features: [feature(), feature()] };
+    const bbox = [-74, 40, -73, 41];
+
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            { type: 'show_query_result', geojson, bbox, truncated: false, row_count: 300 },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Found 300' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel();
+    await typeAndSend(user, 'show me every park');
+
+    await waitFor(() => {
+      expect(props.onQueryResult).toHaveBeenCalledWith(geojson, bbox, {
+        truncated: true,
+        totalCount: 300,
+        prompt: 'show me every park',
       });
     });
   });
