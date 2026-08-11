@@ -83,7 +83,13 @@ Known limits (accepted trade-offs, same posture as the Rule-1 guard):
   target over a container of argvs — chased through alias chains and out of
   containers to a fixed point. Consuming operations stop it: a single-index
   subscript of the VECTOR yields an element, while the same subscript of a
-  CONTAINER yields the vector. Inert data
+  CONTAINER yields the vector. ITERATING one is the same question as
+  subscripting it and gets the same two answers (fix(#1394)): a ``for`` over a
+  container binds each argv to the loop target, while a ``for`` over the vector
+  binds strings. That holds whether or not the container has a name —
+  ``for cmd in (["gdalinfo", path],):`` and ``commands = (["gdalinfo", path],)``
+  then ``for cmd in commands:`` are one rule, read off the AST in the first case
+  and off the followed path in the second. Inert data
   (``SUPPORTED_TOOLS = ["gdalinfo", "ogrinfo"]``, a constant only subscripted
   or compared) is not a command vector. A literal
   whose every element names a GDAL utility is a name list rather than a
@@ -108,6 +114,18 @@ Known limits (accepted trade-offs, same posture as the Rule-1 guard):
   neither is one extracted from an ANONYMOUS container that never gets a name
   (`cmd = ({"k": ["gdalinfo", path]})["k"]`), because the path machinery keys
   on a binding and there is none to key on.
+  Three more silent residues sit next to the iteration rule (fix(#1394)), all
+  of them "no container-element tracking" wearing different clothes, and each
+  needs its own machinery rather than a wider rule: `holds_a_container` is a
+  BOOLEAN, not a depth, so a container of containers (`groups = ((["gdalinfo",
+  path],),)`) hands the inner container to the loop target as if it were the
+  vector and the second loop follows nothing; a container reached through a
+  METHOD (`for cmd in commands.values()`) is a call this analysis does not
+  model; and a comprehension TARGET is bound in the comprehension's own scope,
+  which `_use_reaches_the_binding` reads as a shadow, so
+  `[subprocess.run(cmd) for cmd in commands]` links only when the comprehension
+  itself escapes — that one predates #1394 and applies equally to the inline
+  `for cmd in (["gdalinfo", path],)` spelling.
   Extending further means writing a static analyser, and this is a CI gate —
   the escape hatch for anything it misclassifies is an allowlist entry with a
   written justification, which is the same answer #974 reached for the wrapper
@@ -201,15 +219,21 @@ Known limits (accepted trade-offs, same posture as the Rule-1 guard):
   block, so a wrapped open under ``if False:`` is conditional together with
   its wrapper and the question never arises.
 
-  Still open, and NOT something an allowlist can close: whether a GDAL-headed
-  literal is SEEN as an argv at all. ``commands = (["gdalinfo", path],)`` then
-  ``for cmd in commands: subprocess.run(cmd)`` reports zero sites, because
-  extraction follows subscript and attribute loads and not ``For.iter`` (see
-  WHERE THE ESCAPE ANALYSIS STOPS above). That is a detection gap, not a
-  credit gap. Earlier text here filed it as the third of three "credit gap
-  classes" that #1077 would close at once, which conflated two questions:
-  credit decides which DETECTED sites are exempt, and no exemption rule makes
-  an undetected site appear.
+  A separate question, and NOT something an allowlist can close: whether a
+  GDAL-headed literal is SEEN as an argv at all. ``commands = (["gdalinfo",
+  path],)`` then ``for cmd in commands: subprocess.run(cmd)`` reported zero
+  sites, because extraction followed subscript and attribute loads but not
+  ``For.iter``. That is a detection gap, not a credit gap — credit decides
+  which DETECTED sites are exempt, and no exemption rule makes an undetected
+  site appear. Earlier text here filed it as the third of three "credit gap
+  classes" #1077 would close at once, which conflated the two. fix(#1394)
+  closes it where it belongs, in the escape analysis: the shape is now an argv
+  site, credited by the ordinary rules when a safe env covers it and reported
+  when none does. Note what the two rules say together — a helper call in the
+  LOOP BODY does not credit (a loop body may run zero times, per
+  ``_EAGER_POSITIONS``), so the creditable spelling hoists the env above the
+  loop, and the inline ``for cmd in (["gdalinfo", path],):`` form has always
+  been judged that way.
 - Remote-source detection is LITERAL only (codex round 7): an open or argv
   whose argument is, or obviously leads with, a remote-prefixed string
   literal (http/https, ``/vsicurl*``, hardcoded ``/vsis3``/``/vsiaz``/
@@ -1555,6 +1579,31 @@ def _target_names(target: ast.expr) -> set[str]:
     return {path} if path else set()
 
 
+def _loop_target_paths(iterable: ast.AST) -> set[str]:
+    """The paths a loop binds when ``iterable`` is the thing being iterated.
+
+    ``for cmd in commands:`` binds ``"cmd"``; ``async for`` and a
+    comprehension's generator bind the same way. Empty when ``iterable`` is not
+    in an iterated position, or when the target is a shape ``_target_names``
+    cannot name.
+
+    fix(#1394): ONE definition of what a loop binds, because two callers need
+    it and they know different things. ``_binding_targets`` calls it for a
+    literal written directly inside the iterable (``for cmd in (["gdalinfo",
+    path],):``), where the container is visible in the AST. ``_argv_escape_kind``
+    calls it for a NAME already known to hold a container of argvs
+    (``commands = (["gdalinfo", path],)`` then ``for cmd in commands:``), where
+    it is not.
+    """
+    parent = getattr(iterable, "_rule2_parent", None)
+    if (
+        isinstance(parent, (ast.For, ast.AsyncFor, ast.comprehension))
+        and parent.iter is iterable
+    ):
+        return _target_names(parent.target)
+    return set()
+
+
 def _positional_targets(targets: list[ast.expr], index: int) -> list[ast.expr] | None:
     """The targets an unpacking assigns position ``index`` to, or None.
 
@@ -1709,14 +1758,12 @@ def _binding_targets(node: ast.AST) -> tuple[set[str], bool]:
     # `climbed` records. `for tool in ["gdalinfo", "ogrinfo"]` binds each
     # STRING to the target, not the list, and treating the list as escaping
     # through it flagged ordinary tool-name data.
-    if (
-        climbed
-        and isinstance(parent, (ast.For, ast.AsyncFor, ast.comprehension))
-        and parent.iter is current
-    ):
+    if climbed:
         # The loop target receives an ELEMENT of the iterable, so it is the
         # vector itself, not a container of it.
-        return _target_names(parent.target), False
+        loop_targets = _loop_target_paths(current)
+        if loop_targets:
+            return loop_targets, False
     return set(), False
 
 
@@ -1866,6 +1913,22 @@ def _argv_escape_kind(node: ast.List | ast.Tuple, rel: str) -> int:
                 ):
                     extracted, _ = _binding_targets(parent)
                     pending |= {(n, False) for n in extracted - seen}
+                # fix(#1394): ITERATING a container hands each element — the
+                # argv — to the loop target, exactly as subscripting it hands
+                # over one. `_binding_targets` already reads that off the AST
+                # when the container is written in place (`for cmd in
+                # (["gdalinfo", path],):`); once the container has a NAME
+                # (`commands = (["gdalinfo", path],)` then `for cmd in
+                # commands:`) the AST no longer says so, and only this loop
+                # knows that `holds` is True. Without it the shape reported
+                # ZERO argv sites: invisible to the gate, so neither creditable
+                # nor reportable — the one failure direction the #1077
+                # allowlist inversion exists to remove.
+                #
+                # `holds` gates it for the same reason #996's `climbed` does:
+                # iterating the VECTOR (`for part in cmd:`) yields strings, not
+                # commands.
+                pending |= {(n, False) for n in _loop_target_paths(used) - seen}
             best = max(best, _escape_kind(used, vector=not holds))
             if best == _ESCAPE_CALL:
                 return best
@@ -2980,6 +3043,92 @@ def test_guard_argv_reached_through_a_loop_target_is_detected():
     )
     assert total == 1, (total, violations)
     assert len(violations) == 1 and "(looped)" in violations[0]
+
+
+def test_guard_argv_iterated_from_a_named_container_is_detected():
+    """fix(#1394): the container above wearing a name.
+
+    ``commands = (["gdalinfo", path],)`` then ``for cmd in commands:`` reported
+    ZERO argv sites, because extraction followed subscript and attribute loads
+    out of a container but not ``For.iter``. A site the collector cannot see is
+    neither creditable nor reportable, which is the failure direction the
+    #1077 credit inversion exists to remove — so this is pinned as a DETECTION
+    property first: the site exists, and then the ordinary credit rules decide
+    it.
+    """
+    unclamped, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def looped(path):\n"
+            "    commands = (['gdalinfo', path],)\n"
+            "    for cmd in commands:\n"
+            "        subprocess.run(cmd)\n"
+        ),
+        {},
+    )
+    assert total == 1, (total, unclamped)
+    assert len(unclamped) == 1 and "(looped)" in unclamped[0]
+
+    # The same site, clamped. The env is hoisted ABOVE the loop, which is the
+    # spelling that credits: it shares the function body with the argv, so
+    # _credit_position_reaches finds them in the same field of the same
+    # ancestor.
+    clamped, total_clamped = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "from app.processing.raster.vrt import gdal_safe_env\n"
+            "def looped(path):\n"
+            "    commands = (['gdalinfo', path],)\n"
+            "    env = gdal_safe_env()\n"
+            "    for cmd in commands:\n"
+            "        subprocess.run(cmd, env=env)\n"
+        ),
+        {},
+    )
+    assert total_clamped == 1, (total_clamped, clamped)
+    assert clamped == []
+
+    # An env built INSIDE the loop body still reports, because a loop body may
+    # run zero times (#1077, `_EAGER_POSITIONS`). Pinned so the two rules are
+    # read together: this is the verdict the inline `for cmd in (["gdalinfo",
+    # path],):` spelling has always had, not a new class of false positive.
+    in_loop, total_in_loop = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "from app.processing.raster.vrt import gdal_safe_env\n"
+            "def looped(path):\n"
+            "    commands = (['gdalinfo', path],)\n"
+            "    for cmd in commands:\n"
+            "        subprocess.run(cmd, env=gdal_safe_env())\n"
+        ),
+        {},
+    )
+    assert total_in_loop == 1, (total_in_loop, in_loop)
+    assert len(in_loop) == 1 and "(looped)" in in_loop[0]
+
+
+def test_guard_iterating_the_vector_itself_binds_strings_not_argvs():
+    """The control for fix(#1394): the follow is gated on holding a CONTAINER.
+
+    ``for part in cmd:`` walks the argv's own elements, and a named tool-name
+    list is the same shape — binding either to the loop target would flag
+    ordinary data, the #996 false-positive class. Both stay inert.
+    """
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "def elements(path):\n"
+            "    cmd = ['gdalinfo', path]\n"
+            "    for part in cmd:\n"
+            "        consume(part)\n"
+            "def names():\n"
+            "    tools = ['gdalinfo', 'ogrinfo']\n"
+            "    for tool in tools:\n"
+            "        consume(tool)\n"
+        ),
+        {},
+    )
+    assert total == 0, (total, violations)
+    assert violations == []
 
 
 def test_guard_unpacking_binds_by_position_not_by_all_names():
