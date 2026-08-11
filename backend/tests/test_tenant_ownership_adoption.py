@@ -47,6 +47,7 @@ from app.core.db.tenant_adoption import (
     cluster_topology_error,
     format_report,
     live_tenant_boundary,
+    missing_provisioner_grants,
     run_adoption,
     tenant_ownership_state,
 )
@@ -449,6 +450,78 @@ class TestReportedStateMatchesWhatApplyEnforces:
             await _drop_tenant(engine, tenant_id)
             await engine.dispose()
 
+    async def test_legacy_reader_default_privileges_are_not_adopted(self):
+        """The pre-0019 helper's ALTER DEFAULT PRIVILEGES entry is a live grant.
+
+        Nothing else in the report sees it: ownership and per-relation
+        privileges are all correct, and it still hands the reader access to
+        every table the writer creates next.
+        """
+        tenant_id, schema, reader, _writer = _new_tenant()
+        engine = _make_engine()
+        try:
+            await _seed_restored_tenant(engine, tenant_id, schema)
+            assert (await run_adoption(engine, apply=True)).ok
+
+            async with engine.begin() as conn:
+                await conn.execute(
+                    sa.text(
+                        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} "
+                        f"GRANT SELECT ON TABLES TO {reader}"
+                    )
+                )
+
+            async with engine.connect() as conn:
+                state = await tenant_ownership_state(conn, tenant_id)
+            assert state.reader_default_acls == 1
+            assert state.relations_not_owned_by_writer == 0
+            assert not state.adopted
+
+            repaired = await run_adoption(engine, apply=True)
+            assert repaired.failures == {}, repaired.failures
+            assert repaired.ok
+            async with engine.connect() as conn:
+                assert (
+                    await tenant_ownership_state(conn, tenant_id)
+                ).reader_default_acls == 0
+        finally:
+            await _drop_tenant(engine, tenant_id)
+            await engine.dispose()
+
+    async def test_missing_provisioner_grant_is_reported_and_re_granted(self):
+        """Globals replay restores the role; it restores none of its grants."""
+        engine = _make_engine()
+        try:
+            async with engine.connect() as conn:
+                assert await missing_provisioner_grants(conn) == []
+
+            async with engine.begin() as conn:
+                await conn.execute(
+                    sa.text(f"REVOKE USAGE ON SCHEMA catalog FROM {PROVISIONER}")
+                )
+
+            async with engine.connect() as conn:
+                assert await missing_provisioner_grants(conn) == [
+                    "USAGE on schema catalog"
+                ]
+
+            dry_run = await run_adoption(engine, apply=False)
+            assert dry_run.provisioner_grants_missing == ["USAGE on schema catalog"]
+            assert not dry_run.ok
+            assert "is missing USAGE on schema catalog" in format_report(dry_run)
+
+            applied = await run_adoption(engine, apply=True)
+            assert applied.provisioner_grants_missing == []
+            assert applied.ok
+        finally:
+            # Self-healing above, but a failed assertion must not leave the
+            # worker's database unable to provision a tenant.
+            async with engine.begin() as conn:
+                await conn.execute(
+                    sa.text(f"GRANT USAGE ON SCHEMA catalog TO {PROVISIONER}")
+                )
+            await engine.dispose()
+
     async def test_healthy_cluster_topology_reports_no_error(self):
         engine = _make_engine()
         try:
@@ -688,6 +761,7 @@ def _report(**overrides) -> AdoptionReport:
         "after": [],
         "failures": {},
         "cluster_topology": None,
+        "provisioner_grants_missing": [],
     }
     fields.update(overrides)
     return AdoptionReport(**fields)
@@ -713,6 +787,11 @@ class TestSuccessPredicate:
         report = _report(cluster_topology="role geolens_tile_gateway is missing")
         assert not report.ok
         assert "NEEDS ATTENTION" in format_report(report)
+
+    def test_missing_provisioner_grant_is_not_ok(self) -> None:
+        report = _report(provisioner_grants_missing=["SELECT on catalog.tenants"])
+        assert not report.ok
+        assert "SELECT on catalog.tenants" in format_report(report)
 
     def test_stamped_table_missing_from_rls_tables_is_not_ok(self) -> None:
         """Boot never enables RLS on it, so the post-restore check must fail."""

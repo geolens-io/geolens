@@ -45,7 +45,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import structlog
 from sqlalchemy import text
@@ -118,6 +118,7 @@ class TenantOwnershipState:
     relations: int
     relations_not_owned_by_writer: int
     relations_without_reader_select: int
+    reader_default_acls: int
     reader_role_secure: bool
     writer_role_secure: bool
     schema_privileges_secure: bool
@@ -138,6 +139,7 @@ class TenantOwnershipState:
             and self.writer_exists
             and self.relations_not_owned_by_writer == 0
             and self.relations_without_reader_select == 0
+            and self.reader_default_acls == 0
             and self.reader_role_secure
             and self.writer_role_secure
             and self.schema_privileges_secure
@@ -273,6 +275,40 @@ async def cluster_topology_error(engine) -> str | None:
     except Exception as exc:  # broad: any refusal is the answer, whatever its class
         return str(exc).strip().splitlines()[0]
     return None
+
+
+async def missing_provisioner_grants(conn) -> list[str]:
+    """Object privileges ``ensure_cluster_roles`` grants and a restore drops.
+
+    Replaying globals brings the role back; it brings none of these with it, and
+    without them ``catalog.provision_tenant_data_schema`` cannot see
+    ``catalog.tenants`` or create a tenant schema.  Call only once
+    :func:`cluster_topology_error` has confirmed the role exists — the
+    ``has_*_privilege`` family errors on a role name that is not there.
+    """
+    result = await conn.execute(
+        text(
+            """
+            SELECT pg_catalog.has_database_privilege(
+                       :provisioner, pg_catalog.current_database(), 'CREATE'
+                   ) AS database_create,
+                   pg_catalog.has_schema_privilege(
+                       :provisioner, 'catalog', 'USAGE'
+                   ) AS catalog_usage,
+                   pg_catalog.has_table_privilege(
+                       :provisioner, 'catalog.tenants', 'SELECT'
+                   ) AS tenants_select
+            """
+        ),
+        {"provisioner": PROVISIONER},
+    )
+    row = result.one()
+    labels = {
+        "database_create": "CREATE on the database",
+        "catalog_usage": "USAGE on schema catalog",
+        "tenants_select": "SELECT on catalog.tenants",
+    }
+    return [label for key, label in labels.items() if not getattr(row, key)]
 
 
 async def list_tenants(conn) -> list[str]:
@@ -433,6 +469,23 @@ async def tenant_ownership_state(conn, tenant_id: str) -> TenantOwnershipState:
                         )
                     )
                 END AS relations_without_reader_select,
+                -- The pre-0019 runtime helper left an ALTER DEFAULT PRIVILEGES
+                -- entry behind; ADOPT_TENANT_SQL revokes it, so a tenant still
+                -- carrying one is not adopted however correct the rest looks.
+                CASE
+                    WHEN NOT EXISTS (SELECT 1 FROM reader) THEN 0
+                    ELSE (
+                        SELECT count(DISTINCT default_acl.oid)
+                        FROM pg_catalog.pg_default_acl AS default_acl
+                        JOIN LATERAL pg_catalog.aclexplode(default_acl.defaclacl)
+                          AS acl ON true
+                        JOIN pg_catalog.pg_namespace AS namespace
+                          ON namespace.oid = default_acl.defaclnamespace
+                        WHERE namespace.nspname = (SELECT schema_name FROM names)
+                          AND default_acl.defaclobjtype = 'r'
+                          AND acl.grantee = (SELECT oid FROM reader)
+                    )
+                END AS reader_default_acls,
                 """
             + _role_secure_sql("reader", (PROVISIONER, SANDBOX, TILE), (SANDBOX, TILE))
             + " AS reader_role_secure, "
@@ -549,6 +602,7 @@ class AdoptionReport:
     after: list[TenantOwnershipState]
     failures: dict[str, str]
     cluster_topology: str | None = None
+    provisioner_grants_missing: list[str] = field(default_factory=list)
 
     @property
     def missing_functions(self) -> list[str]:
@@ -569,10 +623,16 @@ class AdoptionReport:
         what makes ``--apply``-less invocation usable as a post-restore check.
         Every condition the report surfaces has to be in here, or the check
         passes on a database the report itself calls broken: a missing boundary
-        function, a fixed-role topology ``--apply`` would refuse, and boundary
-        drift that leaves a stamped table without RLS at boot all count.
+        function, a fixed-role topology ``--apply`` would refuse, a provisioner
+        grant a restore dropped, and boundary drift that leaves a stamped table
+        without RLS at boot all count.
         """
-        if self.failures or self.missing_functions or self.cluster_topology:
+        if (
+            self.failures
+            or self.missing_functions
+            or self.cluster_topology
+            or self.provisioner_grants_missing
+        ):
             return False
         if not all(function.secured for function in self.functions):
             return False
@@ -585,12 +645,13 @@ class AdoptionReport:
 
 async def run_adoption(engine, *, apply: bool) -> AdoptionReport:
     """Report the ownership gap and, with ``apply``, close it."""
+    topology = await cluster_topology_error(engine)
     async with engine.connect() as conn:
         tenants = await list_tenants(conn)
         before = [await tenant_ownership_state(conn, tid) for tid in tenants]
         boundary = await live_tenant_boundary(conn)
         functions = await boundary_function_states(conn)
-    topology = await cluster_topology_error(engine)
+        grants = [] if topology else await missing_provisioner_grants(conn)
 
     if not apply:
         return AdoptionReport(
@@ -601,6 +662,7 @@ async def run_adoption(engine, *, apply: bool) -> AdoptionReport:
             after=before,
             failures={},
             cluster_topology=topology,
+            provisioner_grants_missing=grants,
         )
 
     async with engine.begin() as conn:
@@ -618,10 +680,11 @@ async def run_adoption(engine, *, apply: bool) -> AdoptionReport:
                 "tenant_adoption: tenant failed", tenant_id=tenant_id, exc_info=True
             )
 
+    topology = await cluster_topology_error(engine)
     async with engine.connect() as conn:
         after = [await tenant_ownership_state(conn, tid) for tid in tenants]
         boundary = await live_tenant_boundary(conn)
-    topology = await cluster_topology_error(engine)
+        grants = [] if topology else await missing_provisioner_grants(conn)
 
     return AdoptionReport(
         applied=True,
@@ -631,19 +694,27 @@ async def run_adoption(engine, *, apply: bool) -> AdoptionReport:
         after=after,
         failures=failures,
         cluster_topology=topology,
+        provisioner_grants_missing=grants,
     )
 
 
 def _format_cluster_roles(report: AdoptionReport) -> list[str]:
-    if report.cluster_topology is None:
+    if report.cluster_topology is not None:
         return [
-            f"Fixed cluster roles ({PROVISIONER} and the four gateways): "
-            "present, with safe attributes and memberships."
+            f"Fixed cluster roles: NEEDS ATTENTION — {report.cluster_topology}",
+            "  --apply creates a missing role; it refuses an unsafe one.",
         ]
-    return [
-        f"Fixed cluster roles: NEEDS ATTENTION — {report.cluster_topology}",
-        "  --apply creates a missing role; it refuses an unsafe one.",
+    lines = [
+        f"Fixed cluster roles ({PROVISIONER} and the four gateways): "
+        "present, with safe attributes and memberships."
     ]
+    if report.provisioner_grants_missing:
+        lines.append(
+            f"  {PROVISIONER} is missing "
+            f"{', '.join(report.provisioner_grants_missing)} — tenant "
+            "provisioning cannot run without them; --apply re-grants them."
+        )
+    return lines
 
 
 def _format_functions(report: AdoptionReport) -> list[str]:
@@ -719,6 +790,11 @@ def _format_tenants(report: AdoptionReport) -> list[str]:
             f"{after.relations_not_owned_by_writer} not owned by the writer",
             f"{after.relations_without_reader_select} without reader SELECT",
         ]
+        if after.reader_default_acls:
+            detail.append(
+                f"{after.reader_default_acls} legacy default-privilege "
+                "entr(ies) for the reader"
+            )
         if not after.reader_role_secure:
             detail.append(
                 "reader role attributes or memberships are not the safe shape"
