@@ -1781,7 +1781,17 @@ def _all_pattern_elements(targets: list[ast.expr]) -> list[ast.expr] | None:
 
     The ``_ANY_POSITION`` counterpart of ``_positional_targets``. A starred
     element bails the same way it does there: it binds a sub-list rather than
-    an element, so no name receives a command.
+    an element, so the pattern's names do not all receive the same thing and
+    the caller keeps its conservative answer.
+
+    Keeping the non-starred names and dropping the star was the obvious
+    narrowing and is deliberately NOT taken (codex round 16, declined). In
+    ``cmd, *rest = commands`` the star's target holds a container of argvs and
+    a later ``for c in rest:`` is a real path to an exec, so dropping it trades
+    this over-report for a silent miss — the one direction that is worse.
+    Splitting the two kinds means the element pickers returning a kind per
+    target rather than a level, which is the container-element tracking #996
+    declined to build. Until a real site needs it, the loud answer stands.
     """
     matched: list[ast.expr] = []
     saw_sequence = False
@@ -1843,7 +1853,14 @@ def _unpacked_binding(
         if not adds_level:
             continue  # nothing here for a pattern to take apart
         if index is None:
-            break  # a level, but not one unpacked by position (a dict, a set)
+            # A level, but not one unpacked by position (a dict, a set). A
+            # SINGLETON set does hand its sole element over unambiguously
+            # (`cmd, = {("gdalinfo", path)}`), and reading that would need the
+            # wrapper's own arity, which the chain does not carry (codex round
+            # 16, declined). It is the loud direction, on a shape that appears
+            # nowhere: sets are unordered, so nothing here builds an argv in
+            # one.
+            break
         nxt = (
             _all_pattern_elements(current)
             if index == _ANY_POSITION
