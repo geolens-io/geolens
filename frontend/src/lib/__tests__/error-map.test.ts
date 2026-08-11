@@ -169,6 +169,88 @@ describe('API error localization boundary', () => {
     );
   });
 
+  // fix(#1390): the VRT source-compatibility 422 (`validate_sources` in
+  // backend/app/processing/raster/validation.py) returns an array of
+  // SourceValidationError objects (source_id/code/message/field/severity),
+  // not the Pydantic loc/type/ctx shape below. All 8 VAL codes must map to a
+  // per-code string that carries the offending source_id as context.
+  it('maps every SourceValidationError code from a VRT validation 422', () => {
+    const sourceId = '11111111-1111-1111-1111-111111111111';
+    const cases: Array<[string, string]> = [
+      ['crs_mismatch', 'errors.sourceValidationCrsMismatch'],
+      ['band_count_mismatch', 'errors.sourceValidationBandCountMismatch'],
+      ['single_band_required', 'errors.sourceValidationSingleBandRequired'],
+      ['dtype_mismatch', 'errors.sourceValidationDtypeMismatch'],
+      ['grid_misaligned', 'errors.sourceValidationGridMisaligned'],
+      ['nodata_inconsistent', 'errors.sourceValidationNodataInconsistent'],
+      ['rotated_raster', 'errors.sourceValidationRotatedRaster'],
+      ['unknown_pixel_geometry', 'errors.sourceValidationUnknownPixelGeometry'],
+    ];
+
+    for (const [code, key] of cases) {
+      const detail = [
+        {
+          source_id: sourceId,
+          code,
+          message: 'diagnostic backend prose that should not reach the user',
+          field: 'some_field',
+          severity: 'error',
+        },
+      ];
+
+      expect(classifyApiError(detail, 422)).toEqual({
+        key,
+        values: { source: sourceId },
+      });
+    }
+  });
+
+  it('renders a real-shaped VAL-08 unknown_pixel_geometry 422 with source context', () => {
+    const detail = [
+      {
+        source_id: '22222222-2222-2222-2222-222222222222',
+        code: 'unknown_pixel_geometry',
+        message:
+          'Pixel resolution was never measured for this source; cannot verify it is unrotated and grid-aligned',
+        field: 'res_x',
+        severity: 'error',
+      },
+    ];
+
+    expect(translateApiErrorDetail(detail, 422)).toBe(
+      "Source 22222222-2222-2222-2222-222222222222's pixel resolution has never been measured, so it can't be verified as unrotated and grid-aligned.",
+    );
+  });
+
+  it('falls back gracefully for an unrecognized SourceValidationError code', () => {
+    const detail = [
+      {
+        source_id: '33333333-3333-3333-3333-333333333333',
+        code: 'some_future_val_check',
+        message: 'a VAL check added after this table was written',
+        field: 'whatever',
+        severity: 'error',
+      },
+    ];
+
+    expect(classifyApiError(detail, 422)).toEqual({ key: 'errors.validationFailed' });
+    const rendered = translateApiErrorDetail(detail, 422);
+    expect(rendered).toBe('The submitted values are invalid.');
+    expect(rendered).not.toContain('{');
+  });
+
+  it('still classifies the Pydantic validation-error array shape as before', () => {
+    // Regression guard: the SourceValidationError detection above must not
+    // intercept the pre-existing loc/type/ctx shape used by every other
+    // FastAPI 422.
+    const detail = [{ type: 'missing', loc: ['body', 'title'], msg: 'Field required' }];
+
+    expect(classifyApiError(detail, 422)).toEqual({
+      key: 'errors.validationRequired',
+      values: { field: 'title' },
+    });
+  });
+
   it('localizes FastAPI missing-field validation with field context', () => {
     const detail = [
       { type: 'missing', loc: ['body', 'display_name'], msg: 'Field required' },
