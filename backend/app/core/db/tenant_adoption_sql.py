@@ -403,14 +403,17 @@ BEGIN
                        '-'
                    )
                )
-               AND NOT EXISTS (
+               -- "no unsafe row", not "some safe row": PostgreSQL keeps one
+               -- row per grantor, and a canonical SET-only grant sitting beside
+               -- an INHERIT one would otherwise answer for both.
+               AND EXISTS (
                    SELECT 1
                    FROM pg_catalog.pg_auth_members AS membership
                    JOIN pg_catalog.pg_roles AS member_role
                      ON member_role.oid = membership.member
                    WHERE membership.roleid = membership_row.oid
                      AND member_role.rolname = membership_row.member_name
-                     AND CASE
+                     AND NOT CASE
                          WHEN membership_row.member_name = '{PROVISIONER}'
                          THEN {_MEMBERSHIP_ADMIN_ONLY}
                          ELSE {_MEMBERSHIP_SET_ONLY}

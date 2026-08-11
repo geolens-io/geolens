@@ -716,26 +716,34 @@ docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
   "SELECT has_schema_privilege('geolens_reader', 'data', 'USAGE');"
 ```
 
-**2e. Put the runtime logins back in the fixed groups.**
+**2e. Let the tile login connect, and put the runtime logins back in the fixed
+groups.**
 
-Only when step 1 rebuilt the roles by hand: a globals replay carries these
-memberships, the reconciler in 2d does not, and without them the API cannot call
-the provisioning functions or reach a tenant reader, and the tile login cannot
-either. These are the grants `.env.example` documents alongside
-`GEOLENS_RUNTIME_DB_ROLE`; substitute your own login names, and never give the
-tile login any of the first three:
+The `CONNECT` grant is unconditional. 2d's reconciler revokes `PUBLIC CONNECT`
+and grants it back to the current, migration and runtime roles only, in every
+path, so the tile login cannot reach the database at all after a restart without
+this — including when a globals replay restored everything else about it:
 
 ```bash
 docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
   -v db="$POSTGRES_DB" <<'SQL'
+GRANT CONNECT ON DATABASE :"db" TO "<tile-login>";
+SQL
+```
+
+The group memberships below are needed only when step 1 rebuilt the roles by
+hand: a globals replay carries them, the reconciler does not, and without them
+the API cannot call the provisioning functions or reach a tenant reader, and the
+tile login cannot either. These are the grants `.env.example` documents
+alongside `GEOLENS_RUNTIME_DB_ROLE`; substitute your own login names, and never
+give the tile login any of the first three:
+
+```bash
+docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
 GRANT geolens_tenant_control TO "<runtime-login>" WITH INHERIT TRUE, SET FALSE;
 GRANT geolens_tenant_writer  TO "<runtime-login>" WITH INHERIT FALSE, SET TRUE;
 GRANT geolens_tenant_sandbox TO "<runtime-login>" WITH INHERIT FALSE, SET TRUE;
 GRANT geolens_tile_gateway   TO "<tile-login>"    WITH INHERIT FALSE, SET TRUE;
--- 2d's reconciler revokes PUBLIC CONNECT and grants it back to the current,
--- migration and runtime roles only, so the tile login needs its own. The
--- heredoc is quoted, so the database name arrives as a psql variable.
-GRANT CONNECT ON DATABASE :"db" TO "<tile-login>";
 SQL
 ```
 
@@ -747,13 +755,11 @@ the provisioning functions directly and needs `geolens_tenant_control`'s
 gateway roles, not anything about the login:
 
 ```bash
-docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-  -v db="$POSTGRES_DB" <<'SQL'
+docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
 GRANT geolens_tenant_control TO "<runtime-login>";
 GRANT geolens_tenant_writer  TO "<runtime-login>";
 GRANT geolens_tenant_sandbox TO "<runtime-login>";
 GRANT geolens_tile_gateway   TO "<tile-login>";
-GRANT CONNECT ON DATABASE :"db" TO "<tile-login>";
 SQL
 ```
 
