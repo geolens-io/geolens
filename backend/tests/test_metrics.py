@@ -799,6 +799,67 @@ _consolidate_dead_cumulative_metric_files()
     assert total_after == 17.0
 
 
+# fix(#1295): shared prelude for the two subprocesses below. Every ordering
+# event goes to ONE append-only file via a single O_APPEND os.write (atomic
+# for a short line), and every event is emitted while its process is inside
+# the lock state that event names -- so the file's line order IS the lock's
+# acquisition order, with no wall-clock reading involved anywhere.
+_LOCK_ORDER_PRELUDE = """
+import os
+import time
+
+
+def _ev(log_path, name):
+    fd = os.open(log_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+    try:
+        os.write(fd, (name + "\\n").encode())
+    finally:
+        os.close(fd)
+
+
+def _await_marker(marker_path):
+    deadline = time.monotonic() + 30
+    while not os.path.exists(marker_path):
+        if time.monotonic() > deadline:
+            raise AssertionError("timed out waiting for " + marker_path)
+        time.sleep(0.001)
+
+
+def _read_events(log_path):
+    try:
+        with open(log_path) as f:
+            return f.read().split()
+    except FileNotFoundError:
+        return []
+
+
+def _await_event(log_path, name):
+    deadline = time.monotonic() + 30
+    while name not in _read_events(log_path):
+        if time.monotonic() > deadline:
+            raise AssertionError("timed out waiting for event " + name)
+        time.sleep(0.001)
+
+
+def _lock_identity(fd):
+    st = os.fstat(fd.fileno() if hasattr(fd, "fileno") else fd)
+    return "{}:{}".format(st.st_dev, st.st_ino)
+
+
+def _tagged_value(log_path, tag):
+    for event in _read_events(log_path):
+        if event.startswith(tag):
+            return event[len(tag) :]
+    return None
+"""
+
+# fix(#1295 review round 1): events the sweep can only emit once it is PAST
+# the exclusive lock. "sweep_lock_attempt" is deliberately not in this set --
+# it is emitted before the blocking flock() call, so it is expected to appear
+# while the scrape still holds the shared lock. That is the handshake.
+_POST_LOCK_SWEEP_EVENTS = ("sweep_lock_acquired", "sweep_rename")
+
+
 def test_sweep_waits_for_inflight_scrape_before_renaming(tmp_path):
     """fix(#1240, #651 review round 6): MultiProcessCollector.collect() globs
     "*.db" and then opens each matched path one by one; it tolerates a path
@@ -809,12 +870,67 @@ def test_sweep_waits_for_inflight_scrape_before_renaming(tmp_path):
     function's os.rename() claim step must never fire while a scrape holds
     the shared (reader) lock on the same PROMETHEUS_MULTIPROC_DIR.
 
-    Proves ordering, not just "no crash": a fake scrape holds the shared
-    lock for a full second before releasing; the sweep (which starts only
-    once it can see the scrape is already holding the lock) must not
-    complete until AFTER that release. If it completed sooner, that would
-    mean the exclusive/shared flock pairing isn't actually excluding the
-    sweep while a scrape is in flight -- the exact gap round 6 found.
+    fix(#1295): asserts on RECORDED LOCK ORDER, never on wall-clock floats.
+    The first version of this test compared time.time() captured by the
+    scrape process just AFTER its LOCK_UN against time.time() captured by
+    the sweep process after its whole pass. Neither reading is causally
+    ordered against the other -- both are taken after the release, so the
+    comparison measures which process the OS scheduler ran first, not
+    whether the lock excluded the sweep. On an idle machine the sweep's
+    ~10ms of file work made it look reliable; on a loaded runner it lost by
+    1.3ms (#1295), and inserting a 20ms sleep into the scrape AFTER its
+    unlock -- a change that cannot touch the lock protocol at all -- flips
+    it every single run.
+
+    What this version asserts instead: an append-only event log written by
+    both processes, where each event is emitted while its process is inside
+    the lock state it names. "scrape_pre_unlock" is written while the scrape
+    still holds the shared lock, so it happens-before the release;
+    "sweep_lock_acquired" and "sweep_rename" are written after the sweep's
+    exclusive acquire, which the kernel cannot grant until that release. So
+    the log order is fixed by the lock, not by the scheduler. If the
+    exclusive/shared flock pairing stops excluding the sweep -- the exact
+    gap round 6 found -- the rename lands DURING the scrape's hold and
+    appears before "scrape_pre_unlock"; verified by re-running this same
+    ordering with the sweep's flock stubbed out, which inverts the log every
+    run.
+
+    fix(#1295 review rounds 1-2): the two sides synchronize on the sweep's
+    LOCK ATTEMPT, and the verdict is then decided synchronously -- there is
+    no interval anywhere whose expiry is read as proof that the lock held.
+    The scrape makes two synchronous checks, both while holding the shared
+    lock:
+
+    1. Before the sweeper is released to run at all, a non-blocking LOCK_EX
+       probe on a SECOND descriptor for the lock path is refused. flock
+       locks are per open file description, so a second descriptor conflicts
+       with this process's own shared lock even within one process (the same
+       property that makes the round-8 same-process deadlock possible).
+       Running it before the sweeper starts is what makes it unambiguous:
+       nothing else holds anything, so the refusal is attributable to this
+       scrape's own shared lock and to nothing else.
+    2. The sweeper emits "sweep_lock_attempt" immediately before the real
+       flock(LOCK_EX) call, and the scrape blocks until it sees that event,
+       then checks that the (device, inode) the sweep is locking equals the
+       one it just proved exclusive-hostile. A sweep blocking on some other
+       file would be excluded by nothing, and no amount of waiting would
+       reveal it.
+
+    Together: the sweep is inside a blocking LOCK_EX on a lock that refuses
+    exclusive acquisition for as long as this scrape holds it, so it cannot
+    reach its rename before the release below.
+
+    Every timeout in this test fails closed. If the production code stopped
+    taking an exclusive lock -- removed, or downgraded to a shared one --
+    "sweep_lock_attempt" never arrives and the scrape fails waiting for it,
+    rather than sailing past on an expired window. Earlier revisions of this
+    test used such a window in two places and both were shown to false-pass:
+    a stall before the lock call (round 1) and a stall between the call
+    returning and its acquired event being written (round 2).
+
+    The rename event is recorded by wrapping os.rename in the sweeper
+    subprocess, so it observes the real production claim step inside
+    _consolidate_dead_cumulative_metric_files(), not a stand-in for it.
     """
     multiproc_dir = str(tmp_path)
     env = {**os.environ, "PROMETHEUS_MULTIPROC_DIR": multiproc_dir}
@@ -829,39 +945,112 @@ def test_sweep_waits_for_inflight_scrape_before_renaming(tmp_path):
     )
     assert result.returncode == 0, result.stderr
 
+    order_log = tmp_path / "lock_order.log"
     holding_marker = tmp_path / "scrape_holding"
-    released_marker = tmp_path / "scrape_released"
-    done_marker = tmp_path / "sweep_done"
 
     fake_scrape_script = f"""
+{_LOCK_ORDER_PRELUDE}
 import fcntl
-import time
 
 from app.observability.metrics import _sweep_lock_path
 
-with open(_sweep_lock_path({multiproc_dir!r}), "a+b") as lock_file:
-    fcntl.flock(lock_file, fcntl.LOCK_SH)
-    open({str(holding_marker)!r}, "w").close()
-    time.sleep(1.0)
-    fcntl.flock(lock_file, fcntl.LOCK_UN)
+_LOCK_PATH = _sweep_lock_path({multiproc_dir!r})
+_ORDER_LOG = {str(order_log)!r}
 
-with open({str(released_marker)!r}, "w") as f:
-    f.write(repr(time.time()))
+with open(_LOCK_PATH, "a+b") as lock_file:
+    fcntl.flock(lock_file, fcntl.LOCK_SH)
+    _ev(_ORDER_LOG, "scrape_acquired")
+    _ev(_ORDER_LOG, "scrape_lock_identity=" + _lock_identity(lock_file))
+
+    # Check 1, run BEFORE the sweeper is released below: exclusive access to
+    # this lock is denied while this shared lock is held. flock locks are per
+    # open file description, so a second descriptor on the same path
+    # conflicts with this process's own shared lock (the same property that
+    # makes the round-8 same-process deadlock possible). The sweeper is still
+    # parked on the holding marker at this point, so a refusal here can only
+    # come from this process's own shared lock -- it is unambiguous, and it
+    # is synchronous: no interval is being read as proof of anything.
+    with open(_LOCK_PATH, "a+b") as probe_file:
+        try:
+            fcntl.flock(probe_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            _ev(_ORDER_LOG, "scrape_probe_denied")
+        else:
+            fcntl.flock(probe_file, fcntl.LOCK_UN)
+            raise AssertionError(
+                "exclusive lock was GRANTED while this scrape held a shared "
+                "lock and nothing else was running -- the sweep/scrape lock "
+                "excludes nothing"
+            )
+
+    open({str(holding_marker)!r}, "w").close()
+    # Handshake, not a timing window: block until the sweep says it is
+    # entering the production flock(LOCK_EX) call. Nothing below depends on
+    # how long the sweeper took to get here, or on whether it was descheduled
+    # on the way -- this waits for the lock attempt itself. If the production
+    # code stopped taking an exclusive lock at all, this event never arrives
+    # and this wait fails; every timeout in this test fails closed.
+    _await_event(_ORDER_LOG, "sweep_lock_attempt")
+
+    # Check 2: the sweep is blocking on the SAME lock this scrape holds and
+    # just proved exclusive-hostile. A sweep blocking on some other file
+    # would be excluded by nothing, and no amount of waiting would reveal it.
+    _sweep_identity = _tagged_value(_ORDER_LOG, "sweep_lock_identity=")
+    if _sweep_identity != _lock_identity(lock_file):
+        raise AssertionError(
+            "sweep locked a different file: "
+            + repr(_sweep_identity)
+            + " != "
+            + repr(_lock_identity(lock_file))
+        )
+
+    # Still holding the shared lock here: this event happens-before the
+    # release below, and therefore before any post-lock sweep event.
+    _ev(_ORDER_LOG, "scrape_pre_unlock")
+    fcntl.flock(lock_file, fcntl.LOCK_UN)
 """
     sweeper_script = f"""
-import os
-import time
-
-while not os.path.exists({str(holding_marker)!r}):
-    time.sleep(0.001)
+{_LOCK_ORDER_PRELUDE}
+import fcntl
 
 os.environ["PROMETHEUS_MULTIPROC_DIR"] = {multiproc_dir!r}
 from app.observability.metrics import _consolidate_dead_cumulative_metric_files
 
-_consolidate_dead_cumulative_metric_files()
+_ORDER_LOG = {str(order_log)!r}
 
-with open({str(done_marker)!r}, "w") as f:
-    f.write(repr(time.time()))
+# The production function does its own `import fcntl` / uses module-level
+# `os` inside the function body, so both resolve to these patched modules.
+_real_flock = fcntl.flock
+
+
+def _recording_flock(fd, operation):
+    if operation == fcntl.LOCK_EX:
+        # Emitted immediately before the real blocking call, together with
+        # the identity of the file actually being locked, so the scrape can
+        # synchronize on the lock attempt itself rather than on a clock.
+        _ev(_ORDER_LOG, "sweep_lock_identity=" + _lock_identity(fd))
+        _ev(_ORDER_LOG, "sweep_lock_attempt")
+    result = _real_flock(fd, operation)
+    if operation == fcntl.LOCK_EX:
+        _ev(_ORDER_LOG, "sweep_lock_acquired")
+    return result
+
+
+fcntl.flock = _recording_flock
+
+_real_rename = os.rename
+
+
+def _recording_rename(*args, **kwargs):
+    _ev(_ORDER_LOG, "sweep_rename")
+    return _real_rename(*args, **kwargs)
+
+
+os.rename = _recording_rename
+
+_await_marker({str(holding_marker)!r})
+
+_consolidate_dead_cumulative_metric_files()
 """
     scrape_proc = subprocess.Popen(
         [sys.executable, "-c", fake_scrape_script],
@@ -877,16 +1066,39 @@ with open({str(done_marker)!r}, "w") as f:
         stderr=subprocess.PIPE,
         text=True,
     )
-    scrape_stderr = scrape_proc.communicate(timeout=30)[1]
+    scrape_stderr = scrape_proc.communicate(timeout=60)[1]
     assert scrape_proc.returncode == 0, scrape_stderr
-    sweep_stderr = sweep_proc.communicate(timeout=30)[1]
+    sweep_stderr = sweep_proc.communicate(timeout=60)[1]
     assert sweep_proc.returncode == 0, sweep_stderr
 
-    released_at = float(released_marker.read_text())
-    done_at = float(done_marker.read_text())
-    assert done_at >= released_at, (
-        f"sweep finished at {done_at} before the scrape released its lock "
-        f"at {released_at} -- the sweep's rename raced an in-flight scrape"
+    events = order_log.read_text().split()
+    # Not vacuous: the scrape really did wait for the sweep's lock attempt
+    # (rather than for a clock), it really ran the exclusive-access probe and
+    # was really refused, the sweep really took the exclusive lock and really
+    # renamed the dead pid's file, and the consolidation landed.
+    assert events[:1] == ["scrape_acquired"], events
+    assert "sweep_lock_attempt" in events, events
+    assert "scrape_probe_denied" in events, events
+    assert "scrape_pre_unlock" in events, events
+    assert "sweep_lock_acquired" in events, events
+    assert "sweep_rename" in events, events
+    assert list(tmp_path.glob("counter_*.db")) == [tmp_path / "counter_archived.db"]
+
+    # Both sides locked the same (device, inode), so the exclusion the probe
+    # observed is the one the sweep is actually waiting on.
+    identities = {e.split("=", 1)[1] for e in events if "_lock_identity=" in e}
+    assert len(identities) == 1, events
+
+    pre_unlock_index = events.index("scrape_pre_unlock")
+    raced = [
+        f"{name}@{i}"
+        for i, name in enumerate(events)
+        if name in _POST_LOCK_SWEEP_EVENTS and i < pre_unlock_index
+    ]
+    assert not raced, (
+        f"sweep events {raced} landed while the scrape still held the shared "
+        f"lock (full order: {events}) -- the sweep's rename raced an "
+        f"in-flight scrape"
     )
 
 
