@@ -1636,6 +1636,17 @@ def _intact_loop_target(target: ast.expr) -> ast.expr | None:
     a star anywhere but first, ``for tool, *rest in commands:`` — ``rest`` is a
     SUFFIX of the argv, which has no GDAL head and would be judged against the
     wrong tool if it were treated as a command.
+
+    Position decides it, not arity, and the gap that leaves is deliberate
+    (codex round 18, declined). ``for *cmd, ignored in [("gdalinfo",)]:`` binds
+    ``cmd`` to ``[]``, because the pattern's fixed names eat the only element —
+    so the site reports and nothing runs. Closing it means comparing the
+    pattern's arity against the LITERAL's, which couples a target-shape
+    question to a value this function never sees, for a shape that needs a
+    one-element argv and a starred pattern at once. It is the loud direction on
+    a literal the module already treats as a command by convention: a
+    single-element ``("gdalinfo",)`` is indistinguishable from a bare
+    invocation, per the two-element floor in ``_tool_name_list``.
     """
     if isinstance(target, (ast.Tuple, ast.List)):
         if target.elts and isinstance(target.elts[0], ast.Starred):
