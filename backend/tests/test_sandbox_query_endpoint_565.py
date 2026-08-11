@@ -209,6 +209,33 @@ async def test_out_of_scope_cte_name_cannot_mask_a_catalog_table(
     assert "usename" not in resp.text
 
 
+async def test_later_sibling_cte_name_cannot_mask_a_catalog_table(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P1 r2): a CTE named after a catalog relation declared
+    LATER in the same WITH is not yet in scope for an earlier sibling, so
+    PostgreSQL resolves the earlier reference to pg_catalog — the resolver must
+    honor declaration order and reject it."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = await _make_table(test_db_session, owner)
+
+    resp = await client.post(
+        "/query/",
+        json={
+            "sql": (
+                "WITH leak AS (SELECT usename FROM pg_user), "
+                f"pg_user AS (SELECT gid FROM data.{tbl}) SELECT * FROM leak"
+            ),
+            "restrict_tables": [tbl],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Table not accessible"
+    assert "usename" not in resp.text
+
+
 # ---------------------------------------------------------------------------
 # Self-join repetition cap (#565's live cost vector)
 # ---------------------------------------------------------------------------
@@ -556,12 +583,13 @@ async def test_rejection_emits_query_reject_audit(
     assert row.details["sql"] == "SELECT 1"
 
 
-async def test_body_validation_rejection_is_audited(
+async def test_body_validation_rejection_is_not_durably_audited(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P2): a 422 from body validation (missing restrict_tables)
-    happens before the handler, but an authenticated attempt must still land in
-    the durable trail — the route class audits it as invalid_request."""
+    """fix(#565 codex P2): a body-validation 422 is a PRE-sandbox rejection —
+    it never became a query and bypasses the per-request limiter, so durably
+    auditing it would let cheap malformed requests amplify into unbounded audit
+    writes. It is logged, not written to the durable trail."""
     before = len(await _audit_rows(test_db_session, "query.reject"))
 
     resp = await client.post(
@@ -569,20 +597,6 @@ async def test_body_validation_rejection_is_audited(
     )
     assert resp.status_code == 422
 
-    rows = await _audit_rows(test_db_session, "query.reject")
-    assert len(rows) == before + 1
-    assert rows[0].details == {"category": "invalid_request"}
-    assert rows[0].resource_type == "query"
-
-
-async def test_unauthenticated_body_validation_is_not_audited(
-    client: AsyncClient, test_db_session
-):
-    """The audit only covers authenticated attempts: an anonymous malformed
-    request 401s during auth and must not write a durable row."""
-    before = len(await _audit_rows(test_db_session, "query.reject"))
-    resp = await client.post("/query/", json={"sql": "SELECT 1"})
-    assert resp.status_code == 401
     after = len(await _audit_rows(test_db_session, "query.reject"))
     assert after == before
 
@@ -624,3 +638,39 @@ async def test_each_rate_limit_dimension_fires(
         limiter.enabled = False
         if hasattr(limiter, "_storage") and hasattr(limiter._storage, "reset"):
             limiter._storage.reset()
+
+
+async def test_rate_limited_requests_are_not_durably_audited(
+    client: AsyncClient, admin_auth_header, test_db_session, monkeypatch
+):
+    """fix(#565 codex P2): a 429 IS the limiter shedding load, so writing a
+    durable audit row per throttled request would defeat the throttle. The
+    successful call is audited (query.execute); the 429s add no reject rows."""
+    from app.modules.auth.router import limiter
+    from app.processing.ai import query_router
+
+    owner = await _admin_id(client, admin_auth_header)
+    tbl = await _make_table(test_db_session, owner)
+    before_reject = len(await _audit_rows(test_db_session, "query.reject"))
+
+    monkeypatch.setattr(query_router, "_QUERY_PER_USER_LIMIT", "1/minute")
+    limiter.enabled = True
+    if hasattr(limiter, "_storage") and hasattr(limiter._storage, "reset"):
+        limiter._storage.reset()
+    try:
+        statuses = []
+        for _ in range(3):
+            resp = await client.post(
+                "/query/",
+                json={"sql": f"SELECT gid FROM data.{tbl}", "restrict_tables": [tbl]},
+                headers=admin_auth_header,
+            )
+            statuses.append(resp.status_code)
+    finally:
+        limiter.enabled = False
+        if hasattr(limiter, "_storage") and hasattr(limiter._storage, "reset"):
+            limiter._storage.reset()
+
+    assert statuses.count(429) >= 1, statuses
+    after_reject = len(await _audit_rows(test_db_session, "query.reject"))
+    assert after_reject == before_reject

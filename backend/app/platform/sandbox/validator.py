@@ -957,35 +957,62 @@ def validate_sql(sql: str) -> ValidatedQuery:
 
 
 def _is_cte_reference(table: exp.Table) -> bool:
-    """Whether an unqualified table node resolves to a lexically in-scope CTE.
+    """Whether an unqualified table node resolves to a CTE that is in scope.
 
     fix(#565 codex P1): validation used to collect every CTE name in the
     statement into one flat set and treat any unqualified table matching a
     member as a CTE reference to skip. A CTE named after a catalog relation in
-    an INNER scope masked an OUTER unqualified reference of the same name —
+    another scope masked an unqualified reference of the same name, so a
+    top-level ``pg_user`` (or one in an earlier WITH item) was skipped instead
+    of rejected, and PostgreSQL resolved it to the readable
+    ``pg_catalog.pg_user`` view under the reader role — a restrict_tables
+    bypass that discloses catalog metadata including role names.
 
-        SELECT p.usename FROM pg_user p
-        CROSS JOIN (WITH pg_user AS (SELECT gid FROM data.foo) SELECT 1) x
-
-    the inner ``pg_user`` CTE put ``pg_user`` in the flat set, so the top-level
-    ``pg_user`` was skipped instead of rejected, and PostgreSQL resolved it to
-    the readable ``pg_catalog.pg_user`` view under the reader role — a
-    restrict_tables bypass that discloses catalog metadata including role
-    names. Resolving the name against the WITH clauses actually in scope for
-    THIS node closes it: an out-of-scope match no longer counts, so the outer
-    reference falls through to the data.* schema check and is rejected.
+    The name is resolved against the WITH clauses actually in scope for THIS
+    node, honoring PostgreSQL's declaration order (fix(#565 codex P1 r2)):
+    within one WITH, a CTE body sees only siblings declared strictly BEFORE it,
+    while the owner query body sees them all. Recursive WITHs — the one case
+    where a CTE would see itself — are already rejected upstream
+    (``_reject_recursive_cte``), so forward/self references never resolve here.
 
     A schema-qualified name (``data.foo``, ``pg_catalog.pg_user``) is never a
-    CTE reference. Resolution is fail-closed: an ambiguous name (declared more
-    than once in one scope) does not resolve, so it is treated as a real table
-    and rejected.
+    CTE reference. Anything that does not resolve to an in-scope CTE is treated
+    as a real table and pushed through the data.* access check (fail-closed).
     """
     if table.db:
         return False
-    scope = table.find_ancestor(exp.Select)
-    if scope is None:
-        return False
-    return _cte_definition(scope, table.name) is not None
+    name = table.name
+    child: exp.Expression = table
+    node = table.parent
+    while node is not None:
+        if isinstance(node, exp.With) and isinstance(child, exp.CTE):
+            # The reference lives inside `child`'s body. Only CTEs declared
+            # before it in this WITH are visible (non-recursive semantics).
+            # Identity, not ``==``: sqlglot nodes compare by structure, so two
+            # structurally identical CTE bodies must not be conflated.
+            ctes = [c for c in node.expressions if isinstance(c, exp.CTE)]
+            idx = next((i for i, c in enumerate(ctes) if c is child), None)
+            if idx is not None and any(c.alias == name for c in ctes[:idx]):
+                return True
+        elif isinstance(node, exp.Select):
+            # The WITH is a child of its owner SELECT under a sqlglot arg key
+            # that has drifted across releases ("with" -> "with_"), so find it
+            # by type rather than by key (same reason _own_sources iterates).
+            with_clause = next(
+                (c for c in node.iter_expressions() if isinstance(c, exp.With)),
+                None,
+            )
+            # An owner query body (we did NOT ascend from this SELECT's own WITH
+            # node — that path is handled above) sees every CTE it declares.
+            if with_clause is not None and child is not with_clause:
+                if any(
+                    isinstance(c, exp.CTE) and c.alias == name
+                    for c in with_clause.expressions
+                ):
+                    return True
+        child = node
+        node = node.parent
+    return False
 
 
 async def build_table_allowlist(db: AsyncSession, user: Identity | None) -> set[str]:

@@ -15,8 +15,19 @@
   so a query can never silently run with superuser privileges;
 - per-user AND per-IP slowapi rate limits;
 - errors expose only ``SandboxError.user_message`` (status carries the mapped
-  category), and every query — success or rejection — emits a durable audit
-  event.
+  category), and every query the sandbox EVALUATES — success or rejection —
+  emits a durable audit event.
+
+Audit scope (fix(#565 codex P2)): the durable trail records queries the
+sandbox actually evaluated. PRE-sandbox rejections — a request refused by
+authentication, by body validation (a malformed/oversized payload), or by the
+rate limiter — never became a query and are deliberately NOT written to the
+durable trail; they are logged instead. This is a security decision, not an
+oversight: body-validation rejections bypass the per-request limiter, and a
+429 IS the limiter shedding load, so a durable DB write per such rejection
+would let a stream of cheap, throttled requests amplify into unbounded audit
+writes — the exact denial vector this endpoint is hardened against. Logs carry
+the same signal without a per-request write.
 
 This router lives in ``processing/`` (not ``platform/``) on purpose: it must
 import ``modules.auth``/``modules.audit``, and ``platform/`` may not import
@@ -30,13 +41,14 @@ this POST route — it is a read semantically — via the exact-route carve-out 
 
 from __future__ import annotations
 
-import uuid
 from collections.abc import Awaitable, Callable
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, Field, field_validator
+from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,23 +60,25 @@ from app.modules.auth.router import limiter
 from app.platform.sandbox import SandboxError, SandboxResult, validate_and_execute
 from app.standards.ogc.errors import ERROR_RESPONSES_AUTH, RATE_LIMIT_RESPONSE
 
+logger = structlog.stdlib.get_logger(__name__)
 
-class _AuditedQueryRoute(APIRoute):
-    """Audit authenticated requests whose BODY fails validation (#565 codex P2).
 
-    A missing/empty ``restrict_tables``, an oversized ``sql``, or an
-    out-of-range ``row_limit`` makes FastAPI raise ``RequestValidationError``
-    (422) before the handler body runs, so neither ``query.reject`` call in the
-    handler fires. The endpoint's stated guarantee is that every query attempt
-    is audited, success or rejection, so this route class emits a
-    ``query.reject`` for those too.
+class _LoggedRejectionRoute(APIRoute):
+    """Log — never durably audit — authenticated PRE-sandbox rejections (#565).
 
-    FastAPI solves dependencies (including auth) BEFORE validating the body, so
-    ``_rate_limit_scoped_user`` has already stamped the resolved user id onto
-    ``request.state`` by the time validation fails. Auth failures raise their
-    own 401/403 during dependency solving and never reach here, so an
-    unauthenticated malformed request is not audited — only a caller who did
-    authenticate and then sent a bad body.
+    A body-validation failure (``RequestValidationError``, HTTP 422) or a
+    rate-limit rejection (``RateLimitExceeded``, HTTP 429) is raised before the
+    handler body runs, so neither ``query.reject`` audit in the handler fires.
+    These are intentionally logged, not written to the durable audit trail: see
+    the module docstring for why durably auditing them is a write-amplification
+    vector. The durable trail is reserved for queries the sandbox evaluated.
+
+    FastAPI solves dependencies (including auth) BEFORE body validation, and the
+    rate limiter runs inside the wrapped endpoint AFTER dependencies, so in both
+    cases ``_rate_limit_scoped_user`` has already stamped the resolved user id
+    onto ``request.state``. Auth failures raise their own 401/403 during
+    dependency solving and never reach here, so an unauthenticated request is
+    not logged as a rejected query attempt.
     """
 
     def get_route_handler(self) -> Callable[[Request], Awaitable[Response]]:
@@ -73,20 +87,18 @@ class _AuditedQueryRoute(APIRoute):
         async def _handler(request: Request) -> Response:
             try:
                 return await original(request)
-            except RequestValidationError:
+            except (RequestValidationError, RateLimitExceeded) as exc:
                 user_id = getattr(request.state, "sandbox_query_user_id", None)
                 if user_id is not None:
-                    await audit_emit_durable(
-                        AuditEvent(
-                            user_id=uuid.UUID(user_id),
-                            action="query.reject",
-                            resource_type="query",
-                            resource_id=None,
-                            details={"category": "invalid_request"},
-                            ip_address=(
-                                request.client.host if request.client else None
-                            ),
-                        )
+                    category = (
+                        "rate_limited"
+                        if isinstance(exc, RateLimitExceeded)
+                        else "invalid_request"
+                    )
+                    logger.info(
+                        "sandbox_query.pre_sandbox_rejection",
+                        user_id=user_id,
+                        category=category,
                     )
                 raise
 
@@ -96,7 +108,7 @@ class _AuditedQueryRoute(APIRoute):
 router = APIRouter(
     prefix="/query",
     tags=["Query"],
-    route_class=_AuditedQueryRoute,
+    route_class=_LoggedRejectionRoute,
     responses={**ERROR_RESPONSES_AUTH, 429: RATE_LIMIT_RESPONSE},
 )
 
@@ -214,7 +226,12 @@ async def _audit_query(
     row_count: int | None = None,
     truncated: bool | None = None,
 ) -> None:
-    """Durably record one sandbox query — success and rejection alike.
+    """Durably record one sandbox-EVALUATED query — success or rejection.
+
+    Called only from inside the handler, after body validation and the rate
+    limiter have passed, so every row here corresponds to a query the sandbox
+    actually parsed and ran or refused. Pre-sandbox rejections are logged by
+    the route class instead (see the module docstring).
 
     Uses ``audit_emit_durable`` (own session, own commit) because this
     endpoint's request session never writes; the audit row must not depend on

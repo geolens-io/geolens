@@ -2800,9 +2800,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # lexical CTE-scope fix landed (codex P1): _is_cte_reference plus its
     # docstring recording the pg_catalog.pg_user restrict_tables bypass it
     # closes, and the table-extraction rewrite that routes every unqualified
-    # reference through it. Most of the added lines are that rationale. Cap set
-    # at the file's exact current size.
-    "backend/app/platform/sandbox/validator.py": 1040,
+    # reference through it. codex P1 r2 then made the resolver honor CTE
+    # declaration order (a later sibling is not yet in scope), which the
+    # ancestor-walk and its rationale account for. Most of the added lines are
+    # that rationale. Cap set at the file's exact current size.
+    "backend/app/platform/sandbox/validator.py": 1067,
 }
 
 
