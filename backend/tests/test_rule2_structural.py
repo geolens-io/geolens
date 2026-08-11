@@ -1761,6 +1761,44 @@ def _positional_targets(targets: list[ast.expr], index: int) -> list[ast.expr] |
     return matched if (saw_sequence and matched) else None
 
 
+def _unpacked_binding(
+    targets: list[ast.expr],
+    chain: list[tuple[int | None, str | None]],
+    container_kind: str | None,
+) -> tuple[set[str], str | None] | None:
+    """Pair the wrappers a literal sits in against the patterns unpacking them.
+
+    ``chain`` lists those wrappers OUTERMOST first, each with the index the
+    value occupies in it and the kind of what is INSIDE it. Every level where
+    some target is a sequence pattern consumes one wrapper and descends; the
+    first level where none is receives whatever is left, at the kind below the
+    last wrapper consumed. Returns None when nothing was unpacked at all, and
+    the caller keeps its plain-assignment answer.
+
+    fix(#1394), codex rounds 11 and 12. Unpacking CONSUMES the wrapper it takes
+    apart, so `alias, = (["gdalinfo", path],)` leaves `alias` holding the
+    vector, and `for part in alias:` then yields strings rather than commands.
+    Handling one level was not enough, because patterns nest as freely as
+    displays do: `((alias,),) = ((["gdalinfo", path],),)` consumes two and
+    lands in the same place, while `(alias,) = ((["gdalinfo", path],),)`
+    consumes one and leaves a container. Counting them one for one is the only
+    answer that covers both without a rule per depth.
+    """
+    current = targets
+    kind = container_kind
+    consumed = False
+    for index, kind_below in chain:
+        if index is None:
+            break
+        nxt = _positional_targets(current, index)
+        if nxt is None:
+            break
+        current, kind, consumed = nxt, kind_below, True
+    if not consumed:
+        return None
+    return {n for target in current for n in _target_names(target)}, kind
+
+
 # Expression wrappers a value passes through without being consumed. A literal
 # inside one is still the value the surrounding statement binds or hands on.
 # Two kinds, and the difference is load-bearing. fix(#996 review): they shared
@@ -1906,11 +1944,12 @@ def _binding_targets(node: ast.AST) -> tuple[set[str], str | None]:
     """
     current: ast.AST = node
     parent = getattr(current, "_rule2_parent", None)
-    index_in_parent: int | None = None
     container_kind: str | None = None
-    # The kind as it was BELOW the wrapper `index_in_parent` names, which is
-    # what a positional unpacking of that wrapper hands its targets.
-    unpacked_kind: str | None = None
+    # Every wrapper climbed, innermost first: the index the value occupies in
+    # it (None when the wrapper is not a positional display) and the kind of
+    # what is INSIDE it. An unpacking pattern consumes these one for one, so
+    # the pairing needs the whole chain, not just its outermost link.
+    chain: list[tuple[int | None, str | None]] = []
     while isinstance(parent, _TRANSPARENT_WRAPPERS):
         # fix(#1394), codex round 8: a VALUE wrapper only carries the value in
         # a position it can evaluate to. `empty = [] if commands else ()` never
@@ -1939,26 +1978,17 @@ def _binding_targets(node: ast.AST) -> tuple[set[str], str | None]:
         if isinstance(parent, _CONTAINER_WRAPPERS) and not starred:
             container_kind = _container_iteration_kind(parent, current)
         if isinstance(parent, (ast.Tuple, ast.List)) and current in parent.elts:
-            index_in_parent = parent.elts.index(current)
-            # fix(#1394), codex round 11: a positional UNPACKING consumes
-            # exactly the wrapper just climbed. `alias, = (["gdalinfo", path],)`
-            # takes the tuple apart, so `alias` is the vector, not a container
-            # of it, and `for part in alias:` then yields strings. Keeping the
-            # wrapper's kind read that loop as handing over a command.
-            unpacked_kind = kind_below
+            chain.append((parent.elts.index(current), kind_below))
         else:
-            index_in_parent = None
-            unpacked_kind = None
+            chain.append((None, kind_below))
         current = parent
         parent = getattr(current, "_rule2_parent", None)
+    chain.reverse()  # outermost first, the order an unpacking consumes them
 
     if isinstance(parent, ast.Assign) and parent.value is current:
-        if index_in_parent is not None:
-            positional = _positional_targets(parent.targets, index_in_parent)
-            if positional is not None:
-                return {
-                    n for target in positional for n in _target_names(target)
-                }, unpacked_kind
+        unpacked = _unpacked_binding(parent.targets, chain, container_kind)
+        if unpacked is not None:
+            return unpacked
         return {
             n for target in parent.targets for n in _target_names(target)
         }, container_kind
@@ -3699,6 +3729,11 @@ def test_guard_positional_unpacking_consumes_the_wrapper():
 
     The control in the middle: ``alias`` is the vector, so spawning it directly
     is still a site — the fix must not turn the unpacking into a dead end.
+
+    codex round 12: patterns nest as freely as displays do, so the wrappers and
+    the patterns are counted one for one. ``((alias,),) = ((argv,),)`` consumes
+    two and lands where the single unpacking does, while ``(alias,) =
+    ((argv,),)`` consumes one and leaves a container — the last two functions.
     """
     violations, total = _collect_gdal_cli_violations(
         _mod(
@@ -3714,14 +3749,23 @@ def test_guard_positional_unpacking_consumes_the_wrapper():
             "    alias, = ((['gdalwarp', path],),)\n"
             "    for cmd in alias:\n"
             "        subprocess.run(cmd)\n"
+            "def nested_pattern(path):\n"
+            "    ((alias,),) = ((['gdaladdo', path],),)\n"
+            "    for part in alias:\n"
+            "        consume(part)\n"
+            "def nested_pattern_half(path):\n"
+            "    (alias,) = ((['gdal_translate', path],),)\n"
+            "    for cmd in alias:\n"
+            "        subprocess.run(cmd)\n"
         ),
         {},
     )
-    assert total == 2, (total, violations)
-    assert len(violations) == 2, violations
-    for reported in ("(spawned)", "(one_deeper)"):
+    assert total == 3, (total, violations)
+    assert len(violations) == 3, violations
+    for reported in ("(spawned)", "(one_deeper)", "(nested_pattern_half)"):
         assert any(reported in v for v in violations), (reported, violations)
-    assert not any("(unpacked)" in v for v in violations), violations
+    for quiet in ("(unpacked)", "(nested_pattern)"):
+        assert not any(quiet in v for v in violations), (quiet, violations)
 
 
 def test_guard_a_sliced_container_is_still_a_container():
