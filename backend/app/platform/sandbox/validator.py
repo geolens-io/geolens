@@ -1092,19 +1092,22 @@ def _source_fanout(source: exp.Expression, memo: _FanoutMemo) -> _FanoutMap:
         # row, and its OUTPUT rows join into the FROM product, so it is a row
         # source like a derived table — `CROSS JOIN LATERAL (SELECT ... FROM
         # data.foo c ...)` beside `data.foo a CROSS JOIN data.foo b` is N^3.
-        # Unwrap to the inner scope; a LATERAL over a table function (not a
-        # scope) opens no base-table cross-join vector.
-        inner = source.this
-        if isinstance(inner, exp.Subquery):
-            inner = inner.this
-        if isinstance(inner, _SCOPE_TYPES):
-            return _rows_fanout(inner, memo)
-        return {}
+        # (Its INTERNAL per-row work is added separately in _work_fanout.)
+        inner = _lateral_inner_scope(source)
+        return _rows_fanout(inner, memo) if inner is not None else {}
     if isinstance(source, exp.Subquery):
         return _rows_fanout(source.this, memo)
     # Anything else in a FROM (VALUES, an allowlisted table function) does not
     # open a base-table cross-join vector; the function/table checks bound it.
     return {}
+
+
+def _lateral_inner_scope(source: exp.Lateral) -> exp.Expression | None:
+    """The SELECT/set-op beneath a LATERAL source, or None for a table function."""
+    inner = source.this
+    if isinstance(inner, exp.Subquery):
+        inner = inner.this
+    return inner if isinstance(inner, _SCOPE_TYPES) else None
 
 
 def _correlated_scopes(select: exp.Select) -> list[exp.Expression]:
@@ -1177,9 +1180,30 @@ def _work_fanout(
 
     out = dict(_rows_fanout(node, rows_memo))
     if isinstance(node, exp.Select):
+        # A correlated projection/predicate subquery runs once per output row;
+        # its rows are NOT already in this SELECT's product, so its whole work
+        # adds.
         for scope in _correlated_scopes(node):
             for base, weight in _work_fanout(scope, work_memo, rows_memo).items():
                 out[base] = min(out.get(base, 0) + weight, _FANOUT_CEILING)
+        # fix(#565 codex P1 r7): a LATERAL source ALSO re-evaluates per outer
+        # row, but its ROWS are already in the product above, so only its
+        # EXCESS work — its own internal correlated/nested-lateral cost beyond
+        # its row count — adds. `LATERAL (SELECT ... WHERE EXISTS (SELECT ...
+        # data.foo c ...))` beside `data.foo a` is N^3 the row count alone
+        # missed.
+        for src in _own_sources(node):
+            if not isinstance(src, exp.Lateral):
+                continue
+            inner = _lateral_inner_scope(src)
+            if inner is None:
+                continue
+            inner_work = _work_fanout(inner, work_memo, rows_memo)
+            inner_rows = _rows_fanout(inner, rows_memo)
+            for base, weight in inner_work.items():
+                excess = weight - inner_rows.get(base, 0)
+                if excess > 0:
+                    out[base] = min(out.get(base, 0) + excess, _FANOUT_CEILING)
     work_memo[key] = out
     return out
 

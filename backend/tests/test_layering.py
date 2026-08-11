@@ -2807,9 +2807,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # per-row term to JOIN ... ON predicates (a join's ON is not a source), and
     # P2 r5 taught _resolve_cte that a WITH can be owned by a set operation, not
     # only a SELECT; P1 r6 unwraps exp.Lateral so a repeated table hidden in a
-    # LATERAL source is costed. Most of the added lines are that rationale. Cap
-    # at the exact size.
-    "backend/app/platform/sandbox/validator.py": 1260,
+    # LATERAL source is costed; P1 r7 adds a LATERAL's own internal per-row work
+    # (its excess over its row count) so a correlated subquery inside a LATERAL
+    # is bounded too. Most of the added lines are that rationale. Cap at the
+    # exact size.
+    "backend/app/platform/sandbox/validator.py": 1284,
 }
 
 

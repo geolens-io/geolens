@@ -372,6 +372,32 @@ async def test_lateral_self_join_is_rejected(
     assert resp.json()["detail"] == _REPETITION_MESSAGE
 
 
+async def test_lateral_with_internal_correlated_subquery_is_rejected(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P1 r7): a LATERAL whose own body runs a correlated
+    subquery over the same table is N^3 — the LATERAL's internal per-row work
+    must be added, not just its row count."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = await _make_table(test_db_session, owner)
+
+    resp = await client.post(
+        "/query/",
+        json={
+            "sql": (
+                f"SELECT a.gid FROM data.{tbl} a CROSS JOIN LATERAL "
+                f"(SELECT b.gid FROM data.{tbl} b WHERE EXISTS "
+                f"(SELECT 1 FROM data.{tbl} c WHERE c.gid = a.gid + b.gid)) x"
+            ),
+            "restrict_tables": [tbl],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == _REPETITION_MESSAGE
+
+
 async def test_lateral_over_other_table_is_allowed(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
