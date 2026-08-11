@@ -590,10 +590,7 @@
     "setPrimary": "{{name}} als primär festlegen",
     "currentPrimary": "{{name}} ist die primäre Distribution",
     "primaryUpdated": "Primäre Distribution aktualisiert.",
-    "setPrimaryFailed": "Primäre Distribution konnte nicht festgelegt werden.",
-    "clearPrimary": "Primärstatus von {{name}} entfernen",
-    "primaryCleared": "Primärstatus entfernt. Die Standarddistribution wird bei der nächsten Aktualisierung wiederhergestellt.",
-    "clearPrimaryFailed": "Primäre Distribution konnte nicht entfernt werden."
+    "setPrimaryFailed": "Primäre Distribution konnte nicht festgelegt werden."
   },
   "publish": {
     "publish": "Veröffentlichen",

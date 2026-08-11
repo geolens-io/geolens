@@ -541,10 +541,7 @@
     "setPrimary": "Set {{name}} as primary",
     "currentPrimary": "{{name}} is the primary distribution",
     "primaryUpdated": "Primary distribution updated.",
-    "setPrimaryFailed": "Failed to set primary distribution.",
-    "clearPrimary": "Clear primary status from {{name}}",
-    "primaryCleared": "Primary status cleared. The default distribution will be restored on the next refresh.",
-    "clearPrimaryFailed": "Failed to clear primary distribution."
+    "setPrimaryFailed": "Failed to set primary distribution."
   },
   "publish": {
     "publish": "Publish",

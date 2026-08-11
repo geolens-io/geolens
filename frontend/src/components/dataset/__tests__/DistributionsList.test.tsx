@@ -2,7 +2,6 @@ import { fireEvent, render, screen } from '@/test/test-utils';
 import {
   useDistributions,
   useSetPrimaryDistribution,
-  useClearPrimaryDistribution,
 } from '@/components/dataset/hooks/use-records';
 import { useTileConfig } from '@/hooks/use-settings';
 import { resolveDistributionUrl } from '@/lib/dataset-access';
@@ -14,7 +13,6 @@ import {
 vi.mock('@/components/dataset/hooks/use-records', () => ({
   useDistributions: vi.fn(),
   useSetPrimaryDistribution: vi.fn(),
-  useClearPrimaryDistribution: vi.fn(),
 }));
 
 vi.mock('@/hooks/use-settings', () => ({
@@ -23,10 +21,8 @@ vi.mock('@/hooks/use-settings', () => ({
 
 const mockUseDistributions = vi.mocked(useDistributions);
 const mockUseSetPrimaryDistribution = vi.mocked(useSetPrimaryDistribution);
-const mockUseClearPrimaryDistribution = vi.mocked(useClearPrimaryDistribution);
 const mockUseTileConfig = vi.mocked(useTileConfig);
 const mutate = vi.fn();
-const clearMutate = vi.fn();
 
 /** A manual, non-primary "Viewer App" row alongside the three generated ones
  * used throughout this file — the only shape #1395's control can act on. */
@@ -90,17 +86,11 @@ describe('DistributionsList', () => {
       },
     } as ReturnType<typeof useTileConfig>);
     mutate.mockReset();
-    clearMutate.mockReset();
     mockUseSetPrimaryDistribution.mockReturnValue({
       mutate,
       isPending: false,
       variables: undefined,
     } as unknown as ReturnType<typeof useSetPrimaryDistribution>);
-    mockUseClearPrimaryDistribution.mockReturnValue({
-      mutate: clearMutate,
-      isPending: false,
-      variables: undefined,
-    } as unknown as ReturnType<typeof useClearPrimaryDistribution>);
   });
 
   it('maps backend distribution types into stable UI groups', () => {
@@ -365,93 +355,6 @@ describe('DistributionsList', () => {
 
       fireEvent.click(buttons[1]);
       expect(mutate).toHaveBeenCalledWith('mirror-2');
-    });
-  });
-
-  // fix(#1395 codex round 3): a way back once a manual row has claimed
-  // is_primary — update_distribution rejects any write against an
-  // auto_generated row, so there is no "promote the GeoPackage again" PATCH.
-  describe('clear-primary control', () => {
-    // "Cover Sheet" is the current manual primary; "Backup Mirror" is a
-    // second manual, non-primary row used to test cross-mutation disabling.
-    const DISTRIBUTIONS_WITH_MANUAL_PRIMARY = [
-      {
-        ...DISTRIBUTIONS_WITH_MANUAL_ROW[0],
-        is_primary: false, // the manual row demoted the generated GeoPackage
-      },
-      DISTRIBUTIONS_WITH_MANUAL_ROW[1],
-      {
-        id: 'cover-1',
-        record_id: 'record-1',
-        distribution_type: 'webApp',
-        format: 'html',
-        url: 'https://example.com/cover',
-        title: 'Cover Sheet',
-        description: null,
-        protocol: 'HTTPS',
-        media_type: 'text/html',
-        is_primary: true,
-        auto_generated: false,
-      },
-      {
-        id: 'backup-1',
-        record_id: 'record-1',
-        distribution_type: 'offlineAccess',
-        format: 'zip',
-        url: 'https://example.com/backup.zip',
-        title: 'Backup Mirror',
-        description: null,
-        protocol: 'HTTPS',
-        media_type: 'application/zip',
-        is_primary: false,
-        auto_generated: false,
-      },
-    ];
-
-    beforeEach(() => {
-      mockUseDistributions.mockReturnValue({
-        data: { distributions: DISTRIBUTIONS_WITH_MANUAL_PRIMARY, total: 4 },
-        isLoading: false,
-      } as unknown as ReturnType<typeof useDistributions>);
-    });
-
-    it('is not rendered for a reader', () => {
-      render(<DistributionsList recordId="record-1" />);
-
-      expect(screen.queryByRole('button', { name: /clear primary/i })).not.toBeInTheDocument();
-    });
-
-    it('renders only on the currently-primary manual row, for an owner', () => {
-      render(<DistributionsList recordId="record-1" canEdit />);
-
-      expect(screen.getAllByRole('button', { name: /clear primary/i })).toHaveLength(1);
-      expect(
-        screen.getByRole('button', { name: 'Clear primary status from Cover Sheet (cover-1)' }),
-      ).toBeInTheDocument();
-    });
-
-    it('PATCHes is_primary: false for the clicked row', () => {
-      render(<DistributionsList recordId="record-1" canEdit />);
-
-      fireEvent.click(screen.getByRole('button', { name: /clear primary/i }));
-
-      expect(clearMutate).toHaveBeenCalledTimes(1);
-      expect(clearMutate).toHaveBeenCalledWith('cover-1');
-    });
-
-    // fix(#1395 codex round 3): a set-primary and a clear-primary PATCH must
-    // not be free to race each other any more than two set-primary clicks are.
-    it('disables both its own control and sibling set-primary controls while a clear is in flight', () => {
-      mockUseClearPrimaryDistribution.mockReturnValue({
-        mutate: clearMutate,
-        isPending: true,
-        variables: 'cover-1',
-      } as unknown as ReturnType<typeof useClearPrimaryDistribution>);
-
-      render(<DistributionsList recordId="record-1" canEdit />);
-
-      expect(screen.getByRole('button', { name: /clear primary/i })).toBeDisabled();
-      expect(screen.getByRole('button', { name: /^Set Backup Mirror/ })).toBeDisabled();
     });
   });
 });

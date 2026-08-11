@@ -590,10 +590,7 @@
     "setPrimary": "Establecer {{name}} como primario",
     "currentPrimary": "{{name}} es la distribución primaria",
     "primaryUpdated": "Distribución primaria actualizada.",
-    "setPrimaryFailed": "No se pudo establecer la distribución primaria.",
-    "clearPrimary": "Quitar el estado primario de {{name}}",
-    "primaryCleared": "Estado primario eliminado. La distribución predeterminada se restaurará en la próxima actualización.",
-    "clearPrimaryFailed": "No se pudo quitar la distribución primaria."
+    "setPrimaryFailed": "No se pudo establecer la distribución primaria."
   },
   "publish": {
     "publish": "Publicar",
