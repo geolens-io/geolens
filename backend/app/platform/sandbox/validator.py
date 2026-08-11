@@ -7,6 +7,8 @@ against the user's RBAC-visible datasets.
 
 from __future__ import annotations
 
+import re
+
 import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +22,34 @@ from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Re
 from app.platform.sandbox.schemas import SandboxError, ValidatedQuery
 
 logger = structlog.stdlib.get_logger(__name__)
+
+# PostgreSQL OID / OID-alias types. The ``reg*`` family resolves an integer OID
+# to a catalog NAME (role, relation, namespace, function, type…); ``oid`` and
+# the other system column types have no legitimate use in a read-only analytics
+# query over ``data.*`` tables and are the building blocks of ``::oid::regrole``
+# chains, so the whole family is rejected (fix(#565 codex P1 r11/r12)).
+_OID_ALIAS_TYPES: frozenset[str] = frozenset(
+    {
+        "oid",
+        "regrole",
+        "regclass",
+        "regnamespace",
+        "regproc",
+        "regprocedure",
+        "regoper",
+        "regoperator",
+        "regtype",
+        "regconfig",
+        "regdictionary",
+        "regcollation",
+        "xid",
+        "xid8",
+        "cid",
+        "tid",
+    }
+)
+
+_IDENTIFIER_TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 # ---------------------------------------------------------------------------
 # Defense-in-depth: always denied regardless of allowlist membership.
@@ -824,15 +854,20 @@ def _reject_oid_alias_casts(stmt: exp.Expression, sql: str) -> None:
     integer OID to a catalog name — ``SELECT v::regrole FROM data.foo CROSS
     JOIN (VALUES (10), (16384)) AS x(v)`` reads database role names without
     referencing any catalog table, the same disclosure the CTE-scope fixes
-    close from the other direction. sqlglot models every OID-family cast target
-    (``regrole``, ``regclass``, ``regnamespace``, ``regproc``, ``regtype``,
-    ``oid``, …) as ``exp.ObjectIdentifier`` rather than ``exp.DataType``, so
-    rejecting that node type rejects the whole family. These types have no
-    legitimate use in a read-only analytics query over ``data.*`` tables.
+    close from the other direction.
+
+    fix(#565 codex P1 r12): match by the NORMALIZED type NAME, not the node
+    type. A bare ``regrole`` parses as ``exp.ObjectIdentifier`` but a
+    schema-qualified ``pg_catalog.regrole`` parses as a USER-DEFINED
+    ``exp.DataType``, so a node-type check missed the qualified spelling. The
+    rendered target's identifier tokens are checked against the OID-alias set
+    instead, which catches every spelling. Normal types (``int``, ``text``,
+    ``numeric(10,2)``, a user enum) never render one of these tokens.
     """
     for cast in stmt.find_all(exp.Cast):
-        if isinstance(cast.to, exp.ObjectIdentifier):
-            logger.info("sandbox.oid_alias_cast", sql=sql, target=cast.to.name.lower())
+        rendered = cast.to.sql(dialect="postgres").lower()
+        if set(_IDENTIFIER_TOKEN_RE.findall(rendered)) & _OID_ALIAS_TYPES:
+            logger.info("sandbox.oid_alias_cast", sql=sql, target=rendered)
             raise SandboxError("invalid_query", "Query uses a disallowed type cast")
 
 
@@ -999,10 +1034,17 @@ def _resolve_cte(table: exp.Table) -> exp.CTE | None:
     A schema-qualified name (``data.foo``, ``pg_catalog.pg_user``) is never a
     CTE reference. Returns None when the name does not resolve to an in-scope
     CTE, so the reference is treated as a real table (fail-closed).
+
+    fix(#565 codex P1 r12): identifiers are matched with PostgreSQL case
+    folding — an UNQUOTED name folds to lowercase, a QUOTED one keeps its case.
+    ``WITH "PG_USER" AS (...) SELECT FROM PG_USER`` does NOT bind: the quoted
+    CTE is ``PG_USER`` while the unquoted reference folds to ``pg_user``, which
+    PostgreSQL then resolves to the ``pg_catalog.pg_user`` view — so the
+    reference must stay unresolved and fall through to the data.* check.
     """
     if table.db:
         return None
-    name = table.name
+    target = _folded_identifier(table.this)
     child: exp.Expression = table
     node = table.parent
     while node is not None:
@@ -1015,7 +1057,7 @@ def _resolve_cte(table: exp.Table) -> exp.CTE | None:
             idx = next((i for i, c in enumerate(ctes) if c is child), None)
             if idx is not None:
                 for c in reversed(ctes[:idx]):
-                    if c.alias == name:
+                    if _folded_cte_alias(c) == target:
                         return c
         elif isinstance(node, _SCOPE_TYPES):
             # The WITH is a child of its owner scope under a sqlglot arg key
@@ -1034,11 +1076,29 @@ def _resolve_cte(table: exp.Table) -> exp.CTE | None:
             # node — that path is handled above) sees every CTE it declares.
             if with_clause is not None and child is not with_clause:
                 for c in with_clause.expressions:
-                    if isinstance(c, exp.CTE) and c.alias == name:
+                    if isinstance(c, exp.CTE) and _folded_cte_alias(c) == target:
                         return c
         child = node
         node = node.parent
     return None
+
+
+def _folded_identifier(identifier: exp.Expression | None) -> str | None:
+    """A PostgreSQL-folded identifier: unquoted → lowercase, quoted → verbatim.
+
+    Returns None when the identifier is absent, so an unresolvable reference
+    fails closed rather than matching a folded empty string.
+    """
+    if not isinstance(identifier, exp.Identifier):
+        return None
+    return identifier.name if identifier.quoted else identifier.name.lower()
+
+
+def _folded_cte_alias(cte: exp.CTE) -> str | None:
+    """The folded alias of a CTE, honoring quoting on its ``AS name``."""
+    alias = cte.args.get("alias")
+    ident = alias.this if isinstance(alias, exp.TableAlias) else None
+    return _folded_identifier(ident)
 
 
 def _is_cte_reference(table: exp.Table) -> bool:
@@ -1224,21 +1284,26 @@ def _add_source_excess(
     rows-only let ``a p CROSS JOIN a q`` over a CTE with a correlated scan slip
     the bound; propagating its excess treats every reference as inlined, the
     worst case.
+
+    fix(#565 codex P1 r12): an ordinary derived table (a subquery in FROM/JOIN)
+    is the same worst case — PostgreSQL can FLATTEN it, pulling its correlated
+    subquery up to run per outer row, so ``(SELECT x.gid, (correlated) n FROM
+    foo x) p CROSS JOIN foo q`` is N^3. Its excess propagates like a CTE's.
     """
     work: _FanoutMap
     rows: _FanoutMap
+    inner_scope: exp.Expression | None = None
     if isinstance(source, exp.Table):
         cte = _resolve_cte(source)
-        if cte is None or not isinstance(cte.this, _SCOPE_TYPES):
-            return
-        work = _work_fanout(cte.this, wm, rm)
-        rows = _rows_fanout(cte.this, rm)
+        inner_scope = cte.this if cte is not None else None
     elif isinstance(source, exp.Lateral):
-        inner = _lateral_inner_scope(source)
-        if inner is None:
-            return
-        work = _work_fanout(inner, wm, rm)
-        rows = _rows_fanout(inner, rm)
+        inner_scope = _lateral_inner_scope(source)
+    elif isinstance(source, exp.Subquery) and isinstance(source.this, _SCOPE_TYPES):
+        inner_scope = source.this
+
+    if inner_scope is not None and isinstance(inner_scope, _SCOPE_TYPES):
+        work = _work_fanout(inner_scope, wm, rm)
+        rows = _rows_fanout(inner_scope, rm)
     else:
         head = _group_head(source)
         if head is None:

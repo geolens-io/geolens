@@ -209,6 +209,83 @@ async def test_regrole_oid_cast_is_rejected(
     assert "regrole" not in resp.text
 
 
+async def test_schema_qualified_oid_cast_is_rejected(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P1 r12): qualifying the alias type (pg_catalog.regrole)
+    changes its AST class from ObjectIdentifier to a USER-DEFINED DataType —
+    the name-based check must still reject it."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = await _make_table(test_db_session, owner)
+
+    resp = await client.post(
+        "/query/",
+        json={
+            "sql": (
+                f"SELECT v::pg_catalog.regrole FROM data.{tbl} "
+                "CROSS JOIN (VALUES (10), (16384)) AS x(v)"
+            ),
+            "restrict_tables": [tbl],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "Query uses a disallowed type cast"
+
+
+async def test_quoted_cte_name_cannot_mask_a_catalog_table(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P1 r12): a quoted uppercase CTE name does not bind an
+    unquoted reference — PostgreSQL folds the reference to lowercase, which
+    resolves to the catalog view, so it must fall through to the data.* check."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = await _make_table(test_db_session, owner)
+
+    resp = await client.post(
+        "/query/",
+        json={
+            "sql": (
+                f'WITH "PG_USER" AS (SELECT gid FROM data.{tbl}) '
+                "SELECT usename FROM PG_USER"
+            ),
+            "restrict_tables": [tbl],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Table not accessible"
+    assert "usename" not in resp.text
+
+
+async def test_derived_table_correlated_work_is_rejected(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P1 r12): an ordinary derived table with a correlated scan
+    can be flattened by PostgreSQL to run per outer row — N^3 — so its excess
+    work must propagate like a CTE's or a LATERAL's."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = await _make_table(test_db_session, owner)
+
+    resp = await client.post(
+        "/query/",
+        json={
+            "sql": (
+                f"SELECT p.n + q.gid FROM (SELECT x.gid, "
+                f"(SELECT count(*) FROM data.{tbl} y WHERE y.gid + x.gid IS NOT NULL) n "
+                f"FROM data.{tbl} x) p CROSS JOIN data.{tbl} q"
+            ),
+            "restrict_tables": [tbl],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == _REPETITION_MESSAGE
+
+
 async def test_out_of_scope_cte_name_cannot_mask_a_catalog_table(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
