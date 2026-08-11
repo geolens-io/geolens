@@ -1624,19 +1624,21 @@ def _is_value_position(current: ast.AST, parent: ast.AST) -> bool:
 def _intact_loop_target(target: ast.expr) -> ast.expr | None:
     """The part of a loop target that receives an element WHOLE, or None.
 
-    A plain name or path receives it intact. So does an ALL-CONSUMING star
-    (codex round 7 on #1394): ``for *cmd, in commands:`` binds ``cmd`` to
-    ``list(element)``, the vector rebuilt, and rejecting it with the rest of
-    the patterns hid a real argv.
+    A plain name or path receives it intact. So does a LEADING star, which is
+    the thing that decides this: ``for *cmd, in commands:`` binds ``cmd`` to
+    ``list(element)``, the vector rebuilt (codex round 7), and ``for *cmd,
+    ignored in commands:`` binds it to everything but the tail — still an argv,
+    because it still starts with the tool name (codex round 17). Both were
+    rejected with the rest of the patterns, and both hid a real command.
 
     Ordinary positional destructuring gets nothing (codex round 2):
     ``for tool, arg in commands:`` splits the vector into strings. Neither does
-    a PARTIAL star, ``for tool, *rest in commands:`` — ``rest`` is a suffix of
-    the argv, which is not a GDAL-headed command and would be judged against
-    the wrong tool if it were treated as one.
+    a star anywhere but first, ``for tool, *rest in commands:`` — ``rest`` is a
+    SUFFIX of the argv, which has no GDAL head and would be judged against the
+    wrong tool if it were treated as a command.
     """
     if isinstance(target, (ast.Tuple, ast.List)):
-        if len(target.elts) == 1 and isinstance(target.elts[0], ast.Starred):
+        if target.elts and isinstance(target.elts[0], ast.Starred):
             return target.elts[0].value
         return None
     return target
@@ -3624,13 +3626,17 @@ def test_guard_destructuring_loop_target_does_not_receive_the_argv():
     assert violations == []
 
 
-def test_guard_an_all_consuming_star_target_rebuilds_the_argv():
-    """fix(#1394), codex round 7: one pattern is not destructuring.
+def test_guard_a_leading_star_target_keeps_the_argv():
+    """fix(#1394), codex rounds 7 and 17: a LEADING star is not destructuring.
 
     ``for *cmd, in commands:`` binds ``cmd`` to ``list(element)`` — the vector,
-    whole. Rejecting it with the ordinary positional patterns hid a real argv,
-    the direction that matters. Both spellings of the container, and the
-    ``[*cmd]`` spelling of the target.
+    whole — and ``for *cmd, ignored in commands:`` binds it to everything but
+    the tail, still a command because it still starts with the tool name.
+    Rejecting either with the ordinary positional patterns hid a real argv, the
+    direction that matters.
+
+    A star anywhere else is a suffix and keeps getting nothing, which the
+    sibling destructuring test pins.
     """
     violations, total = _collect_gdal_cli_violations(
         _mod(
@@ -3646,12 +3652,25 @@ def test_guard_an_all_consuming_star_target_rebuilds_the_argv():
             "    commands = [['gdalwarp', path]]\n"
             "    for [*cmd] in commands:\n"
             "        subprocess.run(cmd)\n"
+            "def leading_star(path):\n"
+            "    commands = [('gdaladdo', path, None)]\n"
+            "    for *cmd, ignored in commands:\n"
+            "        subprocess.run(cmd)\n"
+            "def leading_star_inline(path):\n"
+            "    for *cmd, ignored in [('gdal_translate', path, None)]:\n"
+            "        subprocess.run(cmd)\n"
         ),
         {},
     )
-    assert total == 3, (total, violations)
-    assert len(violations) == 3, violations
-    for name in ("(named)", "(inline)", "(bracketed)"):
+    assert total == 5, (total, violations)
+    assert len(violations) == 5, violations
+    for name in (
+        "(named)",
+        "(inline)",
+        "(bracketed)",
+        "(leading_star)",
+        "(leading_star_inline)",
+    ):
         assert any(name in v for v in violations), (name, violations)
 
 
