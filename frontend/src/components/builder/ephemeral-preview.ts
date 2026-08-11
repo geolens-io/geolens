@@ -46,6 +46,9 @@ export interface PreviewSaveInput {
   truncated?: boolean;
   /** How many features the client actually holds. */
   featureCount: number;
+  /** fix(#793 review): the producer that stamped this preview, when it was not
+   *  the chat (today only 'analysis-panel'). */
+  source?: string;
 }
 
 /**
@@ -60,18 +63,26 @@ export interface PreviewSaveInput {
  * nothing about what it would save; blocking it there would remove a working
  * path for no reason.
  *
- * `canUpload` gates the snapshot path only, for the same reason: it is the one
- * that needs the caller's own `upload` capability (POST /ingest/*).
+ * `canSaveDataset` gates the snapshot path only, for the same reason: it is the
+ * one that turns client-held data into a dataset (POST /ingest/*).
  */
 export function previewSaveMode(
   result: PreviewSaveInput | null | undefined,
-  canUpload: boolean,
+  canSaveDataset: boolean,
 ): PreviewSaveMode {
   if (!result) return 'none';
   if (result.analysis) return 'analysis';
+  // feat(#1241 codex r2): only a preview the CHAT produced is snapshottable.
+  // A stamped source means another surface drew this overlay and owns its own
+  // save (the Analysis panel's Create dataset, which materializes the whole
+  // operation server-side); its preview is also bbox-scoped, so snapshotting
+  // it would persist whatever the map happened to be looking at as the result.
+  // Allowlist rather than blocklist, so a future producer is excluded by
+  // default instead of silently inheriting this path.
+  if (result.source) return 'none';
   // A snapshot of nothing is not a dataset — an empty result offers no save
   // (and would only earn a 422 from the ingest preview if it did).
-  if (!canUpload || result.featureCount < 1) return 'none';
+  if (!canSaveDataset || result.featureCount < 1) return 'none';
   return result.truncated ? 'truncated' : 'snapshot';
 }
 

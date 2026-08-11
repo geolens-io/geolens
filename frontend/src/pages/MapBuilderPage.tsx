@@ -145,12 +145,21 @@ export function MapBuilderPage() {
 
   const { isAIAvailable: aiAvailable } = useAIAvailability();
   // feat(#1241): saving a chat preview creates a dataset through POST
-  // /ingest/*, which needs the caller's own `upload` capability — the map's
-  // edit rights say nothing about it. can() is false while the query is in
-  // flight, which is the safe way round: the affordance appears once the
-  // capability is known rather than 403ing after the user has named a dataset.
+  // /ingest/*, which needs the caller's own `upload` capability. The map's edit
+  // rights say nothing about it. can() is false while the query is in flight,
+  // which is the safe way round: the affordance appears once the capability is
+  // known rather than 403ing after the user has named a dataset.
+  //
+  // feat(#1241 codex r2): `export` as well. The snapshot hands the caller a
+  // durable, caller-owned copy of source attributes they may only be able to
+  // READ, which is exactly why analysis materialize requires both (fix(#692),
+  // `require_permission("upload", "export")` in
+  // backend/app/modules/catalog/datasets/api/router_analysis.py). The ingest
+  // endpoints ask only for `upload` because their file normally comes from the
+  // caller's own machine; this one's does not, so the client must not offer a
+  // path around that boundary under a customized role matrix.
   const { can } = usePermissions();
-  const canUpload = can('upload');
+  const canSaveDataset = can('upload') && can('export');
   useDocumentTitle(mapData?.name ?? t('common:pageTitle.mapBuilder'));
 
   // Three-column layout: isRail (sidebar→64px at <1100px), isEditorHidden (flyout hidden at <800px)
@@ -992,7 +1001,7 @@ export function MapBuilderPage() {
     const featureCount = result.geojson.features.length;
     // feat(#1241): which save (if any) this preview earns — the truncation
     // guard and the upload-capability gate both live in previewSaveMode.
-    const saveMode = previewSaveMode({ ...result, featureCount }, canUpload);
+    const saveMode = previewSaveMode({ ...result, featureCount }, canSaveDataset);
     return {
       featureCount,
       truncated: result.truncated,
@@ -1007,7 +1016,7 @@ export function MapBuilderPage() {
           : undefined,
       saveDisabledReason: saveMode === 'truncated' ? ('truncated' as const) : undefined,
     };
-  }, [layers.ephemeralResult, layers.handleDismissEphemeral, canUpload, handleSaveAnalysisPreview, handleSaveChatPreview]);
+  }, [layers.ephemeralResult, layers.handleDismissEphemeral, canSaveDataset, handleSaveAnalysisPreview, handleSaveChatPreview]);
 
   // ux(#772): stack-row kebab "Analyze this layer" — the same handoff path the
   // chat preview uses, so the panel opens (or remounts, via the prefill nonce

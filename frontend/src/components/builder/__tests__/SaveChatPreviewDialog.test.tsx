@@ -152,6 +152,43 @@ describe('SaveChatPreviewDialog', () => {
     expect(commitImport).not.toHaveBeenCalled();
   });
 
+  // feat(#1241 codex r2): the commit chain has three server steps and the
+  // dialog stays open when one fails. Re-uploading on retry strands the first
+  // staged job, and if a commit was accepted with only its response lost, a
+  // fresh job would queue a SECOND dataset from the same answer. Resuming puts
+  // the retry back on the job the server already has, where a repeat commit is
+  // refused rather than duplicated.
+  it('resumes the staged job on retry instead of uploading again', async () => {
+    commitImport.mockRejectedValueOnce(new ApiError('Service unavailable', 503));
+    renderDialog();
+
+    submit();
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+
+    submit();
+    await waitFor(() => expect(commitImport).toHaveBeenCalledTimes(2));
+    expect(uploadFile).toHaveBeenCalledTimes(1);
+    // The payload was already validated by the first preview; the retry picks
+    // up at the step that failed.
+    expect(previewFile).toHaveBeenCalledTimes(1);
+    expect(commitImport.mock.calls.every(([jobId]) => jobId === 'job-1')).toBe(true);
+    expect(toastSuccess).toHaveBeenCalled();
+  });
+
+  it('re-runs only the failed step when the preview is what failed', async () => {
+    previewFile.mockRejectedValueOnce(new ApiError('Unable to preview file.', 422));
+    renderDialog();
+
+    submit();
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(commitImport).not.toHaveBeenCalled();
+
+    submit();
+    await waitFor(() => expect(commitImport).toHaveBeenCalled());
+    expect(uploadFile).toHaveBeenCalledTimes(1);
+    expect(previewFile).toHaveBeenCalledTimes(2);
+  });
+
   it('uploads once when the submit button is double-clicked', async () => {
     renderDialog();
     const button = screen.getByRole('button', { name: /import dataset/i });

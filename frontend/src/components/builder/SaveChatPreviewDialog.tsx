@@ -9,7 +9,7 @@
 // This is a SNAPSHOT — a saved answer, frozen at save time, not a live query.
 // The dialog says so, because the resulting dataset is indistinguishable from
 // any other once it lands.
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { ApiError } from '@/api/client';
@@ -70,6 +70,14 @@ export function SaveChatPreviewDialog({
 }: SaveChatPreviewDialogProps) {
   const { t } = useTranslation('builder');
   const [isCommitting, setIsCommitting] = useState(false);
+  // feat(#1241 codex r2): the staged job survives a failed attempt, so a retry
+  // resumes the chain instead of restarting it. Re-uploading would leave the
+  // first job staged with nothing pointing at it, and worse: if a commit was
+  // accepted and only its response was lost, a fresh job would queue a second
+  // dataset from the same answer. Resuming puts that retry back on the job the
+  // server already has, where a repeat commit is refused ("Job already
+  // processed") instead of duplicating.
+  const stagedRef = useRef<{ jobId: string; previewed: boolean } | null>(null);
 
   const fileName = chatPreviewFileName(prompt, t('savePreview.fallbackTitle'));
 
@@ -77,15 +85,24 @@ export function SaveChatPreviewDialog({
     if (isCommitting) return;
     setIsCommitting(true);
     try {
-      const file = new File([JSON.stringify(geojson)], fileName, {
-        type: 'application/geo+json',
-      });
-      const { job_id } = await uploadFile(file);
-      // Not skippable: preview is where a payload too large for the ingest
-      // budget, or one the server cannot read, is rejected with an actionable
-      // message — before a job is queued and a half-made dataset exists.
-      await previewFile(job_id);
-      await commitImport(job_id, metadata);
+      if (!stagedRef.current) {
+        const file = new File([JSON.stringify(geojson)], fileName, {
+          type: 'application/geo+json',
+        });
+        const { job_id } = await uploadFile(file);
+        stagedRef.current = { jobId: job_id, previewed: false };
+      }
+      const staged = stagedRef.current;
+      if (!staged.previewed) {
+        // Not skippable: preview is where a payload too large for the ingest
+        // budget, or one the server cannot read, is rejected with an
+        // actionable message, before a job is queued and a half-made dataset
+        // exists. Recorded so a retry after a commit failure does not re-run
+        // it (the job is already validated).
+        await previewFile(staged.jobId);
+        staged.previewed = true;
+      }
+      await commitImport(staged.jobId, metadata);
       toast.success(t('savePreview.started'));
       onOpenChange(false);
     } catch (err) {

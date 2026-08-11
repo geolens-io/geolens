@@ -46,4 +46,21 @@ describe('previewSaveMode', () => {
   it('offers no snapshot of an empty result', () => {
     expect(previewSaveMode({ featureCount: 0 }, true)).toBe('none');
   });
+
+  // feat(#1241 codex r2): an Analysis-panel preview carries `source` but no
+  // `analysis` (that field marks a CHAT run_analysis handoff), so a mode
+  // decided on `analysis` alone classified it as a chat snapshot and offered
+  // the ingest dialog beside the panel's own Create dataset. Its preview is
+  // bbox-scoped too, so the snapshot would persist whatever the map was
+  // looking at rather than the operation's result.
+  it('leaves an Analysis-panel preview to the panel that drew it', () => {
+    expect(previewSaveMode({ featureCount: 240, source: 'analysis-panel' }, true)).toBe('none');
+    expect(
+      previewSaveMode({ featureCount: 240, source: 'analysis-panel', truncated: true }, true),
+    ).toBe('none');
+  });
+
+  it('excludes any stamped producer, not just the one that exists today', () => {
+    expect(previewSaveMode({ featureCount: 240, source: 'some-future-panel' }, true)).toBe('none');
+  });
 });
