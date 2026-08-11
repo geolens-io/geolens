@@ -172,6 +172,13 @@ _QUERY_BLOCKED_FUNCTIONS: frozenset[str] = frozenset(
 # Generous enough for real lookup lists; the fan-out cap bounds the cross-join.
 _QUERY_MAX_VALUES_ROWS = 256
 
+# fix(#565 codex P1 r20): repeated plain projections need no function to amplify
+# — SELECT payload, payload, ... (1600x) FROM foo LIMIT 1 fits under the SQL cap
+# and materializes a gigabyte-wide row. Cap output columns, and cap the total
+# serialized response so a wide DATA cell (no function involved) is bounded too.
+_QUERY_MAX_OUTPUT_COLUMNS = 100
+_QUERY_MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+
 
 def _capacity_bound() -> int:
     """Max concurrent sandbox queries this endpoint admits (#565 codex P1 r11).
@@ -395,9 +402,10 @@ async def sandbox_query_endpoint(
             release_session=True,
             capacity_semaphore=_query_slots,
             # Raw-surface guards against output/cardinality amplification
-            # (#565 codex P1 r17).
+            # (#565 codex P1 r17/r20).
             extra_blocked_functions=_QUERY_BLOCKED_FUNCTIONS,
             max_values_rows=_QUERY_MAX_VALUES_ROWS,
+            max_output_columns=_QUERY_MAX_OUTPUT_COLUMNS,
         )
     except SandboxError as exc:
         # Only the sanitized message and the category-mapped status leave the
@@ -413,22 +421,32 @@ async def sandbox_query_endpoint(
     await _audit_query(
         request, user, body, row_count=result.row_count, truncated=result.truncated
     )
-    # fix(#565 codex P2 r15): a bytea / bytea[] column comes back from the
-    # driver as raw bytes, which Pydantic's JSON serializer treats as UTF-8 and
-    # 500s on for arbitrary byte sequences — after the success was already
-    # audited. Encode binary cells as \x-hex, matching to_jsonb / the analysis
-    # endpoint's _json_safe, so the same column reads the same everywhere.
+    # fix(#565 codex P2 r15/r20): driver types Pydantic cannot serialize turn a
+    # successful, already-audited query into a 500. Normalize each cell — bytea
+    # to \x-hex (matching to_jsonb), asyncpg ranges to text — recursively.
     result.rows = [[_json_safe(cell) for cell in row] for row in result.rows]
+    # fix(#565 codex P1 r20): a wide DATA cell (or a projection the column cap
+    # let through) can still make one row gigabytes. Bound the serialized
+    # response so the API and the client never materialize an unbounded body.
+    total = sum(len(str(cell)) for row in result.rows for cell in row)
+    if total > _QUERY_MAX_RESPONSE_BYTES:
+        await _audit_query(request, user, body, category="response_too_large")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Query result is too large to return",
+        )
     return result
 
 
 def _json_safe(value: object) -> object:
-    """Make one result cell JSON-serializable (binary → ``\\x``-hex), recursive.
+    """Make one result cell JSON-serializable, recursive.
 
     Mirrors ``service_analysis._json_safe`` — duplicated because ``processing/``
-    may not import ``modules.catalog``. Recurses into containers so a
-    ``bytea[]`` array of bytes becomes an array of hex strings; scalar driver
-    types Pydantic serializes natively (datetime, Decimal, UUID) pass through.
+    may not import ``modules.catalog``. Encodes bytea as ``\\x``-hex (matching
+    to_jsonb) and asyncpg ranges (``int4range``, ``tsrange``, …) as their text
+    form, which Pydantic cannot serialize natively (fix(#565 codex P2 r20)).
+    Recurses into containers; scalar driver types Pydantic handles (datetime,
+    Decimal, UUID) pass through.
     """
     if isinstance(value, (bytes, bytearray, memoryview)):
         return "\\x" + bytes(value).hex()
@@ -436,4 +454,28 @@ def _json_safe(value: object) -> object:
         return [_json_safe(v) for v in value]
     if isinstance(value, dict):
         return {k: _json_safe(v) for k, v in value.items()}
+    if _is_pg_range(value):
+        return _range_to_text(value)
     return value
+
+
+def _is_pg_range(value: object) -> bool:
+    """Whether ``value`` is an asyncpg range (duck-typed to avoid the import)."""
+    return (
+        hasattr(value, "lower")
+        and hasattr(value, "upper")
+        and hasattr(value, "lower_inc")
+        and hasattr(value, "upper_inc")
+        and hasattr(value, "isempty")
+    )
+
+
+def _range_to_text(value) -> str:
+    """PostgreSQL text form of an asyncpg range, e.g. ``[1,3)`` or ``empty``."""
+    if value.isempty:
+        return "empty"
+    lower = "" if value.lower is None else value.lower
+    upper = "" if value.upper is None else value.upper
+    left = "[" if value.lower_inc else "("
+    right = "]" if value.upper_inc else ")"
+    return f"{left}{lower},{upper}{right}"

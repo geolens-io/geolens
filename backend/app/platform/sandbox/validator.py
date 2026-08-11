@@ -838,6 +838,45 @@ def _reject_nested_mutation(stmt: exp.Expression, sql: str) -> None:
         raise SandboxError("invalid_query", "Only SELECT queries are allowed")
 
 
+def _reject_too_many_output_columns(
+    stmt: exp.Expression, sql: str, cap: int | None
+) -> None:
+    """Reject a statement projecting more than ``cap`` output columns.
+
+    fix(#565 codex P1 r20): repeated plain projections amplify response width
+    without any function — ``SELECT payload, payload, … 1600x``. The result's
+    columns are the outermost scope's projections (a set op's branches must
+    match, so the first branch is representative).
+    """
+    if cap is None:
+        return
+    outer = stmt
+    while isinstance(outer, (exp.Union, exp.Intersect, exp.Except)):
+        outer = outer.this
+    if isinstance(outer, exp.Select) and len(outer.expressions) > cap:
+        logger.info(
+            "sandbox.too_many_columns", sql=sql, columns=len(outer.expressions), cap=cap
+        )
+        raise SandboxError("invalid_query", "Query selects too many columns")
+
+
+def _reject_oversized_values(stmt: exp.Expression, sql: str, cap: int | None) -> None:
+    """Reject an inline VALUES relation with more than ``cap`` tuples (#565 r17)."""
+    if cap is None:
+        return
+    for values in stmt.find_all(exp.Values):
+        if len(values.expressions) > cap:
+            logger.info(
+                "sandbox.values_too_large",
+                sql=sql,
+                rows=len(values.expressions),
+                cap=cap,
+            )
+            raise SandboxError(
+                "invalid_query", "Query uses too many inline VALUES rows"
+            )
+
+
 def _reject_recursive_cte(stmt: exp.Expression, sql: str) -> None:
     """Reject recursive CTEs, which are unbounded row generators."""
     if any(
@@ -948,16 +987,18 @@ def validate_sql(
     *,
     extra_blocked_functions: frozenset[str] | None = None,
     max_values_rows: int | None = None,
+    max_output_columns: int | None = None,
 ) -> ValidatedQuery:
     """Parse and validate SQL. Returns validated query or raises SandboxError.
 
     Accepts: single SELECT, UNION, INTERSECT, EXCEPT.
     Rejects: INSERT, UPDATE, DELETE, DROP, CREATE, multi-statement, SELECT INTO.
 
-    ``extra_blocked_functions`` and ``max_values_rows`` (fix(#565 codex P1
-    r17)) are the raw-SQL endpoint's extra guards — output-amplifying function
-    names to reject, and a per-VALUES tuple-count cap — left None (off) for AI
-    chat so its behavior is unchanged.
+    ``extra_blocked_functions``, ``max_values_rows``, and ``max_output_columns``
+    (fix(#565 codex P1 r17/r20)) are the raw-SQL endpoint's extra guards —
+    output-amplifying function names to reject, a per-VALUES tuple-count cap,
+    and a projection-count cap (repeated columns amplify response width) — left
+    None (off) for AI chat so its behavior is unchanged.
     """
     # Parse with postgres dialect
     try:
@@ -986,24 +1027,15 @@ def validate_sql(
         logger.info("sandbox.select_into", sql=sql)
         raise SandboxError("invalid_query", "Only SELECT queries are allowed")
 
+    _reject_too_many_output_columns(stmt, sql, max_output_columns)
+
     _reject_nested_mutation(stmt, sql)
 
     _reject_recursive_cte(stmt, sql)
 
     _reject_oid_alias_casts(stmt, sql)
 
-    if max_values_rows is not None:
-        for values in stmt.find_all(exp.Values):
-            if len(values.expressions) > max_values_rows:
-                logger.info(
-                    "sandbox.values_too_large",
-                    sql=sql,
-                    rows=len(values.expressions),
-                    cap=max_values_rows,
-                )
-                raise SandboxError(
-                    "invalid_query", "Query uses too many inline VALUES rows"
-                )
+    _reject_oversized_values(stmt, sql, max_values_rows)
 
     # fix(#565 codex P1 r19): the `||` operator is string concatenation, an
     # output amplifier equivalent to concat — `s || s` chained through
@@ -1169,10 +1201,57 @@ _SCOPE_TYPES: tuple[type[exp.Expression], ...] = (
     exp.Except,
 )
 
+# fix(#565 codex P1 r20): a synthetic key tracking the TOTAL cross-product
+# degree — how many relations a statement multiplies together via UNCONSTRAINED
+# (cross / cartesian) joins. Per-base-table exponents catch SELF-join
+# amplification (N^k on one table), but three DISTINCT tables cross-joined is
+# N×M×K and each carries exponent 1, so the per-table max misses it. This key
+# accumulates one unit per unconstrained source, folded into the same cap.
+_XPROD_KEY: tuple[str, str] = ("", "__xprod__")
+
 
 def _set_op_branches(node: exp.Expression) -> list[exp.Expression]:
     """The two operands of a UNION/INTERSECT/EXCEPT node."""
     return [b for b in (node.this, node.args.get("expression")) if b is not None]
+
+
+def _join_is_constrained(join: exp.Join) -> bool:
+    """Whether a JOIN reduces cardinality (an equijoin) rather than multiplying.
+
+    A USING clause, or an ON with an equality whose two sides each reference a
+    column, is a lookup that keeps the output near the larger input. A CROSS
+    JOIN, a comma-join, ``ON true`` or ``ON 1=1`` do not constrain and multiply
+    the cross product. The distinction lets legit multi-table equijoins pass
+    while cartesian products of distinct tables are bounded (fix(#565 codex P1
+    r20)).
+    """
+    if join.args.get("using"):
+        return True
+    on = join.args.get("on")
+    if on is None:
+        return False
+    return any(
+        eq.this is not None
+        and eq.expression is not None
+        and eq.this.find(exp.Column) is not None
+        and eq.expression.find(exp.Column) is not None
+        for eq in on.find_all(exp.EQ)
+    )
+
+
+def _from_join_pairs(select: exp.Select) -> list[tuple[exp.Expression, bool]]:
+    """(source, multiplies) for the FROM source and each JOIN of ``select``.
+
+    The FROM source always contributes to the cross product; a JOIN multiplies
+    it only when unconstrained (see _join_is_constrained).
+    """
+    pairs: list[tuple[exp.Expression, bool]] = []
+    for child in select.iter_expressions():
+        if isinstance(child, exp.From):
+            pairs.append((child.this, True))
+        elif isinstance(child, exp.Join):
+            pairs.append((child.this, not _join_is_constrained(child)))
+    return pairs
 
 
 def _rows_fanout(node: exp.Expression, memo: _FanoutMemo) -> _FanoutMap:
@@ -1183,7 +1262,8 @@ def _rows_fanout(node: exp.Expression, memo: _FanoutMemo) -> _FanoutMap:
     from/join sources, so exponents SUM across sources and a source referenced
     twice counts twice; a set operation's rows are bounded by the larger
     branch, so exponents take the elementwise MAX. Memoized by node id so a CTE
-    referenced k times is costed once, not 2**depth times.
+    referenced k times is costed once, not 2**depth times. Also accumulates
+    ``_XPROD_KEY`` — the cross-product degree over unconstrained joins.
     """
     key = id(node)
     if key in memo:
@@ -1194,9 +1274,8 @@ def _rows_fanout(node: exp.Expression, memo: _FanoutMemo) -> _FanoutMap:
 
     out: _FanoutMap = {}
     if isinstance(node, exp.Select):
-        for source in _own_sources(node):
-            for base, weight in _source_fanout(source, memo).items():
-                out[base] = min(out.get(base, 0) + weight, _FANOUT_CEILING)
+        for source, multiplies in _from_join_pairs(node):
+            _accumulate_source(out, _source_fanout(source, memo), multiplies)
     elif isinstance(node, (exp.Union, exp.Intersect, exp.Except)):
         for branch in _set_op_branches(node):
             for base, weight in _rows_fanout(branch, memo).items():
@@ -1204,6 +1283,26 @@ def _rows_fanout(node: exp.Expression, memo: _FanoutMemo) -> _FanoutMap:
 
     memo[key] = out
     return out
+
+
+def _accumulate_source(
+    out: _FanoutMap, source_fanout: _FanoutMap, multiplies: bool
+) -> None:
+    """Fold one from/join source into a running rows map (base keys + xprod).
+
+    Base-table exponents SUM (the join product). The cross-product degree grows
+    only when the source ``multiplies`` (an unconstrained join): by the source's
+    own nested degree if it has one, else its base-scan count.
+    """
+    base_degree = 0
+    for base, weight in source_fanout.items():
+        if base == _XPROD_KEY:
+            continue
+        out[base] = min(out.get(base, 0) + weight, _FANOUT_CEILING)
+        base_degree += weight
+    if multiplies:
+        degree = source_fanout.get(_XPROD_KEY, base_degree)
+        out[_XPROD_KEY] = min(out.get(_XPROD_KEY, 0) + degree, _FANOUT_CEILING)
 
 
 def _source_fanout(source: exp.Expression, memo: _FanoutMemo) -> _FanoutMap:
@@ -1252,12 +1351,14 @@ def _group_fanout(head: exp.Expression, memo: _FanoutMemo) -> _FanoutMap:
 
     ``head`` may itself carry ``.args["joins"]`` (a parenthesized cross join);
     the product is the head's fan-out plus each join source's, mirroring how a
-    SELECT's ``_own_sources`` compose.
+    SELECT's sources compose, and accumulating the cross-product degree over
+    the group's unconstrained joins.
     """
     out: _FanoutMap = {}
-    for source in _group_sources(head):
-        for base, weight in _source_fanout(source, memo).items():
-            out[base] = min(out.get(base, 0) + weight, _FANOUT_CEILING)
+    _accumulate_source(out, _source_fanout(head, memo), True)
+    for join in head.args.get("joins") or []:
+        multiplies = not _join_is_constrained(join)
+        _accumulate_source(out, _source_fanout(join.this, memo), multiplies)
     return out
 
 
@@ -1384,10 +1485,12 @@ def _source_excess(
             return {}
         work = _group_work(head, wm, rm)
         rows = _group_fanout(head, rm)
+    # _XPROD_KEY is an input-cardinality metric (computed by _rows_fanout /
+    # _group_fanout); it is not per-row EXCESS work, so drop it here.
     return {
         base: weight - rows.get(base, 0)
         for base, weight in work.items()
-        if weight - rows.get(base, 0) > 0
+        if base != _XPROD_KEY and weight - rows.get(base, 0) > 0
     }
 
 
@@ -1520,6 +1623,10 @@ def _work_fanout(
         pstmt: _FanoutMap = {}
         for scope in per_statement:
             _merge_max(pstmt, _work_fanout(scope, work_memo, rows_memo))
+        # _XPROD_KEY is an input-cardinality metric already in `out` from
+        # input_rows; per-row work must not re-multiply it.
+        for bucket in (pin, pout, pstmt):
+            bucket.pop(_XPROD_KEY, None)
 
         # A per-INPUT-row scope multiplies by the input scan; a per-OUTPUT-row
         # scope by the output cardinality, which an ungrouped aggregate

@@ -995,6 +995,78 @@ async def test_aggregate_does_not_hide_a_correlated_where_self_join(
     assert resp.json()["detail"] == _REPETITION_MESSAGE
 
 
+async def test_distinct_table_cross_product_is_rejected(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P1 r20): three DISTINCT tables cross-joined is N×M×K —
+    each carries per-table exponent 1, so the max missed it. The cross-product
+    degree bounds it."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    t1 = await _make_table(test_db_session, owner)
+    t2 = await _make_table(test_db_session, owner)
+    t3 = await _make_table(test_db_session, owner)
+
+    resp = await client.post(
+        "/query/",
+        json={
+            "sql": f"SELECT count(*) FROM data.{t1} CROSS JOIN data.{t2} CROSS JOIN data.{t3}",
+            "restrict_tables": [t1, t2, t3],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == _REPETITION_MESSAGE
+
+
+async def test_too_many_output_columns_is_rejected(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P1 r20): repeated plain projections amplify response width
+    with no function at all — capped by output-column count."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = await _make_table(test_db_session, owner)
+    wide = ", ".join(["gid"] * 150)
+
+    resp = await client.post(
+        "/query/",
+        json={"sql": f"SELECT {wide} FROM data.{tbl}", "restrict_tables": [tbl]},
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "Query selects too many columns"
+
+
+async def test_range_column_is_serialized_as_text(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P2 r20): asyncpg Range values cannot be serialized by
+    Pydantic and would 500 after a successful, audited query. They are encoded
+    as their PostgreSQL text form."""
+    from sqlalchemy import text
+
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = f"q565rng_{uuid.uuid4().hex[:8]}"
+    await test_db_session.execute(
+        text(f"CREATE TABLE data.{tbl} (gid int, span int4range)")
+    )
+    await test_db_session.execute(
+        text(f"INSERT INTO data.{tbl} VALUES (1, '[1,3)'::int4range)")
+    )
+    await test_db_session.commit()
+    await create_dataset(test_db_session, created_by=owner, table_name=tbl)
+
+    resp = await client.post(
+        "/query/",
+        json={"sql": f"SELECT span FROM data.{tbl}", "restrict_tables": [tbl]},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["rows"] == [["[1,3)"]]
+
+
 async def test_multi_table_join_is_not_a_false_positive(
     client: AsyncClient, admin_auth_header, test_db_session
 ):

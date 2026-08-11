@@ -2835,9 +2835,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # caps VALUES cardinality, threads an endpoint-only extra-blocked-function
     # set (output-amplifying format/replace/regexp_replace/concat + defensive
     # siblings), and P1 r19 blocks the `||` (exp.DPipe) concatenation operator
-    # when concat is blocked (chained s||s doubling). Most of the added lines
+    # when concat is blocked (chained s||s doubling); P1 r20 adds the
+    # cross-product degree (_XPROD_KEY / _join_is_constrained: distinct tables
+    # cross-joined multiply even at per-table exponent 1) and an output-column
+    # cap (repeated projections amplify response width). Most of the added lines
     # are that rationale. Cap at the exact size.
-    "backend/app/platform/sandbox/validator.py": 1650,
+    "backend/app/platform/sandbox/validator.py": 1757,
 }
 
 

@@ -45,6 +45,7 @@ async def validate_and_execute(
     capacity_semaphore: asyncio.Semaphore | None = None,
     extra_blocked_functions: frozenset[str] | None = None,
     max_values_rows: int | None = None,
+    max_output_columns: int | None = None,
 ) -> SandboxResult:
     """Validate and safely execute a SQL query.
 
@@ -113,6 +114,7 @@ async def validate_and_execute(
             sql,
             extra_blocked_functions=extra_blocked_functions,
             max_values_rows=max_values_rows,
+            max_output_columns=max_output_columns,
         )
         real_tables = {
             (schema, name)
