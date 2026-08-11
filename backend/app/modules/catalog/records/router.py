@@ -691,6 +691,20 @@ async def list_distributions_endpoint(
     )
 
 
+def _distribution_conflict_detail(exc: IntegrityError) -> str:
+    """Name the unique index the write actually hit.
+
+    fix(#1383): ``uq_record_distribution_primary`` allows one primary row per
+    record. The service demotes the incumbent first, so the only way to reach
+    the index is two concurrent writes both claiming the flag — a retry
+    succeeds, where "same record, type, and format" would send the caller
+    hunting for a duplicate that does not exist.
+    """
+    if "uq_record_distribution_primary" in str(getattr(exc, "orig", exc)):
+        return "Another distribution was concurrently marked primary; retry"
+    return "Duplicate distribution (same record, type, and format)"
+
+
 @router.post(
     "/{record_id}/distributions/",
     response_model=DistributionResponse,
@@ -724,11 +738,11 @@ async def create_distribution_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
         )
-    except IntegrityError:
+    except IntegrityError as exc:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Duplicate distribution (same record, type, and format)",
+            detail=_distribution_conflict_detail(exc),
         )
     await _propagate_record_write(
         record_id,
@@ -773,11 +787,11 @@ async def update_distribution_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Distribution not found"
         )
-    except IntegrityError:
+    except IntegrityError as exc:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Duplicate distribution (same record, type, and format)",
+            detail=_distribution_conflict_detail(exc),
         )
     await _propagate_record_write(
         record_id,

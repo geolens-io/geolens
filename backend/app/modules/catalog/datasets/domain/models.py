@@ -731,6 +731,18 @@ class RecordDistribution(Base):
             "'webApp', 'offlineAccess', 'vector_tiles')",
             name="chk_distribution_type",
         ),
+        # fix(#1383): at most one primary distribution per record. The write
+        # paths in catalog/records/service.py demote the incumbent so callers
+        # never meet this, but `is_primary` is read as "THE primary" by the
+        # OGC Record properties and by the dataset detail response, and the
+        # API is not the only writer. Partial, so the unflagged rows (all but
+        # one per record) are not in the index at all.
+        Index(
+            "uq_record_distribution_primary",
+            "record_id",
+            unique=True,
+            postgresql_where=text("is_primary"),
+        ),
         {"schema": "catalog"},
     )
 
