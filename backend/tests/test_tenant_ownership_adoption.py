@@ -2333,6 +2333,7 @@ def _adopted_tenant_state() -> TenantOwnershipState:
         relations=1,
         unsafe_routines=0,
         unsafe_types=0,
+        unsafe_statistics=0,
         foreign_grantors=0,
         relations_not_owned_by_writer=0,
         relations_without_reader_select=0,

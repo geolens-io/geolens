@@ -727,6 +727,26 @@ async def tenant_ownership_state(conn, tenant_id: str) -> TenantOwnershipState:
             AND dependency.deptype = 'e'
       )
                 ) AS unsafe_types,
+                -- fix(#998 codex r48): extended statistics are schema objects
+                -- with an owner of their own; the writer must be able to
+                -- ALTER and DROP them.
+                (
+                    SELECT count(*)
+                    FROM pg_catalog.pg_statistic_ext AS statistics_row
+                    JOIN pg_catalog.pg_namespace AS namespace
+                      ON namespace.oid = statistics_row.stxnamespace
+                    WHERE namespace.nspname = (SELECT schema_name FROM names)
+                      AND statistics_row.stxowner IS DISTINCT FROM (
+                          SELECT oid FROM writer
+                      )
+                      AND NOT EXISTS (
+                          SELECT 1 FROM pg_catalog.pg_depend AS dependency
+                          WHERE dependency.classid
+                                = 'pg_statistic_ext'::regclass
+                            AND dependency.objid = statistics_row.oid
+                            AND dependency.deptype = 'e'
+                      )
+                ) AS unsafe_statistics,
                 -- The same four surfaces the apply side refuses on, counted
                 -- here so the dry run cannot call a tenant adopted that
                 -- `--apply` would stop on.

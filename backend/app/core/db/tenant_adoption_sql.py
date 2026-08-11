@@ -854,6 +854,7 @@ DECLARE
     default_acl_gap bigint;
     routine_gap bigint;
     type_gap bigint;
+    statistics_gap bigint;
     foreign_grantor_gap bigint;
     global_default_acl_gap bigint;
     reader_oid oid;
@@ -1043,8 +1044,11 @@ BEGIN
                 ' CASCADE. If that role is gone or cannot be assumed — a '
                 'retired managed credential, say — DROP ROLE ' ||
                 pg_catalog.quote_ident(reader_name) ||
-                ' instead: after the ownership transfer it owns nothing, and '
-                'provisioning recreates it. Then re-run adoption';
+                ' instead — first REASSIGN OWNED BY it TO CURRENT_USER and '
+                'DROP OWNED BY it (an adopted tenant''s roles hold objects '
+                'and privileges that block a bare DROP ROLE; adoption takes '
+                'them back), then DROP ROLE: provisioning recreates it. Then '
+                're-run adoption';
     END LOOP;
 
     -- Detect, do not rewrite.  Every row here predates this run: a restore, a
@@ -1086,8 +1090,11 @@ BEGIN
                 ' CASCADE. If that role is gone or cannot be assumed — a '
                 'retired managed credential, say — DROP ROLE ' ||
                 pg_catalog.quote_ident(writer_name) ||
-                ' instead: after the ownership transfer it owns nothing, and '
-                'provisioning recreates it. Then re-run adoption';
+                ' instead — first REASSIGN OWNED BY it TO CURRENT_USER and '
+                'DROP OWNED BY it (an adopted tenant''s roles hold objects '
+                'and privileges that block a bare DROP ROLE; adoption takes '
+                'them back), then DROP ROLE: provisioning recreates it. Then '
+                're-run adoption';
     END LOOP;
 
     -- The provisioner's own duplicates, detected for the same reason and on
@@ -1287,6 +1294,24 @@ BEGIN
           )
       );
 
+    -- fix(#998 codex r48): extended statistics are schema objects with an
+    -- owner of their own; a restore leaves them under the restore login and
+    -- the writer can neither ALTER nor DROP them.
+    SELECT pg_catalog.count(*) INTO statistics_gap
+    FROM pg_catalog.pg_statistic_ext AS statistics_row
+    JOIN pg_catalog.pg_namespace AS namespace
+      ON namespace.oid = statistics_row.stxnamespace
+    JOIN pg_catalog.pg_roles AS owner_role
+      ON owner_role.oid = statistics_row.stxowner
+    WHERE namespace.nspname = schema_name
+      AND owner_role.rolname <> writer_name
+      AND NOT EXISTS (
+          SELECT 1 FROM pg_catalog.pg_depend AS dependency
+          WHERE dependency.classid = 'pg_statistic_ext'::regclass
+            AND dependency.objid = statistics_row.oid
+            AND dependency.deptype = 'e'
+      );
+
     SELECT pg_catalog.count(*) INTO type_gap
     FROM pg_catalog.pg_type AS type_row
     JOIN pg_catalog.pg_namespace AS namespace
@@ -1383,6 +1408,7 @@ BEGIN
        AND default_acl_gap = 0
        AND routine_gap = 0
        AND type_gap = 0
+       AND statistics_gap = 0
        AND foreign_grantor_gap = 0
        AND global_default_acl_gap = 0 THEN
         RETURN;
@@ -1733,6 +1759,32 @@ BEGIN
     LOOP
         EXECUTE pg_catalog.format(
             'ALTER TYPE %I.%I OWNER TO %I',
+            schema_name,
+            object_row.relname,
+            writer_name
+        );
+    END LOOP;
+
+    -- fix(#998 codex r48): extended statistics, same terms as the types
+    -- above — restore-owned, and the writer cannot ALTER or DROP them.
+    FOR object_row IN
+        SELECT statistics_row.stxname AS relname
+        FROM pg_catalog.pg_statistic_ext AS statistics_row
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = statistics_row.stxnamespace
+        JOIN pg_catalog.pg_roles AS owner_role
+          ON owner_role.oid = statistics_row.stxowner
+        WHERE namespace.nspname = schema_name
+          AND owner_role.rolname <> writer_name
+          AND NOT EXISTS (
+              SELECT 1 FROM pg_catalog.pg_depend AS dependency
+              WHERE dependency.classid = 'pg_statistic_ext'::regclass
+                AND dependency.objid = statistics_row.oid
+                AND dependency.deptype = 'e'
+          )
+    LOOP
+        EXECUTE pg_catalog.format(
+            'ALTER STATISTICS %I.%I OWNER TO %I',
             schema_name,
             object_row.relname,
             writer_name
