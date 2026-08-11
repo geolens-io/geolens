@@ -1351,7 +1351,10 @@ BEGIN
         JOIN pg_catalog.pg_roles AS owner_role
           ON owner_role.oid = default_acl.defaclrole
         WHERE default_acl.defaclnamespace = 0
-          AND owner_role.rolname IN (reader_name, writer_name)
+          -- The provisioner as well as the tenant pair: the provisioning
+          -- function runs as it and creates every future data_t_* schema, so a
+          -- default of its own lands on tenants that do not exist yet.
+          AND owner_role.rolname IN (reader_name, writer_name, '{PROVISIONER}')
     LOOP
         RAISE EXCEPTION
             'role % carries schema-less default privileges, which apply to '
@@ -1507,44 +1510,64 @@ BEGIN
     EXECUTE pg_catalog.format(
         'REVOKE ALL ON ALL SEQUENCES IN SCHEMA %I FROM PUBLIC', schema_name
     );
-    -- A grant whose grantor is neither the relation's owner nor the writer
-    -- survives ALTER TABLE ... OWNER TO, which only re-attributes the old
-    -- owner's own entries — so the writer's REVOKE below would either fail on
-    -- the dependency or quietly do nothing.
+    -- Ownership only re-attributes the old owner's own grants, so a grant made
+    -- by anyone else survives it — and the writer's REVOKE below reaches only
+    -- what the writer granted. One sweep for all four surfaces a tenant schema
+    -- exposes, because the answer is the same on each: this run cannot remove
+    -- it, and the role that can is named in the remedy.
     FOR object_row IN
-        SELECT relation.relname AS relname,
-               grantor_role.rolname AS grantee_name
+        SELECT foreign_grant.object_name AS relname,
+               COALESCE(grantor_role.rolname, 'a dropped role') AS grantee_name
+        FROM (
+        SELECT 'schema ' || namespace.nspname AS object_name,
+               acl.grantor AS grantor_oid
+        FROM pg_catalog.pg_namespace AS namespace
+        JOIN LATERAL pg_catalog.aclexplode(namespace.nspacl) AS acl ON true
+        WHERE namespace.nspname = schema_name
+          AND acl.grantor <> (SELECT oid FROM pg_catalog.pg_roles WHERE rolname = '{PROVISIONER}')
+        UNION ALL
+        SELECT 'relation ' || relation.relname, acl.grantor
         FROM pg_catalog.pg_class AS relation
         JOIN pg_catalog.pg_namespace AS namespace
           ON namespace.oid = relation.relnamespace
-        JOIN LATERAL (
-            SELECT acl.grantor
-            FROM pg_catalog.aclexplode(relation.relacl) AS acl
-            UNION ALL
-            -- Column grants have their own grantor, and the writer's REVOKE
-            -- cannot reach a foreign one any more than it can at table level.
-            SELECT acl.grantor
-            FROM pg_catalog.pg_attribute AS column_row
-            JOIN LATERAL pg_catalog.aclexplode(column_row.attacl) AS acl ON true
-            WHERE column_row.attrelid = relation.oid
-              AND NOT column_row.attisdropped
-        ) AS acl ON true
-        JOIN pg_catalog.pg_roles AS grantor_role ON grantor_role.oid = acl.grantor
+        JOIN LATERAL pg_catalog.aclexplode(relation.relacl) AS acl ON true
         WHERE namespace.nspname = schema_name
-          AND grantor_role.rolname <> writer_name
+          AND acl.grantor <> writer_oid
+        UNION ALL
+        SELECT 'column ' || relation.relname || '.' || column_row.attname,
+               acl.grantor
+        FROM pg_catalog.pg_class AS relation
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = relation.relnamespace
+        JOIN pg_catalog.pg_attribute AS column_row
+          ON column_row.attrelid = relation.oid
+        JOIN LATERAL pg_catalog.aclexplode(column_row.attacl) AS acl ON true
+        WHERE namespace.nspname = schema_name
+          AND NOT column_row.attisdropped
+          AND acl.grantor <> writer_oid
+        UNION ALL
+        SELECT 'routine ' || routine.proname, acl.grantor
+        FROM pg_catalog.pg_proc AS routine
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = routine.pronamespace
+        JOIN LATERAL pg_catalog.aclexplode(routine.proacl) AS acl ON true
+        WHERE namespace.nspname = schema_name
+          AND acl.grantor <> writer_oid
+        ) AS foreign_grant
+        LEFT JOIN pg_catalog.pg_roles AS grantor_role
+          ON grantor_role.oid = foreign_grant.grantor_oid
     LOOP
         RAISE EXCEPTION
-            'relation %.% carries a grant made by %, which the writer cannot '
-            'revoke',
+            'tenant schema % carries a privilege on % granted by %, which this '
+            'run cannot revoke',
             schema_name,
             object_row.relname,
             object_row.grantee_name
             USING HINT =
                 'as ' || pg_catalog.quote_ident(object_row.grantee_name) ||
-                ' run: REVOKE ALL ON ' || schema_name || '.' ||
-                pg_catalog.quote_ident(object_row.relname) ||
-                ' FROM ALL CASCADE-equivalent grantees (see \\dp); '
-                'then re-run adoption';
+                ' revoke it (\\dp and \\ddp in schema ' ||
+                pg_catalog.quote_ident(schema_name) || ' show which), or drop '
+                'that role; then re-run adoption';
     END LOOP;
 
     -- Column-level grants, which the table-level REVOKE ALL above leaves in

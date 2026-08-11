@@ -341,6 +341,7 @@ async def stamping_function_shape(conn) -> str | None:
             WHERE namespace.nspname = 'catalog'
               AND routine.proname = :name
               AND routine.pronargs = 0
+              AND routine.prokind = 'f'
             """
         ),
         {
@@ -719,6 +720,48 @@ async def tenant_ownership_state(conn, tenant_id: str) -> TenantOwnershipState:
             AND dependency.deptype = 'e'
       )
                 ) AS unsafe_types,
+                -- The same four surfaces the apply side refuses on, counted
+                -- here so the dry run cannot call a tenant adopted that
+                -- `--apply` would stop on.
+                (
+                    SELECT count(*)
+                    FROM (
+            SELECT 'schema ' || namespace.nspname AS object_name,
+                   acl.grantor AS grantor_oid
+            FROM pg_catalog.pg_namespace AS namespace
+            JOIN LATERAL pg_catalog.aclexplode(namespace.nspacl) AS acl ON true
+            WHERE namespace.nspname = (SELECT schema_name FROM names)
+              AND acl.grantor <> COALESCE((SELECT oid FROM pg_catalog.pg_roles WHERE rolname = :provisioner), 0)
+            UNION ALL
+            SELECT 'relation ' || relation.relname, acl.grantor
+            FROM pg_catalog.pg_class AS relation
+            JOIN pg_catalog.pg_namespace AS namespace
+              ON namespace.oid = relation.relnamespace
+            JOIN LATERAL pg_catalog.aclexplode(relation.relacl) AS acl ON true
+            WHERE namespace.nspname = (SELECT schema_name FROM names)
+              AND acl.grantor <> COALESCE((SELECT oid FROM writer), 0)
+            UNION ALL
+            SELECT 'column ' || relation.relname || '.' || column_row.attname,
+                   acl.grantor
+            FROM pg_catalog.pg_class AS relation
+            JOIN pg_catalog.pg_namespace AS namespace
+              ON namespace.oid = relation.relnamespace
+            JOIN pg_catalog.pg_attribute AS column_row
+              ON column_row.attrelid = relation.oid
+            JOIN LATERAL pg_catalog.aclexplode(column_row.attacl) AS acl ON true
+            WHERE namespace.nspname = (SELECT schema_name FROM names)
+              AND NOT column_row.attisdropped
+              AND acl.grantor <> COALESCE((SELECT oid FROM writer), 0)
+            UNION ALL
+            SELECT 'routine ' || routine.proname, acl.grantor
+            FROM pg_catalog.pg_proc AS routine
+            JOIN pg_catalog.pg_namespace AS namespace
+              ON namespace.oid = routine.pronamespace
+            JOIN LATERAL pg_catalog.aclexplode(routine.proacl) AS acl ON true
+            WHERE namespace.nspname = (SELECT schema_name FROM names)
+              AND acl.grantor <> COALESCE((SELECT oid FROM writer), 0)
+                    ) AS foreign_grant
+                ) AS foreign_grantors,
                 (
                     SELECT count(*) FROM relations
                     WHERE owner <> (SELECT writer_name FROM names)
