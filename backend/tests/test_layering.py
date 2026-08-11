@@ -2261,8 +2261,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # spatial relation as tabular, so the precedence falls back to the generic
     # sentinel; the lines are the note recording that `GEOMETRY` is how the
     # rest of the codebase already spells "spatial, subtype unknown".
-    # Cap 2127 -> 2139, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2139,
+    # Cap 2127 -> 2139, exact. fix(#1380): +39 — the note above becomes the
+    # thing it described. `_retire_geometry_attribute_row` MOVED here from
+    # tasks_postgis_refresh (which shrank by 10) and both de-spatializing
+    # paths call it, so the synthetic `geom` attribute row is retired once
+    # rather than by whichever path remembered to. Most of the lines are the
+    # docstring recording why `refresh_attribute_metadata` is right to leave
+    # that row alone for every other caller, and why the null check lives
+    # inside the helper. Cap 2139 -> 2178, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2178,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed

@@ -1802,6 +1802,46 @@ def _derived_record_type(current: str | None, geometry_type: str | None) -> str 
     return "table" if geometry_type is None else "vector_dataset"
 
 
+async def _retire_geometry_attribute_row(
+    session: Any, dataset_id: uuid.UUID, *, geometry_type: str | None
+) -> None:
+    """Retire the synthetic ``geom`` attribute row of a de-spatialized dataset.
+
+    ``refresh_attribute_metadata`` touches that row only when it is handed a
+    non-null ``geometry_type``, and excludes ``geom`` from its removed-column
+    sweep by name. That is right for a caller that replaces a table's contents
+    while keeping its shape, and wrong for the two callers whose relation can
+    lose its geometry column while keeping its identity: the
+    registered-PostGIS refresh, whose owner can drop the column out from under
+    the catalog, and the reupload swap, which installs a CSV over a shapefile.
+    Left current, the attributes API and the validation service go on
+    advertising a geometry field the relation no longer has.
+
+    fix(#1313 review round 7) established the retirement on the refresh path;
+    fix(#1380) gives the reupload swap the same behaviour from this one
+    function rather than a second copy of it. Feed it the EFFECTIVE geometry
+    type — the same value handed to ``refresh_attribute_metadata`` — and call
+    it unconditionally: the null check lives in here so that a caller cannot
+    hold one half of the pair and forget the other, which is exactly how the
+    two paths came to disagree.
+    """
+    if geometry_type is not None:
+        return
+
+    from app.platform.extensions import get_processing_port
+    from sqlalchemy import update
+
+    AttributeMetadata = get_processing_port().get_attribute_metadata_orm_class()
+    await session.execute(
+        update(AttributeMetadata)
+        .where(
+            AttributeMetadata.dataset_id == dataset_id,
+            AttributeMetadata.field_name == "geom",
+        )
+        .values(is_current=False)
+    )
+
+
 async def _apply_reupload_swap(
     session,
     *,
@@ -2006,14 +2046,13 @@ async def _apply_reupload_swap(
         geometry_type=effective_geometry_type,
         sample_values=sample_values,
     )
-    # NOT fixed here, and filed as #1380: that helper touches the synthetic
-    # `geom` attribute row only when geometry_type is non-null and excludes it
-    # from the removed-column sweep by name, so a de-spatializing reupload
-    # leaves the row current against a relation with no geometry. The refresh
-    # path retires it explicitly (#1313 review round 7); this one still does
-    # not. It is a row this swap has never written, unlike the two fields
-    # #1373 and #1361 asked for, so folding it in would widen the change past
-    # both issues.
+    # fix(#1380): the one row that helper will not retire. Fed the EFFECTIVE
+    # type, like the refresh above it, so a reupload that empties a still-
+    # spatial table cannot retire the row of a relation whose geom column is
+    # right there.
+    await _retire_geometry_attribute_row(
+        session, dataset.id, geometry_type=effective_geometry_type
+    )
 
     # fix(#1314): a reupload can replace a spatial dataset with a non-spatial
     # one (or the reverse), and the auto-generated `record_distributions` rows

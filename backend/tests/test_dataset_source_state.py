@@ -2213,6 +2213,189 @@ class TestReuploadDerivesTheEffectiveModality:
         )
 
 
+class TestReuploadRetiresTheGeometryAttributeRow:
+    """fix(#1380): the attribute row follows the relation.
+
+    ``refresh_attribute_metadata`` touches the synthetic ``geom`` row only
+    when it is handed a non-null geometry type, and excludes ``geom`` from its
+    removed-column sweep by name — so a CSV reupload over a shapefile left the
+    row at ``is_current = true`` and the attributes API went on advertising a
+    geometry field the relation no longer has. The registered-PostGIS refresh
+    retired it from #1313 review round 7; this path did not.
+    """
+
+    async def _seed(self, session, *, admin_id, geometry_type, record_type):
+        ds = await _create_dataset(
+            session,
+            created_by=admin_id,
+            name="Reupload Geom Attribute",
+            # Private: these rows outlive the test on the shared per-worker
+            # DB, so keep them out of public-list assertions.
+            visibility="private",
+            source_format="geojson",
+            geometry_type=geometry_type,
+        )
+        ds.record.record_type = record_type
+        # The synthetic row as `refresh_attribute_metadata` writes it, seeded
+        # rather than measured: the swap harness mocks that helper out, so
+        # without this the assertions below would pass against a dataset that
+        # simply never had a geometry row.
+        await session.execute(
+            sa.text(
+                "INSERT INTO catalog.attribute_metadata "
+                "(dataset_id, field_name, title, data_type, "
+                "semantic_role, domain_type) "
+                "VALUES (:did, 'geom', 'Geometry', :dtype, "
+                "'geometry', 'geometry')"
+            ),
+            {"did": ds.id, "dtype": geometry_type or "geometry"},
+        )
+        await session.commit()
+        assert await self._geom_is_current(session, ds.id) is True
+        return ds
+
+    async def _geom_is_current(self, session, dataset_id) -> bool | None:
+        """Read the stored flag straight from the row, past the identity map."""
+        return await session.scalar(
+            sa.text(
+                "SELECT is_current FROM catalog.attribute_metadata "
+                "WHERE dataset_id = :did AND field_name = 'geom'"
+            ),
+            {"did": dataset_id},
+        )
+
+    async def test_a_non_spatial_reupload_retires_the_row(
+        self, test_db_session
+    ) -> None:
+        """A CSV over a shapefile: the geometry field is gone, so say so."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await self._seed(
+            test_db_session,
+            admin_id=admin_id,
+            geometry_type="POINT",
+            record_type="vector_dataset",
+        )
+
+        await _run_reupload_swap(
+            test_db_session,
+            ds,
+            admin_id=admin_id,
+            metadata={**_SWAP_METADATA, "geometry_type": None, "extent_wkt": None},
+            staging_has_geometry=False,
+            source_filename="rows.csv",
+            source_format="csv",
+            origin_ref={"filename": "rows.csv"},
+        )
+        await test_db_session.commit()
+
+        assert await self._geom_is_current(test_db_session, ds.id) is False
+
+    async def test_a_spatial_reupload_leaves_the_row_current(
+        self, test_db_session
+    ) -> None:
+        """The dataset still has geometry, so the row still describes it."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await self._seed(
+            test_db_session,
+            admin_id=admin_id,
+            geometry_type="POINT",
+            record_type="vector_dataset",
+        )
+
+        await _run_reupload_swap(
+            test_db_session,
+            ds,
+            admin_id=admin_id,
+            source_filename="points.geojson",
+            source_format="geojson",
+            origin_ref={"filename": "points.geojson"},
+        )
+        await test_db_session.commit()
+
+        assert await self._geom_is_current(test_db_session, ds.id) is True
+
+    async def test_an_empty_spatial_reupload_leaves_the_row_current(
+        self, test_db_session
+    ) -> None:
+        """The trap #1373 named, on the row this one retires.
+
+        An empty spatial file measures None against a relation whose geom
+        column is right there, so retiring on the SAMPLED type would strike
+        the attribute row of a dataset that is still spatial — and nothing
+        would restore it, since ``refresh_attribute_metadata`` only ever sets
+        ``is_current`` back to True for a field it is handed. The retirement
+        reads the EFFECTIVE type for exactly that reason.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await self._seed(
+            test_db_session,
+            admin_id=admin_id,
+            geometry_type="POINT",
+            record_type="vector_dataset",
+        )
+
+        await _run_reupload_swap(
+            test_db_session,
+            ds,
+            admin_id=admin_id,
+            metadata={
+                **_SWAP_METADATA,
+                "geometry_type": None,
+                "extent_wkt": None,
+                "feature_count": 0,
+            },
+            source_filename="empty.geojson",
+            source_format="geojson",
+            origin_ref={"filename": "empty.geojson"},
+        )
+        await test_db_session.commit()
+
+        assert await self._geom_is_current(test_db_session, ds.id) is True
+
+    async def test_a_reupload_that_gains_geometry_leaves_the_row_current(
+        self, test_db_session
+    ) -> None:
+        """The promote, where the stored type is the stale half.
+
+        A tabular dataset reuploaded from a spatial file: the swap resolves a
+        geometry type where the catalog held None, so nothing may be retired
+        on the strength of the value the dataset carried on the way in.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await self._seed(
+            test_db_session,
+            admin_id=admin_id,
+            geometry_type=None,
+            record_type="table",
+        )
+
+        await _run_reupload_swap(
+            test_db_session,
+            ds,
+            admin_id=admin_id,
+            source_filename="points.geojson",
+            source_format="geojson",
+            origin_ref={"filename": "points.geojson"},
+        )
+        await test_db_session.commit()
+
+        assert await self._geom_is_current(test_db_session, ds.id) is True
+
+    def test_both_paths_share_one_retirement(self) -> None:
+        """#1380's acceptance criterion, pinned the way #1382 pinned its own.
+
+        A second copy of this UPDATE is how the two paths came to disagree
+        about the same row in the first place. Identity rather than a file
+        path, so moving the helper again is a refactor rather than a failure.
+        """
+        from app.processing.ingest import tasks_common, tasks_postgis_refresh
+
+        assert (
+            tasks_postgis_refresh._retire_geometry_attribute_row
+            is tasks_common._retire_geometry_attribute_row
+        )
+
+
 class TestFirstIngestStampsLastRefreshed:
     async def test_created_dataset_carries_its_creation_instant(
         self, test_db_session
