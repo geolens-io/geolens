@@ -1945,7 +1945,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # files would make harder, not easier. The Python that drives it and the
     # report types already live in tenant_adoption.py and
     # tenant_adoption_report.py.
-    "backend/app/core/db/tenant_adoption_sql.py": 1136,
+    "backend/app/core/db/tenant_adoption_sql.py": 1178,
+    # fix(#998): the tool the DDL above serves — the catalog reads that decide
+    # whether anything is left to do, the steps that close the gap, and the
+    # operator CLI. Already decomposed three ways (report types and the success
+    # predicate in tenant_adoption_report.py, the ported DDL in
+    # tenant_adoption_sql.py); the remainder is one read per object the adoption
+    # boundary covers, and each is a single SQL statement that has to see the
+    # whole object at once.
+    "backend/app/core/db/tenant_adoption.py": 1009,
     # fix(#836): the five path-gated additions. Caps are exact (zero headroom),
     # matching the #435 convention: growth needs a reviewed carve-out here,
     # shrinking must lower the cap in the same commit.

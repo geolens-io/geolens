@@ -639,6 +639,20 @@ async def tenant_ownership_state(conn, tenant_id: str) -> TenantOwnershipState:
                     ELSE (
                         SELECT count(*) FROM relations
                         WHERE EXISTS (
+                            -- Column grants live in pg_attribute, and a
+                            -- table-level REVOKE ALL does not clear them.
+                            SELECT 1
+                            FROM pg_catalog.pg_attribute AS column_row
+                            JOIN LATERAL
+                              pg_catalog.aclexplode(column_row.attacl) AS acl
+                              ON true
+                            WHERE column_row.attrelid = relations.oid
+                              AND NOT column_row.attisdropped
+                              AND acl.grantee IS DISTINCT FROM (
+                                  SELECT oid FROM writer
+                              )
+                        )
+                        OR EXISTS (
                             SELECT 1
                             FROM pg_catalog.pg_class AS relation
                             JOIN LATERAL pg_catalog.aclexplode(relation.relacl)

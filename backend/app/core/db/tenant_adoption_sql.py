@@ -989,6 +989,17 @@ BEGIN
           -- other role that can reach the schema. And a named role with its own
           -- grant plus USAGE on the schema reads or writes tenant data without
           -- going near either tenant role.
+          -- Column grants live in pg_attribute, not pg_class, and a table-level
+          -- REVOKE ALL does not clear them. UPDATE(col) on the reader is a
+          -- write path through the gateways that SET ROLE to it.
+          OR EXISTS (
+              SELECT 1
+              FROM pg_catalog.pg_attribute AS column_row
+              JOIN LATERAL pg_catalog.aclexplode(column_row.attacl) AS acl ON true
+              WHERE column_row.attrelid = relation.oid
+                AND NOT column_row.attisdropped
+                AND acl.grantee <> writer_oid
+          )
           OR EXISTS (
               SELECT 1
               FROM LATERAL pg_catalog.aclexplode(relation.relacl) AS acl
@@ -1097,6 +1108,37 @@ BEGIN
     EXECUTE pg_catalog.format(
         'REVOKE ALL ON ALL SEQUENCES IN SCHEMA %I FROM PUBLIC', schema_name
     );
+    -- Column-level grants, which the table-level REVOKE ALL above leaves in
+    -- place. Emitted per column and grantee because PostgreSQL has no
+    -- schema-wide form for them.
+    FOR object_row IN
+        SELECT relation.relname AS relname,
+               column_row.attname AS attname,
+               CASE
+                   WHEN acl.grantee = 0 THEN 'PUBLIC'
+                   ELSE pg_catalog.quote_ident(grantee_role.rolname)
+               END AS grantee_name
+        FROM pg_catalog.pg_class AS relation
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = relation.relnamespace
+        JOIN pg_catalog.pg_attribute AS column_row
+          ON column_row.attrelid = relation.oid
+        JOIN LATERAL pg_catalog.aclexplode(column_row.attacl) AS acl ON true
+        LEFT JOIN pg_catalog.pg_roles AS grantee_role
+          ON grantee_role.oid = acl.grantee
+        WHERE namespace.nspname = schema_name
+          AND NOT column_row.attisdropped
+          AND COALESCE(grantee_role.rolname, '') <> writer_name
+    LOOP
+        EXECUTE pg_catalog.format(
+            'REVOKE ALL (%I) ON %I.%I FROM %s',
+            object_row.attname,
+            schema_name,
+            object_row.relname,
+            object_row.grantee_name
+        );
+    END LOOP;
+
     -- And every other grantee the restore carried in. Only the writer (as
     -- owner) and the reader belong on a tenant relation.
     FOR grantee_name IN

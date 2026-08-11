@@ -739,9 +739,12 @@ GRANT CONNECT ON DATABASE :"db" TO "<tile-login>";
 SQL
 ```
 
-That is the PostgreSQL 16+ form. On 13-15 there are no per-membership options —
-drop every `WITH` clause, and the `NOINHERIT` attribute on the login is what
-makes the membership SET-only:
+That is the PostgreSQL 16+ form. On 13-15 there are no per-membership options,
+so drop every `WITH` clause. Leave the runtime login `INHERIT` there: it calls
+the provisioning functions directly and needs `geolens_tenant_control`'s
+`EXECUTE` to arrive by inheritance. What keeps the per-tenant roles behind a
+`SET ROLE` on those releases is the `NOINHERIT` attribute on the four fixed
+gateway roles, not anything about the login:
 
 ```bash
 docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \

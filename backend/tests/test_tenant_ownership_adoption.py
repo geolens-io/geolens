@@ -839,6 +839,42 @@ class TestReportedStateMatchesWhatApplyEnforces:
             await _drop_tenant(engine, tenant_id)
             await engine.dispose()
 
+    async def test_column_level_grants_are_revoked(self, multi_tenant_row_security):
+        """Column grants live in pg_attribute; a table REVOKE ALL misses them."""
+        tenant_id, schema, reader, _writer = _new_tenant()
+        engine = _make_engine()
+        try:
+            await _seed_restored_tenant(engine, tenant_id, schema)
+            assert (await run_adoption(engine, apply=True)).ok
+
+            async with engine.begin() as conn:
+                await conn.execute(
+                    sa.text(f"GRANT UPDATE (name) ON {schema}.parcels TO {reader}")
+                )
+
+            async with engine.connect() as conn:
+                state = await tenant_ownership_state(conn, tenant_id)
+            assert state.relations_with_unsafe_acl == 1
+            assert not state.adopted
+
+            repaired = await run_adoption(engine, apply=True)
+            assert repaired.failures == {}, repaired.failures
+            assert repaired.ok
+
+            async with engine.connect() as conn:
+                can_update = (
+                    await conn.execute(
+                        sa.text(
+                            "SELECT has_column_privilege(:role, :table, 'name', 'UPDATE')"
+                        ),
+                        {"role": reader, "table": f"{schema}.parcels"},
+                    )
+                ).scalar_one()
+            assert can_update is False
+        finally:
+            await _drop_tenant(engine, tenant_id)
+            await engine.dispose()
+
     async def test_a_stray_grantee_on_the_tenant_schema_is_revoked(
         self, multi_tenant_row_security
     ):
