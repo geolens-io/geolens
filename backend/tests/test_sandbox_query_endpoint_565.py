@@ -752,6 +752,53 @@ async def test_output_amplifying_string_functions_are_rejected(
     assert resp.json()["detail"] == "Query uses a disallowed function"
 
 
+async def test_chained_pipe_concatenation_is_rejected(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P1 r19): `||` (exp.DPipe) is string concatenation — s||s
+    chained through MATERIALIZED CTEs doubles a value into hundreds of MB. The
+    operator is blocked on the raw surface alongside concat."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = await _make_table(test_db_session, owner)
+
+    resp = await client.post(
+        "/query/",
+        json={
+            "sql": (
+                f"WITH c0 AS MATERIALIZED (SELECT gid::text AS s FROM data.{tbl} "
+                "LIMIT 1), c1 AS MATERIALIZED (SELECT s || s AS s FROM c0) "
+                "SELECT s FROM c1"
+            ),
+            "restrict_tables": [tbl],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "Query uses a disallowed operator"
+
+
+async def test_concat_function_is_rejected(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """concat / concat_ws double a value the same way — dropped on the raw
+    surface too (fix(#565 codex P1 r19))."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = await _make_table(test_db_session, owner)
+
+    resp = await client.post(
+        "/query/",
+        json={
+            "sql": f"SELECT concat(label, label) FROM data.{tbl}",
+            "restrict_tables": [tbl],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "Query uses a disallowed function"
+
+
 async def test_oversized_values_is_rejected(
     client: AsyncClient, admin_auth_header, test_db_session
 ):

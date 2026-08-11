@@ -147,6 +147,11 @@ _QUERY_BLOCKED_FUNCTIONS: frozenset[str] = frozenset(
         "rpad",
         "space",
         "overlay",
+        # concatenation doubles a value when both operands are the same — chained
+        # through CTEs it amplifies without bound (#565 codex P1 r19). `concat`
+        # is the trigger that also blocks the `||` operator in validate_sql.
+        "concat",
+        "concat_ws",
         # concatenating aggregates build one huge cell from many rows
         "string_agg",
         "group_concat",  # sqlglot's canonical name for STRING_AGG

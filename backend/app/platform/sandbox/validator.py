@@ -1005,6 +1005,20 @@ def validate_sql(
                     "invalid_query", "Query uses too many inline VALUES rows"
                 )
 
+    # fix(#565 codex P1 r19): the `||` operator is string concatenation, an
+    # output amplifier equivalent to concat — `s || s` chained through
+    # MATERIALIZED CTEs doubles a value each stage into hundreds of MB. It is an
+    # exp.DPipe operator, not a Func, so the function blocklist misses it. When
+    # the caller blocks concat (the raw endpoint), block `||` for the same
+    # reason; AI chat blocks neither.
+    if (
+        extra_blocked_functions
+        and "concat" in extra_blocked_functions
+        and stmt.find(exp.DPipe)
+    ):
+        logger.info("sandbox.blocked_concat_operator", sql=sql)
+        raise SandboxError("invalid_query", "Query uses a disallowed operator")
+
     _check_function_allowlist(stmt, sql, extra_blocked=extra_blocked_functions)
 
     # Extract CTE names (global) for the ValidatedQuery contract and the

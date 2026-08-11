@@ -2832,11 +2832,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # per-STATEMENT bucket (LIMIT/OFFSET, evaluated once, no row multiplier);
     # and P1 r17/r18 counts a VALUES relation as a fan-out source under ONE
     # shared key so distinct constant sources combine in the cross-product,
-    # caps VALUES cardinality, and threads an endpoint-only extra-blocked-
-    # function set (output-amplifying format/replace/regexp_replace + defensive
-    # siblings). Most of the added lines are that rationale. Cap at the exact
-    # size.
-    "backend/app/platform/sandbox/validator.py": 1636,
+    # caps VALUES cardinality, threads an endpoint-only extra-blocked-function
+    # set (output-amplifying format/replace/regexp_replace/concat + defensive
+    # siblings), and P1 r19 blocks the `||` (exp.DPipe) concatenation operator
+    # when concat is blocked (chained s||s doubling). Most of the added lines
+    # are that rationale. Cap at the exact size.
+    "backend/app/platform/sandbox/validator.py": 1650,
 }
 
 
