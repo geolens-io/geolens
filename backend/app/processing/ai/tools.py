@@ -330,6 +330,12 @@ CHAT_TOOLS_ANTHROPIC = [
             # question", "do NOT use this for map styling"), competing with
             # the system prompt's verb classes from a second site without
             # naming any sibling tool.
+            # feat(#1242): stays behavioural for the same reason. Whether a
+            # result is worth OFFERING as a set_filter follow-up is a
+            # response-shaping rule, not tool-selection, and it is decided in
+            # the system prompt's "Query Data Responses" section
+            # (build_chat_system_prompt) -- not restated here as a second
+            # classification site.
             "Query the user's map data using SQL. The server generates the "
             "SQL from a natural language question and executes it safely, so "
             "the result is a table of values plus an optional highlight "

@@ -155,6 +155,8 @@ def build_chat_system_prompt(
     When ``can_edit`` is False the caller may view but not edit the map (the AI
     is given read-only tools — see ``select_chat_tools``); a read-only directive
     is injected so the model declines edit requests instead of silently failing.
+    ``can_edit`` also gates the query_data filter-offer note (#1242): only an
+    editor has set_filter available to fulfil it.
     """
     # Cap layers to prevent unbounded prompt growth
     display_layers = layers[:_MAX_SYSTEM_PROMPT_LAYERS]
@@ -241,6 +243,34 @@ def build_chat_system_prompt(
         )
     )
 
+    # feat(#1242): companion to the query_data/set_filter split above, not a
+    # rewrite of it — this fires AFTER query_data has already answered a
+    # QUESTION, so it never decides which tool a request reaches. A persisted
+    # set_filter beats an ephemeral query_data result for the shape it covers
+    # (a plain row predicate), so the model is told to name that option, once,
+    # as an offer the user can decline. It must stay an offer: #549 is the
+    # record of "show me the ..." silently landing on a persistent filter, and
+    # that was reverted specifically because a read-shaped question must never
+    # mutate saved map state on its own. Gated on can_edit — a read-only
+    # caller never has set_filter in its tool set (select_chat_tools), so
+    # promising it here would be a broken offer the readonly_note above
+    # already tells the model to avoid making.
+    filter_offer_note = (
+        (
+            "\n- If the question was a simple row predicate on a layer "
+            "already on the map"
+            ' ("earthquakes above magnitude 5", "parcels zoned commercial" -- '
+            "not a count, aggregate, top-N/ranked list, multi-layer join, or "
+            '"most recent" style question), offer -- after answering -- to '
+            "apply it as a persistent filter on that layer instead: "
+            'something like "Want this as a filter on the layer instead? It '
+            'persists when you save the map." This is an offer, not an '
+            "action -- call set_filter only if the user accepts."
+        )
+        if can_edit
+        else ""
+    )
+
     return f"""\
 You are a map editing assistant. The user has a map with these layers:
 
@@ -323,7 +353,7 @@ When reporting query results back to the user:
 - Keep answers concise (2-4 sentences for simple questions, up to a paragraph for complex ones).
 - If results were truncated, mention it naturally (e.g., "showing the first 50 of 1,200 results").
 - Never show raw SQL, table structures, or row counts as bare numbers -- interpret them meaningfully.
-- If no results were found, tell the user and suggest trying different criteria.
+- If no results were found, tell the user and suggest trying different criteria.{filter_offer_note}
 
 {QUERY_RESULT_SANITY_PROMPT}
 ## Uncertainty

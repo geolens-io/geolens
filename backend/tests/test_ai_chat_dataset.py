@@ -207,6 +207,18 @@ def test_dataset_prompt_has_result_sanity_check():
     assert "retry query_data ONCE" in prompt
 
 
+def test_dataset_prompt_has_no_filter_offer():
+    """#1242's "persist this as a filter?" follow-up requires a target layer on
+    a map -- dataset-scoped chat has neither (no map, no set_filter tool; the
+    router always builds this surface with can_edit=False), so the prompt must
+    never carry it, however predicate-shaped the user's question was."""
+    layer = ChatMapLayer(id="x", name="x", dataset_id="x", dataset_table_name="t")
+    prompt = build_dataset_chat_system_prompt(layer)
+    assert "simple row predicate" not in prompt
+    assert "Want this as a filter" not in prompt
+    assert "set_filter" not in prompt
+
+
 @pytest.mark.anyio
 async def test_restrict_tables_blocks_other_visible_tables(
     client: AsyncClient, test_db_session
