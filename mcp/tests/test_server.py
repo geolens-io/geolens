@@ -24,6 +24,9 @@ EXPECTED_TOOLS = {
     "get_features": ({"dataset_id"}, {"dataset_id", "limit", "offset", "bbox"}),
     "list_maps": (set(), {"search", "limit", "offset"}),
     "get_map": ({"map_id"}, {"map_id"}),
+    # feat(#565): sandboxed read-only SQL. restrict_tables is REQUIRED — the
+    # backend refuses an unscoped query, so the schema must say so too.
+    "query": ({"sql", "restrict_tables"}, {"sql", "restrict_tables", "row_limit"}),
 }
 
 

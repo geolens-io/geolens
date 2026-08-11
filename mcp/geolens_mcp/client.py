@@ -226,20 +226,35 @@ class GeoLensReadOnlyAPI:
     ``MockTransport``. Paths are relative to the client's ``/api`` base URL.
     Trailing slashes are load-bearing (the API runs ``redirect_slashes=False``):
     the two ``/{id}`` detail routes must have NO trailing slash.
+
+    "Read-only" is semantic, not method-shaped: ``query`` (#565) POSTs to the
+    sandbox SQL endpoint, which executes inside a READ ONLY transaction.
     """
 
     def __init__(self, http: httpx.Client) -> None:
         self._http = http
 
-    def _get(self, path: str, params: Optional[dict[str, Any]] = None) -> Any:
+    def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: Optional[dict[str, Any]] = None,
+        json: Optional[dict[str, Any]] = None,
+    ) -> Any:
         try:
-            resp = self._http.get(path, params=params or {}, timeout=DEFAULT_TIMEOUT)
+            resp = self._http.request(
+                method, path, params=params, json=json, timeout=DEFAULT_TIMEOUT
+            )
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
             detail = ""
             try:
                 body = exc.response.json()
                 detail = body.get("detail") or body.get("message") or ""
+                if not isinstance(detail, str):
+                    # FastAPI validation errors carry a structured detail list.
+                    detail = str(detail)[:200]
             except Exception:
                 detail = (exc.response.text or "")[:200]
             raise RuntimeError(
@@ -249,6 +264,16 @@ class GeoLensReadOnlyAPI:
         except httpx.HTTPError as exc:
             raise RuntimeError(f"Could not reach GeoLens API at {path}: {exc}") from exc
         return resp.json()
+
+    def _get(self, path: str, params: Optional[dict[str, Any]] = None) -> Any:
+        return self._request("GET", path, params=params or {})
+
+    def _post(self, path: str, json: dict[str, Any]) -> Any:
+        # feat(#565): the package's first write-shaped transport method. It
+        # exists for POST routes that are reads semantically (the sandbox
+        # query endpoint); the server stays read-only in effect because the
+        # backend executes these inside a READ ONLY transaction.
+        return self._request("POST", path, json=json)
 
     def search_datasets(self, query: str, limit: int = 10, offset: int = 0) -> Any:
         # /search/datasets augments page 0 with up to 5 collection records; drop
@@ -289,3 +314,13 @@ class GeoLensReadOnlyAPI:
     def get_map(self, map_id: str) -> Any:
         # No trailing-slash sibling on this route — must omit it.
         return self._get(f"/maps/{_id_segment(map_id)}")
+
+    def query(
+        self, sql: str, restrict_tables: list[str], row_limit: int = 100
+    ) -> Any:
+        # feat(#565): raw read-only SQL through the backend sandbox. The
+        # trailing slash is the canonical registration of this route.
+        return self._post(
+            "/query/",
+            {"sql": sql, "restrict_tables": restrict_tables, "row_limit": row_limit},
+        )
