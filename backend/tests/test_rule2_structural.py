@@ -1596,8 +1596,15 @@ def _is_value_position(current: ast.AST, parent: ast.AST) -> bool:
     ``commands and ()`` can only ever be an EMPTY ``commands`` — iterating that
     runs nothing. The final operand is a possible result for both.
 
-    Everything else in ``_VALUE_WRAPPERS`` (the ``+`` chain) passes its value
-    through from any operand.
+    Everything else in ``_VALUE_WRAPPERS`` (the arithmetic chain) passes its
+    value through from any operand. That deliberately includes repetition by a
+    literal zero, ``commands * 0``, which is always empty (codex round 9,
+    declined): this gate does no constant folding ANYWHERE, by the same
+    decision #1077 made when it chose to report ``if False: gdal_safe_env()``
+    rather than evaluate the condition. Both cost a false alarm and neither
+    costs a silent pass, which is the trade this module takes everywhere. The
+    two exclusions above are not folding — they read which FIELD an operator
+    can return, with no claim about any operand's value.
     """
     if isinstance(parent, ast.IfExp):
         return current is parent.body or current is parent.orelse
@@ -1644,6 +1651,8 @@ def _depth_preserving_ancestor(expr: ast.AST) -> ast.AST:
     * a star inside a display, ``(*commands,)``, which splices ``commands``'
       elements into a new one and so preserves its depth (codex round 5). The
       pair counts once, exactly as it does in ``_binding_targets``.
+    * a SLICE, ``commands[:]``, which yields a sequence of the same things
+      (codex round 9). A single index does not: it consumes a level.
 
     A CONTAINER wrapper is deliberately absent: ``[commands]`` is a level
     deeper, and pretending otherwise is the container mistake #996 is about.
@@ -1659,6 +1668,17 @@ def _depth_preserving_ancestor(expr: ast.AST) -> ast.AST:
             if isinstance(display, (ast.List, ast.Tuple, ast.Set)):
                 current = display
                 continue
+        # A SLICE yields a sequence of the same things: `commands[:]` is still
+        # a container of argvs, `cmd[1:]` still a sequence of strings. #996
+        # already reads it that way in `_escape_kind`, where only a SINGLE
+        # index — which consumes a level — stops the walk (codex round 9).
+        if (
+            isinstance(parent, ast.Subscript)
+            and parent.value is current
+            and isinstance(parent.slice, ast.Slice)
+        ):
+            current = parent
+            continue
         return current
 
 
@@ -2061,6 +2081,15 @@ def _derived_paths(used: ast.expr, kind: str | None) -> list[tuple[str, str | No
         parent = getattr(used, "_rule2_parent", None)
         if isinstance(parent, (ast.Subscript, ast.Attribute)) and parent.value is used:
             extracted, extracted_kind = _binding_targets(parent)
+            # An INDEX of a container yields the vector, one level down. A
+            # SLICE yields a container of the same things, so `sliced =
+            # commands[:]` keeps the kind (codex round 9). Fixed here as well
+            # as in `_depth_preserving_ancestor` because the alias path went
+            # around the loop's own iterable once already (round 8).
+            if isinstance(parent, ast.Subscript) and isinstance(
+                parent.slice, ast.Slice
+            ):
+                extracted_kind = extracted_kind or kind
             derived += [(n, extracted_kind) for n in extracted]
         # fix(#1394): ITERATING a container hands each element — the argv — to
         # the loop target, exactly as subscripting it hands over one.
@@ -3623,6 +3652,47 @@ def test_guard_a_wrapped_iterable_is_still_the_same_loop():
     assert len(violations) == 4, violations
     for quiet in ("(condition_only)", "(and_guarded)"):
         assert not any(quiet in v for v in violations), (quiet, violations)
+
+
+def test_guard_a_sliced_container_is_still_a_container():
+    """fix(#1394), codex round 9: a slice yields a sequence of the same things.
+
+    ``for cmd in commands[:]:`` iterates argvs, and the loop rule could not
+    climb the subscript, so a real GDAL invocation went undetected — the silent
+    direction. #996 already reads a slice this way in ``_escape_kind``, where
+    only a SINGLE index stops the walk because it consumes a level.
+
+    Fixed on the alias path too (``sliced = commands[:]``), since that is how
+    round 8 got around the round-7 fix. The controls: an INDEX still yields the
+    vector, and slicing the vector itself still yields strings.
+    """
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def in_place(path):\n"
+            "    commands = [['gdalinfo', path]]\n"
+            "    for cmd in commands[:]:\n"
+            "        subprocess.run(cmd)\n"
+            "def aliased(path):\n"
+            "    commands = [['ogrinfo', path]]\n"
+            "    sliced = commands[:]\n"
+            "    for cmd in sliced:\n"
+            "        subprocess.run(cmd)\n"
+            "def indexed(path):\n"
+            "    commands = [['gdalwarp', path]]\n"
+            "    subprocess.run(commands[0])\n"
+            "def vector_slice(path):\n"
+            "    cmd = ['gdaladdo', path]\n"
+            "    for part in cmd[:]:\n"
+            "        consume(part)\n"
+        ),
+        {},
+    )
+    assert total == 3, (total, violations)
+    assert len(violations) == 3, violations
+    for reported in ("(in_place)", "(aliased)", "(indexed)"):
+        assert any(reported in v for v in violations), (reported, violations)
+    assert not any("(vector_slice)" in v for v in violations), violations
 
 
 def test_guard_a_dead_wrapper_alias_is_not_followed_either():
