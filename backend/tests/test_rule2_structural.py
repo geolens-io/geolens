@@ -1585,8 +1585,8 @@ def _loop_target_paths(iterable: ast.AST) -> set[str]:
 
     ``for cmd in commands:`` binds ``"cmd"``; ``async for`` and a
     comprehension's generator bind the same way. Empty when ``iterable`` is not
-    in an iterated position, or when the target is a shape ``_target_names``
-    cannot name.
+    in an iterated position, when the target is a shape ``_target_names``
+    cannot name, or when the target DESTRUCTURES.
 
     fix(#1394): ONE definition of what a loop binds, because two callers need
     it and they know different things. ``_binding_targets`` calls it for a
@@ -1595,11 +1595,22 @@ def _loop_target_paths(iterable: ast.AST) -> set[str]:
     calls it for a NAME already known to hold a container of argvs
     (``commands = (["gdalinfo", path],)`` then ``for cmd in commands:``), where
     it is not.
+
+    The destructuring rule is codex round 2 on #1394, and it predates the
+    named-container half: ``for tool, arg in commands:`` splits the element
+    apart, so each name gets a PIECE of the argv and none of them gets the
+    argv. ``_target_names`` flattens a pattern to all its names, which is the
+    right answer for an assignment — where ``_positional_targets`` then matches
+    them up by position — and the wrong one here, where the value being split
+    is the command vector rather than a tuple of unrelated values. Returning
+    nothing is the accurate answer within this model, in which the element of a
+    container IS the vector: destructuring a vector yields strings.
     """
     parent = getattr(iterable, "_rule2_parent", None)
     if (
         isinstance(parent, (ast.For, ast.AsyncFor, ast.comprehension))
         and parent.iter is iterable
+        and not isinstance(parent.target, (ast.Tuple, ast.List))
     ):
         return _target_names(parent.target)
     return set()
@@ -3220,6 +3231,31 @@ def test_guard_iterating_a_dict_yields_keys_not_the_argv():
     )
     assert total_keyed == 1, (total_keyed, keyed)
     assert len(keyed) == 1 and "(fn)" in keyed[0]
+
+
+def test_guard_destructuring_loop_target_does_not_receive_the_argv():
+    """fix(#1394), codex round 2: unpacking splits the argv into strings.
+
+    ``for tool, arg in commands:`` binds ``"gdalinfo"`` and the path, never the
+    vector, so linking the literal to either name flagged data that cannot
+    execute. Both spellings of the container are checked, because the
+    destructuring bug predates the named-container half — the inline form went
+    through the same ``_target_names`` flattening on #996.
+    """
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "def named(path):\n"
+            "    commands = [['gdalinfo', path]]\n"
+            "    for tool, arg in commands:\n"
+            "        consume(tool)\n"
+            "def inline(path):\n"
+            "    for tool, arg in (['ogrinfo', path],):\n"
+            "        consume(arg)\n"
+        ),
+        {},
+    )
+    assert total == 0, (total, violations)
+    assert violations == []
 
 
 def test_guard_container_kind_survives_an_alias_hop():
