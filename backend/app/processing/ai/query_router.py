@@ -30,7 +30,12 @@ this POST route — it is a read semantically — via the exact-route carve-out 
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+import uuid
+from collections.abc import Awaitable, Callable
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.routing import APIRoute
 from pydantic import BaseModel, Field, field_validator
 from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,9 +48,55 @@ from app.modules.auth.router import limiter
 from app.platform.sandbox import SandboxError, SandboxResult, validate_and_execute
 from app.standards.ogc.errors import ERROR_RESPONSES_AUTH, RATE_LIMIT_RESPONSE
 
+
+class _AuditedQueryRoute(APIRoute):
+    """Audit authenticated requests whose BODY fails validation (#565 codex P2).
+
+    A missing/empty ``restrict_tables``, an oversized ``sql``, or an
+    out-of-range ``row_limit`` makes FastAPI raise ``RequestValidationError``
+    (422) before the handler body runs, so neither ``query.reject`` call in the
+    handler fires. The endpoint's stated guarantee is that every query attempt
+    is audited, success or rejection, so this route class emits a
+    ``query.reject`` for those too.
+
+    FastAPI solves dependencies (including auth) BEFORE validating the body, so
+    ``_rate_limit_scoped_user`` has already stamped the resolved user id onto
+    ``request.state`` by the time validation fails. Auth failures raise their
+    own 401/403 during dependency solving and never reach here, so an
+    unauthenticated malformed request is not audited — only a caller who did
+    authenticate and then sent a bad body.
+    """
+
+    def get_route_handler(self) -> Callable[[Request], Awaitable[Response]]:
+        original = super().get_route_handler()
+
+        async def _handler(request: Request) -> Response:
+            try:
+                return await original(request)
+            except RequestValidationError:
+                user_id = getattr(request.state, "sandbox_query_user_id", None)
+                if user_id is not None:
+                    await audit_emit_durable(
+                        AuditEvent(
+                            user_id=uuid.UUID(user_id),
+                            action="query.reject",
+                            resource_type="query",
+                            resource_id=None,
+                            details={"category": "invalid_request"},
+                            ip_address=(
+                                request.client.host if request.client else None
+                            ),
+                        )
+                    )
+                raise
+
+        return _handler
+
+
 router = APIRouter(
     prefix="/query",
     tags=["Query"],
+    route_class=_AuditedQueryRoute,
     responses={**ERROR_RESPONSES_AUTH, 429: RATE_LIMIT_RESPONSE},
 )
 

@@ -116,8 +116,12 @@ async def validate_and_execute(
         if restrict_tables is not None:
             allowed_tables = allowed_tables & restrict_tables
 
-        # Phase 3: Check table access
-        check_table_access(validated.tables, allowed_tables, validated.cte_names)
+        # Phase 3: Check table access. validated.tables already excludes
+        # lexically in-scope CTE references (fix(#565 codex P1)), so every
+        # remaining reference must be an accessible data.* table — pass no CTE
+        # skip set, or a flat name match would re-admit an out-of-scope name
+        # (e.g. pg_user) that a same-named inner CTE happens to define.
+        check_table_access(validated.tables, allowed_tables, cte_names=set())
 
         # Phase 4: Execute safely
         concurrency_key = str(user.id) if user is not None else "anonymous"

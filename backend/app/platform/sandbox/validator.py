@@ -918,16 +918,23 @@ def validate_sql(sql: str) -> ValidatedQuery:
 
     _check_function_allowlist(stmt, sql)
 
-    # Extract CTE names to exclude from table validation
+    # Extract CTE names (global) for the ValidatedQuery contract and the
+    # emptiness gate. Table ACCESS classification below is lexical, not by
+    # membership in this flat set (see _is_cte_reference / fix(#565 codex P1)).
     cte_names: set[str] = set()
     for cte in stmt.find_all(exp.CTE):
         if cte.alias:
             cte_names.add(cte.alias)
 
-    # Extract all table references as (schema, name) tuples. table_counts
-    # counts every REFERENCE (not deduped) so callers can bound self-join
-    # amplification — CTE references count under the CTE's own name, so
-    # laundering a repeated physical table through per-copy CTE bodies still
+    # Extract table references as (schema, name) tuples. An unqualified name
+    # that resolves to a lexically in-scope CTE is a CTE reference, not a real
+    # table, and is excluded here so it is never access-checked. Everything
+    # left — schema-qualified tables AND unqualified names with no in-scope CTE
+    # — must pass the data.* check in check_table_access.
+    #
+    # table_counts counts every REFERENCE (not deduped) so callers can bound
+    # self-join amplification — CTE references count under the CTE's own name,
+    # so laundering a repeated physical table through per-copy CTE bodies still
     # accumulates on the physical key (feat(#565)). Keys are lowercased:
     # unquoted identifiers fold to lowercase in PostgreSQL, and access checks
     # on the exact-case `tables` set stay unchanged.
@@ -936,14 +943,49 @@ def validate_sql(sql: str) -> ValidatedQuery:
     for table in stmt.find_all(exp.Table):
         schema = table.db or ""
         name = table.name
-        if name:
-            tables.add((schema, name))
-            key = (schema.lower(), name.lower())
-            table_counts[key] = table_counts.get(key, 0) + 1
+        if not name:
+            continue
+        key = (schema.lower(), name.lower())
+        table_counts[key] = table_counts.get(key, 0) + 1
+        if _is_cte_reference(table):
+            continue
+        tables.add((schema, name))
 
     return ValidatedQuery(
         sql=sql, tables=tables, cte_names=cte_names, table_counts=table_counts
     )
+
+
+def _is_cte_reference(table: exp.Table) -> bool:
+    """Whether an unqualified table node resolves to a lexically in-scope CTE.
+
+    fix(#565 codex P1): validation used to collect every CTE name in the
+    statement into one flat set and treat any unqualified table matching a
+    member as a CTE reference to skip. A CTE named after a catalog relation in
+    an INNER scope masked an OUTER unqualified reference of the same name —
+
+        SELECT p.usename FROM pg_user p
+        CROSS JOIN (WITH pg_user AS (SELECT gid FROM data.foo) SELECT 1) x
+
+    the inner ``pg_user`` CTE put ``pg_user`` in the flat set, so the top-level
+    ``pg_user`` was skipped instead of rejected, and PostgreSQL resolved it to
+    the readable ``pg_catalog.pg_user`` view under the reader role — a
+    restrict_tables bypass that discloses catalog metadata including role
+    names. Resolving the name against the WITH clauses actually in scope for
+    THIS node closes it: an out-of-scope match no longer counts, so the outer
+    reference falls through to the data.* schema check and is rejected.
+
+    A schema-qualified name (``data.foo``, ``pg_catalog.pg_user``) is never a
+    CTE reference. Resolution is fail-closed: an ambiguous name (declared more
+    than once in one scope) does not resolve, so it is treated as a real table
+    and rejected.
+    """
+    if table.db:
+        return False
+    scope = table.find_ancestor(exp.Select)
+    if scope is None:
+        return False
+    return _cte_definition(scope, table.name) is not None
 
 
 async def build_table_allowlist(db: AsyncSession, user: Identity | None) -> set[str]:

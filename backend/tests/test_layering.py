@@ -2796,6 +2796,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # (first occurrence, case-insensitive name), closing the duplicate-param
     # and name-case parser-disagreement variants of the same pre-warm attack.
     "backend/app/processing/tiles/router.py": 2191,
+    # feat(#565): the SQL sandbox validator crossed 1000 lines when the
+    # lexical CTE-scope fix landed (codex P1): _is_cte_reference plus its
+    # docstring recording the pg_catalog.pg_user restrict_tables bypass it
+    # closes, and the table-extraction rewrite that routes every unqualified
+    # reference through it. Most of the added lines are that rationale. Cap set
+    # at the file's exact current size.
+    "backend/app/platform/sandbox/validator.py": 1040,
 }
 
 

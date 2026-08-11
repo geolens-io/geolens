@@ -183,6 +183,32 @@ async def test_writable_cte_stays_rejected(
     assert resp.json()["detail"] == "Only SELECT queries are allowed"
 
 
+async def test_out_of_scope_cte_name_cannot_mask_a_catalog_table(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P1): a CTE named after a catalog relation in an inner
+    scope must not let an unqualified outer reference reach pg_catalog. Admin
+    can access any dataset, so this is the worst case for the bypass."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = await _make_table(test_db_session, owner)
+
+    resp = await client.post(
+        "/query/",
+        json={
+            "sql": (
+                "SELECT p.usename FROM pg_user p CROSS JOIN "
+                f"(WITH pg_user AS (SELECT gid FROM data.{tbl}) SELECT 1) x"
+            ),
+            "restrict_tables": [tbl],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Table not accessible"
+    assert "usename" not in resp.text
+
+
 # ---------------------------------------------------------------------------
 # Self-join repetition cap (#565's live cost vector)
 # ---------------------------------------------------------------------------
@@ -528,6 +554,37 @@ async def test_rejection_emits_query_reject_audit(
     )
     assert row.details["category"] == "invalid_query"
     assert row.details["sql"] == "SELECT 1"
+
+
+async def test_body_validation_rejection_is_audited(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P2): a 422 from body validation (missing restrict_tables)
+    happens before the handler, but an authenticated attempt must still land in
+    the durable trail — the route class audits it as invalid_request."""
+    before = len(await _audit_rows(test_db_session, "query.reject"))
+
+    resp = await client.post(
+        "/query/", json={"sql": "SELECT 1"}, headers=admin_auth_header
+    )
+    assert resp.status_code == 422
+
+    rows = await _audit_rows(test_db_session, "query.reject")
+    assert len(rows) == before + 1
+    assert rows[0].details == {"category": "invalid_request"}
+    assert rows[0].resource_type == "query"
+
+
+async def test_unauthenticated_body_validation_is_not_audited(
+    client: AsyncClient, test_db_session
+):
+    """The audit only covers authenticated attempts: an anonymous malformed
+    request 401s during auth and must not write a durable row."""
+    before = len(await _audit_rows(test_db_session, "query.reject"))
+    resp = await client.post("/query/", json={"sql": "SELECT 1"})
+    assert resp.status_code == 401
+    after = len(await _audit_rows(test_db_session, "query.reject"))
+    assert after == before
 
 
 # ---------------------------------------------------------------------------
