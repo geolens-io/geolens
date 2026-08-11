@@ -1739,6 +1739,13 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # chat_*.py glob below, ~142 lines under the 350 default) rather than
         # grown here. Cap 530 → 550 (~14 headroom).
         "backend/app/processing/ai/chat_actions.py": 550,
+        # feat(#1241): +18 over the 350 default — _safe_value now emits
+        # integers outside JavaScript's safe range as strings (constant, the
+        # int branch, and the docstring explaining why), so a bigint id
+        # survives the browser's JSON.parse intact instead of arriving rounded
+        # and being written that way into a saved chat-preview snapshot.
+        # Cap 350 → 370 (~17 headroom).
+        "backend/app/processing/ai/chat_geojson.py": 370,
         # fix(#836): extensions-defaults sub-modules over the 350 default at
         # split time. Caps exact (zero headroom): each class moved verbatim
         # from the 1815-LOC defaults.py, and regrowth toward another god

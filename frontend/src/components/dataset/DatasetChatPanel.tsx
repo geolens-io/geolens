@@ -10,6 +10,7 @@ import { useCreateMap } from '@/hooks/use-maps';
 import { useAIAvailability } from '@/hooks/use-ai-availability';
 import { QueryResultTable, type QueryResult } from '@/components/viewer/ViewerChatPanel';
 import { stashChatResult, toChatResultHandoff, type ChatResultHandoff } from '@/lib/chat-result-handoff';
+import { chatOverlayCompleteness, overlayFeatureCount } from '@/lib/chat-result-completeness';
 import { cn } from '@/lib/utils';
 import type { ChatAction, ChatHistoryMessage } from '@/types/api';
 
@@ -141,7 +142,19 @@ export function DatasetChatPanel({ datasetId, datasetTitle, showOpenInBuilder, o
                 // same accepted action, so "Open in builder" never carries
                 // geometry from an earlier result than the table shown (#533).
                 queryResult = qr;
-                spatialResult = toChatResultHandoff(action.geojson, action.bbox) ?? undefined;
+                // feat(#1241 codex r1): carry the completeness pair and the
+                // question with the geometry. The builder can now save a
+                // carried result as a dataset, so a handoff that arrives
+                // without them looks like a complete answer to every guard on
+                // the other side.
+                const carried = toChatResultHandoff(action.geojson, action.bbox);
+                spatialResult = carried
+                  ? {
+                      ...carried,
+                      ...chatOverlayCompleteness(action, overlayFeatureCount(carried.geojson)),
+                      prompt: userMsg,
+                    }
+                  : undefined;
               }
             }
           }

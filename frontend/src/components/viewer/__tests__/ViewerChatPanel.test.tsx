@@ -23,6 +23,12 @@ function setAvailable(available: boolean) {
   mockAvailability.mockReturnValue({ isAIAvailable: available } as ReturnType<typeof useAIAvailability>);
 }
 
+/** One overlay feature. feat(#1241 codex r1): overlay completeness is judged
+ *  against row_count, so a fixture's feature COUNT is now load-bearing. */
+function feature() {
+  return { type: 'Feature', geometry: { type: 'Point', coordinates: [-73.9, 40.8] }, properties: {} };
+}
+
 function renderPanel() {
   const mapInstanceRef = { current: null };
   return render(
@@ -100,7 +106,7 @@ describe('ViewerChatPanel', () => {
           actions: [
             {
               type: 'show_query_result',
-              geojson: { type: 'FeatureCollection', features: [] },
+              geojson: { type: 'FeatureCollection', features: [feature()] },
               bbox: [-1, -1, 1, 1],
               rows: [['Alpha', 10]],
               columns: ['name', 'count'],
@@ -119,9 +125,9 @@ describe('ViewerChatPanel', () => {
 
     await screen.findByText('Found 1 result.');
     expect(handleQueryResult).toHaveBeenCalledWith(
-      { type: 'FeatureCollection', features: [] },
+      { type: 'FeatureCollection', features: [feature()] },
       [-1, -1, 1, 1],
-      undefined,
+      {},
     );
     expect(screen.getByText('Alpha')).toBeInTheDocument();
     expect(screen.getByText('1 row')).toBeInTheDocument();
@@ -165,6 +171,10 @@ describe('ViewerChatPanel', () => {
     );
   });
 
+  // feat(#1241 codex r1): one feature per matched row is what "uncapped" means.
+  // The server never emits an empty FeatureCollection (_extract_geojson returns
+  // None when no row is mappable), so features:[] with row_count: 12 described
+  // an impossible state that now reads, correctly, as a clipped overlay.
   it('forwards no truncation for an uncapped result', async () => {
     setAvailable(true);
     mockStream.mockImplementation(async function* () {
@@ -174,9 +184,9 @@ describe('ViewerChatPanel', () => {
           actions: [
             {
               type: 'show_query_result',
-              geojson: { type: 'FeatureCollection', features: [] },
+              geojson: { type: 'FeatureCollection', features: [feature()] },
               bbox: [-1, -1, 1, 1],
-              row_count: 12,
+              row_count: 1,
             },
           ],
         },
@@ -194,9 +204,48 @@ describe('ViewerChatPanel', () => {
 
     await screen.findByText('Clipped.');
     expect(handleQueryResult).toHaveBeenCalledWith(
-      { type: 'FeatureCollection', features: [] },
+      { type: 'FeatureCollection', features: [feature()] },
       [-1, -1, 1, 1],
-      undefined,
+      {},
+    );
+  });
+
+  // The embed/shared-link surface must disclose a clipped overlay even when the
+  // SQL row cap never bit: the server slices the FeatureCollection to its own
+  // render budget afterwards, so `truncated: false` says nothing about it.
+  it('discloses an overlay clipped below row_count even with truncated false', async () => {
+    setAvailable(true);
+    mockStream.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            {
+              type: 'show_query_result',
+              geojson: { type: 'FeatureCollection', features: [feature()] },
+              bbox: [-1, -1, 1, 1],
+              truncated: false,
+              row_count: 300,
+            },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Found 300.' } };
+    });
+
+    renderPanel();
+    await userEvent.click(screen.getByRole('button', { name: 'Ask AI' }));
+    await userEvent.type(
+      screen.getByPlaceholderText('Ask about this map...'),
+      'show me every park',
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    await screen.findByText('Found 300.');
+    expect(handleQueryResult).toHaveBeenCalledWith(
+      { type: 'FeatureCollection', features: [feature()] },
+      [-1, -1, 1, 1],
+      { truncated: true, totalCount: 300 },
     );
   });
 

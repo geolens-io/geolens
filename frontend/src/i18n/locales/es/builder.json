@@ -1088,7 +1088,15 @@
     "featureCountTruncatedScoped_other": "{{count, number}} de {{total, number}} entidades en la extensión previsualizada",
     "featureCountCapped_one": "primera {{count, number}} entidad",
     "featureCountCapped_other": "primeras {{count, number}} entidades",
-    "saveAsDataset": "Guardar como conjunto de datos…"
+    "saveAsDataset": "Guardar como conjunto de datos…",
+    "saveTruncatedReason": "Las vistas previas recortadas no se pueden guardar: esto es una parte de la respuesta, no toda."
+  },
+  "savePreview": {
+    "title": "Guardar la vista previa como conjunto de datos",
+    "description": "Guarda las entidades de la vista previa como un nuevo conjunto de datos. Es una instantánea de esta respuesta, no una consulta en vivo: no cambiará cuando cambien los datos de origen.",
+    "fallbackTitle": "Resultado de consulta del chat",
+    "started": "Importación iniciada. El conjunto de datos aparecerá en tu catálogo cuando termine el procesamiento.",
+    "failed": "No se pudo guardar la vista previa como conjunto de datos."
   },
   "previewRow": {
     "ephemeralTag": "Efímero: sin guardar"

@@ -21,6 +21,72 @@ export interface EphemeralCountInput {
 }
 
 /**
+ * feat(#1241): why the preview's "Save as dataset…" affordance is disabled.
+ * A closed union rather than a free string so the copy stays in the component
+ * (and therefore in all four locales) instead of at each call site.
+ */
+export type PreviewSaveDisabledReason = 'truncated';
+
+/** What "Save as dataset…" does for the preview currently on screen. */
+export type PreviewSaveMode =
+  /** feat(#675): hand off to the Analysis panel, which re-runs the operation
+   *  server-side. */
+  | 'analysis'
+  /** feat(#1241): snapshot the client's FeatureCollection through ingest. */
+  | 'snapshot'
+  /** feat(#1241): offered but not actionable — see `previewSaveMode`. */
+  | 'truncated'
+  /** Nothing to offer. */
+  | 'none';
+
+export interface PreviewSaveInput {
+  /** feat(#675): set when an Analysis operation is behind this preview. */
+  analysis?: unknown;
+  /** Whether the server capped the result. */
+  truncated?: boolean;
+  /** How many features the client actually holds. */
+  featureCount: number;
+  /** fix(#793 review): the producer that stamped this preview, when it was not
+   *  the chat (today only 'analysis-panel'). */
+  source?: string;
+}
+
+/**
+ * feat(#1241): decide what the preview surfaces offer for "Save as dataset…".
+ *
+ * The truncation guard applies to the SNAPSHOT path only, and deliberately so:
+ * a snapshot persists the client's copy, so saving a capped one would file
+ * "first N of M" in the catalog as if it were the whole answer — the
+ * misrepresentation #674/#1076 closed on the count label, through a door that
+ * outlives the session. The #675 analysis handoff re-runs the operation
+ * server-side and materializes the complete result, so a capped PREVIEW says
+ * nothing about what it would save; blocking it there would remove a working
+ * path for no reason.
+ *
+ * `canSaveDataset` gates the snapshot path only, for the same reason: it is the
+ * one that turns client-held data into a dataset (POST /ingest/*).
+ */
+export function previewSaveMode(
+  result: PreviewSaveInput | null | undefined,
+  canSaveDataset: boolean,
+): PreviewSaveMode {
+  if (!result) return 'none';
+  if (result.analysis) return 'analysis';
+  // feat(#1241 codex r2): only a preview the CHAT produced is snapshottable.
+  // A stamped source means another surface drew this overlay and owns its own
+  // save (the Analysis panel's Create dataset, which materializes the whole
+  // operation server-side); its preview is also bbox-scoped, so snapshotting
+  // it would persist whatever the map happened to be looking at as the result.
+  // Allowlist rather than blocklist, so a future producer is excluded by
+  // default instead of silently inheriting this path.
+  if (result.source) return 'none';
+  // A snapshot of nothing is not a dataset — an empty result offers no save
+  // (and would only earn a 422 from the ingest preview if it did).
+  if (!canSaveDataset || result.featureCount < 1) return 'none';
+  return result.truncated ? 'truncated' : 'snapshot';
+}
+
+/**
  * The preview's "how many features?" sentence.
  *
  * fix(#1076): three cases, not two. A clip filters rows, so the server cannot

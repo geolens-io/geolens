@@ -257,10 +257,28 @@ def _detect_geom_column(columns: list[str], rows: list[list]) -> int | None:
     return None
 
 
+# JavaScript numbers are IEEE-754 doubles, so an integer beyond this magnitude
+# cannot round-trip through the browser's JSON.parse.
+_JS_MAX_SAFE_INT = 2**53 - 1
+
+
 def _safe_value(v: object) -> object:
-    """Convert non-JSON-serializable types to str; pass through primitives."""
-    if v is None or isinstance(v, (str, int, float, bool)):
+    """Convert values the client cannot represent to str; pass through the rest.
+
+    fix(#1241 codex r5): an integer outside JavaScript's safe range is
+    JSON-serializable and still lossy — 9007199254740993 arrives in the browser
+    as 9007199254740992, because JSON.parse rounds it to the nearest double.
+    That silently wrong id was always on screen; it becomes permanent now that
+    the map builder can save a chat preview as a dataset, since the snapshot is
+    serialized from the parsed payload. Emitting the exact digits as a string
+    is the only shape that survives the trip. Every smaller integer stays a
+    number, so ordinary ids keep their type.
+    """
+    if v is None or isinstance(v, (str, float, bool)):
         return v
+    if isinstance(v, int):
+        # bool is an int subclass and already returned above.
+        return str(v) if abs(v) > _JS_MAX_SAFE_INT else v
     if isinstance(v, (datetime, date, Decimal, bytes, memoryview, UUID)):
         return str(v)
     return str(v)

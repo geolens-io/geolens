@@ -38,6 +38,12 @@ function makeLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse 
   };
 }
 
+/** One overlay feature. feat(#1241 codex r1): overlay completeness is judged
+ *  against row_count, so a fixture's feature COUNT is now load-bearing. */
+function feature() {
+  return { type: 'Feature', geometry: { type: 'Point', coordinates: [-73.9, 40.8] }, properties: {} };
+}
+
 function renderPanel(
   propOverrides: Partial<React.ComponentProps<typeof ChatPanel>> & Partial<LayerActions> = {},
 ) {
@@ -163,7 +169,12 @@ describe('ChatPanel', () => {
     await typeAndSend(user, 'find features');
 
     await waitFor(() => {
-      expect(props.onQueryResult).toHaveBeenCalledWith(geojson, bbox, undefined);
+      // feat(#1241): the meta now always carries the prompt behind the result,
+      // so a plain preview (no truncation, no analysis) can be saved as a
+      // dataset with its question suggested as the name.
+      expect(props.onQueryResult).toHaveBeenCalledWith(geojson, bbox, {
+        prompt: 'find features',
+      });
     });
   });
 
@@ -193,6 +204,7 @@ describe('ChatPanel', () => {
       expect(props.onQueryResult).toHaveBeenCalledWith(geojson, bbox, {
         truncated: true,
         totalCount: 10651,
+        prompt: 'buffer the earthquakes by 10km',
       });
     });
   });
@@ -223,21 +235,29 @@ describe('ChatPanel', () => {
     await waitFor(() => {
       expect(props.onQueryResult).toHaveBeenCalledWith(geojson, bbox, {
         truncated: true,
+        prompt: 'clip the buildings to the flood zone',
       });
     });
   });
 
   // The other direction: an uncapped result must forward nothing, or the
   // preview discloses a truncation that did not happen.
+  //
+  // feat(#1241 codex r1): the fixture holds one feature per matched row. The
+  // overlay is complete only when it carries every row the answer matched, and
+  // the server never emits an empty FeatureCollection (_extract_geojson
+  // returns None when no row is mappable), so a features:[] fixture with
+  // row_count: 12 describes a state that cannot occur — and now reads, as it
+  // should, as a clipped result.
   it('forwards no truncation for an uncapped result', async () => {
-    const geojson = { type: 'FeatureCollection', features: [] };
+    const geojson = { type: 'FeatureCollection', features: [feature()] };
     const bbox = [-74, 40, -73, 41];
 
     mockStreamChat.mockImplementation(async function* () {
       yield {
         event: 'actions',
         data: {
-          actions: [{ type: 'show_query_result', geojson, bbox, row_count: 12 }],
+          actions: [{ type: 'show_query_result', geojson, bbox, row_count: 1 }],
         },
       };
       yield { event: 'done', data: { explanation: 'Clipped' } };
@@ -248,7 +268,45 @@ describe('ChatPanel', () => {
     await typeAndSend(user, 'clip the buildings to the flood zone');
 
     await waitFor(() => {
-      expect(props.onQueryResult).toHaveBeenCalledWith(geojson, bbox, undefined);
+      // No `truncated` key at all — an uncapped result must not disclose one.
+      expect(props.onQueryResult).toHaveBeenCalledWith(geojson, bbox, {
+        prompt: 'clip the buildings to the flood zone',
+      });
+    });
+  });
+
+  // feat(#1241 codex r1): `truncated` is the SQL sandbox's row cap. When the
+  // model selects geometry itself the sandbox runs at its 1000-row default and
+  // the server then slices the OVERLAY to its own 50-row budget, so a 300-row
+  // answer arrives as a short FeatureCollection with the flag false. Believing
+  // the flag there labels a clipped preview complete — and would let the #1241
+  // save file it in the catalog as the whole answer.
+  it('discloses an overlay clipped below row_count even with truncated false', async () => {
+    const geojson = { type: 'FeatureCollection', features: [feature(), feature()] };
+    const bbox = [-74, 40, -73, 41];
+
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            { type: 'show_query_result', geojson, bbox, truncated: false, row_count: 300 },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Found 300' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel();
+    await typeAndSend(user, 'show me every park');
+
+    await waitFor(() => {
+      expect(props.onQueryResult).toHaveBeenCalledWith(geojson, bbox, {
+        truncated: true,
+        totalCount: 300,
+        prompt: 'show me every park',
+      });
     });
   });
 
@@ -309,6 +367,7 @@ describe('ChatPanel', () => {
     await waitFor(() => {
       expect(props.onQueryResult).toHaveBeenCalledWith(geojson, bbox, {
         analysis: { operation: 'buffer', layerId: 'layer-1', distanceMeters: 500 },
+        prompt: 'buffer the schools by 500m',
       });
     });
   });
@@ -1654,7 +1713,9 @@ describe('ChatPanel — inline data-analysis card (Phase 1135 AI-08)', () => {
     const props = renderPanel();
     await typeAndSend(user, 'find spatial features');
     await waitFor(() => {
-      expect(props.onQueryResult).toHaveBeenCalledWith(geojson, bbox, undefined);
+      expect(props.onQueryResult).toHaveBeenCalledWith(geojson, bbox, {
+        prompt: 'find spatial features',
+      });
     });
     // Negative control — no inline card when rows is absent
     expect(screen.queryByRole('region', { name: /query result table/i })).not.toBeInTheDocument();

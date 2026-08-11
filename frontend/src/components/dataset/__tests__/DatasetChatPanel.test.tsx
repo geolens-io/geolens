@@ -102,7 +102,15 @@ describe('DatasetChatPanel', () => {
 
   it('carries a spatial query result into the builder via sessionStorage', async () => {
     setAvailable(true);
-    const geojson = { type: 'FeatureCollection', features: [] };
+    // feat(#1241 codex r1): one feature for one matched row — the overlay is
+    // complete, so nothing about truncation rides along. The server never
+    // emits an empty FeatureCollection (_extract_geojson returns None when no
+    // row is mappable), so a features:[] fixture would exercise a state that
+    // cannot reach this code and would now read as a clipped result.
+    const geojson = {
+      type: 'FeatureCollection',
+      features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [-73.9, 40.8] }, properties: {} }],
+    };
     const bbox = [-74.5, 40.4, -73.4, 41.1];
     mockStream.mockImplementation(async function* () {
       yield {
@@ -133,7 +141,62 @@ describe('DatasetChatPanel', () => {
     await userEvent.click(screen.getByRole('button', { name: /Open in builder/i }));
 
     expect(mockNavigate).toHaveBeenCalledWith('/maps/map-9?add_dataset=ds-1&chat_result=1');
-    expect(JSON.parse(sessionStorage.getItem('geolens-chat-result')!)).toEqual({ geojson, bbox });
+    // feat(#1241): the prompt rides along so the builder can suggest a name if
+    // the carried result is saved as a dataset.
+    expect(JSON.parse(sessionStorage.getItem('geolens-chat-result')!)).toEqual({
+      geojson,
+      bbox,
+      prompt: 'largest park',
+    });
+  });
+
+  // feat(#1241 codex r1): the builder can now SAVE a carried result, so the
+  // handoff must say whether it is the whole answer. Geometry alone let a
+  // clipped result arrive looking complete.
+  it('carries the completeness pair when the overlay is clipped', async () => {
+    setAvailable(true);
+    const geojson = {
+      type: 'FeatureCollection',
+      features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [-73.9, 40.8] }, properties: {} }],
+    };
+    const bbox = [-74.5, 40.4, -73.4, 41.1];
+    mockStream.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            {
+              type: 'show_query_result',
+              rows: [['Central Park', 843]],
+              columns: ['name', 'acres'],
+              // 300 matched rows behind a 1-feature overlay, and `truncated`
+              // absent — the server's overlay budget, not the SQL row cap.
+              row_count: 300,
+              geojson,
+              bbox,
+            },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Found 300 results.' } };
+    });
+    mockMutateAsync.mockResolvedValue({ id: 'map-9' });
+
+    renderPanel();
+    await userEvent.click(screen.getByRole('button', { name: 'Ask AI' }));
+    await userEvent.type(screen.getByPlaceholderText('Ask about this data...'), 'all parks');
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    await screen.findByText('Found 300 results.');
+    await userEvent.click(screen.getByRole('button', { name: /Open in builder/i }));
+
+    expect(JSON.parse(sessionStorage.getItem('geolens-chat-result')!)).toEqual({
+      geojson,
+      bbox,
+      truncated: true,
+      totalCount: 300,
+      prompt: 'all parks',
+    });
   });
 
   it('does not carry a stale spatial payload when a later table result has none (#533)', async () => {

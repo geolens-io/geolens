@@ -7,7 +7,7 @@ type SegmenterConstructor = new (
   options?: { granularity: 'grapheme' },
 ) => GraphemeSegmenter;
 
-function splitGraphemes(value: string): string[] {
+export function splitGraphemes(value: string): string[] {
   const Segmenter = (Intl as typeof Intl & { Segmenter?: SegmenterConstructor }).Segmenter;
   if (!Segmenter) return Array.from(value);
 

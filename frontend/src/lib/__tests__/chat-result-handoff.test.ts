@@ -45,6 +45,32 @@ describe('stashChatResult / takeChatResult', () => {
     expect(sessionStorage.getItem('geolens-chat-result')).toBeNull();
   });
 
+  // feat(#1241 codex r1): the builder can save a carried result as a dataset,
+  // so the stash has to say whether it is the whole answer. Geometry alone
+  // arrived on the other side looking complete.
+  it('round-trips the completeness pair and the prompt', () => {
+    expect(
+      stashChatResult({ geojson: fc, bbox, truncated: true, totalCount: 300, prompt: 'all parks' }),
+    ).toBe(true);
+    expect(takeChatResult()).toEqual({
+      geojson: fc,
+      bbox,
+      truncated: true,
+      totalCount: 300,
+      prompt: 'all parks',
+    });
+  });
+
+  it('drops fields of the wrong type instead of trusting the stash', () => {
+    sessionStorage.setItem(
+      'geolens-chat-result',
+      JSON.stringify({ geojson: fc, bbox, truncated: 'yes', totalCount: 'lots', prompt: 42 }),
+    );
+    // A truthy-but-not-true `truncated` must not become a disclosure, and a
+    // non-numeric total must not reach a count label as "N of lots".
+    expect(takeChatResult()).toEqual({ geojson: fc, bbox });
+  });
+
   it('returns false when storage write throws (quota/private mode)', () => {
     // jsdom's Storage proxy turns method assignment into a stored item, so
     // spyOn can't replace setItem — stub the whole global instead.

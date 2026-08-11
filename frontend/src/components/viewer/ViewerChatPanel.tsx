@@ -9,6 +9,7 @@ import { useAIAvailability } from '@/hooks/use-ai-availability';
 import { useEphemeralLayers } from '@/components/builder/hooks/use-ephemeral-layers';
 import { EphemeralBadge } from '@/components/builder/EphemeralBadge';
 import { cn } from '@/lib/utils';
+import { chatOverlayCompleteness, overlayFeatureCount } from '@/lib/chat-result-completeness';
 import type { ChatAction, ChatHistoryMessage, MapLayerResponse } from '@/types/api';
 
 const prefersReducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
@@ -176,13 +177,19 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
         //
         // The producer half is #1071; until it lands this branch is correct and
         // simply not yet reachable for a clip.
-        const total = typeof action.row_count === 'number' ? action.row_count : undefined;
+        //
+        // feat(#1241 codex r1): `truncated` is the SQL row cap, not a statement
+        // about the overlay — the server clips the FeatureCollection to its own
+        // render budget after it, so a 300-row answer arrives as 50 features
+        // with the flag false. chatOverlayCompleteness catches that too. The
+        // builder needs it for the save guard; this surface needs it for the
+        // same reason it needed #674: the badge must not call a clipped
+        // overlay complete.
+        const preview = geojson as GeoJSON.FeatureCollection;
         handleQueryResult(
-          geojson as GeoJSON.FeatureCollection,
+          preview,
           [minX, minY, maxX, maxY],
-          action.truncated === true
-            ? { truncated: true, ...(total != null ? { totalCount: total } : {}) }
-            : undefined,
+          chatOverlayCompleteness(action, overlayFeatureCount(preview)),
         );
       }
     }

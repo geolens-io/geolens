@@ -113,4 +113,42 @@ describe('EphemeralBadge', () => {
     const { container } = render(<EphemeralBadge featureCount={1} onDismiss={vi.fn()} />);
     expect(container.firstElementChild).toHaveClass('z-20');
   });
+
+  // feat(#1241): the builder's <1100px rail is a preview surface too, so the
+  // truncation guard has to read the same here as on the stack row — a save
+  // silently missing on one layout and offered on the other is the drift
+  // ephemeral-preview.ts exists to prevent.
+  describe('save affordance parity with the stack row', () => {
+    it('offers the save when the builder passes a handler', () => {
+      const onSaveAsDataset = vi.fn();
+      render(
+        <EphemeralBadge featureCount={240} onDismiss={vi.fn()} onSaveAsDataset={onSaveAsDataset} />,
+      );
+      const save = screen.getByRole('button', { name: /save as dataset/i });
+      expect(save).toBeEnabled();
+    });
+
+    it('disables the save on a truncated preview and says why', () => {
+      render(
+        <EphemeralBadge
+          featureCount={500}
+          totalCount={10651}
+          truncated
+          onDismiss={vi.fn()}
+          saveDisabledReason="truncated"
+        />,
+      );
+      const save = screen.getByRole('button', { name: /save as dataset/i });
+      expect(save).toBeDisabled();
+      const reason = screen.getByText(/Capped previews can't be saved/i);
+      expect(save).toHaveAttribute('aria-describedby', reason.getAttribute('id'));
+      // The count sentence the reason refers to is still there.
+      expect(screen.getByText('Result · 500 of 10,651 features')).toBeInTheDocument();
+    });
+
+    it('shows no save affordance at all when neither is passed (the viewer)', () => {
+      render(<EphemeralBadge featureCount={240} onDismiss={vi.fn()} />);
+      expect(screen.queryByRole('button', { name: /save as dataset/i })).not.toBeInTheDocument();
+    });
+  });
 });

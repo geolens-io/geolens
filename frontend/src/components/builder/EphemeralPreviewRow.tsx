@@ -11,6 +11,7 @@
 // handleDragEnd resolves those ids back to real layers to write sort_order.
 // UnifiedStackPanel renders this row BEFORE the SortableContext opens, the same
 // way the DragOverlay ghost renders a bare StackRow.
+import { useId } from 'react';
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
@@ -20,14 +21,20 @@ import {
   ephemeralStatusLabel,
   useAnnouncedLabel,
   type EphemeralCountInput,
+  type PreviewSaveDisabledReason,
 } from '@/components/builder/ephemeral-preview';
 
 export interface EphemeralPreviewRowProps extends EphemeralCountInput {
   onDismiss: () => void;
   /** feat(#675): opens the Analysis panel prefilled with the operation behind
-   *  this preview. Absent for previews with no analysis behind them (a plain
-   *  chat query result), which is why the action is conditional. */
+   *  this preview. feat(#1241): or opens the save-as-dataset dialog for a
+   *  plain chat result. Absent when neither is on offer, which is why the
+   *  action is conditional. */
   onSaveAsDataset?: () => void;
+  /** feat(#1241): set instead of `onSaveAsDataset` when the save belongs on
+   *  this preview but cannot be honoured — the affordance renders disabled
+   *  with the reason spelled out rather than silently disappearing. */
+  saveDisabledReason?: PreviewSaveDisabledReason;
 }
 
 export function EphemeralPreviewRow({
@@ -37,12 +44,20 @@ export function EphemeralPreviewRow({
   viewportScoped,
   onDismiss,
   onSaveAsDataset,
+  saveDisabledReason,
 }: EphemeralPreviewRowProps) {
   const { t } = useTranslation('builder');
+  const saveDisabledId = useId();
 
   const counts = { featureCount, truncated, totalCount, viewportScoped };
   const countLabel = ephemeralCountLabel(t, counts);
   const announcedLabel = useAnnouncedLabel(ephemeralStatusLabel(t, counts));
+  const saveDisabledText = saveDisabledReason
+    ? t('ephemeralBadge.saveTruncatedReason')
+    : null;
+  // A stated reason wins over a handler: "disabled" must not depend on the
+  // caller also remembering to withhold the callback.
+  const onSave = saveDisabledText ? undefined : onSaveAsDataset;
 
   return (
     // Visual treatment reuses the vocabulary the badge established rather than
@@ -90,17 +105,28 @@ export function EphemeralPreviewRow({
         <span aria-hidden="true" className="truncate text-muted-foreground">
           {countLabel}
         </span>
-        {onSaveAsDataset && (
+        {(onSave || saveDisabledText) && (
           <button
             type="button"
-            onClick={onSaveAsDataset}
+            onClick={onSave}
+            disabled={!onSave}
+            aria-describedby={saveDisabledText ? saveDisabledId : undefined}
             data-testid="ephemeral-preview-save"
-            className="shrink-0 cursor-pointer rounded-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="shrink-0 cursor-pointer rounded-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline"
           >
             {t('ephemeralBadge.saveAsDataset', { defaultValue: 'Save as dataset…' })}
           </button>
         )}
       </div>
+      {/* feat(#1241): a disabled control with no stated reason is a dead end.
+          The count line above already carries the "N of M" — this says why
+          that N is what rules the save out. Visible text (not a title
+          tooltip), because a disabled button gets no hover or focus. */}
+      {saveDisabledText && (
+        <p id={saveDisabledId} className="mt-0.5 ps-4 text-2xs text-muted-foreground">
+          {saveDisabledText}
+        </p>
+      )}
     </div>
   );
 }

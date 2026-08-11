@@ -1088,7 +1088,15 @@
     "featureCountTruncatedScoped_other": "{{count, number}} von {{total, number}} Features im Vorschauausschnitt",
     "featureCountCapped_one": "erstes {{count, number}} Feature",
     "featureCountCapped_other": "erste {{count, number}} Features",
-    "saveAsDataset": "Als Datensatz speichern…"
+    "saveAsDataset": "Als Datensatz speichern…",
+    "saveTruncatedReason": "Gekürzte Vorschauen können nicht gespeichert werden – dies ist ein Teil der Antwort, nicht die ganze."
+  },
+  "savePreview": {
+    "title": "Vorschau als Datensatz speichern",
+    "description": "Speichert die Objekte der Vorschau als neuen Datensatz. Es ist eine Momentaufnahme dieser Antwort, keine Live-Abfrage – sie ändert sich nicht, wenn sich die Quelldaten ändern.",
+    "fallbackTitle": "Chat-Abfrageergebnis",
+    "started": "Import gestartet. Der Datensatz erscheint in Ihrem Katalog, sobald die Verarbeitung abgeschlossen ist.",
+    "failed": "Die Vorschau konnte nicht als Datensatz gespeichert werden."
   },
   "previewRow": {
     "ephemeralTag": "Flüchtig – nicht gespeichert"
