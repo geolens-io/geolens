@@ -1330,16 +1330,23 @@ def _lateral_inner_scope(source: exp.Lateral) -> exp.Expression | None:
     return inner if isinstance(inner, _SCOPE_TYPES) else None
 
 
-def _correlated_scopes(select: exp.Select) -> list[exp.Expression]:
-    """Subquery scopes in ``select``'s projection/predicate clauses.
+def _correlated_scopes(
+    select: exp.Select,
+) -> tuple[list[exp.Expression], list[exp.Expression]]:
+    """Per-INPUT-row and per-OUTPUT-row subquery scopes of ``select``.
 
-    fix(#565 codex P1 r4): a scalar/EXISTS/IN/WHERE subquery executes per
-    output ROW of the enclosing SELECT, so its work multiplies by the enclosing
-    row count — a triple self-join hidden in ``SELECT (SELECT ... a CROSS JOIN
-    b CROSS JOIN c) FROM ...`` is N^3 work the row-only cost missed. These are
-    the outermost such scopes directly under ``select``; its FROM/JOIN sources
-    (folded into ``_rows_fanout``) and its WITH bodies (costed where referenced)
-    are excluded, and deeper nesting is reached by recursion on each scope.
+    fix(#565 codex P1 r4): a scalar/EXISTS/IN/WHERE subquery executes per row
+    of the enclosing SELECT, so its work multiplies by that row count — a
+    triple self-join hidden in ``SELECT (SELECT ... a CROSS JOIN b CROSS JOIN
+    c) FROM ...`` is N^3 work the row-only cost missed. These are the outermost
+    such scopes directly under ``select``; its FROM/JOIN sources (folded into
+    ``_rows_fanout``) and its WITH bodies (costed where referenced) are
+    excluded, and deeper nesting is reached by recursion on each scope.
+
+    Returns ``(per_input, per_output)``: whether the scope runs per INPUT row
+    (WHERE / JOIN-ON / GROUP BY, before aggregation) or per OUTPUT row (SELECT
+    list / HAVING / ORDER BY, after it). Only the latter shrinks when the
+    SELECT aggregates (fix(#565 codex P2 r14)).
 
     A JOIN contributes BOTH a source (``join.this``) and an ``ON`` predicate,
     so it cannot be skipped wholesale: fix(#565 codex P1 r5) — a correlated
@@ -1347,16 +1354,17 @@ def _correlated_scopes(select: exp.Select) -> list[exp.Expression]:
     while a derived table in the join's source position is a row source. The
     walk distinguishes them by which side of the join it ascended from.
     """
-    scopes: list[exp.Expression] = []
+    per_input: list[exp.Expression] = []
+    per_output: list[exp.Expression] = []
     for node in select.find_all(*_SCOPE_TYPES):
         if node is select:
             continue
         prev: exp.Expression = node
         ancestor = node.parent
-        include = False
+        clause: exp.Expression | None = None
         while ancestor is not None:
             if ancestor is select:
-                include = True
+                clause = prev
                 break
             if isinstance(ancestor, exp.From):
                 break
@@ -1371,9 +1379,18 @@ def _correlated_scopes(select: exp.Select) -> list[exp.Expression]:
                 break
             prev = ancestor
             ancestor = ancestor.parent
-        if include:
-            scopes.append(node)
-    return scopes
+        if clause is None:
+            continue
+        # fix(#565 codex P2 r14): classify by the clause that runs the scope.
+        # WHERE / JOIN-ON / GROUP BY are evaluated per INPUT row (before
+        # aggregation); the SELECT list, HAVING, ORDER BY, QUALIFY run per
+        # OUTPUT row (after aggregation). Only per-output work shrinks when the
+        # SELECT aggregates to fewer rows.
+        if isinstance(clause, (exp.Where, exp.Join, exp.Group)):
+            per_input.append(node)
+        else:
+            per_output.append(node)
+    return per_input, per_output
 
 
 def _work_fanout(
@@ -1398,26 +1415,55 @@ def _work_fanout(
         work_memo[key] = out
         return out
 
-    out = dict(_rows_fanout(node, rows_memo))
+    input_rows = _rows_fanout(node, rows_memo)
+    out = dict(input_rows)
     if isinstance(node, exp.Select):
-        # Per-row work at THIS level: a correlated projection/predicate subquery
-        # runs once per output row (its whole work), and a LATERAL/CTE/derived
-        # source re-evaluates per outer row (its EXCESS beyond its own rows).
-        # These are SIBLINGS — PostgreSQL runs them sequentially per row, so
-        # their work is ADDITIVE, i.e. the per-table MAXIMUM exponent, NOT the
-        # sum (fix(#565 codex P2 r13): summing rejected legit queries with two
-        # scalar subqueries over one table). Genuine NESTING adds, and that is
-        # handled by the recursion inside each scope's own _work_fanout. The
-        # combined per-row max then multiplies the row fan-out (exponents add).
-        per_row: _FanoutMap = {}
-        for scope in _correlated_scopes(node):
-            _merge_max(per_row, _work_fanout(scope, work_memo, rows_memo))
+        # Per-row subquery/source work at THIS level. SIBLINGS run additively —
+        # PostgreSQL evaluates them sequentially per row — so combine each group
+        # by the per-table MAX, not the sum (fix(#565 codex P2 r13): summing
+        # rejected a legit query with two scalar subqueries over one table).
+        # Genuine NESTING adds, and the recursion inside each scope's own
+        # _work_fanout already handles that.
+        per_input, per_output = _correlated_scopes(node)
+        pin: _FanoutMap = {}
+        for scope in per_input:
+            _merge_max(pin, _work_fanout(scope, work_memo, rows_memo))
         for source in _own_sources(node):
-            _merge_max(per_row, _source_excess(source, work_memo, rows_memo))
-        for base, weight in per_row.items():
-            out[base] = min(out.get(base, 0) + weight, _FANOUT_CEILING)
+            _merge_max(pin, _source_excess(source, work_memo, rows_memo))
+        pout: _FanoutMap = {}
+        for scope in per_output:
+            _merge_max(pout, _work_fanout(scope, work_memo, rows_memo))
+
+        # A per-INPUT-row scope multiplies by the input scan; a per-OUTPUT-row
+        # scope by the output cardinality, which an ungrouped aggregate
+        # collapses to one row (exponent 0) — fix(#565 codex P2 r14). Each term
+        # is additive with the scan, so combine by MAX.
+        aggregated = _is_ungrouped_aggregate(node)
+        for base, weight in pin.items():
+            total = min(input_rows.get(base, 0) + weight, _FANOUT_CEILING)
+            out[base] = max(out.get(base, 0), total)
+        for base, weight in pout.items():
+            multiplier = 0 if aggregated else input_rows.get(base, 0)
+            total = min(multiplier + weight, _FANOUT_CEILING)
+            out[base] = max(out.get(base, 0), total)
     work_memo[key] = out
     return out
+
+
+def _is_ungrouped_aggregate(select: exp.Select) -> bool:
+    """Whether ``select`` collapses its input to a single row.
+
+    True when it has an aggregate in its own SELECT list and no GROUP BY, so
+    per-output-row work runs once (fix(#565 codex P2 r14)). A GROUP BY is
+    treated conservatively as not reducing (its output cardinality is unknown).
+    """
+    if select.args.get("group"):
+        return False
+    for projection in select.expressions:
+        for agg in projection.find_all(exp.AggFunc):
+            if agg.find_ancestor(exp.Select) is select:
+                return True
+    return False
 
 
 def _merge_max(target: _FanoutMap, other: _FanoutMap) -> None:

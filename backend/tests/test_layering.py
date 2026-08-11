@@ -2822,9 +2822,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # pg_user, and propagates ordinary derived-table excess; and P2 r13
     # combines sibling per-row subquery/source work by per-table MAX rather than
     # summing (_merge_max), so two scalar subqueries over one table no longer
-    # false-reject. Most of the added lines are that rationale. Cap at the exact
-    # size.
-    "backend/app/platform/sandbox/validator.py": 1513,
+    # false-reject; and P2 r14 splits per-row work into per-INPUT (WHERE/JOIN-ON/
+    # sources) and per-OUTPUT (projection/HAVING/ORDER), collapsing the latter's
+    # multiplier for an ungrouped aggregate (_is_ungrouped_aggregate) so a
+    # projection subquery over an aggregate query is additive, not multiplied.
+    # Most of the added lines are that rationale. Cap at the exact size.
+    "backend/app/platform/sandbox/validator.py": 1559,
 }
 
 
