@@ -841,15 +841,16 @@ def _await_event(log_path, name):
         time.sleep(0.001)
 
 
-def _await_any_event(log_path, names, timeout):
-    deadline = time.monotonic() + timeout
-    while True:
-        events = _read_events(log_path)
-        if any(name in events for name in names):
-            return True
-        if time.monotonic() > deadline:
-            return False
-        time.sleep(0.001)
+def _lock_identity(fd):
+    st = os.fstat(fd.fileno() if hasattr(fd, "fileno") else fd)
+    return "{}:{}".format(st.st_dev, st.st_ino)
+
+
+def _tagged_value(log_path, tag):
+    for event in _read_events(log_path):
+        if event.startswith(tag):
+            return event[len(tag) :]
+    return None
 """
 
 # fix(#1295 review round 1): events the sweep can only emit once it is PAST
@@ -857,12 +858,6 @@ def _await_any_event(log_path, names, timeout):
 # it is emitted before the blocking flock() call, so it is expected to appear
 # while the scrape still holds the shared lock. That is the handshake.
 _POST_LOCK_SWEEP_EVENTS = ("sweep_lock_acquired", "sweep_rename")
-
-# Upper bound on how long the fake scrape keeps holding the shared lock after
-# the sweep has announced it is entering the production flock(LOCK_EX) call.
-# Only a CORRECT sweep waits this out; a sweep that got through the lock
-# records a _POST_LOCK_SWEEP_EVENTS entry and the scrape stops waiting at once.
-_SCRAPE_HOLD_AFTER_SWEEP_LOCK_ATTEMPT_SECONDS = 0.5
 
 
 def test_sweep_waits_for_inflight_scrape_before_renaming(tmp_path):
@@ -900,19 +895,38 @@ def test_sweep_waits_for_inflight_scrape_before_renaming(tmp_path):
     ordering with the sweep's flock stubbed out, which inverts the log every
     run.
 
-    fix(#1295 review round 1): the two sides synchronize on the sweep's LOCK
-    ATTEMPT, not on a timing window. The sweeper emits "sweep_lock_attempt"
-    immediately before the real flock(LOCK_EX) call and the scrape blocks
-    until it sees that event, so an arbitrarily long stall anywhere earlier
-    in the sweeper (imports, being descheduled on a loaded runner) cannot
-    consume the window and let a broken lock pass unnoticed. After the
-    handshake the scrape waits on the sweep's post-lock events with a bound:
-    a correct sweep is parked inside flock() and waits the bound out, while
-    a sweep that got through records its acquire/rename within microseconds
-    and releases the scrape immediately -- so the violation is always logged
-    before the scrape's own release, whatever the bound is. If the
-    production lock were deleted outright there would be no attempt event at
-    all, and the scrape fails on its bounded wait for it.
+    fix(#1295 review rounds 1-2): the two sides synchronize on the sweep's
+    LOCK ATTEMPT, and the verdict is then decided synchronously -- there is
+    no interval anywhere whose expiry is read as proof that the lock held.
+    The scrape makes two synchronous checks, both while holding the shared
+    lock:
+
+    1. Before the sweeper is released to run at all, a non-blocking LOCK_EX
+       probe on a SECOND descriptor for the lock path is refused. flock
+       locks are per open file description, so a second descriptor conflicts
+       with this process's own shared lock even within one process (the same
+       property that makes the round-8 same-process deadlock possible).
+       Running it before the sweeper starts is what makes it unambiguous:
+       nothing else holds anything, so the refusal is attributable to this
+       scrape's own shared lock and to nothing else.
+    2. The sweeper emits "sweep_lock_attempt" immediately before the real
+       flock(LOCK_EX) call, and the scrape blocks until it sees that event,
+       then checks that the (device, inode) the sweep is locking equals the
+       one it just proved exclusive-hostile. A sweep blocking on some other
+       file would be excluded by nothing, and no amount of waiting would
+       reveal it.
+
+    Together: the sweep is inside a blocking LOCK_EX on a lock that refuses
+    exclusive acquisition for as long as this scrape holds it, so it cannot
+    reach its rename before the release below.
+
+    Every timeout in this test fails closed. If the production code stopped
+    taking an exclusive lock -- removed, or downgraded to a shared one --
+    "sweep_lock_attempt" never arrives and the scrape fails waiting for it,
+    rather than sailing past on an expired window. Earlier revisions of this
+    test used such a window in two places and both were shown to false-pass:
+    a stall before the lock call (round 1) and a stall between the call
+    returning and its acquired event being written (round 2).
 
     The rename event is recorded by wrapping os.rename in the sweeper
     subprocess, so it observes the real production claim step inside
@@ -940,28 +954,59 @@ import fcntl
 
 from app.observability.metrics import _sweep_lock_path
 
-with open(_sweep_lock_path({multiproc_dir!r}), "a+b") as lock_file:
+_LOCK_PATH = _sweep_lock_path({multiproc_dir!r})
+_ORDER_LOG = {str(order_log)!r}
+
+with open(_LOCK_PATH, "a+b") as lock_file:
     fcntl.flock(lock_file, fcntl.LOCK_SH)
-    _ev({str(order_log)!r}, "scrape_acquired")
+    _ev(_ORDER_LOG, "scrape_acquired")
+    _ev(_ORDER_LOG, "scrape_lock_identity=" + _lock_identity(lock_file))
+
+    # Check 1, run BEFORE the sweeper is released below: exclusive access to
+    # this lock is denied while this shared lock is held. flock locks are per
+    # open file description, so a second descriptor on the same path
+    # conflicts with this process's own shared lock (the same property that
+    # makes the round-8 same-process deadlock possible). The sweeper is still
+    # parked on the holding marker at this point, so a refusal here can only
+    # come from this process's own shared lock -- it is unambiguous, and it
+    # is synchronous: no interval is being read as proof of anything.
+    with open(_LOCK_PATH, "a+b") as probe_file:
+        try:
+            fcntl.flock(probe_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            _ev(_ORDER_LOG, "scrape_probe_denied")
+        else:
+            fcntl.flock(probe_file, fcntl.LOCK_UN)
+            raise AssertionError(
+                "exclusive lock was GRANTED while this scrape held a shared "
+                "lock and nothing else was running -- the sweep/scrape lock "
+                "excludes nothing"
+            )
+
     open({str(holding_marker)!r}, "w").close()
     # Handshake, not a timing window: block until the sweep says it is
     # entering the production flock(LOCK_EX) call. Nothing below depends on
-    # how long the sweeper took to import, or on whether it was descheduled
-    # on the way here -- this waits for the lock attempt itself.
-    _await_event({str(order_log)!r}, "sweep_lock_attempt")
-    # From here the only thing between the sweep and its rename is that one
-    # flock() call. A correct sweep is parked in the kernel and this waits
-    # the whole bound out; a sweep that got through records an acquire/rename
-    # within microseconds and this returns immediately -- so the violation is
-    # always on record BEFORE this process releases.
-    _await_any_event(
-        {str(order_log)!r},
-        {_POST_LOCK_SWEEP_EVENTS!r},
-        {_SCRAPE_HOLD_AFTER_SWEEP_LOCK_ATTEMPT_SECONDS},
-    )
+    # how long the sweeper took to get here, or on whether it was descheduled
+    # on the way -- this waits for the lock attempt itself. If the production
+    # code stopped taking an exclusive lock at all, this event never arrives
+    # and this wait fails; every timeout in this test fails closed.
+    _await_event(_ORDER_LOG, "sweep_lock_attempt")
+
+    # Check 2: the sweep is blocking on the SAME lock this scrape holds and
+    # just proved exclusive-hostile. A sweep blocking on some other file
+    # would be excluded by nothing, and no amount of waiting would reveal it.
+    _sweep_identity = _tagged_value(_ORDER_LOG, "sweep_lock_identity=")
+    if _sweep_identity != _lock_identity(lock_file):
+        raise AssertionError(
+            "sweep locked a different file: "
+            + repr(_sweep_identity)
+            + " != "
+            + repr(_lock_identity(lock_file))
+        )
+
     # Still holding the shared lock here: this event happens-before the
     # release below, and therefore before any post-lock sweep event.
-    _ev({str(order_log)!r}, "scrape_pre_unlock")
+    _ev(_ORDER_LOG, "scrape_pre_unlock")
     fcntl.flock(lock_file, fcntl.LOCK_UN)
 """
     sweeper_script = f"""
@@ -980,8 +1025,10 @@ _real_flock = fcntl.flock
 
 def _recording_flock(fd, operation):
     if operation == fcntl.LOCK_EX:
-        # Emitted immediately before the real blocking call, so the scrape
-        # can synchronize on the lock attempt itself rather than on a clock.
+        # Emitted immediately before the real blocking call, together with
+        # the identity of the file actually being locked, so the scrape can
+        # synchronize on the lock attempt itself rather than on a clock.
+        _ev(_ORDER_LOG, "sweep_lock_identity=" + _lock_identity(fd))
         _ev(_ORDER_LOG, "sweep_lock_attempt")
     result = _real_flock(fd, operation)
     if operation == fcntl.LOCK_EX:
@@ -1026,14 +1073,21 @@ _consolidate_dead_cumulative_metric_files()
 
     events = order_log.read_text().split()
     # Not vacuous: the scrape really did wait for the sweep's lock attempt
-    # (rather than for a clock), the sweep really took the exclusive lock and
-    # really renamed the dead pid's file, and the consolidation landed.
+    # (rather than for a clock), it really ran the exclusive-access probe and
+    # was really refused, the sweep really took the exclusive lock and really
+    # renamed the dead pid's file, and the consolidation landed.
     assert events[:1] == ["scrape_acquired"], events
     assert "sweep_lock_attempt" in events, events
+    assert "scrape_probe_denied" in events, events
     assert "scrape_pre_unlock" in events, events
     assert "sweep_lock_acquired" in events, events
     assert "sweep_rename" in events, events
     assert list(tmp_path.glob("counter_*.db")) == [tmp_path / "counter_archived.db"]
+
+    # Both sides locked the same (device, inode), so the exclusion the probe
+    # observed is the one the sweep is actually waiting on.
+    identities = {e.split("=", 1)[1] for e in events if "_lock_identity=" in e}
+    assert len(identities) == 1, events
 
     pre_unlock_index = events.index("scrape_pre_unlock")
     raced = [
