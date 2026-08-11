@@ -1950,6 +1950,37 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 #     this module by the overlay's 1214-05 static AST proof, so the tile_seams.py split
 #     must update the overlay in lockstep.
 _MODULE_LOC_CAPS: dict[str, int] = {
+    # fix(#998): the DDL ported from migration 0019 so tenant-ownership adoption
+    # is reachable forward-only at head. Almost all of it is SQL text, and it is
+    # one artifact on purpose — the module is reviewed line-by-line against
+    # 0019_tenant_provisioning_boundary.py, which splitting the blocks across
+    # files would make harder, not easier. The Python that drives it and the
+    # report types already live in tenant_adoption.py and
+    # tenant_adoption_report.py.
+    # fix(#998 codex r44/r45): +200 — refuse creator-shaped memberships
+    # retained by other logins (an ADMIN-only edge can re-arm itself), refuse
+    # boundary-function and provisioner grant-option ACL entries a foreign
+    # grantor issued (unrevokable by the repair, which would otherwise
+    # silently no-op every run), count foreign grantors in the early-return
+    # guard so canonical-but-foreign tenants reach the refusal, and render
+    # the default-privilege remedy one statement per object kind.
+    # fix(#998 codex r46-r49): +268 — extended statistics and collations transferred, the six rarer owned kinds refused, so no owned object kind in a tenant schema is unhandled — generated multiranges excluded on all
+    # three type surfaces; schema-less default privileges counted in the
+    # fast-path guard and refused cluster-wide for the provisioner (the
+    # per-tenant pass never runs with zero tenants).
+    "backend/app/core/db/tenant_adoption_sql.py": 2102,
+    # fix(#998): the tool the DDL above serves — the catalog reads that decide
+    # whether anything is left to do, the steps that close the gap, and the
+    # operator CLI. Already decomposed three ways (report types and the success
+    # predicate in tenant_adoption_report.py, the ported DDL in
+    # tenant_adoption_sql.py); the remainder is one read per object the adoption
+    # boundary covers, and each is a single SQL statement that has to see the
+    # whole object at once.
+    # fix(#998 codex r45-r49): +130 — read side mirrors every apply-side ownership surface — run the provisioner grant-option guard
+    # before the plain revokes it protects; mirror the multirange and
+    # schema-less default-privilege refusals on the read side so the dry run
+    # cannot call adopted what --apply stops on.
+    "backend/app/core/db/tenant_adoption.py": 1303,
     # fix(#836): the five path-gated additions. Caps are exact (zero headroom),
     # matching the #435 convention: growth needs a reviewed carve-out here,
     # shrinking must lower the cap in the same commit.
