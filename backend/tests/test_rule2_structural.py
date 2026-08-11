@@ -161,10 +161,10 @@ Known limits (accepted trade-offs, same posture as the Rule-1 guard):
 
   1. POSITION. Every step from the call up to the lowest common ancestor it
      shares with the argv is an allowlisted eager position (see
-     ``_EAGER_POSITIONS``: a ``try`` body or ``finally``, a ``with`` body or
-     item, the value of an assignment or a ``return``, an argument of a call,
-     an element of a list/tuple/set display, an ``await``, and the outermost
-     iterable of a comprehension). At the shared ancestor the two must meet in
+     ``_EAGER_POSITIONS``: a ``try`` body, a ``with`` body or item, the value
+     of an assignment or a ``return``, an argument of a call, an element of a
+     list/tuple/set display, an ``await``, and the outermost iterable of a
+     comprehension). At the shared ancestor the two must meet in
      the same field — the same branch, the same statement list — or both sit
      in eager positions of it, which is what lets ``subprocess.run(argv,
      env=gdal_safe_env())`` credit across the args/keywords split.
@@ -994,10 +994,14 @@ def _enclosing_function_node(
 # body, and every shape nobody has thought of yet all land outside, and the
 # argv reports. Widening this dict is a deliberate, reviewed act.
 _EAGER_POSITIONS: dict[type[ast.AST], frozenset[str]] = {
-    # Statements: a `try` body runs on entry and its `finally` on the way out;
-    # a `with` opens its items left to right and then runs its body.
-    ast.Try: frozenset({"body", "finalbody"}),
-    ast.TryStar: frozenset({"body", "finalbody"}),
+    # Statements: a `try` body runs on entry, and a `with` opens its items left
+    # to right and then runs its body. A `finally` is deliberately NOT here: it
+    # runs whenever the `try` is entered, but it runs AFTER the body it would
+    # have to clamp, so an env built there reaches no subprocess in that body.
+    # A `finally` that builds its own argv beside its own env still credits,
+    # through the same-field rule in _credit_position_reaches.
+    ast.Try: frozenset({"body"}),
+    ast.TryStar: frozenset({"body"}),
     ast.With: frozenset({"body", "items"}),
     ast.AsyncWith: frozenset({"body", "items"}),
     ast.withitem: frozenset({"context_expr"}),
@@ -3549,6 +3553,35 @@ def test_guard_loop_and_handler_bodies_do_not_credit_outside_themselves():
     assert len(violations) == 2, violations
     assert any("(looped)" in v for v in violations)
     assert any("(handled)" in v for v in violations)
+
+
+def test_guard_finally_env_does_not_credit_the_try_body():
+    """A ``finally`` runs whenever the ``try`` is entered, so it is eager in
+    the ordinary sense and still cannot clamp anything in the body: it runs
+    after it. The control is a ``finally`` that builds its own argv beside its
+    own env, which the same-branch rule keeps crediting."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "from app.processing.raster.vrt import gdal_safe_env\n"
+            "def too_late(path):\n"
+            "    try:\n"
+            "        subprocess.run(['gdalinfo', path])\n"
+            "    finally:\n"
+            "        env = gdal_safe_env()\n"
+            "        print(env)\n"
+            "def cleans_up(path):\n"
+            "    try:\n"
+            "        pass\n"
+            "    finally:\n"
+            "        env = gdal_safe_env()\n"
+            "        subprocess.run(['gdalinfo', path], env=env)\n"
+        ),
+        {},
+    )
+    assert total == 2, (total, violations)
+    assert len(violations) == 1, violations
+    assert "(too_late)" in violations[0]
 
 
 def test_guard_nested_generator_iterable_no_longer_credits():
