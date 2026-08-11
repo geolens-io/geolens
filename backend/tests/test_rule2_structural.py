@@ -1761,6 +1761,31 @@ def _positional_targets(targets: list[ast.expr], index: int) -> list[ast.expr] |
     return matched if (saw_sequence and matched) else None
 
 
+# A wrapper whose contents are known only by KIND, not by shape: which
+# position holds the argv is unknowable, and in a container of argvs every one
+# does (fix(#1394), codex round 14).
+_ANY_POSITION = -1
+
+
+def _all_pattern_elements(targets: list[ast.expr]) -> list[ast.expr] | None:
+    """Every element of the sequence patterns among ``targets``, or None.
+
+    The ``_ANY_POSITION`` counterpart of ``_positional_targets``. A starred
+    element bails the same way it does there: it binds a sub-list rather than
+    an element, so no name receives a command.
+    """
+    matched: list[ast.expr] = []
+    saw_sequence = False
+    for target in targets:
+        if not isinstance(target, (ast.Tuple, ast.List)):
+            continue
+        saw_sequence = True
+        if any(isinstance(e, ast.Starred) for e in target.elts):
+            return None
+        matched.extend(target.elts)
+    return matched if (saw_sequence and matched) else None
+
+
 def _unpacked_binding(
     targets: list[ast.expr],
     chain: list[tuple[int | None, str | None, bool]],
@@ -1806,7 +1831,11 @@ def _unpacked_binding(
             continue  # nothing here for a pattern to take apart
         if index is None:
             break  # a level, but not one unpacked by position (a dict, a set)
-        nxt = _positional_targets(current, index)
+        nxt = (
+            _all_pattern_elements(current)
+            if index == _ANY_POSITION
+            else _positional_targets(current, index)
+        )
         if nxt is None:
             break
         for target in current:
@@ -1951,7 +1980,9 @@ def _defaults_owner(node: ast.AST) -> ast.AST | None:
     return None
 
 
-def _binding_targets(node: ast.AST) -> tuple[set[str], str | None]:
+def _binding_targets(
+    node: ast.AST, *, inherited: str | None = None
+) -> tuple[set[str], str | None]:
     """Names this literal's value is reachable through in its own scope.
 
     Climbs out of transparent wrappers first (fix(#996 review)), so
@@ -1966,16 +1997,29 @@ def _binding_targets(node: ast.AST) -> tuple[set[str], str | None]:
     refer to something WRAPPING it, the kind additionally says what iterating
     that wrapper hands over (fix(#1394), see ``_container_iteration_kind``);
     callers that only need the one bit ask ``kind is not None``.
+
+    ``inherited`` is the kind ``node``'s value ALREADY carries when the AST
+    does not show it — a name known to hold a container of argvs, say. The
+    returned kind is relative to that, so a caller passing it must not add it
+    back (fix(#1394), codex round 14).
     """
     current: ast.AST = node
     parent = getattr(current, "_rule2_parent", None)
-    container_kind: str | None = None
+    container_kind: str | None = inherited
     # Every wrapper climbed, innermost first: the index the value occupies in
     # it (None when the wrapper is not a positional display), the kind of what
     # is INSIDE it, and whether it adds a LEVEL at all. An unpacking pattern
     # consumes these one for one, so the pairing needs the whole chain, not
     # just its outermost link.
     chain: list[tuple[int | None, str | None, bool]] = []
+    # fix(#1394), codex round 14: an INHERITED container is an unpackable level
+    # too, and the innermost one — `alias, = commands` takes `commands` apart
+    # exactly as `alias, = (["gdalinfo", path],)` takes the display apart, and
+    # leaves `alias` holding the vector. Only for a container that yields the
+    # vector: unpacking a MAPPING yields keys, which are not commands, and that
+    # falls through to the conservative answer instead.
+    if inherited == _ITER_YIELDS_VECTOR:
+        chain.append((_ANY_POSITION, None, True))
     while isinstance(parent, _TRANSPARENT_WRAPPERS):
         # fix(#1394), codex round 8: a VALUE wrapper only carries the value in
         # a position it can evaluate to. `empty = [] if commands else ()` never
@@ -2159,16 +2203,18 @@ def _derived_paths(used: ast.expr, kind: str | None) -> list[tuple[str, str | No
         # chain stops dead at the container.
         parent = getattr(used, "_rule2_parent", None)
         if isinstance(parent, (ast.Subscript, ast.Attribute)) and parent.value is used:
-            extracted, extracted_kind = _binding_targets(parent)
-            # An INDEX of a container yields the vector, one level down. A
-            # SLICE yields a container of the same things, so `sliced =
-            # commands[:]` keeps the kind (codex round 9). Fixed here as well
-            # as in `_depth_preserving_ancestor` because the alias path went
-            # around the loop's own iterable once already (round 8).
-            if isinstance(parent, ast.Subscript) and isinstance(
+            # An INDEX of a container yields the vector, one level down, so it
+            # inherits nothing. A SLICE yields a container of the same things,
+            # so `sliced = commands[:]` inherits this path's kind (codex round
+            # 9). Fixed here as well as in `_depth_preserving_ancestor` because
+            # the alias path went around the loop's own iterable once already
+            # (round 8).
+            sliced = isinstance(parent, ast.Subscript) and isinstance(
                 parent.slice, ast.Slice
-            ):
-                extracted_kind = extracted_kind or kind
+            )
+            extracted, extracted_kind = _binding_targets(
+                parent, inherited=kind if sliced else None
+            )
             derived += [(n, extracted_kind) for n in extracted]
         # fix(#1394): ITERATING a container hands each element — the argv — to
         # the loop target, exactly as subscripting it hands over one.
@@ -2187,12 +2233,13 @@ def _derived_paths(used: ast.expr, kind: str | None) -> list[tuple[str, str | No
         # round 1).
         if kind == _ITER_YIELDS_VECTOR:
             derived += [(n, None) for n in _loop_target_paths(used)]
-    aliases, alias_kind = _binding_targets(used)
     # A wrapper at the ALIAS site is the outermost one now, so it decides what
     # iterating the alias yields; with no new wrapper the kind carries over
-    # unchanged. Either way the one-bit answer is preserved: the alias holds a
-    # container when this path did or the alias site added one.
-    derived += [(n, alias_kind or kind) for n in aliases]
+    # unchanged, and an UNPACKING there takes one off. All three are the same
+    # question, so the inherited kind goes in and the answer comes back
+    # absolute rather than being re-applied here (codex round 14).
+    aliases, alias_kind = _binding_targets(used, inherited=kind)
+    derived += [(n, alias_kind) for n in aliases]
     return derived
 
 
@@ -3837,6 +3884,48 @@ def test_guard_unpacking_pairs_only_with_real_levels():
     )
     assert total_uneven == 1, (total_uneven, uneven)
     assert len(uneven) == 1 and "(uneven_chain)" in uneven[0]
+
+
+def test_guard_unpacking_a_named_container_consumes_its_kind():
+    """fix(#1394), codex round 14: the same rule one alias hop away.
+
+    ``alias, = commands`` takes ``commands`` apart exactly as
+    ``alias, = (["gdalinfo", path],)`` takes the display apart, and leaves
+    ``alias`` holding the vector. The AST shows no wrapper there — it lives in
+    the followed kind — so the alias hop restored the container and the loop
+    over ``alias`` reported strings as commands.
+
+    A container the analysis knows only by KIND has no known position, and in a
+    container of argvs every position is one. A MAPPING is different: unpacking
+    it yields keys, which are not commands, so it keeps the conservative answer
+    (the last function reports because ``holder`` still looks like a container,
+    not because a key was mistaken for a command).
+    """
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def unpacked_alias(path):\n"
+            "    commands = (['gdalinfo', path],)\n"
+            "    alias, = commands\n"
+            "    for part in alias:\n"
+            "        consume(part)\n"
+            "def unpacked_alias_spawned(path):\n"
+            "    commands = (['ogrinfo', path],)\n"
+            "    alias, = commands\n"
+            "    subprocess.run(alias)\n"
+            "def plain_alias(path):\n"
+            "    commands = (['gdalwarp', path],)\n"
+            "    alias = commands\n"
+            "    for cmd in alias:\n"
+            "        subprocess.run(cmd)\n"
+        ),
+        {},
+    )
+    assert total == 2, (total, violations)
+    assert len(violations) == 2, violations
+    for reported in ("(unpacked_alias_spawned)", "(plain_alias)"):
+        assert any(reported in v for v in violations), (reported, violations)
+    assert not any("(unpacked_alias)" in v for v in violations), violations
 
 
 def test_guard_a_sliced_container_is_still_a_container():
