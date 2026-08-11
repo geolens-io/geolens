@@ -39,8 +39,12 @@ from app.core.db.tenant_adoption import (
     BOUNDARY_FUNCTIONS,
     CONTROL,
     PROVISIONER,
+    AdoptionReport,
+    BoundaryFunctionState,
+    BoundaryTableState,
     boundary_drift,
     boundary_function_states,
+    format_report,
     live_tenant_boundary,
     run_adoption,
     tenant_ownership_state,
@@ -567,3 +571,84 @@ def test_module_is_runnable_as_documented() -> None:
     parser = module._build_parser()
     assert parser.parse_args([]).apply is False
     assert parser.parse_args(["--apply"]).apply is True
+
+
+# ---------------------------------------------------------------------------
+# The success predicate covers everything the report surfaces
+# ---------------------------------------------------------------------------
+
+
+def _secured_function(name: str) -> BoundaryFunctionState:
+    return BoundaryFunctionState(
+        name=name,
+        owner=PROVISIONER,
+        security_definer=True,
+        search_path_pinned=True,
+        public_execute=False,
+        control_execute=True,
+    )
+
+
+def _clean_boundary() -> list[BoundaryTableState]:
+    return [
+        BoundaryTableState(
+            name=name,
+            has_stamping_trigger=True,
+            has_tenant_id=True,
+            rls_enabled=True,
+            rls_forced=True,
+        )
+        for name in RLS_TABLES
+    ]
+
+
+def _report(**overrides) -> AdoptionReport:
+    fields: dict = {
+        "applied": False,
+        "functions": [_secured_function(name) for name in BOUNDARY_FUNCTIONS],
+        "boundary": _clean_boundary(),
+        "before": [],
+        "after": [],
+        "failures": {},
+    }
+    fields.update(overrides)
+    return AdoptionReport(**fields)
+
+
+class TestSuccessPredicate:
+    """`ok` is the documented exit code, so it has to see every finding."""
+
+    def test_clean_report_is_ok(self) -> None:
+        assert _report().ok
+
+    def test_missing_boundary_function_is_not_ok(self) -> None:
+        """An absent function shortens the list; `all(...)` alone passes it."""
+        report = _report(functions=[_secured_function(BOUNDARY_FUNCTIONS[0])])
+        assert report.missing_functions == [BOUNDARY_FUNCTIONS[1]]
+        assert not report.ok
+        assert "MISSING" in format_report(report)
+
+    def test_no_boundary_functions_at_all_is_not_ok(self) -> None:
+        assert not _report(functions=[]).ok
+
+    def test_stamped_table_missing_from_rls_tables_is_not_ok(self) -> None:
+        """Boot never enables RLS on it, so the post-restore check must fail."""
+        boundary = _clean_boundary() + [
+            BoundaryTableState(
+                name="w998_late_arrival",
+                has_stamping_trigger=True,
+                has_tenant_id=True,
+                rls_enabled=False,
+                rls_forced=False,
+            )
+        ]
+        report = _report(boundary=boundary)
+        assert boundary_drift(boundary) == (["w998_late_arrival"], [])
+        assert not report.ok
+
+    def test_declared_table_without_a_stamping_trigger_is_not_ok(self) -> None:
+        """The other direction: inserts land with no tenant_id at all."""
+        boundary = [table for table in _clean_boundary() if table.name != RLS_TABLES[0]]
+        report = _report(boundary=boundary)
+        assert boundary_drift(boundary) == ([], [RLS_TABLES[0]])
+        assert not report.ok

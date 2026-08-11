@@ -138,6 +138,22 @@ class BoundaryTableState:
     rls_forced: bool
 
 
+def boundary_drift(boundary: list[BoundaryTableState]) -> tuple[list[str], list[str]]:
+    """Compare the live boundary against the runtime constant that drives RLS.
+
+    ``apply_tenancy_rls`` enables and FORCEs row security from
+    ``app.core.db.rls.RLS_TABLES``.  A table that joined the live boundary
+    without joining that tuple is silently skipped at boot, which is exactly the
+    failure a restored multi-tenant cluster cannot afford.  The other direction
+    is drift too: a table named in the tuple but carrying no stamping trigger
+    accepts an insert with no ``tenant_id`` at all.  Returns
+    ``(live_only, constant_only)``.
+    """
+    live = {state.name for state in boundary if state.has_stamping_trigger}
+    declared = set(RLS_TABLES)
+    return sorted(live - declared), sorted(declared - live)
+
+
 # ---------------------------------------------------------------------------
 # Introspection
 # ---------------------------------------------------------------------------
@@ -396,32 +412,36 @@ class AdoptionReport:
     failures: dict[str, str]
 
     @property
+    def missing_functions(self) -> list[str]:
+        """Boundary functions the schema does not have.
+
+        ``boundary_function_states`` omits what it cannot find, so an absent
+        function shortens the list rather than marking one unsecured.  Naming
+        the gap keeps ``all(... .secured)`` from passing vacuously.
+        """
+        present = {function.name for function in self.functions}
+        return [name for name in BOUNDARY_FUNCTIONS if name not in present]
+
+    @property
     def ok(self) -> bool:
         """True when nothing is left to do — the exit code in both modes.
 
         A dry run that reports pending work therefore exits non-zero, which is
         what makes ``--apply``-less invocation usable as a post-restore check.
+        Every condition the report surfaces has to be in here, or the check
+        passes on a database the report itself calls broken: a missing boundary
+        function, and boundary drift that leaves a stamped table without RLS at
+        boot, both count.
         """
-        if self.failures:
+        if self.failures or self.missing_functions:
+            return False
+        if not all(function.secured for function in self.functions):
+            return False
+        live_only, constant_only = boundary_drift(self.boundary)
+        if live_only or constant_only:
             return False
         states = self.after if self.applied else self.before
-        return all(state.adopted for state in states) and all(
-            function.secured for function in self.functions
-        )
-
-
-def boundary_drift(boundary: list[BoundaryTableState]) -> tuple[list[str], list[str]]:
-    """Compare the live boundary against the runtime constant that drives RLS.
-
-    ``apply_tenancy_rls`` enables and FORCEs row security from
-    ``app.core.db.rls.RLS_TABLES``.  A table that joined the live boundary
-    without joining that tuple is silently skipped at boot, which is exactly the
-    failure a restored multi-tenant cluster cannot afford.  Returns
-    ``(live_only, constant_only)``.
-    """
-    live = {state.name for state in boundary if state.has_stamping_trigger}
-    declared = set(RLS_TABLES)
-    return sorted(live - declared), sorted(declared - live)
+        return all(state.adopted for state in states)
 
 
 async def run_adoption(engine, *, apply: bool) -> AdoptionReport:
@@ -471,9 +491,9 @@ async def run_adoption(engine, *, apply: bool) -> AdoptionReport:
     )
 
 
-def _format_functions(functions: list[BoundaryFunctionState]) -> list[str]:
+def _format_functions(report: AdoptionReport) -> list[str]:
     lines = ["Boundary functions:"]
-    for function in functions:
+    for function in report.functions:
         flags = [f"owner={function.owner}"]
         if function.public_execute:
             flags.append("EXECUTE granted to PUBLIC")
@@ -481,6 +501,11 @@ def _format_functions(functions: list[BoundaryFunctionState]) -> list[str]:
             flags.append(f"no EXECUTE for {CONTROL}")
         verdict = "secured" if function.secured else "NEEDS REPAIR"
         lines.append(f"  catalog.{function.name}(uuid): {verdict} — {', '.join(flags)}")
+    for name in report.missing_functions:
+        lines.append(
+            f"  catalog.{name}(uuid): MISSING — this database is not at the head "
+            "schema; run `alembic upgrade heads` first"
+        )
     return lines
 
 
@@ -549,7 +574,7 @@ def format_report(report: AdoptionReport) -> str:
     mode = "APPLIED" if report.applied else "DRY RUN (no changes made)"
     sections = [
         [f"Tenant-ownership adoption — {mode}"],
-        _format_functions(report.functions),
+        _format_functions(report),
         _format_boundary(report.boundary),
         _format_tenants(report),
     ]
