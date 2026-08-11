@@ -1580,6 +1580,27 @@ def _target_names(target: ast.expr) -> set[str]:
     return {path} if path else set()
 
 
+def _intact_loop_target(target: ast.expr) -> ast.expr | None:
+    """The part of a loop target that receives an element WHOLE, or None.
+
+    A plain name or path receives it intact. So does an ALL-CONSUMING star
+    (codex round 7 on #1394): ``for *cmd, in commands:`` binds ``cmd`` to
+    ``list(element)``, the vector rebuilt, and rejecting it with the rest of
+    the patterns hid a real argv.
+
+    Ordinary positional destructuring gets nothing (codex round 2):
+    ``for tool, arg in commands:`` splits the vector into strings. Neither does
+    a PARTIAL star, ``for tool, *rest in commands:`` — ``rest`` is a suffix of
+    the argv, which is not a GDAL-headed command and would be judged against
+    the wrong tool if it were treated as one.
+    """
+    if isinstance(target, (ast.Tuple, ast.List)):
+        if len(target.elts) == 1 and isinstance(target.elts[0], ast.Starred):
+            return target.elts[0].value
+        return None
+    return target
+
+
 def _depth_preserving_ancestor(expr: ast.AST) -> ast.AST:
     """The outermost expression around ``expr`` that is still the same value.
 
@@ -1589,7 +1610,9 @@ def _depth_preserving_ancestor(expr: ast.AST) -> ast.AST:
     (fix(#1394), codex round 6):
 
     * a VALUE wrapper — ``commands or ()``, ``commands if flag else ()``,
-      ``commands + extra`` — which evaluates to the thing it wraps.
+      ``commands + extra`` — which evaluates to the thing it wraps. A ternary
+      qualifies through its two RESULTS only; its condition is not part of its
+      value (codex round 7).
     * a star inside a display, ``(*commands,)``, which splices ``commands``'
       elements into a new one and so preserves its depth (codex round 5). The
       pair counts once, exactly as it does in ``_binding_targets``.
@@ -1600,6 +1623,16 @@ def _depth_preserving_ancestor(expr: ast.AST) -> ast.AST:
     current: ast.AST = expr
     while True:
         parent = getattr(current, "_rule2_parent", None)
+        if isinstance(parent, ast.IfExp):
+            # codex round 7 on #1394: a ternary's TEST is not part of its
+            # value. `[] if commands else ()` evaluates to one of two empty
+            # displays and has nothing to do with `commands`, so climbing from
+            # the condition claimed the loop iterated the container and
+            # reported an argv that never runs.
+            if current is parent.body or current is parent.orelse:
+                current = parent
+                continue
+            return current
         if isinstance(parent, _VALUE_WRAPPERS):
             current = parent
             continue
@@ -1635,7 +1668,9 @@ def _loop_target_paths(iterable: ast.AST) -> set[str]:
     them up by position — and the wrong one here, where the value being split
     is the command vector rather than a tuple of unrelated values. Returning
     nothing is the accurate answer within this model, in which the element of a
-    container IS the vector: destructuring a vector yields strings.
+    container IS the vector: destructuring a vector yields strings. One pattern
+    is not destructuring though it is spelled like one — see
+    ``_intact_loop_target``.
 
     codex round 6 on #1394: the iterable is reached through
     ``_depth_preserving_ancestor``, so ``for cmd in commands or ():`` is the
@@ -1648,9 +1683,10 @@ def _loop_target_paths(iterable: ast.AST) -> set[str]:
     if (
         isinstance(parent, (ast.For, ast.AsyncFor, ast.comprehension))
         and parent.iter is iterated
-        and not isinstance(parent.target, (ast.Tuple, ast.List))
     ):
-        return _target_names(parent.target)
+        target = _intact_loop_target(parent.target)
+        if target is not None:
+            return _target_names(target)
     return set()
 
 
@@ -3356,11 +3392,46 @@ def test_guard_destructuring_loop_target_does_not_receive_the_argv():
             "def inline(path):\n"
             "    for tool, arg in (['ogrinfo', path],):\n"
             "        consume(arg)\n"
+            "def partial_star(path):\n"
+            "    commands = [['gdalwarp', path]]\n"
+            "    for tool, *rest in commands:\n"
+            "        consume(rest)\n"
         ),
         {},
     )
     assert total == 0, (total, violations)
     assert violations == []
+
+
+def test_guard_an_all_consuming_star_target_rebuilds_the_argv():
+    """fix(#1394), codex round 7: one pattern is not destructuring.
+
+    ``for *cmd, in commands:`` binds ``cmd`` to ``list(element)`` — the vector,
+    whole. Rejecting it with the ordinary positional patterns hid a real argv,
+    the direction that matters. Both spellings of the container, and the
+    ``[*cmd]`` spelling of the target.
+    """
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def named(path):\n"
+            "    commands = [['gdalinfo', path]]\n"
+            "    for *cmd, in commands:\n"
+            "        subprocess.run(cmd)\n"
+            "def inline(path):\n"
+            "    for *cmd, in (['ogrinfo', path],):\n"
+            "        subprocess.run(cmd)\n"
+            "def bracketed(path):\n"
+            "    commands = [['gdalwarp', path]]\n"
+            "    for [*cmd] in commands:\n"
+            "        subprocess.run(cmd)\n"
+        ),
+        {},
+    )
+    assert total == 3, (total, violations)
+    assert len(violations) == 3, violations
+    for name in ("(named)", "(inline)", "(bracketed)"):
+        assert any(name in v for v in violations), (name, violations)
 
 
 def test_guard_starring_an_argv_splices_it_into_the_display():
@@ -3468,6 +3539,14 @@ def test_guard_a_wrapped_iterable_is_still_the_same_loop():
         "cmd"
     }
     assert loop_targets_of("for held in [commands]:\n    pass\n", "commands") == set()
+    # codex round 7: the ternary qualifies through its RESULTS, not its test.
+    assert loop_targets_of(
+        "for cmd in (commands if flag else ()):\n    pass\n", "commands"
+    ) == {"cmd"}
+    assert (
+        loop_targets_of("for cmd in ([] if commands else ()):\n    pass\n", "commands")
+        == set()
+    )
 
     violations, total = _collect_gdal_cli_violations(
         _mod(
@@ -3488,11 +3567,16 @@ def test_guard_a_wrapped_iterable_is_still_the_same_loop():
             "    commands = [['gdaladdo', path]]\n"
             "    for cmd in (*commands,):\n"
             "        subprocess.run(cmd)\n"
+            "def condition_only(path):\n"
+            "    commands = [['gdal_translate', path]]\n"
+            "    for cmd in ([] if commands else ()):\n"
+            "        subprocess.run(cmd)\n"
         ),
         {},
     )
     assert total == 4, (total, violations)
     assert len(violations) == 4, violations
+    assert not any("(condition_only)" in v for v in violations), violations
 
 
 def test_guard_conflicting_container_kinds_merge_to_the_louder():
