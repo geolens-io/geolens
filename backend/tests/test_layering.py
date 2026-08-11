@@ -1465,7 +1465,12 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # outright, reading the request's OBJECT (catalog / layer / data / map
         # appearance) before its verb, so the tool descriptions stop
         # re-litigating which phrasing wins. Cap raised 446 -> 456.
-        "backend/app/processing/ai/chat_service.py": 456,
+        # feat(#1242): +29 LOC — build_chat_system_prompt gains the
+        # can_edit-gated filter_offer_note (offer, never apply, a persistent
+        # set_filter after a query_data result that reads as a simple row
+        # predicate) plus the doc/comment explaining why it is gated and why
+        # it lives here rather than in tools.py. Cap raised 456 -> 485, exact.
+        "backend/app/processing/ai/chat_service.py": 485,
         # fix(#836): defaults.py is the facade over the extensions-defaults
         # split (defaults_*.py sub-modules discovered below). Pure re-exports —
         # a new Default* class costs a few lines here.

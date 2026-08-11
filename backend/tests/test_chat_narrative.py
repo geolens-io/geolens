@@ -63,6 +63,50 @@ def test_system_prompt_has_result_sanity_check():
     assert "retry query_data ONCE" in prompt
 
 
+# --- Filter-offer follow-up (#1242) ------------------------------------------
+#
+# Complements #1241 (snapshot save): a query_data result that is a simple row
+# predicate has a strictly better durable form than a snapshot -- a persisted
+# set_filter -- so the prompt should name it. This is a response-shaping rule
+# that fires AFTER query_data has already answered a QUESTION; it is not a
+# second verb-classification site and must not compete with the #549 rule
+# pinned in test_ai_chat_verb_routing_549.py.
+
+
+def test_system_prompt_offers_filter_after_predicate_query():
+    """An editor is told to OFFER (not apply) set_filter for a predicate result."""
+    prompt = build_chat_system_prompt([_make_layer()])
+    assert "simple row predicate" in prompt
+    assert "Want this as a filter on the layer instead" in prompt
+    assert "persists when you save the map" in prompt
+    # Never automatic -- #549 is the record of a read-shaped question
+    # silently mutating saved map state, and that was reverted.
+    assert "This is an offer, not an action" in prompt
+    assert "call set_filter only if the user accepts" in prompt
+
+
+def test_system_prompt_filter_offer_excludes_non_predicate_shapes():
+    """The offer names the shapes it does NOT cover, so it can't swallow #1241's."""
+    prompt = build_chat_system_prompt([_make_layer()])
+    offer_block = prompt.split("simple row predicate")[1].split(
+        "## Result Sanity Check"
+    )[0]
+    for shape in ("aggregate", "top-N/ranked list", "multi-layer join", "most recent"):
+        assert shape in offer_block, shape
+
+
+def test_system_prompt_filter_offer_absent_for_read_only_caller():
+    """A read-only viewer never gets set_filter in its tool set (select_chat_tools),
+    so offering to persist a filter here would be a promise the model cannot keep --
+    it would directly contradict the Read-Only Access note below."""
+    prompt = build_chat_system_prompt([_make_layer()], can_edit=False)
+    assert "Want this as a filter on the layer instead" not in prompt
+    assert "simple row predicate" not in prompt
+    # The read-only note itself is still present and still says no filters.
+    assert "Read-Only Access" in prompt
+    assert "cannot change styles, filters, labels" in prompt.lower()
+
+
 # --- Error message mapping ---
 
 
