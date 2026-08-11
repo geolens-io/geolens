@@ -485,6 +485,33 @@ class TestReportedStateMatchesWhatApplyEnforces:
             await _drop_tenant(engine, tenant_id)
             await engine.dispose()
 
+    async def test_a_second_inheriting_gateway_edge_is_not_adopted(
+        self, multi_tenant_row_security
+    ):
+        """A duplicate grant from another grantor sits beside the canonical row.
+
+        PostgreSQL keeps both, and one carrying INHERIT hands the gateway the
+        tenant role's privileges outright instead of making it SET ROLE.
+        """
+        tenant_id, schema, reader, _writer = _new_tenant()
+        engine = _make_engine()
+        try:
+            await _seed_restored_tenant(engine, tenant_id, schema)
+            assert (await run_adoption(engine, apply=True)).ok
+
+            async with engine.begin() as conn:
+                await conn.execute(
+                    sa.text(f"GRANT {reader} TO {TILE} WITH INHERIT TRUE, SET TRUE")
+                )
+
+            async with engine.connect() as conn:
+                state = await tenant_ownership_state(conn, tenant_id)
+            assert not state.reader_role_secure
+            assert not state.adopted
+        finally:
+            await _drop_tenant(engine, tenant_id)
+            await engine.dispose()
+
     async def test_stray_reader_member_is_not_adopted_and_is_repaired(
         self, multi_tenant_row_security
     ):
@@ -1564,6 +1591,28 @@ class TestLiveTenantBoundary:
                         sa.text(
                             f"ALTER POLICY tenant_isolation_{table} "
                             f"ON catalog.{table} USING (true)"
+                        )
+                    )
+                    boundary = await live_tenant_boundary(conn)
+                    state = next(entry for entry in boundary if entry.name == table)
+                    assert not state.isolation_policy_intact
+                finally:
+                    await transaction.rollback()
+        finally:
+            await engine.dispose()
+
+    async def test_an_extra_restrictive_policy_is_reported(self):
+        """Restrictive policies AND: one `USING (false)` denies everything."""
+        engine = _make_engine()
+        table = "embed_tokens"
+        try:
+            async with engine.connect() as conn:
+                transaction = await conn.begin()
+                try:
+                    await conn.execute(
+                        sa.text(
+                            f"CREATE POLICY w998_restrictive ON catalog.{table} "
+                            "AS RESTRICTIVE USING (false)"
                         )
                     )
                     boundary = await live_tenant_boundary(conn)

@@ -148,13 +148,15 @@ async def live_tenant_boundary(conn) -> list[BoundaryTableState]:
                    -- policy denies every runtime read, and an altered one can
                    -- return another tenant's rows. Its expression has been
                    -- byte-identical since 0006, so it is compared exactly.
-                   -- ...and the only permissive one. PostgreSQL ORs permissive
-                   -- policies, so a second `USING (true)` beside the canonical
-                   -- rule returns every tenant's rows with RLS fully enabled.
+                   -- ...and the only policy of any kind. PostgreSQL ORs
+                   -- permissive policies, so a second `USING (true)` beside the
+                   -- canonical rule returns every tenant's rows with RLS fully
+                   -- enabled; it ANDs restrictive ones, so an added
+                   -- `USING (false)` denies everything. Neither is what the
+                   -- migrations install and neither is repaired at boot.
                    (
                        SELECT count(*) FROM pg_catalog.pg_policy AS policy
                        WHERE policy.polrelid = relation.oid
-                         AND policy.polpermissive
                    ) = 1
                    AND EXISTS (
                        SELECT 1 FROM pg_catalog.pg_policy AS policy
@@ -466,6 +468,32 @@ def _role_secure_sql(
                           AND NOT membership.admin_option
                           AND {_MEMBER_SET_ONLY}
                     ) = {len(gateways)}
+                    -- Counting the good rows is not enough: PostgreSQL allows a
+                    -- second grant of the same role to the same member from a
+                    -- different grantor, and one carrying INHERIT or ADMIN would
+                    -- sit beside the canonical row undetected. The gateway would
+                    -- then hold the tenant role's privileges outright instead of
+                    -- having to SET ROLE for them.
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM pg_catalog.pg_auth_members AS membership
+                        JOIN pg_catalog.pg_roles AS member_role
+                          ON member_role.oid = membership.member
+                        WHERE membership.roleid = (SELECT oid FROM {role_cte})
+                          AND member_role.rolname IN ({gateway_names})
+                          AND NOT (
+                              NOT membership.admin_option AND {_MEMBER_SET_ONLY}
+                          )
+                    )
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM pg_catalog.pg_auth_members AS membership
+                        JOIN pg_catalog.pg_roles AS member_role
+                          ON member_role.oid = membership.member
+                        WHERE membership.roleid = (SELECT oid FROM {role_cte})
+                          AND member_role.rolname = '{PROVISIONER}'
+                          AND NOT (membership.admin_option AND {_MEMBER_ADMIN_ONLY})
+                    )
                 )"""
 
 
