@@ -671,6 +671,74 @@ async def test_sibling_scalar_subqueries_are_allowed(
     assert resp.status_code == 200, resp.text
 
 
+async def test_values_cross_join_explosion_is_rejected(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P1 r17): a constant VALUES CTE cross-joined three times is
+    a k-way row explosion the base-table fan-out cannot see — it must be
+    counted as a fan-out source."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = await _make_table(test_db_session, owner)
+    vals = ", ".join(f"({i})" for i in range(20))
+
+    resp = await client.post(
+        "/query/",
+        json={
+            "sql": (
+                f"WITH v(x) AS (VALUES {vals}) SELECT count(*) FROM data.{tbl} f "
+                "CROSS JOIN v a CROSS JOIN v b CROSS JOIN v c"
+            ),
+            "restrict_tables": [tbl],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == _REPETITION_MESSAGE
+
+
+async def test_oversized_values_is_rejected(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P1 r17): a huge inline VALUES relation is capped."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = await _make_table(test_db_session, owner)
+    vals = ", ".join(f"({i})" for i in range(300))
+
+    resp = await client.post(
+        "/query/",
+        json={
+            "sql": f"SELECT x FROM (VALUES {vals}) t(x)",
+            "restrict_tables": [tbl],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "Query uses too many inline VALUES rows"
+
+
+async def test_output_amplifying_format_is_rejected(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P1 r17): format() with a giant width builds hundreds of
+    MB from a one-row query — dropped on this raw surface."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = await _make_table(test_db_session, owner)
+
+    resp = await client.post(
+        "/query/",
+        json={
+            "sql": f"SELECT format('%500000000s', gid::text) FROM data.{tbl} LIMIT 1",
+            "restrict_tables": [tbl],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "Query uses a disallowed function"
+
+
 async def test_lateral_values_nested_subquery_is_rejected(
     client: AsyncClient, admin_auth_header, test_db_session
 ):

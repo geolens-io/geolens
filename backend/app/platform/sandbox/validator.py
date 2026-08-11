@@ -871,7 +871,11 @@ def _reject_oid_alias_casts(stmt: exp.Expression, sql: str) -> None:
             raise SandboxError("invalid_query", "Query uses a disallowed type cast")
 
 
-def _check_function_allowlist(stmt: exp.Expression, sql: str) -> None:
+def _check_function_allowlist(
+    stmt: exp.Expression,
+    sql: str,
+    extra_blocked: frozenset[str] | None = None,
+) -> None:
     """Fail-closed function check (SEC-025).
 
     For each Func node in the AST, extract its canonical lowercase name:
@@ -906,7 +910,13 @@ def _check_function_allowlist(stmt: exp.Expression, sql: str) -> None:
             continue
         fn_name = _func_name(func)
 
-        if fn_name in _BLOCKED_FUNCTIONS:
+        if fn_name in _BLOCKED_FUNCTIONS or (
+            extra_blocked is not None and fn_name in extra_blocked
+        ):
+            # fix(#565 codex P1 r17): extra_blocked lets the raw-SQL endpoint
+            # drop output-amplifying functions (e.g. ``format`` with a giant
+            # width) that neither the SQL-length cap nor row_limit bounds, while
+            # AI chat keeps them.
             logger.info("sandbox.blocked_function", sql=sql, function=fn_name)
             raise SandboxError("invalid_query", "Query uses a disallowed function")
 
@@ -933,11 +943,21 @@ def _check_function_allowlist(stmt: exp.Expression, sql: str) -> None:
         _validate_function_cost(func, fn_name, sql)
 
 
-def validate_sql(sql: str) -> ValidatedQuery:
+def validate_sql(
+    sql: str,
+    *,
+    extra_blocked_functions: frozenset[str] | None = None,
+    max_values_rows: int | None = None,
+) -> ValidatedQuery:
     """Parse and validate SQL. Returns validated query or raises SandboxError.
 
     Accepts: single SELECT, UNION, INTERSECT, EXCEPT.
     Rejects: INSERT, UPDATE, DELETE, DROP, CREATE, multi-statement, SELECT INTO.
+
+    ``extra_blocked_functions`` and ``max_values_rows`` (fix(#565 codex P1
+    r17)) are the raw-SQL endpoint's extra guards — output-amplifying function
+    names to reject, and a per-VALUES tuple-count cap — left None (off) for AI
+    chat so its behavior is unchanged.
     """
     # Parse with postgres dialect
     try:
@@ -972,7 +992,20 @@ def validate_sql(sql: str) -> ValidatedQuery:
 
     _reject_oid_alias_casts(stmt, sql)
 
-    _check_function_allowlist(stmt, sql)
+    if max_values_rows is not None:
+        for values in stmt.find_all(exp.Values):
+            if len(values.expressions) > max_values_rows:
+                logger.info(
+                    "sandbox.values_too_large",
+                    sql=sql,
+                    rows=len(values.expressions),
+                    cap=max_values_rows,
+                )
+                raise SandboxError(
+                    "invalid_query", "Query uses too many inline VALUES rows"
+                )
+
+    _check_function_allowlist(stmt, sql, extra_blocked=extra_blocked_functions)
 
     # Extract CTE names (global) for the ValidatedQuery contract and the
     # emptiness gate. Table ACCESS classification below is lexical, not by
@@ -1186,8 +1219,18 @@ def _source_fanout(source: exp.Expression, memo: _FanoutMemo) -> _FanoutMap:
         # not a SELECT. Cost the head source and every joined source, so the
         # cross join inside the parentheses is not a fan-out of 0.
         return _group_fanout(inner, memo)
-    # Anything else in a FROM (VALUES, an allowlisted table function) does not
-    # open a base-table cross-join vector; the function/table checks bound it.
+    if isinstance(source, exp.Values):
+        # fix(#565 codex P1 r17): a constant VALUES relation contributes rows
+        # too. Cross-joining one k times is a k-way row explosion — a large CTE
+        # ``WITH v AS (VALUES ...)`` referenced ``v a CROSS JOIN v b CROSS JOIN
+        # v c`` reported zero fan-out and slipped the cap. Keyed by node id so
+        # references to the SAME relation accumulate (memoized, so every CTE
+        # reference resolves to one VALUES node) while two distinct inline
+        # VALUES stay independent. Cardinality is separately capped in
+        # validate_sql.
+        return {("", f"__values__{id(source)}"): 1}
+    # Anything else in a FROM (an allowlisted table function) does not open a
+    # base-table cross-join vector; the function/table checks bound it.
     return {}
 
 

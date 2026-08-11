@@ -130,6 +130,17 @@ _QUERY_MAX_ROW_LIMIT = 1000
 # on this endpoint — AI chat passes no cap, so its behavior is unchanged.
 _QUERY_MAX_TABLE_REPEATS = 2
 
+# Output-amplifying functions dropped on this raw surface (#565 codex P1 r17):
+# ``format`` with a giant width builds hundreds of MB from a one-row query, and
+# neither the SQL-length cap nor row_limit bounds a single cell's size. AI chat
+# keeps them (it passes no extra-blocked set).
+_QUERY_BLOCKED_FUNCTIONS: frozenset[str] = frozenset({"format"})
+
+# Cap on inline VALUES rows: a large constant relation cross-joined a few times
+# is a row explosion the base-table fan-out cap cannot see (#565 codex P1 r17).
+# Generous enough for real lookup lists; the fan-out cap bounds the cross-join.
+_QUERY_MAX_VALUES_ROWS = 256
+
 
 def _capacity_bound() -> int:
     """Max concurrent sandbox queries this endpoint admits (#565 codex P1 r11).
@@ -352,6 +363,10 @@ async def sandbox_query_endpoint(
             # below reads `db`; the audit trail uses its own session.
             release_session=True,
             capacity_semaphore=_query_slots,
+            # Raw-surface guards against output/cardinality amplification
+            # (#565 codex P1 r17).
+            extra_blocked_functions=_QUERY_BLOCKED_FUNCTIONS,
+            max_values_rows=_QUERY_MAX_VALUES_ROWS,
         )
     except SandboxError as exc:
         # Only the sanitized message and the category-mapped status leave the

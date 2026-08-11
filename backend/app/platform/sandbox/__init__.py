@@ -43,6 +43,8 @@ async def validate_and_execute(
     require_reader_role: bool = False,
     release_session: bool = False,
     capacity_semaphore: asyncio.Semaphore | None = None,
+    extra_blocked_functions: frozenset[str] | None = None,
+    max_values_rows: int | None = None,
 ) -> SandboxResult:
     """Validate and safely execute a SQL query.
 
@@ -107,7 +109,11 @@ async def validate_and_execute(
     """
     try:
         # Phase 1: Validate SQL structure
-        validated = validate_sql(sql)
+        validated = validate_sql(
+            sql,
+            extra_blocked_functions=extra_blocked_functions,
+            max_values_rows=max_values_rows,
+        )
         real_tables = {
             (schema, name)
             for schema, name in validated.tables
