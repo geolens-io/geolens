@@ -906,6 +906,61 @@ class TestAdoptionWithRestoredBoundaryFunctions:
         finally:
             await engine.dispose()
 
+    async def test_role_creation_leaves_the_creator_able_to_use_the_role(self):
+        """What CLUSTER_ROLE_CREATE_SQL compensates for, pinned to the server.
+
+        On a fresh cluster with no globals dump, the non-superuser CREATEROLE
+        migrator creates the provisioner itself. PostgreSQL 16+ makes it an
+        ADMIN member of the new role with INHERIT FALSE and SET FALSE, which is
+        not the same as holding that role's privileges — and the boundary
+        function repair needs the privileges. The real provisioner cannot be
+        dropped and recreated on a shared cluster, so this pins the server
+        behaviour and the compensating grant on a stand-in, in a transaction
+        that is rolled back.
+        """
+        creator = f"w998_creator_{uuid.uuid4().hex[:12]}"
+        created = f"w998_created_{uuid.uuid4().hex[:12]}"
+        engine = _make_engine()
+        try:
+            async with engine.connect() as conn:
+                transaction = await conn.begin()
+                try:
+                    await conn.execute(
+                        sa.text(f"CREATE ROLE {creator} NOLOGIN NOSUPERUSER CREATEROLE")
+                    )
+                    await conn.execute(sa.text(f"SET LOCAL ROLE {creator}"))
+                    await conn.execute(sa.text(f"CREATE ROLE {created} NOLOGIN"))
+
+                    async def creator_holds_privileges() -> bool:
+                        return (
+                            await conn.execute(
+                                sa.text(
+                                    "SELECT pg_has_role(:creator, :created, 'USAGE')"
+                                ),
+                                {"creator": creator, "created": created},
+                            )
+                        ).scalar_one()
+
+                    assert not await creator_holds_privileges(), (
+                        "the automatic creator membership is expected to be "
+                        "ADMIN-only; if PostgreSQL changed this, the "
+                        "compensating grant in CLUSTER_ROLE_CREATE_SQL is dead code"
+                    )
+
+                    # No ADMIN in the compensating grant: PostgreSQL refuses
+                    # "ADMIN option cannot be granted back to your own grantor",
+                    # and the automatic membership already carries it.
+                    await conn.execute(
+                        sa.text(
+                            f"GRANT {created} TO {creator} WITH INHERIT TRUE, SET TRUE"
+                        )
+                    )
+                    assert await creator_holds_privileges()
+                finally:
+                    await transaction.rollback()
+        finally:
+            await engine.dispose()
+
     async def test_a_migrator_without_provisioner_privileges_is_told_what_to_run(self):
         migrator = f"w998_mig_{uuid.uuid4().hex[:12]}"
         engine = _make_engine()

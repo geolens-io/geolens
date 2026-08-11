@@ -104,6 +104,31 @@ BEGIN
         CREATE ROLE {PROVISIONER}
             NOLOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOINHERIT
             NOREPLICATION NOBYPASSRLS;
+
+        -- PostgreSQL 16+ makes a non-superuser creator an ADMIN member of the
+        -- role it just created, but with INHERIT FALSE and SET FALSE — measured
+        -- on 18 — so the creator does not hold the new role's privileges.  The
+        -- boundary-function repair later in this run needs exactly those, and
+        -- would otherwise raise and roll back the five roles it just created,
+        -- leaving the runbook's no-globals recovery unable to finish.  A
+        -- superuser already holds them and takes this branch to no effect.
+        --
+        -- Only the branch that created the role touches the edge, so an
+        -- operator-managed membership is never rewritten.  No ADMIN here:
+        -- PostgreSQL refuses "ADMIN option cannot be granted back to your own
+        -- grantor", and the automatic membership already carries it.
+        IF NOT pg_catalog.pg_has_role(CURRENT_USER, '{PROVISIONER}', 'USAGE') THEN
+            IF pg_catalog.current_setting('server_version_num')::integer >= 160000 THEN
+                EXECUTE pg_catalog.format(
+                    'GRANT {PROVISIONER} TO %I WITH INHERIT TRUE, SET TRUE',
+                    CURRENT_USER
+                );
+            ELSE
+                EXECUTE pg_catalog.format(
+                    'GRANT {PROVISIONER} TO %I', CURRENT_USER
+                );
+            END IF;
+        END IF;
     END IF;
 
     FOREACH group_name IN ARRAY ARRAY[
