@@ -26,11 +26,18 @@ class SandboxError(Exception):
 
 @dataclass
 class ValidatedQuery:
-    """Result of successful SQL validation."""
+    """Result of successful SQL validation.
+
+    ``table_counts`` counts every named table/CTE REFERENCE in the statement,
+    keyed by lowercased ``(schema, name)`` — unlike ``tables``, which dedupes.
+    feat(#565): the raw-SQL endpoint uses these counts for its self-join
+    repetition cap; see ``validate_and_execute(max_table_repeats=...)``.
+    """
 
     sql: str
     tables: set[tuple[str, str]] = field(default_factory=set)
     cte_names: set[str] = field(default_factory=set)
+    table_counts: dict[tuple[str, str], int] = field(default_factory=dict)
 
 
 class SandboxResult(BaseModel):

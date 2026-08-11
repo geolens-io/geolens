@@ -924,15 +924,26 @@ def validate_sql(sql: str) -> ValidatedQuery:
         if cte.alias:
             cte_names.add(cte.alias)
 
-    # Extract all table references as (schema, name) tuples
+    # Extract all table references as (schema, name) tuples. table_counts
+    # counts every REFERENCE (not deduped) so callers can bound self-join
+    # amplification — CTE references count under the CTE's own name, so
+    # laundering a repeated physical table through per-copy CTE bodies still
+    # accumulates on the physical key (feat(#565)). Keys are lowercased:
+    # unquoted identifiers fold to lowercase in PostgreSQL, and access checks
+    # on the exact-case `tables` set stay unchanged.
     tables: set[tuple[str, str]] = set()
+    table_counts: dict[tuple[str, str], int] = {}
     for table in stmt.find_all(exp.Table):
         schema = table.db or ""
         name = table.name
         if name:
             tables.add((schema, name))
+            key = (schema.lower(), name.lower())
+            table_counts[key] = table_counts.get(key, 0) + 1
 
-    return ValidatedQuery(sql=sql, tables=tables, cte_names=cte_names)
+    return ValidatedQuery(
+        sql=sql, tables=tables, cte_names=cte_names, table_counts=table_counts
+    )
 
 
 async def build_table_allowlist(db: AsyncSession, user: Identity | None) -> set[str]:

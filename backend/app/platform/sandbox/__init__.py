@@ -36,6 +36,8 @@ async def validate_and_execute(
     row_limit: int = 1000,
     timeout_ms: int = DEFAULT_TIMEOUT_MS,
     restrict_tables: frozenset[str] | None = None,
+    max_table_repeats: int | None = None,
+    require_reader_role: bool = False,
 ) -> SandboxResult:
     """Validate and safely execute a SQL query.
 
@@ -59,6 +61,19 @@ async def validate_and_execute(
             this set — it can only narrow access, never widen it. Used by
             dataset-scoped chat (PR #531 review) so generated SQL cannot reach
             other tables the user happens to be able to see.
+        max_table_repeats: feat(#565): when set, reject any statement that
+            references the same table (or CTE name) more than this many times.
+            This is the self-join cost bound for the raw-SQL endpoint —
+            ``... FROM data.foo a CROSS JOIN data.foo b CROSS JOIN data.foo c``
+            passes every function/table check while its work grows with the
+            table's own size to the power of the repetition count, and the
+            outer LIMIT bounds rows returned, not work performed. Left None
+            (no cap) for AI chat so its behavior does not silently change.
+            EXPLAIN-based cost rejection is the finer-grained future
+            replacement discussed in #565; a repetition cap is the bound that
+            needs no planner round-trip.
+        require_reader_role: feat(#565): fail closed if the restricted reader
+            role cannot be bound in single-tenant mode (see execute_safe).
 
     Returns:
         SandboxResult with query results.
@@ -79,6 +94,23 @@ async def validate_and_execute(
                 "invalid_query", "Query must reference an accessible dataset"
             )
 
+        # feat(#565): self-join repetition cap (see the kwarg docs above).
+        # Checked before the RBAC query so a rejected statement costs no DB
+        # round-trip. The message is sanitized — no table names echo back.
+        if max_table_repeats is not None:
+            repeated = max(validated.table_counts.values(), default=0)
+            if repeated > max_table_repeats:
+                logger.info(
+                    "sandbox.table_repetition_cap",
+                    sql=sql,
+                    repeats=repeated,
+                    cap=max_table_repeats,
+                )
+                raise SandboxError(
+                    "invalid_query",
+                    "Query references the same table too many times",
+                )
+
         # Phase 2: Build RBAC allowlist
         allowed_tables = await build_table_allowlist(db, user)
         if restrict_tables is not None:
@@ -95,6 +127,7 @@ async def validate_and_execute(
             row_limit=row_limit,
             timeout_ms=timeout_ms,
             concurrency_key=concurrency_key,
+            require_reader_role=require_reader_role,
         )
 
     except SandboxError:
