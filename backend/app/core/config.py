@@ -366,6 +366,19 @@ class Settings(BaseSettings):
     # 0 disables the purge (keep history forever).
     ingest_jobs_retention_days: int = Field(default=30, ge=0)
 
+    # fix(#1249): how old an object under the `staging/` prefix must be before
+    # the reconciliation sweep will delete it for having no ingest_jobs row.
+    # Not a guess at how long an upload takes — the row check is what decides
+    # whether an object is owned, and this only has to be far enough past a
+    # LISTING that no object can be reported old while its own tracking row is
+    # still being written. A day is orders of magnitude past that and costs
+    # nothing but a day of leaked bytes in the rare orphan case.
+    # Floored at an hour so a misconfiguration cannot turn the sweep into a
+    # deleter of objects whose uploads are still landing.
+    # Consumer: `reconcile_orphaned_staging_objects` in
+    # platform/jobs/staging_reconcile.py.
+    staging_orphan_min_age_seconds: int = Field(default=86400, ge=3600)
+
     # ---------------------------------------------------------------------------
     # Outbound Notification channels (Phase 1229 NOTIF-02 / NOTIF-03 / NOTIF-05)
     # ---------------------------------------------------------------------------

@@ -22,12 +22,28 @@ configurable via env vars.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncIterator, BinaryIO
 
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
+
+from app.platform.storage.provider import StoredObject
+
+
+def _as_utc(value: datetime) -> datetime:
+    """Normalize a provider timestamp to timezone-aware UTC.
+
+    feat(#1249): botocore returns aware datetimes today, but the
+    ``StoredObject`` contract is what the reconciliation's cutoff comparison
+    depends on — a naive value would raise there instead of answering, so it
+    is pinned here rather than assumed.
+    """
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 class S3StorageProvider:
@@ -220,6 +236,28 @@ class S3StorageProvider:
             return keys
 
         return await asyncio.to_thread(_list)
+
+    async def list_objects(self, prefix: str) -> list[StoredObject]:
+        """List objects under a prefix with their last-modified timestamps."""
+
+        def _list_objects() -> list[StoredObject]:
+            objects: list[StoredObject] = []
+            params: dict = {"Bucket": self.bucket, "Prefix": prefix}
+            while True:
+                response = self.client.list_objects_v2(**params)
+                objects.extend(
+                    StoredObject(
+                        key=obj["Key"],
+                        last_modified=_as_utc(obj["LastModified"]),
+                    )
+                    for obj in response.get("Contents", [])
+                )
+                if not response.get("IsTruncated"):
+                    break
+                params["ContinuationToken"] = response["NextContinuationToken"]
+            return objects
+
+        return await asyncio.to_thread(_list_objects)
 
     async def health_check(self) -> None:
         """Verify the S3 bucket is reachable via head_bucket."""

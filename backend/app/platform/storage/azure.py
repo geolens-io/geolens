@@ -31,11 +31,26 @@ implementation for STOR-01 (Phase 1210).
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncIterator, BinaryIO
 
 from azure.core.exceptions import ResourceNotFoundError
 from azure.storage.blob import BlobServiceClient
+
+from app.platform.storage.provider import StoredObject
+
+
+def _as_utc(value: datetime) -> datetime:
+    """Normalize a provider timestamp to timezone-aware UTC (feat #1249).
+
+    Azure returns aware datetimes; the normalization is pinned here because
+    the ``StoredObject`` contract — not the SDK's current behaviour — is what
+    the reconciliation's cutoff comparison relies on.
+    """
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 class AzureBlobStorageProvider:
@@ -206,6 +221,30 @@ class AzureBlobStorageProvider:
             ]
 
         return await asyncio.to_thread(_list)
+
+    async def list_objects(self, prefix: str) -> list[StoredObject]:
+        """List blobs under a prefix with their last-modified timestamps."""
+
+        def _list_objects() -> list[StoredObject]:
+            container_client = self._client.get_container_client(self.container)
+            objects: list[StoredObject] = []
+            for blob in container_client.list_blobs(name_starts_with=prefix):
+                last_modified = getattr(blob, "last_modified", None)
+                if last_modified is None:
+                    # feat(#1249): a blob the SDK cannot date cannot be aged,
+                    # and an undatable entry must never read as "old enough to
+                    # delete". Dropping it here keeps that decision out of the
+                    # caller, which only ever sees datable objects.
+                    continue
+                objects.append(
+                    StoredObject(
+                        key=blob.name,
+                        last_modified=_as_utc(last_modified),
+                    )
+                )
+            return objects
+
+        return await asyncio.to_thread(_list_objects)
 
     async def health_check(self) -> None:
         """Verify the Azure container is reachable via get_container_properties."""

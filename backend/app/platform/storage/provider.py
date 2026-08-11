@@ -1,8 +1,25 @@
 from __future__ import annotations
 
 import builtins
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import AsyncIterator, BinaryIO, Protocol
+
+
+@dataclass(frozen=True)
+class StoredObject:
+    """One object as the provider reports it right now.
+
+    feat(#1249): the staging-orphan reconciliation needs "and how old is it"
+    alongside "does it exist". ``last_modified`` is timezone-aware UTC on
+    every provider — a naive value would make the caller's cutoff comparison
+    raise rather than answer, so each implementation normalizes before
+    returning.
+    """
+
+    key: str
+    last_modified: datetime
 
 
 class StorageProvider(Protocol):
@@ -74,6 +91,21 @@ class StorageProvider(Protocol):
 
     async def list(self, prefix: str) -> list[str]:
         """List keys matching a prefix."""
+        ...
+
+    async def list_objects(self, prefix: str) -> "builtins.list[StoredObject]":
+        """List objects under a prefix, each with its last-modified time.
+
+        feat(#1249): ``list`` answers which keys exist; this also answers how
+        old each one is, which is what tells an abandoned staging object from
+        one whose upload landed a second ago.
+
+        A COMPLETE key is a valid ``prefix`` and is how a caller re-reads one
+        object's timestamp immediately before acting on it. Implementations
+        return every entry whose key STARTS WITH ``prefix`` — matching
+        ``list`` — so a caller that means one exact object must filter for
+        ``entry.key == key`` rather than trusting the result length.
+        """
         ...
 
     async def health_check(self) -> None:

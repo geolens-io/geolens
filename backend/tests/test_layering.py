@@ -2309,7 +2309,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # on this entry (fix #1236, fix #1322 rounds 1-6, ...) is unchanged and
     # readable via `git log` on the pre-split file; sweep.py is entered
     # fresh at its measured size below.
-    "backend/app/platform/jobs/sweep.py": 1366,
+    # fix(#1249): +9 — the object-driven staging reconciliation is wired in
+    # after the two row-driven reapers, with the comment saying why it is not
+    # folded into StaleCleanupOutcome (that dataclass is a published API and
+    # audit shape). The pass itself lives in its own module,
+    # platform/jobs/staging_reconcile.py, which is under the 1000-line
+    # inclusion threshold and needs no entry. Cap 1366 -> 1375, exact.
+    "backend/app/platform/jobs/sweep.py": 1375,
     # fix(second-opinion review on #1236 review r3): first entry — crossed
     # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
     # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side
@@ -2326,7 +2332,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # against the migrate service's actual database URL login, so managed DB
     # reconciliation can install future-object defaults for the right role.
     # Cap 1056 -> 1091, exact.
-    "backend/app/core/config.py": 1091,
+    # fix(#1249): +13 — `staging_orphan_min_age_seconds`, the age an untracked
+    # staging object must reach before the reconciliation sweep may delete it.
+    # Most of the lines are the comment saying what the number is NOT (an
+    # estimate of how long an upload takes — the tracking-row check is what
+    # decides ownership), so nobody later "tunes" it as if it were a transfer
+    # margin. Cap 1091 -> 1104, exact.
+    "backend/app/core/config.py": 1104,
     # feat(#1219): first entry — crossed _RATCHET_INCLUSION_LOC, exactly as
     # the inclusion rule's own comment predicted for this file ("watched by
     # nothing until they cross 1000. The threshold catches them then"). The

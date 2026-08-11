@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import MAX_PRESIGNED_URL_LIFETIME_SECONDS, settings
 from app.observability.metrics.refresh import refresh_sweep_reconciled_total
 from app.platform.jobs.models import IngestJob, owned_presigned_staging_key
+from app.platform.jobs.staging_reconcile import reconcile_orphaned_staging_objects
 from app.platform.refresh.service import sweep_abandoned_refresh_runs
 from app.platform.storage.titiler_url import resolve_current_storage_key
 
@@ -1361,6 +1362,14 @@ async def fail_stale_jobs(
         publish_refresh_reconciliation(outcome)
         outcome = await _reap_committed_staged_paths(outcome)
         outcome = await _sweep_expired_presigned_staging(db, outcome, now=now)
+        # fix(#1249): the row-driven reapers above can only clean up objects
+        # some surviving row still names. This one starts from the objects and
+        # asks whether any row still owns them, which is the only direction
+        # that finds one nothing references. Deliberately not folded into
+        # StaleCleanupOutcome — that dataclass is a published API and audit
+        # shape several callers reconstruct field by field, and this pass
+        # answers a different question with its own log line and counter.
+        await reconcile_orphaned_staging_objects(db, now=now)
     if detailed:
         return outcome
     return outcome.pending_failed, outcome.running_failed

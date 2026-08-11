@@ -3,10 +3,12 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncIterator, BinaryIO
 
 from app.core.async_io import run_in_thread_draining
+from app.platform.storage.provider import StoredObject
 
 
 # Chunk size for streaming reads (ING-03 / P2-03). 1 MiB is large enough to
@@ -160,6 +162,21 @@ class LocalStorageProvider:
         path = self._resolve_contained(key)
         return await asyncio.to_thread(lambda: path.stat().st_size)
 
+    def _matching_files(self, prefix: str, resolved_prefix: Path) -> list[Path]:
+        """Every regular file whose key starts with *prefix*. Blocking."""
+        resolved_base = self.base_dir.resolve()
+        if not prefix or prefix.endswith("/") or resolved_prefix == resolved_base:
+            # Directory prefix: list all files recursively under it
+            if not resolved_prefix.exists():
+                return []
+            return [p for p in resolved_prefix.rglob("*") if p.is_file()]
+        # File prefix: glob in the parent directory
+        parent = resolved_prefix.parent
+        if not parent.exists():
+            return []
+        pattern = resolved_prefix.name + "*"
+        return [p for p in parent.glob(pattern) if p.is_file()]
+
     async def list(self, prefix: str) -> list[str]:
         """List keys matching a prefix, relative to base_dir."""
         # SEC-026: resolve the caller-supplied prefix before touching the
@@ -169,28 +186,37 @@ class LocalStorageProvider:
         resolved_base = self.base_dir.resolve()
 
         def _list() -> list[str]:
-            if not prefix or prefix.endswith("/") or resolved_prefix == resolved_base:
-                # Directory prefix: list all files recursively under it
-                search_dir = resolved_prefix
-                if not search_dir.exists():
-                    return []
-                return [
-                    str(p.relative_to(resolved_base))
-                    for p in search_dir.rglob("*")
-                    if p.is_file()
-                ]
-            # File prefix: glob in the parent directory
-            parent = resolved_prefix.parent
-            if not parent.exists():
-                return []
-            pattern = resolved_prefix.name + "*"
             return [
                 str(p.relative_to(resolved_base))
-                for p in parent.glob(pattern)
-                if p.is_file()
+                for p in self._matching_files(prefix, resolved_prefix)
             ]
 
         return await asyncio.to_thread(_list)
+
+    async def list_objects(self, prefix: str) -> list[StoredObject]:
+        """List keys matching a prefix with their mtimes (feat #1249)."""
+        resolved_prefix = self._resolve_contained(prefix)
+        resolved_base = self.base_dir.resolve()
+
+        def _list_objects() -> list[StoredObject]:
+            objects: list[StoredObject] = []
+            for path in self._matching_files(prefix, resolved_prefix):
+                try:
+                    mtime = path.stat().st_mtime
+                except OSError:
+                    # Deleted between the glob and the stat. An entry that
+                    # cannot be dated must not reach the caller, which would
+                    # otherwise have to invent an age for it.
+                    continue
+                objects.append(
+                    StoredObject(
+                        key=str(path.relative_to(resolved_base)),
+                        last_modified=datetime.fromtimestamp(mtime, tz=timezone.utc),
+                    )
+                )
+            return objects
+
+        return await asyncio.to_thread(_list_objects)
 
     async def health_check(self) -> None:
         """Verify the storage directory exists."""
