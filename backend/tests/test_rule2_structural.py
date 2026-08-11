@@ -1761,9 +1761,18 @@ def _positional_targets(targets: list[ast.expr], index: int) -> list[ast.expr] |
     return matched if (saw_sequence and matched) else None
 
 
-# A wrapper whose contents are known only by KIND, not by shape: which
-# position holds the argv is unknowable, and in a container of argvs every one
-# does (fix(#1394), codex round 14).
+# A wrapper whose contents are known only by KIND, not by shape: which position
+# holds the argv is unknowable, and in a container of argvs every one does
+# (fix(#1394), codex round 14).
+#
+# So unpacking one binds EVERY name in the pattern, and where the container is
+# actually heterogeneous — `container = (argv, None)` reached through a name,
+# then `first, ignored = alias` — the inert position reports too (codex round
+# 15, declined). Positions are exactly what a kind drops, and this analysis has
+# tracked no container ELEMENTS since #996; recovering them means the static
+# analyser #996 declined to write. The alternative on the table was dropping
+# the inherited level, which reinstates the round-14 silent miss: a false alarm
+# somebody investigates traded for an all-clear nobody sees. Take the alarm.
 _ANY_POSITION = -1
 
 
@@ -1790,7 +1799,7 @@ def _unpacked_binding(
     targets: list[ast.expr],
     chain: list[tuple[int | None, str | None, bool]],
     container_kind: str | None,
-) -> tuple[set[str], str | None] | None:
+) -> dict[str, str | None] | None:
     """Pair the wrappers a literal sits in against the patterns unpacking them.
 
     ``chain`` lists those wrappers OUTERMOST first, each with the index the
@@ -1818,9 +1827,13 @@ def _unpacked_binding(
     unpack to DIFFERENT depths, so a target whose pattern ends early is kept at
     that depth instead of being dropped when its siblings descend further.
 
-    The kinds those endpoints hold are merged, not split, because the caller
-    speaks of one path set with one kind. Merging toward the louder end keeps
-    the disagreement on the reported side, as everywhere else here.
+    Those endpoints keep their OWN kinds (codex round 15). Chained targets can
+    end at different depths, so ``(alias,) = ((deep,),) = ((["gdalinfo",
+    path],),)`` leaves ``alias`` holding a container and ``deep`` holding the
+    argv, and one kind for both names could only be wrong about one of them.
+    Merging happened here because the answer was a set plus a kind; it is a
+    mapping now, and merging is left to the one case that needs it, a name that
+    really does appear at two depths.
     """
     current = targets
     kind = container_kind
@@ -1845,12 +1858,15 @@ def _unpacked_binding(
     if not consumed:
         return None
     endpoints.extend((_target_names(target), kind) for target in current)
-    names: set[str] = set()
-    merged: str | None = None
+    bound: dict[str, str | None] = {}
     for target_names, endpoint_kind in endpoints:
-        names |= target_names
-        merged = _louder_kind(merged, endpoint_kind)
-    return names, merged
+        for name in target_names:
+            bound[name] = (
+                _louder_kind(bound[name], endpoint_kind)
+                if name in bound
+                else endpoint_kind
+            )
+    return bound
 
 
 # Expression wrappers a value passes through without being consumed. A literal
@@ -1982,7 +1998,7 @@ def _defaults_owner(node: ast.AST) -> ast.AST | None:
 
 def _binding_targets(
     node: ast.AST, *, inherited: str | None = None
-) -> tuple[set[str], str | None]:
+) -> dict[str, str | None]:
     """Names this literal's value is reachable through in its own scope.
 
     Climbs out of transparent wrappers first (fix(#996 review)), so
@@ -1991,12 +2007,16 @@ def _binding_targets(
     ``=`` including unpacking, annotated ``=``, the walrus, and the loop target
     of a ``for``/``async for``/comprehension over a literal.
 
-    Returns ``(names, container_kind)``. ``container_kind`` is ``None`` when
-    those names refer to the command vector ITSELF, which is what decides that
-    a subscript on them yields an element rather than the vector. When they
-    refer to something WRAPPING it, the kind additionally says what iterating
-    that wrapper hands over (fix(#1394), see ``_container_iteration_kind``);
-    callers that only need the one bit ask ``kind is not None``.
+    Returns ``{path: container_kind}``. A kind of ``None`` means that path
+    refers to the command vector ITSELF, which is what decides that a subscript
+    on it yields an element rather than the vector. Otherwise the path refers
+    to something WRAPPING the vector, and the kind says what ITERATING that
+    wrapper hands over (fix(#1394), see ``_container_iteration_kind``); callers
+    that only need the one bit ask ``kind is not None``.
+
+    Per path, not one kind for the set (codex round 15): a chained unpacking
+    can end at different depths, and one answer for every name could only be
+    wrong about some of them.
 
     ``inherited`` is the kind ``node``'s value ALREADY carries when the AST
     does not show it — a name known to hold a container of argvs, say. The
@@ -2066,20 +2086,22 @@ def _binding_targets(
         if unpacked is not None:
             return unpacked
         return {
-            n for target in parent.targets for n in _target_names(target)
-        }, container_kind
+            n: container_kind
+            for target in parent.targets
+            for n in _target_names(target)
+        }
     # fix(#996 review): the same path rule as the Assign branch above. An
     # annotated `box.cmd: list[str] = [...]` binds a path exactly like the
     # unannotated form; requiring a bare Name here dropped it. A walrus target
     # is always a Name, so it rides the same branch.
     if isinstance(parent, (ast.AnnAssign, ast.NamedExpr)) and parent.value is current:
-        return _target_names(parent.target), container_kind
+        return {n: container_kind for n in _target_names(parent.target)}
     # fix(#996 review): `cmd = []` then `cmd += ["gdalinfo", path]` assembles a
     # real argv, and the literal's parent is an AugAssign that none of the
     # branches above matched. The kind is None regardless: `+=` splices the
     # elements in, so the target holds the vector rather than a container.
     if isinstance(parent, ast.AugAssign) and parent.value is current:
-        return _target_names(parent.target), None
+        return {n: None for n in _target_names(parent.target)}
     # fix(#996 review): `def run(cmd=("gdalinfo", "-json")): subprocess.run(cmd)`
     # executes the default on every bare call. The literal sits in the
     # signature, so the escape walk stops at the function boundary and no
@@ -2087,7 +2109,7 @@ def _binding_targets(
     if isinstance(parent, ast.arguments):
         name = _default_parameter_name(parent, current)
         if name:
-            return {name}, None
+            return {name: None}
     # fix(#996 review): `for cmd in (["gdalinfo", path],): subprocess.run(cmd)`
     # reaches an exec through the loop target. Same for `async for` and for a
     # comprehension's generator.
@@ -2101,8 +2123,8 @@ def _binding_targets(
         # vector itself, not a container of it.
         loop_targets = _loop_target_paths(current)
         if loop_targets:
-            return loop_targets, None
-    return set(), None
+            return {n: None for n in loop_targets}
+    return {}
 
 
 def _enclosing_statement(node: ast.AST, body: list) -> ast.stmt | None:
@@ -2212,10 +2234,9 @@ def _derived_paths(used: ast.expr, kind: str | None) -> list[tuple[str, str | No
             sliced = isinstance(parent, ast.Subscript) and isinstance(
                 parent.slice, ast.Slice
             )
-            extracted, extracted_kind = _binding_targets(
-                parent, inherited=kind if sliced else None
+            derived += list(
+                _binding_targets(parent, inherited=kind if sliced else None).items()
             )
-            derived += [(n, extracted_kind) for n in extracted]
         # fix(#1394): ITERATING a container hands each element — the argv — to
         # the loop target, exactly as subscripting it hands over one.
         # `_binding_targets` already reads that off the AST when the container
@@ -2238,8 +2259,7 @@ def _derived_paths(used: ast.expr, kind: str | None) -> list[tuple[str, str | No
     # unchanged, and an UNPACKING there takes one off. All three are the same
     # question, so the inherited kind goes in and the answer comes back
     # absolute rather than being re-applied here (codex round 14).
-    aliases, alias_kind = _binding_targets(used, inherited=kind)
-    derived += [(n, alias_kind) for n in aliases]
+    derived += list(_binding_targets(used, inherited=kind).items())
     return derived
 
 
@@ -2261,9 +2281,9 @@ def _argv_escape_kind(node: ast.List | ast.Tuple, rel: str) -> int:
     best = _escape_kind(node)
     if best == _ESCAPE_CALL:
         return best
-    names, container_kind = _binding_targets(node)
+    bindings = _binding_targets(node)
     scope = _defaults_owner(node) or _scope_root(node)
-    if not names or scope is None:
+    if not bindings or scope is None:
         return best
 
     # fix(#996 review): follow re-aliasing to a fixed point. `cmd = [...]`,
@@ -2273,7 +2293,7 @@ def _argv_escape_kind(node: ast.List | ast.Tuple, rel: str) -> int:
     # The overwrite guard below applies only to paths the literal binds
     # DIRECTLY. For a derived alias the statement that introduces it would
     # itself look like an overwrite, and over-reporting is the safe side.
-    original_paths = set(names)
+    original_paths = set(bindings)
     # fix(#1394), codex round 3: path -> kind, MERGED, never overwritten. The
     # worklist used to be a set of pairs collapsed with `{n: c for n, c in
     # batch}`, so one path reached with two kinds — `x = commands` beside
@@ -2282,8 +2302,8 @@ def _argv_escape_kind(node: ast.List | ast.Tuple, rel: str) -> int:
     # kinds (the same collapse could pick either boolean) and widens with them.
     resolved: dict[str, str | None] = {}
     pending: dict[str, str | None] = {}
-    for name in names:
-        _queue_path(pending, resolved, name, container_kind)
+    for name, name_kind in bindings.items():
+        _queue_path(pending, resolved, name, name_kind)
     while pending:
         current_paths = pending
         pending = {}
@@ -3884,6 +3904,21 @@ def test_guard_unpacking_pairs_only_with_real_levels():
     )
     assert total_uneven == 1, (total_uneven, uneven)
     assert len(uneven) == 1 and "(uneven_chain)" in uneven[0]
+
+    # codex round 15: those two endpoints hold DIFFERENT things — `alias` a
+    # container, `deep` the argv — so one kind for both names could only be
+    # wrong about one of them. Iterating `deep` yields strings.
+    per_endpoint, total_per_endpoint = _collect_gdal_cli_violations(
+        _mod(
+            "def uneven_chain(path):\n"
+            "    (alias,) = ((deep,),) = ((['gdalinfo', path],),)\n"
+            "    for part in deep:\n"
+            "        consume(part)\n"
+        ),
+        {},
+    )
+    assert total_per_endpoint == 0, (total_per_endpoint, per_endpoint)
+    assert per_endpoint == []
 
 
 def test_guard_unpacking_a_named_container_consumes_its_kind():
