@@ -579,13 +579,27 @@ works only at head — it refuses on a boundary function that a later migration
 installed. `--no-deps` is what stops the `migrate` one-shot and the API
 entrypoint from doing this for you, so do it here, with the same override:
 
+A non-superuser migrator — a managed provider's admin, for instance — needs two
+privileges first, because 0024's upgrade transfers ownership of the boundary
+functions to `geolens_tenant_provisioner`, and PostgreSQL wants the incoming
+owner to hold `CREATE` on the schema and the caller to hold that owner's
+privileges. A superuser has both implicitly and can skip this. Grant them as the
+same admin identity that ran step 1's role block, and hand them back in 2d:
+
+```bash
+docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
+GRANT CREATE ON SCHEMA catalog TO geolens_tenant_provisioner;
+GRANT geolens_tenant_provisioner TO "<migrator-role>" WITH ADMIN OPTION;
+SQL
+```
+
 ```bash
 docker compose run --rm --no-deps -e DATABASE_URL_OVERRIDE="<migrator-url>" \
   migrate sh -c "uv run --no-dev alembic upgrade heads"
 ```
 
-Skip it only if the dump came from the running release. Running it anyway is a
-no-op on a database already at head.
+Skip the upgrade only if the dump came from the running release. Running it
+anyway is a no-op on a database already at head.
 
 **2c. Adopt the restored tenant objects.**
 
@@ -659,6 +673,20 @@ below.
 
 A dump carries row-security state, so a source cluster that was already
 enforcing it restores with it still on.
+
+**2d. Give the temporary privileges back.**
+
+Only if you granted them in 2b. Adoption manages its own borrow when it has to
+take one, and hands that back on its own; these two are yours, and left in place
+they are a standing `CREATE` on `catalog` for the provisioner and a membership
+that makes the next recovery refuse under a rotated migrator credential:
+
+```bash
+docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
+REVOKE CREATE ON SCHEMA catalog FROM geolens_tenant_provisioner;
+REVOKE geolens_tenant_provisioner FROM "<migrator-role>";
+SQL
+```
 
 Then verify by hand: the API login can `SET ROLE` to one tenant writer/reader,
 the tile login can set only that tenant reader, and neither login owns catalog
