@@ -487,7 +487,7 @@ class TestReportedStateMatchesWhatApplyEnforces:
             await _drop_tenant(engine, tenant_id)
             await engine.dispose()
 
-    async def test_a_third_party_gateway_grant_is_revoked(
+    async def test_a_third_party_gateway_grant_is_refused(
         self, multi_tenant_row_security
     ):
         """The unsafe row belongs to another grantor, not to the adopter.
@@ -518,9 +518,10 @@ class TestReportedStateMatchesWhatApplyEnforces:
                 state = await tenant_ownership_state(conn, tenant_id)
             assert not state.reader_role_secure
 
-            repaired = await run_adoption(engine, apply=True)
-            assert repaired.failures == {}, repaired.failures
-            assert repaired.ok
+            refused = await run_adoption(engine, apply=True)
+            assert tenant_id in refused.failures
+            assert "will not rewrite" in refused.failures[tenant_id]
+            assert not refused.ok
         finally:
             async with engine.begin() as conn:
                 await conn.execute(sa.text(f"DROP OWNED BY {grantor}"))
@@ -528,14 +529,13 @@ class TestReportedStateMatchesWhatApplyEnforces:
             await _drop_tenant(engine, tenant_id)
             await engine.dispose()
 
-    async def test_a_duplicate_provisioner_edge_is_normalized(
+    async def test_the_provisioners_own_edge_is_repaired_in_place(
         self, multi_tenant_row_security
     ):
-        """The canonical row hides it and nothing else would take it away.
+        """The row adoption granted, so adoption is its grantor and can rewrite it.
 
-        Only the foreign grantor's row goes: revoking the provisioner's
-        membership outright would remove the ADMIN path the transaction reaches
-        the tenant roles through.
+        The other side of the boundary: a second row from a third-party grantor
+        is refused instead — see the gateway test above.
         """
         tenant_id, schema, reader, _writer = _new_tenant()
         engine = _make_engine()
@@ -608,14 +608,15 @@ class TestReportedStateMatchesWhatApplyEnforces:
 
             # And a re-run repairs it: nothing else removes the extra row, so
             # leaving it would make the tenant permanently unadoptable.
-            repaired = await run_adoption(engine, apply=True)
-            assert repaired.failures == {}, repaired.failures
-            assert repaired.ok
+            refused = await run_adoption(engine, apply=True)
+            assert tenant_id in refused.failures
+            assert "will not rewrite" in refused.failures[tenant_id]
+            assert not refused.ok
         finally:
             await _drop_tenant(engine, tenant_id)
             await engine.dispose()
 
-    async def test_stray_reader_member_is_not_adopted_and_is_repaired(
+    async def test_stray_reader_member_is_refused_with_a_remedy(
         self, multi_tenant_row_security
     ):
         tenant_id, schema, reader, _writer = _new_tenant()
@@ -639,16 +640,17 @@ class TestReportedStateMatchesWhatApplyEnforces:
             assert not state.reader_role_secure
             assert not state.adopted
 
-            repaired = await run_adoption(engine, apply=True)
-            assert repaired.failures == {}, repaired.failures
-            assert repaired.ok
+            refused = await run_adoption(engine, apply=True)
+            assert tenant_id in refused.failures
+            assert "will not rewrite" in refused.failures[tenant_id]
+            assert not refused.ok
         finally:
             async with engine.begin() as conn:
                 await conn.execute(sa.text(f"DROP ROLE IF EXISTS {stray}"))
             await _drop_tenant(engine, tenant_id)
             await engine.dispose()
 
-    async def test_creator_membership_on_the_writer_is_normalized(
+    async def test_creator_membership_on_the_writer_is_refused(
         self, multi_tenant_row_security
     ):
         """PostgreSQL 16+ makes the role creator a direct member of the writer.
@@ -677,23 +679,9 @@ class TestReportedStateMatchesWhatApplyEnforces:
                 )
 
             report = await run_adoption(engine, apply=True)
-            assert report.failures == {}, report.failures
-            assert report.ok
-
-            async with engine.connect() as conn:
-                members = [
-                    row[0]
-                    for row in await conn.execute(
-                        sa.text(
-                            "SELECT member.rolname FROM pg_auth_members AS membership "
-                            "JOIN pg_roles AS granted ON granted.oid = membership.roleid "
-                            "JOIN pg_roles AS member ON member.oid = membership.member "
-                            "WHERE granted.rolname = :writer ORDER BY member.rolname"
-                        ),
-                        {"writer": writer},
-                    )
-                ]
-            assert members == [PROVISIONER, WRITER_GATEWAY]
+            assert tenant_id in report.failures
+            assert "will not rewrite" in report.failures[tenant_id]
+            assert not report.ok
         finally:
             async with engine.begin() as conn:
                 await conn.execute(sa.text(f"DROP ROLE IF EXISTS {creator}"))

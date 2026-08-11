@@ -731,12 +731,15 @@ GRANT CONNECT ON DATABASE :"db" TO "<tile-login>";
 SQL
 ```
 
-The group memberships below are needed only when step 1 rebuilt the roles by
-hand: a globals replay carries them, the reconciler does not, and without them
-the API cannot call the provisioning functions or reach a tenant reader, and the
-tile login cannot either. These are the grants `.env.example` documents
-alongside `GEOLENS_RUNTIME_DB_ROLE`; substitute your own login names, and never
-give the tile login any of the first three:
+Run the group memberships below whatever step 1 did. They are needed outright
+when the roles were rebuilt by hand, and they are still needed after a globals
+replay from a PostgreSQL 13-15 cluster: those dumps carry plain grants, which
+pick up the target server's defaults rather than the control inherit-only and
+writer/sandbox/tile SET-only shapes that adoption requires — and it refuses on
+the wrong shape rather than rewriting somebody else's grant. Re-issuing them
+explicitly is a no-op when they already match. These are the grants
+`.env.example` documents alongside `GEOLENS_RUNTIME_DB_ROLE`; substitute your own
+login names, and never give the tile login any of the first three:
 
 ```bash
 docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'

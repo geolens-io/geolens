@@ -19,6 +19,18 @@ moved (#998):
 - Every step is gated on the gap it closes, so an already-adopted tenant
   issues no DDL at all.  0019 ran once, inside a migration; this runs whenever
   an operator needs it.
+
+Repair boundary
+---------------
+Adoption rewrites only grants it is itself the grantor of, plus ACLs on objects
+it owns or can own for the duration.  A pre-existing anomaly — a membership
+granted by a third party, a duplicate row hiding behind a canonical one, a
+default-privilege entry belonging to a role this credential cannot assume — is
+detected and refused with the exact statement to run and the role to run it as,
+not repaired.  Removing somebody else's grant means naming its grantor and being
+able to assume it, and PostgreSQL answers that differently for every combination
+of server version, grantor and dependent grant; the operator has authority this
+process does not, and a refusal that names the remedy costs one re-run.
 - The reserved-role membership guard aggregates with ``bool_or`` instead of
   reading one row.  PostgreSQL keeps one membership row per grantor, so a member
   can hold two grants of the same role and 0019's scalar read picks one
@@ -385,13 +397,12 @@ BEGIN
            OR membership_row.rolinherit
            OR membership_row.rolreplication
            OR membership_row.rolbypassrls
-           -- The edge's options, not only the roles at its ends — but only for
-           -- an orphan: a role carrying the per-tenant naming pattern with no
-           -- row in catalog.tenants is never reached by the per-tenant checks
-           -- or their repairs, so an INHERIT edge there would hand the gateway
-           -- that role's privileges outright and nothing would ever notice. A
-           -- live tenant's roles are normalized per tenant, which is where a
-           -- legacy `WITH ADMIN OPTION` grant gets rewritten.
+           -- An orphan: a role carrying the per-tenant naming pattern with no
+           -- row in catalog.tenants. Nothing per-tenant reaches it — adoption
+           -- iterates catalog.tenants — so whatever objects it still owns are
+           -- outside the boundary entirely, and any edge from a gateway is a
+           -- live path to them. Refused whatever its options are; a live
+           -- tenant's roles are checked per tenant instead.
            OR (
                NOT EXISTS (
                    SELECT 1 FROM catalog.tenants
@@ -402,22 +413,6 @@ BEGIN
                        '_',
                        '-'
                    )
-               )
-               -- "no unsafe row", not "some safe row": PostgreSQL keeps one
-               -- row per grantor, and a canonical SET-only grant sitting beside
-               -- an INHERIT one would otherwise answer for both.
-               AND EXISTS (
-                   SELECT 1
-                   FROM pg_catalog.pg_auth_members AS membership
-                   JOIN pg_catalog.pg_roles AS member_role
-                     ON member_role.oid = membership.member
-                   WHERE membership.roleid = membership_row.oid
-                     AND member_role.rolname = membership_row.member_name
-                     AND NOT CASE
-                         WHEN membership_row.member_name = '{PROVISIONER}'
-                         THEN {_MEMBERSHIP_ADMIN_ONLY}
-                         ELSE {_MEMBERSHIP_SET_ONLY}
-                     END
                )
            )
            OR EXISTS (
@@ -826,6 +821,13 @@ BEGIN
     -- has, which is why the revokes wait until after the provisioner has its own
     -- ADMIN above. Afterwards the caller reaches both roles through the
     -- provisioner, whose privileges it must hold to have got this far.
+    -- Detect, do not rewrite.  Every row here predates this run: a restore, a
+    -- globals replay, or an operator granted it, which makes some other role
+    -- its grantor.  Removing it means naming that grantor and being able to
+    -- assume it, and PostgreSQL has a different answer for every combination of
+    -- server version, grantor and dependent grant.  Adoption repairs only the
+    -- grants it made itself; anything else is one exact statement for the
+    -- operator and a re-run.
     FOR legacy_member_row IN
         SELECT member_role.rolname AS member_name,
                grantor_role.rolname AS grantor_name
@@ -839,49 +841,32 @@ BEGIN
         WHERE granted_role.rolname = reader_name
           AND (
               member_role.rolname NOT IN ('{PROVISIONER}', '{SANDBOX}', '{TILE}')
-              -- ...or an allowed gateway holding an unsafe duplicate. Nothing
-              -- else removes that row, so leaving it makes the tenant
-              -- permanently unadoptable.
               OR (
                   member_role.rolname IN ('{SANDBOX}', '{TILE}')
                   AND NOT {_MEMBERSHIP_SET_ONLY}
               )
           )
     LOOP
-        -- GRANTED BY targets the specific row: a plain REVOKE only removes the
-        -- grant this role made, and PostgreSQL keeps one row per grantor. It
-        -- needs a path to that grantor, so a row from a role this credential
-        -- cannot assume is a refusal with the command to run, not a silent skip.
-        BEGIN
-            IF pg_catalog.current_setting('server_version_num')::integer >= 160000 THEN
-                EXECUTE pg_catalog.format(
-                    'REVOKE %I FROM %I GRANTED BY %I CASCADE',
-                    reader_name,
-                    legacy_member_row.member_name,
-                    legacy_member_row.grantor_name
-                );
-            ELSE
-                EXECUTE pg_catalog.format(
-                    'REVOKE %I FROM %I CASCADE',
-                    reader_name,
-                    legacy_member_row.member_name
-                );
-            END IF;
-        EXCEPTION
-            WHEN insufficient_privilege THEN
-                RAISE EXCEPTION
-                    'cannot revoke % from % : the grant was made by %, which '
-                    'this role cannot assume',
-                    reader_name,
-                    legacy_member_row.member_name,
-                    legacy_member_row.grantor_name
-                    USING HINT =
-                        'run REVOKE ' || reader_name || ' FROM ' ||
-                        legacy_member_row.member_name || ' GRANTED BY ' ||
-                        legacy_member_row.grantor_name || ' CASCADE as a role that can';
-        END;
+        RAISE EXCEPTION
+            'tenant role % carries a membership adoption will not rewrite: '
+            'member %, granted by %',
+            reader_name,
+            legacy_member_row.member_name,
+            legacy_member_row.grantor_name
+            USING HINT =
+                'as ' || legacy_member_row.grantor_name ||
+                ' (or a role that can assume it) run: REVOKE ' || reader_name ||
+                ' FROM ' || legacy_member_row.member_name ||
+                ' CASCADE; then re-run adoption';
     END LOOP;
 
+    -- Detect, do not rewrite.  Every row here predates this run: a restore, a
+    -- globals replay, or an operator granted it, which makes some other role
+    -- its grantor.  Removing it means naming that grantor and being able to
+    -- assume it, and PostgreSQL has a different answer for every combination of
+    -- server version, grantor and dependent grant.  Adoption repairs only the
+    -- grants it made itself; anything else is one exact statement for the
+    -- operator and a re-run.
     FOR legacy_member_row IN
         SELECT member_role.rolname AS member_name,
                grantor_role.rolname AS grantor_name
@@ -895,90 +880,53 @@ BEGIN
         WHERE granted_role.rolname = writer_name
           AND (
               member_role.rolname NOT IN ('{PROVISIONER}', '{WRITER}')
-              -- ...or an allowed gateway holding an unsafe duplicate. Nothing
-              -- else removes that row, so leaving it makes the tenant
-              -- permanently unadoptable.
               OR (
                   member_role.rolname IN ('{WRITER}')
                   AND NOT {_MEMBERSHIP_SET_ONLY}
               )
           )
     LOOP
-        -- GRANTED BY targets the specific row: a plain REVOKE only removes the
-        -- grant this role made, and PostgreSQL keeps one row per grantor. It
-        -- needs a path to that grantor, so a row from a role this credential
-        -- cannot assume is a refusal with the command to run, not a silent skip.
-        BEGIN
-            IF pg_catalog.current_setting('server_version_num')::integer >= 160000 THEN
-                EXECUTE pg_catalog.format(
-                    'REVOKE %I FROM %I GRANTED BY %I CASCADE',
-                    writer_name,
-                    legacy_member_row.member_name,
-                    legacy_member_row.grantor_name
-                );
-            ELSE
-                EXECUTE pg_catalog.format(
-                    'REVOKE %I FROM %I CASCADE',
-                    writer_name,
-                    legacy_member_row.member_name
-                );
-            END IF;
-        EXCEPTION
-            WHEN insufficient_privilege THEN
-                RAISE EXCEPTION
-                    'cannot revoke % from % : the grant was made by %, which '
-                    'this role cannot assume',
-                    writer_name,
-                    legacy_member_row.member_name,
-                    legacy_member_row.grantor_name
-                    USING HINT =
-                        'run REVOKE ' || writer_name || ' FROM ' ||
-                        legacy_member_row.member_name || ' GRANTED BY ' ||
-                        legacy_member_row.grantor_name || ' CASCADE as a role that can';
-        END;
+        RAISE EXCEPTION
+            'tenant role % carries a membership adoption will not rewrite: '
+            'member %, granted by %',
+            writer_name,
+            legacy_member_row.member_name,
+            legacy_member_row.grantor_name
+            USING HINT =
+                'as ' || legacy_member_row.grantor_name ||
+                ' (or a role that can assume it) run: REVOKE ' || writer_name ||
+                ' FROM ' || legacy_member_row.member_name ||
+                ' CASCADE; then re-run adoption';
     END LOOP;
 
-    -- The provisioner's own duplicates, which the loops above deliberately do
-    -- not touch: revoking its membership outright would remove the ADMIN path
-    -- this transaction reaches the tenant roles through. Only the foreign
-    -- grantor's row goes, by name, leaving the canonical one that the guarded
-    -- GRANT above has just made sure exists. Before PostgreSQL 16 there is one
-    -- row per pair and no GRANTED BY to aim with, so there is nothing to do.
-    IF pg_catalog.current_setting('server_version_num')::integer >= 160000 THEN
-        FOR legacy_member_row IN
-            SELECT granted_role.rolname AS granted_name,
-                   grantor_role.rolname AS member_name
-            FROM pg_catalog.pg_auth_members AS membership
-            JOIN pg_catalog.pg_roles AS granted_role
-              ON granted_role.oid = membership.roleid
-            JOIN pg_catalog.pg_roles AS member_role
-              ON member_role.oid = membership.member
-            JOIN pg_catalog.pg_roles AS grantor_role
-              ON grantor_role.oid = membership.grantor
-            WHERE granted_role.rolname IN (reader_name, writer_name)
-              AND member_role.rolname = '{PROVISIONER}'
-              AND NOT {_MEMBERSHIP_ADMIN_ONLY}
-        LOOP
-            BEGIN
-                EXECUTE pg_catalog.format(
-                    'REVOKE %I FROM {PROVISIONER} GRANTED BY %I CASCADE',
-                    legacy_member_row.granted_name,
-                    legacy_member_row.member_name
-                );
-            EXCEPTION
-                WHEN insufficient_privilege THEN
-                    RAISE EXCEPTION
-                        'cannot revoke % from {PROVISIONER}: the grant was made '
-                        'by %, which this role cannot assume',
-                        legacy_member_row.granted_name,
-                        legacy_member_row.member_name
-                        USING HINT =
-                            'run REVOKE ' || legacy_member_row.granted_name ||
-                            ' FROM {PROVISIONER} GRANTED BY ' ||
-                            legacy_member_row.member_name || ' CASCADE as a role that can';
-            END;
-        END LOOP;
-    END IF;
+    -- The provisioner's own duplicates, detected for the same reason and on
+    -- the same terms: the canonical row hides them, and only the grantor can
+    -- take one away.
+    FOR legacy_member_row IN
+        SELECT granted_role.rolname AS granted_name,
+               grantor_role.rolname AS grantor_name
+        FROM pg_catalog.pg_auth_members AS membership
+        JOIN pg_catalog.pg_roles AS granted_role
+          ON granted_role.oid = membership.roleid
+        JOIN pg_catalog.pg_roles AS member_role
+          ON member_role.oid = membership.member
+        JOIN pg_catalog.pg_roles AS grantor_role
+          ON grantor_role.oid = membership.grantor
+        WHERE granted_role.rolname IN (reader_name, writer_name)
+          AND member_role.rolname = '{PROVISIONER}'
+          AND NOT {_MEMBERSHIP_ADMIN_ONLY}
+    LOOP
+        RAISE EXCEPTION
+            'tenant role % carries a {PROVISIONER} membership that is not '
+            'ADMIN-only, granted by %',
+            legacy_member_row.granted_name,
+            legacy_member_row.grantor_name
+            USING HINT =
+                'as ' || legacy_member_row.grantor_name ||
+                ' (or a role that can assume it) run: REVOKE ' ||
+                legacy_member_row.granted_name || ' FROM {PROVISIONER} CASCADE; '
+                'then re-run adoption';
+    END LOOP;
 
     -- The guarded boundary owns schema creation, role creation, gateway
     -- memberships, and schema-level privileges.  Since 0024 it deliberately
@@ -1189,11 +1137,35 @@ BEGIN
             schema_name, writer_name;
     END IF;
 
-    -- Every default-privilege entry in the schema, for any object kind and any
-    -- grantee — not just the reader's, which is only the shape the pre-0019
-    -- runtime helper happened to leave. The contract inside a tenant schema is
-    -- that the writer grants the reader explicitly on each relation, so an
-    -- entry here hands out privileges on relations that do not exist yet.
+    -- Default-privilege entries: cleared when this run can act as the role
+    -- that owns them — itself, or the tenant writer whose SET edge it holds
+    -- inside this window — and refused otherwise, on the same terms as the
+    -- memberships above. Every object kind and every grantee: the contract in a
+    -- tenant schema is that the writer grants the reader explicitly on each
+    -- relation, so an entry here hands out privileges on relations that do not
+    -- exist yet.
+    FOR default_acl_row IN
+        SELECT DISTINCT owner_role.rolname AS owner_name
+        FROM pg_catalog.pg_default_acl AS default_acl
+        JOIN pg_catalog.pg_roles AS owner_role
+          ON owner_role.oid = default_acl.defaclrole
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = default_acl.defaclnamespace
+        WHERE namespace.nspname = schema_name
+          AND owner_role.rolname NOT IN (CURRENT_USER, writer_name)
+    LOOP
+        RAISE EXCEPTION
+            'schema % carries default privileges owned by %, which this role '
+            'cannot act as',
+            schema_name,
+            default_acl_row.owner_name
+            USING HINT =
+                'as ' || default_acl_row.owner_name ||
+                ' run: ALTER DEFAULT PRIVILEGES IN SCHEMA ' || schema_name ||
+                ' REVOKE ALL ON TABLES FROM PUBLIC (and the same for SEQUENCES, '
+                'FUNCTIONS, TYPES and SCHEMAS as applicable); then re-run adoption';
+    END LOOP;
+
     FOR default_acl_row IN
         SELECT owner_role.rolname AS owner_name,
                default_acl.defaclobjtype AS object_type,
@@ -1211,33 +1183,46 @@ BEGIN
           ON namespace.oid = default_acl.defaclnamespace
         WHERE namespace.nspname = schema_name
     LOOP
-        -- ALTER DEFAULT PRIVILEGES FOR ROLE needs the caller to be able to
-        -- assume that role. The migrator can for its own entries and, inside
-        -- this window, for the writer's; anything else it cannot reach is left
-        -- for the report to keep flagging rather than failing the tenant.
-        BEGIN
-            IF default_acl_row.owner_name <> CURRENT_USER THEN
-                EXECUTE pg_catalog.format('SET ROLE %I', default_acl_row.owner_name);
-            END IF;
-            EXECUTE pg_catalog.format(
-                'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I REVOKE ALL ON %s FROM %s',
-                default_acl_row.owner_name,
-                schema_name,
-                CASE default_acl_row.object_type
-                    WHEN 'r' THEN 'TABLES'
-                    WHEN 'S' THEN 'SEQUENCES'
-                    WHEN 'f' THEN 'FUNCTIONS'
-                    WHEN 'T' THEN 'TYPES'
-                    ELSE 'SCHEMAS'
-                END,
-                default_acl_row.grantee_name
-            );
-            RESET ROLE;
-        EXCEPTION
-            WHEN insufficient_privilege THEN
-                RESET ROLE;
-        END;
+        IF default_acl_row.owner_name <> CURRENT_USER THEN
+            EXECUTE pg_catalog.format('SET ROLE %I', default_acl_row.owner_name);
+        END IF;
+        EXECUTE pg_catalog.format(
+            'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I REVOKE ALL ON %s FROM %s',
+            default_acl_row.owner_name,
+            schema_name,
+            CASE default_acl_row.object_type
+                WHEN 'r' THEN 'TABLES'
+                WHEN 'S' THEN 'SEQUENCES'
+                WHEN 'f' THEN 'FUNCTIONS'
+                WHEN 'T' THEN 'TYPES'
+                ELSE 'SCHEMAS'
+            END,
+            default_acl_row.grantee_name
+        );
+        RESET ROLE;
     END LOOP;
+
+    -- A subtractive entry — ALTER DEFAULT PRIVILEGES ... REVOKE ... FROM PUBLIC
+    -- — leaves a pg_default_acl row that aclexplode has nothing to show for, so
+    -- the loop above cannot reach it. Restoring the built-in default means
+    -- re-granting what was taken, which only the owner can decide.
+    IF EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_default_acl AS default_acl
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = default_acl.defaclnamespace
+        WHERE namespace.nspname = schema_name
+    ) THEN
+        RAISE EXCEPTION
+            'schema % still carries a default-privilege entry after clearing '
+            'every grant in it — a subtractive entry, which only its owner can '
+            'reset',
+            schema_name
+            USING HINT =
+                'inspect pg_default_acl for this schema and, as the defaclrole, '
+                'ALTER DEFAULT PRIVILEGES ... GRANT the privilege back to '
+                'restore the built-in default; then re-run adoption';
+    END IF;
 
     EXECUTE pg_catalog.format('SET ROLE %I', writer_name);
     -- Revoke first, then grant back exactly the read privileges: ALTER TABLE …

@@ -31,6 +31,13 @@ second run over an adopted tenant issues no DDL at all, and a run interrupted
 partway is resumed by running it again — every tenant is adopted in its own
 transaction, so completed tenants stay completed.
 
+Adoption rewrites only the grants it is itself the grantor of.  A pre-existing
+anomaly — a membership some third party granted, a duplicate row behind a
+canonical one, a default-privilege entry owned by a role this credential cannot
+assume — is reported with the exact statement to run and the role to run it as,
+and the tenant is left for the next run.  See the repair boundary in
+:mod:`app.core.db.tenant_adoption_sql`.
+
 Run it with the migrator credential — ``CREATEROLE``, authority over the
 restored objects, and, on a non-superuser migrator, the privileges of
 ``geolens_tenant_provisioner`` — against a database already at head::
