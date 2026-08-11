@@ -1,8 +1,9 @@
 """Source compatibility validation for VRT creation.
 
 Validates candidate COG sources for VRT creation by running a series of
-checks (CRS, dtype, nodata, rotation, band count, grid alignment) and
-returning structured per-source errors.  All checks always run — no fail-fast.
+checks (CRS, dtype, nodata, rotation, band count, grid alignment, pixel
+geometry) and returning structured per-source errors.  All checks always
+run — no fail-fast.
 
 Usage::
 
@@ -149,7 +150,13 @@ def _check_nodata_consistency(sources: list[Any]) -> list[SourceValidationError]
 
 
 def _check_rotation(sources: list[Any]) -> list[SourceValidationError]:
-    """VAL-07: Rotated rasters are rejected."""
+    """VAL-07: Rotated rasters are rejected.
+
+    fix(#1385): `is_rotated` is `NOT NULL DEFAULT false`, so it cannot
+    represent "never measured" — a source whose geometry probe never ran
+    looks identical to one confirmed unrotated. `_check_pixel_geometry_known`
+    (VAL-08) catches that case via the NULL `res_x`/`res_y` it leaves behind.
+    """
     errors: list[SourceValidationError] = []
     for src in sources:
         if src.is_rotated:
@@ -164,11 +171,40 @@ def _check_rotation(sources: list[Any]) -> list[SourceValidationError]:
     return errors
 
 
+def _check_pixel_geometry_known(sources: list[Any]) -> list[SourceValidationError]:
+    """VAL-08: Pixel geometry (resolution) must have been measured.
+
+    fix(#1385): a source with NULL `res_x` or `res_y` was never probed, so
+    it cannot be proven unrotated (VAL-07) or grid-aligned (VAL-05) — both
+    checks silently treat "unknown" as "passing" without this. Raise a
+    distinct code instead of letting an unverifiable source through.
+    """
+    errors: list[SourceValidationError] = []
+    for src in sources:
+        if src.res_x is None or src.res_y is None:
+            errors.append(
+                SourceValidationError(
+                    source_id=src.id,
+                    code="unknown_pixel_geometry",
+                    message=(
+                        "Pixel resolution was never measured for this source; "
+                        "cannot verify it is unrotated and grid-aligned"
+                    ),
+                    field="res_x" if src.res_x is None else "res_y",
+                )
+            )
+    return errors
+
+
 def _check_grid_alignment(sources: list[Any]) -> list[SourceValidationError]:
     """VAL-05: Band-stack sources must share identical grid dimensions and resolution.
 
     Float comparison for res_x/res_y uses 1e-10 absolute tolerance.
     Returns one error per mismatched dimension per source.
+
+    fix(#1385): a NULL res_x/res_y still skips the comparison here (it can't
+    be compared), but `_check_pixel_geometry_known` (VAL-08) now raises
+    `unknown_pixel_geometry` for that source instead of letting it pass.
     """
     _FLOAT_TOL = 1e-10
     errors: list[SourceValidationError] = []
@@ -248,6 +284,7 @@ def validate_sources(vrt_type: str, sources: list[Any]) -> list[SourceValidation
     errors.extend(_check_dtype(sources))
     errors.extend(_check_nodata_consistency(sources))
     errors.extend(_check_rotation(sources))
+    errors.extend(_check_pixel_geometry_known(sources))
 
     # Mosaic-only checks
     if vrt_type == "mosaic":

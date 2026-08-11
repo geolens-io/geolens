@@ -382,6 +382,126 @@ class TestGridAlignmentCheck:
 
 
 # ---------------------------------------------------------------------------
+# TestPixelGeometryCheck
+# ---------------------------------------------------------------------------
+
+
+class TestPixelGeometryCheck:
+    """VAL-08 (#1385): unmeasured pixel geometry (NULL res_x/res_y) fails distinctly.
+
+    Neither VAL-05 (grid alignment) nor VAL-07 (rotation) can distinguish
+    "measured and fine" from "never measured" on their own, so a source
+    with NULL res_x/res_y must raise `unknown_pixel_geometry` instead of
+    silently passing both.
+    """
+
+    def test_null_res_x_fails(self):
+        sources = [FakeRasterAsset(), FakeRasterAsset(res_x=None)]
+        with patch("app.processing.raster.validation.rasterio"):
+            errors = validate_sources("mosaic", sources)
+        pg_errors = [e for e in errors if e.code == "unknown_pixel_geometry"]
+        assert len(pg_errors) == 1
+        assert pg_errors[0].source_id == sources[1].id
+        assert pg_errors[0].field == "res_x"
+
+    def test_null_res_y_fails(self):
+        sources = [FakeRasterAsset(), FakeRasterAsset(res_y=None)]
+        with patch("app.processing.raster.validation.rasterio"):
+            errors = validate_sources("mosaic", sources)
+        pg_errors = [e for e in errors if e.code == "unknown_pixel_geometry"]
+        assert len(pg_errors) == 1
+        assert pg_errors[0].source_id == sources[1].id
+        assert pg_errors[0].field == "res_y"
+
+    def test_both_null_reports_single_error(self):
+        """Both res_x and res_y NULL still yields one error, not two."""
+        sources = [FakeRasterAsset(), FakeRasterAsset(res_x=None, res_y=None)]
+        with patch("app.processing.raster.validation.rasterio"):
+            errors = validate_sources("mosaic", sources)
+        pg_errors = [e for e in errors if e.code == "unknown_pixel_geometry"]
+        assert len(pg_errors) == 1
+        assert pg_errors[0].field == "res_x"
+
+    def test_first_source_null_also_flagged(self):
+        """Applies to all sources, including the first — mirrors rotation (VAL-07)."""
+        src1 = FakeRasterAsset(res_x=None)
+        src2 = FakeRasterAsset()
+        with patch("app.processing.raster.validation.rasterio"):
+            errors = validate_sources("mosaic", [src1, src2])
+        pg_errors = [e for e in errors if e.code == "unknown_pixel_geometry"]
+        assert len(pg_errors) == 1
+        assert pg_errors[0].source_id == src1.id
+
+    def test_checked_for_band_stack(self):
+        sources = [FakeRasterAsset(), FakeRasterAsset(res_x=None)]
+        with patch("app.processing.raster.validation.rasterio"):
+            errors = validate_sources("band_stack", sources)
+        pg_errors = [e for e in errors if e.code == "unknown_pixel_geometry"]
+        assert len(pg_errors) == 1
+
+    def test_checked_for_mosaic_even_though_grid_alignment_is_not(self):
+        """VAL-05 (grid alignment) only runs for band_stack, but VAL-08 must
+        still run for mosaic — it also guards the always-on rotation check.
+        """
+        sources = [FakeRasterAsset(), FakeRasterAsset(res_x=None, res_y=None)]
+        with patch("app.processing.raster.validation.rasterio"):
+            errors = validate_sources("mosaic", sources)
+        pg_errors = [e for e in errors if e.code == "unknown_pixel_geometry"]
+        assert len(pg_errors) == 1
+
+    def test_measured_unrotated_aligned_source_passes(self):
+        """A fully measured, unrotated, grid-aligned pair passes cleanly."""
+        sources = [
+            FakeRasterAsset(
+                res_x=1.0, res_y=1.0, is_rotated=False, width=256, height=256
+            ),
+            FakeRasterAsset(
+                res_x=1.0, res_y=1.0, is_rotated=False, width=256, height=256
+            ),
+        ]
+        mock_crs = MagicMock()
+        mock_crs.equals.return_value = True
+        with patch("app.processing.raster.validation.rasterio") as mock_rasterio:
+            mock_rasterio.CRS.from_wkt.return_value = mock_crs
+            errors = validate_sources("band_stack", sources)
+        assert errors == []
+
+    def test_existing_grid_misalignment_still_fires_when_geometry_known(self):
+        """VAL-05 still fires unchanged when res_x/res_y are measured but differ."""
+        sources = [
+            FakeRasterAsset(res_x=1.0, res_y=1.0),
+            FakeRasterAsset(res_x=2.0, res_y=1.0),
+        ]
+        with patch("app.processing.raster.validation.rasterio"):
+            errors = validate_sources("band_stack", sources)
+        codes = {e.code for e in errors}
+        assert "grid_misaligned" in codes
+        assert "unknown_pixel_geometry" not in codes
+
+    def test_existing_rotation_failure_still_fires_when_geometry_known(self):
+        """VAL-07 still fires unchanged for a rotated source with measured geometry."""
+        src_rotated = FakeRasterAsset(is_rotated=True, res_x=1.0, res_y=1.0)
+        sources = [FakeRasterAsset(is_rotated=False), src_rotated]
+        with patch("app.processing.raster.validation.rasterio"):
+            errors = validate_sources("mosaic", sources)
+        codes = {e.code for e in errors if e.source_id == src_rotated.id}
+        assert "rotated_raster" in codes
+        assert "unknown_pixel_geometry" not in codes
+
+    def test_null_resolution_does_not_mask_rotation(self):
+        """A source that is both unmeasured AND rotated reports both codes —
+        VAL-08 does not suppress VAL-07.
+        """
+        src_bad = FakeRasterAsset(is_rotated=True, res_x=None)
+        sources = [FakeRasterAsset(), src_bad]
+        with patch("app.processing.raster.validation.rasterio"):
+            errors = validate_sources("mosaic", sources)
+        codes = {e.code for e in errors if e.source_id == src_bad.id}
+        assert "rotated_raster" in codes
+        assert "unknown_pixel_geometry" in codes
+
+
+# ---------------------------------------------------------------------------
 # TestAllChecksRun
 # ---------------------------------------------------------------------------
 
