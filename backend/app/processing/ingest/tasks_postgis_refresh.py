@@ -40,7 +40,7 @@ from types import SimpleNamespace
 from typing import Any, NamedTuple
 
 import structlog
-from sqlalchemy import func, select, text, update
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import DBAPIError
 
 from app.core.db.sqlstate import sqlstate
@@ -64,6 +64,7 @@ from app.processing.ingest.tasks_common import (
     _declared_geometry_type,
     _derived_record_type,
     _effective_geometry_type,
+    _retire_geometry_attribute_row,
     invalidate_tile_cache_for_table,
     stamp_failed_origin_health,
     task_app,
@@ -697,23 +698,12 @@ async def refresh_postgis(
                 sample_values=sample_values,
             )
             # fix(#1313 review round 7): the one row that helper will not
-            # retire. It touches the synthetic `geom` attribute only when
-            # `geometry_type` is non-null, and excludes `geom` from the
-            # removed-column sweep by name — reasonable for every caller that
-            # replaces a table's contents, and wrong for the one caller whose
-            # relation can lose its geometry column while keeping its
-            # identity. Left alone, the attributes API and the validation
-            # service go on advertising a geometry field that is gone.
-            if effective_geometry_type is None:
-                AttributeMetadata = port.get_attribute_metadata_orm_class()
-                await session.execute(
-                    update(AttributeMetadata)
-                    .where(
-                        AttributeMetadata.dataset_id == dataset.id,
-                        AttributeMetadata.field_name == "geom",
-                    )
-                    .values(is_current=False)
-                )
+            # retire, and since fix(#1380) the reupload swap retires it through
+            # the same function — two paths whose relation can lose its
+            # geometry column while keeping its identity, one retirement.
+            await _retire_geometry_attribute_row(
+                session, dataset.id, geometry_type=effective_geometry_type
+            )
             # fix(#1314): the persisted half of the modality change.
             # `_apply_measurement` restamps `record_type`, which is what
             # `build_assets` computes its links from — but
