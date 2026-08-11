@@ -573,6 +573,9 @@ traffic races a `--clean` restore and can reach the restore-owned SECURITY
 DEFINER functions during the window where `PUBLIC` can execute them. Nothing
 starts again until 2f is done.
 
+The stop applies to managed/external Postgres too: the database is elsewhere,
+but `api` and `worker` are still the things that would write to it.
+
 ```bash
 docker compose stop api worker
 
@@ -697,6 +700,13 @@ and restore paths use lives in the `db` container:
 ```bash
 docker compose exec -T db /usr/local/bin/configure-runtime-db-role
 ```
+
+The script is mounted into the bundled `db` container, so there is nothing to
+exec into on managed/external Postgres. A provider snapshot or PITR restore
+keeps its ACLs, so the grants come back with it and this step does not apply; a
+logical `pg_restore --no-acl` into a managed instance does not, and there the
+equivalent is to replay the grants from `.env.example` by hand — see the
+single-tenant runtime-role section above for exactly which ones.
 
 Then check it took, the way `restore.sh` does — a reader without schema access
 breaks every read-only consumer silently:

@@ -1079,6 +1079,66 @@ class TestReportedStateMatchesWhatApplyEnforces:
                 )
             await engine.dispose()
 
+    async def test_a_grantable_provisioner_privilege_is_reported_and_cleared(self):
+        """The provisioner is reachable only through SECURITY DEFINER code.
+
+        A grantable privilege there is a delegation nothing else in the report
+        would show.
+        """
+        engine = _make_engine()
+        try:
+            async with engine.connect() as conn:
+                assert await missing_provisioner_grants(conn) == []
+
+            async with engine.begin() as conn:
+                await conn.execute(
+                    sa.text(
+                        f"GRANT USAGE ON SCHEMA catalog TO {PROVISIONER} "
+                        "WITH GRANT OPTION"
+                    )
+                )
+
+            async with engine.connect() as conn:
+                assert await missing_provisioner_grants(conn) == [
+                    "USAGE on schema catalog is grantable"
+                ]
+
+            applied = await run_adoption(engine, apply=True)
+            assert applied.provisioner_grants_missing == []
+            assert applied.ok
+        finally:
+            async with engine.begin() as conn:
+                await conn.execute(
+                    sa.text(
+                        "REVOKE GRANT OPTION FOR USAGE ON SCHEMA catalog "
+                        f"FROM {PROVISIONER}"
+                    )
+                )
+                await conn.execute(
+                    sa.text(f"GRANT USAGE ON SCHEMA catalog TO {PROVISIONER}")
+                )
+            await engine.dispose()
+
+    async def test_extra_proconfig_on_a_boundary_function_is_refused(self):
+        """`SET role` beside a correct search_path changes what the body runs as."""
+        engine = _make_engine()
+        try:
+            async with engine.connect() as conn:
+                transaction = await conn.begin()
+                try:
+                    await conn.execute(
+                        sa.text(
+                            "ALTER FUNCTION catalog.provision_tenant_data_schema(uuid) "
+                            "SET statement_timeout = '1s'"
+                        )
+                    )
+                    with pytest.raises(RuntimeError, match="search_path"):
+                        await secure_boundary_functions(conn)
+                finally:
+                    await transaction.rollback()
+        finally:
+            await engine.dispose()
+
     async def test_healthy_cluster_topology_reports_no_error(self):
         engine = _make_engine()
         try:

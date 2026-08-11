@@ -71,6 +71,7 @@ from app.core.db.tenant_adoption_sql import (
     CONTROL,
     PROVISIONER,
     PROVISIONER_DATABASE_GRANT_SQL,
+    PROVISIONER_DATABASE_REVOKE_OPTION_SQL,
     RELEASE_GATEWAY_EDGES_SQL,
     RELEASE_PROVISIONER_EDGE_SQL,
     SANDBOX,
@@ -226,8 +227,11 @@ async def boundary_function_states(conn) -> list[BoundaryFunctionState]:
             SELECT routine.proname AS name,
                    pg_catalog.pg_get_userbyid(routine.proowner) AS owner,
                    routine.prosecdef AS security_definer,
+                   -- Exactly that one setting: an extra proconfig entry such
+                   -- as `SET role` changes what a SECURITY DEFINER body runs
+                   -- as, and it would sit beside a correct search_path.
                    COALESCE(
-                       'search_path=pg_catalog' = ANY(routine.proconfig), false
+                       routine.proconfig = ARRAY['search_path=pg_catalog'], false
                    ) AS search_path_pinned,
                    language.lanname AS language,
                    routine.prorettype = 'void'::regtype AS returns_void,
@@ -300,7 +304,7 @@ async def stamping_function_shape(conn) -> str | None:
                    routine.prosecdef AS security_definer,
                    routine.prorettype = 'trigger'::regtype AS returns_trigger,
                    COALESCE(
-                       :stamping_search_path = ANY(routine.proconfig), false
+                       routine.proconfig = ARRAY[:stamping_search_path], false
                    ) AS search_path_pinned,
                    (
                        {_EXECUTABLE_BODY} LIKE '%app.current_tenant%'
@@ -379,6 +383,37 @@ async def missing_provisioner_grants(conn) -> list[str]:
     result = await conn.execute(
         text(
             """
+            WITH owner AS (
+                SELECT oid FROM pg_catalog.pg_roles WHERE rolname = :provisioner
+            ),
+            grantable AS (
+                SELECT 'database_create' AS grant_key
+                FROM pg_catalog.pg_database AS db
+                JOIN LATERAL pg_catalog.aclexplode(db.datacl) AS acl ON true
+                WHERE db.datname = pg_catalog.current_database()
+                  AND acl.grantee = (SELECT oid FROM owner)
+                  AND acl.privilege_type = 'CREATE'
+                  AND acl.is_grantable
+                UNION ALL
+                SELECT 'catalog_usage'
+                FROM pg_catalog.pg_namespace AS namespace
+                JOIN LATERAL pg_catalog.aclexplode(namespace.nspacl) AS acl ON true
+                WHERE namespace.nspname = 'catalog'
+                  AND acl.grantee = (SELECT oid FROM owner)
+                  AND acl.privilege_type = 'USAGE'
+                  AND acl.is_grantable
+                UNION ALL
+                SELECT 'tenants_select'
+                FROM pg_catalog.pg_class AS relation
+                JOIN pg_catalog.pg_namespace AS namespace
+                  ON namespace.oid = relation.relnamespace
+                JOIN LATERAL pg_catalog.aclexplode(relation.relacl) AS acl ON true
+                WHERE namespace.nspname = 'catalog'
+                  AND relation.relname = 'tenants'
+                  AND acl.grantee = (SELECT oid FROM owner)
+                  AND acl.privilege_type = 'SELECT'
+                  AND acl.is_grantable
+            )
             SELECT pg_catalog.has_database_privilege(
                        :provisioner, pg_catalog.current_database(), 'CREATE'
                    ) AS database_create,
@@ -387,7 +422,8 @@ async def missing_provisioner_grants(conn) -> list[str]:
                    ) AS catalog_usage,
                    pg_catalog.has_table_privilege(
                        :provisioner, 'catalog.tenants', 'SELECT'
-                   ) AS tenants_select
+                   ) AS tenants_select,
+                   ARRAY(SELECT grant_key FROM grantable) AS grantable_keys
             """
         ),
         {"provisioner": PROVISIONER},
@@ -398,7 +434,13 @@ async def missing_provisioner_grants(conn) -> list[str]:
         "catalog_usage": "USAGE on schema catalog",
         "tenants_select": "SELECT on catalog.tenants",
     }
-    return [label for key, label in labels.items() if not getattr(row, key)]
+    findings = [label for key, label in labels.items() if not getattr(row, key)]
+    # The provisioner is reachable only through SECURITY DEFINER functions, so a
+    # grantable privilege there is a delegation nothing else would notice.
+    findings += [
+        f"{labels[key]} is grantable" for key in row.grantable_keys if key in labels
+    ]
+    return findings
 
 
 async def list_tenants(conn) -> list[str]:
@@ -756,6 +798,18 @@ async def ensure_cluster_roles(conn) -> bool:
     await conn.execute(text(PROVISIONER_DATABASE_GRANT_SQL))
     await conn.execute(text(f"GRANT USAGE ON SCHEMA catalog TO {PROVISIONER}"))
     await conn.execute(text(f"GRANT SELECT ON TABLE catalog.tenants TO {PROVISIONER}"))
+    # A re-GRANT adds the privilege and leaves an existing GRANT OPTION alone.
+    # These are no-ops on a database that never had one.
+    await conn.execute(
+        text(f"REVOKE GRANT OPTION FOR USAGE ON SCHEMA catalog FROM {PROVISIONER}")
+    )
+    await conn.execute(
+        text(
+            "REVOKE GRANT OPTION FOR SELECT ON TABLE catalog.tenants "
+            f"FROM {PROVISIONER}"
+        )
+    )
+    await conn.execute(text(PROVISIONER_DATABASE_REVOKE_OPTION_SQL))
     return not held_before and await _holds_provisioner_privileges(conn)
 
 

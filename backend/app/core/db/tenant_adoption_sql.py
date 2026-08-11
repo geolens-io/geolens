@@ -607,6 +607,18 @@ END
 $$
 """
 
+#: The grant-option counterpart, because a re-GRANT leaves one in place.
+PROVISIONER_DATABASE_REVOKE_OPTION_SQL = f"""
+DO $$
+BEGIN
+    EXECUTE pg_catalog.format(
+        'REVOKE GRANT OPTION FOR CREATE ON DATABASE %I FROM {PROVISIONER}',
+        pg_catalog.current_database()
+    );
+END
+$$
+"""
+
 PROVISIONER_DATABASE_GRANT_SQL = f"""
 DO $$
 BEGIN
