@@ -41,7 +41,7 @@
     "@tanstack/react-table": "^8.21.3",
     "@tanstack/react-virtual": "^3.14.9",
     "@turf/area": "^7.3.5",
-    "@turf/distance": "^7.3.5",
+    "@turf/distance": "^7.4.0",
     "@turf/helpers": "^7.4.0",
     "@vis.gl/react-maplibre": "^8.1.2",
     "chroma-js": "^3.2.0",
