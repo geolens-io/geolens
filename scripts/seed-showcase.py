@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Seed GeoLens with the marketing "showcase" maps.
 
-Six hero maps, every one carrying capabilities no other map shows, plus a
+Seven hero maps, every one carrying capabilities no other map shows, plus a
 private embed-token demo and two themed collections. All data is public and
 openly licensed; every flow was verified against the live API.
 
@@ -38,6 +38,22 @@ openly licensed; every flow was verified against the live API.
                              imported BY REFERENCE from the Element84 STAC API
                              (zero download; Titiler needs S3 egress at view
                              time).                          [--no-sentinel2]
+  7. Hurricane Exposure    - the ANALYSIS hero, and the only showcase map whose
+                             headline is a computed result rather than a
+                             rendering: the Category 3+ legs of the HURDAT2
+                             tracks BUFFERED 100 km, INTERSECTED with Atlantic-
+                             basin admin-1 regions, then DISSOLVED per region so
+                             the fill grades by how many distinct major storms
+                             reached it. Every step runs through the real
+                             /analysis/materialize/ API, so each derived
+                             dataset's provenance panel shows the operation
+                             chain that built it - that chain is the feature on
+                             display, the map is the vehicle.
+
+  Three of the maps render on the GLOBE projection (Restless Earth, Everything
+  That Fell From the Sky, Hurricane Alley): all three tell global stories that
+  Mercator distorts. See GLOBE_PROJECTION_MAPS - the regional maps stay
+  Mercator, which is what they want.
 
   Catalog-only datasets (no map; fuel for the AI + search demos): World
   Countries, NY income by county (the scripted AI-styling canvas - ask the AI
@@ -109,6 +125,31 @@ GOTCHAS this script encodes (learned the hard way, all verified live):
   * Any column referenced by style_config.column, paint/filter ['get', ...],
     label_config.column or popup fields is auto-opted into vector tiles at
     low zoom (cols=) - no dataset tile_columns tuning needed.
+  * basemap_config is NOT merged server-side. PUT /maps/{id} dumps the whole
+    submodel, so every field you omit is rewritten to its DEFAULT - a
+    {"projection": "globe"} PUT silently resets label_mode, opacity,
+    background_color and sublayer_overrides. Read the stored config first and
+    PUT it back with the one key changed (apply_globe_projection).
+  * basemap_config is additive-or-422 (extra="forbid"): one unknown key rejects
+    the WHOLE config, and projection takes only "mercator" | "globe".
+  * The analysis API has NO attribute filter - not on preview, not on
+    materialize. To analyse a subset (the Cat 3+ legs here) you ingest that
+    subset as its own dataset first.
+  * Analysis is POST /datasets/{id}/analysis/materialize/ -> {job_id}; poll
+    /jobs/{job_id} and read dataset_id off the terminal job, exactly like an
+    ingest. Materialize registers the output PRIVATE - PATCH it public or a
+    public map cannot show it.
+  * Provenance is redacted per requester (visible_derived_from): if any dataset
+    in the chain is not visible to the viewer, derived_from is dropped whole
+    rather than stubbed. Every intermediate must be public or the anonymous
+    visitor sees an empty provenance panel - which is the one thing the
+    Hurricane Exposure map exists to show.
+  * Analysis input ceilings that bite here: an intersect OVERLAY layer is
+    capped at 1,000 features (hence one buffered corridor per storm, not per
+    leg), intersect sources at 100k, dissolve at 250k, buffer at 500k, and a
+    buffer distance at 100 km exactly.
+  * intersect refuses two layers sharing ANY column name, and reserves
+    source_gid; dissolve reserves source_count and groups by a single column.
 """
 
 import argparse
@@ -169,6 +210,14 @@ NE_BASE = (
 NE_COUNTRIES = NE_BASE + "ne_50m_admin_0_countries.geojson"
 NE_PLACES = NE_BASE + "ne_50m_populated_places.geojson"
 NE_ADMIN1 = NE_BASE + "ne_50m_admin_1_states_provinces.geojson"
+# The 1:10m admin-1 file, and 1:50m is NOT a substitute for it here: at 1:50m
+# Natural Earth subdivides only NINE large countries (Russia, the USA, India,
+# Indonesia, China, Brazil, Canada, Australia, South Africa), so the Caribbean
+# and Central America - the whole heart of hurricane alley - have no admin-1
+# polygons at all. Verified against the pinned file: 294 features, 9 countries.
+# The 1:10m file is a ~39 MB one-off download that filters to ~480 basin
+# regions across 47 countries and ~3 MB ingested.
+NE_ADMIN1_10M = NE_BASE + "ne_10m_admin_1_states_provinces.geojson"
 NE_RIVERS = NE_BASE + "ne_50m_rivers_lake_centerlines.geojson"
 NE_LAKES = NE_BASE + "ne_50m_lakes.geojson"
 # PB2002 plate-boundary steps (Peter Bird 2003, via Hugo Ahlenius/Nordpil; the
@@ -187,6 +236,20 @@ NCEI_VOLCANOES = (
 # NOAA NHC HURDAT2 Atlantic best-track database (plain text, public domain).
 # Filename embeds the release date - update when NHC cuts a new revision.
 HURDAT2_ATLANTIC = "https://www.nhc.noaa.gov/data/hurdat/hurdat2-1851-2024-040425.txt"
+# Atlantic hurricane basin coastline window (W, S, E, N) for the exposure map's
+# admin polygons: Gulf of Mexico, Caribbean, Bahamas, the US/Canadian eastern
+# seaboard, Bermuda and the northern coast of South America. Cut from the
+# Natural Earth admin-1 file rather than downloaded separately - it is the same
+# pinned public-domain source the catalog datasets use. Deliberately generous:
+# it only bounds what is OFFERED to the intersect, and the intersect itself
+# decides what is actually coastal by keeping the regions a storm corridor
+# reaches. An inland province in range that no major storm touched simply does
+# not survive.
+ATLANTIC_BASIN_BBOX = (-105.0, 5.0, -40.0, 50.0)
+# 100 km, the analysis API's MAX_BUFFER_METERS exactly. Wide enough that the
+# damaging quadrant of a major hurricane reaches the coast in the buffer,
+# narrow enough that the exposed regions stay a coastal ribbon.
+EXPOSURE_BUFFER_METERS = 100_000
 # NASA / Meteoritical Society meteorite landings. NOTE: the old Socrata
 # endpoint (data.nasa.gov/resource/gh4g-9sfh) is DEAD; this is the current
 # post-migration home.
@@ -268,6 +331,24 @@ RETIRED_DATASETS = [
 ]
 RETIRED_COLLECTIONS = ["Discover the World"]
 
+# --- globe projection ---------------------------------------------------------
+# The showcase maps whose story is GLOBAL, where Mercator actively misleads:
+# plate boundaries and quake belts, the worldwide meteorite scatter, and storm
+# tracks curving across an ocean basin. The regional maps (Manhattan, the
+# Matterhorn, New York From Orbit) are deliberately absent - a globe buys a
+# city or a massif nothing and costs the viewer a familiar frame.
+#
+# This is the ONE place the set is written down, and apply_globe_projection
+# reads it after the builders run rather than each builder setting its own
+# camera field. Builders skip a map that already exists, so a creation-time
+# setting would never reach an instance that was seeded before this landed -
+# which is every instance that matters, including the live demo.
+GLOBE_PROJECTION_MAPS = (
+    "Restless Earth",
+    "Everything That Fell From the Sky",
+    "Hurricane Alley - 75 Years of Major Atlantic Storms",
+)
+
 
 # --- API helpers -------------------------------------------------------------
 
@@ -277,6 +358,20 @@ class Api:
         self.base = base_url.rstrip("/")
         self.client = httpx.Client(timeout=180.0, follow_redirects=True)
         self.h = {"Authorization": f"Bearer {token}"}
+        # This token's identity as the SERVER has it, not as it was typed on
+        # the command line: the two lookups below scope to what this account
+        # owns, and a login spelling that differs from the stored username
+        # would match nothing - and "none of my content exists" is exactly what
+        # makes every builder rebuild from scratch. Both keys are kept because
+        # the two list endpoints expose different ones: datasets carry the
+        # owner's uuid (created_by), maps only the display name
+        # (created_by_username). Trailing slash required
+        # (redirect_slashes=False).
+        r = self.client.get(f"{self.base}/api/auth/me/", headers=self.h)
+        r.raise_for_status()
+        me = r.json()
+        self.username = me["username"]
+        self.user_id = me["id"]
 
     @classmethod
     def login(cls, base_url: str, username: str, password: str) -> "Api":
@@ -328,12 +423,15 @@ class Api:
             r = self.client.get(f"{self.base}/api/jobs/{job_id}", headers=self.h)
             r.raise_for_status()
             j = r.json()
-            if j.get("status") in (
-                "complete",
-                "failed",
-            ):  # terminal status is "complete"
-                if j["status"] == "failed":
-                    raise RuntimeError(f"job {job_id} failed: {j.get('error_message')}")
+            # Terminal status is "complete" (not "completed"). "cancelled" is
+            # terminal too and is NOT a success: an analysis job loses its lease
+            # if the worker dies, and without this the seeder waited out the
+            # whole timeout for a job that had already stopped.
+            if j.get("status") in ("complete", "failed", "cancelled"):
+                if j["status"] != "complete":
+                    raise RuntimeError(
+                        f"job {job_id} {j['status']}: {j.get('error_message')}"
+                    )
                 return j
             if time.monotonic() - start > timeout:
                 raise TimeoutError(f"job {job_id} did not finish in {timeout}s")
@@ -388,38 +486,116 @@ class Api:
         return r.json()["id"]
 
     def list_maps(self) -> dict[str, str]:
-        """Map name -> id from the catalog (up to 200)."""
-        r = self.client.get(f"{self.base}/api/maps?limit=200", headers=self.h)
-        r.raise_for_status()
-        data = r.json()
-        return {m["name"]: m["id"] for m in data.get("maps", data.get("items", []))}
+        """This account's OWN maps, name -> id, newest-created match winning.
 
-    def list_datasets_full(self) -> list[dict]:
-        """All datasets, PAGINATED - this seeder alone creates ~85 datasets
-        (62 DEM tiles + vectors + scenes), and a single limit=200 page would
-        silently hide older titles once an instance crosses 200, breaking
-        every title-based reuse/refresh path."""
-        out: list[dict] = []
-        skip = 0
+        A map name is not a key, and three separate things follow from that
+        (fix(#1404 review)):
+
+        * Keep the FIRST match and only maps this account created. `--force`
+          creates a SECOND map with the same name rather than replacing the
+          first, and an admin token sees every user's maps, so a plain
+          name->id comprehension resolves to whichever duplicate the page
+          happened to end on. That is the same rule datasets_by_title already
+          applies to titles for the same reason (fix(#389)) - the maps side
+          just never had a caller that MUTATED what it resolved. It does now:
+          _map_exists would read a stranger's map as "already built", prune
+          would delete it, and apply_globe_projection would project it while
+          the real showcase map stayed Mercator.
+        * Sort by created_at, not the endpoint's updated_at default. The
+          default order is mutable - apply_globe_projection's own PUT bumps
+          updated_at and reshuffles the list - so it cannot answer which
+          duplicate is the one this seeder just made.
+        * PAGINATE, exactly like list_own_datasets: a single limit=200 page
+          silently hides a showcase map once an instance crosses 200 maps, and
+          every caller reads that absence as "not built yet".
+        """
+        out: dict[str, str] = {}
+        seen = 0
         while True:
             r = self.client.get(
-                f"{self.base}/api/datasets?limit=200&skip={skip}", headers=self.h
+                f"{self.base}/api/maps?limit=200&skip={seen}"
+                "&sort_by=created_at&sort_dir=desc",
+                headers=self.h,
+            )
+            r.raise_for_status()
+            d = r.json()
+            page = d.get("maps", d.get("items", []))
+            for m in page:
+                if m.get("created_by_username") == self.username:
+                    out.setdefault(m["name"], m["id"])
+            # Count ROWS SEEN, not entries kept - the owner filter drops rows,
+            # so len(out) would stall the loop short of the last page.
+            seen += len(page)
+            total = d.get("total")
+            if not page or total is None or seen >= total:
+                return out
+
+    def list_own_datasets(self) -> list[dict]:
+        """This account's OWN datasets, PAGINATED.
+
+        Paginated because this seeder alone creates ~85 datasets (62 DEM tiles
+        + vectors + scenes), and a single limit=200 page would silently hide
+        older titles once an instance crosses 200, breaking every title-based
+        reuse/refresh path.
+
+        Scoped to `created_by` for the same reason list_maps is scoped
+        (fix(#1404 review)): a title is not a key, an admin token sees every
+        user's datasets, and all three callers here MUTATE what they resolve.
+        Unscoped, _get_or_analyze would publish and rewrite the summary of a
+        stranger's same-titled dataset and then build the showcase chain on it,
+        enrich_showcase_metadata would overwrite its license, and prune would
+        delete it. Reusing someone else's dataset is not safe even read-only:
+        they can make it private or delete it, and the public showcase map
+        breaks with it.
+        """
+        out: list[dict] = []
+        seen = 0
+        while True:
+            r = self.client.get(
+                f"{self.base}/api/datasets?limit=200&skip={seen}", headers=self.h
             )
             r.raise_for_status()
             d = r.json()
             page = d.get("datasets", d.get("items", []))
-            out.extend(page)
-            total = d.get("total", len(out))
-            if not page or len(out) >= total:
+            out.extend(x for x in page if x.get("created_by") == self.user_id)
+            # Count ROWS SEEN, not rows kept - the owner filter drops rows, so
+            # len(out) would end the loop before the last page.
+            seen += len(page)
+            total = d.get("total")
+            if not page or total is None or seen >= total:
                 return out
-            skip += len(page)
+
+    def get_map(self, map_id: str) -> dict:
+        r = self.client.get(f"{self.base}/api/maps/{map_id}", headers=self.h)
+        r.raise_for_status()
+        return r.json()
 
     def set_view(self, map_id: str, **fields) -> None:
-        # PUT (not PATCH); bearing must be within [-180, 180].
+        # PUT (not PATCH); bearing must be within [-180, 180]. Omitted scalars
+        # are left alone, but a basemap_config that IS sent is replaced whole -
+        # see apply_globe_projection.
         r = self.client.put(
             f"{self.base}/api/maps/{map_id}", headers=self.h, json=fields
         )
         r.raise_for_status()
+
+    def analysis_materialize(
+        self, dataset_id: str, operation: str, title: str, timeout: int = 1800, **params
+    ) -> str:
+        """Run a provenance-tracked analysis operation; return the new dataset.
+
+        Same async shape as an ingest - the POST returns a job handle and the
+        derived dataset_id only shows up on the terminal job. Generous default
+        timeout: analysis runs at a deliberately lower queue priority than
+        uploads, so a busy instance can leave one queued for a while.
+        """
+        r = self.client.post(
+            f"{self.base}/api/datasets/{dataset_id}/analysis/materialize/",
+            headers=self.h,
+            json={"operation": operation, "title": title, **params},
+        )
+        r.raise_for_status()
+        return self.poll(r.json()["job_id"], timeout=timeout)["dataset_id"]
 
     def add_layer(self, map_id: str, body: dict) -> dict:
         r = self.client.post(
@@ -516,15 +692,18 @@ class Api:
         return r.json()["job_id"]
 
     def datasets_by_title(self) -> dict[str, str]:
-        """Map dataset title -> id.
+        """This account's own datasets, title -> id, newest match winning.
 
         fix(#389): /api/datasets orders newest-first and titles are NOT unique
         - a --force reseed creates fresh datasets alongside same-titled
         predecessors. Keep the FIRST (newest) match so lookups resolve to the
         freshly created dataset, not a stale duplicate.
+
+        Ownership scoping comes from list_own_datasets - see there for why a
+        stranger's same-titled dataset must not resolve here.
         """
         out: dict[str, str] = {}
-        for x in self.list_datasets_full():
+        for x in self.list_own_datasets():
             out.setdefault(x["title"], x["id"])
         return out
 
@@ -725,14 +904,12 @@ def _sshs(wind_kt: int) -> str:
     return "TD"
 
 
-def hurdat2_feed(min_year: int = 1950, min_peak_kt: int = 96) -> tuple[bytes, int, int]:
-    """NOAA HURDAT2 Atlantic best tracks -> per-6h-SEGMENT LineString GeoJSON.
+def _hurdat2_storms() -> list[tuple[str, int, list[dict]]]:
+    """Parse the HURDAT2 best-track text into (name, season, fixes) tuples.
 
-    Keeps storms from `min_year` whose peak intensity reached `min_peak_kt`
-    (96 kt = Cat 3, "major hurricane"). Each segment carries the storm name,
-    season, status, wind, pressure and Saffir-Simpson category AT that leg, so
-    a single track changes color/width as the storm intensifies and decays.
-    Returns (geojson_bytes, n_storms, n_segments).
+    Shared by every HURDAT2 feed below so the record layout is read in exactly
+    one place: the format is positional and undocumented in the file itself, so
+    a second copy of this parser is a second thing to keep correct.
     """
     txt = fetch(HURDAT2_ATLANTIC).decode("ascii", "replace")
     storms: list[tuple[str, int, list[dict]]] = []
@@ -770,18 +947,37 @@ def hurdat2_feed(min_year: int = 1950, min_peak_kt: int = 96) -> tuple[bytes, in
         )
     if fixes:
         storms.append((name, year, fixes))
+    return storms
 
+
+def _hurdat2_leg_is_sane(a: dict, b: dict) -> bool:
+    """Reject bogus position jumps between two consecutive fixes.
+
+    There are none in the Atlantic basin, but a malformed row would otherwise
+    draw a line across the map - and, on the exposure map, buffer a 100 km
+    corridor along it.
+    """
+    return abs(a["lng"] - b["lng"]) <= 90 and abs(a["lat"] - b["lat"]) <= 30
+
+
+def hurdat2_feed(min_year: int = 1950, min_peak_kt: int = 96) -> tuple[bytes, int, int]:
+    """NOAA HURDAT2 Atlantic best tracks -> per-6h-SEGMENT LineString GeoJSON.
+
+    Keeps storms from `min_year` whose peak intensity reached `min_peak_kt`
+    (96 kt = Cat 3, "major hurricane"). Each segment carries the storm name,
+    season, status, wind, pressure and Saffir-Simpson category AT that leg, so
+    a single track changes color/width as the storm intensifies and decays.
+    Returns (geojson_bytes, n_storms, n_segments).
+    """
     feats, n_storms = [], 0
-    for name, year, fixes in storms:
+    for name, year, fixes in _hurdat2_storms():
         if year < min_year or not fixes:
             continue
         if max(f["wind"] for f in fixes) < min_peak_kt:
             continue
         n_storms += 1
         for a, b in zip(fixes, fixes[1:]):
-            # Guard against bogus jumps (there are none in the Atlantic basin,
-            # but a malformed row would otherwise draw a line across the map).
-            if abs(a["lng"] - b["lng"]) > 90 or abs(a["lat"] - b["lat"]) > 30:
+            if not _hurdat2_leg_is_sane(a, b):
                 continue
             feats.append(
                 {
@@ -804,6 +1000,130 @@ def hurdat2_feed(min_year: int = 1950, min_peak_kt: int = 96) -> tuple[bytes, in
             )
     fc = {"type": "FeatureCollection", "features": feats}
     return json.dumps(fc).encode(), n_storms, len(feats)
+
+
+def hurdat2_major_leg_feed(
+    min_year: int = 1950, min_kt: int = 96
+) -> tuple[bytes, int, int]:
+    """HURDAT2 -> ONE MultiLineString per storm, holding only its Cat 3+ legs.
+
+    The buffer input for the Hurricane Exposure map, and shaped by two hard
+    constraints rather than by taste:
+
+    * The analysis API has no attribute filter, so "the Category 3+ segments"
+      has to exist as its own dataset before it can be buffered.
+    * A buffer is 1:1, and the buffered corridors are then the OVERLAY layer of
+      an intersect, which is capped at 1,000 features. One feature per STORM
+      (~260 since 1950) stays comfortably inside that; one per 6-hour leg
+      (~1,900) would too, but it would also make the intersect emit one row per
+      leg, and then a region's row count would be "legs that reached me", not
+      "storms that reached me" - which is the number the map grades on.
+
+    A leg is Cat 3+ when the fix it starts at is, the same rule the Hurricane
+    Alley map colors by, so these are exactly that map's orange-through-magenta
+    legs. Returns (geojson_bytes, n_storms, n_legs).
+    """
+    feats, n_legs = [], 0
+    for name, year, fixes in _hurdat2_storms():
+        if year < min_year or not fixes:
+            continue
+        legs = [
+            [[a["lng"], a["lat"]], [b["lng"], b["lat"]]]
+            for a, b in zip(fixes, fixes[1:])
+            if a["wind"] >= min_kt and _hurdat2_leg_is_sane(a, b)
+        ]
+        if not legs:
+            continue
+        n_legs += len(legs)
+        peak = max(f["wind"] for f in fixes)
+        feats.append(
+            {
+                "type": "Feature",
+                "properties": {
+                    "name": name,
+                    "season": year,
+                    "peak_wind_kt": peak,
+                    "peak_category": _sshs(peak),
+                    "major_legs": len(legs),
+                    "landfall": 1 if any(f["landfall"] for f in fixes) else 0,
+                },
+                "geometry": {"type": "MultiLineString", "coordinates": legs},
+            }
+        )
+    fc = {"type": "FeatureCollection", "features": feats}
+    return json.dumps(fc).encode(), len(feats), n_legs
+
+
+def _geom_bbox(geom: dict) -> tuple[float, float, float, float] | None:
+    """(minx, miny, maxx, maxy) of a GeoJSON geometry, or None if it has no
+    coordinates. Natural Earth carries no per-feature bbox, so it is walked."""
+    xs: list[float] = []
+    ys: list[float] = []
+
+    def walk(coords) -> None:
+        if coords and isinstance(coords[0], (int, float)):
+            xs.append(coords[0])
+            ys.append(coords[1])
+            return
+        for part in coords or ():
+            walk(part)
+
+    walk((geom or {}).get("coordinates") or [])
+    if not xs:
+        return None
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def coastal_regions_feed() -> tuple[bytes, int]:
+    """Natural Earth admin-1 -> the Atlantic-basin regions, as intersect input.
+
+    Two output columns only, and the names matter: intersect REFUSES two layers
+    that share any column name, and the overlay side carries the HURDAT2 track
+    columns (name, season, peak_wind_kt, peak_category, major_legs, landfall).
+    So the admin-1 name lands as `region`, never as `name`.
+
+    `region` is also the dissolve key, which groups on a single column, so it
+    has to identify a region on its own: names repeat across countries (there
+    is more than one Cordoba), and two regions sharing a name would dissolve
+    into one polygon holding both. Repeats are qualified with their country;
+    unique names are left clean so the popup reads "Florida", not
+    "Florida (United States of America)".
+    """
+    fc = json.loads(fetch(NE_ADMIN1_10M))
+    west, south, east, north = ATLANTIC_BASIN_BBOX
+    kept = []
+    for feat in fc["features"]:
+        box = _geom_bbox(feat.get("geometry") or {})
+        if box is None:
+            continue
+        minx, miny, maxx, maxy = box
+        if maxx < west or minx > east or maxy < south or miny > north:
+            continue
+        p = feat["properties"]
+        name = p.get("name") or p.get("name_en") or p.get("gn_name")
+        country = p.get("admin")
+        if not name or not country:
+            continue
+        kept.append((feat, str(name), str(country)))
+
+    seen: dict[str, int] = {}
+    for _, name, _country in kept:
+        seen[name] = seen.get(name, 0) + 1
+    feats = []
+    for feat, name, country in kept:
+        feats.append(
+            {
+                "type": "Feature",
+                "properties": {
+                    "region": name if seen[name] == 1 else f"{name} ({country})",
+                    "country": country,
+                },
+                "geometry": feat["geometry"],
+            }
+        )
+    return json.dumps({"type": "FeatureCollection", "features": feats}).encode(), len(
+        feats
+    )
 
 
 def meteorite_feed() -> tuple[bytes, int]:
@@ -1016,6 +1336,42 @@ def _get_or_ingest(
     return ds
 
 
+def _get_or_analyze(
+    api: Api,
+    by_title: dict,
+    title: str,
+    source_id: str,
+    operation: str,
+    summary: str,
+    force: bool = False,
+    timeout: int = 1800,
+    **params,
+) -> str:
+    """Reuse a derived dataset by title, or compute it through the analysis API.
+
+    The `_get_or_ingest` contract for the operations that BUILD data instead of
+    uploading it, with one extra step: materialize registers its output PRIVATE
+    and titled but summary-less, so the result is published and described here.
+    Publishing every link is not cosmetic - provenance is redacted per viewer,
+    and one private dataset anywhere in the chain blanks the panel for the
+    anonymous visitor the showcase exists for.
+    """
+    if not force and title in by_title:
+        print(f"  [reuse] {title}")
+        ds = by_title[title]
+    else:
+        print(f"  {operation} -> {title}...")
+        ds = api.analysis_materialize(
+            source_id, operation, title, timeout=timeout, **params
+        )
+    # On BOTH paths, not just after a fresh materialize: a run that died between
+    # the job completing and this line would otherwise leave a private,
+    # summary-less dataset that every later run happily reuses.
+    api.patch_dataset(ds, visibility="public", summary=summary)
+    by_title[title] = ds
+    return ds
+
+
 # --- prune ----------------------------------------------------------------------
 
 
@@ -1027,7 +1383,7 @@ def prune(api: Api) -> None:
         if name in maps:
             api.delete_map(maps[name])
             print(f"  - map: {name}")
-    for d in api.list_datasets_full():
+    for d in api.list_own_datasets():
         if d["title"] in RETIRED_DATASETS:
             try:
                 api.delete_dataset(d["id"], d["title"])
@@ -2356,6 +2712,213 @@ def build_hurricanes(api: Api, force: bool = False) -> str:
     return map_id
 
 
+# Exposure classes. Four colors, three breaks - step_expr's shape - over the
+# number of DISTINCT major storms whose 100 km corridor reached a region.
+# Chosen against the real distribution rather than by equal interval, measured
+# on the 289 exposed regions the chain produces (2026-08-11): the counts run
+# 1-23 and pile up in the middle (54 regions sit on exactly 7), so an equal
+# interval over that range would flatten the whole Caribbean into one shade.
+# These split it 87 / 83 / 113 / 6, and the top class IS the story - the six
+# regions clearing 10 are the Gulf rim: Florida (23), Quintana Roo (16),
+# Louisiana (15), Yucatan (13), Tamaulipas (11) and Texas (10).
+EXPOSURE_BREAKS = [3, 6, 10]
+EXPOSURE_COLORS = ["#fed976", "#feb24c", "#f03b20", "#800026"]
+
+
+def build_hurricane_exposure(api: Api, force: bool = False) -> str:
+    """The analysis hero: the only showcase map that is a computed RESULT.
+
+    Three real operations, each one a provenance-tracked derived dataset:
+
+        Cat 3+ legs  --buffer 100 km-->  corridors
+        coastal regions  --intersect corridors-->  exposed pieces
+        exposed pieces  --dissolve by region-->  EXPOSURE
+
+    The dissolve is what turns the pair rows into the map's number. Intersect
+    emits exactly one row per (region, corridor) pair, and one corridor is one
+    storm, so dissolve's generated `source_count` counts distinct major storms
+    per region - while its union collapses that region's overlapping pieces
+    into the single coastal footprint the fill is drawn on.
+
+    Nothing here is styled by hand-computed data: open any of the three derived
+    datasets and its provenance panel names the operation, the parameters and
+    the layer it came from. That is the thing on display.
+    """
+    name = "Hurricane Exposure - Which Coasts the Major Storms Reach"
+    if not force and _map_exists(api, name):
+        print(f"  [skip] {name} already exists")
+        return "(skipped)"
+    print("\n[hurricane-exposure] buffer -> intersect -> dissolve (HURDAT2 majors)")
+    by_title = api.datasets_by_title()
+
+    def major_legs_bytes() -> bytes:
+        data, n_storms, n_legs = hurdat2_major_leg_feed()
+        print(f"  ({n_storms} major storms, {n_legs} Category 3+ legs)")
+        # The corridors buffered from these become the intersect OVERLAY, which
+        # is capped at 1,000 features. ~260 storms today; the 422 would be
+        # clear, but a heads-up beats reading it off a failed job.
+        if n_storms > 1000:
+            print(
+                f"  ! WARNING: {n_storms} storms exceeds the 1,000-feature "
+                "overlay cap; the intersect will be refused",
+                file=sys.stderr,
+            )
+        return data
+
+    legs_ds = _get_or_ingest(
+        api,
+        by_title,
+        "Major Hurricane Tracks (Cat 3+ legs, one per storm)",
+        "hurricane_major_legs.geojson",
+        major_legs_bytes,
+        "Every Atlantic hurricane since 1950 that reached Category 3, reduced "
+        "to the legs where it WAS Category 3 or stronger and merged into one "
+        "track per storm. Peak wind, peak category and landfall flag per "
+        "storm. Source: NOAA NHC HURDAT2 (public domain).",
+        force=force,
+        timeout=600,
+    )
+
+    def regions_bytes() -> bytes:
+        data, n = coastal_regions_feed()
+        print(f"  ({n} admin-1 regions in the Atlantic basin window)")
+        return data
+
+    regions_ds = _get_or_ingest(
+        api,
+        by_title,
+        "Atlantic Basin Regions (Natural Earth admin-1)",
+        "atlantic_basin_regions.geojson",
+        regions_bytes,
+        "States, provinces, parishes and island territories around the "
+        "Atlantic hurricane basin - the Gulf of Mexico, the Caribbean, the "
+        "eastern seaboard and the northern coast of South America. Source: "
+        "Natural Earth admin-1, 1:10m (public domain).",
+        force=force,
+    )
+
+    corridors_ds = _get_or_analyze(
+        api,
+        by_title,
+        "Major Hurricane Corridors (100 km buffer)",
+        legs_ds,
+        "buffer",
+        "The area within 100 km of a Category 3+ hurricane track, one corridor "
+        "per storm. Computed in GeoLens with a geodesic buffer over the "
+        "Category 3+ legs of the NOAA HURDAT2 best-track database.",
+        force=force,
+        distance_meters=EXPOSURE_BUFFER_METERS,
+    )
+    pieces_ds = _get_or_analyze(
+        api,
+        by_title,
+        "Coastal Regions Inside a Major Hurricane Corridor",
+        regions_ds,
+        "intersect",
+        "One feature per region-and-storm pair: the part of an Atlantic basin "
+        "region that fell inside a single major hurricane's 100 km corridor. "
+        "Computed in GeoLens by intersecting the admin-1 regions with the "
+        "buffered corridors.",
+        force=force,
+        mask_dataset_id=corridors_ds,
+    )
+    exposure_ds = _get_or_analyze(
+        api,
+        by_title,
+        "Hurricane Exposure by Coastal Region",
+        pieces_ds,
+        "dissolve",
+        "The coastal footprint of every Atlantic basin region reached by a "
+        "major hurricane since 1950, with source_count holding the number of "
+        "DISTINCT Category 3+ storms that reached it. Computed in GeoLens by "
+        "dissolving the region-by-storm intersections back to one feature per "
+        "region.",
+        force=force,
+        by_field="region",
+    )
+
+    map_id = api.create_map(
+        name,
+        "Which coastlines the Atlantic's major hurricanes actually reach, and "
+        "how often. Built entirely inside GeoLens from the NOAA HURDAT2 best "
+        "tracks: the Category 3+ legs of every storm since 1950 buffered by "
+        "100 km, intersected with the region boundaries, then dissolved so "
+        "each region carries the number of distinct major storms that came "
+        "within that corridor. Darker means more storms. Open the exposure "
+        "layer's dataset and its provenance panel replays the whole chain - "
+        "buffer, intersect, dissolve - with the parameters each step ran on.",
+    )
+    # Exposure ON TOP (the viewer draws LOWER sort_order on top), the legs that
+    # generated it underneath, so the map reads as cause and effect: this
+    # storm track produced that coastal footprint.
+    api.add_layer(
+        map_id,
+        {
+            "dataset_id": exposure_ds,
+            "sort_order": 0,
+            "opacity": 1.0,
+            "display_name": "Distinct major storms since 1950",
+            "style_config": {
+                "mode": "graduated",
+                "column": "source_count",
+                "ramp": "YlOrRd",
+                "method": "manual",
+                "breaks": EXPOSURE_BREAKS,
+                "colors": EXPOSURE_COLORS,
+                "colorLabel": "Distinct major storms",
+            },
+            "paint": {
+                "fill-color": step_expr(
+                    "source_count", EXPOSURE_BREAKS, EXPOSURE_COLORS
+                ),
+                # Opaque enough to read as a choropleth, sheer enough that the
+                # storm legs below still show through the darkest classes.
+                "fill-opacity": 0.78,
+                "fill-outline-color": "#7f1d1d",
+            },
+            "popup_config": {
+                "enabled": True,
+                "expression": "{region}",
+                "visible_fields": ["source_count"],
+            },
+        },
+    )
+    api.add_layer(
+        map_id,
+        {
+            "dataset_id": legs_ds,
+            "sort_order": 1,
+            "opacity": 1.0,
+            "display_name": "Category 3+ storm legs (the buffered input)",
+            "paint": {
+                "line-color": "#1e293b",
+                "line-width": ["interpolate", ["linear"], ["zoom"], 2, 0.8, 7, 2.6],
+                "line-opacity": 0.75,
+            },
+            "layout": {"line-cap": "round", "line-join": "round"},
+            "popup_config": {
+                "enabled": True,
+                "expression": "{name} ({season})",
+                "visible_fields": ["peak_category", "peak_wind_kt", "major_legs"],
+            },
+        },
+    )
+    api.set_view(
+        map_id,
+        visibility="public",
+        center_lng=-72,
+        center_lat=25,
+        zoom=3.2,
+        pitch=0,
+        bearing=0,
+        basemap_style="openfreemap-positron",
+        show_basemap_labels=True,
+    )
+    warn_if_hidden_layers(api, map_id, name)
+    print(f"  -> map {map_id}")
+    return map_id
+
+
 def build_meteorites(api: Api, force: bool = False) -> str:
     """The cluster hero: all ~32k located meteorite landings.
 
@@ -2969,6 +3532,8 @@ COLLECTIONS = {
             "Tectonic Plate Boundaries (PB2002)",
             "Significant Volcanic Eruptions (NCEI, 4360 BC-present)",
             "Atlantic Hurricane Tracks (HURDAT2, majors since 1950)",
+            "Major Hurricane Tracks (Cat 3+ legs, one per storm)",
+            "Hurricane Exposure by Coastal Region",
             "Meteorite Landings (Meteoritical Society)",
             "ETOPO 2022 Global Relief (60 arc-second)",
             "swissALTI3D Matterhorn DEM (2m mosaic)",
@@ -2985,6 +3550,7 @@ COLLECTIONS = {
             "World Countries (Natural Earth 1:50m)",
             "New York Median Household Income by County",
             "World States & Provinces (Natural Earth 1:50m)",
+            "Atlantic Basin Regions (Natural Earth admin-1)",
         ],
     ),
 }
@@ -3089,6 +3655,56 @@ SHOWCASE_METADATA: dict[str, dict] = {
             "storms",
         ],
     },
+    "Major Hurricane Tracks (Cat 3+ legs, one per storm)": {
+        "license": "NOAA NHC HURDAT2 (US public domain)",
+        "keywords": [
+            "hurricanes",
+            "tropical cyclones",
+            "noaa",
+            "hurdat2",
+            "major hurricane",
+        ],
+    },
+    "Atlantic Basin Regions (Natural Earth admin-1)": {
+        "license": "Natural Earth (public domain)",
+        "keywords": [
+            "admin-1",
+            "boundaries",
+            "coastal",
+            "atlantic",
+            "caribbean",
+            "natural earth",
+        ],
+    },
+    # The three derived datasets. Summaries are written by _get_or_analyze at
+    # materialize time (only the enrich pass's license + keywords are left);
+    # lineage_summary is deliberately untouched here - the analysis API wrote
+    # the real one, and it is the sentence the provenance panel shows.
+    "Major Hurricane Corridors (100 km buffer)": {
+        "license": "Derived in GeoLens from NOAA NHC HURDAT2 (US public domain)",
+        "keywords": ["hurricanes", "buffer", "analysis", "derived", "corridor"],
+    },
+    "Coastal Regions Inside a Major Hurricane Corridor": {
+        "license": (
+            "Derived in GeoLens from NOAA NHC HURDAT2 and Natural Earth "
+            "(both public domain)"
+        ),
+        "keywords": ["hurricanes", "intersect", "analysis", "derived", "exposure"],
+    },
+    "Hurricane Exposure by Coastal Region": {
+        "license": (
+            "Derived in GeoLens from NOAA NHC HURDAT2 and Natural Earth "
+            "(both public domain)"
+        ),
+        "keywords": [
+            "hurricanes",
+            "exposure",
+            "dissolve",
+            "analysis",
+            "derived",
+            "coastal",
+        ],
+    },
     "Meteorite Landings (Meteoritical Society)": {
         "license": "NASA open data (public domain)",
         "keywords": ["meteorites", "impacts", "nasa", "meteoritical society"],
@@ -3122,13 +3738,15 @@ def enrich_showcase_metadata(api: "Api") -> None:
     dataset is isolated the same way the builders are - one flaky PATCH must not
     skip the rest - and the whole pass is best-effort: it never fails the seed.
 
-    Iterates every dataset rather than a title->newest-id map: titles are NOT
-    unique (a --force reseed leaves same-titled predecessors, see
+    Iterates every OWNED dataset rather than a title->newest-id map: titles are
+    NOT unique (a --force reseed leaves same-titled predecessors, see
     datasets_by_title), and enriching only the newest would leave the older
     public duplicates still "proprietary"/keyword-less - the exact pollution
-    this fixes. Every matching copy gets patched.
+    this fixes. Every matching copy this account owns gets patched, and only
+    those: a same-titled dataset belonging to someone else is not this
+    seeder's to relicense (list_own_datasets).
     """
-    for ds in api.list_datasets_full():
+    for ds in api.list_own_datasets():
         spec = SHOWCASE_METADATA.get(ds["title"])
         if not spec:
             continue
@@ -3147,6 +3765,42 @@ def enrich_showcase_metadata(api: "Api") -> None:
         except (httpx.HTTPStatusError, httpx.TimeoutException) as e:
             print(
                 f"  WARNING: metadata enrich failed for {title!r}: {e}", file=sys.stderr
+            )
+
+
+def apply_globe_projection(api: "Api") -> None:
+    """Put the global showcase maps on the globe projection (GLOBE_PROJECTION_MAPS).
+
+    Runs over the maps that EXIST rather than inside each builder, because a
+    builder skips a map it already found - so setting the projection at
+    creation time would reach a fresh instance and never an existing one.
+
+    Idempotent, and careful about what it writes: basemap_config is NOT merged
+    server-side. PUT dumps the whole submodel, so a bare {"projection": ...}
+    body silently resets every other basemap setting to its default. The stored
+    config is read first and sent back with one key changed, and a map already
+    on the globe is left alone entirely.
+
+    Best-effort like enrich_showcase_metadata: a flaky PUT must not fail a seed
+    whose maps and data are already built.
+    """
+    maps = api.list_maps()
+    for name in GLOBE_PROJECTION_MAPS:
+        map_id = maps.get(name)
+        if not map_id:
+            continue
+        try:
+            config = dict(api.get_map(map_id).get("basemap_config") or {})
+            if config.get("projection") == "globe":
+                print(f"  [ok] already on the globe: {name}")
+                continue
+            config["projection"] = "globe"
+            api.set_view(map_id, basemap_config=config)
+            print(f"  globe projection: {name}")
+        except (httpx.HTTPStatusError, httpx.TimeoutException) as e:
+            print(
+                f"  WARNING: could not set globe projection on {name!r}: {e}",
+                file=sys.stderr,
             )
 
 
@@ -3186,6 +3840,7 @@ def main() -> int:
             "restless",
             "manhattan",
             "hurricanes",
+            "hurricane-exposure",
             "meteorites",
             "matterhorn",
             "sentinel2",
@@ -3241,6 +3896,7 @@ def main() -> int:
         ),
         "manhattan": build_manhattan,
         "hurricanes": build_hurricanes,
+        "hurricane-exposure": build_hurricane_exposure,
         "meteorites": build_meteorites,
         "matterhorn": build_matterhorn,
         "sentinel2": build_sentinel2,
@@ -3258,6 +3914,7 @@ def main() -> int:
             ("restless", fns["restless"]),
             ("manhattan", fns["manhattan"]),
             ("hurricanes", fns["hurricanes"]),
+            ("hurricane-exposure", fns["hurricane-exposure"]),
             ("meteorites", fns["meteorites"]),
         ]
         if not args.no_terrain:
@@ -3294,6 +3951,11 @@ def main() -> int:
     # self-isolating - see enrich_showcase_metadata - so it never fails the seed.
     print("\nEnriching catalog metadata (license + keywords)...")
     enrich_showcase_metadata(api)
+
+    # Same shape and the same reason: applied to whatever showcase maps exist,
+    # so an instance seeded before this landed gets the globe too.
+    print("\nApplying the globe projection to the global showcase maps...")
+    apply_globe_projection(api)
 
     print("\nDone. Showcase:")
     for bname, mid in built.items():

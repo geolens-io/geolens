@@ -302,11 +302,12 @@ See the [CLI guide](https://docs.getgeolens.com/guides/cli/) for the full manife
 
 ### Seed data
 
-`scripts/seed-showcase.py` builds six showcase maps from public open data: a global
+`scripts/seed-showcase.py` builds seven showcase maps from public open data: a global
 tectonics story over real ocean-floor relief, the Manhattan 3D skyline colored by
 construction era (the hero above), 75 years of Atlantic hurricane tracks, clustered
-meteorite falls, the Matterhorn in 2 m lidar 3D terrain, and by-reference Sentinel-2
-imagery of New York:
+meteorite falls, the Matterhorn in 2 m lidar 3D terrain, by-reference Sentinel-2
+imagery of New York, and a hurricane-exposure map computed in place from the storm
+tracks with buffer, intersect and dissolve:
 
 ```bash
 pip install httpx

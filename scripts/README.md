@@ -6,16 +6,20 @@ Utility scripts for GeoLens administration and data seeding.
 
 ### `seed-showcase.py`
 
-Builds the six showcase hero maps from public, openly licensed data against a
+Builds the seven showcase hero maps from public, openly licensed data against a
 running stack — Restless Earth (quakes + volcanic eruptions + plate boundaries
 over ETOPO global relief), Manhattan (3D skyline by construction era + the MTA
 subway), The Matterhorn (3D lidar terrain), Hurricane Alley (75 years of major
 Atlantic storms from HURDAT2), Everything That Fell From the Sky (clustered
-meteorite falls), and New York From Orbit (Sentinel-2 COGs by reference) —
-plus catalog-only AI-demo datasets, the "Restless Planet" / "Human World"
-collections, and a private embed-token demo. The authoritative map list, data
-sources, and the API gotchas each builder encodes live in the script's module
-docstring.
+meteorite falls), New York From Orbit (Sentinel-2 COGs by reference), and
+Hurricane Exposure (the Category 3+ storm legs buffered, intersected with the
+Atlantic basin regions and dissolved per region, all through the analysis API,
+so each derived dataset carries a real provenance chain) — plus catalog-only
+AI-demo datasets, the "Restless Planet" / "Human World" collections, and a
+private embed-token demo. The three global maps (Restless Earth, Everything
+That Fell From the Sky, Hurricane Alley) are put on the globe projection; the
+regional maps stay Mercator. The authoritative map list, data sources, and the
+API gotchas each builder encodes live in the script's module docstring.
 
 ```bash
 pip install httpx
@@ -55,7 +59,7 @@ python scripts/seed-showcase.py \
 | `--no-terrain` | off | Skip the Matterhorn terrain hero (~62 swissALTI3D COG downloads) |
 | `--no-sentinel2` | off | Skip the Sentinel-2 by-reference map (needs Titiler→S3 egress at view time) |
 | `--no-oceans` | off | Skip the ETOPO relief layer (saves a ~466 MB server-side download) |
-| `--only` | unset | Build one item (`catalog`, `restless`, `manhattan`, `hurricanes`, `meteorites`, `matterhorn`, `sentinel2`, `collections`, `embed`) |
+| `--only` | unset | Build one item (`catalog`, `restless`, `manhattan`, `hurricanes`, `hurricane-exposure`, `meteorites`, `matterhorn`, `sentinel2`, `collections`, `embed`) |
 | `--force` | off | Re-create showcase maps/datasets even if they already exist |
 | `--prune` | off | First delete the retired first-generation showcase maps/datasets |
 | `--refresh-quakes` | off | Refresh the earthquake datasets from the USGS feed, then exit |
@@ -64,8 +68,16 @@ Requires internet access to the upstream open-data sources (NYC Open Data, MTA
 via data.ny.gov, USDA ERS, USGS, NOAA NHC/NCEI, NASA, Natural Earth,
 OpenStreetMap, swisstopo, Element84 Earth Search). Maps are skipped if they
 already exist (`--force` recreates them); builders are isolated, so one
-unreachable upstream fails only its own map. Map thumbnails/OG images are a
-separate post-step (headless browser capture + `PUT /maps/{id}/thumbnail/`).
+unreachable upstream fails only its own map. Two passes run after the builders
+and cover whatever showcase content is present, so an instance seeded by an
+older revision picks them up: catalog metadata (license + keywords) and the
+globe projection. Map thumbnails/OG images are a separate post-step (headless
+browser capture + `PUT /maps/{id}/thumbnail/`).
+
+`hurricane-exposure` is the one item that runs server-side analysis rather than
+uploads: it materializes three derived datasets (buffer → intersect →
+dissolve), each an async job, so it is slower than the other vector items and
+needs the `upload` and `export` capabilities on the seeding account.
 
 ## Shell scripts
 
