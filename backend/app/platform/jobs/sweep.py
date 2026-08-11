@@ -24,7 +24,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import MAX_PRESIGNED_URL_LIFETIME_SECONDS, settings
 from app.observability.metrics.refresh import refresh_sweep_reconciled_total
-from app.platform.jobs.models import IngestJob, owned_presigned_staging_key
+from app.platform.jobs.models import (
+    STAGING_REAPED_FINAL_MARKER,
+    STATUSES_NEEDING_STAGED_INPUT,
+    IngestJob,
+    owned_presigned_staging_key,
+)
+from app.platform.jobs.staging_reconcile import reconcile_orphaned_staging_objects
 from app.platform.refresh.service import sweep_abandoned_refresh_runs
 from app.platform.storage.titiler_url import resolve_current_storage_key
 
@@ -273,7 +279,7 @@ _STAGING_REAPED_MARKER = "s3_key_reaped"
 # latest moment any URL for the job, signed under any setting the deployment
 # ever ran, can still be live. Only rows carrying this marker are excluded
 # from every future pass; _STAGING_REAPED_MARKER alone no longer is.
-_STAGING_REAPED_FINAL_MARKER = "s3_key_reaped_final"
+_STAGING_REAPED_FINAL_MARKER = STAGING_REAPED_FINAL_MARKER
 
 # fix(#1236 review, codex P1): SigV4 bounds when a URL may be SIGNED for, not
 # when an already-accepted PUT finishes transferring bytes — S3 validates the
@@ -1332,7 +1338,7 @@ async def fail_stale_jobs(
             survivors = await db.execute(
                 select(IngestJob.file_path).where(
                     IngestJob.file_path.in_(deleted_paths),
-                    IngestJob.status.in_(("pending", "running", "failed")),
+                    IngestJob.status.in_(STATUSES_NEEDING_STAGED_INPUT),
                 )
             )
             deleted_paths -= set(survivors.scalars())
@@ -1361,6 +1367,14 @@ async def fail_stale_jobs(
         publish_refresh_reconciliation(outcome)
         outcome = await _reap_committed_staged_paths(outcome)
         outcome = await _sweep_expired_presigned_staging(db, outcome, now=now)
+        # fix(#1249): the row-driven reapers above can only clean up objects
+        # some surviving row still names. This one starts from the objects and
+        # asks whether any row still owns them, which is the only direction
+        # that finds one nothing references. Deliberately not folded into
+        # StaleCleanupOutcome — that dataclass is a published API and audit
+        # shape several callers reconstruct field by field, and this pass
+        # answers a different question with its own log line and counter.
+        await reconcile_orphaned_staging_objects(db, now=now)
     if detailed:
         return outcome
     return outcome.pending_failed, outcome.running_failed

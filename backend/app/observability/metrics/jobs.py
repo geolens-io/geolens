@@ -37,6 +37,23 @@ jobs_failed_total = Counter(
     ["queue"],
 )
 
+# fix(#1249): staging objects deleted because no ingest_jobs row tracks them.
+# A true counter rather than a polled gauge, and safe as one for a reason
+# worth stating (the concern refresh.py's module docstring raises): the
+# reconciliation pass runs under a `pg_try_advisory_xact_lock`, so at most one
+# process per interval deletes — and therefore counts — any given object,
+# where a poll-and-increment design would report N times the truth under
+# UVICORN_WORKERS>1. Incremented only after the provider delete returns, so
+# the number counts completed deletions, not intentions.
+#
+# The series matters most when it is non-zero and STAYS non-zero: a steady
+# trickle means something is leaking staging objects faster than one-off
+# incidents explain.
+staging_orphans_deleted_total = Counter(
+    "geolens_staging_orphans_deleted_total",
+    "Staging objects deleted for having no ingest-job row tracking them",
+)
+
 # Track previous snapshot for counter delta computation.
 # NOTE(#655): on the first cycle after boot this is empty, so the counters seed
 # with the full historical procrastinate_jobs row counts — raw counter values

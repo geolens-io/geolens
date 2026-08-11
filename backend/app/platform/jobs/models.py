@@ -20,6 +20,33 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.db import Base
 
 
+# Statuses whose row still NEEDS the staged input its `file_path` points at:
+# pending and running are reading it now, and failed keeps it for
+# /jobs/{id}/retry (a failed-only endpoint). Every other status is done with
+# the bytes — a `complete` fan-out child keeps its metadata row but not a claim
+# on the shared original, which is why a successful fan-out's input is reapable
+# at all rather than pinned forever by children that are each a dataset's
+# latest complete job.
+#
+# fix(#1249 review r4): lives here rather than inline at either consumer,
+# because two of them now ask the same question and a drift between them is a
+# leak in one direction and a deletion of live input in the other. The
+# retention purge's survivor query (`_reap_committed_staged_paths`'s feeder in
+# sweep.py) and the staging-orphan reconciliation both read it.
+STATUSES_NEEDING_STAGED_INPUT = ("pending", "running", "failed")
+
+# `user_metadata` key the post-expiry presigned sweep sets once it has finished
+# with a row's `s3_key` for good — see `_sweep_expired_presigned_staging` in
+# sweep.py, which owns the whole story of when it may be written.
+#
+# fix(#1249 review r6): it lives here because a SECOND reader now depends on
+# it. Its presence is the fact that says "the row-driven reaper will never look
+# at this key again", which is exactly when the staging-orphan reconciliation
+# may take the key over — and a copy of the string in each module is one
+# rename away from a row that shields an object forever.
+STAGING_REAPED_FINAL_MARKER = "s3_key_reaped_final"
+
+
 def owned_presigned_staging_key(
     job_id: uuid.UUID | str,
     user_metadata: dict[str, Any] | None,

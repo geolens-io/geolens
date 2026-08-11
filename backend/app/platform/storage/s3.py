@@ -22,12 +22,28 @@ configurable via env vars.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncIterator, BinaryIO
 
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
+
+from app.platform.storage.provider import StoredObject
+
+
+def _as_utc(value: datetime) -> datetime:
+    """Normalize a provider timestamp to timezone-aware UTC.
+
+    feat(#1249): botocore returns aware datetimes today, but the
+    ``StoredObject`` contract is what the reconciliation's cutoff comparison
+    depends on — a naive value would raise there instead of answering, so it
+    is pinned here rather than assumed.
+    """
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 class S3StorageProvider:
@@ -220,6 +236,39 @@ class S3StorageProvider:
             return keys
 
         return await asyncio.to_thread(_list)
+
+    async def iter_object_pages(
+        self, prefix: str, *, start_after: str | None = None
+    ) -> AsyncIterator[list[StoredObject]]:
+        """Yield ListObjectsV2 pages, each entry with its last-modified time.
+
+        One request per page rather than a drain-then-return: a consumer that
+        stops after the first page never issues the second, so a caller with a
+        bounded work budget pays for a bounded number of round trips against an
+        arbitrarily large prefix (fix(#1249) review r1).
+
+        ``start_after`` becomes S3's own ``StartAfter``, so a resumed walk skips
+        the earlier keys server-side rather than fetching and discarding them
+        (fix(#1249) review r2). It applies to the FIRST request only —
+        ListObjectsV2 ignores it once a ``ContinuationToken`` is present, and
+        sending both would only invite a reader to think otherwise.
+        """
+        params: dict = {"Bucket": self.bucket, "Prefix": prefix}
+        if start_after is not None:
+            params["StartAfter"] = start_after
+        while True:
+            response = await asyncio.to_thread(self.client.list_objects_v2, **params)
+            yield [
+                StoredObject(
+                    key=obj["Key"],
+                    last_modified=_as_utc(obj["LastModified"]),
+                )
+                for obj in response.get("Contents", [])
+            ]
+            if not response.get("IsTruncated"):
+                return
+            params.pop("StartAfter", None)
+            params["ContinuationToken"] = response["NextContinuationToken"]
 
     async def health_check(self) -> None:
         """Verify the S3 bucket is reachable via head_bucket."""

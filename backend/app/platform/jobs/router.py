@@ -36,6 +36,7 @@ from app.platform.jobs.schemas import (
     ReservedRenameWarning,
     StaleCleanupResponse,
 )
+from app.platform.jobs.staging_reconcile import reconcile_orphaned_staging_objects
 from app.platform.jobs.sweep import (
     JOB_TIMEOUT_SECONDS,
     STALE_PENDING_BOUND_MESSAGE,
@@ -195,6 +196,11 @@ async def cleanup_stale_jobs(
             publish_refresh_reconciliation(outcome)
             outcome = await _reap_committed_staged_paths(outcome)
             outcome = await _sweep_expired_presigned_staging(db, outcome)
+            # fix(#1249): same object-driven reconciliation the background
+            # sweeper runs. The multi-tenant branch needs nothing here — the
+            # fleet helper runs fail_stale_jobs with its own commit per
+            # tenant, and that path already reconciles in tenant context.
+            await reconcile_orphaned_staging_objects(db)
             details = outcome.as_dict()
     except Exception as exc:  # broad: cleanup spans DB and artifact deletion
         await db.rollback()

@@ -31,11 +31,26 @@ implementation for STOR-01 (Phase 1210).
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncIterator, BinaryIO
 
 from azure.core.exceptions import ResourceNotFoundError
 from azure.storage.blob import BlobServiceClient
+
+from app.platform.storage.provider import StoredObject
+
+
+def _as_utc(value: datetime) -> datetime:
+    """Normalize a provider timestamp to timezone-aware UTC (feat #1249).
+
+    Azure returns aware datetimes; the normalization is pinned here because
+    the ``StoredObject`` contract — not the SDK's current behaviour — is what
+    the reconciliation's cutoff comparison relies on.
+    """
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 class AzureBlobStorageProvider:
@@ -206,6 +221,55 @@ class AzureBlobStorageProvider:
             ]
 
         return await asyncio.to_thread(_list)
+
+    async def iter_object_pages(
+        self, prefix: str, *, start_after: str | None = None
+    ) -> AsyncIterator[list[StoredObject]]:
+        """Yield blob pages under a prefix, each entry with its last-modified.
+
+        ``by_page()`` rather than the flat iterator so a consumer that stops
+        early stops the service round trips with it (fix(#1249) review r1).
+
+        ``start_after`` is filtered client-side: Azure's flat listing takes a
+        name PREFIX, not a start marker, and its own continuation tokens are
+        service-issued handles rather than a key a later pass could reconstruct
+        (fix(#1249) review r2). Blob listings are name-ordered, so the filter
+        yields the same sequence S3's ``StartAfter`` does; only the skipped
+        pages still cross the wire. Nothing this backend serves makes that
+        matter — presigned uploads refuse anything but S3 at request time, so
+        an Azure container holds no `staging/` objects to walk.
+        """
+        container_client = self._client.get_container_client(self.container)
+        pages = container_client.list_blobs(name_starts_with=prefix).by_page()
+
+        def _next_page() -> list | None:
+            try:
+                return list(next(pages))
+            except StopIteration:
+                return None
+
+        while True:
+            blobs = await asyncio.to_thread(_next_page)
+            if blobs is None:
+                return
+            page: list[StoredObject] = []
+            for blob in blobs:
+                if start_after is not None and blob.name <= start_after:
+                    continue
+                last_modified = getattr(blob, "last_modified", None)
+                if last_modified is None:
+                    # feat(#1249): a blob the SDK cannot date cannot be aged,
+                    # and an undatable entry must never read as "old enough to
+                    # delete". Dropping it here keeps that decision out of the
+                    # caller, which only ever sees datable objects.
+                    continue
+                page.append(
+                    StoredObject(
+                        key=blob.name,
+                        last_modified=_as_utc(last_modified),
+                    )
+                )
+            yield page
 
     async def health_check(self) -> None:
         """Verify the Azure container is reachable via get_container_properties."""

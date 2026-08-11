@@ -1,8 +1,25 @@
 from __future__ import annotations
 
 import builtins
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import AsyncIterator, BinaryIO, Protocol
+
+
+@dataclass(frozen=True)
+class StoredObject:
+    """One object as the provider reports it right now.
+
+    feat(#1249): the staging-orphan reconciliation needs "and how old is it"
+    alongside "does it exist". ``last_modified`` is timezone-aware UTC on
+    every provider — a naive value would make the caller's cutoff comparison
+    raise rather than answer, so each implementation normalizes before
+    returning.
+    """
+
+    key: str
+    last_modified: datetime
 
 
 class StorageProvider(Protocol):
@@ -74,6 +91,36 @@ class StorageProvider(Protocol):
 
     async def list(self, prefix: str) -> list[str]:
         """List keys matching a prefix."""
+        ...
+
+    def iter_object_pages(
+        self, prefix: str, *, start_after: str | None = None
+    ) -> AsyncIterator["builtins.list[StoredObject]"]:
+        """Yield objects under a prefix one provider page at a time.
+
+        feat(#1249): ``list`` answers which keys exist; this also answers how
+        old each one is, which is what tells an abandoned staging object from
+        one whose upload landed a second ago.
+
+        Pages rather than one list, and for the same reason ``get_stream``
+        exists (fix(#1249) review r1): a caller that can act on a bounded
+        amount of work must not have to materialize an unbounded prefix first.
+        A consumer that stops early stops the provider's paging with it.
+
+        ``start_after`` resumes a walk: only keys strictly greater than it are
+        yielded, in ascending key order, so a caller with a per-pass budget can
+        continue where the last one stopped instead of re-reading the front of
+        the prefix forever (fix(#1249) review r2). S3 pushes it down as
+        ``StartAfter``; the other backends filter, which costs them nothing
+        that matters — neither can hold a presigned staging object, since
+        presigned uploads refuse anything but the S3 backend at request time.
+
+        A COMPLETE key is a valid ``prefix`` and is how a caller re-reads one
+        object's timestamp immediately before acting on it. Implementations
+        yield every entry whose key STARTS WITH ``prefix`` — matching ``list``
+        — so a caller that means one exact object must filter for
+        ``entry.key == key`` rather than trusting the page length.
+        """
         ...
 
     async def health_check(self) -> None:
