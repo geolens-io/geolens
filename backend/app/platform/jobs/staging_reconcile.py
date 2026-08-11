@@ -20,7 +20,7 @@ while the delete is in flight.
 
 Reconciliation removes the class instead of shrinking it. It never has to
 decide whether some upload is "probably done"; it asks a question with a
-durable answer — is there a row that owns this key? — and an object whose
+durable answer — does any row still reference this key? — and an object whose
 answer is no is unreachable by any future PUT, because a presigned URL for
 `staging/{job_id}/…` is only ever minted alongside the `ingest_jobs` row with
 that id, and the retention purge deliberately keeps such a row alive until
@@ -29,6 +29,9 @@ past `MAX_PRESIGNED_URL_LIFETIME_SECONDS + _RECHECK_TRANSFER_MARGIN_SECONDS`
 from causes no margin ever addressed: a delete that failed inside a
 best-effort reaper, a row purged while its object delete errored, a worker
 killed between writing an object and committing the row that names it.
+
+"Any row", not "the row whose id is in the key" — see `_reference_clause` for
+why fan-out makes that distinction load-bearing rather than pedantic.
 
 ### The two races, handled by construction
 
@@ -55,9 +58,10 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import NamedTuple
 
 import structlog
-from sqlalchemy import select, text
+from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -160,6 +164,22 @@ class StagingReconcileOutcome:
         }
 
 
+class _Candidate(NamedTuple):
+    """One page entry the pass may act on, in the two forms it needs.
+
+    The provider reports PHYSICAL keys (tenant-namespaced in multi-tenant
+    mode); ``ingest_jobs.file_path`` and ``user_metadata->>'s3_key'``
+    deliberately persist the tenant-agnostic LOGICAL form. Carrying both is
+    what keeps the reference check from comparing one against the other.
+    Ordered by physical key first so ``sorted()`` walks a page in provider
+    order, which is what the resume cursor assumes.
+    """
+
+    physical_key: str
+    logical_key: str
+    job_id: uuid.UUID
+
+
 @dataclass
 class _Tally:
     """Mutable accumulator for one pass; frozen into the outcome at the end.
@@ -211,8 +231,42 @@ def _job_id_from_key(logical_key: str) -> uuid.UUID | None:
         return None
 
 
-async def _job_row_exists(db: AsyncSession, job_id: uuid.UUID) -> bool:
-    """Is there still an ``ingest_jobs`` row with this id, right now?
+def _reference_clause(job_id: uuid.UUID | None, logical_keys: set[str]):
+    """Every way an ``ingest_jobs`` row can still need a staging object.
+
+    fix(#1249 review r3, codex P1): the key's own job segment is NOT the whole
+    ownership story, and the case that proves it is fan-out. ``create_fan_out_
+    jobs`` clones the parent's ``file_path`` onto every child, so a child's
+    only input is the PARENT's ``staging/{parent_id}/frozen/...`` object. The
+    parent row reaches the retention cutoff on its own schedule — the purge's
+    survivor query is what keeps the OBJECT alive for a still-pending,
+    running, or retryable-failed child, not the parent's row. Reconciling on
+    ``IngestJob.id`` alone would look up the purged parent, find nothing, and
+    delete the input the child (or its retry) is about to read.
+
+    So the question is "does any row still reference this key", asked of both
+    columns that can hold one: ``file_path`` (the bound input, cloned onto
+    fan-out children) and ``user_metadata->>'s3_key'`` (the client-writable
+    upload key, also cloned wholesale onto children). Those are the only two
+    places in the schema a `staging/` key is ever stored.
+
+    Both comparisons are against the LOGICAL key. The provider reports
+    physical keys, which carry the ``tenants/{id}/`` namespace in multi-tenant
+    mode, while these columns deliberately persist the tenant-agnostic form.
+    """
+    clauses = [
+        IngestJob.file_path.in_(logical_keys),
+        IngestJob.user_metadata["s3_key"].astext.in_(logical_keys),
+    ]
+    if job_id is not None:
+        clauses.insert(0, IngestJob.id == job_id)
+    return or_(*clauses)
+
+
+async def _staging_reference_exists(
+    db: AsyncSession, job_id: uuid.UUID, logical_key: str
+) -> bool:
+    """Does any ``ingest_jobs`` row still need this staging object, right now?
 
     A fresh statement rather than a reuse of the batch query's result on
     purpose: under READ COMMITTED every statement takes its own snapshot, so
@@ -220,7 +274,9 @@ async def _job_row_exists(db: AsyncSession, job_id: uuid.UUID) -> bool:
     exists to catch. Core select over the id column, never an ORM object load,
     so the session's identity map cannot answer from a stale instance.
     """
-    result = await db.execute(select(IngestJob.id).where(IngestJob.id == job_id))
+    result = await db.execute(
+        select(IngestJob.id).where(_reference_clause(job_id, {logical_key}))
+    )
     return result.first() is not None
 
 
@@ -398,9 +454,9 @@ def _page_candidates(
     physical_prefix: str,
     cutoff: datetime,
     tally: "_Tally",
-) -> list[tuple[str, uuid.UUID]]:
+) -> list["_Candidate"]:
     """Which entries on one page are old enough and attributable."""
-    candidates: list[tuple[str, uuid.UUID]] = []
+    candidates: list[_Candidate] = []
     for entry in page:
         # Defensive: a provider that returned a key outside the prefix it was
         # asked for must not be trusted to name a deletable object.
@@ -415,44 +471,59 @@ def _page_candidates(
         if entry.last_modified >= cutoff:
             tally.skipped_recent += 1
             continue
-        candidates.append((entry.key, job_id))
+        candidates.append(_Candidate(entry.key, logical_key, job_id))
     return candidates
 
 
 async def _delete_page_orphans(
     db: AsyncSession,
-    candidates: list[tuple[str, uuid.UUID]],
+    candidates: list["_Candidate"],
     *,
     now: datetime,
     cutoff: datetime,
     storage,
     tally: "_Tally",
 ) -> str | None:
-    """Delete the untracked candidates from ONE page.
+    """Delete the unreferenced candidates from ONE page.
 
     Returns the last key it PROCESSED if the delete budget stopped it partway,
     so the caller can resume there rather than past the candidates it never
     reached; ``None`` when the whole page was worked through.
     """
-    # One query per page, never per pass: the id set is bounded by the page
-    # size the provider chose (1000 for S3 and Azure), so this expanding IN can
-    # never approach the driver's bind-parameter ceiling no matter how large
-    # the orphan backlog grows (fix(#1249) review r1). The per-object recheck
-    # below is the authority; this only avoids paying for it per object on a
-    # healthy bucket.
-    live_ids = set(
-        (
-            await db.execute(
-                select(IngestJob.id).where(
-                    IngestJob.id.in_({job_id for _key, job_id in candidates})
+    # One query per page, never per pass: the bound id/key sets are the page
+    # the provider chose (1000 entries on S3 and Azure), so these expanding INs
+    # can never approach the driver's bind-parameter ceiling no matter how
+    # large the orphan backlog grows (fix(#1249) review r1). The per-object
+    # recheck below is the authority; this only avoids paying for it per object
+    # on a healthy bucket.
+    logical_keys = {candidate.logical_key for candidate in candidates}
+    referenced_rows = (
+        await db.execute(
+            select(
+                IngestJob.id,
+                IngestJob.file_path,
+                IngestJob.user_metadata["s3_key"].astext,
+            ).where(
+                or_(
+                    IngestJob.id.in_({c.job_id for c in candidates}),
+                    IngestJob.file_path.in_(logical_keys),
+                    IngestJob.user_metadata["s3_key"].astext.in_(logical_keys),
                 )
             )
-        ).scalars()
-    )
+        )
+    ).all()
+    live_ids = {row_id for row_id, _file_path, _s3_key in referenced_rows}
+    referenced_keys = {
+        key
+        for _row_id, file_path, s3_key in referenced_rows
+        for key in (file_path, s3_key)
+        if key
+    }
 
     processed: str | None = None
-    for physical_key, job_id in sorted(candidates):
-        if job_id in live_ids:
+    for candidate in sorted(candidates):
+        physical_key, logical_key, job_id = candidate
+        if job_id in live_ids or logical_key in referenced_keys:
             continue
         if tally.orphans_deleted + tally.delete_failures >= _MAX_DELETES_PER_PASS:
             return processed
@@ -461,7 +532,7 @@ async def _delete_page_orphans(
         # per-object problem to count and move past — it leaves the
         # transaction unusable, so every remaining candidate would "fail" on a
         # recheck that never ran. Let it reach the wrapper and end the pass.
-        if await _job_row_exists(db, job_id):
+        if await _staging_reference_exists(db, job_id, logical_key):
             tally.skipped_row_appeared += 1
             continue
         try:
@@ -482,7 +553,7 @@ async def _delete_page_orphans(
             continue
         tally.orphans_deleted += 1
         log.warning(
-            "Deleted orphaned staging object with no ingest job row",
+            "Deleted orphaned staging object no ingest job row references",
             storage_key=physical_key,
             job_id=str(job_id),
             last_modified=entry.last_modified.isoformat(),

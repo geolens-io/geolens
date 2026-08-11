@@ -101,9 +101,20 @@ class FakeStorage:
         self.objects.pop(key, None)
 
 
-async def _job(session: AsyncSession, *, status: str = "complete") -> uuid.UUID:
+async def _job(
+    session: AsyncSession,
+    *,
+    status: str = "complete",
+    file_path: str | None = None,
+    user_metadata: dict | None = None,
+) -> uuid.UUID:
     """Insert a committed ingest_jobs row and return its id."""
-    job = IngestJob(source_filename="orphan-test", status=status)
+    job = IngestJob(
+        source_filename="orphan-test",
+        status=status,
+        file_path=file_path,
+        user_metadata=user_metadata,
+    )
     session.add(job)
     await session.flush()
     job_id = job.id
@@ -180,6 +191,85 @@ class TestReconciliationDecision:
         assert outcome.ran is True
         assert outcome.orphans_deleted == 0
 
+    async def test_a_fan_out_childs_shared_input_survives_its_purged_parent(
+        self, test_db_session: AsyncSession
+    ) -> None:
+        """fix(#1249 review r3, codex P1): the key's job segment is not ownership.
+
+        ``create_fan_out_jobs`` clones the parent's ``file_path`` onto every
+        child, so a child's only input is the PARENT's staging object. The
+        parent row hits the retention cutoff on its own schedule — the purge's
+        survivor query keeps the OBJECT alive for a still-pending child, not
+        the parent's row. Reconciling on the id in the key alone would look up
+        the purged parent, find nothing, and delete the input the child is
+        about to read.
+        """
+        purged_parent_id = uuid.uuid4()
+        shared_input = f"staging/{purged_parent_id}/frozen/multi.gpkg"
+        await _job(test_db_session, status="pending", file_path=shared_input)
+        storage = FakeStorage({shared_input: _old()})
+
+        outcome = await _run(test_db_session, storage)
+
+        assert storage.deleted == [], "deleted a surviving child's only input"
+        assert outcome.orphans_deleted == 0
+
+    async def test_an_inherited_s3_key_also_counts_as_a_reference(
+        self, test_db_session: AsyncSession
+    ) -> None:
+        """The other cloned column. `user_metadata` is copied wholesale too, so
+        a child carries the parent's client-writable upload key as well."""
+        purged_parent_id = uuid.uuid4()
+        upload_key = f"staging/{purged_parent_id}/multi.gpkg"
+        await _job(
+            test_db_session,
+            status="failed",
+            file_path=f"staging/{purged_parent_id}/frozen/multi.gpkg",
+            user_metadata={"s3_key": upload_key},
+        )
+        storage = FakeStorage({upload_key: _old()})
+
+        outcome = await _run(test_db_session, storage)
+
+        assert storage.deleted == []
+        assert outcome.orphans_deleted == 0
+
+    async def test_a_reference_that_appears_before_the_delete_saves_the_object(
+        self, test_db_session: AsyncSession
+    ) -> None:
+        """The per-object recheck covers references, not just the id.
+
+        A batch query that saw no reference must not licence a delete once a
+        fan-out child lands between it and the delete itself.
+        """
+        parent_id = uuid.uuid4()
+        shared_input = f"staging/{parent_id}/frozen/multi.gpkg"
+        storage = FakeStorage({shared_input: _old()})
+
+        import app.platform.jobs.staging_reconcile as module
+
+        real_exists = module._staging_reference_exists
+
+        async def _insert_child_then_check(
+            db: AsyncSession, checked_id: uuid.UUID, logical_key: str
+        ) -> bool:
+            await db.execute(
+                text(
+                    "INSERT INTO catalog.ingest_jobs (status, source_filename,"
+                    " file_path) VALUES ('pending', 'late-child', :fp)"
+                ).bindparams(fp=logical_key)
+            )
+            await db.commit()
+            return await real_exists(db, checked_id, logical_key)
+
+        with patch.object(
+            module, "_staging_reference_exists", _insert_child_then_check
+        ):
+            outcome = await _run(test_db_session, storage)
+
+        assert storage.deleted == []
+        assert outcome.skipped_row_appeared == 1
+
     async def test_an_untracked_object_inside_the_threshold_is_kept(
         self, test_db_session: AsyncSession
     ) -> None:
@@ -232,7 +322,9 @@ class TestReconciliationDecision:
 
         real_exists = None
 
-        async def _insert_then_check(db: AsyncSession, checked_id: uuid.UUID) -> bool:
+        async def _insert_then_check(
+            db: AsyncSession, checked_id: uuid.UUID, logical_key: str
+        ) -> bool:
             await db.execute(
                 text(
                     "INSERT INTO catalog.ingest_jobs (id, status, source_filename)"
@@ -240,12 +332,12 @@ class TestReconciliationDecision:
                 ).bindparams(id=checked_id)
             )
             await db.commit()
-            return await real_exists(db, checked_id)
+            return await real_exists(db, checked_id, logical_key)
 
         import app.platform.jobs.staging_reconcile as module
 
-        real_exists = module._job_row_exists
-        with patch.object(module, "_job_row_exists", _insert_then_check):
+        real_exists = module._staging_reference_exists
+        with patch.object(module, "_staging_reference_exists", _insert_then_check):
             outcome = await _run(test_db_session, storage)
 
         assert storage.deleted == []
