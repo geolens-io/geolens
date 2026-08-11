@@ -1195,10 +1195,24 @@ def _add_source_excess(
     so only its internal correlated/nested work beyond its row count adds
     (fix(#565 codex P1 r7)). A parenthesized group's excess is folded in the
     same way when the group sits in a per-row position (e.g. inside a LATERAL).
+
+    fix(#565 codex P1 r10): a CTE reference carries excess too. PostgreSQL
+    inlines a non-recursive CTE — always for ``NOT MATERIALIZED``, and by
+    default when referenced once — so its internal correlated work re-executes
+    per outer row rather than materializing once. Costing a reference as
+    rows-only let ``a p CROSS JOIN a q`` over a CTE with a correlated scan slip
+    the bound; propagating its excess treats every reference as inlined, the
+    worst case.
     """
-    inner: exp.Expression | None
+    work: _FanoutMap
     rows: _FanoutMap
-    if isinstance(source, exp.Lateral):
+    if isinstance(source, exp.Table):
+        cte = _resolve_cte(source)
+        if cte is None or not isinstance(cte.this, _SCOPE_TYPES):
+            return
+        work = _work_fanout(cte.this, wm, rm)
+        rows = _rows_fanout(cte.this, rm)
+    elif isinstance(source, exp.Lateral):
         inner = _lateral_inner_scope(source)
         if inner is None:
             return

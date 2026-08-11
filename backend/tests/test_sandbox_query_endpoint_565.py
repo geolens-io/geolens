@@ -517,6 +517,32 @@ async def test_scalar_subquery_on_another_table_is_allowed(
     assert resp.status_code == 200, resp.text
 
 
+async def test_inlined_cte_correlated_work_is_rejected(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P1 r10): a NOT MATERIALIZED CTE with a correlated scan,
+    referenced across a cross join, inlines its work per outer pair — N^3. The
+    CTE's excess work must propagate, not just its row count."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = await _make_table(test_db_session, owner)
+
+    resp = await client.post(
+        "/query/",
+        json={
+            "sql": (
+                f"WITH a AS NOT MATERIALIZED (SELECT x.gid, "
+                f"(SELECT count(*) FROM data.{tbl} y WHERE y.gid + x.gid IS NOT NULL) n "
+                f"FROM data.{tbl} x) SELECT p.n + q.n FROM a p CROSS JOIN a q"
+            ),
+            "restrict_tables": [tbl],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == _REPETITION_MESSAGE
+
+
 async def test_multi_table_join_is_not_a_false_positive(
     client: AsyncClient, admin_auth_header, test_db_session
 ):

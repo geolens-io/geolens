@@ -121,14 +121,26 @@ _QUERY_TIMEOUT_MS = 5_000
 _QUERY_DEFAULT_ROW_LIMIT = 100
 _QUERY_MAX_ROW_LIMIT = 1000
 
-# Same physical table (or CTE name) referenced more than twice → reject.
-# Two references keep ordinary self-joins (`a JOIN a` pairs) working while
-# refusing the `a, a, a` CROSS JOIN shape from #565. Applied only on this
-# endpoint — AI chat passes no cap, so its behavior is unchanged.
+# Self-join fan-out cap: the largest number of times any one base table is
+# multiplied into a statement's worst-case cardinality (through CTEs, subquery
+# correlation, LATERAL, and parenthesized groups). Two keeps ordinary pairwise
+# self-joins working while refusing `a, a, a` and its launderings. Applied only
+# on this endpoint — AI chat passes no cap, so its behavior is unchanged.
 _QUERY_MAX_TABLE_REPEATS = 2
 
 # Module-level so tests can lower them; slowapi evaluates callables per
 # request (same pattern as auth.router's persistent-config-driven limits).
+#
+# These reuse the app-wide in-memory ``limiter`` (from modules/auth/router.py),
+# so like EVERY slowapi limit in this codebase the per-user/per-IP counters are
+# per-uvicorn-worker, not shared (#565 codex P2 r10). Cross-worker frequency
+# enforcement (a Valkey-backed limiter) is an app-wide change tracked separately
+# — deliberately not forked here for one endpoint. It is a secondary bound
+# regardless: the sandbox's per-user advisory lock is a Postgres xact lock, so
+# it is GLOBAL across workers and already serializes each user to ONE in-flight
+# query, and every query is capped at a 5 s statement timeout. So the
+# per-worker counter caps request FREQUENCY loosely; concurrency and per-query
+# cost are bounded cross-worker no matter the worker count.
 _QUERY_PER_USER_LIMIT = "30/minute"
 _QUERY_PER_IP_LIMIT = "60/minute"
 
