@@ -691,17 +691,21 @@ async def list_distributions_endpoint(
     )
 
 
+# fix(#1383): reachable only from concurrent writes to one record's primary
+# flag — the service demotes the incumbent first, so a lone caller never gets
+# here — and a retry succeeds because the winner is settled by then.
+_PRIMARY_CONFLICT_DETAIL = "Another distribution was concurrently marked primary; retry"
+
+
 def _distribution_conflict_detail(exc: IntegrityError) -> str:
     """Name the unique index the write actually hit.
 
-    fix(#1383): ``uq_record_distribution_primary`` allows one primary row per
-    record. The service demotes the incumbent first, so the only way to reach
-    the index is two concurrent writes both claiming the flag — a retry
-    succeeds, where "same record, type, and format" would send the caller
-    hunting for a duplicate that does not exist.
+    ``uq_record_distribution_primary`` allows one primary row per record, and
+    "same record, type, and format" would send a caller who tripped it hunting
+    for a duplicate that does not exist.
     """
     if "uq_record_distribution_primary" in str(getattr(exc, "orig", exc)):
-        return "Another distribution was concurrently marked primary; retry"
+        return _PRIMARY_CONFLICT_DETAIL
     return "Duplicate distribution (same record, type, and format)"
 
 
@@ -830,6 +834,18 @@ async def delete_distribution_endpoint(
             )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Distribution not found"
+        )
+    except IntegrityError:
+        # fix(#1383): deleting the primary hands the flag back to the generated
+        # default, and a write that claimed it concurrently gets there first.
+        # No other constraint on this table is reachable from a delete, so the
+        # detail is stated rather than sniffed. A retry succeeds: the flag is
+        # spoken for by then and the restore is skipped. 409 rather than the
+        # 500 an uncaught IntegrityError would produce.
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=_PRIMARY_CONFLICT_DETAIL,
         )
     await _propagate_record_write(
         record_id,
