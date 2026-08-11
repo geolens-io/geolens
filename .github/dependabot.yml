@@ -36,6 +36,11 @@ updates:
         patterns: ["react", "react-dom", "@types/react*"]
       tanstack:
         patterns: ["@tanstack/*"]
+    ignore:
+      # fix(#1407): react-table v9 is a hand migration (AttributeTable);
+      # the major gets pulled deliberately, not via bump PR.
+      - dependency-name: "@tanstack/react-table"
+        update-types: ["version-update:semver-major"]
 
   # --- Root E2E (Playwright) — was untracked ---
   - package-ecosystem: "npm"
