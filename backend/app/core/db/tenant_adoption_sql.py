@@ -873,6 +873,35 @@ BEGIN
         );
     END LOOP;
 
+    -- The provisioner's own duplicates, which the loops above deliberately do
+    -- not touch: revoking its membership outright would remove the ADMIN path
+    -- this transaction reaches the tenant roles through. Only the foreign
+    -- grantor's row goes, by name, leaving the canonical one that the guarded
+    -- GRANT above has just made sure exists. Before PostgreSQL 16 there is one
+    -- row per pair and no GRANTED BY to aim with, so there is nothing to do.
+    IF pg_catalog.current_setting('server_version_num')::integer >= 160000 THEN
+        FOR legacy_member_row IN
+            SELECT granted_role.rolname AS granted_name,
+                   grantor_role.rolname AS member_name
+            FROM pg_catalog.pg_auth_members AS membership
+            JOIN pg_catalog.pg_roles AS granted_role
+              ON granted_role.oid = membership.roleid
+            JOIN pg_catalog.pg_roles AS member_role
+              ON member_role.oid = membership.member
+            JOIN pg_catalog.pg_roles AS grantor_role
+              ON grantor_role.oid = membership.grantor
+            WHERE granted_role.rolname IN (reader_name, writer_name)
+              AND member_role.rolname = '{PROVISIONER}'
+              AND NOT {_MEMBERSHIP_ADMIN_ONLY}
+        LOOP
+            EXECUTE pg_catalog.format(
+                'REVOKE %I FROM {PROVISIONER} GRANTED BY %I',
+                legacy_member_row.granted_name,
+                legacy_member_row.member_name
+            );
+        END LOOP;
+    END IF;
+
     -- The guarded boundary owns schema creation, role creation, gateway
     -- memberships, and schema-level privileges.  Since 0024 it deliberately
     -- does NOT touch per-relation ACLs, which is why the reader grants below

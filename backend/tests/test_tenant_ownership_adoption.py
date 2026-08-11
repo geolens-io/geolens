@@ -487,6 +487,60 @@ class TestReportedStateMatchesWhatApplyEnforces:
             await _drop_tenant(engine, tenant_id)
             await engine.dispose()
 
+    async def test_a_duplicate_provisioner_edge_is_normalized(
+        self, multi_tenant_row_security
+    ):
+        """The canonical row hides it and nothing else would take it away.
+
+        Only the foreign grantor's row goes: revoking the provisioner's
+        membership outright would remove the ADMIN path the transaction reaches
+        the tenant roles through.
+        """
+        tenant_id, schema, reader, _writer = _new_tenant()
+        engine = _make_engine()
+        try:
+            await _seed_restored_tenant(engine, tenant_id, schema)
+            assert (await run_adoption(engine, apply=True)).ok
+
+            async with engine.begin() as conn:
+                await conn.execute(
+                    sa.text(
+                        f"GRANT {reader} TO {PROVISIONER} "
+                        "WITH ADMIN TRUE, INHERIT TRUE, SET TRUE"
+                    )
+                )
+
+            async with engine.connect() as conn:
+                state = await tenant_ownership_state(conn, tenant_id)
+            assert not state.reader_role_secure
+            assert not state.adopted
+
+            repaired = await run_adoption(engine, apply=True)
+            assert repaired.failures == {}, repaired.failures
+            assert repaired.ok
+
+            async with engine.connect() as conn:
+                rows = [
+                    tuple(row)
+                    for row in await conn.execute(
+                        sa.text(
+                            "SELECT membership.admin_option, "
+                            "membership.inherit_option, membership.set_option "
+                            "FROM pg_auth_members AS membership "
+                            "JOIN pg_roles AS granted "
+                            "  ON granted.oid = membership.roleid "
+                            "JOIN pg_roles AS member "
+                            "  ON member.oid = membership.member "
+                            "WHERE granted.rolname = :reader AND member.rolname = :owner"
+                        ),
+                        {"reader": reader, "owner": PROVISIONER},
+                    )
+                ]
+            assert rows == [(True, False, False)]
+        finally:
+            await _drop_tenant(engine, tenant_id)
+            await engine.dispose()
+
     async def test_a_second_inheriting_gateway_edge_is_not_adopted(
         self, multi_tenant_row_security
     ):
