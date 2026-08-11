@@ -295,6 +295,55 @@ async def test_transitive_cte_chain_fanout_is_rejected(
     assert resp.json()["detail"] == _REPETITION_MESSAGE
 
 
+async def test_subquery_hidden_self_join_is_rejected(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P1 r4): a triple self-join buried in a scalar subquery
+    (or EXISTS/WHERE) runs per outer row, so it must be costed too — a row-only
+    bound reported fan-out 1 and let it through."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = await _make_table(test_db_session, owner)
+
+    resp = await client.post(
+        "/query/",
+        json={
+            "sql": (
+                f"SELECT (SELECT count(*) FROM data.{tbl} a "
+                f"CROSS JOIN data.{tbl} b CROSS JOIN data.{tbl} c) "
+                f"FROM data.{tbl} z"
+            ),
+            "restrict_tables": [tbl],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == _REPETITION_MESSAGE
+
+
+async def test_scalar_subquery_on_another_table_is_allowed(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """A cheap scalar subquery over a DIFFERENT table (fan-out 1) is legit and
+    must not be a false positive of the per-row correlation model."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    t1 = await _make_table(test_db_session, owner)
+    t2 = await _make_table(test_db_session, owner)
+
+    resp = await client.post(
+        "/query/",
+        json={
+            "sql": (
+                f"SELECT z.gid, (SELECT count(*) FROM data.{t2}) AS n FROM data.{t1} z"
+            ),
+            "restrict_tables": [t1, t2],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+
 async def test_multi_table_join_is_not_a_false_positive(
     client: AsyncClient, admin_auth_header, test_db_session
 ):

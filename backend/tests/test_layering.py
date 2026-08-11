@@ -2799,11 +2799,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # feat(#565): the SQL sandbox validator crossed 1000 lines across the codex
     # rounds on the query endpoint: the lexical CTE-scope fix (P1) and its
     # pg_catalog.pg_user rationale, the declaration-order refinement (P1 r2),
-    # and the transitive fan-out cost model (P1 r3) — _resolve_cte plus the
-    # _node_fanout/_source_fanout graph walk that catches a CTE chain
-    # multiplying one base table to N^8 while every per-name count stays at 2.
-    # Most of the added lines are that rationale. Cap set at the exact size.
-    "backend/app/platform/sandbox/validator.py": 1151,
+    # the transitive fan-out cost model (P1 r3) — _resolve_cte plus the
+    # rows/work graph walk that catches a CTE chain multiplying one base table
+    # to N^8 while every per-name count stays at 2 — and the per-row correlated
+    # subquery term (P1 r4, _correlated_scopes/_work_fanout) that costs a
+    # self-join hidden in a scalar/EXISTS/WHERE subquery. Most of the added
+    # lines are that rationale. Cap set at the exact size.
+    "backend/app/platform/sandbox/validator.py": 1227,
 }
 
 

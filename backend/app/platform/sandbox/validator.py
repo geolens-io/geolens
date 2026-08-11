@@ -1027,15 +1027,23 @@ def _is_cte_reference(table: exp.Table) -> bool:
 _FANOUT_CEILING = 1 << 16
 
 
+_FanoutMap = dict[tuple[str, str], int]
+_FanoutMemo = dict[int, _FanoutMap | None]
+_SCOPE_TYPES: tuple[type[exp.Expression], ...] = (
+    exp.Select,
+    exp.Union,
+    exp.Intersect,
+    exp.Except,
+)
+
+
 def _set_op_branches(node: exp.Expression) -> list[exp.Expression]:
     """The two operands of a UNION/INTERSECT/EXCEPT node."""
     return [b for b in (node.this, node.args.get("expression")) if b is not None]
 
 
-def _node_fanout(
-    node: exp.Expression, memo: dict[int, dict[tuple[str, str], int] | None]
-) -> dict[tuple[str, str], int]:
-    """Worst-case multiplicity of each base table produced by ``node``.
+def _rows_fanout(node: exp.Expression, memo: _FanoutMemo) -> _FanoutMap:
+    """Worst-case ROW multiplicity of each base table produced by ``node``.
 
     Maps ``(schema, name)`` to the exponent that base table carries in the
     node's cardinality: a SELECT's rows are at most the PRODUCT of its
@@ -1051,52 +1059,120 @@ def _node_fanout(
         return memo[key] or {}
     memo[key] = None
 
-    out: dict[tuple[str, str], int] = {}
+    out: _FanoutMap = {}
     if isinstance(node, exp.Select):
         for source in _own_sources(node):
             for base, weight in _source_fanout(source, memo).items():
                 out[base] = min(out.get(base, 0) + weight, _FANOUT_CEILING)
     elif isinstance(node, (exp.Union, exp.Intersect, exp.Except)):
         for branch in _set_op_branches(node):
-            for base, weight in _node_fanout(branch, memo).items():
+            for base, weight in _rows_fanout(branch, memo).items():
                 out[base] = min(max(out.get(base, 0), weight), _FANOUT_CEILING)
 
     memo[key] = out
     return out
 
 
-def _source_fanout(
-    source: exp.Expression, memo: dict[int, dict[tuple[str, str], int] | None]
-) -> dict[tuple[str, str], int]:
-    """Base-table multiplicity contributed by one from/join source."""
+def _source_fanout(source: exp.Expression, memo: _FanoutMemo) -> _FanoutMap:
+    """Base-table row multiplicity contributed by one from/join source."""
     if isinstance(source, exp.Table):
         cte = _resolve_cte(source)
         if cte is not None:
-            return _node_fanout(cte.this, memo)
+            return _rows_fanout(cte.this, memo)
         # A base table (real, or an out-of-scope name the access check will
         # reject) is scanned once.
         return {(source.db or "", source.name): 1}
     if isinstance(source, exp.Subquery):
-        return _node_fanout(source.this, memo)
+        return _rows_fanout(source.this, memo)
     # Anything else in a FROM (VALUES, an allowlisted table function) does not
     # open a base-table cross-join vector; the function/table checks bound it.
     return {}
 
 
+def _correlated_scopes(select: exp.Select) -> list[exp.Expression]:
+    """Subquery scopes in ``select``'s projection/predicate clauses.
+
+    fix(#565 codex P1 r4): a scalar/EXISTS/IN/WHERE subquery executes per
+    output ROW of the enclosing SELECT, so its work multiplies by the enclosing
+    row count — a triple self-join hidden in ``SELECT (SELECT ... a CROSS JOIN
+    b CROSS JOIN c) FROM ...`` is N^3 work the row-only cost missed. These are
+    the outermost such scopes directly under ``select``; its FROM/JOIN sources
+    (folded into ``_rows_fanout``) and its WITH bodies (costed where referenced)
+    are excluded, and deeper nesting is reached by recursion on each scope.
+    """
+    scopes: list[exp.Expression] = []
+    for node in select.find_all(*_SCOPE_TYPES):
+        if node is select:
+            continue
+        ancestor = node.parent
+        nearest_scope: exp.Expression | None = None
+        via_source = False
+        while ancestor is not None and ancestor is not select:
+            if isinstance(ancestor, (exp.From, exp.Join, exp.With, exp.CTE)):
+                via_source = True
+                break
+            if isinstance(ancestor, _SCOPE_TYPES):
+                nearest_scope = ancestor
+                break
+            ancestor = ancestor.parent
+        if not via_source and nearest_scope is None:
+            scopes.append(node)
+    return scopes
+
+
+def _work_fanout(
+    node: exp.Expression, work_memo: _FanoutMemo, rows_memo: _FanoutMemo
+) -> _FanoutMap:
+    """Worst-case WORK multiplicity: rows plus per-row correlated subquery work.
+
+    A set operation's work is the larger branch's; a SELECT's is its row
+    fan-out plus, for each correlated subquery it runs once per row, that
+    subquery's own work (exponents add — the subquery repeats for every row).
+    """
+    key = id(node)
+    if key in work_memo:
+        return work_memo[key] or {}
+    work_memo[key] = None
+
+    if isinstance(node, (exp.Union, exp.Intersect, exp.Except)):
+        out: _FanoutMap = {}
+        for branch in _set_op_branches(node):
+            for base, weight in _work_fanout(branch, work_memo, rows_memo).items():
+                out[base] = min(max(out.get(base, 0), weight), _FANOUT_CEILING)
+        work_memo[key] = out
+        return out
+
+    out = dict(_rows_fanout(node, rows_memo))
+    if isinstance(node, exp.Select):
+        for scope in _correlated_scopes(node):
+            for base, weight in _work_fanout(scope, work_memo, rows_memo).items():
+                out[base] = min(out.get(base, 0) + weight, _FANOUT_CEILING)
+    work_memo[key] = out
+    return out
+
+
 def _max_table_fanout(stmt: exp.Expression) -> int:
-    """The largest base-table multiplicity anywhere in the statement.
+    """The largest base-table WORK multiplicity anywhere in the statement.
 
     fix(#565 codex P1 r3): a per-reference count cannot see fan-out that
     COMPOSES through the CTE graph — ``WITH a AS (...foo), b AS (a CROSS JOIN
     a), c AS (b CROSS JOIN b) SELECT c CROSS JOIN c`` keeps every name at two
-    references while multiplying ``data.foo`` to the eighth power. Costing the
-    transitive dependency graph catches it: this returns 8 for that statement
-    and 2 for a plain pairwise self-join, so a cap on it bounds real work
-    rather than surface spellings.
+    references while multiplying ``data.foo`` to the eighth power.
+
+    Taking the max over EVERY scope (fix(#565 codex P1 r4)) — not just the
+    root's row fan-out — also catches a heavy self-join buried in a scalar or
+    predicate subquery, or inside a CTE body's projection, wherever it sits. A
+    plain pairwise self-join stays at 2, so a cap bounds real work rather than
+    surface spellings.
     """
-    memo: dict[int, dict[tuple[str, str], int] | None] = {}
-    fanout = _node_fanout(stmt, memo)
-    return max(fanout.values(), default=0)
+    rows_memo: _FanoutMemo = {}
+    work_memo: _FanoutMemo = {}
+    largest = 0
+    for scope in stmt.find_all(*_SCOPE_TYPES):
+        fanout = _work_fanout(scope, work_memo, rows_memo)
+        if fanout:
+            largest = max(largest, max(fanout.values()))
+    return largest
 
 
 async def build_table_allowlist(db: AsyncSession, user: Identity | None) -> set[str]:
