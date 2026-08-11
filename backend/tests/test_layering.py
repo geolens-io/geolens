@@ -2328,27 +2328,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # as durable truth, and a caller who learns that immediately can act on
     # it, where one who learns it from a failed run cannot. Cap 1091 -> 1119.
     "backend/app/modules/catalog/datasets/api/router_refresh.py": 1119,
-    # --- entered by the inclusion rule, feat(#1266) -----------------------
-    # The STAC re-resolution policy, entered at its measured size. It is one
-    # question asked of a third party — "where does this dataset's asset live
-    # now" — and almost all of its length is the answer's edges, each one a
-    # review round: which document is this item, which asset in it is ours,
-    # which URL may be stored, which may be a base for a relative href, and
-    # what each failure is allowed to conclude. The comments carry WHICH of
-    # those a given line closes, because the invariant they share ("adopt
-    # nothing unverifiable") reads as redundancy without them. Splitting it
-    # would put the identity rules in one file and the fetches they guard in
-    # another, which is the seam every one of those rounds found a hole in.
-    # +8: the collection a null-collection binding is verified against is
-    # reported back so the binding can learn it, the same way item_id is.
-    # +12, fix(#1331): the two truthiness reads of the bound key became
-    # `is not None`, each with a docstring note on why — `""` is a legal
-    # asset key and a binding that recorded it names a real asset.
-    # +15, fix(#1334 review): the resolved EPSG is reconciled with the
-    # probe's own CRS here, once, where both facts are already in hand —
-    # keeping `processing/` from ever needing to import from `catalog/`
-    # to get the same preference.
-    "backend/app/modules/catalog/sources/stac_resolve.py": 1040,
+    # fix(#1335): stac_resolve.py's 1040 lines were split along their natural
+    # seams — verdict taxonomy, identity checks, the asset gate (SSRF + COG
+    # probe), and the by-search fallback each moved into a sibling module,
+    # leaving this file as the by-URL entry point plus the façade the split's
+    # external callers and tests still import through. No entry needed below
+    # 1000 lines; see stac_resolve_asset_gate.py etc. for the pieces that
+    # carried the length.
     # --- entered by the inclusion rule, fix(#958) -------------------------
     # These five were the ungated modules at or above _RATCHET_INCLUSION_LOC
     # when the rule was written. They arrive at their measured size with no

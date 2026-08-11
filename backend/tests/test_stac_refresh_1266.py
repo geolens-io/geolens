@@ -191,7 +191,7 @@ def cog_info(monkeypatch):
         return described
 
     monkeypatch.setattr(
-        "app.modules.catalog.sources.stac_resolve.fetch_cog_info", _fake
+        "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_info", _fake
     )
     return described, calls
 
@@ -212,7 +212,7 @@ def stac_transport(monkeypatch):
     # against names nothing answers for. Policy refusal has its own test,
     # driven by raising from this stub.
     monkeypatch.setattr(
-        "app.modules.catalog.sources.stac_resolve.validate_url_for_ssrf",
+        "app.modules.catalog.sources.stac_resolve_asset_gate.validate_url_for_ssrf",
         AsyncMock(),
     )
 
@@ -906,7 +906,8 @@ class TestResolution:
                 raise SSRFResolutionError("Could not resolve hostname")
 
         monkeypatch.setattr(
-            "app.modules.catalog.sources.stac_resolve.validate_url_for_ssrf", _validate
+            "app.modules.catalog.sources.stac_resolve_asset_gate.validate_url_for_ssrf",
+            _validate,
         )
         result = await _resolve(item_href=_ITEM)
         assert result.resolved
@@ -1198,7 +1199,8 @@ class TestResolution:
             return None
 
         monkeypatch.setattr(
-            "app.modules.catalog.sources.stac_resolve.fetch_cog_info", _unreadable
+            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_info",
+            _unreadable,
         )
         result = await _resolve(item_href=_ITEM)
         assert not result.resolved
@@ -1234,7 +1236,8 @@ class TestResolution:
             return {"band_count": 1, "dtype": "uint16", "band_info": None}
 
         monkeypatch.setattr(
-            "app.modules.catalog.sources.stac_resolve.fetch_cog_info", _no_crs
+            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_info",
+            _no_crs,
         )
         result = await _resolve(item_href=_ITEM)
         assert result.asset_href == newer_asset
@@ -1724,7 +1727,8 @@ class TestResolution:
             return None
 
         monkeypatch.setattr(
-            "app.modules.catalog.sources.stac_resolve.fetch_cog_info", _unreadable
+            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_info",
+            _unreadable,
         )
         result = await _resolve(
             item_href=_ITEM, collection_id="scenes", asset_href=_ASSET
@@ -2429,7 +2433,8 @@ class TestWorker:
             }
 
         monkeypatch.setattr(
-            "app.modules.catalog.sources.stac_resolve.fetch_cog_info", _no_transform
+            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_info",
+            _no_transform,
         )
 
         payload = await _dispatch(client, admin_auth_header, dataset.id)
@@ -2477,7 +2482,7 @@ class TestWorker:
             }
 
         monkeypatch.setattr(
-            "app.modules.catalog.sources.stac_resolve.fetch_cog_info",
+            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_info",
             _disagreeing_probe,
         )
         admin_id = await get_user_id(test_db_session, "admin")
@@ -2516,7 +2521,8 @@ class TestWorker:
             return {"band_count": 1, "dtype": "float32", "band_info": None}
 
         monkeypatch.setattr(
-            "app.modules.catalog.sources.stac_resolve.fetch_cog_info", _elevation
+            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_info",
+            _elevation,
         )
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _stac_dataset(test_db_session, created_by=admin_id)
