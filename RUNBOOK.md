@@ -726,8 +726,10 @@ What it does, walking `catalog.tenants` with each tenant in its own transaction:
   act as, a `SECURITY DEFINER` or untrusted-language routine in a tenant schema
   — is reported with the exact statement to run and the role to run it as, and
   that tenant is left for the next run. The automatic membership PostgreSQL
-  gives a role's creator is the one exception it tolerates rather than reports:
-  nobody can revoke it, and it confers nothing on its own.
+  gives a role's creator is tolerated only for the login running adoption. On
+  any other login it is refused — `ADMIN` alone lets that login grant itself a
+  usable edge — and the report names the remedy: `DROP ROLE` the retired
+  login, or revoke the membership as its recorded grantor.
 
 The end state is the one migration 0019 produced. Idempotence is keyed on
 database state rather than on a marker or a timestamp: a tenant already in that

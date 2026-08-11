@@ -1730,24 +1730,72 @@ class TestAdoptionWithRestoredBoundaryFunctions:
         finally:
             await engine.dispose()
 
-    async def test_a_creator_shaped_edge_on_a_gateway_is_tolerated(self):
-        """Nobody can revoke it, so refusing it would strand every recovery."""
+    async def test_a_creator_shaped_edge_on_another_login_is_refused(self):
+        """fix(#998 codex r44): ADMIN alone can re-arm itself into a usable
+        edge, so the creator shape is only safe on the login running adoption.
+        The refusal names DROP ROLE, the one remedy a managed platform allows.
+        """
+        retired = f"w998_retired_{uuid.uuid4().hex[:12]}"
         engine = _make_engine()
         try:
             async with engine.connect() as conn:
                 transaction = await conn.begin()
                 try:
+                    await conn.execute(sa.text(f"CREATE ROLE {retired} LOGIN"))
                     await conn.execute(
                         sa.text(
-                            f"GRANT {TILE} TO current_user "
+                            f"GRANT {TILE} TO {retired} "
                             "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
                         )
                     )
-                    # CURRENT_USER is exempt anyway; the point is the shape, so
-                    # check it through a role that is not the caller.
-                    await conn.execute(sa.text(CLUSTER_ROLE_VALIDATE_SQL))
+                    with pytest.raises(
+                        DBAPIError, match="keeps the creator membership"
+                    ):
+                        await conn.execute(sa.text(CLUSTER_ROLE_VALIDATE_SQL))
                 finally:
                     await transaction.rollback()
+                await conn.execute(sa.text(f"DROP ROLE IF EXISTS {retired}"))
+        finally:
+            await engine.dispose()
+
+    async def test_a_foreign_granted_boundary_acl_is_refused(self):
+        """fix(#998 codex r44): an EXECUTE entry granted by a third role does
+        not re-attribute on owner transfer and a non-grantor's REVOKE is a
+        no-op, so repairing over it would silently leave the grant standing.
+        """
+        grantor = f"w998_grantor_{uuid.uuid4().hex[:12]}"
+        grantee = f"w998_grantee_{uuid.uuid4().hex[:12]}"
+        engine = _make_engine()
+        try:
+            async with engine.connect() as conn:
+                transaction = await conn.begin()
+                try:
+                    await conn.execute(sa.text(f"CREATE ROLE {grantor} NOLOGIN"))
+                    await conn.execute(sa.text(f"CREATE ROLE {grantee} NOLOGIN"))
+                    name = BOUNDARY_FUNCTIONS[0]
+                    await conn.execute(
+                        sa.text(f"GRANT USAGE ON SCHEMA catalog TO {grantor}")
+                    )
+                    await conn.execute(
+                        sa.text(
+                            f"GRANT EXECUTE ON FUNCTION catalog.{name}(uuid) "
+                            f"TO {grantor} WITH GRANT OPTION"
+                        )
+                    )
+                    await conn.execute(sa.text(f"SET LOCAL ROLE {grantor}"))
+                    await conn.execute(
+                        sa.text(
+                            f"GRANT EXECUTE ON FUNCTION catalog.{name}(uuid) "
+                            f"TO {grantee}"
+                        )
+                    )
+                    await conn.execute(sa.text("RESET ROLE"))
+                    with pytest.raises(DBAPIError, match="granted by"):
+                        await secure_boundary_functions(conn)
+                finally:
+                    await transaction.rollback()
+                await conn.execute(sa.text(f"DROP ROLE IF EXISTS {grantee}"))
+                await conn.execute(sa.text(f"DROP ROLE IF EXISTS {grantor}"))
         finally:
             await engine.dispose()
 

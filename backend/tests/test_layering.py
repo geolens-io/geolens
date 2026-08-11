@@ -1945,7 +1945,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # files would make harder, not easier. The Python that drives it and the
     # report types already live in tenant_adoption.py and
     # tenant_adoption_report.py.
-    "backend/app/core/db/tenant_adoption_sql.py": 1672,
+    # fix(#998 codex r44): +60 — refuse creator-shaped memberships retained by
+    # other logins (an ADMIN-only edge can re-arm itself) and refuse boundary-
+    # function ACL entries a foreign grantor issued (unrevokable by the repair,
+    # which would otherwise silently no-op every run).
+    "backend/app/core/db/tenant_adoption_sql.py": 1732,
     # fix(#998): the tool the DDL above serves — the catalog reads that decide
     # whether anything is left to do, the steps that close the gap, and the
     # operator CLI. Already decomposed three ways (report types and the success

@@ -297,10 +297,14 @@ BEGIN
             CONTINUE;
         END IF;
 
-        -- The automatic creator membership, whoever holds it. Tolerated rather
-        -- than refused: it grants nothing by itself, and the credential that
-        -- created the role may be retired and unassumable, which would make
-        -- every later recovery refuse before touching a tenant.
+        -- fix(#998 codex r44): the automatic creator membership was tolerated
+        -- here for any login, but ADMIN alone lets its holder grant itself a
+        -- usable edge — the bootstrap takes its own edge exactly that way — so
+        -- on any login other than the one running adoption (exempted above) it
+        -- is a live escalation path, not a harmless leftover.  Refuse it with
+        -- the remedy that works on managed platforms, where the recorded
+        -- grantor is the unassumable bootstrap superuser: drop the retired
+        -- login.
         IF EXISTS (
             SELECT 1
             FROM pg_catalog.pg_auth_members AS membership
@@ -313,7 +317,17 @@ BEGIN
               AND membership.member = membership_row.member_oid
               AND NOT {_MEMBERSHIP_CREATOR_SHAPE}
         ) THEN
-            CONTINUE;
+            RAISE EXCEPTION
+                'reserved role % keeps the creator membership of %, which '
+                'ADMIN alone can turn back into a usable edge',
+                membership_row.granted_name, membership_row.member_name
+                USING HINT =
+                    'if that login is retired, run DROP ROLE ' ||
+                    pg_catalog.quote_ident(membership_row.member_name) ||
+                    ' (REASSIGN OWNED BY it first if PostgreSQL refuses); to '
+                    'keep the login, revoke that membership as its recorded '
+                    'grantor (REVOKE ... GRANTED BY, PostgreSQL 16+); then '
+                    're-run adoption';
         END IF;
 
         direct_membership_unsafe := membership_row.membership_admin;
@@ -479,6 +493,7 @@ DO $$
 DECLARE
     routine_name text;
     grantee_name text;
+    foreign_acl_row RECORD;
     temporary_schema_create boolean := false;
     repair_pending boolean;
 BEGIN
@@ -542,6 +557,51 @@ BEGIN
     FOREACH routine_name IN ARRAY ARRAY[
         'provision_tenant_data_schema', 'deprovision_tenant_data_schema'
     ] LOOP
+        -- fix(#998 codex r44): transferring the owner re-attributes only the
+        -- owner's own ACL entries.  An entry some third role granted keeps its
+        -- grantor, the plain REVOKEs below cannot remove it (a non-grantor's
+        -- REVOKE is a warning-level no-op), so every --apply would repeat an
+        -- ineffective repair while the grantee kept EXECUTE on provisioner-
+        -- owned SECURITY DEFINER tenant management.  Refuse before touching
+        -- the function.  Entries granted by the current owner re-attribute on
+        -- transfer and the sweep below clears them; the provisioner's own
+        -- entries are already inside the canonical authority.
+        FOR foreign_acl_row IN
+            SELECT grantor_role.rolname AS grantor_name,
+                   grantee_role.rolname AS grantee_name
+            FROM pg_catalog.pg_proc AS routine
+            JOIN pg_catalog.pg_namespace AS namespace
+              ON namespace.oid = routine.pronamespace
+            JOIN LATERAL pg_catalog.aclexplode(routine.proacl) AS acl ON true
+            JOIN pg_catalog.pg_roles AS grantor_role
+              ON grantor_role.oid = acl.grantor
+            LEFT JOIN pg_catalog.pg_roles AS grantee_role
+              ON grantee_role.oid = acl.grantee
+            WHERE namespace.nspname = 'catalog'
+              AND routine.proname = routine_name
+              AND routine.pronargs = 1
+              AND routine.proargtypes[0] = 'uuid'::regtype
+              AND grantor_role.oid <> routine.proowner
+              AND grantor_role.rolname <> '{PROVISIONER}'
+        LOOP
+            RAISE EXCEPTION
+                'boundary function catalog.%(uuid) carries an EXECUTE entry '
+                'granted by %, which adoption cannot revoke',
+                routine_name, foreign_acl_row.grantor_name
+                USING HINT =
+                    'as ' ||
+                    pg_catalog.quote_ident(foreign_acl_row.grantor_name) ||
+                    ' (or a role that can assume it) run: REVOKE ALL ON '
+                    'FUNCTION catalog.' ||
+                    pg_catalog.quote_ident(routine_name) || '(uuid) FROM ' ||
+                    CASE
+                        WHEN foreign_acl_row.grantee_name IS NULL THEN 'PUBLIC'
+                        ELSE pg_catalog.quote_ident(
+                            foreign_acl_row.grantee_name
+                        )
+                    END || '; then re-run adoption';
+        END LOOP;
+
         EXECUTE pg_catalog.format(
             'ALTER FUNCTION catalog.%I(uuid) OWNER TO {PROVISIONER}', routine_name
         );
