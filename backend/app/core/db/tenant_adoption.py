@@ -860,12 +860,27 @@ async def tenant_ownership_state(conn, tenant_id: str) -> TenantOwnershipState:
                 -- reader explicitly on each relation, so a default ACL here
                 -- hands out privileges on relations that do not exist yet, to
                 -- whoever it names.
+                -- fix(#998 codex r47): schema-less entries (defaclnamespace 0)
+                -- owned by the tenant pair or the provisioner apply to every
+                -- schema they create in; --apply refuses them, so the dry run
+                -- must count them or call adopted what --apply would stop on.
                 (
                     SELECT count(*)
                     FROM pg_catalog.pg_default_acl AS default_acl
-                    JOIN pg_catalog.pg_namespace AS namespace
+                    LEFT JOIN pg_catalog.pg_namespace AS namespace
                       ON namespace.oid = default_acl.defaclnamespace
                     WHERE namespace.nspname = (SELECT schema_name FROM names)
+                       OR (
+                           default_acl.defaclnamespace = 0
+                           AND default_acl.defaclrole IN (
+                               (SELECT oid FROM reader),
+                               (SELECT oid FROM writer),
+                               (
+                                   SELECT oid FROM pg_catalog.pg_roles
+                                   WHERE rolname = :provisioner
+                               )
+                           )
+                       )
                 ) AS unexpected_default_acls,
                 """
             + _role_secure_sql("reader", (PROVISIONER, SANDBOX, TILE), (SANDBOX, TILE))

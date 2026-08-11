@@ -803,6 +803,28 @@ BEGIN
                 foreign_option_row.target ||
                 ' FROM {PROVISIONER}; then re-run adoption';
     END LOOP;
+
+    -- fix(#998 codex r47): a schema-less default privilege owned by the
+    -- provisioner lands on every future data_t_* schema the provisioning
+    -- function creates.  The per-tenant pass also refuses it, but with zero
+    -- tenants that pass never runs — this is the one place that executes on
+    -- every run regardless.
+    IF EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_default_acl AS default_acl
+        JOIN pg_catalog.pg_roles AS owner_role
+          ON owner_role.oid = default_acl.defaclrole
+        WHERE default_acl.defaclnamespace = 0
+          AND owner_role.rolname = '{PROVISIONER}'
+    ) THEN
+        RAISE EXCEPTION
+            '{PROVISIONER} carries schema-less default privileges, which '
+            'apply to every tenant schema it creates'
+            USING HINT =
+                'as {PROVISIONER} run: ALTER DEFAULT PRIVILEGES REVOKE ALL '
+                'ON TABLES FROM PUBLIC (and the same for the other object '
+                'kinds and grantees shown by \\ddp); then re-run adoption';
+    END IF;
 END
 $$
 """
@@ -833,6 +855,7 @@ DECLARE
     routine_gap bigint;
     type_gap bigint;
     foreign_grantor_gap bigint;
+    global_default_acl_gap bigint;
     reader_oid oid;
     writer_oid oid;
     grantee_name text;
@@ -1344,12 +1367,24 @@ BEGIN
           AND acl.grantor <> writer_oid
     ) AS foreign_grant;
 
+    -- fix(#998 codex r47): schema-less default privileges are not in
+    -- default_acl_gap (it joins on the tenant schema), so without this an
+    -- otherwise-canonical tenant returned here and the schema-less refusal
+    -- later in the block was unreachable.
+    SELECT pg_catalog.count(*) INTO global_default_acl_gap
+    FROM pg_catalog.pg_default_acl AS default_acl
+    JOIN pg_catalog.pg_roles AS owner_role
+      ON owner_role.oid = default_acl.defaclrole
+    WHERE default_acl.defaclnamespace = 0
+      AND owner_role.rolname IN (reader_name, writer_name, '{PROVISIONER}');
+
     IF pending_owner_transfer = 0
        AND reader_privilege_gap = 0
        AND default_acl_gap = 0
        AND routine_gap = 0
        AND type_gap = 0
-       AND foreign_grantor_gap = 0 THEN
+       AND foreign_grantor_gap = 0
+       AND global_default_acl_gap = 0 THEN
         RETURN;
     END IF;
 
