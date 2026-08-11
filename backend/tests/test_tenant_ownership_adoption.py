@@ -707,6 +707,52 @@ class TestReportedStateMatchesWhatApplyEnforces:
             await _drop_tenant(engine, tenant_id)
             await engine.dispose()
 
+    async def test_reader_write_privileges_on_relations_are_revoked(
+        self, multi_tenant_row_security
+    ):
+        """SELECT present is not the same as SELECT only.
+
+        The sandbox and tile gateways SET ROLE to the reader, so an INSERT the
+        restore carried over is a write path into tenant data that the
+        SELECT-presence check reported as fine.
+        """
+        tenant_id, schema, reader, _writer = _new_tenant()
+        engine = _make_engine()
+        try:
+            await _seed_restored_tenant(engine, tenant_id, schema)
+            assert (await run_adoption(engine, apply=True)).ok
+
+            async with engine.begin() as conn:
+                await conn.execute(
+                    sa.text(f"GRANT INSERT, DELETE ON {schema}.parcels TO {reader}")
+                )
+
+            async with engine.connect() as conn:
+                state = await tenant_ownership_state(conn, tenant_id)
+            assert state.relations_without_reader_select == 0
+            assert state.relations_with_reader_write == 1
+            assert not state.adopted
+
+            repaired = await run_adoption(engine, apply=True)
+            assert repaired.failures == {}, repaired.failures
+            assert repaired.ok
+
+            async with engine.connect() as conn:
+                privileges = (
+                    await conn.execute(
+                        sa.text(
+                            "SELECT has_table_privilege(:role, :table, 'SELECT'), "
+                            "has_table_privilege(:role, :table, 'INSERT'), "
+                            "has_table_privilege(:role, :table, 'DELETE')"
+                        ),
+                        {"role": reader, "table": f"{schema}.parcels"},
+                    )
+                ).one()
+            assert tuple(privileges) == (True, False, False)
+        finally:
+            await _drop_tenant(engine, tenant_id)
+            await engine.dispose()
+
     async def test_legacy_reader_default_privileges_are_not_adopted(
         self, multi_tenant_row_security
     ):
@@ -1530,6 +1576,7 @@ def _adopted_tenant_state() -> TenantOwnershipState:
         relations=1,
         relations_not_owned_by_writer=0,
         relations_without_reader_select=0,
+        relations_with_reader_write=0,
         reader_default_acls=0,
         reader_role_secure=True,
         writer_role_secure=True,

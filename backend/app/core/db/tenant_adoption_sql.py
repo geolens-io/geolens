@@ -135,25 +135,38 @@ BEGIN
     -- No ADMIN in the grant: PostgreSQL refuses "ADMIN option cannot be granted
     -- back to your own grantor", and the automatic membership already carries
     -- it.
-    IF NOT pg_catalog.pg_has_role(CURRENT_USER, '{PROVISIONER}', 'USAGE')
-       AND EXISTS (
-           SELECT 1
-           FROM pg_catalog.pg_auth_members AS membership
-           JOIN pg_catalog.pg_roles AS granted_role
-             ON granted_role.oid = membership.roleid
-           JOIN pg_catalog.pg_roles AS member_role
-             ON member_role.oid = membership.member
-           WHERE granted_role.rolname = '{PROVISIONER}'
-             AND member_role.rolname = CURRENT_USER
-             AND membership.admin_option
-       ) THEN
+    IF NOT pg_catalog.pg_has_role(CURRENT_USER, '{PROVISIONER}', 'USAGE') THEN
         IF pg_catalog.current_setting('server_version_num')::integer >= 160000 THEN
-            EXECUTE pg_catalog.format(
-                'GRANT {PROVISIONER} TO %I WITH INHERIT TRUE, SET TRUE',
-                CURRENT_USER
-            );
+            -- 16+ requires an ADMIN edge to grant the role, and the creator
+            -- automatically has one. Without it the caller cannot grant itself
+            -- anything, so fall through to the refusal below.
+            IF EXISTS (
+                SELECT 1
+                FROM pg_catalog.pg_auth_members AS membership
+                JOIN pg_catalog.pg_roles AS granted_role
+                  ON granted_role.oid = membership.roleid
+                JOIN pg_catalog.pg_roles AS member_role
+                  ON member_role.oid = membership.member
+                WHERE granted_role.rolname = '{PROVISIONER}'
+                  AND member_role.rolname = CURRENT_USER
+                  AND membership.admin_option
+            ) THEN
+                EXECUTE pg_catalog.format(
+                    'GRANT {PROVISIONER} TO %I WITH INHERIT TRUE, SET TRUE',
+                    CURRENT_USER
+                );
+            END IF;
         ELSE
-            EXECUTE pg_catalog.format('GRANT {PROVISIONER} TO %I', CURRENT_USER);
+            -- Before 16 there is no creator membership to look for: CREATEROLE
+            -- carries admin rights over every non-superuser role, so the grant
+            -- is simply attempted. A caller without that authority is told what
+            -- to run by SECURE_BOUNDARY_FUNCTIONS_SQL rather than by a raw
+            -- permission error.
+            BEGIN
+                EXECUTE pg_catalog.format('GRANT {PROVISIONER} TO %I', CURRENT_USER);
+            EXCEPTION
+                WHEN insufficient_privilege THEN NULL;
+            END;
         END IF;
     END IF;
 END
@@ -547,6 +560,7 @@ DECLARE
     schema_owner text;
     pending_owner_transfer bigint;
     reader_privilege_gap bigint;
+    reader_oid oid;
     temporary_writer_membership boolean := false;
 BEGIN
     schema_name := 'data_t_' || pg_catalog.replace(tenant_id::text, '-', '_');
@@ -724,6 +738,8 @@ BEGIN
     -- are issued by the writer instead of by this function.
     PERFORM catalog.provision_tenant_data_schema(tenant_id);
 
+    SELECT oid INTO reader_oid FROM pg_catalog.pg_roles WHERE rolname = reader_name;
+
     -- The provisioning function grants the reader USAGE; it never takes CREATE
     -- away, and a restored schema can arrive carrying it.  The sandbox and tile
     -- gateways SET ROLE to this reader, so CREATE there is a write path into a
@@ -761,6 +777,17 @@ BEGIN
               AND NOT pg_catalog.has_sequence_privilege(
                   reader_name, relation.oid, 'SELECT'
               )
+          )
+          -- Missing SELECT is only half of it: the reader is the SET target of
+          -- the sandbox and tile gateways, so any privilege beyond reading is a
+          -- write path into tenant data. Read out of the ACL rather than named
+          -- one by one, because the set of privilege types grows by release.
+          OR EXISTS (
+              SELECT 1
+              FROM LATERAL pg_catalog.aclexplode(relation.relacl) AS acl
+              WHERE acl.grantee = reader_oid
+                AND acl.privilege_type <> 'SELECT'
+                AND NOT (relation.relkind = 'S' AND acl.privilege_type = 'USAGE')
           )
       );
 
@@ -837,6 +864,15 @@ BEGIN
     END IF;
 
     EXECUTE pg_catalog.format('SET ROLE %I', writer_name);
+    -- Revoke first, then grant back exactly the read privileges: ALTER TABLE …
+    -- OWNER TO re-attributes the restored grants to the writer, so the writer
+    -- can take away an INSERT or DELETE the old owner had handed the reader.
+    EXECUTE pg_catalog.format(
+        'REVOKE ALL ON ALL TABLES IN SCHEMA %I FROM %I', schema_name, reader_name
+    );
+    EXECUTE pg_catalog.format(
+        'REVOKE ALL ON ALL SEQUENCES IN SCHEMA %I FROM %I', schema_name, reader_name
+    );
     EXECUTE pg_catalog.format(
         'GRANT SELECT ON ALL TABLES IN SCHEMA %I TO %I', schema_name, reader_name
     );

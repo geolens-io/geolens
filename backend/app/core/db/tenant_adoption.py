@@ -525,6 +525,28 @@ async def tenant_ownership_state(conn, tenant_id: str) -> TenantOwnershipState:
                         )
                     )
                 END AS relations_without_reader_select,
+                -- Beyond SELECT is a write path: the sandbox and tile gateways
+                -- SET ROLE to this reader. Read out of the ACL rather than
+                -- named privilege by privilege, which grows by release.
+                CASE
+                    WHEN NOT EXISTS (SELECT 1 FROM reader) THEN 0
+                    ELSE (
+                        SELECT count(*) FROM relations
+                        WHERE EXISTS (
+                            SELECT 1
+                            FROM pg_catalog.pg_class AS relation
+                            JOIN LATERAL pg_catalog.aclexplode(relation.relacl)
+                              AS acl ON true
+                            WHERE relation.oid = relations.oid
+                              AND acl.grantee = (SELECT oid FROM reader)
+                              AND acl.privilege_type <> 'SELECT'
+                              AND NOT (
+                                  relations.relkind = 'S'
+                                  AND acl.privilege_type = 'USAGE'
+                              )
+                        )
+                    )
+                END AS relations_with_reader_write,
                 -- The pre-0019 runtime helper left an ALTER DEFAULT PRIVILEGES
                 -- entry behind; ADOPT_TENANT_SQL revokes it, so a tenant still
                 -- carrying one is not adopted however correct the rest looks.
