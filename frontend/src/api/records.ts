@@ -4,6 +4,8 @@ import type {
   ContactResponse,
   ContactListResponse,
   DistributionListResponse,
+  DistributionResponse,
+  DistributionUpdate,
   KeywordCreate,
   KeywordResponse,
   KeywordListResponse,
@@ -50,8 +52,21 @@ export async function deleteKeyword(recordId: string, keywordId: string): Promis
   await apiFetch(`/records/${recordId}/keywords/${keywordId}/`, { method: 'DELETE' });
 }
 
-// Distributions (read-only surface — the UI has no distribution editor;
-// chore(#835) deleted the callerless create/update/delete mutations)
+// Distributions
 export async function listDistributions(recordId: string): Promise<DistributionListResponse> {
   return apiFetch<DistributionListResponse>(`/records/${recordId}/distributions/`);
+}
+
+// feat(#1395): the set-primary control — the only mutation the UI issues
+// against this resource. Manual distributions only: the backend rejects any
+// update (`is_primary` included) to an auto_generated row with a 400.
+export async function updateDistribution(
+  recordId: string,
+  distributionId: string,
+  data: DistributionUpdate,
+): Promise<DistributionResponse> {
+  return apiFetch<DistributionResponse>(`/records/${recordId}/distributions/${distributionId}/`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
 }

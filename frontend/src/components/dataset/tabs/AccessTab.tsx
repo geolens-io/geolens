@@ -355,7 +355,7 @@ export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
         </CardHeader>
         <CardContent>
           {dataset.record_id ? (
-            <DistributionsList recordId={dataset.record_id} />
+            <DistributionsList recordId={dataset.record_id} canEdit={canEdit} />
           ) : (
             <p className="text-sm text-muted-foreground">
               {t('distributions.noDistributions')}

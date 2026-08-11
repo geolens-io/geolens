@@ -428,6 +428,13 @@ export interface DistributionListResponse {
   total: number;
 }
 
+/** feat(#1395): the only field the set-primary control writes. The backend
+ * `DistributionUpdate` schema accepts the full row (title/url/etc.), but this
+ * UI never edits those — a distribution editor is a separate feature. */
+export interface DistributionUpdate {
+  is_primary?: boolean;
+}
+
 export interface AttributeMetadataResponse {
   id: string;
   dataset_id: string;

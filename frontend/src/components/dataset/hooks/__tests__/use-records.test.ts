@@ -1,5 +1,7 @@
 import { renderHook, waitFor } from '@/test/test-utils';
 import { vi } from 'vitest';
+import { useRef } from 'react';
+import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 
 vi.mock('@/api/records', () => ({
   listContacts: vi.fn(),
@@ -9,20 +11,29 @@ vi.mock('@/api/records', () => ({
   createKeyword: vi.fn(),
   deleteKeyword: vi.fn(),
   listDistributions: vi.fn(),
+  updateDistribution: vi.fn(),
 }));
 
 vi.mock('@/api/datasets', () => ({
   fetchRelatedDatasets: vi.fn(),
 }));
 
-import { listContacts, createContact, listKeywords } from '@/api/records';
+import { listContacts, createContact, listKeywords, updateDistribution } from '@/api/records';
 import { fetchRelatedDatasets } from '@/api/datasets';
-import { useContacts, useCreateContact, useKeywords, useRelatedDatasets } from '@/components/dataset/hooks/use-records';
+import {
+  useContacts,
+  useCreateContact,
+  useKeywords,
+  useRelatedDatasets,
+  useSetPrimaryDistribution,
+} from '@/components/dataset/hooks/use-records';
+import { queryKeys } from '@/lib/query-keys';
 
 const mockListContacts = vi.mocked(listContacts);
 const mockCreateContact = vi.mocked(createContact);
 const mockListKeywords = vi.mocked(listKeywords);
 const mockFetchRelatedDatasets = vi.mocked(fetchRelatedDatasets);
+const mockUpdateDistribution = vi.mocked(updateDistribution);
 
 describe('useContacts', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -110,5 +121,61 @@ describe('useRelatedDatasets', () => {
     const { result } = renderHook(() => useRelatedDatasets('ds-1'));
 
     await waitFor(() => expect(result.current.isError).toBe(true));
+  });
+});
+
+// feat(#1395): set-primary control.
+describe('useSetPrimaryDistribution', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  /**
+   * Capture the QueryClient from inside the renderHook wrapper so we can
+   * spy on invalidateQueries — see useReuploadCommit in use-dataset.test.ts
+   * for the same pattern.
+   */
+  function renderWithClient(recordId: string | undefined) {
+    let captured: QueryClient | null = null;
+    const { result } = renderHook(() => {
+      const qc = useQueryClient();
+      const ref = useRef<QueryClient | null>(null);
+      if (ref.current === null) ref.current = qc;
+      captured = ref.current;
+      return useSetPrimaryDistribution(recordId);
+    });
+    if (!captured) throw new Error('QueryClient capture failed');
+    return { result, qc: captured as QueryClient };
+  }
+
+  it('PATCHes the chosen distribution with is_primary: true', async () => {
+    mockUpdateDistribution.mockResolvedValueOnce({ id: 'dist-2', is_primary: true } as never);
+    const { result } = renderWithClient('rec-1');
+
+    await result.current.mutateAsync('dist-2');
+
+    expect(mockUpdateDistribution).toHaveBeenCalledWith('rec-1', 'dist-2', { is_primary: true });
+  });
+
+  it('invalidates the distributions list on success, so the badge moves on refetch', async () => {
+    mockUpdateDistribution.mockResolvedValueOnce({ id: 'dist-2', is_primary: true } as never);
+    const { result, qc } = renderWithClient('rec-1');
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+
+    await result.current.mutateAsync('dist-2');
+
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: queryKeys.records.distributions('rec-1'),
+    });
+  });
+
+  it('does not invalidate when the PATCH is rejected (e.g. an auto-generated row)', async () => {
+    mockUpdateDistribution.mockRejectedValueOnce(
+      new Error('Cannot update auto-generated distributions'),
+    );
+    const { result, qc } = renderWithClient('rec-1');
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+
+    await expect(result.current.mutateAsync('dist-1')).rejects.toThrow();
+
+    expect(spy).not.toHaveBeenCalled();
   });
 });

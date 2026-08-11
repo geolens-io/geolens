@@ -1,11 +1,14 @@
 import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useDistributions } from '@/components/dataset/hooks/use-records';
+import {
+  useDistributions,
+  useSetPrimaryDistribution,
+} from '@/components/dataset/hooks/use-records';
 import { useTileConfig } from '@/hooks/use-settings';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Copy, Check } from 'lucide-react';
+import { Copy, Check, Circle, CircleDot, Loader2 } from 'lucide-react';
 import { LoadingState } from '@/components/layout/LoadingState';
 import {
   getPublicApiBaseUrl,
@@ -15,6 +18,10 @@ import type { DistributionResponse } from '@/types/api';
 
 interface DistributionsListProps {
   recordId: string;
+  /** Owner-or-admin editor: mirrors the backend `require_permission("edit_metadata")`
+   * + `_check_record_ownership` guard on the distribution PATCH endpoint.
+   * Everyone else keeps the read-only view (#1395). */
+  canEdit?: boolean;
 }
 
 const TYPE_ORDER = ['download', 'api', 'tiles', 'other'] as const;
@@ -84,6 +91,47 @@ function CopyableUrl({ url, publicApiUrl }: { url: string; publicApiUrl: string 
   );
 }
 
+/** feat(#1395): radio-style set-primary control. Rendered only for manual
+ * (non-auto_generated) rows — `update_distribution` rejects any write,
+ * `is_primary` included, against an auto_generated row with a 400, so a
+ * control on those rows could never do anything but fail. The currently
+ * primary manual row renders checked and disabled; clicking any other one
+ * PATCHes it to `is_primary: true`, which the backend applies as a
+ * last-write-wins demote of every other row on the record (#1383). */
+function SetPrimaryControl({
+  distribution,
+  onSelect,
+  pending,
+}: {
+  distribution: DistributionResponse;
+  onSelect: (distributionId: string) => void;
+  pending: boolean;
+}) {
+  const { t } = useTranslation('dataset');
+  const label = distribution.is_primary
+    ? t('distributions.currentPrimary')
+    : t('distributions.setPrimary');
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon-xs"
+      onClick={() => onSelect(distribution.id)}
+      disabled={distribution.is_primary || pending}
+      aria-label={label}
+      title={label}
+    >
+      {pending ? (
+        <Loader2 className="h-3 w-3 animate-spin" />
+      ) : distribution.is_primary ? (
+        <CircleDot className="h-3 w-3" />
+      ) : (
+        <Circle className="h-3 w-3" />
+      )}
+    </Button>
+  );
+}
+
 export function getDistributionGroup(distributionType: string): DistributionGroup {
   return DISTRIBUTION_GROUPS[distributionType] ?? 'other';
 }
@@ -101,11 +149,12 @@ function groupByType(
   return groups;
 }
 
-export function DistributionsList({ recordId }: DistributionsListProps) {
+export function DistributionsList({ recordId, canEdit = false }: DistributionsListProps) {
   const { t } = useTranslation('dataset');
   const { data, isLoading, error } = useDistributions(recordId);
   const { data: tileConfig } = useTileConfig();
   const publicApiBaseUrl = getPublicApiBaseUrl(tileConfig);
+  const setPrimary = useSetPrimaryDistribution(recordId);
 
   if (isLoading) {
     return <LoadingState className="py-6" />;
@@ -154,6 +203,13 @@ export function DistributionsList({ recordId }: DistributionsListProps) {
                     <span className="text-xs text-muted-foreground">
                       ({t('distributions.auto')})
                     </span>
+                  )}
+                  {canEdit && !dist.auto_generated && (
+                    <SetPrimaryControl
+                      distribution={dist}
+                      onSelect={(distributionId) => setPrimary.mutate(distributionId)}
+                      pending={setPrimary.isPending && setPrimary.variables === dist.id}
+                    />
                   )}
                 </div>
                 {dist.title && (

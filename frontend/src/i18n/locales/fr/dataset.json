@@ -586,7 +586,11 @@
     "auto": "auto",
     "primary": "Principal",
     "copyUrl": "Copier l'URL",
-    "loadError": "Impossible de charger les distributions."
+    "loadError": "Impossible de charger les distributions.",
+    "setPrimary": "Définir comme principal",
+    "currentPrimary": "Distribution principale",
+    "primaryUpdated": "Distribution principale mise à jour.",
+    "setPrimaryFailed": "Impossible de définir la distribution principale."
   },
   "publish": {
     "publish": "Publier",

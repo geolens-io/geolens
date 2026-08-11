@@ -586,7 +586,11 @@
     "auto": "auto",
     "primary": "Primär",
     "copyUrl": "URL kopieren",
-    "loadError": "Verteilungen konnten nicht geladen werden."
+    "loadError": "Verteilungen konnten nicht geladen werden.",
+    "setPrimary": "Als primär festlegen",
+    "currentPrimary": "Primäre Distribution",
+    "primaryUpdated": "Primäre Distribution aktualisiert.",
+    "setPrimaryFailed": "Primäre Distribution konnte nicht festgelegt werden."
   },
   "publish": {
     "publish": "Veröffentlichen",

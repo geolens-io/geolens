@@ -9,6 +9,7 @@ import {
   createKeyword,
   deleteKeyword,
   listDistributions,
+  updateDistribution,
 } from '@/api/records';
 import { fetchRelatedDatasets } from '@/api/datasets';
 import type { ContactCreate, KeywordCreate } from '@/types/api';
@@ -89,6 +90,22 @@ export function useDistributions(recordId: string | undefined) {
     queryFn: () => listDistributions(recordId!),
     enabled: !!recordId,
     staleTime: 5 * 60_000,
+  });
+}
+
+// feat(#1395): set-primary control. mutationFn's argument is the
+// distributionId being promoted — the row that ends up carrying is_primary
+// after the backend demotes every other row on the record in the same write.
+export function useSetPrimaryDistribution(recordId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (distributionId: string) =>
+      updateDistribution(recordId!, distributionId, { is_primary: true }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.records.distributions(recordId) });
+      toast.success(i18n.t('dataset:distributions.primaryUpdated'));
+    },
+    onError: (err) => { toast.error(formatMutationError('dataset:distributions.setPrimaryFailed', err)); },
   });
 }
 
