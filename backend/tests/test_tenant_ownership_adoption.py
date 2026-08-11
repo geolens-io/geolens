@@ -658,10 +658,11 @@ class TestReportedStateMatchesWhatApplyEnforces:
         """PostgreSQL 16+ makes the role creator a direct member of the writer.
 
         A non-superuser CREATEROLE migrator replaying the fresh-cluster globals
-        dump therefore holds that edge on every restored writer, and
+        dump holds that edge on every restored writer, and the migration-owned
         `provision_tenant_data_schema` refuses an unexpected direct member
-        outright — so every tenant would fail adoption on exactly the managed
-        deployment the runbook points at.
+        outright. Adoption refuses first, with the remedy: its grantor is the
+        bootstrap superuser so nobody else can revoke it, and at this point the
+        tenant role owns nothing, so DROP ROLE and let provisioning recreate it.
         """
         tenant_id, schema, _reader, writer = _new_tenant()
         creator = f"w998_creator_{tenant_id.replace('-', '_')}"
@@ -683,6 +684,7 @@ class TestReportedStateMatchesWhatApplyEnforces:
             report = await run_adoption(engine, apply=True)
             assert tenant_id in report.failures
             assert "will not rewrite" in report.failures[tenant_id]
+            assert "DROP ROLE" in report.failures[tenant_id]
             assert not report.ok
         finally:
             async with engine.begin() as conn:

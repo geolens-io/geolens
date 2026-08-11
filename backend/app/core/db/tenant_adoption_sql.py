@@ -822,8 +822,16 @@ BEGIN
         END IF;
     END IF;
 
-    -- Both tenant roles' member lists, normalized together and here rather than
-    -- earlier: PostgreSQL 16+ grants the creating role an automatic ADMIN
+    -- Both tenant roles' member lists. Unlike the five fixed roles, the
+    -- creator shape is NOT tolerated here: catalog.provision_tenant_data_schema
+    -- is migration-owned, unchanged, and refuses any reader member outside
+    -- provisioner/sandbox/tile — so tolerating one only moves the failure to a
+    -- hintless refusal a few lines down. The remedy is in the message, and for
+    -- a creator edge it is the DROP ROLE branch: its grantor is the bootstrap
+    -- superuser, so nobody else can revoke it, while the tenant role owns
+    -- nothing at this point and provisioning recreates it.
+    --
+    -- Here rather than earlier: PostgreSQL 16+ grants the creating role an automatic ADMIN
     -- membership, so a non-superuser migrator that replayed the globals dump is
     -- a direct member of every restored reader and writer, which the
     -- provisioning function refuses outright.
@@ -850,10 +858,6 @@ BEGIN
         LEFT JOIN pg_catalog.pg_roles AS grantor_role
           ON grantor_role.oid = membership.grantor
         WHERE granted_role.rolname = reader_name
-          -- The automatic creator membership is tolerated here for the same
-          -- reason the cluster guard tolerates it: nobody can revoke it, and it
-          -- confers nothing.
-          AND NOT {_MEMBERSHIP_CREATOR_SHAPE}
           AND (
               member_role.rolname NOT IN ('{PROVISIONER}', '{SANDBOX}', '{TILE}')
               OR (
@@ -897,10 +901,6 @@ BEGIN
         LEFT JOIN pg_catalog.pg_roles AS grantor_role
           ON grantor_role.oid = membership.grantor
         WHERE granted_role.rolname = writer_name
-          -- The automatic creator membership is tolerated here for the same
-          -- reason the cluster guard tolerates it: nobody can revoke it, and it
-          -- confers nothing.
-          AND NOT {_MEMBERSHIP_CREATOR_SHAPE}
           AND (
               member_role.rolname NOT IN ('{PROVISIONER}', '{WRITER}')
               OR (
