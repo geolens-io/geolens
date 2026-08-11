@@ -59,6 +59,12 @@ import { clearPersistedFolderGroup, getParentGroupId, resolveDropGroupMembership
 import { SidebarRail } from '@/components/builder/SidebarRail';
 import { LayerEditorPanel, type LayerEditorHandlers } from '@/components/builder/LayerEditorPanel';
 import { EphemeralBadge } from '@/components/builder/EphemeralBadge';
+import { previewSaveMode } from '@/components/builder/ephemeral-preview';
+// feat(#1241): only mounted while the save dialog is open, and it pulls in the
+// import page's metadata form — lazy so the builder's initial chunk is unchanged.
+const SaveChatPreviewDialog = lazy(() =>
+  import('@/components/builder/SaveChatPreviewDialog').then((m) => ({ default: m.SaveChatPreviewDialog }))
+);
 import { MapToolbar } from '@/components/builder/MapToolbar';
 import { MapTitleBar } from '@/components/builder/MapTitleBar';
 import { BuilderRail, type RailPanel } from '@/components/builder/BuilderRail';
@@ -79,6 +85,7 @@ import { MapErrorBoundary, PanelErrorBoundary } from '@/components/error';
 import { LazyLoadErrorBoundary } from '@/components/error/LazyLoadErrorBoundary';
 import { useMap, useAddLayer, useRemoveLayer } from '@/hooks/use-maps';
 import { useAIAvailability } from '@/hooks/use-ai-availability';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { useEnabledPlugins } from '@/hooks/use-settings';
 import { useBuilderLayout } from '@/components/builder/hooks/use-builder-layout';
@@ -137,6 +144,13 @@ export function MapBuilderPage() {
   const removeLayer = useRemoveLayer();
 
   const { isAIAvailable: aiAvailable } = useAIAvailability();
+  // feat(#1241): saving a chat preview creates a dataset through POST
+  // /ingest/*, which needs the caller's own `upload` capability — the map's
+  // edit rights say nothing about it. can() is false while the query is in
+  // flight, which is the safe way round: the affordance appears once the
+  // capability is known rather than 403ing after the user has named a dataset.
+  const { can } = usePermissions();
+  const canUpload = can('upload');
   useDocumentTitle(mapData?.name ?? t('common:pageTitle.mapBuilder'));
 
   // Three-column layout: isRail (sidebar→64px at <1100px), isEditorHidden (flyout hidden at <800px)
@@ -944,21 +958,46 @@ export function MapBuilderPage() {
     setRailPanel('analysis');
   }, [ephemeralAnalysis]);
 
+  // feat(#1241): the same affordance for a preview with no analysis behind it —
+  // a plain chat query result, which until now could only be dismissed. The
+  // draft snapshots the FeatureCollection at the moment the dialog opens, so a
+  // new chat turn (or a dismiss) landing mid-dialog can't swap what gets saved
+  // out from under the name the user is typing.
+  const [chatSaveDraft, setChatSaveDraft] = useState<{
+    geojson: GeoJSON.FeatureCollection;
+    prompt?: string;
+  } | null>(null);
+  const ephemeralResult = layers.ephemeralResult;
+  const handleSaveChatPreview = useCallback(() => {
+    if (!ephemeralResult) return;
+    setChatSaveDraft({ geojson: ephemeralResult.geojson, prompt: ephemeralResult.prompt });
+  }, [ephemeralResult]);
+
   // fix(#1009): the preview's stack-row props. Memoized because a fresh object
   // literal on the UnifiedStackPanel prop would defeat its memo() on every
   // render of this (very large) page.
   const previewRowProps = useMemo(() => {
     const result = layers.ephemeralResult;
     if (!result) return null;
+    const featureCount = result.geojson.features.length;
+    // feat(#1241): which save (if any) this preview earns — the truncation
+    // guard and the upload-capability gate both live in previewSaveMode.
+    const saveMode = previewSaveMode({ ...result, featureCount }, canUpload);
     return {
-      featureCount: result.geojson.features.length,
+      featureCount,
       truncated: result.truncated,
       totalCount: result.totalCount,
       viewportScoped: result.viewportScoped,
       onDismiss: layers.handleDismissEphemeral,
-      onSaveAsDataset: ephemeralAnalysis ? handleSaveAnalysisPreview : undefined,
+      onSaveAsDataset:
+        saveMode === 'analysis'
+          ? handleSaveAnalysisPreview
+          : saveMode === 'snapshot'
+          ? handleSaveChatPreview
+          : undefined,
+      saveDisabledReason: saveMode === 'truncated' ? ('truncated' as const) : undefined,
     };
-  }, [layers.ephemeralResult, layers.handleDismissEphemeral, ephemeralAnalysis, handleSaveAnalysisPreview]);
+  }, [layers.ephemeralResult, layers.handleDismissEphemeral, canUpload, handleSaveAnalysisPreview, handleSaveChatPreview]);
 
   // ux(#772): stack-row kebab "Analyze this layer" — the same handoff path the
   // chat preview uses, so the panel opens (or remounts, via the prefill nonce
@@ -2098,6 +2137,7 @@ export function MapBuilderPage() {
               totalCount={previewRowProps.totalCount}
               viewportScoped={previewRowProps.viewportScoped}
               onSaveAsDataset={previewRowProps.onSaveAsDataset}
+              saveDisabledReason={previewRowProps.saveDisabledReason}
             />
           )}
 
@@ -2269,6 +2309,23 @@ export function MapBuilderPage() {
               mapName={layers.localName}
               open={showStyleJson}
               onOpenChange={setShowStyleJson}
+            />
+          </Suspense>
+        </LazyLoadErrorBoundary>
+      )}
+
+      {/* feat(#1241): snapshot a chat query preview into a real dataset.
+          Mounted only while open, for the same reason StyleJsonDialog above is
+          — an always-mounted lazy component resolves its import on first paint
+          and the split buys nothing. */}
+      {chatSaveDraft && (
+        <LazyLoadErrorBoundary>
+          <Suspense fallback={null}>
+            <SaveChatPreviewDialog
+              open
+              onOpenChange={(open) => { if (!open) setChatSaveDraft(null); }}
+              geojson={chatSaveDraft.geojson}
+              prompt={chatSaveDraft.prompt}
             />
           </Suspense>
         </LazyLoadErrorBoundary>

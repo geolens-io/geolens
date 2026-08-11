@@ -163,7 +163,12 @@ describe('ChatPanel', () => {
     await typeAndSend(user, 'find features');
 
     await waitFor(() => {
-      expect(props.onQueryResult).toHaveBeenCalledWith(geojson, bbox, undefined);
+      // feat(#1241): the meta now always carries the prompt behind the result,
+      // so a plain preview (no truncation, no analysis) can be saved as a
+      // dataset with its question suggested as the name.
+      expect(props.onQueryResult).toHaveBeenCalledWith(geojson, bbox, {
+        prompt: 'find features',
+      });
     });
   });
 
@@ -193,6 +198,7 @@ describe('ChatPanel', () => {
       expect(props.onQueryResult).toHaveBeenCalledWith(geojson, bbox, {
         truncated: true,
         totalCount: 10651,
+        prompt: 'buffer the earthquakes by 10km',
       });
     });
   });
@@ -223,6 +229,7 @@ describe('ChatPanel', () => {
     await waitFor(() => {
       expect(props.onQueryResult).toHaveBeenCalledWith(geojson, bbox, {
         truncated: true,
+        prompt: 'clip the buildings to the flood zone',
       });
     });
   });
@@ -248,7 +255,10 @@ describe('ChatPanel', () => {
     await typeAndSend(user, 'clip the buildings to the flood zone');
 
     await waitFor(() => {
-      expect(props.onQueryResult).toHaveBeenCalledWith(geojson, bbox, undefined);
+      // No `truncated` key at all — an uncapped result must not disclose one.
+      expect(props.onQueryResult).toHaveBeenCalledWith(geojson, bbox, {
+        prompt: 'clip the buildings to the flood zone',
+      });
     });
   });
 
@@ -309,6 +319,7 @@ describe('ChatPanel', () => {
     await waitFor(() => {
       expect(props.onQueryResult).toHaveBeenCalledWith(geojson, bbox, {
         analysis: { operation: 'buffer', layerId: 'layer-1', distanceMeters: 500 },
+        prompt: 'buffer the schools by 500m',
       });
     });
   });
@@ -1654,7 +1665,9 @@ describe('ChatPanel — inline data-analysis card (Phase 1135 AI-08)', () => {
     const props = renderPanel();
     await typeAndSend(user, 'find spatial features');
     await waitFor(() => {
-      expect(props.onQueryResult).toHaveBeenCalledWith(geojson, bbox, undefined);
+      expect(props.onQueryResult).toHaveBeenCalledWith(geojson, bbox, {
+        prompt: 'find spatial features',
+      });
     });
     // Negative control — no inline card when rows is absent
     expect(screen.queryByRole('region', { name: /query result table/i })).not.toBeInTheDocument();

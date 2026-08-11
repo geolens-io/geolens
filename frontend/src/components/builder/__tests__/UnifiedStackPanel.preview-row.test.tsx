@@ -271,6 +271,63 @@ describe('#1009: the row carries everything the badge offered', () => {
     expect(screen.queryByTestId('ephemeral-preview-save')).not.toBeInTheDocument();
   });
 
+  // feat(#1241): a plain chat preview can now be snapshotted into a dataset,
+  // so "no analysis behind it" no longer means "no save" — but a capped one
+  // still must not be saveable, and must say why rather than go quiet.
+  it('offers the save on a plain chat preview', () => {
+    const onSaveAsDataset = vi.fn();
+    render(
+      <UnifiedStackPanel
+        {...defaultProps({ layers, preview: makePreview({ featureCount: 240, onSaveAsDataset }) })}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('ephemeral-preview-save'));
+    expect(onSaveAsDataset).toHaveBeenCalledTimes(1);
+  });
+
+  it('disables the save on a truncated preview and says why', () => {
+    render(
+      <UnifiedStackPanel
+        {...defaultProps({
+          layers,
+          preview: makePreview({
+            featureCount: 500,
+            totalCount: 10651,
+            truncated: true,
+            saveDisabledReason: 'truncated',
+          }),
+        })}
+      />,
+    );
+
+    const save = screen.getByTestId('ephemeral-preview-save');
+    expect(save).toBeDisabled();
+    // The "N of M" the disabled state is explained by is still on the row.
+    expect(screen.getByText('500 of 10,651 features')).toBeInTheDocument();
+    const reason = screen.getByText(/Capped previews can't be saved/i);
+    expect(reason).toBeInTheDocument();
+    // Visible text, and wired to the control — a disabled button gets no
+    // hover and no focus, so a title tooltip would reach nobody.
+    expect(save).toHaveAttribute('aria-describedby', reason.getAttribute('id'));
+  });
+
+  it('never fires a save from the disabled affordance', () => {
+    const onSaveAsDataset = vi.fn();
+    render(
+      <UnifiedStackPanel
+        {...defaultProps({
+          layers,
+          // Both props set is not a state the page produces; pinning it here
+          // keeps the row's own contract ("disabled means disabled") true
+          // independently of the caller that decides.
+          preview: makePreview({ truncated: true, saveDisabledReason: 'truncated', onSaveAsDataset }),
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('ephemeral-preview-save'));
+    expect(onSaveAsDataset).not.toHaveBeenCalled();
+  });
+
   it('dismisses the preview from the row', () => {
     const onDismiss = vi.fn();
     render(<UnifiedStackPanel {...defaultProps({ layers, preview: makePreview({ onDismiss }) })} />);

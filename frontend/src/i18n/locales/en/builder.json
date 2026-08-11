@@ -1088,7 +1088,15 @@
     "featureCountCapped_one": "first {{count, number}} feature",
     "featureCountCapped_other": "first {{count, number}} features",
     "dismiss": "Dismiss result",
-    "saveAsDataset": "Save as dataset…"
+    "saveAsDataset": "Save as dataset…",
+    "saveTruncatedReason": "Capped previews can't be saved — this is part of the answer, not all of it."
+  },
+  "savePreview": {
+    "title": "Save preview as dataset",
+    "description": "Saves the previewed features as a new dataset. It is a snapshot of this answer, not a live query — it will not change when the source data does.",
+    "fallbackTitle": "Chat query result",
+    "started": "Import started. The dataset appears in your catalog once processing finishes.",
+    "failed": "Could not save the preview as a dataset."
   },
   "previewRow": {
     "ephemeralTag": "Ephemeral — not saved"

@@ -325,7 +325,14 @@ interface ChatPanelProps {
   onQueryResult?: (
     geojson: GeoJSON.FeatureCollection,
     bbox: [number, number, number, number],
-    meta?: { truncated?: boolean; totalCount?: number; analysis?: EphemeralAnalysisHandoff },
+    meta?: {
+      truncated?: boolean;
+      totalCount?: number;
+      analysis?: EphemeralAnalysisHandoff;
+      /** feat(#1241): the prompt this result answers, so the builder can
+       *  suggest a title when the preview is saved as a dataset. */
+      prompt?: string;
+    },
   ) => void;
   /** fix(#676): clears the single-slot ephemeral overlay when a turn's winning
    *  result carries no geometry — otherwise a stale overlay from an earlier
@@ -488,7 +495,7 @@ export function ChatPanel({
     return t('chat.errorFriendly');
   }
 
-  function dispatchQueryResult(action: ChatAction) {
+  function dispatchQueryResult(action: ChatAction, prompt = '') {
     const geojson = action.geojson;
     if (!geojson) {
       // fix(#676): the turn's winning result has no geometry (empty analysis,
@@ -548,10 +555,17 @@ export function ChatPanel({
                 : {}),
             }
           : undefined;
+      // feat(#1241): the prompt rides along so a plain chat preview — one with
+      // no `analysis` behind it, which #675 could not offer anything for — can
+      // be saved as a dataset with its question already suggested as the title.
       onQueryResult?.(
         geojson as GeoJSON.FeatureCollection,
         [minX, minY, maxX, maxY],
-        truncation || analysis ? { ...truncation, ...(analysis ? { analysis } : {}) } : undefined,
+        {
+          ...truncation,
+          ...(analysis ? { analysis } : {}),
+          ...(prompt ? { prompt } : {}),
+        },
       );
     }
   }
@@ -709,6 +723,10 @@ export function ChatPanel({
         }
         return false;
       case 'show_query_result':
+        // Unreachable in practice: applyActions dispatches the turn's winning
+        // query result itself (and never routes one here), and staging only
+        // ever accepts destructive actions. Kept for exhaustiveness — with no
+        // turn prompt to hand it, feat(#1241)'s title suggestion falls back.
         dispatchQueryResult(action);
         return false;
       case 'add_layer': {
@@ -770,7 +788,7 @@ export function ChatPanel({
    * start of every turn, so a query-only turn leaves it null and the undo affordance
    * can never outlive the turn that created it.
    */
-  function applyActions(actions: ChatAction[], pendingActions: ChatAction[]) {
+  function applyActions(actions: ChatAction[], pendingActions: ChatAction[], prompt: string) {
     if (actions.length === 0) return;
     const mutatingActions = actions.filter(
       (action) => action.type !== 'show_query_result' && !isDestructiveAction(action),
@@ -793,7 +811,7 @@ export function ChatPanel({
       if (action.type === 'show_query_result') {
         // Record every result in pendingActions (message history keeps the
         // full sequence; the card renderer picks the last).
-        if (action === winningQueryResult) dispatchQueryResult(action);
+        if (action === winningQueryResult) dispatchQueryResult(action, prompt);
         pendingActions.push(action);
         continue;
       }
@@ -870,7 +888,7 @@ export function ChatPanel({
           setToolProgress(null);
           break;
         case 'actions':
-          applyActions(getChatActions(data.actions), pendingActions);
+          applyActions(getChatActions(data.actions), pendingActions, userMsg);
           break;
         case 'done': {
           const finalText = (typeof data.explanation === 'string' ? data.explanation : '') || streamState.text;
@@ -918,7 +936,7 @@ export function ChatPanel({
     try {
       const response = await sendChatMessage(mapId, userMsg, layers, i18n.language, [...history, { role: 'user', content: userMsg }]);
       const responseActions = getChatActions(response.actions);
-      applyActions(responseActions, pendingActions);
+      applyActions(responseActions, pendingActions, userMsg);
       // Phase 1135 AI-03: clear any existing error banner on non-streaming success.
       setErrorBanner(null);
       setMessages((prev) => [

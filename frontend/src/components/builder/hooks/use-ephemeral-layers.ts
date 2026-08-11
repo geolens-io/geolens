@@ -41,6 +41,13 @@ export function useEphemeralLayers(
     /** feat(#675): present when the overlay came from a chat run_analysis
      *  preview the builder can hand off to the Analysis panel. */
     analysis?: EphemeralAnalysisHandoff;
+    /** feat(#1241): the chat prompt that produced this preview. The builder
+     *  uses it to suggest a title when the preview is saved as a dataset —
+     *  the same "a handoff lands on the save form with a title already in it"
+     *  pattern AnalysisPanel's prefill uses. Absent for Analysis-panel
+     *  previews (they carry `analysis` instead) and for the cold-load
+     *  handoff, which stashes geometry only. */
+    prompt?: string;
     /** fix(#793 review): stamped by the Analysis panel's own previews so
      *  its stale-restore cleanup can tell them from a chat result sharing
      *  this slot — it must never clear an overlay someone else drew. */
@@ -165,6 +172,7 @@ export function useEphemeralLayers(
       totalCount?: number;
       viewportScoped?: boolean;
       analysis?: EphemeralAnalysisHandoff;
+      prompt?: string;
       source?: 'analysis-panel';
     },
   ) => {

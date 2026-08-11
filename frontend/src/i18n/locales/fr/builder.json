@@ -1088,7 +1088,15 @@
     "featureCountTruncatedScoped_other": "{{count, number}} sur {{total, number}} entités dans l'étendue prévisualisée",
     "featureCountCapped_one": "{{count, number}} première entité",
     "featureCountCapped_other": "{{count, number}} premières entités",
-    "saveAsDataset": "Enregistrer comme jeu de données…"
+    "saveAsDataset": "Enregistrer comme jeu de données…",
+    "saveTruncatedReason": "Les aperçus tronqués ne peuvent pas être enregistrés : ceci est une partie de la réponse, pas la totalité."
+  },
+  "savePreview": {
+    "title": "Enregistrer l'aperçu comme jeu de données",
+    "description": "Enregistre les entités de l'aperçu dans un nouveau jeu de données. C'est un instantané de cette réponse, pas une requête en direct : il ne changera pas lorsque les données source changeront.",
+    "fallbackTitle": "Résultat de requête du chat",
+    "started": "Import lancé. Le jeu de données apparaîtra dans votre catalogue une fois le traitement terminé.",
+    "failed": "Impossible d'enregistrer l'aperçu comme jeu de données."
   },
   "previewRow": {
     "ephemeralTag": "Éphémère — non enregistré"
