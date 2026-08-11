@@ -45,9 +45,10 @@ This module closes that gap structurally, in the spirit of
 2. **GDAL CLI subprocess argv is built next to the safe env or justified,
    per call.** Every argv list or tuple literal whose head names a
    gdal*/ogr* executable (the family, not a fixed list — codex round 10)
-   must sit in a FUNCTION that references ``gdal_safe_env``, or match a
-   ``GDAL_CLI_CALL_ALLOWLIST`` entry keyed (module, function, tool) with an
-   exact expected count and a justification.
+   must be covered by a ``gdal_safe_env()`` call in one of the ALLOWLISTED
+   SHAPES below (fix(#1077)), or match a ``GDAL_CLI_CALL_ALLOWLIST`` entry
+   keyed (module, function, tool) with an exact expected count and a
+   justification.
 
 Both allowlists are asserted EXACT in both directions and by count, so an
 entry whose site disappears (or becomes wrapped) fails loudly instead of
@@ -64,13 +65,13 @@ Known limits (accepted trade-offs, same posture as the Rule-1 guard):
   unsure and its calls are UNCLASSIFIED violations. Re-exports of rasterio
   callables through intermediate modules stay invisible; no such shape
   exists in the codebase.
-- The CLI check is function-scoped with exact counts, not full dataflow: an
-  argv is credited when its ENCLOSING FUNCTION references ``gdal_safe_env``,
-  and unclamped argvs are counted per (module, function, tool) against the
-  allowlist. A function that calls the helper for one subprocess and
-  hand-rolls a second env in the SAME function for the SAME tool would still
-  pass; verifying which env reaches which ``subprocess.run`` is reviewer
-  territory.
+- The CLI check is shape-scoped with exact counts, not full dataflow: an argv
+  is credited when a ``gdal_safe_env()`` call in one of the allowlisted shapes
+  covers it (see CREDIT IS AN ALLOWLIST below), and unclamped argvs are
+  counted per (module, function, tool) against the allowlist. A function that
+  calls the helper for one subprocess and hand-rolls a second env in the SAME
+  function for the SAME tool would still pass; verifying which env reaches
+  which ``subprocess.run`` is reviewer territory.
 - Argv built dynamically (``cmd = [tool_var, ...]``) is not matched. Every
   GDAL CLI call in the codebase starts from a string-literal argv head.
 - A GDAL-headed literal counts as an argv only when its value ESCAPES —
@@ -116,9 +117,10 @@ Known limits (accepted trade-offs, same posture as the Rule-1 guard):
   so their targets cannot shadow a name used elsewhere in the enclosing
   function. Two carve-outs match Python: the outermost iterable is evaluated
   before the comprehension's scope exists, and a walrus inside a
-  comprehension binds in the CONTAINING scope (PEP 572). They remain
-  transparent to CLI call-credit, where the question is whether the scope's
-  immediate body runs the helper and only def/lambda defer.
+  comprehension binds in the CONTAINING scope (PEP 572). For CLI call-credit
+  they are no longer transparent (fix(#1077)): only that outermost iterable is
+  an allowlisted position, because a comprehension body runs once per item and
+  an empty iterable runs it never.
 - Wrapping is judged lexically, with two execution-order rules (codex round
   6): credit stops at def/lambda boundaries (a callable defined inside a
   wrapped block runs after the context exits), and within one ``with``
@@ -137,50 +139,77 @@ Known limits (accepted trade-offs, same posture as the Rule-1 guard):
   violation prompting a review, never silent credit for a shadow. Class
   bodies are not modeled as scopes, and ``global``/``nonlocal``
   rebinding is not tracked.
-- CLI credit stops at the CALL level: the function must actually call the
-  canonical ``gdal_safe_env``, but whether that call's RESULT is the env
-  passed to the subprocess is not verified. Wiring the returned dict to the
-  ``subprocess.run(env=...)`` argument is dataflow analysis — reviewer
-  territory, documented, not promised.
-- Credit is denied for a call whose body is DEFERRED, and that set is closed:
-  generator expression, lambda, nested def/async def. Those are the only
-  constructs in Python whose body does not run at construction — verified by
-  measurement, not inspection. Comprehensions, class bodies, decorator
-  expressions and default arguments are all eager. So a novel AST shape is
-  not automatically a new deferral case; check which class it is first.
-  ``functools.partial(gdal_safe_env)`` needs no rule at all: it is a call to
+- CLI credit stops at the CALL level: a call to the canonical
+  ``gdal_safe_env`` in an allowlisted position credits the argv, but whether
+  that call's RESULT is the env handed to the subprocess is not verified.
+  Wiring the returned dict to the ``subprocess.run(env=...)`` argument is
+  dataflow analysis — reviewer territory, documented, not promised. One
+  half-step is taken, since ``gdal_safe_env`` is a pure function whose result
+  IS the protection: a call that drops it clamps nothing. So a bare
+  ``gdal_safe_env()`` statement, and ``env = gdal_safe_env()`` whose target is
+  never read, both report.
+- CREDIT IS AN ALLOWLIST OF SHAPES (fix(#1077)). Credit used to be granted by
+  WALKING the scope: any canonical call the walk reached exempted every argv
+  in that scope. That is a broad exemption from a narrow observation, and it
+  failed in the direction that matters — a call that is SEEN but not RUN
+  (``if False:``, an untaken ternary arm, an unreached ``match`` case)
+  produced silent credit in a security gate. Patching that shape by shape does
+  not converge, because every conditional structure is another instance of it.
+
+  So the default is inverted. A helper call credits an argv only when both of
+  these hold, and reports otherwise:
+
+  1. POSITION. Every step from the call up to the lowest common ancestor it
+     shares with the argv is an allowlisted eager position (see
+     ``_EAGER_POSITIONS``: a ``try`` body or ``finally``, a ``with`` body or
+     item, the value of an assignment or a ``return``, an argument of a call,
+     an element of a list/tuple/set display, an ``await``, and the outermost
+     iterable of a comprehension). At the shared ancestor the two must meet in
+     the same field — the same branch, the same statement list — or both sit
+     in eager positions of it, which is what lets ``subprocess.run(argv,
+     env=gdal_safe_env())`` credit across the args/keywords split.
+  2. SHAPE. The result has to go somewhere. ``env = gdal_safe_env(...)``
+     (annotated or not) credits only when the target is read; a bare
+     ``gdal_safe_env()`` statement discards the env and credits nothing. A
+     call handed straight into another call, bound by a walrus or returned
+     carries no extra condition.
+
+  What that buys. The three conditional shapes report. The DEFERRED set
+  (generator expression, lambda, nested def/async def — measured on #996, and
+  the only constructs in Python whose body does not run at construction) is
+  denied by the same machinery rather than by a rule of its own, at every
+  nesting level: the hole #996 left, ``(x for x in (gdal_safe_env() for _ in
+  ()))``, closes because positions compose.
+  ``functools.partial(gdal_safe_env)`` still needs no rule — it is a call to
   ``partial``, and ``_is_canonical_helper_call`` resolves the Call's OWN
   ``func``, so it never credits. Do not add one.
-- CREDIT HAS THREE KNOWN GAP CLASSES. Naming them is the point: a gate whose
-  limits are documented is usable, one whose limits are silent is not. All
-  three are closed at once by the allowlist inversion in #1077, which is why
-  they are tracked there rather than patched shape by shape here.
 
-  1. DEFERRAL — closed, but the rule must be applied at EVERY level. The
-     deferred-body set has three members and that is the whole of it. What is
-     not closed is the implementation: a genexp's outermost iterable is eager
-     and is therefore scanned, but if that iterable is *itself* a generator
-     expression, the scan re-enters and must re-apply the rule.
-     ``(x for x in (gdal_safe_env() for _ in ()))`` credits today and should
-     not. An enumeration being finite does not make an implementation of it
-     complete.
-  2. CONDITIONALITY — open. A call under ``if False:``, in an untaken ternary
-     arm, or in an unreached ``match`` case still credits the scope. That is
-     the #974 boundary: credit asks whether the helper is called in this
-     scope, not whether that line executes. There is no finite enumeration —
-     every conditional structure is another instance.
-  3. REACHABILITY — open, and the widest. How a value gets to the call is not
-     modelled beyond the paths this file names. ``commands = (["gdalinfo",
-     path],)`` then ``for cmd in commands: subprocess.run(cmd)`` reports zero
-     sites, because extraction follows subscript and attribute loads and not
-     ``For.iter``. Named container, dict value, function return, class
-     attribute, module global, unpacking, ``itertools`` — this class has as
-     many members as the language has expressions.
+  What it costs. A legitimate call in a shape nobody named reports as
+  unclamped. That is the trade: a false alarm someone investigates, never a
+  silent pass. Measured on #1077, all 11 GDAL CLI argv sites in ``app/`` keep
+  the verdict they had — the 4 that hold safe-env credit still hold it, the 7
+  covered by ``GDAL_CLI_CALL_ALLOWLIST`` entries are untouched — and
+  ``test_guard_real_tree_credit_shapes_are_all_allowlisted`` pins the shapes
+  those 4 use, so a later narrowing fails there instead of in a
+  reviewer's head. When a real site lands in a shape the list does not name,
+  widen ``_EAGER_POSITIONS`` deliberately with a comment saying which site
+  bought the entry, or take a ``GDAL_CLI_CALL_ALLOWLIST`` entry with a
+  justification.
 
-  Two of the three are unbounded, and patching them individually is what
-  #1077 exists to stop. An allowlist does not need to know how a value
-  reaches a call, or which shapes defer: anything it cannot positively
-  recognise reports. That is bounded by construction; this is not.
+  The WRAPPER path (``with gdal_safe_open_env():``, the rasterio half) already
+  worked this way and is unchanged: credit is lexical containment in the with
+  block, so a wrapped open under ``if False:`` is conditional together with
+  its wrapper and the question never arises.
+
+  Still open, and NOT something an allowlist can close: whether a GDAL-headed
+  literal is SEEN as an argv at all. ``commands = (["gdalinfo", path],)`` then
+  ``for cmd in commands: subprocess.run(cmd)`` reports zero sites, because
+  extraction follows subscript and attribute loads and not ``For.iter`` (see
+  WHERE THE ESCAPE ANALYSIS STOPS above). That is a detection gap, not a
+  credit gap. Earlier text here filed it as the third of three "credit gap
+  classes" that #1077 would close at once, which conflated two questions:
+  credit decides which DETECTED sites are exempt, and no exemption rule makes
+  an undetected site appear.
 - Remote-source detection is LITERAL only (codex round 7): an open or argv
   whose argument is, or obviously leads with, a remote-prefixed string
   literal (http/https, ``/vsicurl*``, hardcoded ``/vsis3``/``/vsiaz``/
@@ -428,9 +457,9 @@ _SCOPE_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
 # their targets bind inside them, not in the enclosing function. Kept as a
 # separate tuple rather than folded into _SCOPE_NODES because the two are used
 # for different questions: _SCOPE_NODES means "a callable whose body runs
-# LATER" (the boundary rules in _inside_safe_open_env and _scope_uses_safe_env,
-# and the only nodes with a `.args` for _record_params), while _LEXICAL_SCOPES
-# means "a scope that owns its own names" (binding resolution).
+# LATER" (the boundary rule in _inside_safe_open_env, and the only nodes with a
+# `.args` for _record_params), while _LEXICAL_SCOPES means "a scope that owns
+# its own names" (binding resolution).
 _COMPREHENSION_NODES = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
 _LEXICAL_SCOPES = (*_SCOPE_NODES, *_COMPREHENSION_NODES)
 
@@ -549,31 +578,23 @@ def _comprehension_walrus_targets(comp: ast.AST):
         yield from _comprehension_walrus_targets(child)
 
 
-def _iter_immediate(node: ast.AST, *, stop_at_comprehensions: bool = True):
+def _iter_immediate(node: ast.AST):
     """Yield descendants of ``node`` without entering nested scopes; nested
     scope NODES themselves are yielded (their names bind in this scope).
 
-    fix(#996): comprehensions stop the walk by default, because their targets
-    bind in their OWN scope. They did not before, so a function containing
+    fix(#996): comprehensions stop the walk, because their targets bind in
+    their OWN scope. They did not before, so a function containing
     ``[rasterio for rasterio in tools]`` recorded ``rasterio`` as bound in the
     function and a genuine ``rasterio.open(path)`` elsewhere in that same
     function resolved to _OTHER — an unwrapped open reported as zero opens.
 
-    ``stop_at_comprehensions=False`` keeps the pre-#996 walk for the CLI
-    call-credit scan, which asks a different question (does this scope's
-    IMMEDIATE body call gdal_safe_env) and where a comprehension body does run
-    immediately. Only def/lambda defer, and that boundary is unchanged.
+    fix(#1077): this walk now answers ONE question, binding resolution. CLI
+    call-credit used to borrow it with ``stop_at_comprehensions=False`` and
+    decide execution from what the walk reached; credit is now a position
+    allowlist (``_EAGER_POSITIONS``) that reads the AST upward instead, so the
+    second mode is gone.
     """
-    stop = (
-        (*_LEXICAL_SCOPES, ast.ClassDef)
-        if stop_at_comprehensions
-        # fix(#996 review): a GeneratorExp stops the walk either way. Its body
-        # is deferred like a lambda's — building the generator runs nothing —
-        # so descending into it would credit a scope for a call that never
-        # executed. Callers that care about its eagerly-evaluated first
-        # iterable handle that themselves.
-        else (*_SCOPE_NODES, ast.GeneratorExp, ast.ClassDef)
-    )
+    stop = (*_LEXICAL_SCOPES, ast.ClassDef)
     for child in ast.iter_child_nodes(node):
         yield child
         if isinstance(child, stop):
@@ -586,7 +607,7 @@ def _iter_immediate(node: ast.AST, *, stop_at_comprehensions: bool = True):
                 # rebinding unrecorded.
                 yield from _comprehension_walrus_targets(child)
             continue
-        yield from _iter_immediate(child, stop_at_comprehensions=stop_at_comprehensions)
+        yield from _iter_immediate(child)
 
 
 def _record_params(info: _ScopeInfo, scope: ast.AST) -> None:
@@ -964,41 +985,178 @@ def _enclosing_function_node(
     return None
 
 
-def _scope_uses_safe_env(root: ast.AST, rel: str) -> bool:
-    """True when the scope ITSELF calls the canonical gdal_safe_env.
+# fix(#1077): the POSITIONS that can carry safe-env credit, as an allowlist.
+# Every entry names a place where the child expression or statement runs
+# exactly once whenever the construct holding it runs — the property credit
+# actually depends on. A helper call reached through any position NOT named
+# here grants nothing: an `if`/`else` branch, a ternary arm, a `match` case, a
+# loop or comprehension body, an `except` handler, a deferred def/lambda/genexp
+# body, and every shape nobody has thought of yet all land outside, and the
+# argv reports. Widening this dict is a deliberate, reviewed act.
+_EAGER_POSITIONS: dict[type[ast.AST], frozenset[str]] = {
+    # Statements: a `try` body runs on entry and its `finally` on the way out;
+    # a `with` opens its items left to right and then runs its body.
+    ast.Try: frozenset({"body", "finalbody"}),
+    ast.TryStar: frozenset({"body", "finalbody"}),
+    ast.With: frozenset({"body", "items"}),
+    ast.AsyncWith: frozenset({"body", "items"}),
+    ast.withitem: frozenset({"context_expr"}),
+    # Expressions, within one statement. `return run_gdal(cmd,
+    # env=gdal_safe_env())` is the most direct wiring there is and had to be
+    # named explicitly, or the tree's own `_build_vrt` shape would lose credit
+    # the day someone dropped its intermediate variable.
+    ast.Return: frozenset({"value"}),
+    ast.Expr: frozenset({"value"}),
+    ast.Assign: frozenset({"value"}),
+    ast.AnnAssign: frozenset({"value"}),
+    ast.AugAssign: frozenset({"value"}),
+    ast.NamedExpr: frozenset({"value"}),
+    ast.Await: frozenset({"value"}),
+    ast.Call: frozenset({"args", "keywords"}),
+    ast.keyword: frozenset({"value"}),
+    ast.Starred: frozenset({"value"}),
+    ast.List: frozenset({"elts"}),
+    ast.Tuple: frozenset({"elts"}),
+    ast.Set: frozenset({"elts"}),
+}
 
-    codex round 4 on #974: a bare Name reference (assignment, log line, dead
-    code) credited the scope while the subprocess ran with a hand-rolled
-    env. Credit requires an actual Call whose target resolves to the
-    canonical binding. Whether the call's RESULT is the env handed to the
-    subprocess is not verified — Call-level is the documented stop.
 
-    codex round 5 on #974: the call must be in the scope's IMMEDIATE body —
-    a call inside a nested def or lambda runs on that nested scope's
-    schedule (or never), so it may not credit the outer function's argv.
+def _position_field(child: ast.AST, parent: ast.AST) -> str | None:
+    """The field of ``parent`` that holds ``child`` (``"body"``, ``"value"``…)."""
+    for name, value in ast.iter_fields(parent):
+        if value is child:
+            return name
+        if isinstance(value, list) and any(item is child for item in value):
+            return name
+    return None
 
-    fix(#996): list/set/dict comprehensions stay transparent here — their
-    bodies run as part of the enclosing statement, so a helper call inside one
-    still credits this scope.
 
-    fix(#996 review): a GENERATOR EXPRESSION does not. Building
-    ``(gdal_safe_env() for _ in ())`` executes nothing, so crediting the scope
-    for a call in its body handed safe-env credit to a function that never
-    ran it — an unclamped argv beside it would pass. This module lumped
-    generator expressions in with the eager comprehensions, and its own
-    comment claimed only def and lambda defer. Both were wrong: the genexp
-    body is deferred exactly like a lambda's. Its OUTERMOST iterable is
-    evaluated eagerly at construction, so that part is still scanned.
+def _is_eager_position(child: ast.AST, parent: ast.AST) -> bool:
+    """True when ``child`` sits in an allowlisted eager position of ``parent``."""
+    field = _position_field(child, parent)
+    if field is None:
+        return False
+    # The OUTERMOST iterable of a comprehension or generator expression is the
+    # one part evaluated at construction (fix(#996)); the element, the `if`
+    # clauses and any later `for`'s iterable run per item, or never. Written as
+    # position rules so the recursion is automatic: the iterable of a genexp
+    # nested inside another genexp's element is not reached at all, which is
+    # the hole the hand-rolled scan left open.
+    if isinstance(parent, ast.comprehension):
+        owner = getattr(parent, "_rule2_parent", None)
+        generators = getattr(owner, "generators", None)
+        return field == "iter" and bool(generators) and generators[0] is parent
+    if isinstance(parent, _COMPREHENSION_NODES):
+        return (
+            field == "generators"
+            and bool(parent.generators)
+            and (parent.generators[0] is child)
+        )
+    return field in _EAGER_POSITIONS.get(type(parent), frozenset())
+
+
+def _credit_position_reaches(call: ast.AST, argv: ast.AST) -> bool:
+    """True when ``call`` runs on the same unconditional path as ``argv``.
+
+    Climbs from the helper call to the lowest common ancestor it shares with
+    the argv. Every step below that ancestor must be an allowlisted eager
+    position, so a call the gate cannot prove executes — under a branch, in a
+    loop body, inside a nested callable — never vouches for the argv. At the
+    common ancestor itself the two must meet in the SAME field — the same
+    branch, the same statement list — or BOTH sit in eager positions of it,
+    which is what makes ``subprocess.run(argv, env=gdal_safe_env())`` credit
+    (the args and the keywords of one call) while ``if flag: gdal_safe_env()``
+    beside an argv in the ``else``, or a helper in a ``try`` body beside an
+    argv in its ``except``, does not.
     """
-    for node in _iter_immediate(root, stop_at_comprehensions=False):
-        if isinstance(node, ast.GeneratorExp):
-            # Deferred body, eager first iterable.
-            if node.generators and _scope_uses_safe_env(node.generators[0].iter, rel):
-                return True
+    argv_child: dict[int, ast.AST] = {}
+    child: ast.AST = argv
+    parent = getattr(argv, "_rule2_parent", None)
+    while parent is not None:
+        argv_child[id(parent)] = child
+        child, parent = parent, getattr(parent, "_rule2_parent", None)
+
+    if id(call) in argv_child:
+        return False  # the argv is an argument OF the helper call, not clamped by it
+
+    child = call
+    parent = getattr(call, "_rule2_parent", None)
+    while parent is not None:
+        shared = argv_child.get(id(parent))
+        if shared is not None:
+            same_field = _position_field(child, parent) == _position_field(
+                shared, parent
+            )
+            return same_field or (
+                _is_eager_position(child, parent) and _is_eager_position(shared, parent)
+            )
+        if not _is_eager_position(child, parent):
+            return False
+        child, parent = parent, getattr(parent, "_rule2_parent", None)
+    return False
+
+
+def _credit_shape_is_named(call: ast.AST, scope: ast.AST) -> bool:
+    """True when the helper call's own shape is one the allowlist names.
+
+    ``gdal_safe_env`` is a pure function: it RETURNS the clamped env and
+    changes nothing global, so a call whose result goes nowhere clamps
+    nothing. Two spellings of nowhere are named here, because both read as
+    protection and are not: a bare ``gdal_safe_env()`` statement, whose result
+    is discarded, and ``env = gdal_safe_env()`` (annotated or not) with a
+    target nothing ever reads. Every other shape — the call handed into
+    another call, bound by a walrus, returned — passes this check; WHICH call
+    the env eventually reaches is still not verified, the documented
+    Call-level stop, unchanged.
+    """
+    parent = getattr(call, "_rule2_parent", None)
+    if isinstance(parent, ast.Expr) and parent.value is call:
+        return False
+    targets: list[ast.expr] = []
+    if isinstance(parent, ast.Assign) and parent.value is call:
+        targets = list(parent.targets)
+    elif isinstance(parent, ast.AnnAssign) and parent.value is call:
+        targets = [parent.target]
+    if not targets:
+        return True
+    names = {t.id for t in targets if isinstance(t, ast.Name)}
+    if len(names) != len(targets):
+        return False  # unpacking a helper call into a pattern is not a named shape
+    return any(
+        isinstance(node, ast.Name)
+        and isinstance(node.ctx, ast.Load)
+        and node.id in names
+        for node in ast.walk(scope)
+    )
+
+
+def _argv_has_safe_env_credit(argv: ast.AST, scope: ast.AST, rel: str) -> bool:
+    """True when an allowlisted gdal_safe_env shape covers ``argv``.
+
+    fix(#1077) inverts the old model. Credit used to be granted by WALKING the
+    scope: any canonical call the walk saw exempted every argv in that scope,
+    so a call that was seen but never executed (``if False:``, an untaken
+    ternary arm, an unreached ``match`` case) produced silent credit — a false
+    all-clear in a security gate, and an open-ended one, since every
+    conditional structure is another instance of it.
+
+    Credit is now granted only for shapes that can be NAMED: a call in an
+    eager, unconditional position relative to the argv (see
+    ``_EAGER_POSITIONS``), and, for the assignment form, one whose target is
+    actually read. Everything else reports as unclamped. That direction is
+    bounded by construction: a shape the gate does not recognise costs a false
+    alarm somebody investigates, never a silent pass.
+
+    codex round 4 on #974 still holds inside the shapes: credit requires an
+    actual Call resolving to the canonical binding, so a bare Name reference
+    (assignment of the function itself, a log line) earns nothing.
+    """
+    for node in ast.walk(scope):
+        if not isinstance(node, ast.Call):
             continue
-        if isinstance(node, ast.Call) and _is_canonical_helper_call(
-            node, SAFE_SUBPROCESS_ENV_HELPER, rel
-        ):
+        if not _is_canonical_helper_call(node, SAFE_SUBPROCESS_ENV_HELPER, rel):
+            continue
+        if _credit_shape_is_named(node, scope) and _credit_position_reaches(node, argv):
             return True
     return False
 
@@ -1767,7 +1925,7 @@ def _collect_gdal_cli_violations(
             # element gets no safe-env credit — the safe env cannot stop a
             # redirect (#937), so the site needs its own reviewed entry.
             remote = any(_is_remote_literal(elt) for elt in node.elts[1:])
-            if not remote and _scope_uses_safe_env(scope, rel):
+            if not remote and _argv_has_safe_env_credit(node, scope, rel):
                 continue
             key = (rel, func_name, tool_name)
             if remote:
@@ -3225,9 +3383,14 @@ def test_guard_generator_expression_does_not_grant_safe_env_credit():
     assert len(violations) == 1 and "(fn)" in violations[0]
 
 
-def test_guard_eager_comprehension_still_grants_safe_env_credit():
-    """The control: a list comprehension body DOES run as part of the
-    enclosing statement, so the credit it grants is real."""
+def test_guard_comprehension_body_no_longer_grants_safe_env_credit():
+    """fix(#1077) changed this verdict on purpose. A comprehension body is
+    eager only in the sense that it runs inside the enclosing statement —
+    ``[gdal_safe_env() for _ in ()]`` still executes nothing, so "eager" was
+    never the same claim as "runs". It is not a shape the position allowlist
+    names, so the argv beside it now reports. Nothing in ``app/`` builds its
+    env this way; the price of the stricter answer is a false alarm somebody
+    investigates, which is the direction this gate chooses."""
     violations, total = _collect_gdal_cli_violations(
         _mod(
             "import subprocess\n"
@@ -3239,7 +3402,7 @@ def test_guard_eager_comprehension_still_grants_safe_env_credit():
         {},
     )
     assert total == 1, (total, violations)
-    assert violations == []
+    assert len(violations) == 1 and "(fn)" in violations[0]
 
 
 def test_guard_generator_expression_outermost_iterable_is_still_eager():
@@ -3275,3 +3438,205 @@ def test_guard_comprehension_walrus_argv_is_detected():
     )
     assert total == 1, (total, violations)
     assert len(violations) == 1 and "(fn)" in violations[0]
+
+
+# ---------------------------------------------------------------------------
+# fix(#1077): credit is an ALLOWLIST of positions, not a walk that credits any
+# call it sees. The three shapes below all execute eagerly WHEN REACHED, so
+# #996's deferred-body rule never touched them; they credited silently until
+# the inversion. Each pairs the conditional form with the unconditional
+# control, because a gate that reports both is not the same gate.
+# ---------------------------------------------------------------------------
+
+
+def test_guard_call_under_a_branch_does_not_credit():
+    """``if False: gdal_safe_env()`` is a call the scan SEES and the process
+    never RUNS. The sibling with the same call in the straight-line body keeps
+    its credit."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "from app.processing.raster.vrt import gdal_safe_env\n"
+            "def branched(path):\n"
+            "    if False:\n"
+            "        env = gdal_safe_env()\n"
+            "    subprocess.run(['gdalinfo', path])\n"
+            "def straight(path):\n"
+            "    env = gdal_safe_env()\n"
+            "    subprocess.run(['gdalinfo', path], env=env)\n"
+        ),
+        {},
+    )
+    assert total == 2, (total, violations)
+    assert len(violations) == 1, violations
+    assert "(branched)" in violations[0]
+
+
+def test_guard_untaken_ternary_arm_does_not_credit():
+    """An arm of a conditional expression is chosen at runtime, so a helper
+    call in one of them proves nothing about the argv beside it."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "from app.processing.raster.vrt import gdal_safe_env\n"
+            "def ternary(path, flag):\n"
+            "    env = gdal_safe_env() if flag else None\n"
+            "    subprocess.run(['gdalinfo', path], env=env)\n"
+            "def unconditional(path):\n"
+            "    subprocess.run(['gdalinfo', path], env=gdal_safe_env())\n"
+        ),
+        {},
+    )
+    assert total == 2, (total, violations)
+    assert len(violations) == 1, violations
+    assert "(ternary)" in violations[0]
+
+
+def test_guard_unreached_match_case_does_not_credit():
+    """A ``match`` case body runs only for its own subject — the same
+    conditionality as ``if``, in a construct the old walk did not distinguish
+    from straight-line code."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "from app.processing.raster.vrt import gdal_safe_env\n"
+            "def matched(path, mode):\n"
+            "    match mode:\n"
+            "        case 'safe':\n"
+            "            env = gdal_safe_env()\n"
+            "        case _:\n"
+            "            env = {}\n"
+            "    subprocess.run(['gdalinfo', path], env=env)\n"
+            "def unconditional(path):\n"
+            "    env = gdal_safe_env()\n"
+            "    subprocess.run(['gdalinfo', path], env=env)\n"
+        ),
+        {},
+    )
+    assert total == 2, (total, violations)
+    assert len(violations) == 1, violations
+    assert "(matched)" in violations[0]
+
+
+def test_guard_loop_and_handler_bodies_do_not_credit_outside_themselves():
+    """The same rule, applied to the other constructs that may not run: a
+    ``for`` body over an empty iterable, and an ``except`` handler that fires
+    only on failure. An argv INSIDE the loop is in the same branch as the
+    call, so it keeps its credit — the allowlist is about the relationship
+    between the two, not about banning loops."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "from app.processing.raster.vrt import gdal_safe_env\n"
+            "def looped(path, items):\n"
+            "    for _ in items:\n"
+            "        env = gdal_safe_env()\n"
+            "    subprocess.run(['gdalinfo', path])\n"
+            "def handled(path):\n"
+            "    try:\n"
+            "        pass\n"
+            "    except OSError:\n"
+            "        env = gdal_safe_env()\n"
+            "    subprocess.run(['gdalinfo', path])\n"
+            "def inside_the_loop(paths):\n"
+            "    for path in paths:\n"
+            "        env = gdal_safe_env()\n"
+            "        subprocess.run(['gdalinfo', path], env=env)\n"
+        ),
+        {},
+    )
+    assert total == 3, (total, violations)
+    assert len(violations) == 2, violations
+    assert any("(looped)" in v for v in violations)
+    assert any("(handled)" in v for v in violations)
+
+
+def test_guard_nested_generator_iterable_no_longer_credits():
+    """fix(#1077) also closes the recursion hole #996 left in the eager half
+    of the deferral rule: a genexp's outermost iterable is eager, but when
+    that iterable is ITSELF a generator expression nothing runs. The hand
+    rolled scan re-entered and credited; positions compose, so this one
+    reports without a rule of its own."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "from app.processing.raster.vrt import gdal_safe_env\n"
+            "def fn(path):\n"
+            "    lazy = (x for x in (gdal_safe_env() for _ in ()))\n"
+            "    subprocess.run(['gdalinfo', path])\n"
+            "    return lazy\n"
+        ),
+        {},
+    )
+    assert total == 1, (total, violations)
+    assert len(violations) == 1 and "(fn)" in violations[0]
+
+
+def test_guard_env_that_goes_nowhere_does_not_credit():
+    """``gdal_safe_env`` returns the clamped env and mutates nothing, so a
+    call whose result is dropped clamps nothing — a call that RUNS and still
+    means nothing, the mirror of the conditional cases. All three spellings of
+    dropping it are covered together, since fixing one and leaving its
+    siblings is how this gate spent rounds on #974."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "from app.processing.raster.vrt import gdal_safe_env\n"
+            "def dead_store(path):\n"
+            "    env = gdal_safe_env()\n"
+            "    subprocess.run(['gdalinfo', path])\n"
+            "def annotated_dead_store(path):\n"
+            "    env: dict = gdal_safe_env()\n"
+            "    subprocess.run(['gdalinfo', path])\n"
+            "def discarded(path):\n"
+            "    gdal_safe_env()\n"
+            "    subprocess.run(['gdalinfo', path])\n"
+            "def read_and_passed(path):\n"
+            "    env = gdal_safe_env()\n"
+            "    subprocess.run(['gdalinfo', path], env=env)\n"
+        ),
+        {},
+    )
+    assert total == 4, (total, violations)
+    assert len(violations) == 3, violations
+    assert any("(dead_store)" in v for v in violations)
+    assert any("(annotated_dead_store)" in v for v in violations)
+    assert any("(discarded)" in v for v in violations)
+
+
+def test_guard_real_tree_credit_shapes_are_all_allowlisted():
+    """The practicality check, pinned as a test rather than left to the
+    measurement in #1077's PR body: the exact shapes the four credited argv
+    sites in ``app/`` use. ``prepare_with_overviews`` assigns the env inside a
+    ``try``; ``convert_to_cog`` passes it inline from inside an ``if``;
+    ``_build_vrt`` builds the argv in the straight-line body and passes the
+    env inline from inside a ``try``. Narrowing the allowlist until any of
+    these reports means breaking the tree, and this is where that shows up."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "from app.processing.raster.vrt import gdal_safe_env, run_gdal\n"
+            "def prepare(path, tmp_path):\n"
+            "    try:\n"
+            "        env = gdal_safe_env(extras={'GDAL_CACHEMAX': '200'})\n"
+            "        cmd = ['gdaladdo', '-r', 'average', tmp_path]\n"
+            "        return run_gdal(cmd, env=env, tool='gdaladdo')\n"
+            "    except Exception:\n"
+            "        raise\n"
+            "def convert(path, out, assign_crs):\n"
+            "    if assign_crs is not None:\n"
+            "        warp_cmd = ['gdalwarp', '-t_srs', f'EPSG:{assign_crs}', path, out]\n"
+            "        try:\n"
+            "            run_gdal(warp_cmd, env=gdal_safe_env(), tool='gdalwarp')\n"
+            "        except Exception:\n"
+            "            raise\n"
+            "def build_vrt(sources, out):\n"
+            "    cmd = ['gdalbuildvrt', out, *sources]\n"
+            "    try:\n"
+            "        return run_gdal(cmd, env=gdal_safe_env(), tool='gdalbuildvrt')\n"
+            "    except FileNotFoundError:\n"
+            "        return None\n"
+        ),
+        {},
+    )
+    assert total == 3, (total, violations)
+    assert violations == []
