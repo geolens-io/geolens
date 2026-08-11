@@ -128,6 +128,11 @@ async def live_tenant_boundary(conn) -> list[BoundaryTableState]:
                                ON routine_schema.oid = routine.pronamespace
                              WHERE routine_schema.nspname = 'catalog'
                                AND routine.proname = :trigger_function
+                               -- An overload under the same name would make
+                               -- this scalar subquery return two rows and fail
+                               -- the whole read; the trigger function takes no
+                               -- arguments.
+                               AND routine.pronargs = 0
                          )
                    ) AS has_stamping_trigger,
                    EXISTS (
