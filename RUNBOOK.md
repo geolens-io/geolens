@@ -565,9 +565,17 @@ Keep `.env` loaded in this shell (`set -a; . ./.env; set +a`, as in step 1) —
 The dump path is a host path; copy the dump out of the `backup_data` volume
 first, exactly as in "Step-by-step: full restore" below.
 
-**2a. Restore the dump.**
+**2a. Stop the services, then restore the dump.**
+
+`restore.sh` stops `api` and `worker` before it restores and restarts them on
+the way out; this recipe replaces it, so the stop is yours to do. Without it,
+traffic races a `--clean` restore and can reach the restore-owned SECURITY
+DEFINER functions during the window where `PUBLIC` can execute them. Nothing
+starts again until 2f is done.
 
 ```bash
+docker compose stop api worker
+
 docker compose exec -T db pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
   --clean --if-exists --no-owner --no-acl < ./restore/geolens_<timestamp>.dump
 ```
@@ -743,7 +751,13 @@ REVOKE geolens_tenant_provisioner FROM "<migrator-role>";
 SQL
 ```
 
-Then verify by hand: the API login can `SET ROLE` to one tenant writer/reader,
+Then start the services again:
+
+```bash
+docker compose start api worker
+```
+
+And verify by hand: the API login can `SET ROLE` to one tenant writer/reader,
 the tile login can set only that tenant reader, and neither login owns catalog
 RLS tables or a `data_t_*` schema. The backend re-checks the runtime login at
 boot (`assert_multi_tenant_runtime_role`) and refuses to start on an unsafe

@@ -19,6 +19,10 @@ moved (#998):
 - Every step is gated on the gap it closes, so an already-adopted tenant
   issues no DDL at all.  0019 ran once, inside a migration; this runs whenever
   an operator needs it.
+- The reserved-role membership guard aggregates with ``bool_or`` instead of
+  reading one row.  PostgreSQL keeps one membership row per grantor, so a member
+  can hold two grants of the same role and 0019's scalar read picks one
+  arbitrarily — a canonical row can hide an unsafe one.
 """
 
 from __future__ import annotations
@@ -252,11 +256,17 @@ BEGIN
 
         direct_membership_unsafe := membership_row.membership_admin;
         IF pg_catalog.current_setting('server_version_num')::integer >= 160000 THEN
+            -- bool_or, not a bare SELECT INTO: PostgreSQL keeps one row per
+            -- grantor, so a member can hold two grants of the same reserved
+            -- role and a scalar read would pick one arbitrarily — letting a
+            -- canonical row mask an unsafe one. 0019 has the same shape; this
+            -- is the one place the port is deliberately stricter than it.
             EXECUTE
-                'SELECT membership.admin_option OR CASE WHEN $3 = $4 '
+                'SELECT pg_catalog.bool_or('
+                'membership.admin_option OR CASE WHEN $3 = $4 '
                 'THEN NOT membership.inherit_option OR membership.set_option '
                 'ELSE membership.inherit_option OR NOT membership.set_option '
-                'END '
+                'END) '
                 'FROM pg_catalog.pg_auth_members AS membership '
                 'WHERE membership.roleid = $1 AND membership.member = $2'
                 INTO direct_membership_unsafe
