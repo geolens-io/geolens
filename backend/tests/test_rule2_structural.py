@@ -1791,17 +1791,19 @@ def _binding_targets(node: ast.AST) -> tuple[set[str], str | None]:
     index_in_parent: int | None = None
     container_kind: str | None = None
     while isinstance(parent, _TRANSPARENT_WRAPPERS):
-        # fix(#1394), codex round 4: `*` SPLICES rather than nests, so a display
-        # holding a starred vector holds its ELEMENTS and is itself a vector —
-        # `[*["gdalinfo", path]]` IS `["gdalinfo", path]`. Reading the display
-        # as a container of the argv made `for part in commands:` look like it
-        # handed over a command when it hands over strings. Checked on the node
-        # being climbed OUT of, so it lands on the display above the star.
-        if isinstance(current, ast.Starred):
-            container_kind = None
+        # fix(#1394), codex rounds 4 and 5: a star and the display around it
+        # are ONE level, not two. `*X` splices X's ELEMENTS into that display,
+        # which PRESERVES X's own depth rather than adding or removing one:
+        # `[*["gdalinfo", path]]` is `["gdalinfo", path]`, still the vector,
+        # while `[*(["gdalinfo", path],)]` is `[["gdalinfo", path]]`, still a
+        # container of it. Counting both nodes reported the first (iterating it
+        # yields strings, not commands); resetting to "is the vector" hid the
+        # second, which is the direction that actually matters. So neither the
+        # star nor the step out of it moves the kind.
+        starred = isinstance(parent, ast.Starred) or isinstance(current, ast.Starred)
         # Only a CONTAINER wrapper means the level above holds the vector
         # rather than being it (fix(#996 review)).
-        elif isinstance(parent, _CONTAINER_WRAPPERS):
+        if isinstance(parent, _CONTAINER_WRAPPERS) and not starred:
             container_kind = _container_iteration_kind(parent, current)
         if isinstance(parent, (ast.Tuple, ast.List)) and current in parent.elts:
             index_in_parent = parent.elts.index(current)
@@ -3324,7 +3326,7 @@ def test_guard_destructuring_loop_target_does_not_receive_the_argv():
 
 
 def test_guard_starring_an_argv_splices_it_into_the_display():
-    """fix(#1394), codex round 4: `*` flattens, so there is no container.
+    """fix(#1394), codex rounds 4 and 5: `*` preserves depth.
 
     ``commands = [*["gdalinfo", path]]`` IS ``["gdalinfo", path]``. Reading the
     outer display as a container of the argv made ``for part in commands:``
@@ -3332,6 +3334,12 @@ def test_guard_starring_an_argv_splices_it_into_the_display():
     reported, the #996 class. The vector is still a vector, so passing the
     spliced display to a subprocess is still a site (the second case), and
     nesting the star one level deeper puts a real container back (the third).
+
+    Depth PRESERVED, not removed, is the whole rule:
+    ``[*(["gdalinfo", path],)]`` splices a one-element tuple and is
+    ``[["gdalinfo", path]]``, a container of the argv either way it is read
+    (the last two cases). Collapsing that to "is the vector" hid a real argv,
+    which is the direction that matters.
     """
     inert, total = _collect_gdal_cli_violations(
         _mod(
@@ -3369,6 +3377,24 @@ def test_guard_starring_an_argv_splices_it_into_the_display():
     )
     assert total_nested == 1, (total_nested, nested)
     assert len(nested) == 1 and "(fn)" in nested[0]
+
+    wrapped, total_wrapped = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def iterated(path):\n"
+            "    commands = [*(['gdalinfo', path],)]\n"
+            "    for cmd in commands:\n"
+            "        subprocess.run(cmd)\n"
+            "def indexed(path):\n"
+            "    commands = [*(['ogrinfo', path],)]\n"
+            "    subprocess.run(commands[0])\n"
+        ),
+        {},
+    )
+    assert total_wrapped == 2, (total_wrapped, wrapped)
+    assert len(wrapped) == 2, wrapped
+    assert any("(iterated)" in v for v in wrapped)
+    assert any("(indexed)" in v for v in wrapped)
 
 
 def test_guard_conflicting_container_kinds_merge_to_the_louder():
