@@ -128,6 +128,44 @@ const EXACT_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
     'errors.refreshCredentialStoreUnavailable',
 };
 
+// fix(#1390): the VRT source-compatibility 422 (`validate_sources` in
+// backend/app/processing/raster/validation.py) returns an array of
+// SourceValidationError objects (source_id/code/message/field/severity) —
+// a different shape from the Pydantic loc/type/ctx array `validationDescriptor`
+// below expects, so every VAL code fell through to the generic
+// `errors.validationFailed` string. Keyed by the backend's stable `code`
+// literal, mirroring the refresh-refusal taxonomy convention (#1285/#1332)
+// of one user-facing key per backend code rather than per call site.
+const SOURCE_VALIDATION_CODE_KEYS: Record<string, ApiErrorDescriptor['key']> = {
+  crs_mismatch: 'errors.sourceValidationCrsMismatch', // VAL-01
+  band_count_mismatch: 'errors.sourceValidationBandCountMismatch', // VAL-02
+  single_band_required: 'errors.sourceValidationSingleBandRequired', // VAL-03
+  dtype_mismatch: 'errors.sourceValidationDtypeMismatch', // VAL-04
+  grid_misaligned: 'errors.sourceValidationGridMisaligned', // VAL-05
+  nodata_inconsistent: 'errors.sourceValidationNodataInconsistent', // VAL-06
+  rotated_raster: 'errors.sourceValidationRotatedRaster', // VAL-07
+  unknown_pixel_geometry: 'errors.sourceValidationUnknownPixelGeometry', // VAL-08
+};
+
+/**
+ * Detects a `SourceValidationError` array entry by its `source_id`+`code`
+ * signature, which a Pydantic validation-error entry never has (it carries
+ * `loc`/`type` instead). An entry that matches the shape but carries a code
+ * this table doesn't know (a future VAL check) still returns a descriptor —
+ * the generic `validationFailed` one — so it never falls through to
+ * `validationDescriptor` and renders a raw key.
+ */
+function sourceValidationDescriptor(entry: unknown): ApiErrorDescriptor | undefined {
+  if (!entry || typeof entry !== 'object') return undefined;
+  const value = entry as Record<string, unknown>;
+  if (typeof value.source_id !== 'string' || typeof value.code !== 'string') {
+    return undefined;
+  }
+  const key = SOURCE_VALIDATION_CODE_KEYS[value.code];
+  if (!key) return { key: 'errors.validationFailed' };
+  return { key, values: { source: value.source_id } };
+}
+
 const STATUS_FALLBACK_KEYS: Record<number, ApiErrorDescriptor['key']> = {
   400: 'errors.badRequest',
   401: 'errors.unauthorized',
@@ -347,7 +385,7 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
 
   if (Array.isArray(detail)) {
     for (const entry of detail) {
-      const descriptor = validationDescriptor(entry);
+      const descriptor = sourceValidationDescriptor(entry) ?? validationDescriptor(entry);
       if (descriptor) return descriptor;
     }
     return fallbackDescriptor(status);
