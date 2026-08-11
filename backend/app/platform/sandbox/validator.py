@@ -1139,8 +1139,14 @@ def validate_sql(
     # — must pass the data.* check in check_table_access.
     tables: set[tuple[str, str]] = set()
     for table in stmt.find_all(exp.Table):
-        schema = table.db or ""
-        name = table.name
+        # fix(#565 codex P2 r23): fold unquoted identifiers the way PostgreSQL
+        # resolves them (unquoted → lowercase, quoted → verbatim) BEFORE the
+        # access check. `FROM DATA.ROADS` resolves to `data.roads` in the
+        # server, so comparing sqlglot's preserved `("DATA", "ROADS")` against
+        # the lowercase allowlist would 404 a table the caller can read. Mirrors
+        # the CTE resolver's folding.
+        schema = _folded_identifier(table.args.get("db")) or ""
+        name = _folded_identifier(table.this)
         if not name:
             continue
         if _is_cte_reference(table):

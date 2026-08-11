@@ -1104,6 +1104,52 @@ async def test_always_true_disjunctive_join_is_rejected(
     assert resp.json()["detail"] == _REPETITION_MESSAGE
 
 
+async def test_uppercase_identifiers_are_folded_for_access(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P2 r23): PostgreSQL folds unquoted `DATA.ROADS` to
+    `data.roads`; the access check must fold too, or a table the caller can read
+    404s on a spelling difference."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = await _make_table(test_db_session, owner)  # lowercase physical name
+
+    resp = await client.post(
+        "/query/",
+        json={
+            "sql": f"SELECT gid FROM DATA.{tbl.upper()}",
+            "restrict_tables": [tbl],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["rows"] == [[1]]
+
+
+async def test_response_size_cap_measures_encoded_bytes(
+    client: AsyncClient, admin_auth_header, test_db_session, monkeypatch
+):
+    """fix(#565 codex P2 r23): the response cap must count serialized UTF-8
+    bytes, not `str(cell)` characters. A 50-char multi-byte cell is 150 bytes;
+    with the cap at 50 the old character count passed while the real body was
+    3x the limit."""
+    from app.processing.ai import query_router
+
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = await _make_table(test_db_session, owner)
+    euros = "€" * 50  # 50 chars, 150 UTF-8 bytes
+
+    monkeypatch.setattr(query_router, "_QUERY_MAX_RESPONSE_BYTES", 50)
+    resp = await client.post(
+        "/query/",
+        json={"sql": f"SELECT '{euros}' FROM data.{tbl}", "restrict_tables": [tbl]},
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "Query result is too large to return"
+
+
 async def test_range_column_is_serialized_as_text(
     client: AsyncClient, admin_auth_header, test_db_session
 ):

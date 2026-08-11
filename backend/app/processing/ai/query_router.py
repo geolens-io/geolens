@@ -377,7 +377,7 @@ async def sandbox_query_endpoint(
     body: SandboxQueryRequest,
     user: Identity = Depends(_rate_limit_scoped_user),
     db: AsyncSession = Depends(get_db),
-) -> SandboxResult:
+) -> Response:
     """Execute one SELECT through the read-only SQL sandbox.
 
     The statement must be a single SELECT over `data.*` tables you can
@@ -425,17 +425,21 @@ async def sandbox_query_endpoint(
     # successful, already-audited query into a 500. Normalize each cell — bytea
     # to \x-hex (matching to_jsonb), asyncpg ranges to text — recursively.
     result.rows = [[_json_safe(cell) for cell in row] for row in result.rows]
-    # fix(#565 codex P1 r20): a wide DATA cell (or a projection the column cap
-    # let through) can still make one row gigabytes. Bound the serialized
-    # response so the API and the client never materialize an unbounded body.
-    total = sum(len(str(cell)) for row in result.rows for cell in row)
-    if total > _QUERY_MAX_RESPONSE_BYTES:
+    # fix(#565 codex P1 r20 / P2 r23): a wide DATA cell (or a projection the
+    # column cap let through) can still make one row gigabytes. Bound the
+    # response by its ACTUAL serialized size, not a `str(cell)` character count:
+    # that undercounts multi-byte UTF-8 (an 8M-emoji cell is ~32 MiB encoded)
+    # and JSON escaping. Serialize once with the model's own JSON encoder,
+    # measure the encoded bytes, and return exactly those bytes so the limit is
+    # enforced on what crosses the wire (and nothing is serialized twice).
+    payload = result.model_dump_json().encode("utf-8")
+    if len(payload) > _QUERY_MAX_RESPONSE_BYTES:
         await _audit_query(request, user, body, category="response_too_large")
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Query result is too large to return",
         )
-    return result
+    return Response(content=payload, media_type="application/json")
 
 
 def _json_safe(value: object) -> object:

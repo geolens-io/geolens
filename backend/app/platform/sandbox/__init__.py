@@ -144,35 +144,17 @@ async def validate_and_execute(
                 "Query references the same table too many times",
             )
 
-        # Phase 2: Build RBAC allowlist
-        allowed_tables = await build_table_allowlist(db, user)
-        if restrict_tables is not None:
-            allowed_tables = allowed_tables & restrict_tables
-
-        # Phase 3: Check table access. validated.tables already excludes
-        # lexically in-scope CTE references (fix(#565 codex P1)), so every
-        # remaining reference must be an accessible data.* table — pass no CTE
-        # skip set, or a flat name match would re-admit an out-of-scope name
-        # (e.g. pg_user) that a same-named inner CTE happens to define.
-        check_table_access(validated.tables, allowed_tables, cte_names=set())
-
-        # fix(#565 codex P1 r11): return the request session's pooled
-        # connection before the sandbox opens its own, so an in-flight query
-        # holds one pool slot, not two. Done after the RBAC query (which needs
-        # this session) and only when the caller opted in. ``close()`` rather
-        # than ``rollback()``: rollback ends the transaction but keeps the
-        # connection associated with the session, and execute_safe reusing that
-        # same pooled connection for its advisory-lock transaction then fails
-        # (a MissingGreenlet under the async pool); close cleanly returns it.
-        # The request handler reads nothing from ``db`` afterwards, and the
-        # dependency's own close becomes a no-op.
-        if release_session:
-            await db.close()
-
-        # fix(#565 codex P1 r11): a global fail-fast capacity bound. `.locked()`
-        # then `async with` is atomic — no await between them, and acquiring a
-        # free semaphore does not yield — so this is a real check-then-act only
-        # in appearance. At capacity, refuse fast rather than queue.
+        # fix(#565 codex P1 r11 / P2 r23): a global fail-fast capacity bound.
+        # `.locked()` then `async with` is atomic — no await between them, and
+        # acquiring a free semaphore does not yield — so this is a real
+        # check-then-act only in appearance. At capacity, refuse fast rather
+        # than queue. Acquired BEFORE phase 2 (r23): the RBAC allowlist query
+        # is itself pooled DB work, so N concurrent calls from one user could
+        # all run it and drain the pool before either this bound or the
+        # per-user advisory lock rejected the excess. Holding the slot across
+        # the whole DB-backed pipeline makes the advertised fail-fast real.
+        # SQL validation and the fan-out cap above are CPU-only (no pool), so
+        # a malformed query is still rejected without consuming a slot.
         if capacity_semaphore is not None and capacity_semaphore.locked():
             raise SandboxError(
                 "query_at_capacity",
@@ -180,9 +162,35 @@ async def validate_and_execute(
                 "Try again in a moment.",
             )
 
-        # Phase 4: Execute safely
         concurrency_key = str(user.id) if user is not None else "anonymous"
         async with capacity_semaphore or contextlib.nullcontext():
+            # Phase 2: Build RBAC allowlist
+            allowed_tables = await build_table_allowlist(db, user)
+            if restrict_tables is not None:
+                allowed_tables = allowed_tables & restrict_tables
+
+            # Phase 3: Check table access. validated.tables already excludes
+            # lexically in-scope CTE references (fix(#565 codex P1)), so every
+            # remaining reference must be an accessible data.* table — pass no
+            # CTE skip set, or a flat name match would re-admit an out-of-scope
+            # name (e.g. pg_user) that a same-named inner CTE happens to define.
+            check_table_access(validated.tables, allowed_tables, cte_names=set())
+
+            # fix(#565 codex P1 r11): return the request session's pooled
+            # connection before the sandbox opens its own, so an in-flight
+            # query holds one pool slot, not two. Done after the RBAC query
+            # (which needs this session) and only when the caller opted in.
+            # ``close()`` rather than ``rollback()``: rollback ends the
+            # transaction but keeps the connection associated with the session,
+            # and execute_safe reusing that same pooled connection for its
+            # advisory-lock transaction then fails (a MissingGreenlet under the
+            # async pool); close cleanly returns it. The request handler reads
+            # nothing from ``db`` afterwards, and the dependency's own close
+            # becomes a no-op.
+            if release_session:
+                await db.close()
+
+            # Phase 4: Execute safely
             return await execute_safe(
                 db,
                 validated.sql,

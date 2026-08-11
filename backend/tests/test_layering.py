@@ -2845,9 +2845,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # best-effort pre-filtering, non-security, because every executed query is
     # runtime-bounded (advisory lock, semaphore, timeout, reader role, row+byte
     # caps) — the module docstring and a section anchor state it so cost-model
-    # under-counts are documented, not chased. Most of the added lines are that
-    # rationale. Cap at the exact size.
-    "backend/app/platform/sandbox/validator.py": 1865,
+    # under-counts are documented, not chased. r23 folds unquoted table
+    # identifiers (DATA.ROADS → data.roads) before the access check so a
+    # PostgreSQL-valid reference is not false-404'd. Most of the added lines are
+    # that rationale. Cap at the exact size.
+    "backend/app/platform/sandbox/validator.py": 1871,
 }
 
 
