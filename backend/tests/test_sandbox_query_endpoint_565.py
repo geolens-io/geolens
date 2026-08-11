@@ -646,6 +646,31 @@ async def test_inlined_cte_correlated_work_is_rejected(
     assert resp.json()["detail"] == _REPETITION_MESSAGE
 
 
+async def test_sibling_scalar_subqueries_are_allowed(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P2 r13): two scalar subqueries over the same table are
+    SIBLINGS — PostgreSQL runs them additively (often once), so their work is
+    the per-table max, not the sum. Summing them wrongly rejected a legit
+    quadratic query at the cap of 2."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = await _make_table(test_db_session, owner)
+
+    resp = await client.post(
+        "/query/",
+        json={
+            "sql": (
+                f"SELECT a.gid, (SELECT count(*) FROM data.{tbl}), "
+                f"(SELECT count(*) FROM data.{tbl}) FROM data.{tbl} a"
+            ),
+            "restrict_tables": [tbl],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+
 async def test_multi_table_join_is_not_a_false_positive(
     client: AsyncClient, admin_auth_header, test_db_session
 ):

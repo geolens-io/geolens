@@ -2819,9 +2819,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # and P1 r12 matches those casts by normalized name (schema-qualified
     # pg_catalog.regrole is a DataType, not ObjectIdentifier), folds CTE
     # identifiers per PostgreSQL quoting so "PG_USER" cannot bind an unquoted
-    # pg_user, and propagates ordinary derived-table excess. Most of the added
-    # lines are that rationale. Cap at the exact size.
-    "backend/app/platform/sandbox/validator.py": 1496,
+    # pg_user, and propagates ordinary derived-table excess; and P2 r13
+    # combines sibling per-row subquery/source work by per-table MAX rather than
+    # summing (_merge_max), so two scalar subqueries over one table no longer
+    # false-reject. Most of the added lines are that rationale. Cap at the exact
+    # size.
+    "backend/app/platform/sandbox/validator.py": 1513,
 }
 
 

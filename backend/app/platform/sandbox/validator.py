@@ -1235,14 +1235,19 @@ def _group_work(head: exp.Expression, wm: _FanoutMemo, rm: _FanoutMemo) -> _Fano
         return wm[key] or {}
     wm[key] = None
     out = dict(_group_fanout(head, rm))
+    # Per-group-row work — the group's LATERAL/derived source excesses and its
+    # joins' ON-predicate subqueries — are siblings, so combine them by MAX and
+    # add once to the group's row fan-out (fix(#565 codex P2 r13)).
+    per_row: _FanoutMap = {}
     for source in _group_sources(head):
-        _add_source_excess(out, source, wm, rm)
+        _merge_max(per_row, _source_excess(source, wm, rm))
     for join in head.args.get("joins") or []:
         on = join.args.get("on")
         if on is not None:
             for scope in _outermost_scopes(on):
-                for base, weight in _work_fanout(scope, wm, rm).items():
-                    out[base] = min(out.get(base, 0) + weight, _FANOUT_CEILING)
+                _merge_max(per_row, _work_fanout(scope, wm, rm))
+    for base, weight in per_row.items():
+        out[base] = min(out.get(base, 0) + weight, _FANOUT_CEILING)
     wm[key] = out
     return out
 
@@ -1267,10 +1272,10 @@ def _outermost_scopes(root: exp.Expression) -> list[exp.Expression]:
     return out
 
 
-def _add_source_excess(
-    out: _FanoutMap, source: exp.Expression, wm: _FanoutMemo, rm: _FanoutMemo
-) -> None:
-    """Add a per-outer-row source's EXCESS work (work minus its own rows).
+def _source_excess(
+    source: exp.Expression, wm: _FanoutMemo, rm: _FanoutMemo
+) -> _FanoutMap:
+    """A per-outer-row source's EXCESS work (work minus its own rows).
 
     A LATERAL re-evaluates per outer row; its rows are already in the product,
     so only its internal correlated/nested work beyond its row count adds
@@ -1307,13 +1312,14 @@ def _add_source_excess(
     else:
         head = _group_head(source)
         if head is None:
-            return
+            return {}
         work = _group_work(head, wm, rm)
         rows = _group_fanout(head, rm)
-    for base, weight in work.items():
-        excess = weight - rows.get(base, 0)
-        if excess > 0:
-            out[base] = min(out.get(base, 0) + excess, _FANOUT_CEILING)
+    return {
+        base: weight - rows.get(base, 0)
+        for base, weight in work.items()
+        if weight - rows.get(base, 0) > 0
+    }
 
 
 def _lateral_inner_scope(source: exp.Lateral) -> exp.Expression | None:
@@ -1394,19 +1400,30 @@ def _work_fanout(
 
     out = dict(_rows_fanout(node, rows_memo))
     if isinstance(node, exp.Select):
-        # A correlated projection/predicate subquery runs once per output row;
-        # its rows are NOT already in this SELECT's product, so its whole work
-        # adds.
+        # Per-row work at THIS level: a correlated projection/predicate subquery
+        # runs once per output row (its whole work), and a LATERAL/CTE/derived
+        # source re-evaluates per outer row (its EXCESS beyond its own rows).
+        # These are SIBLINGS — PostgreSQL runs them sequentially per row, so
+        # their work is ADDITIVE, i.e. the per-table MAXIMUM exponent, NOT the
+        # sum (fix(#565 codex P2 r13): summing rejected legit queries with two
+        # scalar subqueries over one table). Genuine NESTING adds, and that is
+        # handled by the recursion inside each scope's own _work_fanout. The
+        # combined per-row max then multiplies the row fan-out (exponents add).
+        per_row: _FanoutMap = {}
         for scope in _correlated_scopes(node):
-            for base, weight in _work_fanout(scope, work_memo, rows_memo).items():
-                out[base] = min(out.get(base, 0) + weight, _FANOUT_CEILING)
-        # A LATERAL source (fix(#565 codex P1 r7)) — or a group in a per-row
-        # position — re-evaluates per outer row, but its ROWS are already in
-        # the product above, so only its EXCESS work adds.
+            _merge_max(per_row, _work_fanout(scope, work_memo, rows_memo))
         for source in _own_sources(node):
-            _add_source_excess(out, source, work_memo, rows_memo)
+            _merge_max(per_row, _source_excess(source, work_memo, rows_memo))
+        for base, weight in per_row.items():
+            out[base] = min(out.get(base, 0) + weight, _FANOUT_CEILING)
     work_memo[key] = out
     return out
+
+
+def _merge_max(target: _FanoutMap, other: _FanoutMap) -> None:
+    """Per-table MAX-merge ``other`` into ``target`` (sibling combination)."""
+    for base, weight in other.items():
+        target[base] = min(max(target.get(base, 0), weight), _FANOUT_CEILING)
 
 
 def _max_table_fanout(stmt: exp.Expression) -> int:
