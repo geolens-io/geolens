@@ -80,12 +80,16 @@ from app.platform.storage.titiler_url import resolve_current_storage_key
 
 log = structlog.get_logger()
 
-# The one prefix this sweep may delete under. Everything below it is written
-# by the upload system and namespaced by the job that wrote it
+# The one prefix this sweep may delete under. Everything below it in a BUCKET
+# is written by the upload system and namespaced by the job that wrote it
 # (`staging/{job_id}/…`, plus the `frozen/` snapshot under the same job
-# segment); `manifest_sources.py` explicitly refuses operator keys here for
-# that reason. Nothing outside this prefix is ever listed, so no object the
-# upload system does not own can reach the delete path at all.
+# segment); `manifest_sources.py` refuses operator-declared s3:// keys here for
+# exactly that reason. Nothing outside this prefix is ever listed, so no object
+# the upload system does not own can reach the delete path.
+#
+# "In a bucket" is load-bearing — the same prefix on the LOCAL backend is not
+# exclusively ours, which is why the pass runs on S3 storage only. See the
+# provider gate in `_reconcile`.
 STAGING_PREFIX = "staging/"
 
 # Two budgets, both checked between provider pages, because the pass holds a
@@ -397,6 +401,27 @@ async def _reconcile(db: AsyncSession, *, now: datetime) -> StagingReconcileOutc
     from app.core.db.tenant_session import current_tenant_var
     from app.core.tenancy import is_multi_tenant
     from app.platform.storage import get_storage
+
+    if settings.storage_provider != "s3":
+        # fix(#1249 review r8, codex P1): `staging/` is the upload system's
+        # exclusive namespace in a BUCKET, and only in a bucket. On the local
+        # backend the same prefix sits inside `upload_staging_dir`, which is
+        # also where an operator stages manifest seed files — a local manifest
+        # source spelled `staging/{anything}/seed.geojson` resolves to an
+        # absolute path under that directory whenever the directory's basename
+        # is not itself `staging` (see `classify_manifest_source`). Those files
+        # are operator-owned, are legitimately staged BEFORE the manifest that
+        # names them is applied, and are stored as absolute paths that no
+        # logical-key comparison here would ever match. Deleting one is not a
+        # leaked byte, it is someone's input.
+        #
+        # Nothing is lost by declining: presigned uploads refuse anything but
+        # the S3 backend at request time, so the late-PUT orphan this module
+        # exists for cannot occur on local or Azure storage at all. The s3://
+        # manifest branch closes the mirror-image hole by refusing `staging/`
+        # keys outright (`_storage_uri_to_key`), which is what makes the bucket
+        # prefix exclusively ours in the first place.
+        return StagingReconcileOutcome(ran=False)
 
     if is_multi_tenant() and current_tenant_var.get() is None:
         # No tenant context, no tenant namespace to scope the listing to.

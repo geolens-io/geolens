@@ -151,16 +151,23 @@ async def _job_with_id(
 
 
 @pytest.fixture(autouse=True)
-def _front_of_the_prefix():
-    """Start every test's first pass at the front of the keyspace.
+def _front_of_the_prefix(monkeypatch):
+    """Start every test's first pass at the front of the keyspace, on S3.
 
     The cursor seeds itself at a RANDOM point on first use per process (so a
     restart-prone worker still covers the whole prefix), which would otherwise
     make every assertion here depend on a uuid draw. Tests that care about the
     cursor set it themselves.
+
+    `storage_provider` matters because the pass runs on S3 storage only — the
+    local backend's `staging/` directory is not exclusively the upload
+    system's. The provider DOUBLE stays a fake (or a real
+    LocalStorageProvider, for the end-to-end case); only the setting the gate
+    reads is moved.
     """
     import app.platform.jobs.staging_reconcile as module
 
+    monkeypatch.setattr(settings, "storage_provider", "s3")
     module._scan_cursors.clear()
     module._scan_cursors[STAGING_PREFIX] = None
     yield
@@ -768,6 +775,29 @@ class TestScanCursor:
         # Reading through the instance, not a fresh query: an expired
         # attribute would raise here rather than answer.
         assert job.source_filename == "held-across-the-pass"
+
+    async def test_local_storage_is_declined_outright(
+        self, test_db_session: AsyncSession, monkeypatch
+    ) -> None:
+        """fix(#1249 review r8, codex P1): `staging/` is only ours in a BUCKET.
+
+        On the local backend the same prefix sits inside `upload_staging_dir`,
+        where an operator also stages manifest seed files — legitimately, and
+        legitimately BEFORE the manifest that names them is applied, stored as
+        an absolute path no logical-key comparison here would match. Deleting
+        one is not a leaked byte, it is someone's input. Nothing is lost by
+        declining: presigned uploads refuse anything but S3 at request time,
+        so the orphan class this module exists for cannot occur here.
+        """
+        monkeypatch.setattr(settings, "storage_provider", "local")
+        seed = f"staging/{uuid.uuid4()}/seed.geojson"
+        storage = FakeStorage({seed: _old()})
+
+        outcome = await _run(test_db_session, storage)
+
+        assert outcome.ran is False
+        assert storage.deleted == []
+        assert storage.listed_prefixes == [], "it must not even look"
 
     async def test_a_concurrent_pass_declines_rather_than_double_counting(
         self, test_db_session: AsyncSession
