@@ -834,7 +834,18 @@ BEGIN
         JOIN pg_catalog.pg_roles AS member_role
           ON member_role.oid = membership.member
         WHERE granted_role.rolname = reader_name
-          AND member_role.rolname NOT IN ('{PROVISIONER}', '{SANDBOX}', '{TILE}')
+          AND (
+              member_role.rolname NOT IN ('{PROVISIONER}', '{SANDBOX}', '{TILE}')
+              -- ...or an allowed gateway holding an unsafe duplicate from
+              -- another grantor. A plain REVOKE drops every row for the pair
+              -- and the provisioning function below re-adds the canonical
+              -- SET-only one; leaving it makes the tenant permanently
+              -- unadoptable, since nothing else removes it.
+              OR (
+                  member_role.rolname IN ('{SANDBOX}', '{TILE}')
+                  AND NOT {_MEMBERSHIP_SET_ONLY}
+              )
+          )
     LOOP
         EXECUTE pg_catalog.format(
             'REVOKE %I FROM %I', reader_name, legacy_member_row.member_name
@@ -849,7 +860,13 @@ BEGIN
         JOIN pg_catalog.pg_roles AS member_role
           ON member_role.oid = membership.member
         WHERE granted_role.rolname = writer_name
-          AND member_role.rolname NOT IN ('{PROVISIONER}', '{WRITER}')
+          AND (
+              member_role.rolname NOT IN ('{PROVISIONER}', '{WRITER}')
+              OR (
+                  member_role.rolname = '{WRITER}'
+                  AND NOT {_MEMBERSHIP_SET_ONLY}
+              )
+          )
     LOOP
         EXECUTE pg_catalog.format(
             'REVOKE %I FROM %I', writer_name, legacy_member_row.member_name

@@ -510,6 +510,12 @@ class TestReportedStateMatchesWhatApplyEnforces:
                 state = await tenant_ownership_state(conn, tenant_id)
             assert not state.reader_role_secure
             assert not state.adopted
+
+            # And a re-run repairs it: nothing else removes the extra row, so
+            # leaving it would make the tenant permanently unadoptable.
+            repaired = await run_adoption(engine, apply=True)
+            assert repaired.failures == {}, repaired.failures
+            assert repaired.ok
         finally:
             await _drop_tenant(engine, tenant_id)
             await engine.dispose()
