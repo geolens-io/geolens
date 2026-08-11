@@ -727,6 +727,86 @@ END
 $$
 """
 
+#: fix(#998 codex r45): the plain ``REVOKE GRANT OPTION`` statements in
+#: ``ensure_cluster_roles`` reach only entries attributable to the executing
+#: role (or the object owner, for a superuser).  A grantable privilege some
+#: third role handed the provisioner survives them, and the final
+#: ``missing_provisioner_grants`` read then reports it as grantable after
+#: every ``--apply`` with nothing naming the grantor.  Refuse it up front,
+#: on the same terms as every other foreign grant: the role that can revoke
+#: it is named in the remedy.
+PROVISIONER_GRANT_OPTION_GUARD_SQL = f"""
+DO $$
+DECLARE
+    foreign_option_row RECORD;
+BEGIN
+    FOR foreign_option_row IN
+        SELECT 'SCHEMA catalog' AS target,
+               acl.privilege_type AS privilege,
+               grantor_role.rolname AS grantor_name
+        FROM pg_catalog.pg_namespace AS namespace
+        JOIN LATERAL pg_catalog.aclexplode(namespace.nspacl) AS acl ON true
+        JOIN pg_catalog.pg_roles AS grantee_role
+          ON grantee_role.oid = acl.grantee
+        JOIN pg_catalog.pg_roles AS grantor_role
+          ON grantor_role.oid = acl.grantor
+        WHERE namespace.nspname = 'catalog'
+          AND grantee_role.rolname = '{PROVISIONER}'
+          AND acl.is_grantable
+          AND grantor_role.oid <> namespace.nspowner
+          AND grantor_role.rolname <> CURRENT_USER
+        UNION ALL
+        SELECT 'TABLE catalog.tenants',
+               acl.privilege_type,
+               grantor_role.rolname
+        FROM pg_catalog.pg_class AS relation
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = relation.relnamespace
+        JOIN LATERAL pg_catalog.aclexplode(relation.relacl) AS acl ON true
+        JOIN pg_catalog.pg_roles AS grantee_role
+          ON grantee_role.oid = acl.grantee
+        JOIN pg_catalog.pg_roles AS grantor_role
+          ON grantor_role.oid = acl.grantor
+        WHERE namespace.nspname = 'catalog'
+          AND relation.relname = 'tenants'
+          AND grantee_role.rolname = '{PROVISIONER}'
+          AND acl.is_grantable
+          AND grantor_role.oid <> relation.relowner
+          AND grantor_role.rolname <> CURRENT_USER
+        UNION ALL
+        SELECT 'DATABASE ' || pg_catalog.quote_ident(db.datname),
+               acl.privilege_type,
+               grantor_role.rolname
+        FROM pg_catalog.pg_database AS db
+        JOIN LATERAL pg_catalog.aclexplode(db.datacl) AS acl ON true
+        JOIN pg_catalog.pg_roles AS grantee_role
+          ON grantee_role.oid = acl.grantee
+        JOIN pg_catalog.pg_roles AS grantor_role
+          ON grantor_role.oid = acl.grantor
+        WHERE db.datname = pg_catalog.current_database()
+          AND grantee_role.rolname = '{PROVISIONER}'
+          AND acl.is_grantable
+          AND grantor_role.oid <> db.datdba
+          AND grantor_role.rolname <> CURRENT_USER
+    LOOP
+        RAISE EXCEPTION
+            '{PROVISIONER} holds a grantable % on %, granted by %, which '
+            'this run cannot revoke',
+            foreign_option_row.privilege,
+            foreign_option_row.target,
+            foreign_option_row.grantor_name
+            USING HINT =
+                'as ' ||
+                pg_catalog.quote_ident(foreign_option_row.grantor_name) ||
+                ' (or a role that can assume it) run: REVOKE GRANT OPTION '
+                'FOR ' || foreign_option_row.privilege || ' ON ' ||
+                foreign_option_row.target ||
+                ' FROM {PROVISIONER}; then re-run adoption';
+    END LOOP;
+END
+$$
+"""
+
 
 # ---------------------------------------------------------------------------
 # Per-tenant adoption (port of 0019 ``_adopt_and_backfill_existing_tenants``)
@@ -752,6 +832,7 @@ DECLARE
     default_acl_gap bigint;
     routine_gap bigint;
     type_gap bigint;
+    foreign_grantor_gap bigint;
     reader_oid oid;
     writer_oid oid;
     grantee_name text;
@@ -1211,11 +1292,58 @@ BEGIN
             AND dependency.deptype = 'e'
       );
 
+    -- fix(#998 codex r45): an otherwise-canonical tenant can still carry an
+    -- allowed privilege issued by a third-party grantor.  The five counters
+    -- above are all zero then, and returning here would skip the refusal
+    -- sweep at the end — leaving --apply to exit incomplete forever without
+    -- ever naming the grantor.  Count them with the sweep's own shape; when
+    -- the other counters are zero every owner already matches, so the shapes
+    -- agree exactly.
+    SELECT pg_catalog.count(*) INTO foreign_grantor_gap
+    FROM (
+        SELECT acl.grantor AS grantor_oid
+        FROM pg_catalog.pg_namespace AS namespace
+        JOIN LATERAL pg_catalog.aclexplode(namespace.nspacl) AS acl ON true
+        WHERE namespace.nspname = schema_name
+          AND acl.grantor <> (
+              SELECT oid FROM pg_catalog.pg_roles
+              WHERE rolname = '{PROVISIONER}'
+          )
+        UNION ALL
+        SELECT acl.grantor
+        FROM pg_catalog.pg_class AS relation
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = relation.relnamespace
+        JOIN LATERAL pg_catalog.aclexplode(relation.relacl) AS acl ON true
+        WHERE namespace.nspname = schema_name
+          AND acl.grantor <> writer_oid
+        UNION ALL
+        SELECT acl.grantor
+        FROM pg_catalog.pg_class AS relation
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = relation.relnamespace
+        JOIN pg_catalog.pg_attribute AS column_row
+          ON column_row.attrelid = relation.oid
+        JOIN LATERAL pg_catalog.aclexplode(column_row.attacl) AS acl ON true
+        WHERE namespace.nspname = schema_name
+          AND NOT column_row.attisdropped
+          AND acl.grantor <> writer_oid
+        UNION ALL
+        SELECT acl.grantor
+        FROM pg_catalog.pg_proc AS routine
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = routine.pronamespace
+        JOIN LATERAL pg_catalog.aclexplode(routine.proacl) AS acl ON true
+        WHERE namespace.nspname = schema_name
+          AND acl.grantor <> writer_oid
+    ) AS foreign_grant;
+
     IF pending_owner_transfer = 0
        AND reader_privilege_gap = 0
        AND default_acl_gap = 0
        AND routine_gap = 0
-       AND type_gap = 0 THEN
+       AND type_gap = 0
+       AND foreign_grantor_gap = 0 THEN
         RETURN;
     END IF;
 
@@ -1309,38 +1437,52 @@ BEGIN
     -- tenant schema is that the writer grants the reader explicitly on each
     -- relation, so an entry here hands out privileges on relations that do not
     -- exist yet.
+    -- fix(#998 codex r45): one statement per object kind — PostgreSQL accepts
+    -- a single kind per ALTER DEFAULT PRIVILEGES, so aggregating kinds (or
+    -- crossing grantees between kinds) rendered a remedy that fails to parse.
     FOR default_acl_row IN
-        SELECT owner_role.rolname AS owner_name,
+        SELECT per_kind.owner_name,
                pg_catalog.string_agg(
-                   DISTINCT CASE default_acl.defaclobjtype
+                   'ALTER DEFAULT PRIVILEGES FOR ROLE ' ||
+                   pg_catalog.quote_ident(per_kind.owner_name) ||
+                   ' IN SCHEMA ' || pg_catalog.quote_ident(schema_name) ||
+                   ' REVOKE ALL ON ' || per_kind.object_kind || ' FROM ' ||
+                   per_kind.grantees,
+                   '; '
+               ) AS statements
+        FROM (
+            SELECT owner_role.rolname AS owner_name,
+                   CASE default_acl.defaclobjtype
                        WHEN 'r' THEN 'TABLES'
                        WHEN 'S' THEN 'SEQUENCES'
                        WHEN 'f' THEN 'FUNCTIONS'
                        WHEN 'T' THEN 'TYPES'
                        ELSE 'SCHEMAS'
-                   END, ', '
-               ) AS object_kinds,
-               pg_catalog.string_agg(
-                   DISTINCT CASE
-                       WHEN acl.grantee = 0 THEN 'PUBLIC'
-                       ELSE pg_catalog.quote_ident(grantee_role.rolname)
-                   END, ', '
-               ) AS grantees
-        FROM pg_catalog.pg_default_acl AS default_acl
-        JOIN pg_catalog.pg_roles AS owner_role
-          ON owner_role.oid = default_acl.defaclrole
-        JOIN LATERAL pg_catalog.aclexplode(default_acl.defaclacl) AS acl ON true
-        LEFT JOIN pg_catalog.pg_roles AS grantee_role
-          ON grantee_role.oid = acl.grantee
-        JOIN pg_catalog.pg_namespace AS namespace
-          ON namespace.oid = default_acl.defaclnamespace
-        WHERE namespace.nspname = schema_name
-          AND owner_role.rolname NOT IN (CURRENT_USER, writer_name)
-          AND acl.grantee IS DISTINCT FROM default_acl.defaclrole
-          AND NOT (
-              acl.grantee = 0 AND default_acl.defaclobjtype IN ('f', 'T')
-          )
-        GROUP BY owner_role.rolname
+                   END AS object_kind,
+                   pg_catalog.string_agg(
+                       DISTINCT CASE
+                           WHEN acl.grantee = 0 THEN 'PUBLIC'
+                           ELSE pg_catalog.quote_ident(grantee_role.rolname)
+                       END, ', '
+                   ) AS grantees
+            FROM pg_catalog.pg_default_acl AS default_acl
+            JOIN pg_catalog.pg_roles AS owner_role
+              ON owner_role.oid = default_acl.defaclrole
+            JOIN LATERAL pg_catalog.aclexplode(default_acl.defaclacl) AS acl
+              ON true
+            LEFT JOIN pg_catalog.pg_roles AS grantee_role
+              ON grantee_role.oid = acl.grantee
+            JOIN pg_catalog.pg_namespace AS namespace
+              ON namespace.oid = default_acl.defaclnamespace
+            WHERE namespace.nspname = schema_name
+              AND owner_role.rolname NOT IN (CURRENT_USER, writer_name)
+              AND acl.grantee IS DISTINCT FROM default_acl.defaclrole
+              AND NOT (
+                  acl.grantee = 0 AND default_acl.defaclobjtype IN ('f', 'T')
+              )
+            GROUP BY owner_role.rolname, default_acl.defaclobjtype
+        ) AS per_kind
+        GROUP BY per_kind.owner_name
     LOOP
         RAISE EXCEPTION
             'schema % carries default privileges owned by %, which this role '
@@ -1349,10 +1491,8 @@ BEGIN
             default_acl_row.owner_name
             USING HINT =
                 'as ' || pg_catalog.quote_ident(default_acl_row.owner_name) ||
-                ' run: ALTER DEFAULT PRIVILEGES IN SCHEMA ' ||
-                pg_catalog.quote_ident(schema_name) || ' REVOKE ALL ON ' ||
-                default_acl_row.object_kinds || ' FROM ' ||
-                default_acl_row.grantees || '; then re-run adoption';
+                ' run: ' || default_acl_row.statements ||
+                '; then re-run adoption';
     END LOOP;
 
     FOR default_acl_row IN

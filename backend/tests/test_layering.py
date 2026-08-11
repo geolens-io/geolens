@@ -1945,11 +1945,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # files would make harder, not easier. The Python that drives it and the
     # report types already live in tenant_adoption.py and
     # tenant_adoption_report.py.
-    # fix(#998 codex r44): +60 — refuse creator-shaped memberships retained by
-    # other logins (an ADMIN-only edge can re-arm itself) and refuse boundary-
-    # function ACL entries a foreign grantor issued (unrevokable by the repair,
-    # which would otherwise silently no-op every run).
-    "backend/app/core/db/tenant_adoption_sql.py": 1732,
+    # fix(#998 codex r44/r45): +200 — refuse creator-shaped memberships
+    # retained by other logins (an ADMIN-only edge can re-arm itself), refuse
+    # boundary-function and provisioner grant-option ACL entries a foreign
+    # grantor issued (unrevokable by the repair, which would otherwise
+    # silently no-op every run), count foreign grantors in the early-return
+    # guard so canonical-but-foreign tenants reach the refusal, and render
+    # the default-privilege remedy one statement per object kind.
+    "backend/app/core/db/tenant_adoption_sql.py": 1872,
     # fix(#998): the tool the DDL above serves — the catalog reads that decide
     # whether anything is left to do, the steps that close the gap, and the
     # operator CLI. Already decomposed three ways (report types and the success
@@ -1957,7 +1960,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # tenant_adoption_sql.py); the remainder is one read per object the adoption
     # boundary covers, and each is a single SQL statement that has to see the
     # whole object at once.
-    "backend/app/core/db/tenant_adoption.py": 1197,
+    # fix(#998 codex r45): +5 — run the provisioner grant-option guard before
+    # the plain revokes it protects.
+    "backend/app/core/db/tenant_adoption.py": 1202,
     # fix(#836): the five path-gated additions. Caps are exact (zero headroom),
     # matching the #435 convention: growth needs a reviewed carve-out here,
     # shrinking must lower the cap in the same commit.
