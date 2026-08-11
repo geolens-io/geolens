@@ -447,6 +447,15 @@ def _tenant_verdict(
 
 def _format_tenants(report: AdoptionReport) -> list[str]:
     if not report.before:
+        # fix(#998 codex r46): a tenant provisioned after the empty snapshot
+        # makes report.ok false; saying "nothing to adopt" while exiting 1
+        # would hide the one condition the operator has to act on.
+        if report.tenants_added_during_run:
+            return [
+                "Tenants: none at the start of the run.",
+                "  provisioned while this ran and therefore never adopted: "
+                + ", ".join(report.tenants_added_during_run),
+            ]
         return ["Tenants: none. Nothing to adopt (single-tenant control plane)."]
 
     lines = [f"Tenants: {len(report.before)}"]

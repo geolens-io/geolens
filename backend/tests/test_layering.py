@@ -1952,7 +1952,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # silently no-op every run), count foreign grantors in the early-return
     # guard so canonical-but-foreign tenants reach the refusal, and render
     # the default-privilege remedy one statement per object kind.
-    "backend/app/core/db/tenant_adoption_sql.py": 1872,
+    # fix(#998 codex r46): +12 — generated multiranges follow their range and
+    # refuse direct ALTER TYPE; excluded on all three type surfaces.
+    "backend/app/core/db/tenant_adoption_sql.py": 1884,
     # fix(#998): the tool the DDL above serves — the catalog reads that decide
     # whether anything is left to do, the steps that close the gap, and the
     # operator CLI. Already decomposed three ways (report types and the success
@@ -1960,9 +1962,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # tenant_adoption_sql.py); the remainder is one read per object the adoption
     # boundary covers, and each is a single SQL statement that has to see the
     # whole object at once.
-    # fix(#998 codex r45): +5 — run the provisioner grant-option guard before
-    # the plain revokes it protects.
-    "backend/app/core/db/tenant_adoption.py": 1202,
+    # fix(#998 codex r45/r46): +11 — run the provisioner grant-option guard
+    # before the plain revokes it protects; exclude generated multiranges on
+    # the read side too.
+    "backend/app/core/db/tenant_adoption.py": 1208,
     # fix(#836): the five path-gated additions. Caps are exact (zero headroom),
     # matching the #435 convention: growth needs a reviewed carve-out here,
     # shrinking must lower the cap in the same commit.

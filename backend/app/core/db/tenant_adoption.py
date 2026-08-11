@@ -700,12 +700,18 @@ async def tenant_ownership_state(conn, tenant_id: str) -> TenantOwnershipState:
                       AND type_row.typowner IS DISTINCT FROM (
                           SELECT oid FROM writer
                       )
-      -- Array types follow their element type, and a table's row type follows
-      -- the table; both move on their own. An extension's types belong to the
+      -- Array types follow their element type, a table's row type follows the
+      -- table, and a range's generated multirange follows the range (14+):
+      -- all move on their own, and ALTER TYPE on the multirange directly is
+      -- refused (fix(#998 codex r46)). An extension's types belong to the
       -- extension.
       AND NOT EXISTS (
           SELECT 1 FROM pg_catalog.pg_type AS element
           WHERE element.typarray = type_row.oid
+      )
+      AND NOT EXISTS (
+          SELECT 1 FROM pg_catalog.pg_range AS range_type
+          WHERE range_type.rngmultitypid = type_row.oid
       )
       AND (
           type_row.typrelid = 0
