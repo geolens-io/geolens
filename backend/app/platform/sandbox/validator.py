@@ -1118,12 +1118,102 @@ def _group_fanout(head: exp.Expression, memo: _FanoutMemo) -> _FanoutMap:
     SELECT's ``_own_sources`` compose.
     """
     out: _FanoutMap = {}
-    for base, weight in _source_fanout(head, memo).items():
-        out[base] = min(out.get(base, 0) + weight, _FANOUT_CEILING)
-    for join in head.args.get("joins") or []:
-        for base, weight in _source_fanout(join.this, memo).items():
+    for source in _group_sources(head):
+        for base, weight in _source_fanout(source, memo).items():
             out[base] = min(out.get(base, 0) + weight, _FANOUT_CEILING)
     return out
+
+
+def _group_sources(head: exp.Expression) -> list[exp.Expression]:
+    """The head source plus every joined source of a parenthesized group."""
+    return [head] + [join.this for join in head.args.get("joins") or []]
+
+
+def _group_head(source: exp.Expression) -> exp.Expression | None:
+    """The join-group head under a parenthesized FROM source, else None.
+
+    A parenthesized group is a Subquery wrapping a NON-scope (a Table that
+    carries its joins); a Subquery wrapping a SELECT/set-op is a derived table.
+    """
+    if isinstance(source, exp.Subquery) and not isinstance(source.this, _SCOPE_TYPES):
+        return source.this
+    return None
+
+
+def _group_work(head: exp.Expression, wm: _FanoutMemo, rm: _FanoutMemo) -> _FanoutMap:
+    """Work of building a parenthesized join group ONCE.
+
+    fix(#565 codex P1 r9): its rows are the head/joins cross product, PLUS each
+    join's ON predicate runs per group row (a correlated ON scan is N^k the row
+    count missed), PLUS any LATERAL among its sources carries its own excess. A
+    group builds once, so this stands as its own candidate in the
+    statement-wide max rather than multiplying an enclosing SELECT.
+    """
+    key = id(head)
+    if key in wm:
+        return wm[key] or {}
+    wm[key] = None
+    out = dict(_group_fanout(head, rm))
+    for source in _group_sources(head):
+        _add_source_excess(out, source, wm, rm)
+    for join in head.args.get("joins") or []:
+        on = join.args.get("on")
+        if on is not None:
+            for scope in _outermost_scopes(on):
+                for base, weight in _work_fanout(scope, wm, rm).items():
+                    out[base] = min(out.get(base, 0) + weight, _FANOUT_CEILING)
+    wm[key] = out
+    return out
+
+
+def _outermost_scopes(root: exp.Expression) -> list[exp.Expression]:
+    """Top-level subquery scopes within a predicate expression (an ON/WHERE).
+
+    A scope whose nearest scope-ancestor lies OUTSIDE ``root`` is top-level in
+    it; deeper scopes are reached by recursion when their parent is costed.
+    """
+    out: list[exp.Expression] = []
+    for node in root.find_all(*_SCOPE_TYPES):
+        ancestor = node.parent
+        outermost = True
+        while ancestor is not None and ancestor is not root:
+            if isinstance(ancestor, _SCOPE_TYPES):
+                outermost = False
+                break
+            ancestor = ancestor.parent
+        if outermost:
+            out.append(node)
+    return out
+
+
+def _add_source_excess(
+    out: _FanoutMap, source: exp.Expression, wm: _FanoutMemo, rm: _FanoutMemo
+) -> None:
+    """Add a per-outer-row source's EXCESS work (work minus its own rows).
+
+    A LATERAL re-evaluates per outer row; its rows are already in the product,
+    so only its internal correlated/nested work beyond its row count adds
+    (fix(#565 codex P1 r7)). A parenthesized group's excess is folded in the
+    same way when the group sits in a per-row position (e.g. inside a LATERAL).
+    """
+    inner: exp.Expression | None
+    rows: _FanoutMap
+    if isinstance(source, exp.Lateral):
+        inner = _lateral_inner_scope(source)
+        if inner is None:
+            return
+        work = _work_fanout(inner, wm, rm)
+        rows = _rows_fanout(inner, rm)
+    else:
+        head = _group_head(source)
+        if head is None:
+            return
+        work = _group_work(head, wm, rm)
+        rows = _group_fanout(head, rm)
+    for base, weight in work.items():
+        excess = weight - rows.get(base, 0)
+        if excess > 0:
+            out[base] = min(out.get(base, 0) + excess, _FANOUT_CEILING)
 
 
 def _lateral_inner_scope(source: exp.Lateral) -> exp.Expression | None:
@@ -1210,24 +1300,11 @@ def _work_fanout(
         for scope in _correlated_scopes(node):
             for base, weight in _work_fanout(scope, work_memo, rows_memo).items():
                 out[base] = min(out.get(base, 0) + weight, _FANOUT_CEILING)
-        # fix(#565 codex P1 r7): a LATERAL source ALSO re-evaluates per outer
-        # row, but its ROWS are already in the product above, so only its
-        # EXCESS work — its own internal correlated/nested-lateral cost beyond
-        # its row count — adds. `LATERAL (SELECT ... WHERE EXISTS (SELECT ...
-        # data.foo c ...))` beside `data.foo a` is N^3 the row count alone
-        # missed.
-        for src in _own_sources(node):
-            if not isinstance(src, exp.Lateral):
-                continue
-            inner = _lateral_inner_scope(src)
-            if inner is None:
-                continue
-            inner_work = _work_fanout(inner, work_memo, rows_memo)
-            inner_rows = _rows_fanout(inner, rows_memo)
-            for base, weight in inner_work.items():
-                excess = weight - inner_rows.get(base, 0)
-                if excess > 0:
-                    out[base] = min(out.get(base, 0) + excess, _FANOUT_CEILING)
+        # A LATERAL source (fix(#565 codex P1 r7)) — or a group in a per-row
+        # position — re-evaluates per outer row, but its ROWS are already in
+        # the product above, so only its EXCESS work adds.
+        for source in _own_sources(node):
+            _add_source_excess(out, source, work_memo, rows_memo)
     work_memo[key] = out
     return out
 
@@ -1242,17 +1319,28 @@ def _max_table_fanout(stmt: exp.Expression) -> int:
 
     Taking the max over EVERY scope (fix(#565 codex P1 r4)) — not just the
     root's row fan-out — also catches a heavy self-join buried in a scalar or
-    predicate subquery, or inside a CTE body's projection, wherever it sits. A
+    predicate subquery, or inside a CTE body's projection, wherever it sits.
+    Parenthesized join groups (fix(#565 codex P1 r9)) are costed as their own
+    candidates too, since their ON-predicate work has no wrapping SELECT. A
     plain pairwise self-join stays at 2, so a cap bounds real work rather than
     surface spellings.
     """
     rows_memo: _FanoutMemo = {}
     work_memo: _FanoutMemo = {}
     largest = 0
-    for scope in stmt.find_all(*_SCOPE_TYPES):
-        fanout = _work_fanout(scope, work_memo, rows_memo)
+
+    def _consider(fanout: _FanoutMap) -> None:
+        nonlocal largest
         if fanout:
             largest = max(largest, max(fanout.values()))
+
+    for scope in stmt.find_all(*_SCOPE_TYPES):
+        _consider(_work_fanout(scope, work_memo, rows_memo))
+    # Parenthesized join groups have no wrapping SELECT, so cost them directly.
+    for subquery in stmt.find_all(exp.Subquery):
+        head = _group_head(subquery)
+        if head is not None:
+            _consider(_group_work(head, work_memo, rows_memo))
     return largest
 
 

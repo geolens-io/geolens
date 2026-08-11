@@ -292,6 +292,31 @@ async def test_parenthesized_join_group_is_rejected(
     assert resp.json()["detail"] == _REPETITION_MESSAGE
 
 
+async def test_parenthesized_group_on_predicate_is_costed(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P1 r9): a parenthesized join group whose ON predicate
+    runs a correlated self-join scan is N^3 — the group's ON work must be
+    costed, not just its row product."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = await _make_table(test_db_session, owner)
+
+    resp = await client.post(
+        "/query/",
+        json={
+            "sql": (
+                f"SELECT a.gid FROM (data.{tbl} a JOIN data.{tbl} b ON EXISTS "
+                f"(SELECT 1 FROM data.{tbl} c WHERE c.gid + a.gid + b.gid = -1))"
+            ),
+            "restrict_tables": [tbl],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == _REPETITION_MESSAGE
+
+
 async def test_transitive_cte_chain_fanout_is_rejected(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
