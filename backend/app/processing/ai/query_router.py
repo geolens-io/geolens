@@ -267,6 +267,15 @@ async def _audit_query(
         await audit_emit_durable(AuditEvent(action="query.reject", **common))
 
 
+# ROUTE-01 dual-shape: the trailing-slash form is canonical and OpenAPI-visible;
+# the no-slash form is a hidden alias. fix(#565 codex P2 r3): both are registered
+# on THIS router so both carry `_LoggedRejectionRoute` — the app-level
+# trailing-slash alias builder re-registers missing no-slash routes as PLAIN
+# APIRoutes, which would drop pre-sandbox-rejection logging on `/query`. It skips
+# `/query` because this hidden route already claims the (method, path) pair, and
+# `include_in_schema=False` keeps it out of the OpenAPI surface (and the #875
+# read_only carve-out already exempts both `/query/` and `/query`).
+@router.post("", include_in_schema=False)
 @router.post(
     "/",
     response_model=SandboxResult,

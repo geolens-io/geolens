@@ -931,33 +931,32 @@ def validate_sql(sql: str) -> ValidatedQuery:
     # table, and is excluded here so it is never access-checked. Everything
     # left — schema-qualified tables AND unqualified names with no in-scope CTE
     # — must pass the data.* check in check_table_access.
-    #
-    # table_counts counts every REFERENCE (not deduped) so callers can bound
-    # self-join amplification — CTE references count under the CTE's own name,
-    # so laundering a repeated physical table through per-copy CTE bodies still
-    # accumulates on the physical key (feat(#565)). Keys are lowercased:
-    # unquoted identifiers fold to lowercase in PostgreSQL, and access checks
-    # on the exact-case `tables` set stay unchanged.
     tables: set[tuple[str, str]] = set()
-    table_counts: dict[tuple[str, str], int] = {}
     for table in stmt.find_all(exp.Table):
         schema = table.db or ""
         name = table.name
         if not name:
             continue
-        key = (schema.lower(), name.lower())
-        table_counts[key] = table_counts.get(key, 0) + 1
         if _is_cte_reference(table):
             continue
         tables.add((schema, name))
 
+    # Transitive self-join fan-out: the largest number of times any one base
+    # table is multiplied into the statement's cardinality, following the CTE
+    # dependency graph (feat(#565); fix(#565 codex P1 r3)). Callers bound this
+    # to reject cross-join cost amplification.
+    max_table_fanout = _max_table_fanout(stmt)
+
     return ValidatedQuery(
-        sql=sql, tables=tables, cte_names=cte_names, table_counts=table_counts
+        sql=sql,
+        tables=tables,
+        cte_names=cte_names,
+        max_table_fanout=max_table_fanout,
     )
 
 
-def _is_cte_reference(table: exp.Table) -> bool:
-    """Whether an unqualified table node resolves to a CTE that is in scope.
+def _resolve_cte(table: exp.Table) -> exp.CTE | None:
+    """The CTE an unqualified table node references, honoring lexical scope.
 
     fix(#565 codex P1): validation used to collect every CTE name in the
     statement into one flat set and treat any unqualified table matching a
@@ -971,16 +970,17 @@ def _is_cte_reference(table: exp.Table) -> bool:
     The name is resolved against the WITH clauses actually in scope for THIS
     node, honoring PostgreSQL's declaration order (fix(#565 codex P1 r2)):
     within one WITH, a CTE body sees only siblings declared strictly BEFORE it,
-    while the owner query body sees them all. Recursive WITHs — the one case
-    where a CTE would see itself — are already rejected upstream
-    (``_reject_recursive_cte``), so forward/self references never resolve here.
+    while the owner query body sees them all. The nearest enclosing binding
+    wins (lexical shadowing). Recursive WITHs — the one case where a CTE would
+    see itself — are already rejected upstream (``_reject_recursive_cte``), so
+    forward/self references never resolve here.
 
     A schema-qualified name (``data.foo``, ``pg_catalog.pg_user``) is never a
-    CTE reference. Anything that does not resolve to an in-scope CTE is treated
-    as a real table and pushed through the data.* access check (fail-closed).
+    CTE reference. Returns None when the name does not resolve to an in-scope
+    CTE, so the reference is treated as a real table (fail-closed).
     """
     if table.db:
-        return False
+        return None
     name = table.name
     child: exp.Expression = table
     node = table.parent
@@ -992,8 +992,10 @@ def _is_cte_reference(table: exp.Table) -> bool:
             # structurally identical CTE bodies must not be conflated.
             ctes = [c for c in node.expressions if isinstance(c, exp.CTE)]
             idx = next((i for i, c in enumerate(ctes) if c is child), None)
-            if idx is not None and any(c.alias == name for c in ctes[:idx]):
-                return True
+            if idx is not None:
+                for c in reversed(ctes[:idx]):
+                    if c.alias == name:
+                        return c
         elif isinstance(node, exp.Select):
             # The WITH is a child of its owner SELECT under a sqlglot arg key
             # that has drifted across releases ("with" -> "with_"), so find it
@@ -1005,14 +1007,96 @@ def _is_cte_reference(table: exp.Table) -> bool:
             # An owner query body (we did NOT ascend from this SELECT's own WITH
             # node — that path is handled above) sees every CTE it declares.
             if with_clause is not None and child is not with_clause:
-                if any(
-                    isinstance(c, exp.CTE) and c.alias == name
-                    for c in with_clause.expressions
-                ):
-                    return True
+                for c in with_clause.expressions:
+                    if isinstance(c, exp.CTE) and c.alias == name:
+                        return c
         child = node
         node = node.parent
-    return False
+    return None
+
+
+def _is_cte_reference(table: exp.Table) -> bool:
+    """Whether an unqualified table node resolves to an in-scope CTE."""
+    return _resolve_cte(table) is not None
+
+
+# Fan-out saturation ceiling. A CTE chain built to blow past the cap produces
+# an astronomically large multiplicity (2**depth); clamping keeps the
+# validator's own arithmetic O(1) per node — it never materializes a bignum —
+# while any real cap sits far below this, so a saturated value still trips it.
+_FANOUT_CEILING = 1 << 16
+
+
+def _set_op_branches(node: exp.Expression) -> list[exp.Expression]:
+    """The two operands of a UNION/INTERSECT/EXCEPT node."""
+    return [b for b in (node.this, node.args.get("expression")) if b is not None]
+
+
+def _node_fanout(
+    node: exp.Expression, memo: dict[int, dict[tuple[str, str], int] | None]
+) -> dict[tuple[str, str], int]:
+    """Worst-case multiplicity of each base table produced by ``node``.
+
+    Maps ``(schema, name)`` to the exponent that base table carries in the
+    node's cardinality: a SELECT's rows are at most the PRODUCT of its
+    from/join sources, so exponents SUM across sources and a source referenced
+    twice counts twice; a set operation's rows are bounded by the larger
+    branch, so exponents take the elementwise MAX. Memoized by node id so a CTE
+    referenced k times is costed once, not 2**depth times.
+    """
+    key = id(node)
+    if key in memo:
+        # None marks a node currently being resolved: a cycle (defensive —
+        # recursion is already rejected) contributes nothing further.
+        return memo[key] or {}
+    memo[key] = None
+
+    out: dict[tuple[str, str], int] = {}
+    if isinstance(node, exp.Select):
+        for source in _own_sources(node):
+            for base, weight in _source_fanout(source, memo).items():
+                out[base] = min(out.get(base, 0) + weight, _FANOUT_CEILING)
+    elif isinstance(node, (exp.Union, exp.Intersect, exp.Except)):
+        for branch in _set_op_branches(node):
+            for base, weight in _node_fanout(branch, memo).items():
+                out[base] = min(max(out.get(base, 0), weight), _FANOUT_CEILING)
+
+    memo[key] = out
+    return out
+
+
+def _source_fanout(
+    source: exp.Expression, memo: dict[int, dict[tuple[str, str], int] | None]
+) -> dict[tuple[str, str], int]:
+    """Base-table multiplicity contributed by one from/join source."""
+    if isinstance(source, exp.Table):
+        cte = _resolve_cte(source)
+        if cte is not None:
+            return _node_fanout(cte.this, memo)
+        # A base table (real, or an out-of-scope name the access check will
+        # reject) is scanned once.
+        return {(source.db or "", source.name): 1}
+    if isinstance(source, exp.Subquery):
+        return _node_fanout(source.this, memo)
+    # Anything else in a FROM (VALUES, an allowlisted table function) does not
+    # open a base-table cross-join vector; the function/table checks bound it.
+    return {}
+
+
+def _max_table_fanout(stmt: exp.Expression) -> int:
+    """The largest base-table multiplicity anywhere in the statement.
+
+    fix(#565 codex P1 r3): a per-reference count cannot see fan-out that
+    COMPOSES through the CTE graph — ``WITH a AS (...foo), b AS (a CROSS JOIN
+    a), c AS (b CROSS JOIN b) SELECT c CROSS JOIN c`` keeps every name at two
+    references while multiplying ``data.foo`` to the eighth power. Costing the
+    transitive dependency graph catches it: this returns 8 for that statement
+    and 2 for a plain pairwise self-join, so a cap on it bounds real work
+    rather than surface spellings.
+    """
+    memo: dict[int, dict[tuple[str, str], int] | None] = {}
+    fanout = _node_fanout(stmt, memo)
+    return max(fanout.values(), default=0)
 
 
 async def build_table_allowlist(db: AsyncSession, user: Identity | None) -> set[str]:

@@ -268,6 +268,59 @@ async def test_cross_join_shape_is_rejected(
     assert tbl not in resp.text
 
 
+async def test_transitive_cte_chain_fanout_is_rejected(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P1 r3): a CTE chain that keeps every per-name count at 2
+    but multiplies one physical table to N^8 must be rejected — the fan-out
+    bound follows the dependency graph, not surface reference counts."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = await _make_table(test_db_session, owner)
+
+    resp = await client.post(
+        "/query/",
+        json={
+            "sql": (
+                f"WITH a AS (SELECT gid FROM data.{tbl}), "
+                "b AS (SELECT x.gid FROM a x CROSS JOIN a y), "
+                "c AS (SELECT x.gid FROM b x CROSS JOIN b y) "
+                "SELECT x.gid FROM c x CROSS JOIN c y"
+            ),
+            "restrict_tables": [tbl],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == _REPETITION_MESSAGE
+
+
+async def test_multi_table_join_is_not_a_false_positive(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """The fan-out bound must not reject a legitimate join across several
+    DIFFERENT tables (linear cost, fan-out 1), only self-multiplication."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    t1 = await _make_table(test_db_session, owner)
+    t2 = await _make_table(test_db_session, owner)
+    t3 = await _make_table(test_db_session, owner)
+
+    resp = await client.post(
+        "/query/",
+        json={
+            "sql": (
+                f"SELECT a.gid FROM data.{t1} a "
+                f"JOIN data.{t2} b ON a.gid = b.gid "
+                f"JOIN data.{t3} c ON b.gid = c.gid"
+            ),
+            "restrict_tables": [t1, t2, t3],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+
 async def test_cte_laundered_repetition_is_rejected(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
@@ -449,6 +502,25 @@ async def test_no_slash_alias_serves_the_same_route(
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
+
+
+def test_both_query_shapes_keep_the_logging_route_class():
+    """fix(#565 codex P2 r3): the no-slash alias must carry the same route
+    class as `/query/`, or pre-sandbox-rejection logging would fire on only one
+    URL spelling. Registering it on the router (not via the app-level alias
+    builder, which re-registers as a plain APIRoute) keeps them in parity."""
+    from fastapi.routing import APIRoute, iter_route_contexts
+
+    from app.api.main import app
+    from app.processing.ai.query_router import _LoggedRejectionRoute
+
+    classes = {
+        ctx.path: type(ctx.route)
+        for ctx in iter_route_contexts(app.routes)
+        if isinstance(ctx.route, APIRoute) and ctx.path in ("/query/", "/query")
+    }
+    assert classes.get("/query/") is _LoggedRejectionRoute
+    assert classes.get("/query") is _LoggedRejectionRoute
 
 
 # ---------------------------------------------------------------------------

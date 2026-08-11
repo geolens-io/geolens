@@ -61,17 +61,21 @@ async def validate_and_execute(
             this set — it can only narrow access, never widen it. Used by
             dataset-scoped chat (PR #531 review) so generated SQL cannot reach
             other tables the user happens to be able to see.
-        max_table_repeats: feat(#565): when set, reject any statement that
-            references the same table (or CTE name) more than this many times.
-            This is the self-join cost bound for the raw-SQL endpoint —
+        max_table_repeats: feat(#565): when set, reject any statement whose
+            transitive self-join FAN-OUT exceeds this — the largest number of
+            times one base table is multiplied into the worst-case cardinality,
+            computed through the CTE dependency graph (fix(#565 codex P1 r3)).
+            This is the self-join cost bound for the raw-SQL endpoint:
             ``... FROM data.foo a CROSS JOIN data.foo b CROSS JOIN data.foo c``
             passes every function/table check while its work grows with the
-            table's own size to the power of the repetition count, and the
-            outer LIMIT bounds rows returned, not work performed. Left None
-            (no cap) for AI chat so its behavior does not silently change.
+            table's own size to the power of the fan-out, and the outer LIMIT
+            bounds rows returned, not work performed. Costing the graph (not
+            per-name reference counts) catches a CTE chain that keeps every
+            counter at the cap while multiplying one table far past it. Left
+            None (no cap) for AI chat so its behavior does not silently change.
             EXPLAIN-based cost rejection is the finer-grained future
-            replacement discussed in #565; a repetition cap is the bound that
-            needs no planner round-trip.
+            replacement discussed in #565; a static fan-out bound needs no
+            planner round-trip.
         require_reader_role: feat(#565): fail closed if the restricted reader
             role cannot be bound in single-tenant mode (see execute_safe).
 
@@ -94,22 +98,23 @@ async def validate_and_execute(
                 "invalid_query", "Query must reference an accessible dataset"
             )
 
-        # feat(#565): self-join repetition cap (see the kwarg docs above).
+        # feat(#565): self-join fan-out cap (see the kwarg docs above).
         # Checked before the RBAC query so a rejected statement costs no DB
         # round-trip. The message is sanitized — no table names echo back.
-        if max_table_repeats is not None:
-            repeated = max(validated.table_counts.values(), default=0)
-            if repeated > max_table_repeats:
-                logger.info(
-                    "sandbox.table_repetition_cap",
-                    sql=sql,
-                    repeats=repeated,
-                    cap=max_table_repeats,
-                )
-                raise SandboxError(
-                    "invalid_query",
-                    "Query references the same table too many times",
-                )
+        if (
+            max_table_repeats is not None
+            and validated.max_table_fanout > max_table_repeats
+        ):
+            logger.info(
+                "sandbox.table_fanout_cap",
+                sql=sql,
+                fanout=validated.max_table_fanout,
+                cap=max_table_repeats,
+            )
+            raise SandboxError(
+                "invalid_query",
+                "Query references the same table too many times",
+            )
 
         # Phase 2: Build RBAC allowlist
         allowed_tables = await build_table_allowlist(db, user)

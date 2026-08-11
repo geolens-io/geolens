@@ -28,16 +28,17 @@ class SandboxError(Exception):
 class ValidatedQuery:
     """Result of successful SQL validation.
 
-    ``table_counts`` counts every named table/CTE REFERENCE in the statement,
-    keyed by lowercased ``(schema, name)`` — unlike ``tables``, which dedupes.
-    feat(#565): the raw-SQL endpoint uses these counts for its self-join
-    repetition cap; see ``validate_and_execute(max_table_repeats=...)``.
+    ``max_table_fanout`` is the largest number of times any single base table
+    is multiplied into the statement's worst-case cardinality, computed through
+    the CTE dependency graph (a plain pairwise self-join is 2). feat(#565): the
+    raw-SQL endpoint bounds it to reject cross-join cost amplification; see
+    ``validate_and_execute(max_table_repeats=...)``.
     """
 
     sql: str
     tables: set[tuple[str, str]] = field(default_factory=set)
     cte_names: set[str] = field(default_factory=set)
-    table_counts: dict[tuple[str, str], int] = field(default_factory=dict)
+    max_table_fanout: int = 0
 
 
 class SandboxResult(BaseModel):
