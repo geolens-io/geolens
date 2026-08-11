@@ -731,6 +731,9 @@ GRANT geolens_tenant_control TO "<runtime-login>" WITH INHERIT TRUE, SET FALSE;
 GRANT geolens_tenant_writer  TO "<runtime-login>" WITH INHERIT FALSE, SET TRUE;
 GRANT geolens_tenant_sandbox TO "<runtime-login>" WITH INHERIT FALSE, SET TRUE;
 GRANT geolens_tile_gateway   TO "<tile-login>"    WITH INHERIT FALSE, SET TRUE;
+-- 2d's reconciler revokes PUBLIC CONNECT and grants it back to the current,
+-- migration and runtime roles only, so the tile login needs its own.
+GRANT CONNECT ON DATABASE "$POSTGRES_DB" TO "<tile-login>";
 SQL
 ```
 
@@ -744,6 +747,7 @@ GRANT geolens_tenant_control TO "<runtime-login>";
 GRANT geolens_tenant_writer  TO "<runtime-login>";
 GRANT geolens_tenant_sandbox TO "<runtime-login>";
 GRANT geolens_tile_gateway   TO "<tile-login>";
+GRANT CONNECT ON DATABASE "$POSTGRES_DB" TO "<tile-login>";
 SQL
 ```
 
