@@ -198,7 +198,8 @@ WKT_PATTERNS = {"wkt", "geom", "geometry", "the_geom", "shape"}
 # Column names that collide with GeoLens-internal PostGIS columns created
 # during ingestion. If a source file has an attribute with any of these
 # names, the ingest pipeline auto-renames it to `src_<name>` before the
-# remaining post-ingest steps run. See metadata.py rename_reserved_columns.
+# remaining post-ingest steps run. See metadata_geometry.py
+# rename_reserved_columns.
 RESERVED_COLUMN_NAMES: frozenset[str] = frozenset(
     {"gid", "geom", "geometry", "geom_4326", "fid", "ogc_fid"}
 )
@@ -661,8 +662,9 @@ async def run_ogr2ogr(
         #   numeric(precision, scale) declarations and writes columns as PG NUMERIC.
         #   We set NO to force all numeric-family fields to FLOAT8 / INTEGER / VARCHAR.
         #   Tradeoff: we lose declared precision/scale but gain predictable query
-        #   performance and simpler downstream type inference (metadata.py
-        #   _infer_domain_type). Values above 2^53 may lose integer precision.
+        #   performance and simpler downstream type inference
+        #   (metadata_attributes.py _infer_domain_type). Values above 2^53 may
+        #   lose integer precision.
         #   Locked via .planning/quick/260410-d7k-.../260410-d7k-CONTEXT.md decision
         #   ("PRECISION=NO: leave it, document why"). Do not change without review.
         "-lco",
@@ -809,7 +811,7 @@ async def run_ogr2ogr_service(
         # ogr2ogr honours that declaration and creates the PostGIS column with
         # the same abstract subtype.  When the actual features arrive as
         # concrete geometries (MultiPolygon), the post-ingest bounds-clip
-        # UPDATE in clip_to_mercator_bounds (metadata.py) fails with:
+        # UPDATE in clip_to_mercator_bounds (metadata_mercator.py) fails with:
         #   asyncpg.exceptions.InvalidParameterValueError:
         #     Geometry type (MultiPolygon) does not match column type (MultiSurface)
         #
@@ -818,7 +820,7 @@ async def run_ogr2ogr_service(
         # stored by the service's features is accepted by PostGIS transparently.
         #
         # The concrete subtype for Dataset.geometry_type is derived post-ingest
-        # via get_geometry_type() (metadata.py:165) which inspects the first
+        # via get_geometry_type() (metadata_extent.py) which inspects the first
         # feature with `SELECT GeometryType(geom) … LIMIT 1`.  This keeps the
         # downstream record_type classification, icons, and UX unchanged.
         #

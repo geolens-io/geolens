@@ -154,9 +154,9 @@ def _ring(x0: float, south: float, x1: float, north: float) -> str:
 # fix(#944): a span this narrow is degenerate, and the sliver it is widened to.
 # Both come from :func:`seam_extent_wkt_for_table`, which hit the same problem
 # one caller upstream first; 1e-9 is also the magnitude the ``ST_Expand`` calls
-# in ``processing/ingest/metadata.py`` and ``catalog/features/service.py`` use
-# on POINT/LINESTRING extents, so a padded extent produced here is
-# indistinguishable in size from one produced by ingest.
+# in ``processing/ingest/metadata_extent.py`` and
+# ``catalog/features/service.py`` use on POINT/LINESTRING extents, so a padded
+# extent produced here is indistinguishable in size from one produced by ingest.
 _DEGENERATE_SPAN = 1e-12
 _DEGENERATE_PAD = 1e-9
 
@@ -428,12 +428,13 @@ async def seam_extent_wkt_for_table(
     """Two-ring extent WKT for a data table that honestly crosses ±180, else None.
 
     fix(#934): the producer-side twin of :func:`rollup_bbox` for the per-dataset
-    extent writers (``ingest/metadata.py``, ``catalog/features/service.py``). A
-    naive ``ST_Extent`` over a Pacific-crossing table reads near-global
-    (150..250 shifted to both sides folds to -170..170, a 340-degree bbox for a
-    100-degree footprint); this aggregates the same rows in both longitude
-    domains via :func:`rollup_bbox_columns` and, when the shifted domain wins,
-    returns the honest two-ring MULTIPOLYGON from :func:`bbox_to_extent_wkt`.
+    extent writers (``ingest/metadata_extent.py``,
+    ``catalog/features/service.py``). A naive ``ST_Extent`` over a
+    Pacific-crossing table reads near-global (150..250 shifted to both sides
+    folds to -170..170, a 340-degree bbox for a 100-degree footprint); this
+    aggregates the same rows in both longitude domains via
+    :func:`rollup_bbox_columns` and, when the shifted domain wins, returns the
+    honest two-ring MULTIPOLYGON from :func:`bbox_to_extent_wkt`.
 
     Returns None for a non-crossing (or empty) table so callers keep their
     existing single-polygon path byte-identical — including the degenerate

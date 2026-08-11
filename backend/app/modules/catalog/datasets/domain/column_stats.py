@@ -56,7 +56,7 @@ def _sql_quote_ident(name: str) -> str:
     identifiers. Defense in depth here — every current caller pre-validates
     names against ``_IDENTIFIER_RE`` which already rejects colons — but this
     keeps the helper safe by construction and consistent with the
-    ingest-side copy in ``processing/ingest/metadata.py``, whose inputs ARE
+    ingest-side copy in ``processing/ingest/metadata_sql.py``, whose inputs ARE
     arbitrary source-file column names. Only valid inside ``text()``.
     """
     return '"' + name.replace('"', '""').replace(":", "\\:") + '"'

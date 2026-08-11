@@ -3,9 +3,10 @@
 Since #888 shifts a 0..360 Pacific source onto both sides of the antimeridian
 instead of clipping it, an ordinary ingest can produce a table whose naive
 ``ST_Extent`` reads -170..170 — a 340-degree bbox for a 100-degree footprint.
-The producer sites (``ingest/metadata.py`` ``get_extent`` / ``extract_metadata``
-and ``catalog/features/service.py`` ``_refresh_count_and_extent``) now emit the
-two-ring MULTIPOLYGON via ``bbox_to_extent_wkt`` when the honest extent crosses
+The producer sites (``ingest/metadata_extent.py`` ``get_extent`` /
+``extract_metadata`` and ``catalog/features/service.py``
+``_refresh_count_and_extent``) now emit the two-ring MULTIPOLYGON via
+``bbox_to_extent_wkt`` when the honest extent crosses
 the seam, and stay byte-identical otherwise.
 
 Requires the Docker test database.

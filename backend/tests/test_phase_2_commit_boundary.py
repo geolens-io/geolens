@@ -1,9 +1,11 @@
 """Regression test for ING-02 / P2-02: phase-2 metadata helpers must not commit internally.
 
-The four helpers in ``app.processing.ingest.metadata``
+The four helpers re-exported by ``app.processing.ingest.metadata``
 (``ensure_geom_column``, ``clip_to_mercator_bounds``, ``add_4326_column``,
-``grant_reader_access``) are called from inside ``_finalize_ingest``'s
-phase-2 transaction at ``tasks_common.py:821``. If any of them commits
+``grant_reader_access`` — fix(#1042): they now live in metadata_geometry,
+metadata_mercator and metadata_projection) are called from inside
+``_finalize_ingest``'s phase-2 transaction at ``tasks_common.py:821``. If any
+of them commits
 internally, a downstream failure cannot roll back the work — the
 forward-only DDL would persist even after ``session.rollback()``.
 

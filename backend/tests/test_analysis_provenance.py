@@ -1075,7 +1075,9 @@ class TestLineageSummaryVisibility:
             "app/modules/catalog/validation/service.py": (
                 "VAL-01 completeness — tests presence, never emits the value"
             ),
-            "app/processing/ingest/metadata.py": (
+            # fix(#1042): follows _score_metadata_completeness out of
+            # ingest/metadata.py into the module the facade split gave it.
+            "app/processing/ingest/metadata_quality.py": (
                 "metadata completeness scoring on the record's own fields"
             ),
             "app/processing/ai/metadata_service.py": (

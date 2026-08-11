@@ -136,7 +136,11 @@ max-complexity = 15
 "app/processing/ai/service.py" = ["C901"]
 "app/processing/ai/streaming.py" = ["C901"]
 "app/processing/export/router.py" = ["C901"]
-"app/processing/ingest/metadata.py" = ["C901"]
+# fix(#1042): the ingest/metadata.py baseline entry follows
+# `refresh_attribute_metadata` (McCabe 16, the file's only over-complex
+# function) into the sub-module created by the facade split — retargeted, not
+# new, same as the defaults_ai_openai.py entry above.
+"app/processing/ingest/metadata_attributes.py" = ["C901"]
 "app/processing/ingest/tasks_raster.py" = ["C901"]
 "app/processing/ingest/tasks_vector.py" = ["C901"]
 "app/processing/ingest/tasks_vrt.py" = ["C901"]
