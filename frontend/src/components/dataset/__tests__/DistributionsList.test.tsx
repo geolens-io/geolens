@@ -207,14 +207,14 @@ describe('DistributionsList', () => {
     it('is not rendered for a reader (canEdit unset)', () => {
       render(<DistributionsList recordId="record-1" />);
 
-      expect(screen.queryByRole('button', { name: 'Set as primary' })).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'Primary distribution' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /as primary/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /primary distribution/i })).not.toBeInTheDocument();
     });
 
     it('is not rendered for a reader (canEdit explicitly false)', () => {
       render(<DistributionsList recordId="record-1" canEdit={false} />);
 
-      expect(screen.queryByRole('button', { name: 'Set as primary' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /as primary/i })).not.toBeInTheDocument();
     });
 
     it('renders for an owner, only on the manual non-primary row', () => {
@@ -223,24 +223,27 @@ describe('DistributionsList', () => {
       // The two auto-generated rows (the primary GeoPackage and the
       // non-primary OGC Features row) never get the control — the backend
       // rejects any PATCH against an auto_generated distribution.
-      expect(screen.getAllByRole('button', { name: 'Set as primary' })).toHaveLength(1);
+      expect(screen.getAllByRole('button', { name: /as primary/i })).toHaveLength(1);
+      expect(screen.getByRole('button', { name: 'Set Viewer App as primary' })).toBeInTheDocument();
     });
 
-    it('has an accessible name distinct from any surrounding label text', () => {
+    // fix(#1395 codex round 1): the accessible name names the row, so two
+    // "Set as primary" buttons on the same page are distinguishable.
+    it('has an accessible name that names the distribution, not a label-for that could steal it', () => {
       render(<DistributionsList recordId="record-1" canEdit />);
 
       // getByRole computes the accessible name; a <label for> stealing a
       // button's name (as opposed to a plain aria-label) would make this
       // query fail even though the button is visible.
-      const button = screen.getByRole('button', { name: 'Set as primary' });
+      const button = screen.getByRole('button', { name: 'Set Viewer App as primary' });
       expect(button).toBeInTheDocument();
-      expect(button).toHaveAccessibleName('Set as primary');
+      expect(button).toHaveAccessibleName('Set Viewer App as primary');
     });
 
     it('PATCHes the clicked row when an owner sets it primary', () => {
       render(<DistributionsList recordId="record-1" canEdit />);
 
-      fireEvent.click(screen.getByRole('button', { name: 'Set as primary' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Set Viewer App as primary' }));
 
       expect(mutate).toHaveBeenCalledTimes(1);
       expect(mutate).toHaveBeenCalledWith('app-1');
@@ -255,7 +258,48 @@ describe('DistributionsList', () => {
 
       render(<DistributionsList recordId="record-1" canEdit />);
 
-      expect(screen.getByRole('button', { name: 'Set as primary' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Set Viewer App as primary' })).toBeDisabled();
+    });
+
+    // fix(#1395 codex round 1): a second manual, non-primary row must go
+    // disabled too while ANY promotion is in flight — not just the row that
+    // was clicked — so a second click can't fire a concurrent PATCH that
+    // races the first against uq_record_distribution_primary.
+    it('disables every sibling set-primary control while one promotion is in flight', () => {
+      mockUseDistributions.mockReturnValue({
+        data: {
+          distributions: [
+            ...DISTRIBUTIONS_WITH_MANUAL_ROW,
+            {
+              id: 'app-2',
+              record_id: 'record-1',
+              distribution_type: 'offlineAccess',
+              format: 'zip',
+              url: 'https://example.com/offline.zip',
+              title: 'Offline Bundle',
+              description: null,
+              protocol: 'HTTPS',
+              media_type: 'application/zip',
+              is_primary: false,
+              auto_generated: false,
+            },
+          ],
+          total: 4,
+        },
+        isLoading: false,
+      } as unknown as ReturnType<typeof useDistributions>);
+      // "Viewer App" is the one being promoted; "Offline Bundle" is idle but
+      // must still go disabled.
+      mockUseSetPrimaryDistribution.mockReturnValue({
+        mutate,
+        isPending: true,
+        variables: 'app-1',
+      } as unknown as ReturnType<typeof useSetPrimaryDistribution>);
+
+      render(<DistributionsList recordId="record-1" canEdit />);
+
+      expect(screen.getByRole('button', { name: 'Set Viewer App as primary' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Set Offline Bundle as primary' })).toBeDisabled();
     });
   });
 });

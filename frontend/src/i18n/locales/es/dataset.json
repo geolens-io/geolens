@@ -587,8 +587,8 @@
     "primary": "Primario",
     "copyUrl": "Copiar URL",
     "loadError": "No se pudieron cargar las distribuciones.",
-    "setPrimary": "Establecer como primario",
-    "currentPrimary": "Distribución primaria",
+    "setPrimary": "Establecer {{name}} como primario",
+    "currentPrimary": "{{name}} es la distribución primaria",
     "primaryUpdated": "Distribución primaria actualizada.",
     "setPrimaryFailed": "No se pudo establecer la distribución primaria."
   },

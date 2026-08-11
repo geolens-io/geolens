@@ -97,31 +97,43 @@ function CopyableUrl({ url, publicApiUrl }: { url: string; publicApiUrl: string 
  * control on those rows could never do anything but fail. The currently
  * primary manual row renders checked and disabled; clicking any other one
  * PATCHes it to `is_primary: true`, which the backend applies as a
- * last-write-wins demote of every other row on the record (#1383). */
+ * last-write-wins demote of every other row on the record (#1383).
+ *
+ * fix(#1395 codex round 1): `isMutating` disables every sibling control
+ * while any promotion is in flight, not just the clicked one — two manual
+ * rows both idle-looking would otherwise let a second click fire a
+ * concurrent PATCH, and since both transactions demote-then-promote against
+ * `uq_record_distribution_primary`, which one wins is transaction order, not
+ * click order. `isPendingThisRow` only decides which button shows the
+ * spinner. The accessible name interpolates the row's own title/format so a
+ * screen reader can tell two "Set as primary" buttons apart. */
 function SetPrimaryControl({
   distribution,
   onSelect,
-  pending,
+  isMutating,
+  isPendingThisRow,
 }: {
   distribution: DistributionResponse;
   onSelect: (distributionId: string) => void;
-  pending: boolean;
+  isMutating: boolean;
+  isPendingThisRow: boolean;
 }) {
   const { t } = useTranslation('dataset');
+  const name = distribution.title || distribution.format || distribution.distribution_type;
   const label = distribution.is_primary
-    ? t('distributions.currentPrimary')
-    : t('distributions.setPrimary');
+    ? t('distributions.currentPrimary', { name })
+    : t('distributions.setPrimary', { name });
 
   return (
     <Button
       variant="ghost"
       size="icon-xs"
       onClick={() => onSelect(distribution.id)}
-      disabled={distribution.is_primary || pending}
+      disabled={distribution.is_primary || isMutating}
       aria-label={label}
       title={label}
     >
-      {pending ? (
+      {isPendingThisRow ? (
         <Loader2 className="h-3 w-3 animate-spin" />
       ) : distribution.is_primary ? (
         <CircleDot className="h-3 w-3" />
@@ -208,7 +220,8 @@ export function DistributionsList({ recordId, canEdit = false }: DistributionsLi
                     <SetPrimaryControl
                       distribution={dist}
                       onSelect={(distributionId) => setPrimary.mutate(distributionId)}
-                      pending={setPrimary.isPending && setPrimary.variables === dist.id}
+                      isMutating={setPrimary.isPending}
+                      isPendingThisRow={setPrimary.isPending && setPrimary.variables === dist.id}
                     />
                   )}
                 </div>

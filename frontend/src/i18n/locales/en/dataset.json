@@ -538,8 +538,8 @@
     "primary": "Primary",
     "copyUrl": "Copy URL",
     "loadError": "Failed to load distributions.",
-    "setPrimary": "Set as primary",
-    "currentPrimary": "Primary distribution",
+    "setPrimary": "Set {{name}} as primary",
+    "currentPrimary": "{{name}} is the primary distribution",
     "primaryUpdated": "Primary distribution updated.",
     "setPrimaryFailed": "Failed to set primary distribution."
   },
