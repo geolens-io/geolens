@@ -95,7 +95,7 @@ jobs:
           base="$(git rev-parse HEAD^1)"
           echo "Diffing against first parent of the merge ref: $base"
           echo "sha=$base" >> "$GITHUB_OUTPUT"
-      - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706  # v4
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d  # v4
         id: filter
         # fix(#1000): the filter has nothing to diff against on merge_group and
         # nothing to say either way. Git-diff detection (see the token note
