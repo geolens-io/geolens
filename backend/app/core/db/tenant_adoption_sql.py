@@ -702,6 +702,7 @@ DECLARE
     schema_owner text;
     pending_owner_transfer bigint;
     reader_privilege_gap bigint;
+    default_acl_gap bigint;
     reader_oid oid;
     writer_oid oid;
     grantee_name text;
@@ -740,43 +741,6 @@ BEGIN
     -- flag, an automatic creator membership, and an ALTER DEFAULT PRIVILEGES
     -- entry.  Normalize that known legacy shape before the strict provision
     -- function validates the role.
-    -- Every default-privilege entry in the schema, for any object kind and any
-    -- grantee — not just the reader's, which is only the shape the pre-0019
-    -- runtime helper happened to leave. The contract inside a tenant schema is
-    -- that the writer grants the reader explicitly on each relation, so an
-    -- entry here hands out privileges on relations that do not exist yet.
-    FOR default_acl_row IN
-        SELECT owner_role.rolname AS owner_name,
-               default_acl.defaclobjtype AS object_type,
-               CASE
-                   WHEN acl.grantee = 0 THEN 'PUBLIC'
-                   ELSE pg_catalog.quote_ident(grantee_role.rolname)
-               END AS grantee_name
-        FROM pg_catalog.pg_default_acl AS default_acl
-        JOIN pg_catalog.pg_roles AS owner_role
-          ON owner_role.oid = default_acl.defaclrole
-        JOIN LATERAL pg_catalog.aclexplode(default_acl.defaclacl) AS acl ON true
-        LEFT JOIN pg_catalog.pg_roles AS grantee_role
-          ON grantee_role.oid = acl.grantee
-        JOIN pg_catalog.pg_namespace AS namespace
-          ON namespace.oid = default_acl.defaclnamespace
-        WHERE namespace.nspname = schema_name
-    LOOP
-        EXECUTE pg_catalog.format(
-            'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I REVOKE ALL ON %s FROM %s',
-            default_acl_row.owner_name,
-            schema_name,
-            CASE default_acl_row.object_type
-                WHEN 'r' THEN 'TABLES'
-                WHEN 'S' THEN 'SEQUENCES'
-                WHEN 'f' THEN 'FUNCTIONS'
-                WHEN 'T' THEN 'TYPES'
-                ELSE 'SCHEMAS'
-            END,
-            default_acl_row.grantee_name
-        );
-    END LOOP;
-
     SELECT * INTO writer_row
     FROM pg_catalog.pg_roles
     WHERE rolname = writer_name;
@@ -1018,9 +982,17 @@ BEGIN
           )
       );
 
+    SELECT pg_catalog.count(*) INTO default_acl_gap
+    FROM pg_catalog.pg_default_acl AS default_acl
+    JOIN pg_catalog.pg_namespace AS namespace
+      ON namespace.oid = default_acl.defaclnamespace
+    WHERE namespace.nspname = schema_name;
+
     -- Nothing to move and nothing to grant: an already-adopted tenant issues
     -- zero DDL here, which is what makes a re-run a genuine no-op.
-    IF pending_owner_transfer = 0 AND reader_privilege_gap = 0 THEN
+    IF pending_owner_transfer = 0
+       AND reader_privilege_gap = 0
+       AND default_acl_gap = 0 THEN
         RETURN;
     END IF;
 
@@ -1092,6 +1064,56 @@ BEGIN
             'tenant schema % contains relation not owned by %',
             schema_name, writer_name;
     END IF;
+
+    -- Every default-privilege entry in the schema, for any object kind and any
+    -- grantee — not just the reader's, which is only the shape the pre-0019
+    -- runtime helper happened to leave. The contract inside a tenant schema is
+    -- that the writer grants the reader explicitly on each relation, so an
+    -- entry here hands out privileges on relations that do not exist yet.
+    FOR default_acl_row IN
+        SELECT owner_role.rolname AS owner_name,
+               default_acl.defaclobjtype AS object_type,
+               CASE
+                   WHEN acl.grantee = 0 THEN 'PUBLIC'
+                   ELSE pg_catalog.quote_ident(grantee_role.rolname)
+               END AS grantee_name
+        FROM pg_catalog.pg_default_acl AS default_acl
+        JOIN pg_catalog.pg_roles AS owner_role
+          ON owner_role.oid = default_acl.defaclrole
+        JOIN LATERAL pg_catalog.aclexplode(default_acl.defaclacl) AS acl ON true
+        LEFT JOIN pg_catalog.pg_roles AS grantee_role
+          ON grantee_role.oid = acl.grantee
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = default_acl.defaclnamespace
+        WHERE namespace.nspname = schema_name
+    LOOP
+        -- ALTER DEFAULT PRIVILEGES FOR ROLE needs the caller to be able to
+        -- assume that role. The migrator can for its own entries and, inside
+        -- this window, for the writer's; anything else it cannot reach is left
+        -- for the report to keep flagging rather than failing the tenant.
+        BEGIN
+            IF default_acl_row.owner_name <> CURRENT_USER THEN
+                EXECUTE pg_catalog.format('SET ROLE %I', default_acl_row.owner_name);
+            END IF;
+            EXECUTE pg_catalog.format(
+                'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I REVOKE ALL ON %s FROM %s',
+                default_acl_row.owner_name,
+                schema_name,
+                CASE default_acl_row.object_type
+                    WHEN 'r' THEN 'TABLES'
+                    WHEN 'S' THEN 'SEQUENCES'
+                    WHEN 'f' THEN 'FUNCTIONS'
+                    WHEN 'T' THEN 'TYPES'
+                    ELSE 'SCHEMAS'
+                END,
+                default_acl_row.grantee_name
+            );
+            RESET ROLE;
+        EXCEPTION
+            WHEN insufficient_privilege THEN
+                RESET ROLE;
+        END;
+    END LOOP;
 
     EXECUTE pg_catalog.format('SET ROLE %I', writer_name);
     -- Revoke first, then grant back exactly the read privileges: ALTER TABLE …

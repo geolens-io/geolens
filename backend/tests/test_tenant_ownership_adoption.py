@@ -939,10 +939,20 @@ class TestReportedStateMatchesWhatApplyEnforces:
                         "GRANT USAGE ON SEQUENCES TO PUBLIC"
                     )
                 )
+                # One owned by the tenant writer, which the migrator can only
+                # assume inside the adoption window.
+                await conn.execute(sa.text(f"SET LOCAL ROLE {_writer}"))
+                await conn.execute(
+                    sa.text(
+                        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} "
+                        "GRANT SELECT ON TABLES TO PUBLIC"
+                    )
+                )
+                await conn.execute(sa.text("RESET ROLE"))
 
             async with engine.connect() as conn:
                 state = await tenant_ownership_state(conn, tenant_id)
-            assert state.unexpected_default_acls == 2
+            assert state.unexpected_default_acls == 3
             assert not state.adopted
 
             repaired = await run_adoption(engine, apply=True)
