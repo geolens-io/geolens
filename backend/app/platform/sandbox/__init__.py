@@ -11,6 +11,9 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,6 +41,8 @@ async def validate_and_execute(
     restrict_tables: frozenset[str] | None = None,
     max_table_repeats: int | None = None,
     require_reader_role: bool = False,
+    release_session: bool = False,
+    capacity_semaphore: asyncio.Semaphore | None = None,
 ) -> SandboxResult:
     """Validate and safely execute a SQL query.
 
@@ -78,6 +83,21 @@ async def validate_and_execute(
             planner round-trip.
         require_reader_role: feat(#565): fail closed if the restricted reader
             role cannot be bound in single-tenant mode (see execute_safe).
+        release_session: fix(#565 codex P1 r11): close the caller's request
+            session AFTER the RBAC allowlist query and BEFORE execute_safe, so
+            its pooled connection is returned while the sandbox query runs on
+            its own connection. Without this each in-flight query holds two
+            pool slots; with the default 10+3 pool a handful of distinct users
+            exhaust it and unrelated endpoints block on the pool timeout. Only
+            safe when the caller reads nothing from ``db`` afterwards (the
+            raw-SQL endpoint does not; AI chat does, so it leaves this False).
+        capacity_semaphore: fix(#565 codex P1 r11): a GLOBAL fail-fast bound on
+            concurrent sandbox executions, on top of the per-user advisory lock
+            (which only stops ONE user stacking queries, not N distinct users
+            each holding a connection). If it is already at capacity the query
+            is refused with ``query_at_capacity`` rather than queued — the
+            client is holding a request open, so a fast refusal beats a slow
+            one. Mirrors the analysis-preview ``_preview_slots`` pattern.
 
     Returns:
         SandboxResult with query results.
@@ -128,16 +148,41 @@ async def validate_and_execute(
         # (e.g. pg_user) that a same-named inner CTE happens to define.
         check_table_access(validated.tables, allowed_tables, cte_names=set())
 
+        # fix(#565 codex P1 r11): return the request session's pooled
+        # connection before the sandbox opens its own, so an in-flight query
+        # holds one pool slot, not two. Done after the RBAC query (which needs
+        # this session) and only when the caller opted in. ``close()`` rather
+        # than ``rollback()``: rollback ends the transaction but keeps the
+        # connection associated with the session, and execute_safe reusing that
+        # same pooled connection for its advisory-lock transaction then fails
+        # (a MissingGreenlet under the async pool); close cleanly returns it.
+        # The request handler reads nothing from ``db`` afterwards, and the
+        # dependency's own close becomes a no-op.
+        if release_session:
+            await db.close()
+
+        # fix(#565 codex P1 r11): a global fail-fast capacity bound. `.locked()`
+        # then `async with` is atomic — no await between them, and acquiring a
+        # free semaphore does not yield — so this is a real check-then-act only
+        # in appearance. At capacity, refuse fast rather than queue.
+        if capacity_semaphore is not None and capacity_semaphore.locked():
+            raise SandboxError(
+                "query_at_capacity",
+                "The server is running its maximum number of queries. "
+                "Try again in a moment.",
+            )
+
         # Phase 4: Execute safely
         concurrency_key = str(user.id) if user is not None else "anonymous"
-        return await execute_safe(
-            db,
-            validated.sql,
-            row_limit=row_limit,
-            timeout_ms=timeout_ms,
-            concurrency_key=concurrency_key,
-            require_reader_role=require_reader_role,
-        )
+        async with capacity_semaphore or contextlib.nullcontext():
+            return await execute_safe(
+                db,
+                validated.sql,
+                row_limit=row_limit,
+                timeout_ms=timeout_ms,
+                concurrency_key=concurrency_key,
+                require_reader_role=require_reader_role,
+            )
 
     except SandboxError:
         # Already a sandbox error -- re-raise as-is

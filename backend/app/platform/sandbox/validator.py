@@ -817,6 +817,25 @@ def _reject_recursive_cte(stmt: exp.Expression, sql: str) -> None:
         raise SandboxError("invalid_query", "Recursive queries are not allowed")
 
 
+def _reject_oid_alias_casts(stmt: exp.Expression, sql: str) -> None:
+    """Reject casts to PostgreSQL OID-alias types (``regrole``, ``regclass``…).
+
+    fix(#565 codex P1 r11): a cast to a ``reg*`` OID-alias type resolves an
+    integer OID to a catalog name — ``SELECT v::regrole FROM data.foo CROSS
+    JOIN (VALUES (10), (16384)) AS x(v)`` reads database role names without
+    referencing any catalog table, the same disclosure the CTE-scope fixes
+    close from the other direction. sqlglot models every OID-family cast target
+    (``regrole``, ``regclass``, ``regnamespace``, ``regproc``, ``regtype``,
+    ``oid``, …) as ``exp.ObjectIdentifier`` rather than ``exp.DataType``, so
+    rejecting that node type rejects the whole family. These types have no
+    legitimate use in a read-only analytics query over ``data.*`` tables.
+    """
+    for cast in stmt.find_all(exp.Cast):
+        if isinstance(cast.to, exp.ObjectIdentifier):
+            logger.info("sandbox.oid_alias_cast", sql=sql, target=cast.to.name.lower())
+            raise SandboxError("invalid_query", "Query uses a disallowed type cast")
+
+
 def _check_function_allowlist(stmt: exp.Expression, sql: str) -> None:
     """Fail-closed function check (SEC-025).
 
@@ -915,6 +934,8 @@ def validate_sql(sql: str) -> ValidatedQuery:
     _reject_nested_mutation(stmt, sql)
 
     _reject_recursive_cte(stmt, sql)
+
+    _reject_oid_alias_casts(stmt, sql)
 
     _check_function_allowlist(stmt, sql)
 

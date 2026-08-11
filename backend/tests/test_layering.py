@@ -2814,9 +2814,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # so a group's ON-predicate and internal LATERAL work is a first-class
     # candidate in the statement-wide max; P1 r10 propagates a CTE reference's
     # own internal work (an inlined / NOT MATERIALIZED CTE re-executes per outer
-    # row) through _add_source_excess. Most of the added lines are that
+    # row) through _add_source_excess; and P1 r11 rejects casts to OID-alias
+    # types (regrole/regclass/…) that resolve catalog names with no table
+    # reference (_reject_oid_alias_casts). Most of the added lines are that
     # rationale. Cap at the exact size.
-    "backend/app/platform/sandbox/validator.py": 1410,
+    "backend/app/platform/sandbox/validator.py": 1431,
 }
 
 

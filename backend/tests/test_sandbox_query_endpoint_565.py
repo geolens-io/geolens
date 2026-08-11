@@ -183,6 +183,32 @@ async def test_writable_cte_stays_rejected(
     assert resp.json()["detail"] == "Only SELECT queries are allowed"
 
 
+async def test_regrole_oid_cast_is_rejected(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P1 r11): a cast to a reg* OID-alias type resolves an OID
+    to a catalog name (role names here) without touching a catalog table."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = await _make_table(test_db_session, owner)
+
+    resp = await client.post(
+        "/query/",
+        json={
+            "sql": (
+                f"SELECT v::regrole FROM data.{tbl} "
+                "CROSS JOIN (VALUES (10), (16384), (16385)) AS x(v)"
+            ),
+            "restrict_tables": [tbl],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "Query uses a disallowed type cast"
+    # Sanitized: no role name or OID leaks in the response.
+    assert "regrole" not in resp.text
+
+
 async def test_out_of_scope_cte_name_cannot_mask_a_catalog_table(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
@@ -700,6 +726,42 @@ async def test_budget_kwargs_are_threaded(
     assert captured["require_reader_role"] is True
     assert captured["row_limit"] == 100  # smaller default than chat's 1000
     assert captured["restrict_tables"] == frozenset({"t"})  # stripped + set
+    # fix(#565 codex P1 r11): the connection-pool protections are wired through.
+    assert captured["release_session"] is True
+    assert captured["capacity_semaphore"] is query_router._query_slots
+
+
+async def test_at_capacity_returns_429(
+    client: AsyncClient, admin_auth_header, test_db_session, monkeypatch
+):
+    """fix(#565 codex P1 r11): when the global sandbox-query semaphore is full,
+    a further query fails fast with query_at_capacity (429), not a slow queue."""
+    import asyncio
+
+    from app.processing.ai import query_router
+
+    owner = await _admin_id(client, admin_auth_header)
+    tbl = await _make_table(test_db_session, owner)
+
+    # A semaphore with zero free slots: already at capacity.
+    exhausted = asyncio.Semaphore(1)
+    await exhausted.acquire()
+    monkeypatch.setattr(query_router, "_query_slots", exhausted)
+
+    resp = await client.post(
+        "/query/",
+        json={"sql": f"SELECT gid FROM data.{tbl}", "restrict_tables": [tbl]},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 429
+    assert "maximum number of queries" in resp.json()["detail"]
+
+
+def test_capacity_bound_is_pool_derived_and_at_least_one():
+    """The bound tracks the configured pool and never drops below 1."""
+    from app.processing.ai.query_router import _capacity_bound
+
+    assert _capacity_bound() >= 1
 
 
 async def test_success_shape_and_truncation(

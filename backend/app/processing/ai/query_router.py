@@ -41,6 +41,7 @@ this POST route — it is a read semantically — via the exact-route carve-out 
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 
 import structlog
@@ -52,6 +53,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.dependencies import get_db
 from app.core.identity import Identity
 from app.modules.audit.service import AuditEvent, audit_emit_durable
@@ -127,6 +129,32 @@ _QUERY_MAX_ROW_LIMIT = 1000
 # self-joins working while refusing `a, a, a` and its launderings. Applied only
 # on this endpoint — AI chat passes no cap, so its behavior is unchanged.
 _QUERY_MAX_TABLE_REPEATS = 2
+
+
+def _capacity_bound() -> int:
+    """Max concurrent sandbox queries this endpoint admits (#565 codex P1 r11).
+
+    A pool-derived, fail-fast global bound on top of the per-user advisory lock
+    — the lock stops ONE user stacking queries but not N distinct users each
+    holding a connection, and the 10+3 pool exhausts at seven. The endpoint
+    releases the request session before execute_safe (release_session=True), so
+    each in-flight query costs one slot; sizing at a third of the pool keeps
+    unrelated endpoints from ever waiting on the pool timeout. Mirrors the
+    analysis-preview bound (service_analysis.py) but cannot import it —
+    processing/ may not import modules.catalog — so the small calc is repeated.
+    """
+    if settings.db_use_external_pooler:
+        # NullPool: the real budget belongs to PgBouncer/RDS Proxy, invisible
+        # here. Keep a throttle at the default-pool value rather than sizing
+        # from settings that no longer apply.
+        return 4
+    overflow = max(0, settings.db_max_overflow)
+    return max(1, (settings.db_pool_size + overflow) // 3)
+
+
+# Per-worker (an asyncio.Semaphore cannot span processes); each worker has its
+# own pool, so the ratio this protects holds per pool — the thing that runs out.
+_query_slots = asyncio.Semaphore(_capacity_bound())
 
 # Module-level so tests can lower them; slowapi evaluates callables per
 # request (same pattern as auth.router's persistent-config-driven limits).
@@ -319,6 +347,11 @@ async def sandbox_query_endpoint(
             restrict_tables=restrict,
             max_table_repeats=_QUERY_MAX_TABLE_REPEATS,
             require_reader_role=True,
+            # Return the request connection before the sandbox opens its own,
+            # and cap total concurrent executions (#565 codex P1 r11). Nothing
+            # below reads `db`; the audit trail uses its own session.
+            release_session=True,
+            capacity_semaphore=_query_slots,
         )
     except SandboxError as exc:
         # Only the sanitized message and the category-mapped status leave the
