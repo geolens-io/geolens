@@ -510,8 +510,12 @@ def _role_secure_sql(
                           AND membership.admin_option
                           AND {_MEMBER_ADMIN_ONLY}
                     )
+                    -- DISTINCT on the member: two canonical grants of the same
+                    -- gateway from different grantors are two rows, and a plain
+                    -- count would let them stand in for a gateway that is
+                    -- missing its grant entirely.
                     AND (
-                        SELECT count(*)
+                        SELECT count(DISTINCT member_role.rolname)
                         FROM pg_catalog.pg_auth_members AS membership
                         JOIN pg_catalog.pg_roles AS member_role
                           ON member_role.oid = membership.member

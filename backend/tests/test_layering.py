@@ -1945,7 +1945,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # files would make harder, not easier. The Python that drives it and the
     # report types already live in tenant_adoption.py and
     # tenant_adoption_report.py.
-    "backend/app/core/db/tenant_adoption_sql.py": 1090,
+    "backend/app/core/db/tenant_adoption_sql.py": 1137,
     # fix(#836): the five path-gated additions. Caps are exact (zero headroom),
     # matching the #435 convention: growth needs a reviewed carve-out here,
     # shrinking must lower the cap in the same commit.

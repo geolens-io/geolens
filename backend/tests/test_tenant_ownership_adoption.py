@@ -60,6 +60,7 @@ from app.core.db.tenant_adoption_report import (
     rls_gaps,
 )
 from app.core.db.tenant_adoption_sql import (
+    CLUSTER_ROLE_VALIDATE_SQL,
     RELEASE_GATEWAY_EDGES_SQL,
     RELEASE_PROVISIONER_EDGE_SQL,
     SANDBOX,
@@ -1134,6 +1135,38 @@ class TestReportedStateMatchesWhatApplyEnforces:
                     )
                     with pytest.raises(RuntimeError, match="search_path"):
                         await secure_boundary_functions(conn)
+                finally:
+                    await transaction.rollback()
+        finally:
+            await engine.dispose()
+
+    async def test_an_orphan_tenant_role_with_an_inherit_edge_is_refused(self):
+        """A role with the naming pattern and no tenant row is never repaired.
+
+        Nothing per-tenant reaches it, so an INHERIT edge to a gateway would
+        hand that gateway the role's privileges outright. Rolled back — the
+        role and the edge are cluster objects.
+        """
+        orphan = f"geolens_writer_t_{uuid.uuid4().hex[:8]}_0000_0000_0000_000000000000"
+        engine = _make_engine()
+        try:
+            async with engine.connect() as conn:
+                transaction = await conn.begin()
+                try:
+                    await conn.execute(
+                        sa.text(
+                            f"CREATE ROLE {orphan} NOLOGIN NOSUPERUSER NOCREATEDB "
+                            "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS"
+                        )
+                    )
+                    await conn.execute(
+                        sa.text(
+                            f"GRANT {orphan} TO {WRITER_GATEWAY} "
+                            "WITH INHERIT TRUE, SET TRUE"
+                        )
+                    )
+                    with pytest.raises(DBAPIError, match="unsafe upstream membership"):
+                        await conn.execute(sa.text(CLUSTER_ROLE_VALIDATE_SQL))
                 finally:
                     await transaction.rollback()
         finally:

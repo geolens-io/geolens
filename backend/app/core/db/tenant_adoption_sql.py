@@ -67,6 +67,21 @@ _MEMBERSHIP_ADMIN_ONLY = """(
               )
           )"""
 
+#: The SET-only membership shape the fixed gateways must hold in a per-tenant
+#: role: no ADMIN, no INHERIT, SET.  Same jsonb read and the same pre-16
+#: degradation as :data:`_MEMBERSHIP_ADMIN_ONLY`, where ``NOINHERIT`` on the
+#: gateway carries the guarantee instead.
+_MEMBERSHIP_SET_ONLY = """(
+              NOT membership.admin_option
+              AND (
+                  NOT jsonb_exists(to_jsonb(membership), 'set_option')
+                  OR (
+                      NOT (to_jsonb(membership) ->> 'inherit_option')::boolean
+                      AND (to_jsonb(membership) ->> 'set_option')::boolean
+                  )
+              )
+          )"""
+
 #: True for a sequence a column owns — ``serial`` (dependency ``a``) or an
 #: identity column (dependency ``i``).  PostgreSQL refuses ``ALTER SEQUENCE …
 #: OWNER TO`` on those ("cannot change owner of sequence") and instead moves
@@ -370,6 +385,38 @@ BEGIN
            OR membership_row.rolinherit
            OR membership_row.rolreplication
            OR membership_row.rolbypassrls
+           -- The edge's options, not only the roles at its ends — but only for
+           -- an orphan: a role carrying the per-tenant naming pattern with no
+           -- row in catalog.tenants is never reached by the per-tenant checks
+           -- or their repairs, so an INHERIT edge there would hand the gateway
+           -- that role's privileges outright and nothing would ever notice. A
+           -- live tenant's roles are normalized per tenant, which is where a
+           -- legacy `WITH ADMIN OPTION` grant gets rewritten.
+           OR (
+               NOT EXISTS (
+                   SELECT 1 FROM catalog.tenants
+                   WHERE id::text = pg_catalog.replace(
+                       pg_catalog.substring(
+                           membership_row.upstream_name, '_t_(.*)$'
+                       ),
+                       '_',
+                       '-'
+                   )
+               )
+               AND NOT EXISTS (
+                   SELECT 1
+                   FROM pg_catalog.pg_auth_members AS membership
+                   JOIN pg_catalog.pg_roles AS member_role
+                     ON member_role.oid = membership.member
+                   WHERE membership.roleid = membership_row.oid
+                     AND member_role.rolname = membership_row.member_name
+                     AND CASE
+                         WHEN membership_row.member_name = '{PROVISIONER}'
+                         THEN {_MEMBERSHIP_ADMIN_ONLY}
+                         ELSE {_MEMBERSHIP_SET_ONLY}
+                     END
+               )
+           )
            OR EXISTS (
                SELECT 1
                FROM pg_catalog.pg_auth_members AS chained
