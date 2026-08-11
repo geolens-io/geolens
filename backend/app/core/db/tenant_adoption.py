@@ -629,6 +629,11 @@ async def tenant_ownership_state(conn, tenant_id: str) -> TenantOwnershipState:
                                   SELECT oid FROM writer
                               )
                               OR routine.prosecdef
+                              OR NOT EXISTS (
+                                  SELECT 1 FROM pg_catalog.pg_language AS language
+                                  WHERE language.oid = routine.prolang
+                                    AND language.lanpltrusted
+                              )
                               OR pg_catalog.has_function_privilege(
                                   'public', routine.oid, 'EXECUTE'
                               )
@@ -638,6 +643,39 @@ async def tenant_ownership_state(conn, tenant_id: str) -> TenantOwnershipState:
                           )
                     )
                 END AS unsafe_routines,
+                -- Types a tenant defined live in pg_type, so the relation reads
+                -- miss them, and a writer that cannot alter one cannot replace
+                -- the dataset using it.
+                (
+                    SELECT count(*)
+                    FROM pg_catalog.pg_type AS type_row
+                    JOIN pg_catalog.pg_namespace AS namespace
+                      ON namespace.oid = type_row.typnamespace
+                    WHERE namespace.nspname = (SELECT schema_name FROM names)
+                      AND type_row.typowner IS DISTINCT FROM (
+                          SELECT oid FROM writer
+                      )
+      -- Array types follow their element type, and a table's row type follows
+      -- the table; both move on their own. An extension's types belong to the
+      -- extension.
+      AND NOT EXISTS (
+          SELECT 1 FROM pg_catalog.pg_type AS element
+          WHERE element.typarray = type_row.oid
+      )
+      AND (
+          type_row.typrelid = 0
+          OR EXISTS (
+              SELECT 1 FROM pg_catalog.pg_class AS relation
+              WHERE relation.oid = type_row.typrelid AND relation.relkind = 'c'
+          )
+      )
+      AND NOT EXISTS (
+          SELECT 1 FROM pg_catalog.pg_depend AS dependency
+          WHERE dependency.classid = 'pg_type'::regclass
+            AND dependency.objid = type_row.oid
+            AND dependency.deptype = 'e'
+      )
+                ) AS unsafe_types,
                 (
                     SELECT count(*) FROM relations
                     WHERE owner <> (SELECT writer_name FROM names)

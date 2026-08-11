@@ -1005,9 +1005,50 @@ class TestReportedStateMatchesWhatApplyEnforces:
 
             refused = await run_adoption(engine, apply=True)
             assert tenant_id in refused.failures
-            assert "SECURITY DEFINER routine" in refused.failures[tenant_id]
+            assert "SECURITY DEFINER" in refused.failures[tenant_id]
             assert "SECURITY INVOKER" in refused.failures[tenant_id]
             assert not refused.ok
+        finally:
+            await _drop_tenant(engine, tenant_id)
+            await engine.dispose()
+
+    async def test_a_tenant_defined_type_is_re_owned(self, multi_tenant_row_security):
+        """Types are in pg_type, so the relation pass never sees them."""
+        tenant_id, schema, _reader, writer = _new_tenant()
+        engine = _make_engine()
+        try:
+            await _seed_restored_tenant(engine, tenant_id, schema)
+            assert (await run_adoption(engine, apply=True)).ok
+
+            async with engine.begin() as conn:
+                await conn.execute(
+                    sa.text(f"CREATE TYPE {schema}.parcel_kind AS ENUM ('a', 'b')")
+                )
+
+            async with engine.connect() as conn:
+                state = await tenant_ownership_state(conn, tenant_id)
+            assert state.unsafe_types == 1
+            assert not state.adopted
+
+            repaired = await run_adoption(engine, apply=True)
+            assert repaired.failures == {}, repaired.failures
+            assert repaired.ok
+
+            async with engine.connect() as conn:
+                owner = (
+                    await conn.execute(
+                        sa.text(
+                            "SELECT pg_get_userbyid(type_row.typowner) "
+                            "FROM pg_type AS type_row "
+                            "JOIN pg_namespace AS namespace "
+                            "  ON namespace.oid = type_row.typnamespace "
+                            "WHERE namespace.nspname = :schema "
+                            "AND type_row.typname = 'parcel_kind'"
+                        ),
+                        {"schema": schema},
+                    )
+                ).scalar_one()
+            assert owner == writer
         finally:
             await _drop_tenant(engine, tenant_id)
             await engine.dispose()
@@ -2265,6 +2306,7 @@ def _adopted_tenant_state() -> TenantOwnershipState:
         writer_exists=True,
         relations=1,
         unsafe_routines=0,
+        unsafe_types=0,
         relations_not_owned_by_writer=0,
         relations_without_reader_select=0,
         relations_with_unsafe_acl=0,

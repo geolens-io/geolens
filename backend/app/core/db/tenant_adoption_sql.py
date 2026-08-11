@@ -699,6 +699,7 @@ DECLARE
     reader_privilege_gap bigint;
     default_acl_gap bigint;
     routine_gap bigint;
+    type_gap bigint;
     reader_oid oid;
     writer_oid oid;
     grantee_name text;
@@ -1072,16 +1073,49 @@ BEGIN
       AND (
           owner_role.rolname <> writer_name
           OR routine.prosecdef
+          OR NOT EXISTS (
+              SELECT 1 FROM pg_catalog.pg_language AS language
+              WHERE language.oid = routine.prolang AND language.lanpltrusted
+          )
           OR pg_catalog.has_function_privilege('public', routine.oid, 'EXECUTE')
           OR NOT pg_catalog.has_function_privilege(
               reader_name, routine.oid, 'EXECUTE'
           )
       );
 
+    SELECT pg_catalog.count(*) INTO type_gap
+    FROM pg_catalog.pg_type AS type_row
+    JOIN pg_catalog.pg_namespace AS namespace
+      ON namespace.oid = type_row.typnamespace
+    JOIN pg_catalog.pg_roles AS owner_role ON owner_role.oid = type_row.typowner
+    WHERE namespace.nspname = schema_name
+      AND owner_role.rolname <> writer_name
+      -- Array types follow their element type, and a table's row type follows
+      -- the table; both move on their own. An extension's types belong to the
+      -- extension.
+      AND NOT EXISTS (
+          SELECT 1 FROM pg_catalog.pg_type AS element
+          WHERE element.typarray = type_row.oid
+      )
+      AND (
+          type_row.typrelid = 0
+          OR EXISTS (
+              SELECT 1 FROM pg_catalog.pg_class AS relation
+              WHERE relation.oid = type_row.typrelid AND relation.relkind = 'c'
+          )
+      )
+      AND NOT EXISTS (
+          SELECT 1 FROM pg_catalog.pg_depend AS dependency
+          WHERE dependency.classid = 'pg_type'::regclass
+            AND dependency.objid = type_row.oid
+            AND dependency.deptype = 'e'
+      );
+
     IF pending_owner_transfer = 0
        AND reader_privilege_gap = 0
        AND default_acl_gap = 0
-       AND routine_gap = 0 THEN
+       AND routine_gap = 0
+       AND type_gap = 0 THEN
         RETURN;
     END IF;
 
@@ -1268,20 +1302,24 @@ BEGIN
         FROM pg_catalog.pg_proc AS routine
         JOIN pg_catalog.pg_namespace AS namespace
           ON namespace.oid = routine.pronamespace
+        JOIN pg_catalog.pg_language AS language ON language.oid = routine.prolang
         WHERE namespace.nspname = schema_name
-          AND routine.prosecdef
+          -- SECURITY DEFINER is one way to run as somebody else; an untrusted
+          -- language is the other, and it needs no privilege escalation to do
+          -- native work inside the server. Neither is re-owned.
+          AND (routine.prosecdef OR NOT language.lanpltrusted)
     LOOP
         RAISE EXCEPTION
-            'tenant schema % contains a SECURITY DEFINER routine adoption will '
-            'not re-own: %(%)',
+            'tenant schema % contains a SECURITY DEFINER or untrusted-language '
+            'routine adoption will not re-own: %(%)',
             schema_name,
             object_row.relname,
             object_row.relkind
             USING HINT =
                 'inspect it, then either ALTER FUNCTION ' || schema_name || '.' ||
                 pg_catalog.quote_ident(object_row.relname) || '(' ||
-                object_row.relkind || ') SECURITY INVOKER or DROP it; '
-                'then re-run adoption';
+                object_row.relkind || ') SECURITY INVOKER (if that is all that '
+                'is wrong) or DROP it; then re-run adoption';
     END LOOP;
 
     FOR object_row IN
@@ -1299,6 +1337,46 @@ BEGIN
             schema_name,
             object_row.relname,
             object_row.relkind,
+            writer_name
+        );
+    END LOOP;
+
+    -- Types a tenant defined: enums, domains, ranges, standalone composites.
+    -- They are in pg_type, so the relation pass never saw them, and a writer
+    -- that cannot alter or drop one cannot replace the dataset that uses it.
+    FOR object_row IN
+        SELECT type_row.typname AS relname
+        FROM pg_catalog.pg_type AS type_row
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = type_row.typnamespace
+        JOIN pg_catalog.pg_roles AS owner_role ON owner_role.oid = type_row.typowner
+        WHERE namespace.nspname = schema_name
+          AND owner_role.rolname <> writer_name
+      -- Array types follow their element type, and a table's row type follows
+      -- the table; both move on their own. An extension's types belong to the
+      -- extension.
+      AND NOT EXISTS (
+          SELECT 1 FROM pg_catalog.pg_type AS element
+          WHERE element.typarray = type_row.oid
+      )
+      AND (
+          type_row.typrelid = 0
+          OR EXISTS (
+              SELECT 1 FROM pg_catalog.pg_class AS relation
+              WHERE relation.oid = type_row.typrelid AND relation.relkind = 'c'
+          )
+      )
+      AND NOT EXISTS (
+          SELECT 1 FROM pg_catalog.pg_depend AS dependency
+          WHERE dependency.classid = 'pg_type'::regclass
+            AND dependency.objid = type_row.oid
+            AND dependency.deptype = 'e'
+      )
+    LOOP
+        EXECUTE pg_catalog.format(
+            'ALTER TYPE %I.%I OWNER TO %I',
+            schema_name,
+            object_row.relname,
             writer_name
         );
     END LOOP;
