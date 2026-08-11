@@ -265,7 +265,7 @@ Le [guide de la CLI](https://docs.getgeolens.com/guides/cli/) présente le sché
 
 ### Données d’exemple
 
-`scripts/seed-showcase.py` construit six cartes de démonstration à partir de données ouvertes : une histoire tectonique mondiale sur le relief réel des fonds océaniques, la silhouette 3D de Manhattan colorée par époque de construction (visuel principal ci-dessus), 75 ans de trajectoires d’ouragans atlantiques, des chutes de météorites regroupées, le Cervin en terrain 3D lidar à 2 m et des images Sentinel-2 de New York référencées :
+`scripts/seed-showcase.py` construit sept cartes de démonstration à partir de données ouvertes : une histoire tectonique mondiale sur le relief réel des fonds océaniques, la silhouette 3D de Manhattan colorée par époque de construction (visuel principal ci-dessus), 75 ans de trajectoires d’ouragans atlantiques, des chutes de météorites regroupées, le Cervin en terrain 3D lidar à 2 m, des images Sentinel-2 de New York référencées et une carte d’exposition aux ouragans calculée à partir des trajectoires elles-mêmes par zone tampon, intersection et fusion :
 
 ```bash
 pip install httpx

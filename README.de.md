@@ -265,7 +265,7 @@ Die [CLI-Anleitung](https://docs.getgeolens.com/guides/cli/) dokumentiert das ge
 
 ### Beispieldaten
 
-`scripts/seed-showcase.py` erstellt sechs Beispielkarten aus öffentlichen offenen Daten: globale Tektonik über echtem Meeresbodenrelief, Manhattans nach Bauzeit gefärbte 3D-Skyline (Titelbild), 75 Jahre atlantischer Hurrikanbahnen, gruppierte Meteoritenfälle, das Matterhorn als 3D-Gelände aus 2-m-Lidar und referenzierte Sentinel-2-Bilder von New York:
+`scripts/seed-showcase.py` erstellt sieben Beispielkarten aus öffentlichen offenen Daten: globale Tektonik über echtem Meeresbodenrelief, Manhattans nach Bauzeit gefärbte 3D-Skyline (Titelbild), 75 Jahre atlantischer Hurrikanbahnen, gruppierte Meteoritenfälle, das Matterhorn als 3D-Gelände aus 2-m-Lidar, referenzierte Sentinel-2-Bilder von New York und eine Karte der Hurrikan-Exposition, die direkt aus den Sturmbahnen mit Puffer, Verschneidung und Auflösung berechnet wird:
 
 ```bash
 pip install httpx
