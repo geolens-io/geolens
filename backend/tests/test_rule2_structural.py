@@ -116,16 +116,17 @@ Known limits (accepted trade-offs, same posture as the Rule-1 guard):
   on a binding and there is none to key on.
   Three more silent residues sit next to the iteration rule (fix(#1394)), all
   of them "no container-element tracking" wearing different clothes, and each
-  needs its own machinery rather than a wider rule: `holds_a_container` is a
-  BOOLEAN, not a depth, so a container of containers (`groups = ((["gdalinfo",
-  path],),)`) hands the inner container to the loop target as if it were the
-  vector and the second loop follows nothing; a container reached through a
-  METHOD (`for cmd in commands.values()`) is a call this analysis does not
-  model; and a comprehension TARGET is bound in the comprehension's own scope,
-  which `_use_reaches_the_binding` reads as a shadow, so
-  `[subprocess.run(cmd) for cmd in commands]` links only when the comprehension
-  itself escapes — that one predates #1394 and applies equally to the inline
-  `for cmd in (["gdalinfo", path],)` spelling.
+  needs its own machinery rather than a wider rule: the container kind names
+  what ONE wrapper yields, not a depth, so a container of containers
+  (`groups = ((["gdalinfo", path],),)`) hands the inner container to the loop
+  target as if it were the vector and the second loop follows nothing; a
+  container reached through a METHOD (`for cmd in commands.values()`) is a call
+  this analysis does not model, which is also why a dict holding argvs as
+  values only ever reaches them by subscript here; and a comprehension TARGET is
+  bound in the comprehension's own scope, which `_use_reaches_the_binding` reads
+  as a shadow, so `[subprocess.run(cmd) for cmd in commands]` links only when
+  the comprehension itself escapes — that one predates #1394 and applies equally
+  to the inline `for cmd in (["gdalinfo", path],)` spelling.
   Extending further means writing a static analyser, and this is a CI gate —
   the escape hatch for anything it misclassifies is an allowlist entry with a
   written justification, which is the same answer #974 reached for the wrapper
@@ -1660,6 +1661,32 @@ _VALUE_WRAPPERS = (
 )
 _TRANSPARENT_WRAPPERS = (*_CONTAINER_WRAPPERS, *_VALUE_WRAPPERS)
 
+# What ITERATING a path that holds the vector hands to a loop target
+# (fix(#1394), codex round 1). "Holds a container" is one bit and iteration
+# needs two, because the containers do not agree: a list, tuple or set yields
+# its elements, so `for cmd in commands:` receives the argv, while a dict
+# yields its KEYS, so the same line over `{"inspect": ["gdalinfo", path]}`
+# receives the string "inspect" and the argv never moves — flagging it would be
+# a false positive on inert data, the #996 class. Note the rule is about WHERE
+# in the dict the literal sits, not about `dict` as a type: a literal used as a
+# KEY is exactly what iteration yields.
+#
+# Every other question this analysis asks still only wants the one bit, and
+# asks it as `kind is not None`.
+_ITER_YIELDS_VECTOR = "vector"
+_ITER_YIELDS_OTHER = "other"
+
+
+def _container_iteration_kind(container: ast.AST, held: ast.AST) -> str:
+    """What iterating ``container`` yields, given that ``held`` is in it."""
+    if isinstance(container, ast.Dict):
+        return (
+            _ITER_YIELDS_VECTOR
+            if any(key is held for key in container.keys)
+            else _ITER_YIELDS_OTHER
+        )
+    return _ITER_YIELDS_VECTOR
+
 
 def _default_parameter_name(args: ast.arguments, value: ast.AST) -> str | None:
     """The parameter a default value belongs to, positionally or by keyword."""
@@ -1693,7 +1720,7 @@ def _defaults_owner(node: ast.AST) -> ast.AST | None:
     return None
 
 
-def _binding_targets(node: ast.AST) -> tuple[set[str], bool]:
+def _binding_targets(node: ast.AST) -> tuple[set[str], str | None]:
     """Names this literal's value is reachable through in its own scope.
 
     Climbs out of transparent wrappers first (fix(#996 review)), so
@@ -1702,19 +1729,22 @@ def _binding_targets(node: ast.AST) -> tuple[set[str], bool]:
     ``=`` including unpacking, annotated ``=``, the walrus, and the loop target
     of a ``for``/``async for``/comprehension over a literal.
 
-    Returns ``(names, holds_a_container)``. The flag tells the caller whether
-    those names refer to the command vector itself or to something wrapping
-    it, which changes what a subscript on them means.
+    Returns ``(names, container_kind)``. ``container_kind`` is ``None`` when
+    those names refer to the command vector ITSELF, which is what decides that
+    a subscript on them yields an element rather than the vector. When they
+    refer to something WRAPPING it, the kind additionally says what iterating
+    that wrapper hands over (fix(#1394), see ``_container_iteration_kind``);
+    callers that only need the one bit ask ``kind is not None``.
     """
     current: ast.AST = node
     parent = getattr(current, "_rule2_parent", None)
     index_in_parent: int | None = None
-    climbed = False
+    container_kind: str | None = None
     while isinstance(parent, _TRANSPARENT_WRAPPERS):
         # Only a CONTAINER wrapper means the level above holds the vector
         # rather than being it (fix(#996 review)).
         if isinstance(parent, _CONTAINER_WRAPPERS):
-            climbed = True
+            container_kind = _container_iteration_kind(parent, current)
         if isinstance(parent, (ast.Tuple, ast.List)) and current in parent.elts:
             index_in_parent = parent.elts.index(current)
         else:
@@ -1728,20 +1758,22 @@ def _binding_targets(node: ast.AST) -> tuple[set[str], bool]:
             if positional is not None:
                 return {
                     n for target in positional for n in _target_names(target)
-                }, climbed
-        return {n for target in parent.targets for n in _target_names(target)}, climbed
+                }, container_kind
+        return {
+            n for target in parent.targets for n in _target_names(target)
+        }, container_kind
     # fix(#996 review): the same path rule as the Assign branch above. An
     # annotated `box.cmd: list[str] = [...]` binds a path exactly like the
     # unannotated form; requiring a bare Name here dropped it. A walrus target
     # is always a Name, so it rides the same branch.
     if isinstance(parent, (ast.AnnAssign, ast.NamedExpr)) and parent.value is current:
-        return _target_names(parent.target), climbed
+        return _target_names(parent.target), container_kind
     # fix(#996 review): `cmd = []` then `cmd += ["gdalinfo", path]` assembles a
     # real argv, and the literal's parent is an AugAssign that none of the
-    # branches above matched. `climbed` is False regardless: `+=` splices the
+    # branches above matched. The kind is None regardless: `+=` splices the
     # elements in, so the target holds the vector rather than a container.
     if isinstance(parent, ast.AugAssign) and parent.value is current:
-        return _target_names(parent.target), False
+        return _target_names(parent.target), None
     # fix(#996 review): `def run(cmd=("gdalinfo", "-json")): subprocess.run(cmd)`
     # executes the default on every bare call. The literal sits in the
     # signature, so the escape walk stops at the function boundary and no
@@ -1749,22 +1781,22 @@ def _binding_targets(node: ast.AST) -> tuple[set[str], bool]:
     if isinstance(parent, ast.arguments):
         name = _default_parameter_name(parent, current)
         if name:
-            return {name}, False
+            return {name}, None
     # fix(#996 review): `for cmd in (["gdalinfo", path],): subprocess.run(cmd)`
     # reaches an exec through the loop target. Same for `async for` and for a
     # comprehension's generator.
     #
-    # Only when the literal is an ELEMENT of the iterable, which is what
-    # `climbed` records. `for tool in ["gdalinfo", "ogrinfo"]` binds each
+    # Only when the literal is an ELEMENT the iteration actually yields, which
+    # is what the kind records. `for tool in ["gdalinfo", "ogrinfo"]` binds each
     # STRING to the target, not the list, and treating the list as escaping
     # through it flagged ordinary tool-name data.
-    if climbed:
+    if container_kind == _ITER_YIELDS_VECTOR:
         # The loop target receives an ELEMENT of the iterable, so it is the
         # vector itself, not a container of it.
         loop_targets = _loop_target_paths(current)
         if loop_targets:
-            return loop_targets, False
-    return set(), False
+            return loop_targets, None
+    return set(), None
 
 
 def _enclosing_statement(node: ast.AST, body: list) -> ast.stmt | None:
@@ -1867,7 +1899,7 @@ def _argv_escape_kind(node: ast.List | ast.Tuple, rel: str) -> int:
     best = _escape_kind(node)
     if best == _ESCAPE_CALL:
         return best
-    names, holds_container = _binding_targets(node)
+    names, container_kind = _binding_targets(node)
     scope = _defaults_owner(node) or _scope_root(node)
     if not names or scope is None:
         return best
@@ -1881,7 +1913,7 @@ def _argv_escape_kind(node: ast.List | ast.Tuple, rel: str) -> int:
     # DIRECTLY. For a derived alias the statement that introduces it would
     # itself look like an overwrite, and over-reporting is the safe side.
     original_paths = set(names)
-    pending = {(n, holds_container) for n in names}
+    pending = {(n, container_kind) for n in names}
     while pending:
         current_batch = pending
         pending = set()
@@ -1900,7 +1932,8 @@ def _argv_escape_kind(node: ast.List | ast.Tuple, rel: str) -> int:
                 continue
             if path in original_paths and _overwritten_before(used, node, path):
                 continue
-            holds = current_paths[path]
+            kind = current_paths[path]
+            holds = kind is not None
             # fix(#996 review): reading a CONTAINER through a subscript or
             # attribute yields the vector — `commands = {...}` then
             # `cmd = commands["inspect"]`. Follow that extraction, or the
@@ -1911,8 +1944,8 @@ def _argv_escape_kind(node: ast.List | ast.Tuple, rel: str) -> int:
                     isinstance(parent, (ast.Subscript, ast.Attribute))
                     and parent.value is used
                 ):
-                    extracted, _ = _binding_targets(parent)
-                    pending |= {(n, False) for n in extracted - seen}
+                    extracted, extracted_kind = _binding_targets(parent)
+                    pending |= {(n, extracted_kind) for n in extracted - seen}
                 # fix(#1394): ITERATING a container hands each element — the
                 # argv — to the loop target, exactly as subscripting it hands
                 # over one. `_binding_targets` already reads that off the AST
@@ -1920,20 +1953,27 @@ def _argv_escape_kind(node: ast.List | ast.Tuple, rel: str) -> int:
                 # (["gdalinfo", path],):`); once the container has a NAME
                 # (`commands = (["gdalinfo", path],)` then `for cmd in
                 # commands:`) the AST no longer says so, and only this loop
-                # knows that `holds` is True. Without it the shape reported
+                # carries what the container was. Without it the shape reported
                 # ZERO argv sites: invisible to the gate, so neither creditable
                 # nor reportable — the one failure direction the #1077
                 # allowlist inversion exists to remove.
                 #
-                # `holds` gates it for the same reason #996's `climbed` does:
-                # iterating the VECTOR (`for part in cmd:`) yields strings, not
-                # commands.
-                pending |= {(n, False) for n in _loop_target_paths(used) - seen}
+                # Gated on the kind for the same reason #996 gated its in-place
+                # twin: iterating the VECTOR (`for part in cmd:`) yields
+                # strings, and iterating a dict that holds the argv as a VALUE
+                # yields keys (codex round 1).
+                if kind == _ITER_YIELDS_VECTOR:
+                    pending |= {(n, None) for n in _loop_target_paths(used) - seen}
             best = max(best, _escape_kind(used, vector=not holds))
             if best == _ESCAPE_CALL:
                 return best
-            aliases, alias_container = _binding_targets(used)
-            pending |= {(n, holds or alias_container) for n in aliases - seen}
+            aliases, alias_kind = _binding_targets(used)
+            # A wrapper at the ALIAS site is the outermost one now, so it
+            # decides what iterating the alias yields; with no new wrapper the
+            # kind carries over unchanged. Either way the one-bit answer is
+            # preserved: the alias holds a container when this path did or the
+            # alias site added one.
+            pending |= {(n, alias_kind or kind) for n in aliases - seen}
     return best
 
 
@@ -3129,6 +3169,85 @@ def test_guard_iterating_the_vector_itself_binds_strings_not_argvs():
     )
     assert total == 0, (total, violations)
     assert violations == []
+
+
+def test_guard_iterating_a_dict_yields_keys_not_the_argv():
+    """fix(#1394), codex round 1: not every container yields its contents.
+
+    ``for key in commands:`` over a dict hands over ``"inspect"``; the argv
+    stays put, so following the loop target flagged inert data — the #996
+    false-positive class, from treating "holds a container" as one bit when
+    iteration needs two. Subscripting the same dict is unaffected and still
+    reaches the argv (the second case).
+
+    A dict is not uniformly opaque either, which is why the rule reads WHERE the
+    literal sits rather than testing for ``dict``: a literal used as a KEY is
+    exactly what iteration hands over (the third).
+    """
+    inert, total = _collect_gdal_cli_violations(
+        _mod(
+            "def fn(path):\n"
+            "    commands = {'inspect': ['gdalinfo', path]}\n"
+            "    for key in commands:\n"
+            "        consume(key)\n"
+        ),
+        {},
+    )
+    assert total == 0, (total, inert)
+    assert inert == []
+
+    subscripted, total_subscripted = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def fn(path):\n"
+            "    commands = {'inspect': ['gdalinfo', path]}\n"
+            "    subprocess.run(commands['inspect'])\n"
+        ),
+        {},
+    )
+    assert total_subscripted == 1, (total_subscripted, subscripted)
+    assert len(subscripted) == 1 and "(fn)" in subscripted[0]
+
+    keyed, total_keyed = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def fn(path):\n"
+            "    commands = {('gdalinfo', path): 'inspect'}\n"
+            "    for cmd in commands:\n"
+            "        subprocess.run(cmd)\n"
+        ),
+        {},
+    )
+    assert total_keyed == 1, (total_keyed, keyed)
+    assert len(keyed) == 1 and "(fn)" in keyed[0]
+
+
+def test_guard_container_kind_survives_an_alias_hop():
+    """fix(#1394), codex round 1: the kind travels with the path.
+
+    An alias of a container is the same container, so ``alias = commands`` then
+    ``for x in alias:`` has to reach the SAME verdict as iterating ``commands``
+    directly — reported for a list, inert for a dict. Carrying only "holds a
+    container" across the hop loses that and reports both.
+    """
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def sequence(path):\n"
+            "    commands = [['gdalinfo', path]]\n"
+            "    alias = commands\n"
+            "    for cmd in alias:\n"
+            "        subprocess.run(cmd)\n"
+            "def mapping(path):\n"
+            "    lookup = {'inspect': ['ogrinfo', path]}\n"
+            "    other = lookup\n"
+            "    for key in other:\n"
+            "        consume(key)\n"
+        ),
+        {},
+    )
+    assert total == 1, (total, violations)
+    assert len(violations) == 1 and "(sequence)" in violations[0]
 
 
 def test_guard_unpacking_binds_by_position_not_by_all_names():
