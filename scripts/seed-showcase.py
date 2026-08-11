@@ -358,15 +358,20 @@ class Api:
         self.base = base_url.rstrip("/")
         self.client = httpx.Client(timeout=180.0, follow_redirects=True)
         self.h = {"Authorization": f"Bearer {token}"}
-        # The username the SERVER has for this token, not the one typed on the
-        # command line. list_maps filters on the server's own
-        # created_by_username; a login spelling that differs from the stored
-        # username would match nothing, and "no maps of mine exist" is exactly
-        # what makes every builder rebuild from scratch. Trailing slash
-        # required (redirect_slashes=False).
+        # This token's identity as the SERVER has it, not as it was typed on
+        # the command line: the two lookups below scope to what this account
+        # owns, and a login spelling that differs from the stored username
+        # would match nothing - and "none of my content exists" is exactly what
+        # makes every builder rebuild from scratch. Both keys are kept because
+        # the two list endpoints expose different ones: datasets carry the
+        # owner's uuid (created_by), maps only the display name
+        # (created_by_username). Trailing slash required
+        # (redirect_slashes=False).
         r = self.client.get(f"{self.base}/api/auth/me/", headers=self.h)
         r.raise_for_status()
-        self.username = r.json()["username"]
+        me = r.json()
+        self.username = me["username"]
+        self.user_id = me["id"]
 
     @classmethod
     def login(cls, base_url: str, username: str, password: str) -> "Api":
@@ -500,7 +505,7 @@ class Api:
           default order is mutable - apply_globe_projection's own PUT bumps
           updated_at and reshuffles the list - so it cannot answer which
           duplicate is the one this seeder just made.
-        * PAGINATE, exactly like list_datasets_full: a single limit=200 page
+        * PAGINATE, exactly like list_own_datasets: a single limit=200 page
           silently hides a showcase map once an instance crosses 200 maps, and
           every caller reads that absence as "not built yet".
         """
@@ -525,25 +530,40 @@ class Api:
             if not page or total is None or seen >= total:
                 return out
 
-    def list_datasets_full(self) -> list[dict]:
-        """All datasets, PAGINATED - this seeder alone creates ~85 datasets
-        (62 DEM tiles + vectors + scenes), and a single limit=200 page would
-        silently hide older titles once an instance crosses 200, breaking
-        every title-based reuse/refresh path."""
+    def list_own_datasets(self) -> list[dict]:
+        """This account's OWN datasets, PAGINATED.
+
+        Paginated because this seeder alone creates ~85 datasets (62 DEM tiles
+        + vectors + scenes), and a single limit=200 page would silently hide
+        older titles once an instance crosses 200, breaking every title-based
+        reuse/refresh path.
+
+        Scoped to `created_by` for the same reason list_maps is scoped
+        (fix(#1404 review)): a title is not a key, an admin token sees every
+        user's datasets, and all three callers here MUTATE what they resolve.
+        Unscoped, _get_or_analyze would publish and rewrite the summary of a
+        stranger's same-titled dataset and then build the showcase chain on it,
+        enrich_showcase_metadata would overwrite its license, and prune would
+        delete it. Reusing someone else's dataset is not safe even read-only:
+        they can make it private or delete it, and the public showcase map
+        breaks with it.
+        """
         out: list[dict] = []
-        skip = 0
+        seen = 0
         while True:
             r = self.client.get(
-                f"{self.base}/api/datasets?limit=200&skip={skip}", headers=self.h
+                f"{self.base}/api/datasets?limit=200&skip={seen}", headers=self.h
             )
             r.raise_for_status()
             d = r.json()
             page = d.get("datasets", d.get("items", []))
-            out.extend(page)
-            total = d.get("total", len(out))
-            if not page or len(out) >= total:
+            out.extend(x for x in page if x.get("created_by") == self.user_id)
+            # Count ROWS SEEN, not rows kept - the owner filter drops rows, so
+            # len(out) would end the loop before the last page.
+            seen += len(page)
+            total = d.get("total")
+            if not page or total is None or seen >= total:
                 return out
-            skip += len(page)
 
     def get_map(self, map_id: str) -> dict:
         r = self.client.get(f"{self.base}/api/maps/{map_id}", headers=self.h)
@@ -672,15 +692,18 @@ class Api:
         return r.json()["job_id"]
 
     def datasets_by_title(self) -> dict[str, str]:
-        """Map dataset title -> id.
+        """This account's own datasets, title -> id, newest match winning.
 
         fix(#389): /api/datasets orders newest-first and titles are NOT unique
         - a --force reseed creates fresh datasets alongside same-titled
         predecessors. Keep the FIRST (newest) match so lookups resolve to the
         freshly created dataset, not a stale duplicate.
+
+        Ownership scoping comes from list_own_datasets - see there for why a
+        stranger's same-titled dataset must not resolve here.
         """
         out: dict[str, str] = {}
-        for x in self.list_datasets_full():
+        for x in self.list_own_datasets():
             out.setdefault(x["title"], x["id"])
         return out
 
@@ -1360,7 +1383,7 @@ def prune(api: Api) -> None:
         if name in maps:
             api.delete_map(maps[name])
             print(f"  - map: {name}")
-    for d in api.list_datasets_full():
+    for d in api.list_own_datasets():
         if d["title"] in RETIRED_DATASETS:
             try:
                 api.delete_dataset(d["id"], d["title"])
@@ -3715,13 +3738,15 @@ def enrich_showcase_metadata(api: "Api") -> None:
     dataset is isolated the same way the builders are - one flaky PATCH must not
     skip the rest - and the whole pass is best-effort: it never fails the seed.
 
-    Iterates every dataset rather than a title->newest-id map: titles are NOT
-    unique (a --force reseed leaves same-titled predecessors, see
+    Iterates every OWNED dataset rather than a title->newest-id map: titles are
+    NOT unique (a --force reseed leaves same-titled predecessors, see
     datasets_by_title), and enriching only the newest would leave the older
     public duplicates still "proprietary"/keyword-less - the exact pollution
-    this fixes. Every matching copy gets patched.
+    this fixes. Every matching copy this account owns gets patched, and only
+    those: a same-titled dataset belonging to someone else is not this
+    seeder's to relicense (list_own_datasets).
     """
-    for ds in api.list_datasets_full():
+    for ds in api.list_own_datasets():
         spec = SHOWCASE_METADATA.get(ds["title"])
         if not spec:
             continue
