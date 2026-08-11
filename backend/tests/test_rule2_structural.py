@@ -1908,6 +1908,9 @@ def _binding_targets(node: ast.AST) -> tuple[set[str], str | None]:
     parent = getattr(current, "_rule2_parent", None)
     index_in_parent: int | None = None
     container_kind: str | None = None
+    # The kind as it was BELOW the wrapper `index_in_parent` names, which is
+    # what a positional unpacking of that wrapper hands its targets.
+    unpacked_kind: str | None = None
     while isinstance(parent, _TRANSPARENT_WRAPPERS):
         # fix(#1394), codex round 8: a VALUE wrapper only carries the value in
         # a position it can evaluate to. `empty = [] if commands else ()` never
@@ -1930,14 +1933,22 @@ def _binding_targets(node: ast.AST) -> tuple[set[str], str | None]:
         # second, which is the direction that actually matters. So neither the
         # star nor the step out of it moves the kind.
         starred = isinstance(parent, ast.Starred) or isinstance(current, ast.Starred)
+        kind_below = container_kind
         # Only a CONTAINER wrapper means the level above holds the vector
         # rather than being it (fix(#996 review)).
         if isinstance(parent, _CONTAINER_WRAPPERS) and not starred:
             container_kind = _container_iteration_kind(parent, current)
         if isinstance(parent, (ast.Tuple, ast.List)) and current in parent.elts:
             index_in_parent = parent.elts.index(current)
+            # fix(#1394), codex round 11: a positional UNPACKING consumes
+            # exactly the wrapper just climbed. `alias, = (["gdalinfo", path],)`
+            # takes the tuple apart, so `alias` is the vector, not a container
+            # of it, and `for part in alias:` then yields strings. Keeping the
+            # wrapper's kind read that loop as handing over a command.
+            unpacked_kind = kind_below
         else:
             index_in_parent = None
+            unpacked_kind = None
         current = parent
         parent = getattr(current, "_rule2_parent", None)
 
@@ -1947,7 +1958,7 @@ def _binding_targets(node: ast.AST) -> tuple[set[str], str | None]:
             if positional is not None:
                 return {
                     n for target in positional for n in _target_names(target)
-                }, container_kind
+                }, unpacked_kind
         return {
             n for target in parent.targets for n in _target_names(target)
         }, container_kind
@@ -3675,6 +3686,42 @@ def test_guard_a_wrapped_iterable_is_still_the_same_loop():
     assert any("(walrus)" in v for v in violations), violations
     for quiet in ("(condition_only)", "(and_guarded)", "(walrus_vector)"):
         assert not any(quiet in v for v in violations), (quiet, violations)
+
+
+def test_guard_positional_unpacking_consumes_the_wrapper():
+    """fix(#1394), codex round 11: unpacking takes the container apart.
+
+    ``alias, = (["gdalinfo", path],)`` binds the vector itself, so
+    ``for part in alias:`` yields strings and reporting it was a false positive
+    on inert data. The kind for an unpacked target is the one from BELOW the
+    wrapper the unpacking consumed, so the same shape one level deeper still
+    hands over a container.
+
+    The control in the middle: ``alias`` is the vector, so spawning it directly
+    is still a site — the fix must not turn the unpacking into a dead end.
+    """
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def unpacked(path):\n"
+            "    alias, = (['gdalinfo', path],)\n"
+            "    for part in alias:\n"
+            "        consume(part)\n"
+            "def spawned(path):\n"
+            "    alias, = (['ogrinfo', path],)\n"
+            "    subprocess.run(alias)\n"
+            "def one_deeper(path):\n"
+            "    alias, = ((['gdalwarp', path],),)\n"
+            "    for cmd in alias:\n"
+            "        subprocess.run(cmd)\n"
+        ),
+        {},
+    )
+    assert total == 2, (total, violations)
+    assert len(violations) == 2, violations
+    for reported in ("(spawned)", "(one_deeper)"):
+        assert any(reported in v for v in violations), (reported, violations)
+    assert not any("(unpacked)" in v for v in violations), violations
 
 
 def test_guard_a_sliced_container_is_still_a_container():
