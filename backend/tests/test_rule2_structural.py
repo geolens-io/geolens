@@ -1763,40 +1763,65 @@ def _positional_targets(targets: list[ast.expr], index: int) -> list[ast.expr] |
 
 def _unpacked_binding(
     targets: list[ast.expr],
-    chain: list[tuple[int | None, str | None]],
+    chain: list[tuple[int | None, str | None, bool]],
     container_kind: str | None,
 ) -> tuple[set[str], str | None] | None:
     """Pair the wrappers a literal sits in against the patterns unpacking them.
 
     ``chain`` lists those wrappers OUTERMOST first, each with the index the
-    value occupies in it and the kind of what is INSIDE it. Every level where
-    some target is a sequence pattern consumes one wrapper and descends; the
-    first level where none is receives whatever is left, at the kind below the
-    last wrapper consumed. Returns None when nothing was unpacked at all, and
-    the caller keeps its plain-assignment answer.
+    value occupies in it, the kind of what is INSIDE it, and whether it adds a
+    level. Every level where some target is a sequence pattern consumes one
+    wrapper and descends; a target that stops being a pattern stops there,
+    holding the value at that depth. Returns None when nothing was unpacked at
+    all, and the caller keeps its plain-assignment answer.
 
-    fix(#1394), codex rounds 11 and 12. Unpacking CONSUMES the wrapper it takes
-    apart, so `alias, = (["gdalinfo", path],)` leaves `alias` holding the
-    vector, and `for part in alias:` then yields strings rather than commands.
-    Handling one level was not enough, because patterns nest as freely as
-    displays do: `((alias,),) = ((["gdalinfo", path],),)` consumes two and
-    lands in the same place, while `(alias,) = ((["gdalinfo", path],),)`
-    consumes one and leaves a container. Counting them one for one is the only
-    answer that covers both without a rule per depth.
+    fix(#1394), codex rounds 11 through 13, one shape at a time.
+
+    Unpacking CONSUMES the wrapper it takes apart, so ``alias, = (["gdalinfo",
+    path],)`` leaves ``alias`` holding the vector and ``for part in alias:``
+    yields strings rather than commands. Handling one level was not enough,
+    because patterns nest as freely as displays do: ``((alias,),) =
+    ((["gdalinfo", path],),)`` consumes two and lands in the same place, while
+    ``(alias,) = ((["gdalinfo", path],),)`` consumes one and leaves a
+    container. Counting them one for one covers every depth with no rule per
+    depth.
+
+    Two things the counting has to get right. A wrapper that adds NO level
+    (a value wrapper, a star and its display) is not a pattern's to consume, so
+    it is stepped over rather than ending the pairing — otherwise ``(alias,) =
+    ((["gdalinfo", path],) + ())`` never pairs at all. And chained targets can
+    unpack to DIFFERENT depths, so a target whose pattern ends early is kept at
+    that depth instead of being dropped when its siblings descend further.
+
+    The kinds those endpoints hold are merged, not split, because the caller
+    speaks of one path set with one kind. Merging toward the louder end keeps
+    the disagreement on the reported side, as everywhere else here.
     """
     current = targets
     kind = container_kind
+    endpoints: list[tuple[set[str], str | None]] = []
     consumed = False
-    for index, kind_below in chain:
+    for index, kind_below, adds_level in chain:
+        if not adds_level:
+            continue  # nothing here for a pattern to take apart
         if index is None:
-            break
+            break  # a level, but not one unpacked by position (a dict, a set)
         nxt = _positional_targets(current, index)
         if nxt is None:
             break
+        for target in current:
+            if not isinstance(target, (ast.Tuple, ast.List)):
+                endpoints.append((_target_names(target), kind))
         current, kind, consumed = nxt, kind_below, True
     if not consumed:
         return None
-    return {n for target in current for n in _target_names(target)}, kind
+    endpoints.extend((_target_names(target), kind) for target in current)
+    names: set[str] = set()
+    merged: str | None = None
+    for target_names, endpoint_kind in endpoints:
+        names |= target_names
+        merged = _louder_kind(merged, endpoint_kind)
+    return names, merged
 
 
 # Expression wrappers a value passes through without being consumed. A literal
@@ -1946,10 +1971,11 @@ def _binding_targets(node: ast.AST) -> tuple[set[str], str | None]:
     parent = getattr(current, "_rule2_parent", None)
     container_kind: str | None = None
     # Every wrapper climbed, innermost first: the index the value occupies in
-    # it (None when the wrapper is not a positional display) and the kind of
-    # what is INSIDE it. An unpacking pattern consumes these one for one, so
-    # the pairing needs the whole chain, not just its outermost link.
-    chain: list[tuple[int | None, str | None]] = []
+    # it (None when the wrapper is not a positional display), the kind of what
+    # is INSIDE it, and whether it adds a LEVEL at all. An unpacking pattern
+    # consumes these one for one, so the pairing needs the whole chain, not
+    # just its outermost link.
+    chain: list[tuple[int | None, str | None, bool]] = []
     while isinstance(parent, _TRANSPARENT_WRAPPERS):
         # fix(#1394), codex round 8: a VALUE wrapper only carries the value in
         # a position it can evaluate to. `empty = [] if commands else ()` never
@@ -1974,13 +2000,19 @@ def _binding_targets(node: ast.AST) -> tuple[set[str], str | None]:
         starred = isinstance(parent, ast.Starred) or isinstance(current, ast.Starred)
         kind_below = container_kind
         # Only a CONTAINER wrapper means the level above holds the vector
-        # rather than being it (fix(#996 review)).
-        if isinstance(parent, _CONTAINER_WRAPPERS) and not starred:
+        # rather than being it (fix(#996 review)) — which is the same thing as
+        # adding a level for an unpacking pattern to consume.
+        adds_level = isinstance(parent, _CONTAINER_WRAPPERS) and not starred
+        if adds_level:
             container_kind = _container_iteration_kind(parent, current)
-        if isinstance(parent, (ast.Tuple, ast.List)) and current in parent.elts:
-            chain.append((parent.elts.index(current), kind_below))
-        else:
-            chain.append((None, kind_below))
+        index = (
+            parent.elts.index(current)
+            if adds_level
+            and isinstance(parent, (ast.Tuple, ast.List))
+            and current in parent.elts
+            else None
+        )
+        chain.append((index, kind_below, adds_level))
         current = parent
         parent = getattr(current, "_rule2_parent", None)
     chain.reverse()  # outermost first, the order an unpacking consumes them
@@ -3766,6 +3798,45 @@ def test_guard_positional_unpacking_consumes_the_wrapper():
         assert any(reported in v for v in violations), (reported, violations)
     for quiet in ("(unpacked)", "(nested_pattern)"):
         assert not any(quiet in v for v in violations), (quiet, violations)
+
+
+def test_guard_unpacking_pairs_only_with_real_levels():
+    """fix(#1394), codex round 13: two ways the one-for-one count goes wrong.
+
+    A wrapper that adds NO level is not a pattern's to consume, so it has to be
+    stepped over rather than end the pairing: ``(alias,) = ((argv,) + ())``
+    unpacks the concatenated tuple exactly as ``(alias,) = (argv,)`` does, and
+    abandoning the match at the ``+`` left ``alias`` looking like a container.
+
+    Chained targets can unpack to DIFFERENT depths, and a target whose pattern
+    ends early was dropped the moment a sibling descended past it — so
+    ``(alias,) = ((deep,),) = ((argv,),)`` lost ``alias`` entirely and the loop
+    over it reported nothing.
+    """
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "def through_a_value_wrapper(path):\n"
+            "    (alias,) = ((['gdalinfo', path],) + ())\n"
+            "    for part in alias:\n"
+            "        consume(part)\n"
+        ),
+        {},
+    )
+    assert total == 0, (total, violations)
+    assert violations == []
+
+    uneven, total_uneven = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def uneven_chain(path):\n"
+            "    (alias,) = ((deep,),) = ((['ogrinfo', path],),)\n"
+            "    for cmd in alias:\n"
+            "        subprocess.run(cmd)\n"
+        ),
+        {},
+    )
+    assert total_uneven == 1, (total_uneven, uneven)
+    assert len(uneven) == 1 and "(uneven_chain)" in uneven[0]
 
 
 def test_guard_a_sliced_container_is_still_a_container():
