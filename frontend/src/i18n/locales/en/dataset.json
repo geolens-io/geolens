@@ -537,7 +537,11 @@
     "auto": "auto",
     "primary": "Primary",
     "copyUrl": "Copy URL",
-    "loadError": "Failed to load distributions."
+    "loadError": "Failed to load distributions.",
+    "setPrimary": "Set {{name}} as primary",
+    "currentPrimary": "{{name}} is the primary distribution",
+    "primaryUpdated": "Primary distribution updated.",
+    "setPrimaryFailed": "Failed to set primary distribution."
   },
   "publish": {
     "publish": "Publish",

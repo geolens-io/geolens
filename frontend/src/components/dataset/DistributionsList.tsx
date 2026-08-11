@@ -1,11 +1,14 @@
 import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useDistributions } from '@/components/dataset/hooks/use-records';
+import {
+  useDistributions,
+  useSetPrimaryDistribution,
+} from '@/components/dataset/hooks/use-records';
 import { useTileConfig } from '@/hooks/use-settings';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Copy, Check } from 'lucide-react';
+import { Copy, Check, Circle, CircleDot, Loader2 } from 'lucide-react';
 import { LoadingState } from '@/components/layout/LoadingState';
 import {
   getPublicApiBaseUrl,
@@ -15,6 +18,10 @@ import type { DistributionResponse } from '@/types/api';
 
 interface DistributionsListProps {
   recordId: string;
+  /** Owner-or-admin editor: mirrors the backend `require_permission("edit_metadata")`
+   * + `_check_record_ownership` guard on the distribution PATCH endpoint.
+   * Everyone else keeps the read-only view (#1395). */
+  canEdit?: boolean;
 }
 
 const TYPE_ORDER = ['download', 'api', 'tiles', 'other'] as const;
@@ -84,6 +91,71 @@ function CopyableUrl({ url, publicApiUrl }: { url: string; publicApiUrl: string 
   );
 }
 
+/** fix(#1395 codex round 3): title alone can collide — `uq_record_distribution`
+ * covers (record_id, distribution_type, format, url), not title, so two
+ * manual rows are free to share one, and a truncated URL is only unique
+ * up to whatever the truncation cuts off (round 2's fix). The row's own
+ * `id` is the one field the database actually guarantees is unique — use it
+ * untruncated instead of a heuristic. */
+function distributionLabel(distribution: DistributionResponse): string {
+  const base =
+    distribution.title?.trim() || distribution.format || distribution.distribution_type;
+  return `${base} (${distribution.id})`;
+}
+
+/** feat(#1395): radio-style set-primary control. Rendered only for manual
+ * (non-auto_generated) rows — `update_distribution` rejects any write,
+ * `is_primary` included, against an auto_generated row with a 400, so a
+ * control on those rows could never do anything but fail. The currently
+ * primary manual row renders checked and disabled; clicking any other one
+ * PATCHes it to `is_primary: true`, which the backend applies as a
+ * last-write-wins demote of every other row on the record (#1383).
+ *
+ * fix(#1395 codex round 1): `isMutating` disables every sibling control
+ * while any promotion is in flight, not just the clicked one — two manual
+ * rows both idle-looking would otherwise let a second click fire a
+ * concurrent PATCH, and since both transactions demote-then-promote against
+ * `uq_record_distribution_primary`, which one wins is transaction order, not
+ * click order. `isPendingThisRow` only decides which button shows the
+ * spinner. The accessible name (`distributionLabel`) identifies the row so a
+ * screen reader can tell two "Set as primary" buttons apart. */
+function SetPrimaryControl({
+  distribution,
+  onSelect,
+  isMutating,
+  isPendingThisRow,
+}: {
+  distribution: DistributionResponse;
+  onSelect: (distributionId: string) => void;
+  isMutating: boolean;
+  isPendingThisRow: boolean;
+}) {
+  const { t } = useTranslation('dataset');
+  const name = distributionLabel(distribution);
+  const label = distribution.is_primary
+    ? t('distributions.currentPrimary', { name })
+    : t('distributions.setPrimary', { name });
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon-xs"
+      onClick={() => onSelect(distribution.id)}
+      disabled={distribution.is_primary || isMutating}
+      aria-label={label}
+      title={label}
+    >
+      {isPendingThisRow ? (
+        <Loader2 className="h-3 w-3 animate-spin" />
+      ) : distribution.is_primary ? (
+        <CircleDot className="h-3 w-3" />
+      ) : (
+        <Circle className="h-3 w-3" />
+      )}
+    </Button>
+  );
+}
+
 export function getDistributionGroup(distributionType: string): DistributionGroup {
   return DISTRIBUTION_GROUPS[distributionType] ?? 'other';
 }
@@ -101,11 +173,12 @@ function groupByType(
   return groups;
 }
 
-export function DistributionsList({ recordId }: DistributionsListProps) {
+export function DistributionsList({ recordId, canEdit = false }: DistributionsListProps) {
   const { t } = useTranslation('dataset');
   const { data, isLoading, error } = useDistributions(recordId);
   const { data: tileConfig } = useTileConfig();
   const publicApiBaseUrl = getPublicApiBaseUrl(tileConfig);
+  const setPrimary = useSetPrimaryDistribution(recordId);
 
   if (isLoading) {
     return <LoadingState className="py-6" />;
@@ -154,6 +227,14 @@ export function DistributionsList({ recordId }: DistributionsListProps) {
                     <span className="text-xs text-muted-foreground">
                       ({t('distributions.auto')})
                     </span>
+                  )}
+                  {canEdit && !dist.auto_generated && (
+                    <SetPrimaryControl
+                      distribution={dist}
+                      onSelect={(distributionId) => setPrimary.mutate(distributionId)}
+                      isMutating={setPrimary.isPending}
+                      isPendingThisRow={setPrimary.isPending && setPrimary.variables === dist.id}
+                    />
                   )}
                 </div>
                 {dist.title && (
