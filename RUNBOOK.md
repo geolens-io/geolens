@@ -516,13 +516,12 @@ For managed/external Postgres there is no `db` container to exec into: drop the
 to `pg_dumpall`/`psql` directly.
 
 If no globals dump exists, create the five fixed NOLOGIN groups with the block
-below. Step 2c creates them too, but that is too late in one case that matters:
-a dump stamped anywhere in 0019-0023 has to be upgraded first (2b), and 0024's
-upgrade runs `ALTER FUNCTION … OWNER TO geolens_tenant_provisioner`, which fails
-outright when that role does not exist. Skip this only when the dump already
-matches the running release, or when a globals replay has already put the roles
-back. The block is idempotent, needs CREATEROLE, and the attributes match what
-0019 creates and validates:
+below, and do it now rather than later. Adoption creates them too, but that is
+step 2d, and two things ahead of it need them already there: 0024's upgrade in
+2b runs `ALTER FUNCTION … OWNER TO geolens_tenant_provisioner`, and 2c grants
+memberships in all five. Skip this only when a globals replay has already put
+the roles back. The block is idempotent, needs CREATEROLE, and the attributes
+match what 0019 creates and validates:
 
 ```sql
 DO $$

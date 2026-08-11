@@ -1102,8 +1102,12 @@ BEGIN
           owner_role.rolname <> writer_name
           OR routine.prosecdef
           OR NOT EXISTS (
+              -- prokind 'a' names the `internal` pseudo-language and says
+              -- nothing about the functions that run; same exemption as the
+              -- refusal above, or every aggregate keeps this gap open forever.
               SELECT 1 FROM pg_catalog.pg_language AS language
-              WHERE language.oid = routine.prolang AND language.lanpltrusted
+              WHERE language.oid = routine.prolang
+                AND (language.lanpltrusted OR routine.prokind = 'a')
           )
           OR pg_catalog.has_function_privilege('public', routine.oid, 'EXECUTE')
           OR NOT pg_catalog.has_function_privilege(

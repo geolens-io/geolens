@@ -649,15 +649,36 @@ async def tenant_ownership_state(conn, tenant_id: str) -> TenantOwnershipState:
                               )
                               OR routine.prosecdef
                               OR NOT EXISTS (
+                                  -- prokind 'a' names the `internal`
+                                  -- pseudo-language and says nothing about the
+                                  -- functions that run.
                                   SELECT 1 FROM pg_catalog.pg_language AS language
                                   WHERE language.oid = routine.prolang
-                                    AND language.lanpltrusted
+                                    AND (
+                                        language.lanpltrusted
+                                        OR routine.prokind = 'a'
+                                    )
                               )
                               OR pg_catalog.has_function_privilege(
                                   'public', routine.oid, 'EXECUTE'
                               )
                               OR NOT pg_catalog.has_function_privilege(
                                   (SELECT oid FROM reader), routine.oid, 'EXECUTE'
+                              )
+                              -- The ACL itself, matching what --apply rewrites:
+                              -- a named grantee, or a grantable reader entry.
+                              OR EXISTS (
+                                  SELECT 1
+                                  FROM LATERAL pg_catalog.aclexplode(routine.proacl)
+                                    AS acl
+                                  WHERE acl.grantee NOT IN (
+                                      COALESCE((SELECT oid FROM writer), 0),
+                                      (SELECT oid FROM reader)
+                                  )
+                                  OR (
+                                      acl.grantee = (SELECT oid FROM reader)
+                                      AND acl.is_grantable
+                                  )
                               )
                           )
                     )
