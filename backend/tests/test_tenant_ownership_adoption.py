@@ -44,6 +44,7 @@ from app.core.db.tenant_adoption import (
     BoundaryTableState,
     boundary_drift,
     boundary_function_states,
+    cluster_topology_error,
     format_report,
     live_tenant_boundary,
     run_adoption,
@@ -380,6 +381,82 @@ class TestAdoptionReconstructsOwnership:
             await engine.dispose()
 
 
+class TestReportedStateMatchesWhatApplyEnforces:
+    """The dry-run verdict cannot be softer than `--apply`'s refusals.
+
+    Ownership plus effective privileges is not enough on its own: a reader that
+    can log in still holds every relation privilege the ownership check reads,
+    and a superuser one satisfies `has_table_privilege` by fiat.
+    """
+
+    async def test_unsafe_reader_attributes_are_not_adopted(self):
+        """A LOGIN reader is refused, and the dry run says so before `--apply`.
+
+        The role is left un-adopted (no provisioner membership) on purpose:
+        once a reserved role holds an edge to it, an unsafe attribute becomes a
+        *cluster*-topology refusal, and cluster roles are shared with every
+        other xdist worker's database.
+        """
+        tenant_id, schema, reader, _writer = _new_tenant()
+        engine = _make_engine()
+        try:
+            await _seed_restored_tenant(engine, tenant_id, schema)
+            async with engine.begin() as conn:
+                await conn.execute(sa.text(f"CREATE ROLE {reader} LOGIN"))
+
+            async with engine.connect() as conn:
+                state = await tenant_ownership_state(conn, tenant_id)
+            assert state.reader_exists
+            assert not state.reader_role_secure
+            assert not state.adopted
+
+            report = await run_adoption(engine, apply=True)
+            assert tenant_id in report.failures
+            assert "unsafe attributes" in report.failures[tenant_id]
+            assert not report.ok
+        finally:
+            await _drop_tenant(engine, tenant_id)
+            await engine.dispose()
+
+    async def test_stray_reader_member_is_not_adopted_and_is_repaired(self):
+        tenant_id, schema, reader, _writer = _new_tenant()
+        stray = f"w998_stray_{tenant_id.replace('-', '_')}"
+        engine = _make_engine()
+        try:
+            await _seed_restored_tenant(engine, tenant_id, schema)
+            assert (await run_adoption(engine, apply=True)).ok
+
+            # A member outside {provisioner, sandbox, tile} is a read path into
+            # the tenant that nothing else in the report would show: ownership
+            # and per-relation privileges are all still correct.
+            async with engine.begin() as conn:
+                await conn.execute(sa.text(f"CREATE ROLE {stray} NOLOGIN NOINHERIT"))
+                await conn.execute(sa.text(f"GRANT {reader} TO {stray}"))
+
+            async with engine.connect() as conn:
+                state = await tenant_ownership_state(conn, tenant_id)
+            assert state.relations_not_owned_by_writer == 0
+            assert state.relations_without_reader_select == 0
+            assert not state.reader_role_secure
+            assert not state.adopted
+
+            repaired = await run_adoption(engine, apply=True)
+            assert repaired.failures == {}, repaired.failures
+            assert repaired.ok
+        finally:
+            async with engine.begin() as conn:
+                await conn.execute(sa.text(f"DROP ROLE IF EXISTS {stray}"))
+            await _drop_tenant(engine, tenant_id)
+            await engine.dispose()
+
+    async def test_healthy_cluster_topology_reports_no_error(self):
+        engine = _make_engine()
+        try:
+            assert await cluster_topology_error(engine) is None
+        finally:
+            await engine.dispose()
+
+
 # ---------------------------------------------------------------------------
 # B: a second run is a no-op
 # ---------------------------------------------------------------------------
@@ -610,6 +687,7 @@ def _report(**overrides) -> AdoptionReport:
         "before": [],
         "after": [],
         "failures": {},
+        "cluster_topology": None,
     }
     fields.update(overrides)
     return AdoptionReport(**fields)
@@ -630,6 +708,11 @@ class TestSuccessPredicate:
 
     def test_no_boundary_functions_at_all_is_not_ok(self) -> None:
         assert not _report(functions=[]).ok
+
+    def test_refused_cluster_topology_is_not_ok(self) -> None:
+        report = _report(cluster_topology="role geolens_tile_gateway is missing")
+        assert not report.ok
+        assert "NEEDS ATTENTION" in format_report(report)
 
     def test_stamped_table_missing_from_rls_tables_is_not_ok(self) -> None:
         """Boot never enables RLS on it, so the post-restore check must fail."""

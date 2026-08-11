@@ -53,11 +53,15 @@ from sqlalchemy import text
 from app.core.db.rls import RLS_TABLES
 from app.core.db.tenant_adoption_sql import (
     ADOPT_TENANT_SQL,
-    CLUSTER_ROLE_SQL,
+    CLUSTER_ROLE_CREATE_SQL,
+    CLUSTER_ROLE_VALIDATE_SQL,
     CONTROL,
     PROVISIONER,
     PROVISIONER_DATABASE_GRANT_SQL,
+    SANDBOX,
     TENANT_GUC,
+    TILE,
+    WRITER,
 )
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -114,9 +118,19 @@ class TenantOwnershipState:
     relations: int
     relations_not_owned_by_writer: int
     relations_without_reader_select: int
+    reader_role_secure: bool
+    writer_role_secure: bool
+    schema_privileges_secure: bool
 
     @property
     def adopted(self) -> bool:
+        """Every invariant ``--apply`` enforces, not just the visible ones.
+
+        Ownership and effective privileges alone would call a reader carrying
+        ``LOGIN``/``SUPERUSER``/``BYPASSRLS`` adopted — a superuser satisfies the
+        ``SELECT`` check by fiat — and would miss a stray member or a missing
+        gateway edge, both of which ``ADOPT_TENANT_SQL`` refuses or repairs.
+        """
         return (
             self.schema_exists
             and self.schema_owner == PROVISIONER
@@ -124,6 +138,9 @@ class TenantOwnershipState:
             and self.writer_exists
             and self.relations_not_owned_by_writer == 0
             and self.relations_without_reader_select == 0
+            and self.reader_role_secure
+            and self.writer_role_secure
+            and self.schema_privileges_secure
         )
 
 
@@ -243,12 +260,99 @@ async def boundary_function_states(conn) -> list[BoundaryFunctionState]:
     return [BoundaryFunctionState(**dict(row._mapping)) for row in result]
 
 
+async def cluster_topology_error(engine) -> str | None:
+    """Would ``--apply`` refuse this cluster's fixed role topology?
+
+    Runs the identical guard ``ensure_cluster_roles`` runs, minus the half that
+    creates anything, rather than a read-only paraphrase of it that could drift.
+    A raise aborts the transaction, so it gets a connection of its own.
+    """
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(CLUSTER_ROLE_VALIDATE_SQL))
+    except Exception as exc:  # broad: any refusal is the answer, whatever its class
+        return str(exc).strip().splitlines()[0]
+    return None
+
+
 async def list_tenants(conn) -> list[str]:
     """Every tenant id in the control plane, in a stable order."""
     result = await conn.execute(
         text("SELECT id::text FROM catalog.tenants ORDER BY id")
     )
     return [row[0] for row in result]
+
+
+#: ``pg_auth_members.inherit_option``/``set_option`` arrived in PostgreSQL 16 and
+#: GeoLens supports 13 and up (README), so naming those columns directly would be
+#: a parse error on an older server.  Reading them back out of the row as jsonb
+#: parses everywhere, and the guard degrades to ``admin_option`` alone before 16 —
+#: which is correct, because that is where NOINHERIT on the fixed gateway roles
+#: carries the same SET-only guarantee.
+_MEMBER_OPTIONS_PRESENT = "jsonb_exists(to_jsonb(membership), 'set_option')"
+_MEMBER_INHERIT = "(to_jsonb(membership) ->> 'inherit_option')::boolean"
+_MEMBER_SET = "(to_jsonb(membership) ->> 'set_option')::boolean"
+_MEMBER_ADMIN_ONLY = (
+    f"(NOT {_MEMBER_OPTIONS_PRESENT} OR NOT ({_MEMBER_INHERIT} OR {_MEMBER_SET}))"
+)
+_MEMBER_SET_ONLY = (
+    f"(NOT {_MEMBER_OPTIONS_PRESENT} OR (NOT {_MEMBER_INHERIT} AND {_MEMBER_SET}))"
+)
+
+
+def _role_secure_sql(
+    role_cte: str, allowed_members: tuple[str, ...], gateways: tuple[str, ...]
+) -> str:
+    """SQL for "this per-tenant role has the shape ``--apply`` enforces".
+
+    Every clause mirrors a refusal in ``ADOPT_TENANT_SQL`` or in
+    ``catalog.provision_tenant_data_schema``, so a dry run cannot call a topology
+    adopted that ``--apply`` would reject or repair.  Role existence and
+    effective privileges are not enough on their own: a reader carrying
+    ``SUPERUSER`` satisfies every ``has_table_privilege`` check by fiat.
+
+    Role names come from the module constants above, never from a caller.
+    """
+    allowed = ", ".join(f"'{name}'" for name in allowed_members)
+    gateway_names = ", ".join(f"'{name}'" for name in gateways)
+    return f"""(
+                    EXISTS (
+                        SELECT 1 FROM {role_cte}
+                        WHERE NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb
+                          AND NOT rolcreaterole AND NOT rolinherit
+                          AND NOT rolreplication AND NOT rolbypassrls
+                    )
+                    AND NOT EXISTS (
+                        SELECT 1 FROM pg_catalog.pg_auth_members AS membership
+                        JOIN pg_catalog.pg_roles AS member_role
+                          ON member_role.oid = membership.member
+                        WHERE membership.roleid = (SELECT oid FROM {role_cte})
+                          AND member_role.rolname NOT IN ({allowed})
+                    )
+                    AND NOT EXISTS (
+                        SELECT 1 FROM pg_catalog.pg_auth_members AS membership
+                        WHERE membership.member = (SELECT oid FROM {role_cte})
+                    )
+                    AND EXISTS (
+                        SELECT 1 FROM pg_catalog.pg_auth_members AS membership
+                        JOIN pg_catalog.pg_roles AS member_role
+                          ON member_role.oid = membership.member
+                        WHERE membership.roleid = (SELECT oid FROM {role_cte})
+                          AND member_role.rolname = '{PROVISIONER}'
+                          AND membership.admin_option
+                          AND {_MEMBER_ADMIN_ONLY}
+                    )
+                    AND (
+                        SELECT count(*)
+                        FROM pg_catalog.pg_auth_members AS membership
+                        JOIN pg_catalog.pg_roles AS member_role
+                          ON member_role.oid = membership.member
+                        WHERE membership.roleid = (SELECT oid FROM {role_cte})
+                          AND member_role.rolname IN ({gateway_names})
+                          AND NOT membership.admin_option
+                          AND {_MEMBER_SET_ONLY}
+                    ) = {len(gateways)}
+                )"""
 
 
 async def tenant_ownership_state(conn, tenant_id: str) -> TenantOwnershipState:
@@ -264,8 +368,12 @@ async def tenant_ownership_state(conn, tenant_id: str) -> TenantOwnershipState:
                            AS writer_name
             ),
             reader AS (
-                SELECT oid FROM pg_catalog.pg_roles
+                SELECT * FROM pg_catalog.pg_roles
                 WHERE rolname = (SELECT reader_name FROM names)
+            ),
+            writer AS (
+                SELECT * FROM pg_catalog.pg_roles
+                WHERE rolname = (SELECT writer_name FROM names)
             ),
             relations AS (
                 SELECT relation.oid, relation.relkind, owner_role.rolname AS owner
@@ -324,7 +432,36 @@ async def tenant_ownership_state(conn, tenant_id: str) -> TenantOwnershipState:
                             )
                         )
                     )
-                END AS relations_without_reader_select
+                END AS relations_without_reader_select,
+                """
+            + _role_secure_sql("reader", (PROVISIONER, SANDBOX, TILE), (SANDBOX, TILE))
+            + " AS reader_role_secure, "
+            + _role_secure_sql("writer", (PROVISIONER, WRITER), (WRITER,))
+            + """ AS writer_role_secure,
+                CASE
+                    WHEN NOT EXISTS (
+                        SELECT 1 FROM pg_catalog.pg_namespace
+                        WHERE nspname = (SELECT schema_name FROM names)
+                    ) OR NOT EXISTS (SELECT 1 FROM reader)
+                      OR NOT EXISTS (SELECT 1 FROM writer)
+                    THEN false
+                    ELSE NOT pg_catalog.has_schema_privilege(
+                             'public', (SELECT schema_name FROM names), 'USAGE'
+                         )
+                     AND NOT pg_catalog.has_schema_privilege(
+                             'public', (SELECT schema_name FROM names), 'CREATE'
+                         )
+                     AND pg_catalog.has_schema_privilege(
+                             (SELECT oid FROM reader),
+                             (SELECT schema_name FROM names),
+                             'USAGE'
+                         )
+                     AND pg_catalog.has_schema_privilege(
+                             (SELECT oid FROM writer),
+                             (SELECT schema_name FROM names),
+                             'USAGE, CREATE'
+                         )
+                END AS schema_privileges_secure
             """
         ),
         {"tenant_id": tenant_id},
@@ -340,7 +477,8 @@ async def tenant_ownership_state(conn, tenant_id: str) -> TenantOwnershipState:
 
 async def ensure_cluster_roles(conn) -> None:
     """Create the fixed role topology if absent, and refuse an unsafe one."""
-    await conn.execute(text(CLUSTER_ROLE_SQL))
+    await conn.execute(text(CLUSTER_ROLE_CREATE_SQL))
+    await conn.execute(text(CLUSTER_ROLE_VALIDATE_SQL))
     await conn.execute(text(PROVISIONER_DATABASE_GRANT_SQL))
     await conn.execute(text(f"GRANT USAGE ON SCHEMA catalog TO {PROVISIONER}"))
     await conn.execute(text(f"GRANT SELECT ON TABLE catalog.tenants TO {PROVISIONER}"))
@@ -410,6 +548,7 @@ class AdoptionReport:
     before: list[TenantOwnershipState]
     after: list[TenantOwnershipState]
     failures: dict[str, str]
+    cluster_topology: str | None = None
 
     @property
     def missing_functions(self) -> list[str]:
@@ -430,10 +569,10 @@ class AdoptionReport:
         what makes ``--apply``-less invocation usable as a post-restore check.
         Every condition the report surfaces has to be in here, or the check
         passes on a database the report itself calls broken: a missing boundary
-        function, and boundary drift that leaves a stamped table without RLS at
-        boot, both count.
+        function, a fixed-role topology ``--apply`` would refuse, and boundary
+        drift that leaves a stamped table without RLS at boot all count.
         """
-        if self.failures or self.missing_functions:
+        if self.failures or self.missing_functions or self.cluster_topology:
             return False
         if not all(function.secured for function in self.functions):
             return False
@@ -451,6 +590,7 @@ async def run_adoption(engine, *, apply: bool) -> AdoptionReport:
         before = [await tenant_ownership_state(conn, tid) for tid in tenants]
         boundary = await live_tenant_boundary(conn)
         functions = await boundary_function_states(conn)
+    topology = await cluster_topology_error(engine)
 
     if not apply:
         return AdoptionReport(
@@ -460,6 +600,7 @@ async def run_adoption(engine, *, apply: bool) -> AdoptionReport:
             before=before,
             after=before,
             failures={},
+            cluster_topology=topology,
         )
 
     async with engine.begin() as conn:
@@ -480,6 +621,7 @@ async def run_adoption(engine, *, apply: bool) -> AdoptionReport:
     async with engine.connect() as conn:
         after = [await tenant_ownership_state(conn, tid) for tid in tenants]
         boundary = await live_tenant_boundary(conn)
+    topology = await cluster_topology_error(engine)
 
     return AdoptionReport(
         applied=True,
@@ -488,7 +630,20 @@ async def run_adoption(engine, *, apply: bool) -> AdoptionReport:
         before=before,
         after=after,
         failures=failures,
+        cluster_topology=topology,
     )
+
+
+def _format_cluster_roles(report: AdoptionReport) -> list[str]:
+    if report.cluster_topology is None:
+        return [
+            f"Fixed cluster roles ({PROVISIONER} and the four gateways): "
+            "present, with safe attributes and memberships."
+        ]
+    return [
+        f"Fixed cluster roles: NEEDS ATTENTION — {report.cluster_topology}",
+        "  --apply creates a missing role; it refuses an unsafe one.",
+    ]
 
 
 def _format_functions(report: AdoptionReport) -> list[str]:
@@ -559,13 +714,23 @@ def _format_tenants(report: AdoptionReport) -> list[str]:
     after_by_id = {state.tenant_id: state for state in report.after}
     for before in report.before:
         after = after_by_id[before.tenant_id]
-        detail = (
-            f"{after.relations} relation(s), "
-            f"{after.relations_not_owned_by_writer} not owned by the writer, "
-            f"{after.relations_without_reader_select} without reader SELECT"
-        )
+        detail = [
+            f"{after.relations} relation(s)",
+            f"{after.relations_not_owned_by_writer} not owned by the writer",
+            f"{after.relations_without_reader_select} without reader SELECT",
+        ]
+        if not after.reader_role_secure:
+            detail.append(
+                "reader role attributes or memberships are not the safe shape"
+            )
+        if not after.writer_role_secure:
+            detail.append(
+                "writer role attributes or memberships are not the safe shape"
+            )
+        if not after.schema_privileges_secure:
+            detail.append("schema privileges are not the safe shape")
         verdict = _tenant_verdict(before, after, report.applied)
-        lines.append(f"  {before.tenant_id}: {verdict} — {detail}")
+        lines.append(f"  {before.tenant_id}: {verdict} — {', '.join(detail)}")
     return lines
 
 
@@ -574,6 +739,7 @@ def format_report(report: AdoptionReport) -> str:
     mode = "APPLIED" if report.applied else "DRY RUN (no changes made)"
     sections = [
         [f"Tenant-ownership adoption — {mode}"],
+        _format_cluster_roles(report),
         _format_functions(report),
         _format_boundary(report.boundary),
         _format_tenants(report),

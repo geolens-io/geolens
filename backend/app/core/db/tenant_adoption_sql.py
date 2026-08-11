@@ -63,34 +63,24 @@ _COLUMN_OWNED_SEQUENCE = """(
 # Cluster role topology (port of 0019 ``_create_and_validate_cluster_roles``)
 # ---------------------------------------------------------------------------
 
-CLUSTER_ROLE_SQL = f"""
+#: Creates whatever is absent and nothing else.  Split from the validation half
+#: (below) so the dry run can answer "would ``--apply`` refuse this cluster?"
+#: by running the identical guard, read-only, instead of a second copy of it.
+CLUSTER_ROLE_CREATE_SQL = f"""
 DO $$
 DECLARE
-    role_row record;
     group_name text;
-    membership_row record;
-    direct_membership_unsafe boolean;
 BEGIN
     PERFORM pg_catalog.pg_advisory_xact_lock(
         pg_catalog.hashtextextended('geolens:tenant-role-bootstrap', 0)
     );
 
-    SELECT * INTO role_row
-    FROM pg_catalog.pg_roles
-    WHERE rolname = '{PROVISIONER}';
-
-    IF NOT FOUND THEN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = '{PROVISIONER}'
+    ) THEN
         CREATE ROLE {PROVISIONER}
             NOLOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOINHERIT
             NOREPLICATION NOBYPASSRLS;
-    ELSIF role_row.rolcanlogin
-       OR role_row.rolsuper
-       OR role_row.rolcreatedb
-       OR NOT role_row.rolcreaterole
-       OR role_row.rolinherit
-       OR role_row.rolreplication
-       OR role_row.rolbypassrls THEN
-        RAISE EXCEPTION 'existing role {PROVISIONER} has unsafe attributes';
     END IF;
 
     FOREACH group_name IN ARRAY ARRAY[
@@ -106,6 +96,37 @@ BEGIN
             );
         END IF;
     END LOOP;
+END
+$$
+"""
+
+#: Pure validation: reads the catalogs and raises, issuing no DDL of any kind.
+CLUSTER_ROLE_VALIDATE_SQL = f"""
+DO $$
+DECLARE
+    role_row record;
+    membership_row record;
+    direct_membership_unsafe boolean;
+BEGIN
+    PERFORM pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended('geolens:tenant-role-bootstrap', 0)
+    );
+
+    SELECT * INTO role_row
+    FROM pg_catalog.pg_roles
+    WHERE rolname = '{PROVISIONER}';
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'role {PROVISIONER} is missing';
+    ELSIF role_row.rolcanlogin
+       OR role_row.rolsuper
+       OR role_row.rolcreatedb
+       OR NOT role_row.rolcreaterole
+       OR role_row.rolinherit
+       OR role_row.rolreplication
+       OR role_row.rolbypassrls THEN
+        RAISE EXCEPTION 'existing role {PROVISIONER} has unsafe attributes';
+    END IF;
 
     FOR role_row IN
         SELECT * FROM pg_catalog.pg_roles
