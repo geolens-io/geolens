@@ -561,6 +561,74 @@ class TestReportedStateMatchesWhatApplyEnforces:
             await _drop_tenant(engine, tenant_id)
             await engine.dispose()
 
+    async def test_legacy_admin_option_membership_is_rewritten(
+        self, multi_tenant_row_security
+    ):
+        """A globals dump from PostgreSQL 13-15 replays as `WITH ADMIN OPTION`.
+
+        On 16+ that lands SET TRUE, which `provision_tenant_data_schema` rejects
+        as not ADMIN-only — so every restored tenant whose roles came back from
+        an older cluster would fail adoption. Checking `admin_option` alone was
+        not enough to notice.
+        """
+        tenant_id, schema, reader, writer = _new_tenant()
+        engine = _make_engine()
+        try:
+            await _seed_restored_tenant(engine, tenant_id, schema)
+            async with engine.begin() as conn:
+                for role in (reader, writer):
+                    await conn.execute(
+                        sa.text(
+                            f"CREATE ROLE {role} NOLOGIN NOSUPERUSER NOCREATEDB "
+                            "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS"
+                        )
+                    )
+                    await conn.execute(
+                        sa.text(f"GRANT {role} TO {PROVISIONER} WITH ADMIN OPTION")
+                    )
+
+            async with engine.connect() as conn:
+                options = (
+                    await conn.execute(
+                        sa.text(
+                            "SELECT membership.set_option FROM pg_auth_members "
+                            "AS membership "
+                            "JOIN pg_roles AS granted ON granted.oid = membership.roleid "
+                            "JOIN pg_roles AS member ON member.oid = membership.member "
+                            "WHERE granted.rolname = :reader AND member.rolname = :owner"
+                        ),
+                        {"reader": reader, "owner": PROVISIONER},
+                    )
+                ).scalar_one()
+            assert options is True, "fixture must reproduce the legacy grant shape"
+
+            report = await run_adoption(engine, apply=True)
+            assert report.failures == {}, report.failures
+            assert report.ok
+
+            async with engine.connect() as conn:
+                for role in (reader, writer):
+                    membership = (
+                        await conn.execute(
+                            sa.text(
+                                "SELECT membership.admin_option, "
+                                "membership.inherit_option, membership.set_option "
+                                "FROM pg_auth_members AS membership "
+                                "JOIN pg_roles AS granted "
+                                "  ON granted.oid = membership.roleid "
+                                "JOIN pg_roles AS member "
+                                "  ON member.oid = membership.member "
+                                "WHERE granted.rolname = :role "
+                                "AND member.rolname = :owner"
+                            ),
+                            {"role": role, "owner": PROVISIONER},
+                        )
+                    ).one()
+                    assert tuple(membership) == (True, False, False), role
+        finally:
+            await _drop_tenant(engine, tenant_id)
+            await engine.dispose()
+
     async def test_writer_missing_one_schema_privilege_is_not_adopted(
         self, multi_tenant_row_security
     ):

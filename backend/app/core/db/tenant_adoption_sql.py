@@ -40,6 +40,29 @@ TENANT_GUC = "geolens.adoption_tenant_id"
 #: views, materialized views, foreign tables, sequences.
 _RELATION_KINDS = "'r', 'p', 'v', 'm', 'f', 'S'"
 
+#: The ADMIN-only membership shape the provisioning function demands: ``ADMIN``,
+#: and on PostgreSQL 16+ neither ``INHERIT`` nor ``SET``.
+#:
+#: ``admin_option`` alone is not enough to test.  A globals dump written by
+#: PostgreSQL 13-15 carries ``GRANT … WITH ADMIN OPTION``, and replaying that on
+#: 16+ lands ``SET TRUE`` — measured, not assumed — which
+#: ``provision_tenant_data_schema`` rejects as "not ADMIN-only".  Re-issuing the
+#: explicit three-option grant rewrites it in place.
+#:
+#: The options are read out of the row as jsonb because those columns arrived in
+#: 16 and GeoLens supports 13 and up (README); naming them directly would be a
+#: parse error on an older server, where ``admin_option`` is the whole story.
+_MEMBERSHIP_ADMIN_ONLY = """(
+              membership.admin_option
+              AND (
+                  NOT jsonb_exists(to_jsonb(membership), 'set_option')
+                  OR NOT (
+                      (to_jsonb(membership) ->> 'inherit_option')::boolean
+                      OR (to_jsonb(membership) ->> 'set_option')::boolean
+                  )
+              )
+          )"""
+
 #: True for a sequence a column owns — ``serial`` (dependency ``a``) or an
 #: identity column (dependency ``i``).  PostgreSQL refuses ``ALTER SEQUENCE …
 #: OWNER TO`` on those ("cannot change owner of sequence") and instead moves
@@ -527,7 +550,7 @@ BEGIN
           ON member_role.oid = membership.member
         WHERE granted_role.rolname = reader_name
           AND member_role.rolname = '{PROVISIONER}'
-          AND membership.admin_option
+          AND {_MEMBERSHIP_ADMIN_ONLY}
     ) THEN
         IF pg_catalog.current_setting('server_version_num')::integer >= 160000 THEN
             EXECUTE pg_catalog.format(
@@ -551,7 +574,7 @@ BEGIN
           ON member_role.oid = membership.member
         WHERE granted_role.rolname = writer_name
           AND member_role.rolname = '{PROVISIONER}'
-          AND membership.admin_option
+          AND {_MEMBERSHIP_ADMIN_ONLY}
     ) THEN
         IF pg_catalog.current_setting('server_version_num')::integer >= 160000 THEN
             EXECUTE pg_catalog.format(
