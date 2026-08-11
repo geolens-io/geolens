@@ -2809,9 +2809,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # only a SELECT; P1 r6 unwraps exp.Lateral so a repeated table hidden in a
     # LATERAL source is costed; P1 r7 adds a LATERAL's own internal per-row work
     # (its excess over its row count) so a correlated subquery inside a LATERAL
-    # is bounded too. Most of the added lines are that rationale. Cap at the
-    # exact size.
-    "backend/app/platform/sandbox/validator.py": 1284,
+    # is bounded too; P1 r8 costs a parenthesized FROM join group (a
+    # Subquery-wrapped Table carrying its joins) via _group_fanout. Most of the
+    # added lines are that rationale. Cap at the exact size.
+    "backend/app/platform/sandbox/validator.py": 1308,
 }
 
 

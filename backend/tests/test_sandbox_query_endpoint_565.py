@@ -268,6 +268,30 @@ async def test_cross_join_shape_is_rejected(
     assert tbl not in resp.text
 
 
+async def test_parenthesized_join_group_is_rejected(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P1 r8): a parenthesized FROM group hides the cross join
+    in a Subquery-wrapped Table carrying its joins — it must still be costed."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = await _make_table(test_db_session, owner)
+
+    resp = await client.post(
+        "/query/",
+        json={
+            "sql": (
+                f"SELECT a.gid FROM (data.{tbl} a "
+                f"CROSS JOIN data.{tbl} b CROSS JOIN data.{tbl} c)"
+            ),
+            "restrict_tables": [tbl],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == _REPETITION_MESSAGE
+
+
 async def test_transitive_cte_chain_fanout_is_rejected(
     client: AsyncClient, admin_auth_header, test_db_session
 ):

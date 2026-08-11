@@ -1096,10 +1096,34 @@ def _source_fanout(source: exp.Expression, memo: _FanoutMemo) -> _FanoutMap:
         inner = _lateral_inner_scope(source)
         return _rows_fanout(inner, memo) if inner is not None else {}
     if isinstance(source, exp.Subquery):
-        return _rows_fanout(source.this, memo)
+        inner = source.this
+        if isinstance(inner, _SCOPE_TYPES):
+            return _rows_fanout(inner, memo)
+        # fix(#565 codex P1 r8): a parenthesized FROM join group —
+        # `(data.foo a CROSS JOIN data.foo b CROSS JOIN data.foo c)` — is a
+        # Subquery wrapping a Table that carries its joins in `.args["joins"]`,
+        # not a SELECT. Cost the head source and every joined source, so the
+        # cross join inside the parentheses is not a fan-out of 0.
+        return _group_fanout(inner, memo)
     # Anything else in a FROM (VALUES, an allowlisted table function) does not
     # open a base-table cross-join vector; the function/table checks bound it.
     return {}
+
+
+def _group_fanout(head: exp.Expression, memo: _FanoutMemo) -> _FanoutMap:
+    """Row multiplicity of a join group: its head source times each join.
+
+    ``head`` may itself carry ``.args["joins"]`` (a parenthesized cross join);
+    the product is the head's fan-out plus each join source's, mirroring how a
+    SELECT's ``_own_sources`` compose.
+    """
+    out: _FanoutMap = {}
+    for base, weight in _source_fanout(head, memo).items():
+        out[base] = min(out.get(base, 0) + weight, _FANOUT_CEILING)
+    for join in head.args.get("joins") or []:
+        for base, weight in _source_fanout(join.this, memo).items():
+            out[base] = min(out.get(base, 0) + weight, _FANOUT_CEILING)
+    return out
 
 
 def _lateral_inner_scope(source: exp.Lateral) -> exp.Expression | None:
