@@ -587,8 +587,13 @@ Then stop the services. That applies to managed/external Postgres too: the
 database is elsewhere, but `api` and `worker` are still the things that would
 write to it.
 
+Stop the backup service with them. A scheduled cycle landing mid-window dumps
+the half-restored database as the newest artifact — one that passes the
+validation above — and advances retention pruning against the copies you still
+need.
+
 ```bash
-docker compose stop api worker
+docker compose stop api worker backup
 
 docker compose exec -T db pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
   --clean --if-exists --no-owner --no-acl < ./restore/geolens_<timestamp>.dump
@@ -713,11 +718,17 @@ What it does, walking `catalog.tenants` with each tenant in its own transaction:
   superuser, and callable by every login in the database. It never installs a
   function body — the migrations own those, and adoption refuses if either
   function is absent or is not the migration-installed shape.
-- Normalizes each legacy tenant reader role (NOINHERIT, stray memberships,
-  leftover default privileges), transfers the tenant schema to the provisioner,
-  calls the guarded provisioning function to recreate the reader/writer roles and
-  their SET-only gateway memberships, moves every restored relation to the
+- Transfers the tenant schema to the provisioner, calls the guarded
+  provisioning function to recreate the reader/writer roles and their SET-only
+  gateway memberships, moves every restored relation, routine and type to the
   per-tenant writer, and has that writer grant the paired reader `SELECT`.
+- Rewrites only the grants it made itself. A pre-existing anomaly — a membership
+  some third party granted, a default-privilege entry owned by a role it cannot
+  act as, a `SECURITY DEFINER` or untrusted-language routine in a tenant schema
+  — is reported with the exact statement to run and the role to run it as, and
+  that tenant is left for the next run. The automatic membership PostgreSQL
+  gives a role's creator is the one exception it tolerates rather than reports:
+  nobody can revoke it, and it confers nothing on its own.
 
 The end state is the one migration 0019 produced. Idempotence is keyed on
 database state rather than on a marker or a timestamp: a tenant already in that
@@ -797,7 +808,7 @@ SQL
 Then start the services again:
 
 ```bash
-docker compose start api worker
+docker compose start api worker backup
 ```
 
 And verify by hand: the API login can `SET ROLE` to one tenant writer/reader,
@@ -1505,6 +1516,13 @@ docker compose up -d --wait --scale backup=0
 #    If the shell that ran step 1 is gone, $DUMP is unset — pick the newest
 #    verified dump explicitly:
 #      ls -t ./backups/pre-upgrade/*.dump | head -1
+# If catalog.tenants has rows, restore.sh is not the whole recipe — it
+# restarts api and worker on a database whose tenant objects are still owned by
+# the restore login. Use §2's stop / restore / adopt sequence instead, and run
+#   docker compose run --rm --no-deps -e DATABASE_URL_OVERRIDE="<migrator-url>" \
+#     migrate sh -c "uv run --no-dev python -m app.core.db.tenant_adoption"
+# afterwards: without --apply it changes nothing and exits non-zero while
+# anything is still pending.
 ./scripts/restore.sh "$DUMP"
 
 # 5. Bring the backup service up now that the cluster holds real data, and

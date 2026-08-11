@@ -68,6 +68,22 @@ _RELATION_KINDS = "'r', 'p', 'v', 'm', 'f', 'S'"
 #: The options are read out of the row as jsonb because those columns arrived in
 #: 16 and GeoLens supports 13 and up (README); naming them directly would be a
 #: parse error on an older server, where ``admin_option`` is the whole story.
+#: The membership PostgreSQL 16+ hands a non-superuser role creator, and the
+#: reason none of this file tries to revoke one: its grantor is the bootstrap
+#: superuser, a member's plain ``REVOKE`` of it is a warning-level no-op, and
+#: ``GRANTED BY`` that grantor is permission denied for every customer role on a
+#: managed provider — measured, on 18.  It confers nothing on its own (ADMIN
+#: without INHERIT or SET), so it is tolerated wherever it appears instead.
+#:
+#: Before 16 there is no automatic membership at all, so the pre-16 arm of the
+#: jsonb read never matches and nothing is tolerated by accident.
+_MEMBERSHIP_CREATOR_SHAPE = """(
+              membership.admin_option
+              AND jsonb_exists(to_jsonb(membership), 'set_option')
+              AND NOT (to_jsonb(membership) ->> 'inherit_option')::boolean
+              AND NOT (to_jsonb(membership) ->> 'set_option')::boolean
+          )"""
+
 _MEMBERSHIP_ADMIN_ONLY = """(
               membership.admin_option
               AND (
@@ -281,6 +297,25 @@ BEGIN
             CONTINUE;
         END IF;
 
+        -- The automatic creator membership, whoever holds it. Tolerated rather
+        -- than refused: it grants nothing by itself, and the credential that
+        -- created the role may be retired and unassumable, which would make
+        -- every later recovery refuse before touching a tenant.
+        IF EXISTS (
+            SELECT 1
+            FROM pg_catalog.pg_auth_members AS membership
+            WHERE membership.roleid = membership_row.granted_oid
+              AND membership.member = membership_row.member_oid
+        ) AND NOT EXISTS (
+            SELECT 1
+            FROM pg_catalog.pg_auth_members AS membership
+            WHERE membership.roleid = membership_row.granted_oid
+              AND membership.member = membership_row.member_oid
+              AND NOT {_MEMBERSHIP_CREATOR_SHAPE}
+        ) THEN
+            CONTINUE;
+        END IF;
+
         direct_membership_unsafe := membership_row.membership_admin;
         IF pg_catalog.current_setting('server_version_num')::integer >= 160000 THEN
             -- bool_or, not a bare SELECT INTO: PostgreSQL keeps one row per
@@ -361,6 +396,14 @@ BEGIN
     -- A reserved role being a member OF another role creates an escalation
     -- path.  Only the three SET-only/maintenance roles may be upstream members
     -- of strictly named per-tenant roles.
+    --
+    -- The edge's *options* are deliberately not judged here, and neither is
+    -- whether catalog.tenants still has the tenant. Roles are cluster objects
+    -- and this table is not: in a cluster hosting more than one GeoLens
+    -- database — which the downgrade note below assumes — every other
+    -- database's live tenant roles look orphaned from here, and refusing them
+    -- would make each database unadoptable from the others' existence. The
+    -- per-tenant checks own that judgement for the tenants of this database.
     FOR membership_row IN
         SELECT member_role.rolname AS member_name,
                upstream_role.rolname AS upstream_name,
@@ -397,24 +440,6 @@ BEGIN
            OR membership_row.rolinherit
            OR membership_row.rolreplication
            OR membership_row.rolbypassrls
-           -- An orphan: a role carrying the per-tenant naming pattern with no
-           -- row in catalog.tenants. Nothing per-tenant reaches it — adoption
-           -- iterates catalog.tenants — so whatever objects it still owns are
-           -- outside the boundary entirely, and any edge from a gateway is a
-           -- live path to them. Refused whatever its options are; a live
-           -- tenant's roles are checked per tenant instead.
-           OR (
-               NOT EXISTS (
-                   SELECT 1 FROM catalog.tenants
-                   WHERE id::text = pg_catalog.replace(
-                       pg_catalog.substring(
-                           membership_row.upstream_name, '_t_(.*)$'
-                       ),
-                       '_',
-                       '-'
-                   )
-               )
-           )
            OR EXISTS (
                SELECT 1
                FROM pg_catalog.pg_auth_members AS chained
@@ -495,8 +520,18 @@ BEGIN
             'which PostgreSQL requires to give it ownership of the tenant '
             'boundary functions', CURRENT_USER
             USING HINT =
-                'run GRANT {PROVISIONER} TO "' || CURRENT_USER ||
-                '" WITH INHERIT TRUE, or adopt with a superuser migrator';
+                CASE
+                    WHEN pg_catalog.current_setting('server_version_num')::integer
+                         >= 160000
+                    THEN 'run GRANT {PROVISIONER} TO ' ||
+                         pg_catalog.quote_ident(CURRENT_USER) ||
+                         ' WITH INHERIT TRUE'
+                    ELSE 'run GRANT {PROVISIONER} TO ' ||
+                         pg_catalog.quote_ident(CURRENT_USER) ||
+                         ' (before PostgreSQL 16 there are no per-membership '
+                         'options; if that role is NOINHERIT, ALTER ROLE ' ||
+                         pg_catalog.quote_ident(CURRENT_USER) || ' INHERIT too)'
+                END || ', or adopt with a superuser migrator';
     END IF;
 
     IF NOT pg_catalog.has_schema_privilege('{PROVISIONER}', 'catalog', 'CREATE') THEN
@@ -584,7 +619,7 @@ BEGIN
           ON granted_role.oid = membership.roleid
         JOIN pg_catalog.pg_roles AS member_role
           ON member_role.oid = membership.member
-        JOIN pg_catalog.pg_roles AS grantor_role
+        LEFT JOIN pg_catalog.pg_roles AS grantor_role
           ON grantor_role.oid = membership.grantor
         WHERE granted_role.rolname = '{PROVISIONER}'
           AND member_role.rolname = CURRENT_USER
@@ -610,49 +645,6 @@ END
 $$
 """
 
-#: The gateway half, which needs no such flag: it targets the automatic creator
-#: shape only, and that shape is never something an operator sets up to use.
-RELEASE_GATEWAY_EDGES_SQL = f"""
-DO $$
-DECLARE
-    group_name text;
-BEGIN
-    -- The four gateways get the same automatic creator membership, and nothing
-    -- in this tool ever needs it: the provisioning function grants tenant roles
-    -- TO the gateways using ADMIN on the *tenant* role, not on the gateway.
-    -- Left behind, each one is a landmine for the next recovery.
-    --
-    -- Only edges with the automatic creator's exact shape — ADMIN, and neither
-    -- INHERIT nor SET — and only on 16+, which is the only place that shape is
-    -- created. Before 16 there is no automatic membership at all, so any edge
-    -- there is somebody's decision and stays. An operator who wants the
-    -- migrator to *use* a gateway grants it usably, which this leaves alone.
-    IF pg_catalog.current_setting('server_version_num')::integer >= 160000 THEN
-        FOREACH group_name IN ARRAY ARRAY[
-            '{CONTROL}', '{WRITER}', '{SANDBOX}', '{TILE}'
-        ] LOOP
-            IF EXISTS (
-                SELECT 1
-                FROM pg_catalog.pg_auth_members AS membership
-                JOIN pg_catalog.pg_roles AS granted_role
-                  ON granted_role.oid = membership.roleid
-                JOIN pg_catalog.pg_roles AS member_role
-                  ON member_role.oid = membership.member
-                WHERE granted_role.rolname = group_name
-                  AND member_role.rolname = CURRENT_USER
-                  AND {_MEMBERSHIP_ADMIN_ONLY}
-            ) THEN
-                EXECUTE pg_catalog.format(
-                    'REVOKE %I FROM %I', group_name, CURRENT_USER
-                );
-            END IF;
-        END LOOP;
-    END IF;
-END
-$$
-"""
-
-#: The grant-option counterpart, because a re-GRANT leaves one in place.
 PROVISIONER_DATABASE_REVOKE_OPTION_SQL = f"""
 DO $$
 BEGIN
@@ -709,6 +701,23 @@ BEGIN
     reader_name := 'geolens_reader_t_' || pg_catalog.replace(tenant_id::text, '-', '_');
     writer_name := 'geolens_writer_t_' || pg_catalog.replace(tenant_id::text, '-', '_');
 
+    -- Every ownership transfer below takes ACCESS EXCLUSIVE, and one
+    -- forgotten session — a tile login, a stray psql, provider maintenance —
+    -- would otherwise queue this transaction and everything behind it for as
+    -- long as it holds on. Failing fast makes it one retryable tenant instead.
+    SET LOCAL lock_timeout = '15s';
+    SET LOCAL statement_timeout = '30min';
+
+    -- The same lock 0019's provisioning and deprovisioning functions take as
+    -- their first act. Taken here too, because everything this block decides is
+    -- read before that function is called, and an unlocked read can race a live
+    -- provisioning of the same tenant.
+    PERFORM pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended(
+            'geolens:tenant-data-plane:' || tenant_id::text, 0
+        )
+    );
+
     PERFORM 1 FROM catalog.tenants WHERE id = tenant_id;
     IF NOT FOUND THEN
         RAISE EXCEPTION 'tenant % does not exist', tenant_id
@@ -735,9 +744,9 @@ BEGIN
     END IF;
 
     -- The pre-0019 runtime helper created readers with the default INHERIT
-    -- flag, an automatic creator membership, and an ALTER DEFAULT PRIVILEGES
-    -- entry.  Normalize that known legacy shape before the strict provision
-    -- function validates the role.
+    -- flag.  That one is normalized; the other two shapes it left — an
+    -- automatic creator membership and an ALTER DEFAULT PRIVILEGES entry — are
+    -- somebody else's grants, so they are refused further down instead.
     SELECT * INTO writer_row
     FROM pg_catalog.pg_roles
     WHERE rolname = writer_name;
@@ -832,15 +841,19 @@ BEGIN
     -- operator and a re-run.
     FOR legacy_member_row IN
         SELECT member_role.rolname AS member_name,
-               grantor_role.rolname AS grantor_name
+               COALESCE(grantor_role.rolname, 'a dropped role') AS grantor_name
         FROM pg_catalog.pg_auth_members AS membership
         JOIN pg_catalog.pg_roles AS granted_role
           ON granted_role.oid = membership.roleid
         JOIN pg_catalog.pg_roles AS member_role
           ON member_role.oid = membership.member
-        JOIN pg_catalog.pg_roles AS grantor_role
+        LEFT JOIN pg_catalog.pg_roles AS grantor_role
           ON grantor_role.oid = membership.grantor
         WHERE granted_role.rolname = reader_name
+          -- The automatic creator membership is tolerated here for the same
+          -- reason the cluster guard tolerates it: nobody can revoke it, and it
+          -- confers nothing.
+          AND NOT {_MEMBERSHIP_CREATOR_SHAPE}
           AND (
               member_role.rolname NOT IN ('{PROVISIONER}', '{SANDBOX}', '{TILE}')
               OR (
@@ -856,10 +869,14 @@ BEGIN
             legacy_member_row.member_name,
             legacy_member_row.grantor_name
             USING HINT =
-                'as ' || legacy_member_row.grantor_name ||
-                ' (or a role that can assume it) run: REVOKE ' || reader_name ||
-                ' FROM ' || legacy_member_row.member_name ||
-                ' CASCADE; then re-run adoption';
+                'as ' || pg_catalog.quote_ident(legacy_member_row.grantor_name) ||
+                ' run: REVOKE ' || pg_catalog.quote_ident(reader_name) ||
+                ' FROM ' || pg_catalog.quote_ident(legacy_member_row.member_name) ||
+                ' CASCADE. If that role is gone or cannot be assumed — a '
+                'retired managed credential, say — DROP ROLE ' ||
+                pg_catalog.quote_ident(reader_name) ||
+                ' instead: after the ownership transfer it owns nothing, and '
+                'provisioning recreates it. Then re-run adoption';
     END LOOP;
 
     -- Detect, do not rewrite.  Every row here predates this run: a restore, a
@@ -871,15 +888,19 @@ BEGIN
     -- operator and a re-run.
     FOR legacy_member_row IN
         SELECT member_role.rolname AS member_name,
-               grantor_role.rolname AS grantor_name
+               COALESCE(grantor_role.rolname, 'a dropped role') AS grantor_name
         FROM pg_catalog.pg_auth_members AS membership
         JOIN pg_catalog.pg_roles AS granted_role
           ON granted_role.oid = membership.roleid
         JOIN pg_catalog.pg_roles AS member_role
           ON member_role.oid = membership.member
-        JOIN pg_catalog.pg_roles AS grantor_role
+        LEFT JOIN pg_catalog.pg_roles AS grantor_role
           ON grantor_role.oid = membership.grantor
         WHERE granted_role.rolname = writer_name
+          -- The automatic creator membership is tolerated here for the same
+          -- reason the cluster guard tolerates it: nobody can revoke it, and it
+          -- confers nothing.
+          AND NOT {_MEMBERSHIP_CREATOR_SHAPE}
           AND (
               member_role.rolname NOT IN ('{PROVISIONER}', '{WRITER}')
               OR (
@@ -895,10 +916,14 @@ BEGIN
             legacy_member_row.member_name,
             legacy_member_row.grantor_name
             USING HINT =
-                'as ' || legacy_member_row.grantor_name ||
-                ' (or a role that can assume it) run: REVOKE ' || writer_name ||
-                ' FROM ' || legacy_member_row.member_name ||
-                ' CASCADE; then re-run adoption';
+                'as ' || pg_catalog.quote_ident(legacy_member_row.grantor_name) ||
+                ' run: REVOKE ' || pg_catalog.quote_ident(writer_name) ||
+                ' FROM ' || pg_catalog.quote_ident(legacy_member_row.member_name) ||
+                ' CASCADE. If that role is gone or cannot be assumed — a '
+                'retired managed credential, say — DROP ROLE ' ||
+                pg_catalog.quote_ident(writer_name) ||
+                ' instead: after the ownership transfer it owns nothing, and '
+                'provisioning recreates it. Then re-run adoption';
     END LOOP;
 
     -- The provisioner's own duplicates, detected for the same reason and on
@@ -906,13 +931,13 @@ BEGIN
     -- take one away.
     FOR legacy_member_row IN
         SELECT granted_role.rolname AS granted_name,
-               grantor_role.rolname AS grantor_name
+               COALESCE(grantor_role.rolname, 'a dropped role') AS grantor_name
         FROM pg_catalog.pg_auth_members AS membership
         JOIN pg_catalog.pg_roles AS granted_role
           ON granted_role.oid = membership.roleid
         JOIN pg_catalog.pg_roles AS member_role
           ON member_role.oid = membership.member
-        JOIN pg_catalog.pg_roles AS grantor_role
+        LEFT JOIN pg_catalog.pg_roles AS grantor_role
           ON grantor_role.oid = membership.grantor
         WHERE granted_role.rolname IN (reader_name, writer_name)
           AND member_role.rolname = '{PROVISIONER}'
@@ -924,10 +949,13 @@ BEGIN
             legacy_member_row.granted_name,
             legacy_member_row.grantor_name
             USING HINT =
-                'as ' || legacy_member_row.grantor_name ||
-                ' (or a role that can assume it) run: REVOKE ' ||
-                legacy_member_row.granted_name || ' FROM {PROVISIONER} CASCADE; '
-                'then re-run adoption';
+                'as ' || pg_catalog.quote_ident(legacy_member_row.grantor_name) ||
+                ' run: REVOKE ' ||
+                pg_catalog.quote_ident(legacy_member_row.granted_name) ||
+                ' FROM {PROVISIONER} CASCADE. If that role is gone or cannot be '
+                'assumed, DROP ROLE ' ||
+                pg_catalog.quote_ident(legacy_member_row.granted_name) ||
+                ' instead and let provisioning recreate it. Then re-run adoption';
     END LOOP;
 
     -- The guarded boundary owns schema creation, role creation, gateway
@@ -1081,6 +1109,14 @@ BEGIN
           OR NOT pg_catalog.has_function_privilege(
               reader_name, routine.oid, 'EXECUTE'
           )
+          -- The ACL itself, not just the two effective checks above: a named
+          -- grantee or a grantable reader entry is invisible to both.
+          OR EXISTS (
+              SELECT 1
+              FROM LATERAL pg_catalog.aclexplode(routine.proacl) AS acl
+              WHERE acl.grantee NOT IN (writer_oid, reader_oid)
+                 OR (acl.grantee = reader_oid AND acl.is_grantable)
+          )
       );
 
     SELECT pg_catalog.count(*) INTO type_gap
@@ -1173,8 +1209,9 @@ BEGIN
         END IF;
     END LOOP;
 
-    IF EXISTS (
-        SELECT 1
+    FOR object_row IN
+        SELECT relation.relname AS relname,
+               owner_role.rolname AS grantee_name
         FROM pg_catalog.pg_class AS relation
         JOIN pg_catalog.pg_namespace AS namespace
           ON namespace.oid = relation.relnamespace
@@ -1182,11 +1219,24 @@ BEGIN
         WHERE namespace.nspname = schema_name
           AND relation.relkind IN ({_RELATION_KINDS})
           AND owner_role.rolname <> writer_name
-    ) THEN
+          -- Same exclusion as the transfer: a column-owned sequence follows its
+          -- table, and one owned by a column in another schema is not something
+          -- this loop can move.
+          AND NOT {_COLUMN_OWNED_SEQUENCE}
+    LOOP
         RAISE EXCEPTION
-            'tenant schema % contains relation not owned by %',
-            schema_name, writer_name;
-    END IF;
+            'tenant schema % still contains %, owned by % rather than %',
+            schema_name,
+            object_row.relname,
+            object_row.grantee_name,
+            writer_name
+            USING HINT =
+                'as ' || pg_catalog.quote_ident(object_row.grantee_name) ||
+                ' run: ALTER TABLE ' || pg_catalog.quote_ident(schema_name) ||
+                '.' || pg_catalog.quote_ident(object_row.relname) ||
+                ' OWNER TO ' || pg_catalog.quote_ident(writer_name) ||
+                '; then re-run adoption';
+    END LOOP;
 
     -- Default-privilege entries: cleared when this run can act as the role
     -- that owns them — itself, or the tenant writer whose SET edge it holds
@@ -1196,14 +1246,37 @@ BEGIN
     -- relation, so an entry here hands out privileges on relations that do not
     -- exist yet.
     FOR default_acl_row IN
-        SELECT DISTINCT owner_role.rolname AS owner_name
+        SELECT owner_role.rolname AS owner_name,
+               pg_catalog.string_agg(
+                   DISTINCT CASE default_acl.defaclobjtype
+                       WHEN 'r' THEN 'TABLES'
+                       WHEN 'S' THEN 'SEQUENCES'
+                       WHEN 'f' THEN 'FUNCTIONS'
+                       WHEN 'T' THEN 'TYPES'
+                       ELSE 'SCHEMAS'
+                   END, ', '
+               ) AS object_kinds,
+               pg_catalog.string_agg(
+                   DISTINCT CASE
+                       WHEN acl.grantee = 0 THEN 'PUBLIC'
+                       ELSE pg_catalog.quote_ident(grantee_role.rolname)
+                   END, ', '
+               ) AS grantees
         FROM pg_catalog.pg_default_acl AS default_acl
         JOIN pg_catalog.pg_roles AS owner_role
           ON owner_role.oid = default_acl.defaclrole
+        JOIN LATERAL pg_catalog.aclexplode(default_acl.defaclacl) AS acl ON true
+        LEFT JOIN pg_catalog.pg_roles AS grantee_role
+          ON grantee_role.oid = acl.grantee
         JOIN pg_catalog.pg_namespace AS namespace
           ON namespace.oid = default_acl.defaclnamespace
         WHERE namespace.nspname = schema_name
           AND owner_role.rolname NOT IN (CURRENT_USER, writer_name)
+          AND acl.grantee IS DISTINCT FROM default_acl.defaclrole
+          AND NOT (
+              acl.grantee = 0 AND default_acl.defaclobjtype IN ('f', 'T')
+          )
+        GROUP BY owner_role.rolname
     LOOP
         RAISE EXCEPTION
             'schema % carries default privileges owned by %, which this role '
@@ -1211,10 +1284,11 @@ BEGIN
             schema_name,
             default_acl_row.owner_name
             USING HINT =
-                'as ' || default_acl_row.owner_name ||
-                ' run: ALTER DEFAULT PRIVILEGES IN SCHEMA ' || schema_name ||
-                ' REVOKE ALL ON TABLES FROM PUBLIC (and the same for SEQUENCES, '
-                'FUNCTIONS, TYPES and SCHEMAS as applicable); then re-run adoption';
+                'as ' || pg_catalog.quote_ident(default_acl_row.owner_name) ||
+                ' run: ALTER DEFAULT PRIVILEGES IN SCHEMA ' ||
+                pg_catalog.quote_ident(schema_name) || ' REVOKE ALL ON ' ||
+                default_acl_row.object_kinds || ' FROM ' ||
+                default_acl_row.grantees || '; then re-run adoption';
     END LOOP;
 
     FOR default_acl_row IN
@@ -1264,6 +1338,28 @@ BEGIN
         RESET ROLE;
     END LOOP;
 
+    -- Default privileges with no schema at all apply to every schema the owner
+    -- creates in, so a tenant role carrying one seeds a stray grant on the next
+    -- table the writer makes. They belong to whoever set them.
+    FOR default_acl_row IN
+        SELECT owner_role.rolname AS owner_name
+        FROM pg_catalog.pg_default_acl AS default_acl
+        JOIN pg_catalog.pg_roles AS owner_role
+          ON owner_role.oid = default_acl.defaclrole
+        WHERE default_acl.defaclnamespace = 0
+          AND owner_role.rolname IN (reader_name, writer_name)
+    LOOP
+        RAISE EXCEPTION
+            'role % carries schema-less default privileges, which apply to '
+            'every schema it creates in',
+            default_acl_row.owner_name
+            USING HINT =
+                'as ' || pg_catalog.quote_ident(default_acl_row.owner_name) ||
+                ' run: ALTER DEFAULT PRIVILEGES REVOKE ALL ON TABLES FROM PUBLIC '
+                '(and the same for the other object kinds and grantees shown by '
+                '\\ddp); then re-run adoption';
+    END LOOP;
+
     -- A subtractive entry — ALTER DEFAULT PRIVILEGES ... REVOKE ... FROM PUBLIC
     -- — leaves a pg_default_acl row that aclexplode has nothing to show for, so
     -- the loop above cannot reach it. Restoring the built-in default means
@@ -1307,7 +1403,14 @@ BEGIN
           -- SECURITY DEFINER is one way to run as somebody else; an untrusted
           -- language is the other, and it needs no privilege escalation to do
           -- native work inside the server. Neither is re-owned.
-          AND (routine.prosecdef OR NOT language.lanpltrusted)
+          --
+          -- prokind 'a' is an aggregate: its pg_proc row names the `internal`
+          -- pseudo-language, which is untrusted by definition and says nothing
+          -- about the transition and final functions that actually run.
+          AND (
+              routine.prosecdef
+              OR (NOT language.lanpltrusted AND routine.prokind <> 'a')
+          )
     LOOP
         RAISE EXCEPTION
             'tenant schema % contains a SECURITY DEFINER or untrusted-language '
@@ -1316,10 +1419,11 @@ BEGIN
             object_row.relname,
             object_row.relkind
             USING HINT =
-                'inspect it, then either ALTER FUNCTION ' || schema_name || '.' ||
+                'inspect it, then either ALTER ROUTINE ' || schema_name || '.' ||
                 pg_catalog.quote_ident(object_row.relname) || '(' ||
                 object_row.relkind || ') SECURITY INVOKER (if that is all that '
-                'is wrong) or DROP it; then re-run adoption';
+                'is wrong) or DROP it; then re-run adoption. ALTER ROUTINE '
+                'covers functions and procedures alike';
     END LOOP;
 
     FOR object_row IN
@@ -1399,6 +1503,35 @@ BEGIN
     EXECUTE pg_catalog.format(
         'REVOKE ALL ON ALL SEQUENCES IN SCHEMA %I FROM PUBLIC', schema_name
     );
+    -- A grant whose grantor is neither the relation's owner nor the writer
+    -- survives ALTER TABLE ... OWNER TO, which only re-attributes the old
+    -- owner's own entries — so the writer's REVOKE below would either fail on
+    -- the dependency or quietly do nothing.
+    FOR object_row IN
+        SELECT relation.relname AS relname,
+               grantor_role.rolname AS grantee_name
+        FROM pg_catalog.pg_class AS relation
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = relation.relnamespace
+        JOIN LATERAL pg_catalog.aclexplode(relation.relacl) AS acl ON true
+        JOIN pg_catalog.pg_roles AS grantor_role ON grantor_role.oid = acl.grantor
+        WHERE namespace.nspname = schema_name
+          AND grantor_role.rolname <> writer_name
+    LOOP
+        RAISE EXCEPTION
+            'relation %.% carries a grant made by %, which the writer cannot '
+            'revoke',
+            schema_name,
+            object_row.relname,
+            object_row.grantee_name
+            USING HINT =
+                'as ' || pg_catalog.quote_ident(object_row.grantee_name) ||
+                ' run: REVOKE ALL ON ' || schema_name || '.' ||
+                pg_catalog.quote_ident(object_row.relname) ||
+                ' FROM ALL CASCADE-equivalent grantees (see \\dp); '
+                'then re-run adoption';
+    END LOOP;
+
     -- Column-level grants, which the table-level REVOKE ALL above leaves in
     -- place. Emitted per column and grantee because PostgreSQL has no
     -- schema-wide form for them.
@@ -1462,6 +1595,32 @@ BEGIN
     EXECUTE pg_catalog.format(
         'REVOKE ALL ON ALL ROUTINES IN SCHEMA %I FROM PUBLIC', schema_name
     );
+    EXECUTE pg_catalog.format(
+        'REVOKE ALL ON ALL ROUTINES IN SCHEMA %I FROM %I', schema_name, reader_name
+    );
+    -- Symmetric with the relation sweep: only the writer, as owner, and the
+    -- reader belong on a tenant routine.
+    FOR grantee_name IN
+        SELECT DISTINCT
+            CASE
+                WHEN acl.grantee = 0 THEN 'PUBLIC'
+                ELSE pg_catalog.quote_ident(grantee_role.rolname)
+            END
+        FROM pg_catalog.pg_proc AS routine
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = routine.pronamespace
+        JOIN LATERAL pg_catalog.aclexplode(routine.proacl) AS acl ON true
+        LEFT JOIN pg_catalog.pg_roles AS grantee_role
+          ON grantee_role.oid = acl.grantee
+        WHERE namespace.nspname = schema_name
+          AND COALESCE(grantee_role.rolname, '') NOT IN (writer_name, reader_name)
+    LOOP
+        EXECUTE pg_catalog.format(
+            'REVOKE ALL ON ALL ROUTINES IN SCHEMA %I FROM %s',
+            schema_name,
+            grantee_name
+        );
+    END LOOP;
     EXECUTE pg_catalog.format(
         'GRANT EXECUTE ON ALL ROUTINES IN SCHEMA %I TO %I', schema_name, reader_name
     );

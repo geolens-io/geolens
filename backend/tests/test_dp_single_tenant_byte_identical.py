@@ -259,9 +259,19 @@ class TestNoPerTenantSchemaExistsFromSingleTenantBoot:
             async with engine.connect() as conn:
                 rows = (
                     await conn.execute(
+                        # Roles are cluster objects and this suite shares its
+                        # cluster with every other xdist worker's database, so
+                        # scope the assertion to roles whose schema is in THIS
+                        # database. Without that, a peer worker's tenant
+                        # fixtures fail this test (fix(#998)).
                         sa.text(
-                            "SELECT rolname FROM pg_roles "
-                            "WHERE rolname LIKE 'geolens\\_reader\\_t\\_%'"
+                            "SELECT rolname FROM pg_roles AS role "
+                            "WHERE rolname LIKE 'geolens\\_reader\\_t\\_%' "
+                            "AND EXISTS ("
+                            "  SELECT 1 FROM pg_namespace AS namespace "
+                            "  WHERE namespace.nspname = "
+                            "    'data_t_' || substring(role.rolname from 18)"
+                            ")"
                         )
                     )
                 ).fetchall()

@@ -79,7 +79,6 @@ from app.core.db.tenant_adoption_sql import (
     PROVISIONER,
     PROVISIONER_DATABASE_GRANT_SQL,
     PROVISIONER_DATABASE_REVOKE_OPTION_SQL,
-    RELEASE_GATEWAY_EDGES_SQL,
     RELEASE_PROVISIONER_EDGE_SQL,
     SANDBOX,
     SECURE_BOUNDARY_FUNCTIONS_SQL,
@@ -308,6 +307,20 @@ async def stamping_function_shape(conn) -> str | None:
         text(
             f"""
             SELECT language.lanname AS language,
+                   pg_catalog.pg_get_userbyid(routine.proowner) AS owner,
+                   -- Owned by a role this credential is not, cannot assume, and
+                   -- that is not a superuser: a body firing on every
+                   -- control-plane insert, rewritable by a third party.
+                   (
+                       pg_catalog.pg_has_role(
+                           CURRENT_USER, routine.proowner, 'USAGE'
+                       )
+                       OR EXISTS (
+                           SELECT 1 FROM pg_catalog.pg_roles AS owner_role
+                           WHERE owner_role.oid = routine.proowner
+                             AND owner_role.rolsuper
+                       )
+                   ) AS owner_reachable,
                    routine.prosecdef AS security_definer,
                    routine.prorettype = 'trigger'::regtype AS returns_trigger,
                    COALESCE(
@@ -342,6 +355,12 @@ async def stamping_function_shape(conn) -> str | None:
         )
     if not row.returns_trigger:
         return f"catalog.{BOUNDARY_TRIGGER_FUNCTION}() does not return trigger"
+    if not row.owner_reachable:
+        return (
+            f"catalog.{BOUNDARY_TRIGGER_FUNCTION}() is owned by {row.owner}, a "
+            "role this credential cannot assume — it fires on every "
+            "control-plane insert and its owner can rewrite it"
+        )
     if row.security_definer:
         # 0018 installs it SECURITY INVOKER on purpose: it runs on every insert,
         # and after a --no-owner restore its owner is the restoring superuser.
@@ -374,7 +393,7 @@ async def cluster_topology_error(engine) -> str | None:
         async with engine.begin() as conn:
             await conn.execute(text(CLUSTER_ROLE_VALIDATE_SQL))
     except Exception as exc:  # broad: any refusal is the answer, whatever its class
-        return str(exc).strip().splitlines()[0]
+        return _failure_message(exc)
     return None
 
 
@@ -934,18 +953,26 @@ async def secure_boundary_functions(conn) -> list[BoundaryFunctionState]:
 
 
 async def release_bootstrap_membership(engine, *, took_provisioner_edge: bool) -> None:
-    """Give back what a fresh-cluster run had to take to get going.
+    """Give back the usable membership a fresh-cluster run had to take.
 
-    Leaving any of it would make the next recovery depend on the same migrator
-    credential, because the cluster guard rejects every direct member of these
-    roles except the one running it.  The gateway half runs unconditionally —
-    it targets the automatic creator shape, which nobody sets up to use — while
-    the provisioner edge goes back only when this run is the one that took it.
+    Only that one.  The automatic ADMIN membership PostgreSQL gives a role's
+    creator is tolerated by the guards instead of revoked, because a member
+    cannot revoke it — its grantor is the bootstrap superuser, and on a managed
+    provider no customer role can assume that.
+
+    From PostgreSQL 16 this runs whatever the flag says: the predicate — granted
+    by the current role, carrying no ADMIN — describes the edge adoption takes
+    and nothing an operator would set up by hand, and running it unconditionally
+    is what recovers one a previous run was SIGKILLed before returning.  Before
+    16 there is a single row per pair and no way to tell those apart, so there
+    the flag is the only evidence there is.
     """
     async with engine.begin() as conn:
-        if took_provisioner_edge:
+        modern = await conn.execute(
+            text("SELECT current_setting('server_version_num')::integer >= 160000")
+        )
+        if took_provisioner_edge or modern.scalar_one():
             await conn.execute(text(RELEASE_PROVISIONER_EDGE_SQL))
-        await conn.execute(text(RELEASE_GATEWAY_EDGES_SQL))
 
 
 async def adopt_tenant(conn, tenant_id: str) -> None:
@@ -1019,15 +1046,19 @@ async def run_adoption(engine, *, apply: bool) -> AdoptionReport:
                 )
     finally:
         # A bare finally, so a Ctrl-C (CancelledError, a BaseException) hands the
-        # edge back too. Only a SIGKILL can leave it now, and the next run's
-        # topology validation is where that would surface.
+        # edge back too. From PostgreSQL 16 even a SIGKILL is recoverable: the
+        # next run releases the edge whether or not it took one.
         await release_bootstrap_membership(
             engine, took_provisioner_edge=took_provisioner_edge
         )
 
     topology = await cluster_topology_error(engine)
     async with engine.connect() as conn:
-        after = [await tenant_ownership_state(conn, tid) for tid in tenants]
+        # Re-read rather than reuse the pre-apply list: a tenant provisioned
+        # while this ran was never adopted, and reporting only the snapshot
+        # would call the database clean without having looked at it.
+        tenants_after = await list_tenants(conn)
+        after = [await tenant_ownership_state(conn, tid) for tid in tenants_after]
         boundary = await live_tenant_boundary(conn)
         grants = [] if topology else await missing_provisioner_grants(conn)
         stamping = await stamping_function_shape(conn)
@@ -1042,6 +1073,7 @@ async def run_adoption(engine, *, apply: bool) -> AdoptionReport:
         cluster_topology=topology,
         provisioner_grants_missing=grants,
         stamping_function=stamping,
+        tenants_added_during_run=sorted(set(tenants_after) - set(tenants)),
     )
 
 
@@ -1084,7 +1116,7 @@ async def _main(argv: list[str] | None = None) -> int:
         Exception
     ) as exc:  # broad: an operator mid-recovery needs the reason, not a traceback
         logger.error("tenant_adoption: refused", exc_info=True)
-        reason = str(exc).strip().splitlines()[0]
+        reason = _failure_message(exc)
         print(f"Tenant-ownership adoption refused before any tenant: {reason}")
         return 2
     finally:

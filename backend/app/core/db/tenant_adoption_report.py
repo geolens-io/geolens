@@ -267,6 +267,7 @@ class AdoptionReport:
     cluster_topology: str | None = None
     stamping_function: str | None = None
     provisioner_grants_missing: list[str] = field(default_factory=list)
+    tenants_added_during_run: list[str] = field(default_factory=list)
 
     @property
     def missing_functions(self) -> list[str]:
@@ -323,6 +324,7 @@ class AdoptionReport:
             or self.stamping_function
             or self.rls_gaps
             or self.inert_stamping_triggers
+            or self.tenants_added_during_run
         ):
             return False
         if not all(function.secured for function in self.functions):
@@ -446,6 +448,11 @@ def _format_tenants(report: AdoptionReport) -> list[str]:
         return ["Tenants: none. Nothing to adopt (single-tenant control plane)."]
 
     lines = [f"Tenants: {len(report.before)}"]
+    if report.tenants_added_during_run:
+        lines.append(
+            "  provisioned while this ran and therefore never adopted: "
+            + ", ".join(report.tenants_added_during_run)
+        )
     after_by_id = {state.tenant_id: state for state in report.after}
     for before in report.before:
         after = after_by_id[before.tenant_id]

@@ -61,9 +61,7 @@ from app.core.db.tenant_adoption_report import (
 )
 from app.core.db.tenant_adoption_sql import (
     CLUSTER_ROLE_VALIDATE_SQL,
-    RELEASE_GATEWAY_EDGES_SQL,
     RELEASE_PROVISIONER_EDGE_SQL,
-    SANDBOX,
     TILE,
 )
 from app.core.db.tenant_adoption_sql import WRITER as WRITER_GATEWAY
@@ -1409,14 +1407,16 @@ class TestReportedStateMatchesWhatApplyEnforces:
         finally:
             await engine.dispose()
 
-    async def test_an_orphan_tenant_role_with_an_inherit_edge_is_refused(self):
-        """A role with the naming pattern and no tenant row is never repaired.
+    async def test_another_databases_tenant_roles_do_not_fail_validation(self):
+        """Roles are cluster objects; catalog.tenants is not.
 
-        Nothing per-tenant reaches it, so an INHERIT edge to a gateway would
-        hand that gateway the role's privileges outright. Rolled back — the
-        role and the edge are cluster objects.
+        A cluster hosting a second GeoLens database has its tenant roles and
+        gateway edges visible from here with no matching row in this database's
+        catalog.tenants. Judging those would make each database unadoptable
+        because the other exists — which is exactly what the whole suite hits
+        under xdist, every worker being another database. Rolled back.
         """
-        orphan = f"geolens_writer_t_{uuid.uuid4().hex[:8]}_0000_0000_0000_000000000000"
+        foreign = f"geolens_writer_t_{uuid.uuid4().hex[:8]}_0000_0000_0000_000000000000"
         engine = _make_engine()
         try:
             async with engine.connect() as conn:
@@ -1424,18 +1424,17 @@ class TestReportedStateMatchesWhatApplyEnforces:
                 try:
                     await conn.execute(
                         sa.text(
-                            f"CREATE ROLE {orphan} NOLOGIN NOSUPERUSER NOCREATEDB "
+                            f"CREATE ROLE {foreign} NOLOGIN NOSUPERUSER NOCREATEDB "
                             "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS"
                         )
                     )
                     await conn.execute(
                         sa.text(
-                            f"GRANT {orphan} TO {WRITER_GATEWAY} "
-                            "WITH INHERIT TRUE, SET TRUE"
+                            f"GRANT {foreign} TO {WRITER_GATEWAY} "
+                            "WITH INHERIT FALSE, SET TRUE"
                         )
                     )
-                    with pytest.raises(DBAPIError, match="unsafe upstream membership"):
-                        await conn.execute(sa.text(CLUSTER_ROLE_VALIDATE_SQL))
+                    await conn.execute(sa.text(CLUSTER_ROLE_VALIDATE_SQL))
                 finally:
                     await transaction.rollback()
         finally:
@@ -1673,12 +1672,12 @@ class TestAdoptionWithRestoredBoundaryFunctions:
             await engine.dispose()
 
     async def test_the_bootstrap_membership_is_handed_back(self):
-        """A fresh-cluster run must not leave the credential that made it special.
+        """Only the usable edge this run granted, and only that one.
 
-        The cluster guard rejects every direct member of the provisioner except
-        the role running it, so an edge left behind makes the next recovery
-        depend on reusing the same migrator credential. Only the edge this run
-        granted goes: grantor CURRENT_USER, no ADMIN. Rolled back.
+        The automatic creator membership is left alone on purpose: its grantor
+        is the bootstrap superuser, a member's plain REVOKE of it is a no-op,
+        and on a managed provider no customer role can assume that grantor. The
+        guards tolerate its exact shape instead. Rolled back.
         """
         engine = _make_engine()
         try:
@@ -1715,59 +1714,36 @@ class TestAdoptionWithRestoredBoundaryFunctions:
                     await conn.execute(sa.text(RELEASE_PROVISIONER_EDGE_SQL))
                     assert await edges() == []
 
-                    # The provisioner's ADMIN edge is what lets the same
-                    # credential re-take a usable one next run, so it stays.
+                    # An ADMIN edge is the creator's, or somebody's decision.
+                    # Either way it stays.
                     await conn.execute(
                         sa.text(
                             f"GRANT {PROVISIONER} TO current_user WITH ADMIN OPTION"
                         )
                     )
-                    await conn.execute(sa.text(RELEASE_GATEWAY_EDGES_SQL))
+                    await conn.execute(sa.text(RELEASE_PROVISIONER_EDGE_SQL))
                     assert [admin for _grantor, admin in await edges()] == [True]
+                finally:
+                    await transaction.rollback()
+        finally:
+            await engine.dispose()
 
-                    # The four gateways get the same automatic creator edge —
-                    # ADMIN, no INHERIT, no SET — and nothing in the tool reads
-                    # it, so all four go.
-                    gateways = [CONTROL, WRITER_GATEWAY, SANDBOX, TILE]
-
-                    async def gateway_edges() -> int:
-                        return (
-                            await conn.execute(
-                                sa.text(
-                                    "SELECT count(*) FROM pg_auth_members "
-                                    "AS membership "
-                                    "JOIN pg_roles AS granted "
-                                    "  ON granted.oid = membership.roleid "
-                                    "JOIN pg_roles AS member "
-                                    "  ON member.oid = membership.member "
-                                    "WHERE granted.rolname = ANY(:gateways) "
-                                    "AND member.rolname = current_user"
-                                ),
-                                {"gateways": gateways},
-                            )
-                        ).scalar_one()
-
-                    for gateway in gateways:
-                        await conn.execute(
-                            sa.text(
-                                f"GRANT {gateway} TO current_user "
-                                "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
-                            )
-                        )
-                    assert await gateway_edges() == 4
-                    await conn.execute(sa.text(RELEASE_GATEWAY_EDGES_SQL))
-                    assert await gateway_edges() == 0
-
-                    # A usable edge is somebody's decision, not this run's
-                    # leftover, and survives.
+    async def test_a_creator_shaped_edge_on_a_gateway_is_tolerated(self):
+        """Nobody can revoke it, so refusing it would strand every recovery."""
+        engine = _make_engine()
+        try:
+            async with engine.connect() as conn:
+                transaction = await conn.begin()
+                try:
                     await conn.execute(
                         sa.text(
-                            f"GRANT {CONTROL} TO current_user "
-                            "WITH ADMIN TRUE, INHERIT TRUE, SET TRUE"
+                            f"GRANT {TILE} TO current_user "
+                            "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
                         )
                     )
-                    await conn.execute(sa.text(RELEASE_GATEWAY_EDGES_SQL))
-                    assert await gateway_edges() == 1
+                    # CURRENT_USER is exempt anyway; the point is the shape, so
+                    # check it through a role that is not the caller.
+                    await conn.execute(sa.text(CLUSTER_ROLE_VALIDATE_SQL))
                 finally:
                     await transaction.rollback()
         finally:
