@@ -55,6 +55,7 @@ from app.core.db.tenant_adoption_report import (
     BOUNDARY_TRIGGER,
     BOUNDARY_TRIGGER_FUNCTION,
     BOUNDARY_TRIGGER_TYPE,
+    ISOLATION_POLICY_EXPRESSION,
     AdoptionReport,
     BoundaryFunctionState,
     BoundaryTableState,
@@ -133,7 +134,25 @@ async def live_tenant_boundary(conn) -> list[BoundaryTableState]:
                          AND NOT attribute.attisdropped
                    ) AS has_tenant_id,
                    relation.relrowsecurity AS rls_enabled,
-                   relation.relforcerowsecurity AS rls_forced
+                   relation.relforcerowsecurity AS rls_forced,
+                   -- The policy is the isolation rule itself, and boot does not
+                   -- recreate it: a restored table with the flags intact but no
+                   -- policy denies every runtime read, and an altered one can
+                   -- return another tenant's rows. Its expression has been
+                   -- byte-identical since 0006, so it is compared exactly.
+                   EXISTS (
+                       SELECT 1 FROM pg_catalog.pg_policy AS policy
+                       WHERE policy.polrelid = relation.oid
+                         AND policy.polname = 'tenant_isolation_' || relation.relname
+                         AND policy.polcmd = '*'
+                         AND policy.polpermissive
+                         AND pg_catalog.pg_get_expr(
+                             policy.polqual, policy.polrelid
+                         ) = :isolation_expression
+                         AND pg_catalog.pg_get_expr(
+                             policy.polwithcheck, policy.polrelid
+                         ) = :isolation_expression
+                   ) AS isolation_policy_intact
             FROM pg_catalog.pg_class AS relation
             JOIN pg_catalog.pg_namespace AS namespace
               ON namespace.oid = relation.relnamespace
@@ -146,6 +165,7 @@ async def live_tenant_boundary(conn) -> list[BoundaryTableState]:
             "trigger_name": BOUNDARY_TRIGGER,
             "trigger_function": BOUNDARY_TRIGGER_FUNCTION,
             "before_insert_row": BOUNDARY_TRIGGER_TYPE,
+            "isolation_expression": ISOLATION_POLICY_EXPRESSION,
         },
     )
     states = [BoundaryTableState(**dict(row._mapping)) for row in result]
@@ -158,11 +178,24 @@ async def live_tenant_boundary(conn) -> list[BoundaryTableState]:
     ]
 
 
+#: ``prosrc`` with SQL comments removed.  The markers below say what a body
+#: still *does*, and a substituted body could otherwise carry them in a comment
+#: and satisfy the check while executing something else.  Dead code can still
+#: defeat it — see ``BoundaryFunctionState.migration_shaped`` for why this is a
+#: structural check and not a provenance one, and why the residual exposure only
+#: runs in the safe direction.
+_EXECUTABLE_BODY = (
+    "regexp_replace("
+    "regexp_replace(routine.prosrc, '/\\*.*?\\*/', ' ', 'gs'),"
+    " '--[^\n]*', ' ', 'g')"
+)
+
+
 async def boundary_function_states(conn) -> list[BoundaryFunctionState]:
     """Read owner, SECURITY DEFINER, search_path, and ACL of both functions."""
     result = await conn.execute(
         text(
-            """
+            f"""
             SELECT routine.proname AS name,
                    pg_catalog.pg_get_userbyid(routine.proowner) AS owner,
                    routine.prosecdef AS security_definer,
@@ -172,9 +205,9 @@ async def boundary_function_states(conn) -> list[BoundaryFunctionState]:
                    language.lanname AS language,
                    routine.prorettype = 'void'::regtype AS returns_void,
                    (
-                       routine.prosrc LIKE '%catalog.tenants%'
-                       AND routine.prosrc LIKE '%data_t_%'
-                       AND routine.prosrc LIKE '%pg_advisory_xact_lock%'
+                       {_EXECUTABLE_BODY} LIKE '%catalog.tenants%'
+                       AND {_EXECUTABLE_BODY} LIKE '%data_t_%'
+                       AND {_EXECUTABLE_BODY} LIKE '%pg_advisory_xact_lock%'
                    ) AS body_markers_present,
                    pg_catalog.has_function_privilege(
                        'public', routine.oid, 'EXECUTE'
@@ -204,6 +237,58 @@ async def boundary_function_states(conn) -> list[BoundaryFunctionState]:
         {"control": CONTROL, "names": list(BOUNDARY_FUNCTIONS)},
     )
     return [BoundaryFunctionState(**dict(row._mapping)) for row in result]
+
+
+async def stamping_function_shape(conn) -> str | None:
+    """Why ``catalog.stamp_current_tenant_on_insert`` is not 0018's, if it is not.
+
+    Checking only that a trigger points at this name proves nothing: replace the
+    body with one that returns ``NEW`` untouched and every insert lands
+    tenantless while every structural check still passes.  Same structural
+    approach, and the same honest limits, as
+    ``BoundaryFunctionState.migration_shaped``.
+    """
+    result = await conn.execute(
+        text(
+            f"""
+            SELECT language.lanname AS language,
+                   routine.prorettype = 'trigger'::regtype AS returns_trigger,
+                   COALESCE(routine.proconfig::text LIKE '%search_path=%', false)
+                       AS search_path_pinned,
+                   (
+                       {_EXECUTABLE_BODY} LIKE '%app.current_tenant%'
+                       AND {_EXECUTABLE_BODY} LIKE '%NEW.tenant_id%'
+                   ) AS body_markers_present
+            FROM pg_catalog.pg_proc AS routine
+            JOIN pg_catalog.pg_namespace AS namespace
+              ON namespace.oid = routine.pronamespace
+            JOIN pg_catalog.pg_language AS language
+              ON language.oid = routine.prolang
+            WHERE namespace.nspname = 'catalog'
+              AND routine.proname = :name
+              AND routine.pronargs = 0
+            """
+        ),
+        {"name": BOUNDARY_TRIGGER_FUNCTION},
+    )
+    row = result.one_or_none()
+    if row is None:
+        return f"catalog.{BOUNDARY_TRIGGER_FUNCTION}() is missing"
+    if row.language != "plpgsql":
+        return (
+            f"catalog.{BOUNDARY_TRIGGER_FUNCTION}() is written in "
+            f"{row.language}, not plpgsql"
+        )
+    if not row.returns_trigger:
+        return f"catalog.{BOUNDARY_TRIGGER_FUNCTION}() does not return trigger"
+    if not row.search_path_pinned:
+        return f"catalog.{BOUNDARY_TRIGGER_FUNCTION}() has no pinned search_path"
+    if not row.body_markers_present:
+        return (
+            f"catalog.{BOUNDARY_TRIGGER_FUNCTION}() has a body that no longer "
+            "reads app.current_tenant or writes NEW.tenant_id — it stamps nothing"
+        )
+    return None
 
 
 async def cluster_topology_error(engine) -> str | None:
@@ -539,6 +624,7 @@ async def run_adoption(engine, *, apply: bool) -> AdoptionReport:
         boundary = await live_tenant_boundary(conn)
         functions = await boundary_function_states(conn)
         grants = [] if topology else await missing_provisioner_grants(conn)
+        stamping = await stamping_function_shape(conn)
 
     if not apply:
         return AdoptionReport(
@@ -550,6 +636,7 @@ async def run_adoption(engine, *, apply: bool) -> AdoptionReport:
             failures={},
             cluster_topology=topology,
             provisioner_grants_missing=grants,
+            stamping_function=stamping,
         )
 
     async with engine.begin() as conn:
@@ -572,6 +659,7 @@ async def run_adoption(engine, *, apply: bool) -> AdoptionReport:
         after = [await tenant_ownership_state(conn, tid) for tid in tenants]
         boundary = await live_tenant_boundary(conn)
         grants = [] if topology else await missing_provisioner_grants(conn)
+        stamping = await stamping_function_shape(conn)
 
     return AdoptionReport(
         applied=True,
@@ -582,6 +670,7 @@ async def run_adoption(engine, *, apply: bool) -> AdoptionReport:
         failures=failures,
         cluster_topology=topology,
         provisioner_grants_missing=grants,
+        stamping_function=stamping,
     )
 
 

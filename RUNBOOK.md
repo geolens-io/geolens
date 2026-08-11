@@ -453,6 +453,16 @@ mandatory post-restore reconciliation reapplies that boundary.
 **Never** use `psql < <dump>` on a custom-format (`-Fc`) dump file — it is binary,
 not plain SQL, and will fail.
 
+> **If `catalog.tenants` has rows, `restore.sh` is not the whole recipe.** Its
+> step 6 reconciles the single-tenant runtime role and the shared `data` schema;
+> it does not touch per-tenant schemas, per-tenant roles, or the two SECURITY
+> DEFINER provisioning functions, which the restore leaves owned by the restore
+> login with `EXECUTE` granted to `PUBLIC`. Step 7 then restarts `api` and
+> `worker`, so following this section alone puts traffic on a database in
+> exactly that state. Use the stop / restore / adopt sequence in the
+> role-reconstruction section immediately below instead, and run its dry run
+> afterwards as the check that nothing was left behind.
+
 ### Multi-tenant role reconstruction after a fresh-cluster restore
 
 PostgreSQL roles are cluster objects and are not included in a database-only

@@ -39,6 +39,16 @@ BOUNDARY_TRIGGER = "trg_stamp_current_tenant_on_insert"
 BOUNDARY_TRIGGER_FUNCTION = "stamp_current_tenant_on_insert"
 BOUNDARY_TRIGGER_TYPE = 7
 
+#: The isolation rule 0006 installs, as PostgreSQL canonicalizes it.  Pinned
+#: exactly, unlike the function bodies: it is one expression that has not
+#: changed since 0006, and it *is* the cross-tenant visibility boundary — a
+#: tool that certifies a database as safe to serve should know which rule it is
+#: certifying.  A migration that changes it has to change this line too, which
+#: is the intended amount of friction.
+ISOLATION_POLICY_EXPRESSION = (
+    "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)"
+)
+
 
 # ---------------------------------------------------------------------------
 # Report types
@@ -173,6 +183,7 @@ class BoundaryTableState:
     has_tenant_id: bool
     rls_enabled: bool
     rls_forced: bool
+    isolation_policy_intact: bool
 
     @property
     def stamping_trigger_inert(self) -> bool:
@@ -200,7 +211,9 @@ def rls_gaps(boundary: list[BoundaryTableState], *, tenants_present: bool) -> li
     for table in boundary:
         if not table.has_stamping_trigger:
             continue
-        if tenants_present and not table.rls_enabled:
+        if not table.isolation_policy_intact:
+            gaps.append(f"{table.name} (tenant_isolation policy missing or altered)")
+        elif tenants_present and not table.rls_enabled:
             gaps.append(f"{table.name} (row security disabled)")
         elif table.rls_enabled and not table.rls_forced:
             gaps.append(f"{table.name} (row security not FORCEd)")
@@ -239,6 +252,7 @@ class AdoptionReport:
     after: list[TenantOwnershipState]
     failures: dict[str, str]
     cluster_topology: str | None = None
+    stamping_function: str | None = None
     provisioner_grants_missing: list[str] = field(default_factory=list)
 
     @property
@@ -284,14 +298,16 @@ class AdoptionReport:
         passes on a database the report itself calls broken: a missing boundary
         function, a fixed-role topology ``--apply`` would refuse, a provisioner
         grant a restore dropped, boundary drift that leaves a stamped table
-        without RLS at boot, a stamping trigger that does not fire, and a
-        boundary table that cannot enforce isolation as it stands all count.
+        without RLS at boot, a stamping trigger or stamping function that does
+        not stamp, and a boundary table that cannot enforce isolation as it
+        stands all count.
         """
         if (
             self.failures
             or self.missing_functions
             or self.cluster_topology
             or self.provisioner_grants_missing
+            or self.stamping_function
             or self.rls_gaps
             or self.inert_stamping_triggers
         ):
@@ -352,6 +368,11 @@ def _boundary_table_markers(
         ]
     if not table.has_stamping_trigger:
         return ["tenant_id column only, outside the stamped boundary"]
+    if not table.isolation_policy_intact:
+        return [
+            "the tenant_isolation policy is missing or no longer the rule the "
+            "migrations install; nothing at boot recreates it"
+        ]
     if not table.rls_enabled:
         if tenants_present:
             return ["RLS not enabled on a control plane that has tenants"]
@@ -365,6 +386,8 @@ def _format_boundary(report: AdoptionReport) -> list[str]:
     boundary = report.boundary
     tenants_present = bool(report.before)
     lines = [f"Live tenant boundary ({BOUNDARY_TRIGGER}), read from the database:"]
+    if report.stamping_function is not None:
+        lines.append(f"  NOT SAFE TO SERVE: {report.stamping_function}")
     for table in boundary:
         markers = _boundary_table_markers(table, tenants_present=tenants_present)
         suffix = f" — {'; '.join(markers)}" if markers else ""

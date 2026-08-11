@@ -45,6 +45,7 @@ from app.core.db.tenant_adoption import (
     live_tenant_boundary,
     missing_provisioner_grants,
     run_adoption,
+    stamping_function_shape,
     secure_boundary_functions,
     tenant_ownership_state,
 )
@@ -56,6 +57,7 @@ from app.core.db.tenant_adoption_report import (
     TenantOwnershipState,
     boundary_drift,
     format_report,
+    rls_gaps,
 )
 from app.core.db.tenant_adoption_sql import WRITER as WRITER_GATEWAY
 
@@ -1155,6 +1157,81 @@ class TestLiveTenantBoundary:
         finally:
             await engine.dispose()
 
+    async def test_a_stubbed_stamping_function_is_reported(self):
+        """The trigger can be perfect and still stamp nothing.
+
+        Every table keeps its BEFORE INSERT trigger on the right function; the
+        function just stops writing NEW.tenant_id. Rolled back.
+        """
+        engine = _make_engine()
+        try:
+            async with engine.connect() as conn:
+                transaction = await conn.begin()
+                try:
+                    assert await stamping_function_shape(conn) is None
+                    await conn.execute(
+                        sa.text(
+                            "CREATE OR REPLACE FUNCTION "
+                            "catalog.stamp_current_tenant_on_insert() "
+                            "RETURNS trigger LANGUAGE plpgsql "
+                            "SET search_path = pg_catalog, catalog "
+                            "AS $$ BEGIN RETURN NEW; END $$"
+                        )
+                    )
+                    reason = await stamping_function_shape(conn)
+                    assert reason is not None
+                    assert "stamps nothing" in reason
+                finally:
+                    await transaction.rollback()
+        finally:
+            await engine.dispose()
+
+    async def test_a_missing_isolation_policy_is_reported(self):
+        """Boot enables RLS; nothing recreates the rule RLS enforces."""
+        engine = _make_engine()
+        table = "embed_tokens"
+        try:
+            async with engine.connect() as conn:
+                transaction = await conn.begin()
+                try:
+                    await conn.execute(
+                        sa.text(
+                            f"DROP POLICY tenant_isolation_{table} ON catalog.{table}"
+                        )
+                    )
+                    boundary = await live_tenant_boundary(conn)
+                    state = next(entry for entry in boundary if entry.name == table)
+                    assert not state.isolation_policy_intact
+                    assert rls_gaps(boundary, tenants_present=False) == [
+                        f"{table} (tenant_isolation policy missing or altered)"
+                    ]
+                finally:
+                    await transaction.rollback()
+        finally:
+            await engine.dispose()
+
+    async def test_an_altered_isolation_policy_is_reported(self):
+        """A permissive rewrite returns every tenant's rows and looks intact."""
+        engine = _make_engine()
+        table = "embed_tokens"
+        try:
+            async with engine.connect() as conn:
+                transaction = await conn.begin()
+                try:
+                    await conn.execute(
+                        sa.text(
+                            f"ALTER POLICY tenant_isolation_{table} "
+                            f"ON catalog.{table} USING (true)"
+                        )
+                    )
+                    boundary = await live_tenant_boundary(conn)
+                    state = next(entry for entry in boundary if entry.name == table)
+                    assert not state.isolation_policy_intact
+                finally:
+                    await transaction.rollback()
+        finally:
+            await engine.dispose()
+
     async def test_dormant_tenant_id_columns_are_reported_outside_the_boundary(self):
         """0037's ``dataset_refresh_runs.tenant_id`` is deliberately dormant.
 
@@ -1232,6 +1309,7 @@ def _clean_boundary() -> list[BoundaryTableState]:
             has_tenant_id=True,
             rls_enabled=True,
             rls_forced=True,
+            isolation_policy_intact=True,
         )
         for name in RLS_TABLES
     ]
@@ -1264,6 +1342,7 @@ def _report(**overrides) -> AdoptionReport:
         "after": [],
         "failures": {},
         "cluster_topology": None,
+        "stamping_function": None,
         "provisioner_grants_missing": [],
     }
     fields.update(overrides)
@@ -1310,6 +1389,7 @@ class TestSuccessPredicate:
                 has_tenant_id=True,
                 rls_enabled=True,
                 rls_forced=True,
+                isolation_policy_intact=True,
             )
         ]
         report = _report(boundary=boundary)
@@ -1326,6 +1406,7 @@ class TestSuccessPredicate:
                 has_tenant_id=True,
                 rls_enabled=False,
                 rls_forced=False,
+                isolation_policy_intact=True,
             )
             for table in _clean_boundary()
         ]
@@ -1344,6 +1425,7 @@ class TestSuccessPredicate:
                 has_tenant_id=True,
                 rls_enabled=False,
                 rls_forced=False,
+                isolation_policy_intact=True,
             )
             for table in _clean_boundary()
         ]
@@ -1361,6 +1443,7 @@ class TestSuccessPredicate:
                 has_tenant_id=True,
                 rls_enabled=True,
                 rls_forced=False,
+                isolation_policy_intact=True,
             )
             for table in _clean_boundary()
         ]
@@ -1384,6 +1467,7 @@ class TestSuccessPredicate:
                 has_tenant_id=True,
                 rls_enabled=False,
                 rls_forced=False,
+                isolation_policy_intact=True,
             )
         ]
         report = _report(boundary=boundary)
