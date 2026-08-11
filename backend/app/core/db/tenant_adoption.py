@@ -747,6 +747,66 @@ async def tenant_ownership_state(conn, tenant_id: str) -> TenantOwnershipState:
                             AND dependency.deptype = 'e'
                       )
                 ) AS unsafe_statistics,
+                -- fix(#998 codex r49): collations, transferred like types and
+                -- statistics; the six rarer owned kinds --apply refuses.
+                (
+                    SELECT count(*)
+                    FROM pg_catalog.pg_collation AS collation_row
+                    JOIN pg_catalog.pg_namespace AS namespace
+                      ON namespace.oid = collation_row.collnamespace
+                    WHERE namespace.nspname = (SELECT schema_name FROM names)
+                      AND collation_row.collowner IS DISTINCT FROM (
+                          SELECT oid FROM writer
+                      )
+                      AND NOT EXISTS (
+                          SELECT 1 FROM pg_catalog.pg_depend AS dependency
+                          WHERE dependency.classid = 'pg_collation'::regclass
+                            AND dependency.objid = collation_row.oid
+                            AND dependency.deptype = 'e'
+                      )
+                ) AS unsafe_collations,
+                (
+                    SELECT count(*)
+                    FROM (
+                        SELECT conversion.oid,
+                               'pg_conversion'::regclass AS classid,
+                               conversion.connamespace AS namespace_oid,
+                               conversion.conowner AS owner_oid
+                        FROM pg_catalog.pg_conversion AS conversion
+                        UNION ALL
+                        SELECT operator.oid, 'pg_operator'::regclass,
+                               operator.oprnamespace, operator.oprowner
+                        FROM pg_catalog.pg_operator AS operator
+                        UNION ALL
+                        SELECT opclass.oid, 'pg_opclass'::regclass,
+                               opclass.opcnamespace, opclass.opcowner
+                        FROM pg_catalog.pg_opclass AS opclass
+                        UNION ALL
+                        SELECT opfamily.oid, 'pg_opfamily'::regclass,
+                               opfamily.opfnamespace, opfamily.opfowner
+                        FROM pg_catalog.pg_opfamily AS opfamily
+                        UNION ALL
+                        SELECT dictionary.oid, 'pg_ts_dict'::regclass,
+                               dictionary.dictnamespace, dictionary.dictowner
+                        FROM pg_catalog.pg_ts_dict AS dictionary
+                        UNION ALL
+                        SELECT config.oid, 'pg_ts_config'::regclass,
+                               config.cfgnamespace, config.cfgowner
+                        FROM pg_catalog.pg_ts_config AS config
+                    ) AS owned_object
+                    JOIN pg_catalog.pg_namespace AS namespace
+                      ON namespace.oid = owned_object.namespace_oid
+                    WHERE namespace.nspname = (SELECT schema_name FROM names)
+                      AND owned_object.owner_oid IS DISTINCT FROM (
+                          SELECT oid FROM writer
+                      )
+                      AND NOT EXISTS (
+                          SELECT 1 FROM pg_catalog.pg_depend AS dependency
+                          WHERE dependency.classid = owned_object.classid
+                            AND dependency.objid = owned_object.oid
+                            AND dependency.deptype = 'e'
+                      )
+                ) AS unowned_other_objects,
                 -- The same four surfaces the apply side refuses on, counted
                 -- here so the dry run cannot call a tenant adopted that
                 -- `--apply` would stop on.

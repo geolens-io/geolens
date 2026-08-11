@@ -643,9 +643,44 @@ writer/sandbox/tile SET-only shapes adoption requires. Adoption refuses a wrong
 shape rather than rewriting somebody else's grant, so leaving one here stops 2d
 before it starts. Re-issuing them is a no-op when they already match.
 
-These are the grants `.env.example` documents alongside
-`GEOLENS_RUNTIME_DB_ROLE`; substitute your own login names, and never give the
-tile login any of the first three:
+First clear every membership row the replay restored, whatever grantor it
+recorded. Re-granting on top does not rewrite a restored row — on PostgreSQL
+16+ it adds a second row under your grantor and the old default-INHERIT/SET
+row survives to make 2d refuse the topology. This block is version-aware and
+safe to run on any supported release:
+
+```bash
+docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
+DO $$
+DECLARE m RECORD;
+BEGIN
+  FOR m IN SELECT granted.rolname AS granted_name,
+                  member.rolname AS member_name,
+                  grantor.rolname AS grantor_name
+           FROM pg_catalog.pg_auth_members AS am
+           JOIN pg_catalog.pg_roles AS granted ON granted.oid = am.roleid
+           JOIN pg_catalog.pg_roles AS member ON member.oid = am.member
+           LEFT JOIN pg_catalog.pg_roles AS grantor ON grantor.oid = am.grantor
+           WHERE granted.rolname IN ('geolens_tenant_control',
+                                     'geolens_tenant_writer',
+                                     'geolens_tenant_sandbox',
+                                     'geolens_tile_gateway')
+  LOOP
+    IF current_setting('server_version_num')::int >= 160000
+       AND m.grantor_name IS NOT NULL THEN
+      EXECUTE format('REVOKE %I FROM %I GRANTED BY %I',
+                     m.granted_name, m.member_name, m.grantor_name);
+    ELSE
+      EXECUTE format('REVOKE %I FROM %I', m.granted_name, m.member_name);
+    END IF;
+  END LOOP;
+END $$;
+SQL
+```
+
+Then issue the canonical grants — these are the ones `.env.example` documents
+alongside `GEOLENS_RUNTIME_DB_ROLE`; substitute your own login names, and
+never give the tile login any of the first three:
 
 ```bash
 docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'

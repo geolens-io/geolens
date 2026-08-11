@@ -149,6 +149,8 @@ class TenantOwnershipState:
     unsafe_routines: int
     unsafe_types: int
     unsafe_statistics: int
+    unsafe_collations: int
+    unowned_other_objects: int
     foreign_grantors: int
     relations_not_owned_by_writer: int
     relations_without_reader_select: int
@@ -175,6 +177,8 @@ class TenantOwnershipState:
             and self.unsafe_routines == 0
             and self.unsafe_types == 0
             and self.unsafe_statistics == 0
+            and self.unsafe_collations == 0
+            and self.unowned_other_objects == 0
             and self.foreign_grantors == 0
             and self.relations_not_owned_by_writer == 0
             and self.relations_without_reader_select == 0

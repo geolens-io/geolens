@@ -855,6 +855,8 @@ DECLARE
     routine_gap bigint;
     type_gap bigint;
     statistics_gap bigint;
+    collation_gap bigint;
+    other_object_gap bigint;
     foreign_grantor_gap bigint;
     global_default_acl_gap bigint;
     reader_oid oid;
@@ -1312,6 +1314,92 @@ BEGIN
             AND dependency.deptype = 'e'
       );
 
+    -- fix(#998 codex r49): collations are the last owned object kind adoption
+    -- transfers; everything rarer is refused below, so no owned object kind in
+    -- a tenant schema is unhandled.
+    SELECT pg_catalog.count(*) INTO collation_gap
+    FROM pg_catalog.pg_collation AS collation_row
+    JOIN pg_catalog.pg_namespace AS namespace
+      ON namespace.oid = collation_row.collnamespace
+    JOIN pg_catalog.pg_roles AS owner_role
+      ON owner_role.oid = collation_row.collowner
+    WHERE namespace.nspname = schema_name
+      AND owner_role.rolname <> writer_name
+      AND NOT EXISTS (
+          SELECT 1 FROM pg_catalog.pg_depend AS dependency
+          WHERE dependency.classid = 'pg_collation'::regclass
+            AND dependency.objid = collation_row.oid
+            AND dependency.deptype = 'e'
+      );
+
+    -- Owned object kinds a tenant schema has no business containing but a
+    -- hand-crafted restore can: conversions, operators, operator classes and
+    -- families, text search dictionaries and configurations.  Detected and
+    -- refused rather than transferred — each has its own ALTER quirks, and an
+    -- operator who created one can move it.
+    SELECT pg_catalog.count(*) INTO other_object_gap
+    FROM (
+        SELECT conversion.oid, 'pg_conversion'::regclass AS classid
+        FROM pg_catalog.pg_conversion AS conversion
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = conversion.connamespace
+        JOIN pg_catalog.pg_roles AS owner_role
+          ON owner_role.oid = conversion.conowner
+        WHERE namespace.nspname = schema_name
+          AND owner_role.rolname <> writer_name
+        UNION ALL
+        SELECT operator.oid, 'pg_operator'::regclass
+        FROM pg_catalog.pg_operator AS operator
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = operator.oprnamespace
+        JOIN pg_catalog.pg_roles AS owner_role
+          ON owner_role.oid = operator.oprowner
+        WHERE namespace.nspname = schema_name
+          AND owner_role.rolname <> writer_name
+        UNION ALL
+        SELECT opclass.oid, 'pg_opclass'::regclass
+        FROM pg_catalog.pg_opclass AS opclass
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = opclass.opcnamespace
+        JOIN pg_catalog.pg_roles AS owner_role
+          ON owner_role.oid = opclass.opcowner
+        WHERE namespace.nspname = schema_name
+          AND owner_role.rolname <> writer_name
+        UNION ALL
+        SELECT opfamily.oid, 'pg_opfamily'::regclass
+        FROM pg_catalog.pg_opfamily AS opfamily
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = opfamily.opfnamespace
+        JOIN pg_catalog.pg_roles AS owner_role
+          ON owner_role.oid = opfamily.opfowner
+        WHERE namespace.nspname = schema_name
+          AND owner_role.rolname <> writer_name
+        UNION ALL
+        SELECT dictionary.oid, 'pg_ts_dict'::regclass
+        FROM pg_catalog.pg_ts_dict AS dictionary
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = dictionary.dictnamespace
+        JOIN pg_catalog.pg_roles AS owner_role
+          ON owner_role.oid = dictionary.dictowner
+        WHERE namespace.nspname = schema_name
+          AND owner_role.rolname <> writer_name
+        UNION ALL
+        SELECT config.oid, 'pg_ts_config'::regclass
+        FROM pg_catalog.pg_ts_config AS config
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = config.cfgnamespace
+        JOIN pg_catalog.pg_roles AS owner_role
+          ON owner_role.oid = config.cfgowner
+        WHERE namespace.nspname = schema_name
+          AND owner_role.rolname <> writer_name
+    ) AS owned_object
+    WHERE NOT EXISTS (
+        SELECT 1 FROM pg_catalog.pg_depend AS dependency
+        WHERE dependency.classid = owned_object.classid
+          AND dependency.objid = owned_object.oid
+          AND dependency.deptype = 'e'
+    );
+
     SELECT pg_catalog.count(*) INTO type_gap
     FROM pg_catalog.pg_type AS type_row
     JOIN pg_catalog.pg_namespace AS namespace
@@ -1409,9 +1497,27 @@ BEGIN
        AND routine_gap = 0
        AND type_gap = 0
        AND statistics_gap = 0
+       AND collation_gap = 0
+       AND other_object_gap = 0
        AND foreign_grantor_gap = 0
        AND global_default_acl_gap = 0 THEN
         RETURN;
+    END IF;
+
+    -- The refusal for the exotic kinds counted above, before any DDL: the
+    -- operator who created one can move it; this run does not guess at
+    -- per-kind ALTER syntax.
+    IF other_object_gap > 0 THEN
+        RAISE EXCEPTION
+            'tenant schema % contains % owned object(s) of a kind adoption '
+            'does not transfer (conversion, operator, operator class or '
+            'family, text search dictionary or configuration) not owned by %',
+            schema_name, other_object_gap, writer_name
+            USING HINT =
+                'as their owner run the matching ALTER ... OWNER TO ' ||
+                pg_catalog.quote_ident(writer_name) ||
+                ' (\\dc, \\do, \\dAc, \\dAf, \\dFd and \\dF list them); then '
+                're-run adoption';
     END IF;
 
     -- Restored tenant relations are owned by whoever ran pg_restore.  A GRANT
@@ -1785,6 +1891,31 @@ BEGIN
     LOOP
         EXECUTE pg_catalog.format(
             'ALTER STATISTICS %I.%I OWNER TO %I',
+            schema_name,
+            object_row.relname,
+            writer_name
+        );
+    END LOOP;
+
+    -- fix(#998 codex r49): collations, same terms again.
+    FOR object_row IN
+        SELECT collation_row.collname AS relname
+        FROM pg_catalog.pg_collation AS collation_row
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = collation_row.collnamespace
+        JOIN pg_catalog.pg_roles AS owner_role
+          ON owner_role.oid = collation_row.collowner
+        WHERE namespace.nspname = schema_name
+          AND owner_role.rolname <> writer_name
+          AND NOT EXISTS (
+              SELECT 1 FROM pg_catalog.pg_depend AS dependency
+              WHERE dependency.classid = 'pg_collation'::regclass
+                AND dependency.objid = collation_row.oid
+                AND dependency.deptype = 'e'
+          )
+    LOOP
+        EXECUTE pg_catalog.format(
+            'ALTER COLLATION %I.%I OWNER TO %I',
             schema_name,
             object_row.relname,
             writer_name
