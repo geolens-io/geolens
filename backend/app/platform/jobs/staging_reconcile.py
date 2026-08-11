@@ -109,20 +109,18 @@ _MAX_OBJECTS_SCANNED_PER_PASS = 20_000
 # reached at all.
 #
 # Advanced to the last key examined when a pass stops on a budget, and CLEARED
-# when a walk reaches the end of the prefix — a completed walk has seen
-# everything, so the next one starts at the front again.
+# when a pass gets all the way round — it has seen the whole prefix, so the
+# next one may as well start at the front.
 #
-# Process-local rather than a new persisted row, seeded at a RANDOM point the
-# first time a process walks a given prefix. Both halves of that matter. Per
-# process is enough because every pass is independently correct — the cursor
-# only decides where to look first, never what may be deleted — so the worst a
-# lost cursor costs is re-examining keys that were already cheap to skip. And
-# seeding randomly is what keeps that true under `UVICORN_MAX_REQUESTS`
-# recycling: a worker that restarts more often than a full walk completes would,
-# from a fixed start, never reach the tail — the exact starvation the cursor
-# exists to remove, reintroduced by the restart. From a random start, every
-# region of the prefix is equally likely to be walked first, so coverage does
-# not depend on any process living long enough to earn it.
+# The scan is CIRCULAR (see `_reconcile_locked`), which is what makes this
+# cursor a starting OFFSET rather than a window: an unbudgeted pass covers the
+# whole prefix from wherever it begins. That is why process-local state is
+# enough here, and why it is seeded at a random point rather than at the front
+# (fix(#1249) review r2/r7). Every pass is independently correct — the cursor
+# never decides what may be deleted, only what is looked at first — so the
+# worst a lost cursor costs is re-examining keys that were already cheap to
+# skip, and a worker recycled under `UVICORN_MAX_REQUESTS` before its next pass
+# does not keep restarting its coverage from the same place.
 _scan_cursors: dict[str, str | None] = {}
 
 
@@ -444,6 +442,15 @@ async def _reconcile_locked(
     A pass that stops on a budget leaves a cursor behind so the next one
     resumes where it stopped rather than re-walking the same window forever
     (review r2 — see ``_scan_cursors``).
+
+    The scan is CIRCULAR (review r7, codex P2): it walks from the cursor to the
+    end of the prefix and then, with whatever budget is left, from the front of
+    the prefix back up to the cursor. A one-directional scan from a random
+    start is not a rotation, it is a sample — a worker recycled before its next
+    pass would only ever see suffixes, and an orphan sorting near the front of
+    a large prefix would be reached with probability ~1/(objects+1) per
+    restart. With the wrap, one unbudgeted pass covers the whole prefix and the
+    cursor only decides where it starts.
     """
     # Clock skew between this process and the object store is immaterial at a
     # threshold measured in hours, which is one more reason the threshold is
@@ -453,54 +460,83 @@ async def _reconcile_locked(
     last_examined: str | None = None
     stopped_early = False
 
-    async for page in storage.iter_object_pages(
-        physical_prefix, start_after=_resume_point(physical_prefix)
-    ):
-        tally.objects_listed += len(page)
-        if page:
-            # Pages arrive in ascending key order, so the last entry is the
-            # high-water mark whether or not this page produced any deletes.
-            last_examined = page[-1].key
-        candidates = _page_candidates(
-            page, physical_prefix=physical_prefix, cutoff=cutoff, tally=tally
-        )
-        if candidates:
-            unfinished_at = await _delete_page_orphans(
-                db,
-                candidates,
-                now=now,
-                cutoff=cutoff,
-                storage=storage,
-                tally=tally,
-            )
-            if unfinished_at is not None:
-                # The delete budget ran out partway through this page. Resume
-                # from the last candidate actually PROCESSED, not from the end
-                # of the page, so the ones it never reached are not skipped
-                # until the walk wraps.
-                last_examined = unfinished_at
-        if (
-            tally.orphans_deleted + tally.delete_failures >= _MAX_DELETES_PER_PASS
-            or tally.objects_listed >= _MAX_OBJECTS_SCANNED_PER_PASS
+    resume_point = _resume_point(physical_prefix)
+    # (start_after, stop_at). The second leg is the wrap and is skipped when
+    # the pass already begins at the front, where there is nothing to wrap to.
+    legs: list[tuple[str | None, str | None]] = [(resume_point, None)]
+    if resume_point is not None:
+        legs.append((None, resume_point))
+
+    for start_after, stop_at in legs:
+        async for page in _iter_leg(
+            storage, physical_prefix, start_after=start_after, stop_at=stop_at
         ):
-            stopped_early = True
-            log.info(
-                "Staging orphan reconciliation stopped at its per-pass budget",
-                resume_after=last_examined,
-                **tally.as_log_fields(),
+            tally.objects_listed += len(page)
+            if page:
+                # Pages arrive in ascending key order, so the last entry is the
+                # high-water mark whether or not this page produced any deletes.
+                last_examined = page[-1].key
+            candidates = _page_candidates(
+                page, physical_prefix=physical_prefix, cutoff=cutoff, tally=tally
             )
+            if candidates:
+                unfinished_at = await _delete_page_orphans(
+                    db,
+                    candidates,
+                    now=now,
+                    cutoff=cutoff,
+                    storage=storage,
+                    tally=tally,
+                )
+                if unfinished_at is not None:
+                    # The delete budget ran out partway through this page.
+                    # Resume from the last candidate actually PROCESSED, not
+                    # from the end of the page, so the ones it never reached
+                    # are not skipped until the next lap.
+                    last_examined = unfinished_at
+            if (
+                tally.orphans_deleted + tally.delete_failures >= _MAX_DELETES_PER_PASS
+                or tally.objects_listed >= _MAX_OBJECTS_SCANNED_PER_PASS
+            ):
+                stopped_early = True
+                log.info(
+                    "Staging orphan reconciliation stopped at its per-pass budget",
+                    resume_after=last_examined,
+                    **tally.as_log_fields(),
+                )
+                break
+        if stopped_early:
             break
 
-    # A completed walk has seen everything after its start point, so the next
-    # pass begins at the front. Only a budget stop carries a resume point, and
-    # only when the walk actually got somewhere — a budget stop with no page
-    # yielded would otherwise clear the cursor and undo the pass's progress.
+    # A pass that got all the way round has seen the whole prefix, so the next
+    # one may as well start at the front. Only a budget stop carries a resume
+    # point, and only when the walk actually got somewhere — a budget stop with
+    # no page yielded would otherwise clear the cursor and undo the progress.
     if stopped_early and last_examined is not None:
         _scan_cursors[physical_prefix] = last_examined
     else:
         _scan_cursors[physical_prefix] = None
 
     return tally.freeze()
+
+
+async def _iter_leg(storage, physical_prefix: str, *, start_after, stop_at):
+    """Pages of one leg of the circular scan, bounded above by ``stop_at``.
+
+    The wrap leg must not run past the point the pass started from, or it would
+    re-examine the keys the first leg already covered instead of ending.
+    """
+    async for page in storage.iter_object_pages(
+        physical_prefix, start_after=start_after
+    ):
+        if stop_at is None:
+            yield page
+            continue
+        bounded = [entry for entry in page if entry.key <= stop_at]
+        if bounded:
+            yield bounded
+        if len(bounded) < len(page):
+            return  # this page crossed the boundary, so the leg is done
 
 
 def _page_candidates(

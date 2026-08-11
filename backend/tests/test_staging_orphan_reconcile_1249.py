@@ -46,6 +46,11 @@ pytestmark = pytest.mark.anyio
 NOW = datetime(2026, 8, 11, 12, 0, tzinfo=timezone.utc)
 
 
+def _uuid_starting(first_hex: str) -> uuid.UUID:
+    """A real uuid4 with its leading hex digit pinned, for ordering tests."""
+    return uuid.UUID(first_hex + str(uuid.uuid4())[1:])
+
+
 def _old() -> datetime:
     """A last-modified far past the deletion threshold."""
     return NOW - timedelta(seconds=settings.staging_orphan_min_age_seconds + 3600)
@@ -660,19 +665,53 @@ class TestScanCursor:
         assert first.objects_listed == 2 and second.objects_listed == 2
         assert module._scan_cursors[STAGING_PREFIX] == in_key_order[3]
 
-    async def test_a_completed_walk_wraps_to_the_front(
+    async def test_a_pass_that_starts_mid_prefix_wraps_to_the_front(
         self, test_db_session: AsyncSession
     ) -> None:
-        """Seeing everything after the start point means starting over next time."""
+        """fix(#1249 review r7, codex P2): a one-directional scan is a sample.
+
+        Starting at a random point and never wrapping means a worker recycled
+        before its next pass only ever sees suffixes, so an orphan near the
+        front of a large prefix is reached with probability ~1/(objects+1) per
+        restart. With the wrap, one unbudgeted pass covers everything and the
+        cursor only decides where it starts.
+        """
         import app.platform.jobs.staging_reconcile as module
 
-        module._scan_cursors[STAGING_PREFIX] = "staging/zzz"
-        storage = FakeStorage({f"staging/{uuid.uuid4()}/f.geojson": _young()})
+        # Real uuids with a pinned leading hex digit, so they straddle the
+        # cursor AND still parse as the job segment of a staging key.
+        low = f"staging/{_uuid_starting('0')}/f.geojson"
+        high = f"staging/{_uuid_starting('f')}/f.geojson"
+        module._scan_cursors[STAGING_PREFIX] = f"staging/8{'0' * 8}"
+        storage = FakeStorage({low: _old(), high: _old()})
+
+        outcome = await _run(test_db_session, storage)
+
+        assert storage.resumed_from == [f"staging/8{'0' * 8}", None], (
+            "the pass must walk the tail and then come back for the front"
+        )
+        assert sorted(storage.deleted) == [low, high]
+        assert outcome.orphans_deleted == 2
+        # It got all the way round, so the next pass may start at the front.
+        assert module._scan_cursors[STAGING_PREFIX] is None
+
+    async def test_the_wrap_leg_stops_where_the_pass_started(
+        self, test_db_session: AsyncSession
+    ) -> None:
+        """Otherwise it re-walks the keys the first leg already covered."""
+        import app.platform.jobs.staging_reconcile as module
+
+        cursor = f"staging/8{'0' * 8}"
+        module._scan_cursors[STAGING_PREFIX] = cursor
+        after_cursor = f"staging/{_uuid_starting('9')}/f.geojson"
+        storage = FakeStorage({after_cursor: _young()})
 
         await _run(test_db_session, storage)
 
-        assert storage.resumed_from == ["staging/zzz"]
-        assert module._scan_cursors[STAGING_PREFIX] is None
+        # The tail leg saw it; the wrap leg is bounded above by the cursor and
+        # so must not report it a second time.
+        assert storage.resumed_from == [cursor, None]
+        assert (await _run(test_db_session, storage)).objects_listed == 1
 
     async def test_a_delete_budget_stop_resumes_at_the_last_candidate_processed(
         self, test_db_session: AsyncSession, monkeypatch
