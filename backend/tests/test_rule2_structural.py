@@ -1699,6 +1699,45 @@ def _container_iteration_kind(container: ast.AST, held: ast.AST) -> str:
     return _ITER_YIELDS_VECTOR
 
 
+# How much FOLLOWING each kind licenses, so two answers for one path merge to
+# the louder rather than to whichever arrived last (fix(#1394), codex round 3).
+# `None` — the path IS the vector — follows least: a subscript on it yields an
+# element and stops the escape. Holding a container follows more, because the
+# subscript then yields the vector and the extraction is chased; and a
+# container that yields the vector when iterated follows most, because the loop
+# rule applies on top. Merging toward the loud end keeps a conflict on the
+# reported side, which is the direction this gate is built to fail in.
+_KIND_LOUDNESS: dict[str | None, int] = {
+    None: 0,
+    _ITER_YIELDS_OTHER: 1,
+    _ITER_YIELDS_VECTOR: 2,
+}
+
+
+def _louder_kind(left: str | None, right: str | None) -> str | None:
+    """The kind of two that licenses more following."""
+    return left if _KIND_LOUDNESS[left] >= _KIND_LOUDNESS[right] else right
+
+
+def _queue_path(
+    queue: dict[str, str | None],
+    resolved: dict[str, str | None],
+    path: str,
+    kind: str | None,
+) -> None:
+    """Add ``path`` to the worklist unless this kind is already covered.
+
+    Covered means a kind at least this loud has been walked (``resolved``) or
+    is already queued, so nothing is followed twice for the same reason and a
+    LOUDER kind arriving late still gets its pass. Loudness only ever rises and
+    there are three values, so a path is walked at most three times.
+    """
+    for table in (resolved, queue):
+        if path in table and _KIND_LOUDNESS[table[path]] >= _KIND_LOUDNESS[kind]:
+            return
+    queue[path] = kind
+
+
 def _default_parameter_name(args: ast.arguments, value: ast.AST) -> str | None:
     """The parameter a default value belongs to, positionally or by keyword."""
     positional = [*args.posonlyargs, *args.args]
@@ -1892,6 +1931,50 @@ def _use_reaches_the_binding(used: ast.Name, scope: ast.AST, rel: str) -> bool:
     return True
 
 
+def _derived_paths(used: ast.expr, kind: str | None) -> list[tuple[str, str | None]]:
+    """The paths one load of a tracked path hands the vector on to.
+
+    ``used`` is a load of a path the literal is reachable through, and ``kind``
+    is what that path holds (see ``_container_iteration_kind``). Returns
+    ``(path, kind)`` pairs for everything the load leads to, which the caller
+    merges into its worklist.
+    """
+    derived: list[tuple[str, str | None]] = []
+    if kind is not None:
+        # fix(#996 review): reading a CONTAINER through a subscript or
+        # attribute yields the vector — `commands = {...}` then
+        # `cmd = commands["inspect"]`. Follow that extraction, or the alias
+        # chain stops dead at the container.
+        parent = getattr(used, "_rule2_parent", None)
+        if isinstance(parent, (ast.Subscript, ast.Attribute)) and parent.value is used:
+            extracted, extracted_kind = _binding_targets(parent)
+            derived += [(n, extracted_kind) for n in extracted]
+        # fix(#1394): ITERATING a container hands each element — the argv — to
+        # the loop target, exactly as subscripting it hands over one.
+        # `_binding_targets` already reads that off the AST when the container
+        # is written in place (`for cmd in (["gdalinfo", path],):`); once the
+        # container has a NAME (`commands = (["gdalinfo", path],)` then `for cmd
+        # in commands:`) the AST no longer says so, and only the followed kind
+        # carries what the container was. Without it the shape reported ZERO
+        # argv sites: invisible to the gate, so neither creditable nor
+        # reportable — the one failure direction the #1077 allowlist inversion
+        # exists to remove.
+        #
+        # Gated on the kind for the same reason #996 gated its in-place twin:
+        # iterating the VECTOR (`for part in cmd:`) yields strings, and
+        # iterating a dict that holds the argv as a VALUE yields keys (codex
+        # round 1).
+        if kind == _ITER_YIELDS_VECTOR:
+            derived += [(n, None) for n in _loop_target_paths(used)]
+    aliases, alias_kind = _binding_targets(used)
+    # A wrapper at the ALIAS site is the outermost one now, so it decides what
+    # iterating the alias yields; with no new wrapper the kind carries over
+    # unchanged. Either way the one-bit answer is preserved: the alias holds a
+    # container when this path did or the alias site added one.
+    derived += [(n, alias_kind or kind) for n in aliases]
+    return derived
+
+
 def _argv_escape_kind(node: ast.List | ast.Tuple, rel: str) -> int:
     """The strongest escape a GDAL-headed literal reaches, its bindings included.
 
@@ -1919,17 +2002,27 @@ def _argv_escape_kind(node: ast.List | ast.Tuple, rel: str) -> int:
     # `alias = cmd`, `subprocess.run(alias)` reaches an exec through a name the
     # literal was never directly bound to, and stopping at the first hop lost
     # it — a regression against the pre-#996 scan, which flagged everything.
-    seen: set[str] = set()
     # The overwrite guard below applies only to paths the literal binds
     # DIRECTLY. For a derived alias the statement that introduces it would
     # itself look like an overwrite, and over-reporting is the safe side.
     original_paths = set(names)
-    pending = {(n, container_kind) for n in names}
+    # fix(#1394), codex round 3: path -> kind, MERGED, never overwritten. The
+    # worklist used to be a set of pairs collapsed with `{n: c for n, c in
+    # batch}`, so one path reached with two kinds — `x = commands` beside
+    # `x = {"label": commands}` — kept whichever the set happened to yield
+    # last, and the gate's verdict moved with PYTHONHASHSEED. It predates the
+    # kinds (the same collapse could pick either boolean) and widens with them.
+    resolved: dict[str, str | None] = {}
+    pending: dict[str, str | None] = {}
+    for name in names:
+        _queue_path(pending, resolved, name, container_kind)
     while pending:
-        current_batch = pending
-        pending = set()
-        seen |= {n for n, _ in current_batch}
-        current_paths = {n: c for n, c in current_batch}
+        current_paths = pending
+        pending = {}
+        for queued, queued_kind in current_paths.items():
+            resolved[queued] = _louder_kind(
+                resolved.get(queued, queued_kind), queued_kind
+            )
         for used in ast.walk(scope):
             if not isinstance(used, (ast.Name, ast.Attribute, ast.Subscript)):
                 continue
@@ -1944,47 +2037,11 @@ def _argv_escape_kind(node: ast.List | ast.Tuple, rel: str) -> int:
             if path in original_paths and _overwritten_before(used, node, path):
                 continue
             kind = current_paths[path]
-            holds = kind is not None
-            # fix(#996 review): reading a CONTAINER through a subscript or
-            # attribute yields the vector — `commands = {...}` then
-            # `cmd = commands["inspect"]`. Follow that extraction, or the
-            # alias chain stops dead at the container.
-            if holds:
-                parent = getattr(used, "_rule2_parent", None)
-                if (
-                    isinstance(parent, (ast.Subscript, ast.Attribute))
-                    and parent.value is used
-                ):
-                    extracted, extracted_kind = _binding_targets(parent)
-                    pending |= {(n, extracted_kind) for n in extracted - seen}
-                # fix(#1394): ITERATING a container hands each element — the
-                # argv — to the loop target, exactly as subscripting it hands
-                # over one. `_binding_targets` already reads that off the AST
-                # when the container is written in place (`for cmd in
-                # (["gdalinfo", path],):`); once the container has a NAME
-                # (`commands = (["gdalinfo", path],)` then `for cmd in
-                # commands:`) the AST no longer says so, and only this loop
-                # carries what the container was. Without it the shape reported
-                # ZERO argv sites: invisible to the gate, so neither creditable
-                # nor reportable — the one failure direction the #1077
-                # allowlist inversion exists to remove.
-                #
-                # Gated on the kind for the same reason #996 gated its in-place
-                # twin: iterating the VECTOR (`for part in cmd:`) yields
-                # strings, and iterating a dict that holds the argv as a VALUE
-                # yields keys (codex round 1).
-                if kind == _ITER_YIELDS_VECTOR:
-                    pending |= {(n, None) for n in _loop_target_paths(used) - seen}
-            best = max(best, _escape_kind(used, vector=not holds))
+            best = max(best, _escape_kind(used, vector=kind is None))
             if best == _ESCAPE_CALL:
                 return best
-            aliases, alias_kind = _binding_targets(used)
-            # A wrapper at the ALIAS site is the outermost one now, so it
-            # decides what iterating the alias yields; with no new wrapper the
-            # kind carries over unchanged. Either way the one-bit answer is
-            # preserved: the alias holds a container when this path did or the
-            # alias site added one.
-            pending |= {(n, alias_kind or kind) for n in aliases - seen}
+            for name, derived_kind in _derived_paths(used, kind):
+                _queue_path(pending, resolved, name, derived_kind)
     return best
 
 
@@ -3256,6 +3313,42 @@ def test_guard_destructuring_loop_target_does_not_receive_the_argv():
     )
     assert total == 0, (total, violations)
     assert violations == []
+
+
+def test_guard_conflicting_container_kinds_merge_to_the_louder():
+    """fix(#1394), codex round 3: a path reached twice has ONE answer.
+
+    ``x = commands`` beside ``x = {"label": commands}`` puts ``x`` on the
+    worklist as both a sequence and a dict. Collapsing the pairs kept whichever
+    the set happened to yield last, so the verdict moved with
+    ``PYTHONHASHSEED``; they now merge to the kind that follows MORE, which
+    keeps a conflict on the reported side.
+
+    The merge rule is pinned directly, because the end-to-end shape below can
+    only ever catch a regression on half the seeds — which is the flake this
+    exists to prevent, not a gate.
+    """
+    assert _louder_kind(_ITER_YIELDS_VECTOR, None) == _ITER_YIELDS_VECTOR
+    assert _louder_kind(None, _ITER_YIELDS_VECTOR) == _ITER_YIELDS_VECTOR
+    assert _louder_kind(_ITER_YIELDS_VECTOR, _ITER_YIELDS_OTHER) == _ITER_YIELDS_VECTOR
+    assert _louder_kind(_ITER_YIELDS_OTHER, _ITER_YIELDS_VECTOR) == _ITER_YIELDS_VECTOR
+    assert _louder_kind(_ITER_YIELDS_OTHER, None) == _ITER_YIELDS_OTHER
+    assert _louder_kind(None, None) is None
+
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def fn(path):\n"
+            "    commands = [['gdalinfo', path]]\n"
+            "    x = commands\n"
+            "    x = {'label': commands}\n"
+            "    for cmd in x:\n"
+            "        subprocess.run(cmd)\n"
+        ),
+        {},
+    )
+    assert total == 1, (total, violations)
+    assert len(violations) == 1 and "(fn)" in violations[0]
 
 
 def test_guard_container_kind_survives_an_alias_hop():
