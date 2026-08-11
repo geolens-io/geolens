@@ -1182,11 +1182,17 @@ BEGIN
         JOIN pg_catalog.pg_namespace AS namespace
           ON namespace.oid = default_acl.defaclnamespace
         WHERE namespace.nspname = schema_name
-          -- aclexplode also returns the owner's own baseline entry. Revoking
-          -- that turns an ordinary additive default into a subtractive one,
-          -- which is a worse state than the one being cleared and which only
-          -- the owner could then reset.
+          -- aclexplode also returns the entries PostgreSQL puts there itself:
+          -- the owner's own privileges on every object kind, and PUBLIC's
+          -- EXECUTE on functions and USAGE on types. Revoking one of those
+          -- turns an ordinary additive default into a subtractive one, which is
+          -- a worse state than the one being cleared and which only the owner
+          -- could then reset. Functions and types have no other privilege to
+          -- carry, so skipping PUBLIC entirely for them is exact.
           AND acl.grantee IS DISTINCT FROM default_acl.defaclrole
+          AND NOT (
+              acl.grantee = 0 AND default_acl.defaclobjtype IN ('f', 'T')
+          )
     LOOP
         IF default_acl_row.owner_name <> CURRENT_USER THEN
             EXECUTE pg_catalog.format('SET ROLE %I', default_acl_row.owner_name);

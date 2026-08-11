@@ -1042,10 +1042,19 @@ class TestReportedStateMatchesWhatApplyEnforces:
                     )
                 )
                 await conn.execute(sa.text("RESET ROLE"))
+                # Functions carry a built-in PUBLIC EXECUTE that aclexplode
+                # reports alongside the added grantee; revoking it would leave a
+                # subtractive entry nothing here could reset.
+                await conn.execute(
+                    sa.text(
+                        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} "
+                        f"GRANT EXECUTE ON FUNCTIONS TO {_reader}"
+                    )
+                )
 
             async with engine.connect() as conn:
                 state = await tenant_ownership_state(conn, tenant_id)
-            assert state.unexpected_default_acls == 3
+            assert state.unexpected_default_acls == 4
             assert not state.adopted
 
             repaired = await run_adoption(engine, apply=True)
