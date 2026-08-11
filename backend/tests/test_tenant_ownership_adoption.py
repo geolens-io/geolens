@@ -1096,6 +1096,31 @@ class TestSuccessPredicate:
         assert report.rls_gaps
         assert not report.ok
 
+    def test_disabled_trigger_on_an_undeclared_table_is_not_ok(self) -> None:
+        """The one combination neither drift direction can see.
+
+        A newly tenant-scoped table absent from ``RLS_TABLES`` with its stamping
+        trigger disabled is in neither ``live_only`` (the trigger does not fire)
+        nor ``constant_only`` (the constant never named it), and has no row
+        security to be missing. The disabled trigger has to be its own finding.
+        """
+        boundary = _clean_boundary() + [
+            BoundaryTableState(
+                name="w998_new_and_undeclared",
+                has_stamping_trigger=False,
+                stamping_trigger_disabled=True,
+                has_tenant_id=True,
+                rls_enabled=False,
+                rls_forced=False,
+            )
+        ]
+        report = _report(boundary=boundary)
+        assert boundary_drift(boundary) == ([], [])
+        assert report.rls_gaps == []
+        assert report.disabled_stamping_triggers == ["w998_new_and_undeclared"]
+        assert not report.ok
+        assert "DISABLED" in format_report(report)
+
     def test_declared_table_without_a_stamping_trigger_is_not_ok(self) -> None:
         """The other direction: inserts land with no tenant_id at all."""
         boundary = [table for table in _clean_boundary() if table.name != RLS_TABLES[0]]

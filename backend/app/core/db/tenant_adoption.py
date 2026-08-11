@@ -654,6 +654,19 @@ class AdoptionReport:
         return [name for name in BOUNDARY_FUNCTIONS if name not in present]
 
     @property
+    def disabled_stamping_triggers(self) -> list[str]:
+        """Boundary tables whose stamping trigger exists but does not fire.
+
+        Its own condition, not a corollary of the drift check: a table that is
+        newly tenant-scoped *and* absent from ``RLS_TABLES`` lands in neither
+        drift direction and has no row-security requirement to miss, so a
+        disabled trigger there would otherwise be printed and then ignored.
+        """
+        return sorted(
+            table.name for table in self.boundary if table.stamping_trigger_disabled
+        )
+
+    @property
     def rls_gaps(self) -> list[str]:
         """Boundary tables that cannot enforce tenant isolation as they stand.
 
@@ -672,8 +685,8 @@ class AdoptionReport:
         passes on a database the report itself calls broken: a missing boundary
         function, a fixed-role topology ``--apply`` would refuse, a provisioner
         grant a restore dropped, boundary drift that leaves a stamped table
-        without RLS at boot, and a boundary table that cannot enforce isolation
-        as it stands all count.
+        without RLS at boot, a stamping trigger that does not fire, and a
+        boundary table that cannot enforce isolation as it stands all count.
         """
         if (
             self.failures
@@ -681,6 +694,7 @@ class AdoptionReport:
             or self.cluster_topology
             or self.provisioner_grants_missing
             or self.rls_gaps
+            or self.disabled_stamping_triggers
         ):
             return False
         if not all(function.secured for function in self.functions):
