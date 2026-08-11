@@ -87,6 +87,11 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
         "oauth_provider.update",
         "preview_service_layer",
         "probe_service",
+        # feat(#565): the raw sandbox SQL endpoint (POST /api/query/) records
+        # every statement it runs or refuses — the durable trail for
+        # programmatic SQL data access. Emitted in processing/ai/query_router.py.
+        "query.execute",
+        "query.reject",
         # feat(#1268) / ADR-002 Amendment A10: the refresh-run lifecycle. The
         # run table is mutable and cascades with its dataset, so it is a status
         # board rather than a ledger; these four are the append-only record.

@@ -343,12 +343,11 @@ def test_unsafe_methods_are_refused_off_the_exempt_list():
 # root_path, so those could never match — and because the check fails closed,
 # a read_only key would have been refused on the one endpoint the maintainer
 # decision says it may call, silently.
-_PENDING_EXEMPT_ROUTES: frozenset[tuple[str, str]] = frozenset(
-    {
-        ("POST", "/query/"),  # #565, SELECT-only sandbox endpoint
-        ("POST", "/query"),  # ROUTE-01 dual-shape sibling
-    }
-)
+#
+# feat(#565): POST /query/ is mounted now, so its pair moved out of here and
+# under the live resolution check below. Empty until the next pre-announced
+# carve-out.
+_PENDING_EXEMPT_ROUTES: frozenset[tuple[str, str]] = frozenset()
 
 
 def _mounted_route_pairs() -> set[tuple[str, str]]:
@@ -449,28 +448,55 @@ def test_an_unresolvable_route_fails_closed():
     assert _read_only_key_may_call("POST", "<unmatched-route>") is False
 
 
-def test_565_route_is_not_mounted_yet():
-    """The carve-out is a hook, not a live exemption. #565 has not landed, so
-    nothing is exempt today.
+def test_565_route_is_mounted_in_both_shapes():
+    """feat(#565): the carve-out is live. Both exempted templates resolve.
 
-    Whoever lands POST /api/query/ owns deleting this test and asserting the
-    live behaviour instead — which is the point of it being here.
-
-    Uses ``iter_route_contexts`` rather than scanning ``app.routes``: on
-    fastapi 0.140 ``include_router`` is lazy, so ``app.routes`` holds only the
-    top-level entries and a plain scan silently sees a fraction of the API
-    (same trap documented in test_rule1_structural.py).
+    Replaces the pre-landing ``test_565_route_is_not_mounted_yet`` hook, per
+    its own instructions. The trailing-slash form is the canonical
+    registration; the bare form is ROUTE-01's hidden alias.
     """
-    from fastapi.routing import iter_route_contexts
+    mounted = _mounted_route_pairs()
+    assert ("POST", "/query/") in mounted
+    assert ("POST", "/query") in mounted
 
-    from app.api.main import app
 
-    mounted = {ctx.path for ctx in iter_route_contexts(app.routes)}
-    assert "/api/query/" not in mounted, (
-        "POST /api/query/ now exists. Replace this test with the live "
-        "assertions: a read_only key succeeds on it, and still gets 403 on "
-        "another POST."
+@pytest.mark.anyio
+async def test_read_only_key_carve_out_works_in_both_directions(
+    client: AsyncClient, test_db_session
+):
+    """feat(#565): the live assertion the pre-landing hook demanded.
+
+    A read_only key SUCCEEDS on POST /query/ (a read in POST clothing), and
+    the very same key still gets 403 on another POST — so the carve-out is the
+    named route, not a general write path for read-only credentials.
+    """
+    from sqlalchemy import text
+
+    headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+    admin_id = await _get_admin(client, headers)
+    raw_key = (await _mint(client, headers, scope="read_only"))["key"]
+
+    tbl = f"scope565_{uuid.uuid4().hex[:8]}"
+    await test_db_session.execute(text(f"CREATE TABLE data.{tbl} (gid int)"))
+    await test_db_session.execute(text(f"INSERT INTO data.{tbl} VALUES (7)"))
+    await test_db_session.commit()
+    await create_dataset(test_db_session, created_by=admin_id, table_name=tbl)
+
+    resp = await client.post(
+        "/query/",
+        json={"sql": f"SELECT gid FROM data.{tbl}", "restrict_tables": [tbl]},
+        headers={"X-Api-Key": raw_key},
     )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["rows"] == [[7]]
+
+    refused = await client.post(
+        "/auth/api-keys/",
+        json={"name": "Still refused"},
+        headers={"X-Api-Key": raw_key},
+    )
+    assert refused.status_code == 403
+    assert refused.json()["detail"] == "This API key is read-only"
 
 
 # ---------------------------------------------------------------------------
