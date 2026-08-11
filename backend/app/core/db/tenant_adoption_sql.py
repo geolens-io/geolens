@@ -104,31 +104,6 @@ BEGIN
         CREATE ROLE {PROVISIONER}
             NOLOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOINHERIT
             NOREPLICATION NOBYPASSRLS;
-
-        -- PostgreSQL 16+ makes a non-superuser creator an ADMIN member of the
-        -- role it just created, but with INHERIT FALSE and SET FALSE — measured
-        -- on 18 — so the creator does not hold the new role's privileges.  The
-        -- boundary-function repair later in this run needs exactly those, and
-        -- would otherwise raise and roll back the five roles it just created,
-        -- leaving the runbook's no-globals recovery unable to finish.  A
-        -- superuser already holds them and takes this branch to no effect.
-        --
-        -- Only the branch that created the role touches the edge, so an
-        -- operator-managed membership is never rewritten.  No ADMIN here:
-        -- PostgreSQL refuses "ADMIN option cannot be granted back to your own
-        -- grantor", and the automatic membership already carries it.
-        IF NOT pg_catalog.pg_has_role(CURRENT_USER, '{PROVISIONER}', 'USAGE') THEN
-            IF pg_catalog.current_setting('server_version_num')::integer >= 160000 THEN
-                EXECUTE pg_catalog.format(
-                    'GRANT {PROVISIONER} TO %I WITH INHERIT TRUE, SET TRUE',
-                    CURRENT_USER
-                );
-            ELSE
-                EXECUTE pg_catalog.format(
-                    'GRANT {PROVISIONER} TO %I', CURRENT_USER
-                );
-            END IF;
-        END IF;
     END IF;
 
     FOREACH group_name IN ARRAY ARRAY[
@@ -144,6 +119,43 @@ BEGIN
             );
         END IF;
     END LOOP;
+
+    -- PostgreSQL 16+ makes a non-superuser creator an ADMIN member of the role
+    -- it just created, but with INHERIT FALSE and SET FALSE — measured on 18 —
+    -- so the creator does not hold the new role's privileges.  Everything after
+    -- this point needs them: the boundary-function repair, and every tenant's
+    -- ADMIN path to its own roles.
+    --
+    -- Taken on every apply run, not only the one that creates the role, because
+    -- the run hands it back at the end.  A superuser already holds the
+    -- privileges and does nothing here.  A caller with no ADMIN cannot grant
+    -- itself anything either, so it falls through to the refusal in
+    -- SECURE_BOUNDARY_FUNCTIONS_SQL, which prints the GRANT to run.
+    --
+    -- No ADMIN in the grant: PostgreSQL refuses "ADMIN option cannot be granted
+    -- back to your own grantor", and the automatic membership already carries
+    -- it.
+    IF NOT pg_catalog.pg_has_role(CURRENT_USER, '{PROVISIONER}', 'USAGE')
+       AND EXISTS (
+           SELECT 1
+           FROM pg_catalog.pg_auth_members AS membership
+           JOIN pg_catalog.pg_roles AS granted_role
+             ON granted_role.oid = membership.roleid
+           JOIN pg_catalog.pg_roles AS member_role
+             ON member_role.oid = membership.member
+           WHERE granted_role.rolname = '{PROVISIONER}'
+             AND member_role.rolname = CURRENT_USER
+             AND membership.admin_option
+       ) THEN
+        IF pg_catalog.current_setting('server_version_num')::integer >= 160000 THEN
+            EXECUTE pg_catalog.format(
+                'GRANT {PROVISIONER} TO %I WITH INHERIT TRUE, SET TRUE',
+                CURRENT_USER
+            );
+        ELSE
+            EXECUTE pg_catalog.format('GRANT {PROVISIONER} TO %I', CURRENT_USER);
+        END IF;
+    END IF;
 END
 $$
 """
@@ -436,22 +448,26 @@ END
 $$
 """
 
-#: Hand back the membership ``CLUSTER_ROLE_CREATE_SQL`` took when it created the
-#: provisioner on a fresh cluster.
+#: Hand back every membership in the five fixed roles that a fresh-cluster run
+#: leaves on the migrator, keeping only the one it needs to come back.
 #:
-#: It cannot be left behind.  ``CLUSTER_ROLE_VALIDATE_SQL`` rejects *any* direct
-#: member of the provisioner except the role running it, so a later recovery
-#: with a rotated migrator credential would refuse the topology before adopting
-#: a single tenant — future recovery would depend on retaining the original
-#: credential.  A run that ends here has already used the edge for everything it
-#: needed it for; the next run either creates the role again or is told the
-#: exact ``GRANT`` to run.
+#: ``CLUSTER_ROLE_VALIDATE_SQL`` rejects *any* direct member of these roles
+#: except the role running it, so anything left here makes the next recovery
+#: depend on reusing the same migrator credential.  Two sources: the usable
+#: provisioner edge ``CLUSTER_ROLE_CREATE_SQL`` takes for the run, and the
+#: automatic ADMIN membership PostgreSQL 16+ gives a non-superuser creator on
+#: every role it creates.
 #:
-#: Only the edge this run granted: grantor ``CURRENT_USER`` and no ``ADMIN``.
-#: The automatic creator membership PostgreSQL adds has a different grantor and
-#: carries ADMIN, and an operator-established edge has a different grantor too.
+#: The provisioner's automatic ADMIN edge is deliberately kept.  It grants no
+#: privileges by itself — measured — and it is what lets the same credential
+#: re-take a usable edge on the next run; without it the operator would have to
+#: re-grant by hand after every recovery.  What goes is the usable edge this run
+#: granted (grantor ``CURRENT_USER``, no ``ADMIN``) and the gateway memberships,
+#: which nothing in this tool ever reads.
 RELEASE_BOOTSTRAP_MEMBERSHIP_SQL = f"""
 DO $$
+DECLARE
+    group_name text;
 BEGIN
     IF EXISTS (
         SELECT 1
@@ -468,10 +484,32 @@ BEGIN
           AND NOT membership.admin_option
     ) THEN
         EXECUTE pg_catalog.format(
-            'REVOKE {PROVISIONER} FROM %I GRANTED BY %I',
-            CURRENT_USER, CURRENT_USER
+            'REVOKE {PROVISIONER} FROM %I GRANTED BY %I', CURRENT_USER, CURRENT_USER
         );
     END IF;
+
+    -- The four gateways get the same automatic creator membership, and nothing
+    -- in this tool ever needs it: the provisioning function grants tenant roles
+    -- TO the gateways using ADMIN on the *tenant* role, not on the gateway.
+    -- Left behind, each one is a landmine for the next recovery.
+    FOREACH group_name IN ARRAY ARRAY[
+        '{CONTROL}', '{WRITER}', '{SANDBOX}', '{TILE}'
+    ] LOOP
+        IF EXISTS (
+            SELECT 1
+            FROM pg_catalog.pg_auth_members AS membership
+            JOIN pg_catalog.pg_roles AS granted_role
+              ON granted_role.oid = membership.roleid
+            JOIN pg_catalog.pg_roles AS member_role
+              ON member_role.oid = membership.member
+            WHERE granted_role.rolname = group_name
+              AND member_role.rolname = CURRENT_USER
+        ) THEN
+            EXECUTE pg_catalog.format(
+                'REVOKE %I FROM %I', group_name, CURRENT_USER
+            );
+        END IF;
+    END LOOP;
 END
 $$
 """

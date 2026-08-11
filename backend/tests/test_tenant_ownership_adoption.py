@@ -59,7 +59,11 @@ from app.core.db.tenant_adoption_report import (
     format_report,
     rls_gaps,
 )
-from app.core.db.tenant_adoption_sql import RELEASE_BOOTSTRAP_MEMBERSHIP_SQL
+from app.core.db.tenant_adoption_sql import (
+    RELEASE_BOOTSTRAP_MEMBERSHIP_SQL,
+    SANDBOX,
+    TILE,
+)
 from app.core.db.tenant_adoption_sql import WRITER as WRITER_GATEWAY
 
 pytestmark = pytest.mark.anyio
@@ -1051,7 +1055,8 @@ class TestAdoptionWithRestoredBoundaryFunctions:
                     await conn.execute(sa.text(RELEASE_BOOTSTRAP_MEMBERSHIP_SQL))
                     assert await edges() == []
 
-                    # An ADMIN-carrying edge is somebody else's decision.
+                    # The provisioner's ADMIN edge is what lets the same
+                    # credential re-take a usable one next run, so it stays.
                     await conn.execute(
                         sa.text(
                             f"GRANT {PROVISIONER} TO current_user WITH ADMIN OPTION"
@@ -1059,6 +1064,32 @@ class TestAdoptionWithRestoredBoundaryFunctions:
                     )
                     await conn.execute(sa.text(RELEASE_BOOTSTRAP_MEMBERSHIP_SQL))
                     assert [admin for _grantor, admin in await edges()] == [True]
+
+                    # The four gateways get the same automatic creator edge and
+                    # nothing in the tool reads it, so all four go.
+                    gateways = [CONTROL, WRITER_GATEWAY, SANDBOX, TILE]
+                    for gateway in gateways:
+                        await conn.execute(
+                            sa.text(
+                                f"GRANT {gateway} TO current_user WITH ADMIN OPTION"
+                            )
+                        )
+                    await conn.execute(sa.text(RELEASE_BOOTSTRAP_MEMBERSHIP_SQL))
+                    remaining = (
+                        await conn.execute(
+                            sa.text(
+                                "SELECT count(*) FROM pg_auth_members AS membership "
+                                "JOIN pg_roles AS granted "
+                                "  ON granted.oid = membership.roleid "
+                                "JOIN pg_roles AS member "
+                                "  ON member.oid = membership.member "
+                                "WHERE granted.rolname = ANY(:gateways) "
+                                "AND member.rolname = current_user"
+                            ),
+                            {"gateways": gateways},
+                        )
+                    ).scalar_one()
+                    assert remaining == 0
                 finally:
                     await transaction.rollback()
         finally:
