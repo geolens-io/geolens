@@ -6,13 +6,14 @@ import { fireEvent, render, screen, waitFor } from '@/test/test-utils';
 import { SaveChatPreviewDialog, chatPreviewFileName } from '../SaveChatPreviewDialog';
 import { ApiError } from '@/api/client';
 
-const { uploadFile, previewFile, commitImport } = vi.hoisted(() => ({
+const { uploadFile, previewFile, commitImport, getJobStatus } = vi.hoisted(() => ({
   uploadFile: vi.fn(),
   previewFile: vi.fn(),
   commitImport: vi.fn(),
+  getJobStatus: vi.fn(),
 }));
 
-vi.mock('@/api/ingest', () => ({ uploadFile, previewFile, commitImport }));
+vi.mock('@/api/ingest', () => ({ uploadFile, previewFile, commitImport, getJobStatus }));
 
 const { toastSuccess, toastError } = vi.hoisted(() => ({
   toastSuccess: vi.fn(),
@@ -37,6 +38,7 @@ beforeEach(() => {
   uploadFile.mockResolvedValue({ job_id: 'job-1' });
   previewFile.mockResolvedValue({ job_id: 'job-1' });
   commitImport.mockResolvedValue({ job_id: 'job-1', status: 'pending', message: 'Import queued' });
+  getJobStatus.mockResolvedValue({ id: 'job-1', status: 'running' });
 });
 
 function renderDialog(props: Partial<React.ComponentProps<typeof SaveChatPreviewDialog>> = {}) {
@@ -192,6 +194,47 @@ describe('SaveChatPreviewDialog', () => {
     await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(toastError).toHaveBeenCalledTimes(1);
+  });
+
+  // feat(#1241 codex r4): the backend answers a repeat commit with the same
+  // 400 for every non-pending status, and a dispatch failure leaves the job
+  // `failed` with its staged file deleted. Reading the 400 alone reported
+  // success for an import that was never queued.
+  it('does not claim success when the job the commit reached is dead', async () => {
+    commitImport
+      .mockRejectedValueOnce(new ApiError('Queue unavailable', 503))
+      .mockRejectedValueOnce(new ApiError('Job already processed', 400));
+    getJobStatus.mockResolvedValue({ id: 'job-1', status: 'failed' });
+    const { onOpenChange } = renderDialog();
+
+    submit();
+    await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1));
+
+    submit();
+    await waitFor(() => expect(toastError).toHaveBeenCalledTimes(2));
+    expect(toastSuccess).not.toHaveBeenCalled();
+    expect(onOpenChange).not.toHaveBeenCalled();
+
+    // The dead job is abandoned rather than resumed forever: the next attempt
+    // starts a fresh upload, which is the only thing that can succeed once the
+    // staged file is gone.
+    submit();
+    await waitFor(() => expect(uploadFile).toHaveBeenCalledTimes(2));
+  });
+
+  it('claims nothing when the job status cannot be read', async () => {
+    commitImport
+      .mockRejectedValueOnce(new ApiError('Network unavailable', 0))
+      .mockRejectedValueOnce(new ApiError('Job already processed', 400));
+    getJobStatus.mockRejectedValue(new ApiError('Not found', 404));
+    const { onOpenChange } = renderDialog();
+
+    submit();
+    await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1));
+    submit();
+    await waitFor(() => expect(toastError).toHaveBeenCalledTimes(2));
+    expect(toastSuccess).not.toHaveBeenCalled();
+    expect(onOpenChange).not.toHaveBeenCalled();
   });
 
   it('does not swallow a 400 on the first commit attempt', async () => {

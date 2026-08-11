@@ -13,7 +13,7 @@ import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { ApiError } from '@/api/client';
-import { commitImport, previewFile, uploadFile } from '@/api/ingest';
+import { commitImport, getJobStatus, previewFile, uploadFile } from '@/api/ingest';
 import { ImportMetadataForm } from '@/components/import/ImportMetadataForm';
 import {
   Dialog,
@@ -50,6 +50,30 @@ export function chatPreviewFileName(prompt: string | undefined, fallbackTitle: s
     .trim();
   const title = truncateGraphemes(collapsed, MAX_SUGGESTED_TITLE, '').trim() || fallbackTitle;
   return `${title}.geojson`;
+}
+
+/**
+ * feat(#1241 codex r3/r4): what became of a job whose commit we already sent.
+ *
+ * The backend refuses a repeat commit with 400 for EVERY non-pending status,
+ * and those statuses do not mean the same thing. A commit that queued the
+ * import leaves the job for the worker to claim (`running`, then `complete`).
+ * A commit whose dispatch failed leaves it `failed` with its staged file
+ * already deleted (`queue_ingest_job`'s orphan guard, which also returns 503),
+ * so nothing on that job can ever succeed. Reading the 400 alone would call
+ * both of them success.
+ */
+async function stagedJobOutcome(jobId: string): Promise<'queued' | 'dead' | 'unknown'> {
+  try {
+    const job = await getJobStatus(jobId);
+    if (job.status === 'running' || job.status === 'complete') return 'queued';
+    if (job.status === 'failed' || job.status === 'cancelled') return 'dead';
+    // `pending` contradicts the 400 that sent us here (a race), and no other
+    // status belongs to this flow. Claim nothing.
+    return 'unknown';
+  } catch {
+    return 'unknown';
+  }
 }
 
 interface SaveChatPreviewDialogProps {
@@ -113,9 +137,8 @@ export function SaveChatPreviewDialog({
       } catch (err) {
         // feat(#1241 codex r3): a commit whose response was lost still queued
         // the import, and the backend then refuses the repeat with 400 "Job
-        // already processed". That refusal IS the confirmation the import
-        // exists, so swallowing it here is what stops the dialog looping over
-        // a dataset the server already has. Only ever on a RE-commit: a 400 on
+        // already processed" — forever, so the dialog could never close over a
+        // dataset the server already had. Only ever on a RE-commit: a 400 on
         // the first attempt is a real rejection.
         //
         // Sending the second commit at all is safe. The worker claims a job
@@ -125,6 +148,17 @@ export function SaveChatPreviewDialog({
         // the worker picked the job up — the redundant task finds the row
         // claimed and no-ops. One dataset either way.
         if (!isRecommit || !(err instanceof ApiError) || err.status !== 400) throw err;
+        // feat(#1241 codex r4): but that 400 covers every non-pending status,
+        // including the job a failed dispatch marked `failed` (503 on the
+        // first attempt, staged file already deleted). Ask what actually
+        // happened rather than reading success into the refusal.
+        const outcome = await stagedJobOutcome(staged.jobId);
+        if (outcome !== 'queued') {
+          // A dead job can never produce a dataset and its staged file is
+          // gone, so stop resuming it: the next submit starts a fresh upload.
+          if (outcome === 'dead') stagedRef.current = null;
+          throw err;
+        }
       }
       toast.success(t('savePreview.started'));
       onOpenChange(false);
