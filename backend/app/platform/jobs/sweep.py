@@ -24,7 +24,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import MAX_PRESIGNED_URL_LIFETIME_SECONDS, settings
 from app.observability.metrics.refresh import refresh_sweep_reconciled_total
-from app.platform.jobs.models import IngestJob, owned_presigned_staging_key
+from app.platform.jobs.models import (
+    STATUSES_NEEDING_STAGED_INPUT,
+    IngestJob,
+    owned_presigned_staging_key,
+)
 from app.platform.jobs.staging_reconcile import reconcile_orphaned_staging_objects
 from app.platform.refresh.service import sweep_abandoned_refresh_runs
 from app.platform.storage.titiler_url import resolve_current_storage_key
@@ -1333,7 +1337,7 @@ async def fail_stale_jobs(
             survivors = await db.execute(
                 select(IngestJob.file_path).where(
                     IngestJob.file_path.in_(deleted_paths),
-                    IngestJob.status.in_(("pending", "running", "failed")),
+                    IngestJob.status.in_(STATUSES_NEEDING_STAGED_INPUT),
                 )
             )
             deleted_paths -= set(survivors.scalars())

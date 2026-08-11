@@ -2315,7 +2315,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # audit shape). The pass itself lives in its own module,
     # platform/jobs/staging_reconcile.py, which is under the 1000-line
     # inclusion threshold and needs no entry. Cap 1366 -> 1375, exact.
-    "backend/app/platform/jobs/sweep.py": 1375,
+    # fix(#1249 review r4): +4 — the retention purge's survivor query now reads
+    # STATUSES_NEEDING_STAGED_INPUT from jobs/models.py instead of an inline
+    # tuple, because the reconciliation asks the same question and two copies
+    # of "which statuses still need the bytes" drift into a leak in one
+    # direction and a deletion of live input in the other. The lines are the
+    # multi-name import that replaced the single-name one. Cap 1375 -> 1379,
+    # exact.
+    "backend/app/platform/jobs/sweep.py": 1379,
     # fix(second-opinion review on #1236 review r3): first entry — crossed
     # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
     # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side

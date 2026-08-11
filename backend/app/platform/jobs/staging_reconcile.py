@@ -61,12 +61,12 @@ from datetime import datetime, timedelta, timezone
 from typing import NamedTuple
 
 import structlog
-from sqlalchemy import or_, select, text
+from sqlalchemy import and_, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.observability.metrics.jobs import staging_orphans_deleted_total
-from app.platform.jobs.models import IngestJob
+from app.platform.jobs.models import STATUSES_NEEDING_STAGED_INPUT, IngestJob
 from app.platform.storage.provider import StoredObject
 from app.platform.storage.titiler_url import resolve_current_storage_key
 
@@ -244,19 +244,39 @@ def _reference_clause(job_id: uuid.UUID | None, logical_keys: set[str]):
     ``IngestJob.id`` alone would look up the purged parent, find nothing, and
     delete the input the child (or its retry) is about to read.
 
-    So the question is "does any row still reference this key", asked of both
-    columns that can hold one: ``file_path`` (the bound input, cloned onto
-    fan-out children) and ``user_metadata->>'s3_key'`` (the client-writable
-    upload key, also cloned wholesale onto children). Those are the only two
-    places in the schema a `staging/` key is ever stored.
+    So the question is "does any row still NEED this key", which is two
+    different questions with two different answers:
 
-    Both comparisons are against the LOGICAL key. The provider reports
-    physical keys, which carry the ``tenants/{id}/`` namespace in multi-tenant
-    mode, while these columns deliberately persist the tenant-agnostic form.
+    - The row whose id the key names owns it outright, at any status. That row
+      is where ``_sweep_expired_presigned_staging``'s markers live and it is
+      the row the retention purge holds back while a PUT URL may still be
+      live, so while it exists the key has a lifecycle and this reconciler is
+      not it.
+    - Any OTHER row only counts while it can still consume the bytes, which is
+      ``STATUSES_NEEDING_STAGED_INPUT`` (fix(#1249) review r4, codex P2).
+      Unconditional was wrong in the direction that never self-corrects: a
+      fan-out child stays ``complete`` forever and is exempt from retention
+      indefinitely as a dataset's latest complete job, so its inherited
+      ``file_path`` would answer "still referenced" on every future pass and
+      the leaked parent object could never be repaired. That is the same rule
+      the retention purge's own survivor query applies, now read from one
+      place so the two cannot drift.
+
+    ``user_metadata->>'s3_key'`` is deliberately NOT consulted. It is cloned
+    onto fan-out children wholesale, and ``owned_presigned_staging_key``
+    already settles that an inherited copy is not ownership; the only row for
+    which it IS ownership is the one whose id the key names, which the first
+    clause covers already.
+
+    Comparisons are against the LOGICAL key. The provider reports physical
+    keys, which carry the ``tenants/{id}/`` namespace in multi-tenant mode,
+    while these columns deliberately persist the tenant-agnostic form.
     """
     clauses = [
-        IngestJob.file_path.in_(logical_keys),
-        IngestJob.user_metadata["s3_key"].astext.in_(logical_keys),
+        and_(
+            IngestJob.file_path.in_(logical_keys),
+            IngestJob.status.in_(STATUSES_NEEDING_STAGED_INPUT),
+        )
     ]
     if job_id is not None:
         clauses.insert(0, IngestJob.id == job_id)
@@ -499,25 +519,22 @@ async def _delete_page_orphans(
     logical_keys = {candidate.logical_key for candidate in candidates}
     referenced_rows = (
         await db.execute(
-            select(
-                IngestJob.id,
-                IngestJob.file_path,
-                IngestJob.user_metadata["s3_key"].astext,
-            ).where(
+            select(IngestJob.id, IngestJob.file_path, IngestJob.status).where(
                 or_(
                     IngestJob.id.in_({c.job_id for c in candidates}),
                     IngestJob.file_path.in_(logical_keys),
-                    IngestJob.user_metadata["s3_key"].astext.in_(logical_keys),
                 )
             )
         )
     ).all()
-    live_ids = {row_id for row_id, _file_path, _s3_key in referenced_rows}
+    live_ids = {row_id for row_id, _file_path, _status in referenced_rows}
+    # A row's file_path only shields the object while that row can still
+    # consume it — see `_reference_clause`, whose per-object recheck applies
+    # the identical rule and is the authority.
     referenced_keys = {
-        key
-        for _row_id, file_path, s3_key in referenced_rows
-        for key in (file_path, s3_key)
-        if key
+        file_path
+        for _row_id, file_path, status in referenced_rows
+        if file_path and status in STATUSES_NEEDING_STAGED_INPUT
     }
 
     processed: str | None = None

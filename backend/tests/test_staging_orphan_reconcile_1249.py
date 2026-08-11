@@ -214,19 +214,62 @@ class TestReconciliationDecision:
         assert storage.deleted == [], "deleted a surviving child's only input"
         assert outcome.orphans_deleted == 0
 
-    async def test_an_inherited_s3_key_also_counts_as_a_reference(
+    async def test_a_failed_child_still_shields_the_input_it_can_retry_from(
         self, test_db_session: AsyncSession
     ) -> None:
-        """The other cloned column. `user_metadata` is copied wholesale too, so
-        a child carries the parent's client-writable upload key as well."""
+        """`/jobs/{id}/retry` is failed-only, so a failed row is not done."""
         purged_parent_id = uuid.uuid4()
-        upload_key = f"staging/{purged_parent_id}/multi.gpkg"
+        shared_input = f"staging/{purged_parent_id}/frozen/multi.gpkg"
+        await _job(test_db_session, status="failed", file_path=shared_input)
+        storage = FakeStorage({shared_input: _old()})
+
+        outcome = await _run(test_db_session, storage)
+
+        assert storage.deleted == []
+        assert outcome.orphans_deleted == 0
+
+    async def test_a_complete_childs_inherited_reference_does_not_shield_forever(
+        self, test_db_session: AsyncSession
+    ) -> None:
+        """fix(#1249 review r4, codex P2): the sibling of the r3 fix.
+
+        A fan-out child stays `complete` forever and is exempt from retention
+        indefinitely as a dataset's latest complete job. Counting its inherited
+        `file_path` as a live reference at any status would answer "still
+        referenced" on every future pass, so an object leaked by a failed
+        parent-side delete could never be repaired — the reconciler would
+        permanently decline the one case it exists for. The retention purge
+        draws the line in exactly the same place.
+        """
+        purged_parent_id = uuid.uuid4()
+        shared_input = f"staging/{purged_parent_id}/frozen/multi.gpkg"
         await _job(
             test_db_session,
-            status="failed",
-            file_path=f"staging/{purged_parent_id}/frozen/multi.gpkg",
-            user_metadata={"s3_key": upload_key},
+            status="complete",
+            file_path=shared_input,
+            # Cloned wholesale by create_fan_out_jobs, and never ownership —
+            # owned_presigned_staging_key rejects an inherited key for the
+            # same reason this must not shield one.
+            user_metadata={"s3_key": f"staging/{purged_parent_id}/multi.gpkg"},
         )
+        storage = FakeStorage({shared_input: _old()})
+
+        outcome = await _run(test_db_session, storage)
+
+        assert storage.deleted == [shared_input]
+        assert outcome.orphans_deleted == 1
+
+    async def test_the_owning_row_shields_its_key_at_any_status(
+        self, test_db_session: AsyncSession
+    ) -> None:
+        """The status rule applies to OTHER rows, never to the key's own job.
+
+        That row is where the post-expiry sweep's markers live and the one
+        retention holds back while a PUT URL may still be live, so while it
+        exists the key has a lifecycle and this reconciler is not it.
+        """
+        job_id = await _job(test_db_session, status="complete")
+        upload_key = f"staging/{job_id}/roads.geojson"
         storage = FakeStorage({upload_key: _old()})
 
         outcome = await _run(test_db_session, storage)
