@@ -838,25 +838,58 @@ def _reject_nested_mutation(stmt: exp.Expression, sql: str) -> None:
         raise SandboxError("invalid_query", "Only SELECT queries are allowed")
 
 
+def _is_wildcard_projection(proj: exp.Expression) -> bool:
+    """Whether a top-level projection is ``*`` or ``t.*`` (not ``count(*)``)."""
+    return isinstance(proj, exp.Star) or (
+        isinstance(proj, exp.Column) and isinstance(proj.this, exp.Star)
+    )
+
+
+def _projection_slots(expr: exp.Expression) -> int:
+    """Value slots a single projection materializes, expanding constructors.
+
+    A scalar (column, arithmetic, function call) is one slot; a composite VALUE
+    constructor — a row ``(a, b, c)``, ``ARRAY[…]``, or a struct — materializes
+    one slot per element and nests, so ``(payload, payload, … 1600x)`` counts as
+    1600 even though it is one AST projection.
+    """
+    if isinstance(expr, exp.Alias):
+        expr = expr.this
+    if isinstance(expr, exp.Paren):
+        return _projection_slots(expr.this)
+    if isinstance(expr, (exp.Tuple, exp.Array, exp.Struct)):
+        elements = expr.expressions
+        return sum(_projection_slots(e) for e in elements) if elements else 1
+    return 1
+
+
 def _reject_too_many_output_columns(
     stmt: exp.Expression, sql: str, cap: int | None
 ) -> None:
-    """Reject a statement projecting more than ``cap`` output columns.
+    """Reject a statement whose output row is too wide.
 
-    fix(#565 codex P1 r20): repeated plain projections amplify response width
-    without any function — ``SELECT payload, payload, … 1600x``. The result's
-    columns are the outermost scope's projections (a set op's branches must
-    match, so the first branch is representative).
+    fix(#565 codex P1 r20/r21): response width amplifies with no function at
+    all. Three forms, all bounded here by counting VALUE SLOTS (not AST
+    projections): ``SELECT payload, payload, … 1600x`` (many projections);
+    ``SELECT (payload, payload, …)`` (one composite projection, r21); and
+    ``SELECT *`` / ``t.*`` against a wide table, which expands to an unknown
+    count and so is refused outright — the raw endpoint requires explicit
+    columns (r21). The result columns are the outermost scope's projections (a
+    set op's branches must match, so the first branch is representative).
     """
     if cap is None:
         return
     outer = stmt
     while isinstance(outer, (exp.Union, exp.Intersect, exp.Except)):
         outer = outer.this
-    if isinstance(outer, exp.Select) and len(outer.expressions) > cap:
-        logger.info(
-            "sandbox.too_many_columns", sql=sql, columns=len(outer.expressions), cap=cap
-        )
+    if not isinstance(outer, exp.Select):
+        return
+    if any(_is_wildcard_projection(proj) for proj in outer.expressions):
+        logger.info("sandbox.wildcard_projection", sql=sql)
+        raise SandboxError("invalid_query", "Query must select explicit columns, not *")
+    width = sum(_projection_slots(proj) for proj in outer.expressions)
+    if width > cap:
+        logger.info("sandbox.too_many_columns", sql=sql, columns=width, cap=cap)
         raise SandboxError("invalid_query", "Query selects too many columns")
 
 
@@ -1227,16 +1260,38 @@ def _join_is_constrained(join: exp.Join) -> bool:
     """
     if join.args.get("using"):
         return True
-    on = join.args.get("on")
-    if on is None:
+    return _predicate_constrains(join.args.get("on"))
+
+
+def _predicate_constrains(node: exp.Expression | None) -> bool:
+    """Whether a boolean predicate genuinely narrows the join it gates.
+
+    fix(#565 codex P1 r21): an equality merely OCCURRING in the ON is not
+    enough — ``a.gid = b.gid OR TRUE`` is always true, so the join is still a
+    cartesian product. The predicate constrains only if an ``AND`` has a
+    constraining side, an ``OR`` has ALL sides constraining, or it is itself a
+    column-to-column equality. ``TRUE`` / ``1=1`` / an inequality do not.
+    """
+    if node is None:
         return False
-    return any(
-        eq.this is not None
-        and eq.expression is not None
-        and eq.this.find(exp.Column) is not None
-        and eq.expression.find(exp.Column) is not None
-        for eq in on.find_all(exp.EQ)
-    )
+    if isinstance(node, exp.Paren):
+        return _predicate_constrains(node.this)
+    if isinstance(node, exp.And):
+        return _predicate_constrains(node.this) or _predicate_constrains(
+            node.expression
+        )
+    if isinstance(node, exp.Or):
+        return _predicate_constrains(node.this) and _predicate_constrains(
+            node.expression
+        )
+    if isinstance(node, exp.EQ):
+        return (
+            node.this is not None
+            and node.expression is not None
+            and node.this.find(exp.Column) is not None
+            and node.expression.find(exp.Column) is not None
+        )
+    return False
 
 
 def _from_join_pairs(select: exp.Select) -> list[tuple[exp.Expression, bool]]:

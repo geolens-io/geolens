@@ -2838,9 +2838,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # when concat is blocked (chained s||s doubling); P1 r20 adds the
     # cross-product degree (_XPROD_KEY / _join_is_constrained: distinct tables
     # cross-joined multiply even at per-table exponent 1) and an output-column
-    # cap (repeated projections amplify response width). Most of the added lines
-    # are that rationale. Cap at the exact size.
-    "backend/app/platform/sandbox/validator.py": 1757,
+    # cap (repeated projections amplify response width). P1 r21 makes the join
+    # constraint recursive (an equality inside `... OR TRUE` does not constrain)
+    # and counts composite-constructor value slots / rejects `*` for the width
+    # cap. Most of the added lines are that rationale. Cap at the exact size.
+    "backend/app/platform/sandbox/validator.py": 1812,
 }
 
 

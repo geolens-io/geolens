@@ -328,7 +328,7 @@ async def test_later_sibling_cte_name_cannot_mask_a_catalog_table(
         json={
             "sql": (
                 "WITH leak AS (SELECT usename FROM pg_user), "
-                f"pg_user AS (SELECT gid FROM data.{tbl}) SELECT * FROM leak"
+                f"pg_user AS (SELECT gid FROM data.{tbl}) SELECT usename FROM leak"
             ),
             "restrict_tables": [tbl],
         },
@@ -1036,6 +1036,72 @@ async def test_too_many_output_columns_is_rejected(
     )
     assert resp.status_code == 422
     assert resp.json()["detail"] == "Query selects too many columns"
+
+
+async def test_composite_projection_width_is_rejected(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P1 r21): a single composite ROW projection repeats a value
+    many times inside one AST expression, so counting projections missed it —
+    the value-slot count catches it."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = await _make_table(test_db_session, owner)
+    wide = ", ".join(["gid"] * 150)
+
+    resp = await client.post(
+        "/query/",
+        json={"sql": f"SELECT ({wide}) FROM data.{tbl}", "restrict_tables": [tbl]},
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "Query selects too many columns"
+
+
+async def test_star_projection_is_rejected(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P1 r21): `SELECT *` / `t.*` expands to an unknown column
+    count against a wide table, so the raw endpoint requires explicit columns."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    tbl = await _make_table(test_db_session, owner)
+
+    for sql in (f"SELECT * FROM data.{tbl}", f"SELECT t.* FROM data.{tbl} t"):
+        resp = await client.post(
+            "/query/",
+            json={"sql": sql, "restrict_tables": [tbl]},
+            headers=headers,
+        )
+        assert resp.status_code == 422, sql
+        assert resp.json()["detail"] == "Query must select explicit columns, not *"
+
+
+async def test_always_true_disjunctive_join_is_rejected(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    """fix(#565 codex P1 r21): `ON a.gid = b.gid OR TRUE` is a cartesian product —
+    an equality merely occurring in the predicate does not constrain it."""
+    headers = admin_auth_header
+    owner = await _admin_id(client, headers)
+    t1 = await _make_table(test_db_session, owner)
+    t2 = await _make_table(test_db_session, owner)
+    t3 = await _make_table(test_db_session, owner)
+
+    resp = await client.post(
+        "/query/",
+        json={
+            "sql": (
+                f"SELECT count(*) FROM data.{t1} a "
+                f"JOIN data.{t2} b ON a.gid = b.gid OR TRUE "
+                f"JOIN data.{t3} c ON b.gid = c.gid OR TRUE"
+            ),
+            "restrict_tables": [t1, t2, t3],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == _REPETITION_MESSAGE
 
 
 async def test_range_column_is_serialized_as_text(
