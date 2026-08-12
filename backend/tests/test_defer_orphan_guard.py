@@ -507,7 +507,9 @@ class TestVrtSourceOrphanGuard:
                     new=mock_create_ingest_job,
                 ),
                 patch("app.processing.ingest.router.validate_sources", return_value=[]),
-                patch("app.processing.ingest.router.regenerate_vrt") as mock_task,
+                patch(
+                    "app.processing.ingest.router.regenerate_vrt_staged"
+                ) as mock_task,
             ):
                 mock_task.defer_async = failing_defer
                 with pytest.raises(HTTPException) as exc_info:
@@ -598,7 +600,9 @@ class TestVrtSourceOrphanGuard:
                     "app.processing.ingest.router.create_ingest_job",
                     new=mock_create_ingest_job,
                 ),
-                patch("app.processing.ingest.router.regenerate_vrt") as mock_task,
+                patch(
+                    "app.processing.ingest.router.regenerate_vrt_staged"
+                ) as mock_task,
             ):
                 mock_task.defer_async = failing_defer
                 with pytest.raises(HTTPException) as exc_info:

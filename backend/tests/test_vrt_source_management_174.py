@@ -6,13 +6,15 @@ Covers:
 - TestMutationSerialization: 409 when VRT is regenerating (SRC-05)
 - TestRegenerateVrtTask: regenerate_vrt task logic (build, swap, metadata update, error handling)
 - TestStatusField: GET /datasets/{id} response includes raster.status (SRC-06)
-- TestStagedMutationOverHttp: fix(#1327) — the staged member set survives the
-  full request path, and vrt_source_links does not move
+- TestStagedSourceSetReading: fix(#1327) — what the task accepts as a staged
+  member set, and what it refuses
 
-Pure unit tests -- no DB, no real files, no network -- except the last class,
-which is database-backed on purpose: the staged set is a JSONB column written
-by a real session, and a mocked db cannot show that a request wrote one column
-and left a table alone.
+All tests are pure unit tests -- no DB, no real files, no network. Keep it that
+way: the autouse `_stub_vrt_source_authz` fixture below patches module-level
+names, and a DB/client-backed test here can make a router module import for the
+FIRST time while those patches are live, permanently binding the mocks into
+that module (fix(#1327 codex P1) hit exactly this and moved its HTTP coverage
+to tests/test_vrt_staged_mutation_1327.py).
 """
 
 import asyncio
@@ -351,7 +353,9 @@ class TestAddSource:
 
             with (
                 patch("app.processing.ingest.router.validate_sources", return_value=[]),
-                patch("app.processing.ingest.router.regenerate_vrt") as mock_task,
+                patch(
+                    "app.processing.ingest.router.regenerate_vrt_staged"
+                ) as mock_task,
             ):
                 mock_task.defer_async = AsyncMock()
                 result = await add_vrt_source(
@@ -392,7 +396,9 @@ class TestAddSource:
 
             with (
                 patch("app.processing.ingest.router.validate_sources", return_value=[]),
-                patch("app.processing.ingest.router.regenerate_vrt") as mock_task,
+                patch(
+                    "app.processing.ingest.router.regenerate_vrt_staged"
+                ) as mock_task,
             ):
                 mock_task.defer_async = AsyncMock()
                 await add_vrt_source(dataset_id, mock_request, mock_user, mock_db)
@@ -599,7 +605,9 @@ class TestRemoveSource:
                 ingest_router, "create_ingest_job", mock_create_ingest_job
             )
 
-            with patch("app.processing.ingest.router.regenerate_vrt") as mock_task:
+            with patch(
+                "app.processing.ingest.router.regenerate_vrt_staged"
+            ) as mock_task:
                 mock_task.defer_async = AsyncMock()
                 result = await remove_vrt_source(
                     dataset_id, source_dataset_id, mock_user, mock_db
@@ -640,7 +648,9 @@ class TestRemoveSource:
                 ingest_router, "create_ingest_job", mock_create_ingest_job
             )
 
-            with patch("app.processing.ingest.router.regenerate_vrt") as mock_task:
+            with patch(
+                "app.processing.ingest.router.regenerate_vrt_staged"
+            ) as mock_task:
                 mock_task.defer_async = AsyncMock()
                 await remove_vrt_source(
                     dataset_id, source_dataset_id, mock_user, mock_db
@@ -789,7 +799,9 @@ class TestMutationSerialization:
 
             with (
                 patch("app.processing.ingest.router.validate_sources", return_value=[]),
-                patch("app.processing.ingest.router.regenerate_vrt") as mock_task,
+                patch(
+                    "app.processing.ingest.router.regenerate_vrt_staged"
+                ) as mock_task,
             ):
                 mock_task.defer_async = AsyncMock()
                 # Should not raise 409
@@ -1452,149 +1464,6 @@ class TestStagedSourceSetReading:
             staged_source_ids_or_none(
                 MagicMock(staged_source_ids=[repeated, str(uuid.uuid4()), repeated])
             )
-
-
-# ---------------------------------------------------------------------------
-# TestStagedMutationOverHttp — fix(#1327), database-backed
-# ---------------------------------------------------------------------------
-
-
-async def _vrt_link_ids(session, vrt_id) -> list[uuid.UUID]:
-    from sqlalchemy import text
-
-    result = await session.execute(
-        text(
-            "SELECT source_dataset_id FROM catalog.vrt_source_links "
-            "WHERE vrt_dataset_id = :id ORDER BY position ASC"
-        ),
-        {"id": str(vrt_id)},
-    )
-    return [row.source_dataset_id for row in result.fetchall()]
-
-
-async def _only_generation(session, vrt_id):
-    from sqlalchemy import select as sa_select
-
-    from app.processing.raster.models import VrtGeneration
-
-    result = await session.execute(
-        sa_select(VrtGeneration).where(VrtGeneration.vrt_dataset_id == vrt_id)
-    )
-    return result.scalar_one()
-
-
-class TestStagedMutationOverHttp:
-    """The full request path: what the endpoint writes, and what it leaves."""
-
-    async def test_add_source_stages_the_set_and_leaves_links_alone(
-        self, client, admin_auth_header, test_db_session
-    ):
-        from tests.test_vrt_source_authz_1172 import (
-            _create_raster_dataset,
-            _create_vrt_dataset,
-            _get_admin_id,
-            _link_source,
-            _patch_defer,
-        )
-
-        admin_id = await _get_admin_id(test_db_session)
-        vrt_id = await _create_vrt_dataset(test_db_session, created_by=admin_id)
-        first = await _create_raster_dataset(test_db_session, created_by=admin_id)
-        second = await _create_raster_dataset(test_db_session, created_by=admin_id)
-        incoming = await _create_raster_dataset(test_db_session, created_by=admin_id)
-        await _link_source(test_db_session, vrt_id, first, 0)
-        await _link_source(test_db_session, vrt_id, second, 1)
-
-        p_create, p_regen = _patch_defer()
-        with p_create, p_regen:
-            resp = await client.post(
-                f"/ingest/vrt/{vrt_id}/sources/",
-                json={"source_dataset_id": str(incoming)},
-                headers=admin_auth_header,
-            )
-
-        assert resp.status_code == 202, resp.text
-        assert await _vrt_link_ids(test_db_session, vrt_id) == [first, second]
-        generation = await _only_generation(test_db_session, vrt_id)
-        assert generation.staged_source_ids == [
-            str(first),
-            str(second),
-            str(incoming),
-        ]
-        assert generation.status == "pending"
-
-    async def test_remove_source_stages_the_set_and_leaves_links_alone(
-        self, client, admin_auth_header, test_db_session
-    ):
-        from tests.test_vrt_source_authz_1172 import (
-            _create_raster_dataset,
-            _create_vrt_dataset,
-            _get_admin_id,
-            _link_source,
-            _patch_defer,
-        )
-
-        admin_id = await _get_admin_id(test_db_session)
-        vrt_id = await _create_vrt_dataset(test_db_session, created_by=admin_id)
-        linked = [
-            await _create_raster_dataset(test_db_session, created_by=admin_id)
-            for _ in range(3)
-        ]
-        for position, source_id in enumerate(linked):
-            await _link_source(test_db_session, vrt_id, source_id, position)
-
-        p_create, p_regen = _patch_defer()
-        with p_create, p_regen:
-            resp = await client.delete(
-                f"/ingest/vrt/{vrt_id}/sources/{linked[1]}/",
-                headers=admin_auth_header,
-            )
-
-        assert resp.status_code == 202, resp.text
-        assert await _vrt_link_ids(test_db_session, vrt_id) == linked
-        generation = await _only_generation(test_db_session, vrt_id)
-        assert generation.staged_source_ids == [str(linked[0]), str(linked[2])]
-
-    async def test_remove_source_404s_without_staging_anything(
-        self, client, admin_auth_header, test_db_session
-    ):
-        """A rejected request leaves no intent behind — the 404 path included."""
-        from sqlalchemy import func, select as sa_select
-
-        from app.processing.raster.models import VrtGeneration
-        from tests.test_vrt_source_authz_1172 import (
-            _create_raster_dataset,
-            _create_vrt_dataset,
-            _get_admin_id,
-            _link_source,
-            _patch_defer,
-        )
-
-        admin_id = await _get_admin_id(test_db_session)
-        vrt_id = await _create_vrt_dataset(test_db_session, created_by=admin_id)
-        linked = [
-            await _create_raster_dataset(test_db_session, created_by=admin_id)
-            for _ in range(3)
-        ]
-        for position, source_id in enumerate(linked):
-            await _link_source(test_db_session, vrt_id, source_id, position)
-        stranger = await _create_raster_dataset(test_db_session, created_by=admin_id)
-
-        p_create, p_regen = _patch_defer()
-        with p_create, p_regen:
-            resp = await client.delete(
-                f"/ingest/vrt/{vrt_id}/sources/{stranger}/",
-                headers=admin_auth_header,
-            )
-
-        assert resp.status_code == 404, resp.text
-        assert await _vrt_link_ids(test_db_session, vrt_id) == linked
-        generations = await test_db_session.execute(
-            sa_select(func.count())
-            .select_from(VrtGeneration)
-            .where(VrtGeneration.vrt_dataset_id == vrt_id)
-        )
-        assert generations.scalar() == 0
 
 
 # ---------------------------------------------------------------------------

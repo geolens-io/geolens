@@ -1298,3 +1298,47 @@ async def regenerate_vrt(
             )
 
             await _cleanup_orphaned_storage_keys(written_storage_keys, job_id=job_id)
+
+
+# fix(#1327 codex P1): a SECOND registered name for the SAME regeneration, used
+# only by the staged mutations (add source / remove source).
+#
+# The skew it closes: during a rolling upgrade the API can be new while a worker
+# is still pre-#1327. The new API records the membership change only in
+# `staged_source_ids`; a pre-#1327 worker does not know that column, rebuilds
+# from the live links, and marks the generation COMPLETE. An accepted add or
+# remove is silently lost, with every state machine reporting success.
+#
+# Why the name and not a marker kwarg. The pre-#1327 task signature ends in
+# `**kwargs`, and so does `tenant_task`'s wrapper, so an unknown keyword is
+# swallowed rather than raising TypeError: a kwarg cannot fence a consumer that
+# accepts anything. The task NAME can. Procrastinate resolves the name against
+# the worker's own registry, and a worker without it raises TaskNotFound, which
+# fails the job. Measured against the pinned procrastinate in
+# tests/test_vrt_staged_task_skew.py: status 'failed', attempts 1, no retry
+# scheduled (TaskNotFound never consults a retry strategy, because there is no
+# task object to ask one for).
+#
+# What that failure leaves behind is deliberately a state the existing
+# machinery already handles rather than a new one: the task never ran, so
+# vrt_source_links is untouched, the generation stays 'pending' with a NULL
+# heartbeat, and the asset stays 'regenerating' until `sweep_stale_vrt_assets`
+# reconciles it. Composition is preserved, which is the whole point of staging,
+# so the sweep restores 'ready' and the VRT keeps serving what it was serving.
+# The mutation is refused rather than half-applied, and the caller re-issues it
+# once the roll finishes.
+#
+# Plain regeneration deliberately keeps the legacy name: it changes no
+# membership, so a pre-#1327 worker executes it correctly and those deliveries
+# keep flowing during the roll.
+@task_app.task(queue="raster", retry=0)
+async def regenerate_vrt_staged(**kwargs) -> None:
+    """Regenerate a VRT whose generation carries a staged member set.
+
+    Byte-identical work to ``regenerate_vrt``: one implementation, two
+    registered names, and the staged set is read from the generation row on
+    either path. The name gates WHICH WORKERS may run it, nothing else.
+    ``regenerate_vrt.func`` is the ``tenant_task``-wrapped body, so the tenant
+    kwarg is popped and bound exactly once, here at the forward.
+    """
+    await regenerate_vrt.func(**kwargs)

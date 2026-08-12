@@ -579,8 +579,12 @@ async def test_staged_set_lands_with_the_artifact_it_describes(
     STAGED members (3 sources in the stored XML, not the 2 still linked), the
     link table now equals the staged set in staged order, and built_from — the
     published statement of what the artifact holds — agrees with both.
+
+    Invoked through ``regenerate_vrt_staged``, the task name a staged mutation
+    is actually delivered under (fix(#1327 codex P1)), so this exercises the
+    production entrypoint rather than the shared body behind it.
     """
-    from app.processing.ingest.tasks import regenerate_vrt
+    from app.processing.ingest.tasks import regenerate_vrt_staged
     from app.processing.raster.models import RasterAsset, VrtGeneration
 
     session = test_db_session
@@ -596,7 +600,7 @@ async def test_staged_set_lands_with_the_artifact_it_describes(
     # Pre-state: the catalog still describes the VRT actually being served.
     assert await _linked_source_ids(session, vrt_id) == original_ids
 
-    await regenerate_vrt.func(
+    await regenerate_vrt_staged.func(
         job_id=vrt_db_state["job_id"],
         attempt_id=vrt_db_state["attempt_id"],
         vrt_dataset_id=vrt_id,

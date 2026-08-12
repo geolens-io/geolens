@@ -2153,7 +2153,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # say where the member set now lives, kept out of the docstrings because
     # FastAPI publishes those into openapi.json. Ratchet DOWN in the same
     # commit, per the no-headroom rule. Cap 1548 -> 1537, exact.
-    "backend/app/processing/ingest/router.py": 1537,
+    # fix(#1327 codex P1): +8 — both staged dispatch sites say why they defer
+    # the staged task name rather than the legacy one. Cap 1537 -> 1545, exact.
+    "backend/app/processing/ingest/router.py": 1545,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
@@ -2493,7 +2495,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # transaction. Most of the lines are the reasoning: why NULL means "changes
     # no membership", why apply is an upsert rather than delete-and-insert, and
     # why the applied list is the one the build read. Cap 1150 -> 1300, exact.
-    "backend/app/processing/ingest/tasks_vrt.py": 1300,
+    # fix(#1327 codex P1): +44 — a second registered task name,
+    # `regenerate_vrt_staged`, that forwards to the same body. It is the
+    # rolling-deploy gate: a pre-#1327 worker has no such task and fails the
+    # job (procrastinate TaskNotFound) instead of rebuilding from the live
+    # links and reporting success, which would silently drop an accepted add or
+    # remove. Nearly all of the lines are the comment recording why a marker
+    # KWARG could not do this (the old signature ends in `**kwargs`, so an
+    # unknown keyword is swallowed) and where the refused delivery lands.
+    # Cap 1300 -> 1344, exact.
+    "backend/app/processing/ingest/tasks_vrt.py": 1344,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
     # reaper never touched the key the client's PUT URL can still recreate.

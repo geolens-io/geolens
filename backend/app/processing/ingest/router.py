@@ -97,7 +97,7 @@ from app.processing.ingest.presigned import (
     should_assemble_multipart,
     sign_url_with_deadline,
 )
-from app.processing.ingest.tasks import regenerate_vrt
+from app.processing.ingest.tasks import regenerate_vrt_staged
 from app.processing.ingest.validation import validate_file_content
 from app.platform.jobs.defer_guard import defer_with_orphan_guard
 from app.core.persistent_config import (
@@ -1340,8 +1340,13 @@ async def add_vrt_source(
     await db.commit()
 
     async def _defer() -> None:
+        # fix(#1327 codex P1): the STAGED task name, not the legacy one. A
+        # pre-#1327 worker does not have this task registered and fails the job
+        # loudly (procrastinate TaskNotFound) instead of rebuilding from the
+        # live links and reporting success, which would drop this add on the
+        # floor during a rolling upgrade. See tasks_vrt.regenerate_vrt_staged.
         await defer_async_with_tenant(
-            regenerate_vrt,
+            regenerate_vrt_staged,
             job_id=str(job.id),
             attempt_id=str(job.attempt_id),
             vrt_dataset_id=str(dataset_id),
@@ -1504,8 +1509,11 @@ async def remove_vrt_source(
     await db.commit()
 
     async def _defer() -> None:
+        # fix(#1327 codex P1): staged task name, same reasoning as the add
+        # endpoint — a pre-#1327 worker must refuse this delivery rather than
+        # rebuild the composition it cannot see.
         await defer_async_with_tenant(
-            regenerate_vrt,
+            regenerate_vrt_staged,
             job_id=str(job.id),
             attempt_id=str(job.attempt_id),
             vrt_dataset_id=str(dataset_id),

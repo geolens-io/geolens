@@ -201,7 +201,7 @@ def _patch_defer():
     regen_task.defer_async = AsyncMock(return_value=None)
     return (
         patch("app.processing.ingest.tasks.ingest_vrt", create_task),
-        patch("app.processing.ingest.router.regenerate_vrt", regen_task),
+        patch("app.processing.ingest.router.regenerate_vrt_staged", regen_task),
     )
 
 
