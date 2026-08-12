@@ -234,11 +234,19 @@ export function useDatasetRefreshRuns(
     // touches this client's cache — under the global default, this query's
     // cached "idle" state (no active run) is otherwise never re-validated
     // until something else remounts or invalidates it. Overriding the
-    // default here means returning focus to the tab re-fetches runs (once
-    // staleTime has lapsed), so useDatasetRefreshWatch's active->terminal
-    // transition guard gets a chance to observe a run it never dispatched
-    // and never saw start.
-    refetchOnWindowFocus: true,
+    // default here means returning focus to the tab re-fetches runs, so
+    // useDatasetRefreshWatch's active->terminal transition guard gets a
+    // chance to observe a run it never dispatched and never saw start.
+    //
+    // 'always', not `true`: plain `true` only refetches if the cached data
+    // is already stale, so an external run started less than staleTime
+    // (15s) after this query's last fetch would be missed on the very
+    // focus event meant to catch it — and since becoming stale later is
+    // passive (nothing schedules a fetch once refetchInterval is off), the
+    // page could then wait on a second, unrelated focus/remount to notice.
+    // Focus returning to the tab IS the signal to check for an external
+    // run, independent of this query's own freshness clock.
+    refetchOnWindowFocus: 'always',
     // fix(#1285 codex round 2): keepPreviousData shows the LAST successful
     // result as a placeholder for ANY new query invocation, not just a
     // paged re-fetch of the same dataset — so navigating straight from one

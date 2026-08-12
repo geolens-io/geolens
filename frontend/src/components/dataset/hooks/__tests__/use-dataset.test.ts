@@ -327,8 +327,19 @@ describe('useDatasetRefreshRuns', () => {
    * even without the fix (react-query's own default is already `true`).
    * Build a client that mirrors main.tsx's global `false` instead, so a
    * refetch here can only be explained by this query's own override.
+   *
+   * fix(#1328 codex review): the override must be 'always', not `true`.
+   * `true` only refetches when the cached data is already stale, but an
+   * external run can start and this tab can regain focus inside the SAME
+   * 15s staleTime window as this query's last fetch — the exact case a
+   * user "checking after a colleague ran a refresh" is likely to hit, and
+   * the one `true` silently drops (worse, nothing schedules a fetch once
+   * the data merely becomes stale afterward, since refetchInterval is off
+   * in the idle state — the page would wait on a second, unrelated focus
+   * or a remount to notice). Assert the fresh-window case directly rather
+   * than the now-irrelevant "skipped while fresh" behavior.
    */
-  it('refetches on window focus once stale, even under a client that disables it globally', async () => {
+  it('refetches on window focus regardless of staleness, including while data is still fresh', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       mockGetDatasetRefreshRuns.mockResolvedValue({
@@ -351,19 +362,31 @@ describe('useDatasetRefreshRuns', () => {
       expect(result.current.isSuccess).toBe(true);
       expect(mockGetDatasetRefreshRuns).toHaveBeenCalledTimes(1);
 
-      // Past this query's own 15s staleTime — refetchOnWindowFocus: true
-      // only refetches stale data, per TanStack Query's own contract.
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(15_001);
-      });
-      expect(mockGetDatasetRefreshRuns).toHaveBeenCalledTimes(1);
-
+      // Still well inside the 15s staleTime — an external run could have
+      // started and finished in this window. This is the case
+      // refetchOnWindowFocus: true would have missed.
       await act(async () => {
         focusManager.setFocused(true);
         await vi.advanceTimersByTimeAsync(0);
       });
-
       expect(mockGetDatasetRefreshRuns).toHaveBeenCalledTimes(2);
+
+      // Merely becoming stale, with no focus/mount/reconnect event, still
+      // doesn't schedule a fetch on its own.
+      focusManager.setFocused(false);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_001);
+      });
+      expect(mockGetDatasetRefreshRuns).toHaveBeenCalledTimes(2);
+
+      // A later focus event still refetches once the data is genuinely
+      // stale too — 'always' keeps covering the case `true` covered, it
+      // just no longer depends on it.
+      await act(async () => {
+        focusManager.setFocused(true);
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(mockGetDatasetRefreshRuns).toHaveBeenCalledTimes(3);
     } finally {
       focusManager.setFocused(undefined);
       vi.useRealTimers();
