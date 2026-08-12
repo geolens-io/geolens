@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Protocol
 
 import structlog
@@ -129,3 +130,64 @@ def get_tile_cache() -> "TileCacheProvider | InMemoryTileCacheProvider | None":
     be the cache anyone reads.
     """
     return _tile_cache
+
+
+# --- Table invalidation listeners (fix #1429) ---
+#
+# The tile router keeps a process-local map of table_name -> dataset metadata
+# so it does not hit the DB per tile request. That map is keyed on a name a
+# delete frees for reuse, so after a delete it can hand a successor dataset
+# the DELETED dataset's visibility and owner. Versioning the tile cache key
+# does not reach it: the stale entry is what decides authorization, before any
+# cache key is built.
+#
+# This is the seam that lets the catalog delete path tell the tile router to
+# drop that entry without importing it — `catalog/` must not import
+# `app.processing.*` (test_layering.py::test_no_catalog_imports_processing),
+# but both sides may import `platform/`.
+#
+# Call this AFTER the triggering transaction commits. The map is populated
+# from `catalog.datasets`, which a dataset delete does not lock, so a notify
+# from inside the open transaction is undone by any concurrent tile request:
+# it still reads the not-yet-deleted row and re-caches what was just evicted.
+#
+# Scope, stated plainly, because two windows survive even post-commit:
+#   - Listeners are in-process. A delete handled by one uvicorn worker cannot
+#     evict another worker's map, so multi-worker deployments keep a window
+#     bounded by that map's 60s TTL.
+#   - A request whose catalog read was already in flight when the eviction ran
+#     writes its result afterwards. The opportunity is only one query wide,
+#     but an entry that does land then lives the full TTL like any other — the
+#     narrow window buys a short race, not a short consequence.
+# Both are the same bounded-staleness tradeoff already documented for
+# visibility changes in processing/tiles/router.py, with one difference that
+# matters: there the stale entry describes the SAME dataset, here it can
+# describe a predecessor of a reused table name. Neither is closable by a
+# notification channel in this topology — REDIS_URL is unset by default, and
+# LISTEN/NOTIFY needs a session-pinned connection that transaction-mode
+# PgBouncer (a supported topology, see the SET LOCAL note in
+# processing/tiles/router.py) does not provide. The fix is to stop reusing
+# table names, tracked in #1443.
+_table_invalidation_listeners: list[Callable[[str], None]] = []
+
+
+def register_table_invalidation_listener(listener: Callable[[str], None]) -> None:
+    """Register a callable invoked with a table name when that table changes."""
+    _table_invalidation_listeners.append(listener)
+
+
+def notify_table_invalidated(table_name: str) -> None:
+    """Tell every listener a table's identity or contents changed.
+
+    Best-effort and never raises: callers run this beside a cache purge, and a
+    listener failure must not fail the operation that triggered it.
+    """
+    for listener in _table_invalidation_listeners:
+        try:
+            listener(table_name)
+        except Exception:  # broad: listener internals are not this call's to know
+            logger.warning(
+                "table_invalidation_listener_failed",
+                table_name=table_name,
+                exc_info=True,
+            )

@@ -49,7 +49,7 @@ from app.modules.catalog.datasets.domain.schemas import (
 )
 from app.platform.refresh.service import list_runs_for_dataset
 from app.platform.cache import get_cache, tenant_cache_key
-from app.platform.cache.provider import get_tile_cache
+from app.platform.cache.provider import get_tile_cache, notify_table_invalidated
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.modules.catalog.collections.service import get_dataset_collections
 from app.modules.catalog.datasets.domain.service import (
@@ -483,6 +483,10 @@ async def bulk_delete_datasets_endpoint(
             # Commit per-item so a later failure cannot orphan storage objects
             # that were already deleted for successfully-committed datasets.
             await db.commit()
+            # fix(#1429): only now is the delete visible to a concurrent tile
+            # request, so only now can the tile router's table_name -> metadata
+            # map be evicted without the request re-caching the deleted row.
+            notify_table_invalidated(table_name)
             results.append(
                 BulkDeleteResultItem(dataset_id=item.dataset_id, status="deleted")
             )
@@ -576,6 +580,12 @@ async def delete_dataset_endpoint(
 
     # Invalidate caches after dataset deletion
     await invalidate_catalog_cache()
+    # fix(#1429): only now is the delete visible to a concurrent tile request,
+    # so only now can the tile router's table_name -> metadata map be evicted
+    # without the request re-caching the deleted row. That map decides
+    # visibility, so a stale entry would authorize a successor drawing this
+    # freed table name under the deleted dataset's rules.
+    notify_table_invalidated(table_name)
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

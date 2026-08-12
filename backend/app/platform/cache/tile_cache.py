@@ -20,6 +20,16 @@ does not match the documented ``data.*`` shape (lowercase, starts with
 a letter, ``[a-z0-9_]`` only, max 63 chars) is collapsed to the literal
 ``"_other"`` so a malicious or unexpected caller cannot explode the
 metric label set.
+
+fix(#1429): the ``table`` argument is the tile router's composite table
+segment, not a bare table name. It carries the tenant id, the dataset id
+that makes a reused table name safe, and the cluster parameters, so it
+never matches ``_safe_label``'s shape — deriving the metric label from it
+collapsed every request to ``"_other"``. Readers now pass the bare table
+name as ``label``; ``_safe_label`` still bounds it, so an unexpected value
+cannot explode the label set. Invalidation is unaffected: the dataset id
+sits AFTER the table segment, so ``tile:{table}:*`` still matches every
+key for a table regardless of which dataset wrote it.
 """
 
 import re
@@ -79,14 +89,21 @@ def _invalidation_table_segment(table: str) -> str:
 class TileCacheProvider:
     """Binary tile cache backed by Redis.
 
-    Cache key format: ``tile:{table}:{z}:{x}:{y}``
+    Cache key format: ``tile:{table}:{z}:{x}:{y}``, where ``table`` is the
+    composite table segment the tile router builds — see the module docstring.
     """
 
     def __init__(self, url: str) -> None:
         self._client = redis_async.from_url(url, decode_responses=False)
 
     async def get(
-        self, table: str, z: int, x: int, y: int, cols_key: str = ""
+        self,
+        table: str,
+        z: int,
+        x: int,
+        y: int,
+        cols_key: str = "",
+        label: str | None = None,
     ) -> bytes | None:
         """Return cached tile bytes or None on miss/error.
 
@@ -94,10 +111,13 @@ class TileCacheProvider:
         different additional column projections (data-driven styling).
         Empty string preserves the original cache key shape for callers
         that don't pass additional columns.
+
+        `label` is the bare table name for the PERF-11 metric; see
+        ``_safe_label``.
         """
         suffix = f":{cols_key}" if cols_key else ""
         key = f"tile:{table}:{z}:{x}:{y}{suffix}"
-        label = _safe_label(table)
+        label = _safe_label(table if label is None else label)
         try:
             data = await self._client.get(key)
             if data is not None:
@@ -120,7 +140,10 @@ class TileCacheProvider:
         ttl: int = 300,
         cols_key: str = "",
     ) -> None:
-        """Store tile bytes with TTL. Silent on failure."""
+        """Store tile bytes with TTL. Silent on failure.
+
+        Takes no ``label``: writes emit no Prometheus metric, only reads do.
+        """
         suffix = f":{cols_key}" if cols_key else ""
         key = f"tile:{table}:{z}:{x}:{y}{suffix}"
         try:
@@ -177,12 +200,18 @@ class InMemoryTileCacheProvider:
         self._cache: LRUCache[str, tuple[bytes, float]] = LRUCache(maxsize=max_entries)
 
     async def get(
-        self, table: str, z: int, x: int, y: int, cols_key: str = ""
+        self,
+        table: str,
+        z: int,
+        x: int,
+        y: int,
+        cols_key: str = "",
+        label: str | None = None,
     ) -> bytes | None:
         """Return cached tile bytes or None on miss / TTL expiry."""
         suffix = f":{cols_key}" if cols_key else ""
         key = f"tile:{table}:{z}:{x}:{y}{suffix}"
-        label = _safe_label(table)
+        label = _safe_label(table if label is None else label)
         entry = self._cache.get(key)
         if entry is None:
             tile_cache_misses.labels(table_name=label).inc()

@@ -194,21 +194,26 @@ async def delete_dataset(
         # it next is authorized on its own visibility while served this
         # dataset's bytes for up to tile_cache_ttl.
         #
-        # This closes the durable window, not the whole class: an in-flight
-        # tile request that already released its DB transaction can still write
-        # pre-delete bytes back after this runs, and with REDIS_URL unset each
-        # API worker holds its own LRU that a purge from one worker cannot
-        # reach. Both need a generation dimension in the cache key — #1429.
-        # Placed here rather than after the caller's commit because that
-        # ordering does not change either residual, and here it covers single
-        # delete, bulk delete, and future callers from one place. Raster/VRT
-        # are excluded — their tiles come from Titiler, and that branch drops
-        # no table to free a name.
+        # fix(#1429) made the purge no longer load-bearing for correctness —
+        # tile keys now carry the dataset id, so a successor drawing this name
+        # cannot read these entries whether or not the purge lands. It stays
+        # because the orphaned entries are dead weight until their TTL, and
+        # because it is what every sibling write path does. Placed here rather
+        # than after the caller's commit so single delete, bulk delete, and
+        # future callers get it from one place. Raster/VRT are excluded — their
+        # tiles come from Titiler, and that branch drops no table to free a name.
         from app.platform.cache.provider import get_tile_cache
 
         tile_cache = get_tile_cache()
         if tile_cache is not None:
             await tile_cache.invalidate_table(table_name)
+
+    # fix(#1429): the matching eviction of the tile router's table_name ->
+    # metadata map is NOT here, it is at the two delete endpoints after their
+    # commit. That map is populated from `catalog.datasets`, which the DROP
+    # above does not lock, so a concurrent tile request inside this still-open
+    # transaction reads the not-yet-deleted row and re-caches the dataset we
+    # just evicted. Only a commit makes the delete visible to that reader.
 
     # Audit trail for an irreversible operation (DROP TABLE for vector,
     # storage cleanup for raster/VRT). The DB-side row deletion is logged

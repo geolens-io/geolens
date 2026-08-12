@@ -343,7 +343,7 @@ class TestTileEndpoint:
         """Cluster tile cache keys are separate from normal vector tile keys."""
         table_name = f"cluster_cache_{uuid.uuid4().hex[:8]}"
         user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
-        await _create_tile_test_dataset(
+        dataset = await _create_tile_test_dataset(
             test_db_session, created_by=user_id, table_name=table_name
         )
         mock_cache = AsyncMock()
@@ -362,8 +362,16 @@ class TestTileEndpoint:
         # its cache lookups carry a cols_key segment (empty without cols=).
         # fix(#868): the key carries the cluster SQL semantic version, bumped to
         # v3 by fix(#874) (per-cluster expansion_zoom) so deploys drop stale tiles.
+        # fix(#1429): the dataset id sits between the table and the cluster
+        # segments, so a reused table name cannot read the previous dataset's
+        # cluster tiles, and `label` carries the bare table name for the metric.
         mock_cache.get.assert_awaited_once_with(
-            f"{table_name}:cluster:v3:r64:z12", 0, 0, 0, cols_key=""
+            f"{table_name}:ds{dataset.id.hex}:cluster:v3:r64:z12",
+            0,
+            0,
+            0,
+            cols_key="",
+            label=table_name,
         )
 
     async def test_empty_tile_returns_204(
