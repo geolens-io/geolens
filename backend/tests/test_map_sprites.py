@@ -10,7 +10,6 @@ import zlib
 from PIL import Image
 from httpx import AsyncClient
 import pytest
-from httpx import AsyncClient
 
 from app.modules.catalog.maps import sprites
 from app.modules.catalog.maps.models import MapIconAsset
