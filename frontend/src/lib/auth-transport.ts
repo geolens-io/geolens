@@ -20,9 +20,14 @@ export const CSRF_COOKIE_NAME = 'geolens_csrf';
 
 export function cookieAuthAvailable(): boolean {
   if (typeof window === 'undefined') return false;
-  // Relative base (the default) is same-origin by construction.
-  if (!/^https?:\/\//i.test(API_BASE)) return true;
   try {
+    // fix(#1446): resolve EVERY base against the page URL rather than treating
+    // "no http(s):// prefix" as proof of same-origin. A protocol-relative base
+    // like `//api.example.com` has no scheme yet is cross-origin, and
+    // misreading it opted the app into cookie mode while `credentials:
+    // 'same-origin'` withheld the cookie — every session would have stopped
+    // refreshing once its access token expired. Resolution handles the
+    // relative default correctly too.
     return new URL(API_BASE, window.location.href).origin === window.location.origin;
   } catch {
     return false;

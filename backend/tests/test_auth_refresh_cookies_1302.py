@@ -16,7 +16,11 @@ jar by hand via ``_arm_cookies``.
 from httpx import AsyncClient
 
 from app.core.config import settings
-from app.modules.auth.cookies import CSRF_COOKIE_NAME, REFRESH_COOKIE_NAME
+from app.modules.auth.cookies import (
+    CSRF_COOKIE_NAME,
+    REFRESH_COOKIE_NAME,
+    is_same_origin_as_request,
+)
 
 ADMIN_USER = settings.geolens_admin_username
 ADMIN_PASS = settings.geolens_admin_password.get_secret_value()
@@ -298,6 +302,45 @@ class TestLogoutClearsCookies:
             headers={**COOKIE_MODE, "X-CSRF-Token": csrf_value},
         )
         assert resp.status_code == 401
+
+
+class TestOriginComparison:
+    """fix(#1446): the OAuth callback decides cookie-vs-fragment delivery from
+    this. Spelling out a default port is the same origin to a browser, and
+    comparing raw netlocs silently dropped such deployments back to putting the
+    refresh token in the URL fragment."""
+
+    @staticmethod
+    def _request(url: str):
+        from starlette.datastructures import URL
+
+        class _FakeRequest:
+            def __init__(self, value: str) -> None:
+                self.url = URL(value)
+
+        return _FakeRequest(url)
+
+    def test_explicit_default_port_matches_an_omitted_one(self):
+        req = self._request("https://example.com/auth/callback")
+        assert is_same_origin_as_request(req, "https://example.com:443")
+        assert is_same_origin_as_request(
+            self._request("http://example.com/auth/callback"), "http://example.com:80"
+        )
+
+    def test_plain_match_and_case_insensitive_host(self):
+        req = self._request("https://Example.COM/auth/callback")
+        assert is_same_origin_as_request(req, "https://example.com")
+
+    def test_genuinely_different_origins_do_not_match(self):
+        req = self._request("https://example.com/auth/callback")
+        assert not is_same_origin_as_request(req, "https://elsewhere.example")
+        assert not is_same_origin_as_request(req, "http://example.com")
+        assert not is_same_origin_as_request(req, "https://example.com:8443")
+
+    def test_unusable_values_are_not_same_origin(self):
+        req = self._request("https://example.com/auth/callback")
+        assert not is_same_origin_as_request(req, "/relative/path")
+        assert not is_same_origin_as_request(req, "")
 
 
 class TestSecureFlagFollowsProductionPosture:

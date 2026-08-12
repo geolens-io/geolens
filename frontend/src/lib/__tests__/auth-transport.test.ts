@@ -29,6 +29,30 @@ describe('cookieAuthAvailable', () => {
     vi.doUnmock('@/lib/constants');
     vi.resetModules();
   });
+
+  // fix(#1446): a protocol-relative base has no scheme but is still
+  // cross-origin. Treating "no http(s):// prefix" as same-origin opted such a
+  // deployment into cookie mode while withholding the cookie, so sessions
+  // stopped refreshing at access-token expiry.
+  it('is false for a protocol-relative cross-origin base', async () => {
+    vi.doMock('@/lib/constants', () => ({ API_BASE: '//api.elsewhere.example/v1' }));
+    vi.resetModules();
+    const mod = await import('@/lib/auth-transport');
+    expect(mod.cookieAuthAvailable()).toBe(false);
+    vi.doUnmock('@/lib/constants');
+    vi.resetModules();
+  });
+
+  it('is true for a protocol-relative base that resolves to this origin', async () => {
+    vi.doMock('@/lib/constants', () => ({
+      API_BASE: `//${window.location.host}/api`,
+    }));
+    vi.resetModules();
+    const mod = await import('@/lib/auth-transport');
+    expect(mod.cookieAuthAvailable()).toBe(true);
+    vi.doUnmock('@/lib/constants');
+    vi.resetModules();
+  });
 });
 
 describe('readCsrfCookie', () => {

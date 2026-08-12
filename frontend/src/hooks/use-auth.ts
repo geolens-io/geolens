@@ -6,6 +6,9 @@ import { useAuthStore } from '@/stores/auth-store';
 import { login as apiLogin, getMe, logoutSession } from '@/api/auth';
 import { tryRefresh } from '@/api/client';
 
+/** Longest the UI waits on server-side revocation before tearing down locally. */
+const LOGOUT_MAX_WAIT_MS = 3_000;
+
 export function useAuth() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -99,11 +102,18 @@ export function useAuth() {
     // Set-Cookie. A failure here (offline, or a session already dead) must not
     // trap the user in a session they asked to leave, so the local teardown
     // runs either way.
-    try {
-      await logoutSession();
-    } catch {
-      // Intentionally swallowed — see above.
-    }
+    // fix(#1446): bound the WAIT, not just the request. logoutSession's own
+    // timeout covers its fetch, but a 401 there detours through tryRefresh,
+    // whose request carries a separate deadline this signal cannot reach.
+    // Racing a timer caps how long the user stares at an authenticated screen
+    // regardless of which leg stalls. The request keeps running and may still
+    // revoke; we simply stop waiting on it.
+    await Promise.race([
+      logoutSession().catch(() => {
+        // Offline, or a session already dead. Local teardown proceeds.
+      }),
+      new Promise<void>((resolve) => setTimeout(resolve, LOGOUT_MAX_WAIT_MS)),
+    ]);
     // BUG-021: clear the ['auth','me'] cache on logout so a subsequent login
     // does not see the previous user's cached identity.
     queryClient.removeQueries({ queryKey: queryKeys.auth.me });

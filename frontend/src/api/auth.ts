@@ -179,6 +179,8 @@ export async function resendVerification(email: string): Promise<MessageResponse
  * cookie-mode header, lets the backend rotate it and hand back a cookie instead
  * — the session migrates in place rather than being logged out.
  */
+const REFRESH_TIMEOUT_MS = 30_000;
+
 export async function refreshAccessToken(
   refreshToken: string | null,
 ): Promise<TokenResponse> {
@@ -189,6 +191,12 @@ export async function refreshAccessToken(
     method: 'POST',
     headers,
     credentials: 'same-origin',
+    // fix(#1446): this call bypasses apiFetch, so it never inherited the
+    // fix(#438) DATA-04 request bound and could hang forever. That stalls
+    // anything awaiting a refresh (logout, most visibly), and worse, leaves
+    // tryRefresh's inflight singleton un-cleared — its `finally` never runs —
+    // which wedges every later refresh for the life of the tab.
+    signal: AbortSignal.timeout(REFRESH_TIMEOUT_MS),
     ...(refreshToken ? { body: JSON.stringify({ refresh_token: refreshToken }) } : {}),
   });
 

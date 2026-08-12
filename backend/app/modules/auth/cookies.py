@@ -141,13 +141,30 @@ def is_same_origin_as_request(request: Request, url: str) -> bool:
     """
     try:
         target = urlsplit(url)
+        target_host, target_port = target.hostname, target.port
     except ValueError:
         return False
-    if not target.scheme or not target.netloc:
+    if not target.scheme or not target_host:
         return False
-    return (
-        target.scheme.lower() == (request.url.scheme or "").lower()
-        and target.netloc.lower() == (request.url.netloc or "").lower()
+
+    target_scheme = target.scheme.lower()
+    request_scheme = (request.url.scheme or "").lower()
+    if target_scheme != request_scheme:
+        return False
+    if target_host.lower() != (request.url.hostname or "").lower():
+        return False
+
+    # fix(#1446): compare EFFECTIVE ports. A PUBLIC_APP_URL that spells out its
+    # default port ("https://example.com:443") against a Host header that omits
+    # it is the same origin to a browser, but comparing raw netlocs called it a
+    # mismatch and silently dropped that deployment back to fragment delivery.
+    def _effective_port(scheme: str, port: int | None) -> int | None:
+        if port is not None:
+            return port
+        return {"https": 443, "http": 80}.get(scheme)
+
+    return _effective_port(target_scheme, target_port) == _effective_port(
+        request_scheme, request.url.port
     )
 
 
