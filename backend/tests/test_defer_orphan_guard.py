@@ -145,7 +145,7 @@ class TestDeferWithOrphanGuard:
         asyncio.run(_check())
 
     def test_make_vrt_regeneration_failed_rollback_reverts_all_eight_fields(self):
-        """F18: the factory the three VRT regeneration endpoints (add-source,
+        """fix(#1435): the factory the three VRT regeneration endpoints (add-source,
         remove-source, refresh) now share must revert every field their old
         hand-rolled closures did: vrt_asset.status/current_generation_id,
         generation.status/completed_at/error_message, and

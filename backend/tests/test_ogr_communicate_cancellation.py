@@ -1,4 +1,4 @@
-"""F11: client-disconnect cancellation must kill the ogr2ogr child.
+"""fix(#1435): client-disconnect cancellation must kill the ogr2ogr child.
 
 ``asyncio.wait_for`` re-raises ``CancelledError`` on outer-task cancellation
 without touching the awaited subprocess, so `_communicate_with_timeout`'s

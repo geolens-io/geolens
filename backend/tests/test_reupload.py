@@ -80,7 +80,7 @@ async def test_reupload_commit_failure_cleans_owned_staged_file(tmp_path):
 
 @pytest.mark.anyio
 async def test_cleanup_uncommitted_reupload_source_reraises_cancellation():
-    """F14: a client disconnect during the storage delete must unwind the
+    """fix(#1435): a client disconnect during the storage delete must unwind the
     caller, not be absorbed into a best-effort warning log.
 
     `_cleanup_uncommitted_reupload_source` is called both from the upload
