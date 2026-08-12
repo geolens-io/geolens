@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from typing import TYPE_CHECKING, Any
 
@@ -212,53 +211,40 @@ async def get_dataset_detail(
     )
 
     # Fetch RasterAsset, vrt_source_links count, and DatasetAsset rows
-    # concurrently through CatalogPort so catalog does not import
-    # processing-owned raster ORM classes directly. Each branch opens its own
-    # short-lived session — AsyncSession is NOT safe for concurrent use (the
-    # same rule search/router.py's _bulk_fetch_dataset_metadata documents), so
-    # gathering these against the shared `db` previously just serialized
-    # under asyncpg's per-connection execute lock while the comment here
-    # claimed they ran in parallel.
-    from app.core.db import async_session
-
+    # sequentially on the caller's own session through CatalogPort so catalog
+    # does not import processing-owned raster ORM classes directly.
+    #
+    # This used to asyncio.gather the three fetches, with a comment claiming
+    # they ran "in parallel" — false (AsyncSession is not safe for concurrent
+    # use, so asyncpg's per-connection execute lock silently serialized them
+    # anyway) and latently unsafe. Giving each branch its own async_session(),
+    # the fix used at every other gather site in this codebase
+    # (search/router.py, stac/router.py), trades that for a NESTED pool
+    # checkout while the caller's own connection is held for the rest of this
+    # request: under the default (non-external-pooler) pool of 10 + 3
+    # connections, ~13 concurrent raster/VRT detail requests exhaust it
+    # (codex review). These are three fast, single-row/point lookups, so the
+    # wall-clock cost of running them in sequence on the connection this
+    # request already holds is negligible next to that risk.
     record_type = getattr(dataset.record, "record_type", None)
     needs_raster = record_type in RASTER_FAMILY_RECORD_TYPES
     needs_vrt_count = record_type == "vrt_dataset"
 
-    async def _fetch_raster_asset() -> Any:
-        async with async_session() as session:
-            return await get_catalog_port().get_raster_asset(session, dataset.id)
-
-    async def _fetch_vrt_source_count() -> int | None:
-        async with async_session() as session:
-            result = await session.execute(
-                text(
-                    "SELECT COUNT(*) FROM catalog.vrt_source_links WHERE vrt_dataset_id = :id"
-                ),
-                {"id": str(dataset.id)},
-            )
-            return result.scalar()
-
-    async def _fetch_dataset_assets() -> list:
-        async with async_session() as session:
-            return await get_catalog_port().get_dataset_assets(session, dataset.id)
-
-    # Build a labeled-coro list and gather only the ones we need; collapsing
-    # the three explicit branch shapes that previously existed here.
-    coros: list[tuple[str, Any]] = []
+    raster_asset = None
     if needs_raster:
-        coros.append(("ra", _fetch_raster_asset()))
+        raster_asset = await get_catalog_port().get_raster_asset(db, dataset.id)
+
+    source_count = None
     if needs_vrt_count:
-        coros.append(("sc", _fetch_vrt_source_count()))
-    coros.append(("da", _fetch_dataset_assets()))
+        sc_result = await db.execute(
+            text(
+                "SELECT COUNT(*) FROM catalog.vrt_source_links WHERE vrt_dataset_id = :id"
+            ),
+            {"id": str(dataset.id)},
+        )
+        source_count = sc_result.scalar()
 
-    results = dict(
-        zip([k for k, _ in coros], await asyncio.gather(*(c for _, c in coros)))
-    )
-    raster_asset = results["ra"] if "ra" in results else None
-    source_count = results["sc"] if "sc" in results else None
-
-    dataset_asset_rows = results["da"]
+    dataset_asset_rows = await get_catalog_port().get_dataset_assets(db, dataset.id)
     stac_assets_dict = {}
     for da in dataset_asset_rows:
         # fix(#1290 review): this path built its assets straight off the ORM

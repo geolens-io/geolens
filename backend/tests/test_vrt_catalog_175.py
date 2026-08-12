@@ -880,27 +880,30 @@ class TestSearchEnrichmentVrt:
 
 
 class TestDatasetDetailSessionIsolation:
-    """F12: get_dataset_detail's gathered branches must not share the caller's session.
+    """F12: get_dataset_detail's raster/VRT/asset fetches run on the caller's session.
 
-    Regression guard: the raster asset, VRT source-count, and dataset-asset
-    fetches were previously gathered via ``asyncio.gather`` against the
-    caller's ``db`` while a comment claimed they ran "in parallel". SQLAlchemy's
-    AsyncSession is not safe for concurrent use — asyncpg's per-connection
-    execute lock silently serializes it instead of running the branches
-    concurrently — and every other gather site in this codebase
-    (search/router.py, stac/router.py) gives each branch its own short-lived
-    session. This pins that same contract for the dataset-detail gather.
+    Regression guard, revised after codex review. The raster asset,
+    VRT source-count, and dataset-asset fetches were originally gathered via
+    ``asyncio.gather`` against the caller's ``db`` while a comment claimed
+    they ran "in parallel" — false (AsyncSession is not safe for concurrent
+    use, so asyncpg's per-connection execute lock silently serialized them
+    anyway). The first fix gave each branch its own short-lived
+    ``async_session()``, matching the pattern search/router.py and
+    stac/router.py use for their gather sites — but codex review flagged that
+    pattern here as a nested pool checkout while the caller's own connection
+    is held for the rest of the request, which the default (non-external-
+    pooler) connection pool cannot absorb under moderate concurrency. The
+    fetches now run sequentially on the caller's own session instead: no
+    extra checkout, no false "parallel" claim, no shared-session concurrency.
     """
 
     @pytest.mark.anyio
-    async def test_gathered_branches_use_distinct_sessions_not_caller_db(
-        self, monkeypatch
-    ):
+    async def test_fetches_run_sequentially_on_callers_session(self, monkeypatch):
         from app.modules.catalog.datasets.domain import service_query
 
         # vrt_dataset is in RASTER_FAMILY_RECORD_TYPES, so this scenario
-        # exercises all three gathered branches: raster asset, VRT source
-        # count, and dataset assets.
+        # exercises all three fetches: raster asset, VRT source count, and
+        # dataset assets.
         dataset = _make_mock_dataset("vrt_dataset", "My VRT")
         dataset.record.created_by = None
         dataset.record.updated_by = None
@@ -908,10 +911,9 @@ class TestDatasetDetailSessionIsolation:
 
         class CallerSession:
             async def execute(self, *args, **kwargs):
-                raise AssertionError(
-                    "get_dataset_detail used the caller's db for a gathered "
-                    "branch instead of a fresh session"
-                )
+                result = MagicMock()
+                result.scalar.return_value = 2
+                return result
 
         caller_db = CallerSession()
 
@@ -922,9 +924,10 @@ class TestDatasetDetailSessionIsolation:
                 opened_sessions.append(self)
 
             async def execute(self, *args, **kwargs):
-                result = MagicMock()
-                result.scalar.return_value = 2
-                return result
+                raise AssertionError(
+                    "get_dataset_detail opened a fresh session instead of "
+                    "reusing the caller's db"
+                )
 
             async def __aenter__(self):
                 return self
@@ -956,8 +959,8 @@ class TestDatasetDetailSessionIsolation:
         port.get_dataset_assets = _fake_get_dataset_assets
         monkeypatch.setattr(service_query, "get_catalog_port", lambda: port)
 
-        # Downstream response building is irrelevant to session isolation —
-        # stub it so the test stays focused on the gather itself.
+        # Downstream response building is irrelevant to session reuse —
+        # stub it so the test stays focused on the fetches themselves.
         monkeypatch.setattr(
             "app.modules.catalog.datasets.domain.helpers.dataset_to_response",
             lambda *args, **kwargs: MagicMock(),
@@ -980,14 +983,35 @@ class TestDatasetDetailSessionIsolation:
         )
 
         assert result is not None
-        # Three gathered branches (raster asset, VRT source count, dataset
-        # assets) each open their own session; the caller's db is untouched.
-        assert len(opened_sessions) == 3
-        assert caller_db not in opened_sessions
-        assert caller_db not in raster_asset_sessions
-        assert caller_db not in dataset_asset_sessions
-        # Each branch gets its OWN session — not one shared fresh session.
-        assert len({id(s) for s in opened_sessions}) == 3
+        # No extra pool checkout: async_session() is never called.
+        assert opened_sessions == []
+        # Both port fetches ran on the caller's own session.
+        assert raster_asset_sessions == [caller_db]
+        assert dataset_asset_sessions == [caller_db]
+
+    def test_no_asyncio_gather_over_the_dataset_fetches(self):
+        """Structural pin: the false-"parallel" gather must not come back.
+
+        A per-branch ``async_session()`` re-adds a nested pool checkout under
+        the caller's own held connection (the exact codex finding this
+        revision fixed), so service_query.py must not import the ``asyncio``
+        module at all — there is nothing left in it that needs to.
+        (The prose above, explaining the history, is exempt: it names
+        "asyncio.gather" as what USED to be here.)
+        """
+        import ast
+        import inspect
+
+        from app.modules.catalog.datasets.domain import service_query
+
+        tree = ast.parse(inspect.getsource(service_query))
+        imported_names = {
+            alias.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Import)
+            for alias in node.names
+        }
+        assert "asyncio" not in imported_names
 
 
 def test_search_enrichment_vrt_no_longer_uses_source_introspection():
