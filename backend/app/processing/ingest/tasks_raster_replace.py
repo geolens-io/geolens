@@ -112,6 +112,15 @@ async def _read_published_cog(cog_path: str) -> dict:
     second seam that can drift from the first and no question about which read
     is authoritative.
 
+    fix(#1291): the footprint is still on that list after ``srid_override``
+    became an assignment, and for a sharper reason. The conversion no longer
+    moves the corner coordinates at all — it changes what they MEAN. The same
+    numbers read in the assigned CRS land somewhere else on earth than they do
+    in the CRS the caller just told us was wrong, so the source read would
+    place the dataset at the wrong spot on the map with no field visibly
+    disagreeing. ``extract_raster_metadata`` here reads them off the COG,
+    under the CRS that COG now declares.
+
     Goes through ``extract_raster_metadata`` — already the reader every other
     raster path uses, so this adds no new GDAL seam for Rule 2 to police.
     """
@@ -425,11 +434,13 @@ async def reupload_raster(
         )
         # fix(#1290 review): resolved state, not the request field. Decided here
         # rather than in the tail because this is where the conversion that
-        # actually ran is known — including whether a warp ran, which a
-        # lossless codec does not tell you and which resamples every pixel.
-        source_preserved_in_cog = cog_preserves_source(
-            cog_status, user_compression, reprojected=assign_crs is not None
-        )
+        # actually ran is known — a `verified` COG loses nothing whatever codec
+        # it carries, and the request field cannot tell you which happened.
+        # fix(#1291): the second axis is gone with the warp. `assign_crs` now
+        # reaches `gdal_translate -a_srs`, which writes a tag and passes every
+        # band through, so an override no longer costs this dataset a second
+        # permanent copy of the upload. See `cog_preserves_source`.
+        source_preserved_in_cog = cog_preserves_source(cog_status, user_compression)
 
         asset_sha256 = await asyncio.to_thread(sha256_file, local_cog_path)
         cog_size = os.path.getsize(local_cog_path)
@@ -501,6 +512,12 @@ async def reupload_raster(
             # converted replace, `nodata` wrong under an override, and the CRS
             # and footprint wrong under `srid_override`, which is exactly the
             # case a caller reaches for when the source's CRS is the problem.
+            # fix(#1291): the footprint stays wrong from the source read now
+            # that the override assigns rather than warps — the corner numbers
+            # are identical either side of the conversion, so the ONLY thing
+            # that decides where this dataset lands on the map is which CRS
+            # they are read under. `original_srid` is the one field still taken
+            # from `source_meta`, and it wants the upload's answer by design.
             new_version = _write_swapped_fields(
                 raster_asset,
                 dataset,

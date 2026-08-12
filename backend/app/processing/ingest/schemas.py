@@ -141,7 +141,7 @@ class VectorCommitRequest(BaseCommitRequest):
         default=None,
         ge=1,
         le=998999,
-        description="EPSG code to use when source CRS is missing or incorrect. Forces reprojection during ingestion.",
+        description="EPSG code to use when the source CRS is missing or incorrect. Assigns (relabels) the CRS the source coordinates are read under; ingest then reprojects to EPSG:4326 as it does for every vector source.",
     )
     layer_name: str | None = Field(
         default=None,
@@ -168,7 +168,7 @@ class RasterCommitRequest(BaseCommitRequest):
         default=None,
         ge=1,
         le=998999,
-        description="EPSG code to use when source CRS is missing or incorrect. Forces reprojection during ingestion.",
+        description="EPSG code to use when the source CRS is missing or incorrect. Assigns (relabels) the CRS without resampling; pixel values are unchanged.",
     )
     compression: str | None = Field(
         default=None,
@@ -239,7 +239,7 @@ class CommitRequest(BaseModel):
         default=None,
         ge=1,
         le=998999,
-        description="EPSG code to use when source CRS is missing or incorrect. Forces reprojection during ingestion.",
+        description="EPSG code to use when the source CRS is missing or incorrect. Assigns (relabels) the CRS the source is read under rather than reprojecting from it: raster pixel values are unchanged, and vector geometries are reprojected to EPSG:4326 from the assigned CRS as usual.",
     )
     token: str | None = Field(
         default=None,

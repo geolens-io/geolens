@@ -1993,8 +1993,8 @@ Decision 7).
 
 ### When the conversion is lossy, the upload is kept
 
-Two things about a conversion can make the COG an unfaithful copy, and either
-one causes the upload to be kept.
+One thing about a conversion can make the COG an unfaithful copy, and it causes
+the upload to be kept.
 
 **Compression.** The import form lets the uploader choose. Four options are
 lossless — **DEFLATE** (the default), **LZW**, **ZSTD**, **LERC** — and two
@@ -2006,12 +2006,21 @@ be tuned to throw away precision, but that is the GDAL creation option
 it. So a LERC upload keeps its exact sample values and is treated like any other
 lossless conversion.
 
-**Reprojection.** Supplying a CRS override reprojects the raster, which
-resamples every pixel onto a new grid. The output is a faithful *rendering* but
-not the original measurements, so this counts as lossy even under DEFLATE.
+Under a lossy codec the uploaded file is the only copy of the original samples
+that will ever exist, so GeoLens keeps it.
 
-In either case the uploaded file is the only copy of the original samples that
-will ever exist, so GeoLens keeps it.
+**A CRS override is not lossy** (behavior change, issue #1291).
+Supplying an EPSG code at import time *assigns* that CRS: it relabels the raster
+where it already sits and leaves every pixel value and every corner coordinate
+alone. Only the meaning of those coordinates changes, which is the point — you
+reach for the override when the file's own CRS is missing or wrong. So an
+override under a lossless codec still deletes the upload, and it is safe to:
+the COG holds your samples exactly, and a mistaken override is corrected by
+assigning a different code over the same untouched pixels.
+
+Earlier versions reprojected instead, which resampled every pixel onto a new
+grid, and therefore kept the upload. If you are looking for a retained original
+from one of those ingests, it is still where it always was.
 
 ### Where the kept original lives, and for how long
 
@@ -2124,7 +2133,7 @@ that does and does not recover depends on which case put the file there.
 | Failed upload, still inside the retention window | Yes |
 | **Vector original, local storage** | **Yes** — archived under `originals/` in that volume |
 | Vector original, object-storage install | No — in your bucket under `originals/` |
-| **Retained original from a lossy or reprojected ingest, local storage** | **Yes** — it lives under `originals/` inside that same volume |
+| **Retained original from a lossy ingest, local storage** | **Yes** — it lives under `originals/` inside that same volume |
 | Retained original, object-storage install | No — it is in your bucket under `originals/`, covered by whatever backs up the bucket, not by this tar |
 | Successfully ingested original from a **lossless** conversion | No — deleted before the backup ran |
 

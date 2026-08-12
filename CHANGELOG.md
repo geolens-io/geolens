@@ -7,6 +7,22 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- **A raster CRS override now assigns the CRS instead of reprojecting to
+  it.** Supplying an EPSG code at import or replace time relabels the raster
+  in place: pixel values, the pixel grid and the corner coordinates all come
+  through the conversion untouched, and only the CRS they are read under
+  changes. That is what both documented uses of the field want — a file with
+  no CRS has nothing to reproject from, and a file whose declared CRS is
+  wrong reprojects from a wrong starting point and lands somewhere wrong.
+  Two consequences: a dataset ingested with an override now sits where those
+  coordinates put it in the CRS you named, and because the conversion no
+  longer resamples, the uploaded file is deleted after a successful lossless
+  ingest rather than kept as a second permanent copy. Deliberate
+  reproject-at-ingest is not offered; rasters are reprojected at serve time
+  and at export time (#1291).
+
 ## [1.11.1] - 2026-08-10
 
 ### Added

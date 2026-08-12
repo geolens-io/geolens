@@ -1323,6 +1323,12 @@ class TestLossyConversionRetainsSource:
         """The codec is one of two independent ways to lose the source, and
         this change touches only the codec. A warp resamples every pixel
         whatever it is then compressed with.
+
+        fix(#1291) removed the pipeline's only warp, so nothing sets
+        ``reprojected`` today — the axis is kept, and kept tested, because a
+        deliberate reproject-at-ingest field would have to set it, and a
+        predicate whose second input has quietly rotted is how the upload gets
+        deleted on the day that field lands.
         """
         from app.processing.raster.cog import cog_preserves_source
 
@@ -2161,7 +2167,14 @@ class TestLocalStorageHonoursTheRetentionPromise:
 class TestReprojectionCountsAsSampleAltering:
     """FINDING 1. `gdalwarp -t_srs` resamples every pixel onto a new grid, so a
     reprojection under DEFLATE alters samples exactly as JPEG does. Looking
-    only at the codec answered the wrong question."""
+    only at the codec answered the wrong question.
+
+    fix(#1291) then removed the only warp this pipeline ran: `srid_override`
+    assigns a CRS (`gdal_translate -a_srs`) instead of reprojecting to it. The
+    finding's REASONING is untouched and still pinned below — a warp is
+    sample-altering whatever the codec — but nothing reaches it any more, so
+    the end-to-end case moved to `TestCrsAssignmentPreservesTheSamples`.
+    """
 
     def test_a_warp_under_a_lossless_codec_still_alters_samples(self) -> None:
         from app.processing.raster.cog import cog_preserves_source
@@ -2175,57 +2188,12 @@ class TestReprojectionCountsAsSampleAltering:
         assert cog_preserves_source("converted", "JPEG", reprojected=False) is False
 
     def test_verified_still_short_circuits(self) -> None:
-        """Nothing ran, so neither axis applies. A warp cannot co-occur:
+        """Nothing ran, so neither axis applies. A conversion cannot co-occur:
         `check_and_prepare_cog` treats any assign_crs as a custom option and
         always converts."""
         from app.processing.raster.cog import cog_preserves_source
 
         assert cog_preserves_source("verified", "JPEG") is True
-
-    async def test_replace_with_srid_override_keeps_the_original(
-        self, test_db_session, raster_storage, tmp_path
-    ) -> None:
-        """End to end: default DEFLATE plus an override. Lossless codec, warped
-        pixels — the upload is the only copy of the original samples."""
-        admin_id = (
-            await test_db_session.execute(
-                select(User.id).where(User.username == "admin")
-            )
-        ).scalar_one()
-        live = await _make_live_raster(
-            test_db_session, raster_storage, created_by=admin_id
-        )
-        dataset_id = live.dataset.id
-        record_id = live.dataset.record_id
-
-        source = tmp_path / "reprojected.tif"
-        source.write_bytes(_geotiff_bytes(seed=91))
-        job = await _queue_replace_job(
-            test_db_session,
-            dataset_id=dataset_id,
-            user_id=admin_id,
-            file_path=str(source),
-        )
-        job.user_metadata = {**(job.user_metadata or {}), "srid_override": 3857}
-        await test_db_session.commit()
-        job_id = job.id
-
-        try:
-            await reupload_raster.func(
-                job_id=str(job_id),
-                dataset_id=str(dataset_id),
-                file_path=str(source),
-                user_id=str(admin_id),
-                attempt_id=str(job.attempt_id),
-            )
-            assert await _archived_names(test_db_session, dataset_id) == [
-                "reprojected.tif"
-            ], (
-                "a reprojected replace deleted its only un-resampled copy — "
-                "DEFLATE says nothing about a warp (#1290 round-3 finding 1)"
-            )
-        finally:
-            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
 
 
 class TestRetainedOriginalLivesOutsideThePurgesDomain:
@@ -5157,6 +5125,277 @@ class TestLocalFailurePathsKeepWhatIsDurable:
                 f"a completed-but-cancelled archive write survived unowned: "
                 f"{leftovers} — no quota row references it and nothing will "
                 "ever reap it (#1290 round-14 finding 2)"
+            )
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
+
+# ---------------------------------------------------------------------------
+# 17. srid_override becomes a CRS assignment (#1291)
+# ---------------------------------------------------------------------------
+
+
+class TestCrsAssignmentPreservesTheSamples:
+    """fix(#1291). `srid_override` relabels; it does not resample.
+
+    Inverting a "keep the original" into a "delete it" is the direction that
+    costs something when it is wrong, so it is argued rather than asserted:
+    `-a_srs` writes a CRS tag while every band passes through the translate, so
+    the COG holds the uploaded samples exactly and the upload adds nothing. And
+    unlike a warp, the step is reversible from the stored artifact — a caller
+    who assigns the wrong EPSG can assign another one over the same untouched
+    pixels, with `Dataset.original_srid` still recording what the upload
+    declared. The measured half of that claim is
+    `test_the_cog_carries_the_uploaded_samples_and_grid` below.
+    """
+
+    async def test_replace_with_srid_override_supersedes_the_original(
+        self, test_db_session, raster_storage, tmp_path
+    ) -> None:
+        """End to end: default DEFLATE plus an override. Lossless codec,
+        untouched pixels — there is no second copy left to justify."""
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+
+        source = tmp_path / "relabelled.tif"
+        source.write_bytes(_geotiff_bytes(seed=91))
+        job = await _queue_replace_job(
+            test_db_session,
+            dataset_id=dataset_id,
+            user_id=admin_id,
+            file_path=str(source),
+        )
+        job.user_metadata = {**(job.user_metadata or {}), "srid_override": 3857}
+        await test_db_session.commit()
+        job_id = job.id
+
+        try:
+            await reupload_raster.func(
+                job_id=str(job_id),
+                dataset_id=str(dataset_id),
+                file_path=str(source),
+                user_id=str(admin_id),
+                attempt_id=str(job.attempt_id),
+            )
+            assert await _archived_names(test_db_session, dataset_id) == [], (
+                "an override archived a second permanent copy of an upload the "
+                "COG reproduces byte for byte — assignment resamples nothing "
+                "(#1291)"
+            )
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
+    async def test_the_cog_carries_the_uploaded_samples_and_grid(
+        self, test_db_session, raster_storage, tmp_path
+    ) -> None:
+        """The fact the retention decision above rests on, read off the object
+        that was actually published: same shape, same pixels, new CRS label,
+        and the same corner coordinates — a warp changes all four."""
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+
+        # Held in memory because the successful replace deletes the upload —
+        # which is the retention change this test underwrites.
+        source_bytes = _geotiff_bytes(seed=93)
+        source = tmp_path / "relabelled.tif"
+        source.write_bytes(source_bytes)
+        job = await _queue_replace_job(
+            test_db_session,
+            dataset_id=dataset_id,
+            user_id=admin_id,
+            file_path=str(source),
+        )
+        job.user_metadata = {**(job.user_metadata or {}), "srid_override": 3857}
+        await test_db_session.commit()
+        job_id = job.id
+
+        try:
+            await reupload_raster.func(
+                job_id=str(job_id),
+                dataset_id=str(dataset_id),
+                file_path=str(source),
+                user_id=str(admin_id),
+                attempt_id=str(job.attempt_id),
+            )
+
+            test_db_session.expire_all()
+            asset = (
+                await test_db_session.execute(
+                    select(RasterAsset).where(RasterAsset.dataset_id == dataset_id)
+                )
+            ).scalar_one()
+            published = await raster_storage.get(asset.asset_uri)
+
+            with MemoryFile(published) as mem, mem.open() as cog:
+                cog_bounds = tuple(cog.bounds)
+                cog_pixels = cog.read(1)
+                cog_epsg = cog.crs.to_epsg()
+            with MemoryFile(source_bytes) as mem, mem.open() as src:
+                src_bounds = tuple(src.bounds)
+                src_pixels = src.read(1)
+
+            assert cog_epsg == 3857
+            assert cog_pixels.shape == src_pixels.shape, (
+                "the pixel grid was resampled; an assignment must not touch it"
+            )
+            assert np.array_equal(cog_pixels, src_pixels), (
+                "the samples changed under a lossless codec — the conversion "
+                "reprojected instead of relabelling (#1291)"
+            )
+            assert cog_bounds == pytest.approx(src_bounds), (
+                f"the corner coordinates moved ({src_bounds} -> {cog_bounds}); "
+                "assignment changes what they mean, not what they are"
+            )
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
+    def test_neither_tail_asks_for_the_reprojected_verdict(self) -> None:
+        """The first-ingest tail's half of the same change.
+
+        Structural for the reason #1290 gave when it pinned its sibling this
+        way: driving a whole successful first ingest — quota, notifications,
+        billing, embeddings — to observe one bit is not worth the runtime, and
+        what would actually regress is the keyword coming back with the warp
+        long gone, quietly charging every override a second permanent copy.
+        """
+        import ast
+        import inspect
+
+        from app.processing.ingest import tasks_raster, tasks_raster_replace
+
+        for module in (tasks_raster, tasks_raster_replace):
+            tree = ast.parse(inspect.getsource(module))
+            calls = [
+                node
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Call)
+                and getattr(node.func, "id", None) == "cog_preserves_source"
+            ]
+            assert calls, f"{module.__name__} does not consult the predicate"
+            for call in calls:
+                assert "reprojected" not in {kw.arg for kw in call.keywords}, (
+                    f"{module.__name__} still reports a reprojection to "
+                    "cog_preserves_source; nothing in this pipeline reprojects "
+                    "since #1291"
+                )
+
+    def test_both_tails_persist_the_footprint_of_the_file_they_labelled(
+        self,
+    ) -> None:
+        """Where the footprint comes from, in both tails.
+
+        Under assignment the source and the COG hold the SAME corner numbers,
+        so the two reads no longer disagree about any number — only about which
+        CRS to read them under. That makes the source read a silently wrong
+        answer rather than an obviously wrong one, which is the version of this
+        bug that survives review.
+        """
+        import ast
+        import inspect
+
+        from app.processing.ingest import tasks_raster, tasks_raster_replace
+
+        for module, callee, kwarg in (
+            (tasks_raster, "create_raster_dataset", "meta"),
+            (tasks_raster_replace, "_write_swapped_fields", "cog_meta"),
+        ):
+            tree = ast.parse(inspect.getsource(module))
+            calls = [
+                node
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Call)
+                and getattr(node.func, "id", None) == callee
+            ]
+            assert calls, f"{module.__name__} never calls {callee}"
+            for call in calls:
+                passed = {kw.arg: kw.value for kw in call.keywords if kw.arg == kwarg}
+                assert passed, f"{module.__name__}: {callee} got no {kwarg}="
+                assert getattr(passed[kwarg], "id", None) == "cog_meta", (
+                    f"{module.__name__}: {callee} was handed "
+                    f"{ast.dump(passed[kwarg])} — the catalog's extent must "
+                    "come from the converted COG, whose CRS is the assigned one"
+                )
+
+    async def test_the_footprint_is_read_in_the_assigned_crs(
+        self, test_db_session, raster_storage, tmp_path
+    ) -> None:
+        """The subtle half, and a real bug class here before (#1290).
+
+        The source spans the whole world in EPSG:4326. Assigned 3857, those
+        same numbers describe a 360 m by 180 m patch at the origin, so the
+        published extent is sub-degree. Three wrong answers are all excluded by
+        one assertion: reading the source's metadata (or a source-CRS reading
+        of the COG) gives the whole world, and a warp to 3857 would give the
+        whole world back too after the inverse transform.
+        """
+        admin_id = (
+            await test_db_session.execute(
+                select(User.id).where(User.username == "admin")
+            )
+        ).scalar_one()
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+
+        source = tmp_path / "relabelled.tif"
+        source.write_bytes(_geotiff_bytes(seed=97))
+        job = await _queue_replace_job(
+            test_db_session,
+            dataset_id=dataset_id,
+            user_id=admin_id,
+            file_path=str(source),
+        )
+        job.user_metadata = {**(job.user_metadata or {}), "srid_override": 3857}
+        await test_db_session.commit()
+        job_id = job.id
+
+        try:
+            await reupload_raster.func(
+                job_id=str(job_id),
+                dataset_id=str(dataset_id),
+                file_path=str(source),
+                user_id=str(admin_id),
+                attempt_id=str(job.attempt_id),
+            )
+
+            west, south, east, north = (
+                await test_db_session.execute(
+                    text(
+                        "SELECT ST_XMin(spatial_extent), ST_YMin(spatial_extent), "
+                        "ST_XMax(spatial_extent), ST_YMax(spatial_extent) "
+                        "FROM catalog.records WHERE id = :id"
+                    ),
+                    {"id": record_id},
+                )
+            ).one()
+
+            # -180..180 read as metres is ~0.0016 degrees of longitude.
+            assert east - west < 0.01 and north - south < 0.01, (
+                f"the published extent spans {east - west} x {north - south} "
+                "degrees: the corner numbers were read under the CRS the "
+                "caller replaced, not the one they assigned (#1291)"
+            )
+            assert abs(west) < 0.01 and abs(south) < 0.01, (
+                f"the footprint sits at ({west}, {south}); metres near zero "
+                "belong at the origin in WGS84"
             )
         finally:
             await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)

@@ -149,25 +149,22 @@ class TestPrepareWithOverviewsSafeEnv:
 
 
 # ---------------------------------------------------------------------------
-# convert_to_cog (gdalwarp branch)
+# convert_to_cog (assign_crs branch)
 # ---------------------------------------------------------------------------
 
 
-class TestConvertToCogGdalwarpSafeEnv:
-    def test_gdalwarp_subprocess_inherits_clamps(self, tmp_path, monkeypatch):
-        """``convert_to_cog(assign_crs=...)`` invokes ``gdalwarp`` with the clamps.
+class TestConvertToCogCrsAssignment:
+    """fix(#1291): ``assign_crs`` ASSIGNS the CRS and does not reproject.
 
-        Before KNOWN-03, the gdalwarp call passed no ``env=`` at all and
-        inherited an unclamped ``os.environ``.
-        """
-        from app.processing.raster import cog as cog_module
+    This class used to pin the KNOWN-03 clamps on a ``gdalwarp`` subprocess,
+    because ``convert_to_cog`` prepended one whenever an EPSG code was
+    supplied. The decision on #1291 removed that step: the code now rides on
+    the existing ``gdal_translate`` as ``-a_srs``, which relabels the raster
+    and touches no sample. The clamp assertion survives, on the process that
+    now carries the flag.
+    """
 
-        src = tmp_path / "src.tif"
-        src.write_bytes(b"\x00" * 8)
-        dst = tmp_path / "out.tif"
-
-        # Also stub the downstream prepare_with_overviews → rasterio.open
-        # path because convert_to_cog falls through to it after gdalwarp.
+    def _stub_rasterio(self, monkeypatch):
         fake_dataset = mock.MagicMock()
         fake_dataset.count = 1
         fake_dataset.overviews.return_value = []
@@ -179,21 +176,85 @@ class TestConvertToCogGdalwarpSafeEnv:
 
         monkeypatch.setattr(rasterio, "open", lambda *_a, **_k: fake_ctx)
 
-        with _capture_subprocess_runs(monkeypatch) as captured:
-            cog_module.convert_to_cog(str(src), str(dst), "uint8", assign_crs=4326)
+    def test_assign_crs_lands_on_the_translate_and_spawns_no_warp(
+        self, tmp_path, monkeypatch
+    ):
+        """The whole of the #1291 behavior change, in one argv assertion.
 
-        gdalwarp_calls = [
-            (cmd, env) for cmd, env in captured if cmd and cmd[0] == "gdalwarp"
+        ``-a_srs`` writes a CRS tag while every band passes through, so the
+        output carries the uploaded samples. ``gdalwarp -t_srs`` resampled them
+        onto a new grid. The absence of the warp is asserted, not implied: it
+        is what licenses both raster tails calling ``cog_preserves_source``
+        without ``reprojected=``, i.e. what licenses deleting the upload.
+        """
+        from app.processing.raster import cog as cog_module
+
+        src = tmp_path / "src.tif"
+        src.write_bytes(b"\x00" * 8)
+        dst = tmp_path / "out.tif"
+        self._stub_rasterio(monkeypatch)
+
+        with _capture_subprocess_runs(monkeypatch) as captured:
+            cog_module.convert_to_cog(str(src), str(dst), "uint8", assign_crs=3857)
+
+        tools = [cmd[0] for cmd, _ in captured if cmd]
+        assert "gdalwarp" not in tools, (
+            f"a CRS assignment must not reproject (#1291); ran {tools}"
+        )
+
+        translate_calls = [
+            (cmd, env) for cmd, env in captured if cmd and cmd[0] == "gdal_translate"
         ]
-        assert gdalwarp_calls, (
-            f"gdalwarp was not invoked; captured: {[c[0] for c in captured]}"
+        assert translate_calls, f"gdal_translate was not invoked; ran {tools}"
+        cmd, env = translate_calls[0]
+        assert "-a_srs" in cmd, f"-a_srs missing from the translate argv: {cmd}"
+        assert cmd[cmd.index("-a_srs") + 1] == "EPSG:3857"
+        assert "-t_srs" not in cmd, (
+            "-t_srs on gdal_translate reprojects; the assignment flag is -a_srs"
         )
-        _, env = gdalwarp_calls[0]
-        # Pre-KNOWN-03 this branch passed env=None — assert it's no longer None.
-        assert env is not None, (
-            "gdalwarp subprocess passed env=None (KNOWN-03 regression)"
-        )
+        # The flag must precede the positional input/output pair, or GDAL reads
+        # it as a file name.
+        assert cmd.index("-a_srs") < cmd.index(str(dst))
+        # KNOWN-03: the clamps ride on whichever process carries the work.
         _assert_clamps(env)
+
+    def test_no_assign_crs_leaves_the_argv_alone(self, tmp_path, monkeypatch):
+        """The flag is conditional — an ordinary conversion must not stamp a CRS
+        the source never declared."""
+        from app.processing.raster import cog as cog_module
+
+        src = tmp_path / "src.tif"
+        src.write_bytes(b"\x00" * 8)
+        dst = tmp_path / "out.tif"
+        self._stub_rasterio(monkeypatch)
+
+        with _capture_subprocess_runs(monkeypatch) as captured:
+            cog_module.convert_to_cog(str(src), str(dst), "uint8")
+
+        for cmd, _ in captured:
+            assert "-a_srs" not in cmd, f"unrequested CRS assignment in {cmd}"
+
+    def test_resampling_reaches_overviews_only(self, tmp_path, monkeypatch):
+        """``resampling`` fed ``gdalwarp -r`` as well as ``gdaladdo -r`` before
+        #1291. With the warp gone it can only shape overviews, which is what
+        makes it irrelevant to whether the base samples survived."""
+        from app.processing.raster import cog as cog_module
+
+        src = tmp_path / "src.tif"
+        src.write_bytes(b"\x00" * 8)
+        dst = tmp_path / "out.tif"
+        self._stub_rasterio(monkeypatch)
+
+        with _capture_subprocess_runs(monkeypatch) as captured:
+            cog_module.convert_to_cog(
+                str(src), str(dst), "uint8", assign_crs=3857, resampling="cubic"
+            )
+
+        carriers = sorted({cmd[0] for cmd, _ in captured if "cubic" in cmd})
+        assert carriers == ["gdaladdo"], (
+            f"'cubic' reached {carriers}; after #1291 only overview generation "
+            "may see a resampling method"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -324,9 +385,15 @@ class TestGdalFailureTempCleanup:
             "temp raster copy leaked after run_gdal raised"
         )
 
-    def test_convert_to_cog_cleans_warp_tmp_on_run_gdal_raise(
+    def test_convert_to_cog_with_assign_crs_leaves_no_temp_behind(
         self, tmp_path, monkeypatch
     ):
+        """fix(#1291): the assignment path used to stage a second temp file for
+        the ``gdalwarp`` output, and that one leaked on a timeout. It no longer
+        exists — ``-a_srs`` rides the translate — so what this asserts now is
+        that the path adds no temp of its own: the only scratch file is the
+        overview copy, and its owner still removes it on any raise.
+        """
         import tempfile
 
         import pytest
@@ -339,9 +406,10 @@ class TestGdalFailureTempCleanup:
         src = src_dir / "src.tif"
         src.write_bytes(b"\x00" * 8)
         monkeypatch.setattr(tempfile, "tempdir", str(work_dir))
+        self._stub_rasterio_no_overviews(monkeypatch)
 
         def _raise(*_a, **_k):
-            raise RuntimeError("gdalwarp timed out after 900s")
+            raise RuntimeError("gdaladdo timed out after 900s")
 
         monkeypatch.setattr(cog_module, "run_gdal", _raise)
 
@@ -354,5 +422,5 @@ class TestGdalFailureTempCleanup:
             )
 
         assert list(work_dir.iterdir()) == [], (
-            "gdalwarp temp file leaked after run_gdal raised"
+            "a temp file leaked from the CRS-assignment path after run_gdal raised"
         )

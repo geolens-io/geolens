@@ -42,8 +42,9 @@ class CommitRequest:
             summary (None | str | Unset): Optional dataset description shown in the catalog.
             visibility (CommitRequestVisibility | Unset): Dataset visibility level: 'private' (owner-only), 'restricted'
                 (RBAC-controlled), 'internal' (all users), 'public' (anonymous access). Default: 'private'.
-            srid_override (int | None | Unset): EPSG code to use when source CRS is missing or incorrect. Forces
-                reprojection during ingestion.
+            srid_override (int | None | Unset): EPSG code to use when the source CRS is missing or incorrect. Assigns
+                (relabels) the CRS the source is read under rather than reprojecting from it: raster pixel values are unchanged,
+                and vector geometries are reprojected to EPSG:4326 from the assigned CRS as usual.
             token (None | str | Unset): Optional confirmation token returned by the preview step. Required for some
                 workflows.
             temporal_start (datetime.datetime | None | Unset): ISO 8601 start of the dataset's temporal extent.
