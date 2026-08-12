@@ -14,6 +14,7 @@ Requirements:
   - Alembic migrations must be applied
 """
 
+import asyncio
 import hashlib
 import uuid
 from collections.abc import Iterator
@@ -965,6 +966,23 @@ class TestTileDomainLocking:
 # ---------------------------------------------------------------------------
 
 
+async def _drain_embed_token_usage_bump_tasks() -> None:
+    """Wait for any in-flight fire-and-forget usage-bump tasks to finish.
+
+    fix(#1436) codex review: validate_embed_token_access no longer awaits its
+    use_count/last_used_at bump -- it fires it via asyncio.create_task so a
+    slow pool checkout can never delay authorization. A test asserting on the
+    bumped value right after the call would otherwise race that background
+    task; draining app.modules.embed_tokens.service._usage_bump_tasks makes
+    the wait deterministic instead of timing-dependent.
+    """
+    from app.modules.embed_tokens import service as embed_token_service
+
+    pending = list(embed_token_service._usage_bump_tasks)
+    if pending:
+        await asyncio.gather(*pending)
+
+
 class TestUsageTracking:
     """OBS-01: use_count and last_used_at tracking on cache miss."""
 
@@ -1004,6 +1022,7 @@ class TestUsageTracking:
                 headers={"X-Embed-Token": raw_token},
             )
             assert tile_resp.status_code in (200, 204)
+            await _drain_embed_token_usage_bump_tasks()
 
             # Verify use_count and last_used_at in DB
             test_db_session.expire_all()
@@ -1058,6 +1077,7 @@ class TestUsageTracking:
                 headers={"X-Embed-Token": raw_token},
             )
             assert tile_resp2.status_code in (200, 204)
+            await _drain_embed_token_usage_bump_tasks()
 
             # Expire the session cache to get fresh DB read
             test_db_session.expire_all()
@@ -1070,7 +1090,7 @@ class TestUsageTracking:
             await _cleanup_data_table(test_db_session, table_name)
 
     async def test_bump_does_not_commit_callers_pending_state(self, test_db_session):
-        """F13: the usage bump must not commit the caller's own pending writes.
+        """fix(#1436): the usage bump must not commit the caller's own pending writes.
 
         ``validate_embed_token_access`` previously bumped use_count/
         last_used_at via ``async with db.begin_nested(): ...`` then
@@ -1121,10 +1141,14 @@ class TestUsageTracking:
             result = await fresh.execute(select(Map.name).where(Map.id == map_obj.id))
             assert result.scalar_one() != "PENDING-UNCOMMITTED-RENAME"
 
+        # Drain the detached bump task before the test's event loop closes —
+        # not needed for the assertion above, but leaving it in flight would
+        # dangle a task across pytest-asyncio's function-scoped loop boundary.
+        await _drain_embed_token_usage_bump_tasks()
         await test_db_session.rollback()
 
     async def test_bump_persists_via_its_own_session(self, test_db_session):
-        """F13: moving the bump off the caller's session must not lose it."""
+        """fix(#1436): moving the bump off the caller's session must not lose it."""
         user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         dataset = await _create_private_dataset(test_db_session, created_by=user_id)
         map_obj = Map(
@@ -1149,6 +1173,7 @@ class TestUsageTracking:
         assert (
             await validate_embed_token_access(raw, dataset.id, test_db_session) is True
         )
+        await _drain_embed_token_usage_bump_tasks()
 
         from app.core.db import async_session
 

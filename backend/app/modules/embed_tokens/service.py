@@ -618,31 +618,45 @@ async def validate_embed_token_access(
         # read path (features/router.py, tiles/router.py), but that would stop
         # being true the moment a write endpoint gates on an embed token.
         #
-        # Best-effort and bounded: authorization is already decided by this
-        # point, so the bump is pure telemetry — it must never turn an
-        # already-valid access into a timeout or 500. A side session needs its
-        # own pool checkout while the caller's connection is still held for
-        # the rest of this request; a burst of simultaneous cache-miss bumps
-        # (e.g. right after a cache flush) could contend for the pool the
-        # same way (codex review). The short timeout fails the bump fast
-        # instead of holding this call for the full pool checkout timeout,
-        # and a failure here — pool contention or anything else — is logged
-        # and swallowed rather than propagated.
-        token_id = token.id
-        try:
-            await asyncio.wait_for(_bump_embed_token_usage(token_id), timeout=3.0)
-        except Exception:  # broad: telemetry bump must never fail authorization
-            logger.warning("embed_token_usage_bump_failed", token_id=str(token_id))
+        # fix(#1436 codex review): fired detached (asyncio.create_task), not
+        # awaited. Authorization is already decided by this point, so the
+        # bump is pure telemetry — it must never delay or fail an
+        # already-valid access. A side session needs its own pool checkout
+        # while the caller's connection is still held for the rest of this
+        # request, and a burst of simultaneous cache-miss bumps (e.g. right
+        # after a cache flush) could contend for the pool; even bounded with
+        # a timeout, AWAITING that checkout here would still stall every
+        # cache-miss authorization for up to the timeout. _usage_bump_tasks
+        # holds a strong reference so asyncio cannot garbage-collect the task
+        # mid-flight; its done-callback discards the reference once finished.
+        task = asyncio.create_task(_bump_embed_token_usage_detached(token.id))
+        _usage_bump_tasks.add(task)
+        task.add_done_callback(_usage_bump_tasks.discard)
 
     return True
 
 
-async def _bump_embed_token_usage(token_id: uuid.UUID) -> None:
-    """Increment use_count/last_used_at on a dedicated side session.
+# fix(#1436 codex review): strong references for detached usage-bump tasks —
+# see the comment in validate_embed_token_access for why they're fired this
+# way instead of awaited.
+_usage_bump_tasks: set[asyncio.Task] = set()
 
-    Split out so the timeout in ``validate_embed_token_access`` bounds the
-    whole checkout-execute-commit sequence, not just one step of it.
+
+async def _bump_embed_token_usage_detached(token_id: uuid.UUID) -> None:
+    """Best-effort use_count/last_used_at bump, isolated from the caller.
+
+    Bounded with a timeout so a starved pool doesn't leave the task running
+    indefinitely; any failure (pool contention or otherwise) is logged and
+    swallowed rather than propagated — there is no caller left to catch it.
     """
+    try:
+        await asyncio.wait_for(_bump_embed_token_usage(token_id), timeout=3.0)
+    except Exception:  # broad: detached telemetry task must never raise
+        logger.warning("embed_token_usage_bump_failed", token_id=str(token_id))
+
+
+async def _bump_embed_token_usage(token_id: uuid.UUID) -> None:
+    """Increment use_count/last_used_at on a dedicated side session."""
     from app.core.db import async_session
 
     async with async_session() as side_session:

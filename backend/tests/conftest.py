@@ -252,7 +252,7 @@ _CONFIG_SHARED_ENGINE_MODULES = {
 _DISPOSE_SHARED_ENGINE_MODULES = {
     "test_worker",
     "test_schema_skew_guard",
-    # F13: validate_embed_token_access's usage-bump now opens its own side
+    # fix(#1436): validate_embed_token_access's usage-bump now opens its own side
     # session via app.core.db.async_session (the shared pooled engine)
     # instead of committing the caller's session. TestEmbedTokenTenantPinning
     # exercises that cache-miss path from tests that otherwise stay entirely
