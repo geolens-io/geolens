@@ -186,6 +186,27 @@ async def delete_dataset(
     # Delete the record (CASCADE handles dataset deletion)
     await session.delete(dataset.record)
 
+    if record_type not in RASTER_FAMILY_RECORD_TYPES:
+        # fix(#1427): purge the dropped table's MVT tiles. The cache key is
+        # `tile:{table}:{z}:{x}:{y}` with no dataset id and no content version,
+        # and generate_table_name collides only against LIVE rows and relations
+        # — so the name freed above is immediately reusable, and whoever draws
+        # it next is authorized on its own visibility while served this
+        # dataset's bytes for up to tile_cache_ttl.
+        #
+        # Purging here rather than after the caller's commit is safe because
+        # the DROP above already holds ACCESS EXCLUSIVE on the table: a tile
+        # query that could re-cache pre-delete rows is blocked on that lock
+        # until this transaction ends, and finds no relation once it commits.
+        # Doing it here also covers single delete, bulk delete, and any future
+        # caller from one place. Raster/VRT are excluded — their tiles come
+        # from Titiler, and that branch drops no table to free a name.
+        from app.platform.cache.provider import get_tile_cache
+
+        tile_cache = get_tile_cache()
+        if tile_cache is not None:
+            await tile_cache.invalidate_table(table_name)
+
     # Audit trail for an irreversible operation (DROP TABLE for vector,
     # storage cleanup for raster/VRT). The DB-side row deletion is logged
     # by the audit_emit() facade in the calling router.
