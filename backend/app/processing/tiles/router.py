@@ -38,7 +38,10 @@ from app.modules.auth.dependencies import get_optional_user
 from app.core.config import settings
 from app.core.dependencies import get_db
 from app.modules.embed_tokens.service import validate_embed_token_access
-from app.platform.cache.provider import get_tile_cache
+from app.platform.cache.provider import (
+    get_tile_cache,
+    register_table_invalidation_listener,
+)
 from app.platform.extensions import (
     get_billing_extensions,
     get_data_serving_extension,
@@ -260,6 +263,32 @@ class _DatasetMeta(NamedTuple):
 _dataset_cache: LRUCache[str, tuple[float, _DatasetMeta]] = LRUCache(maxsize=256)
 # threading.Lock is safe here — cache reads/writes are synchronous, no await inside lock
 _dataset_cache_lock = threading.Lock()
+
+
+def _evict_dataset_meta(table_name: str) -> None:
+    """Drop every cached meta entry for a table name.
+
+    fix(#1429): this cache decides authorization — visibility, record_status
+    and created_by are read from the snapshot rather than re-queried. Keying
+    tile bytes by dataset id cannot help here, because the stale entry is what
+    picks the dataset in the first place: after a delete frees ``roads`` and a
+    new dataset draws it, a worker holding the old entry serves the NEW table's
+    rows under the DELETED dataset's visibility.
+
+    Both key shapes are swept — bare ``table_name`` in single-tenant and
+    ``{tid}:{table_name}`` in multi-tenant — because a process can hold entries
+    from before a mode transition, and a delete arrives with only the name.
+    """
+    suffix = f":{table_name}"
+    with _dataset_cache_lock:
+        stale = [
+            key for key in _dataset_cache if key == table_name or key.endswith(suffix)
+        ]
+        for key in stale:
+            _dataset_cache.pop(key, None)
+
+
+register_table_invalidation_listener(_evict_dataset_meta)
 
 # ---------------------------------------------------------------------------
 # PERF-002: Short-TTL cache for raster dataset/asset metadata.
@@ -1807,13 +1836,39 @@ def _ensure_clusterable_dataset(meta: _DatasetMeta) -> None:
         )
 
 
+def _generation_table_key(table_name: str, dataset_id: uuid.UUID) -> str:
+    """Table segment plus the generation that makes a reused name safe.
+
+    fix(#1429): a vector delete drops the table and the catalog row, and
+    ``generate_table_name`` collides only against LIVE rows and relations, so
+    the freed name is immediately redrawable. Every tile cache key was the
+    table name alone, which meant the next dataset to draw ``roads`` read the
+    previous one's cached bytes while being authorized on its own visibility.
+    The dataset id is a UUID and is never reissued, so keying on it makes that
+    read impossible rather than merely short-lived — the purge on delete, the
+    TTL, and whether the purge even reached this process all stop mattering.
+
+    Position is load-bearing: the id goes AFTER the table segment so the
+    ``tile:{table}:*`` patterns in ``invalidate_table`` still match every key
+    for a table whichever dataset wrote it, and no invalidation caller changes.
+    """
+    return f"{table_name}:ds{dataset_id.hex}"
+
+
 def _cluster_cache_table_key(
-    table_name: str, *, cluster_radius: int, cluster_max_zoom: int
+    table_name: str,
+    *,
+    dataset_id: uuid.UUID,
+    cluster_radius: int,
+    cluster_max_zoom: int,
 ) -> str:
     # fix(#868): the version tag pins the cluster SQL semantics. Bump it whenever
     # _build_cluster_tile_query changes the emitted tile geometry/properties, or a
     # deploy keeps serving stale cluster tiles until TTL expiry. v2 -> v3: #874.
-    return f"{table_name}:cluster:v3:r{cluster_radius}:z{cluster_max_zoom}"
+    return (
+        f"{_generation_table_key(table_name, dataset_id)}"
+        f":cluster:v3:r{cluster_radius}:z{cluster_max_zoom}"
+    )
 
 
 async def _acquire_and_serve_tile(
@@ -2015,6 +2070,7 @@ async def cluster_tile_endpoint(
     )
     cluster_cache_key = _cluster_tenant_prefix + _cluster_cache_table_key(
         table_name,
+        dataset_id=meta.dataset_id,
         cluster_radius=cluster_radius,
         cluster_max_zoom=cluster_max_zoom,
     )
@@ -2022,7 +2078,7 @@ async def cluster_tile_endpoint(
     tile_cache = get_tile_cache()
     if tile_cache is not None:
         cached = await tile_cache.get(
-            cluster_cache_key, z, x, y, cols_key=cols_cache_key
+            cluster_cache_key, z, x, y, cols_key=cols_cache_key, label=table_name
         )
         if cached is not None:
             if len(cached) == 0:
@@ -2164,8 +2220,11 @@ async def tile_endpoint(
     # cached tile binary.  single_tenant: no prefix — byte-identical to
     # pre-1209 behavior (T-1209-CR-01).
     _tile_tid = _require_tile_tenant_context()
+    _tile_generation_key = _generation_table_key(table_name, meta.dataset_id)
     _tile_cache_key = (
-        f"{_tile_tid}:{table_name}" if _tile_tid is not None else table_name
+        f"{_tile_tid}:{_tile_generation_key}"
+        if _tile_tid is not None
+        else _tile_generation_key
     )
     _tile_serving_limiter, _tile_cache_control = _get_tile_serving_controls(
         str(_tile_tid or "anon")
@@ -2174,7 +2233,9 @@ async def tile_endpoint(
     # Check tile cache before hitting PostGIS
     tile_cache = get_tile_cache()
     if tile_cache is not None:
-        cached = await tile_cache.get(_tile_cache_key, z, x, y, cols_key=cols_cache_key)
+        cached = await tile_cache.get(
+            _tile_cache_key, z, x, y, cols_key=cols_cache_key, label=table_name
+        )
         if cached is not None:
             if len(cached) == 0:
                 # Empty sentinel — tile was previously confirmed empty

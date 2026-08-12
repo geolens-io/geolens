@@ -1964,7 +1964,12 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 #   standards/stac/router.py entered the allowlist at 1547 for the virtual
 #     unassigned Collection, deterministic multi-membership selection, and HTTP
 #     Link parity required by the 2026-07-12 compliance remediation.
-#   tiles/router.py   1500 → 1660 → 1850 → 1920 → 2050 → 2090. Raster meta TTLCache
+#   tiles/router.py   1500 → 1660 → 1850 → 1920 → 2050 → 2090 → 2329. fix(#1429) bought
+#     the generation dimension in the tile cache key: `_generation_table_key`, the
+#     dataset-id parameter threaded through `_cluster_cache_table_key`, and
+#     `_evict_dataset_meta` plus its listener registration, which is what stops a
+#     freed table name from serving its successor under the deleted dataset's
+#     visibility. Raster meta TTLCache
 #     (1176 PERF-002), SET LOCAL ROLE binding (1209-03 DP-02), cloud fairness/metering
 #     seams (1213-06), the cold-tier seam (1214-04), terrainrgb nodata (#186), and
 #     empty-tile Cache-Control (#430 V-03). NOTE: `_check_cold_rehydrate` is pinned to
@@ -2973,7 +2978,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # writes and a predictable future `v` can no longer park a pre-swap
     # snapshot on the key the swap is about to make legitimate.
     # Ratchet stays exact.
-    "backend/app/processing/tiles/router.py": 2268,
+    "backend/app/processing/tiles/router.py": 2329,
     # feat(#565): the SQL sandbox validator crossed 1000 lines across the codex
     # rounds on the query endpoint: the lexical CTE-scope fix (P1) and its
     # pg_catalog.pg_user rationale, the declaration-order refinement (P1 r2),

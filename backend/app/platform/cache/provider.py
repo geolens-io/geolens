@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Protocol
 
 import structlog
@@ -129,3 +130,48 @@ def get_tile_cache() -> "TileCacheProvider | InMemoryTileCacheProvider | None":
     be the cache anyone reads.
     """
     return _tile_cache
+
+
+# --- Table invalidation listeners (fix #1429) ---
+#
+# The tile router keeps a process-local map of table_name -> dataset metadata
+# so it does not hit the DB per tile request. That map is keyed on a name a
+# delete frees for reuse, so after a delete it can hand a successor dataset
+# the DELETED dataset's visibility and owner. Versioning the tile cache key
+# does not reach it: the stale entry is what decides authorization, before any
+# cache key is built.
+#
+# This is the seam that lets the catalog delete path tell the tile router to
+# drop that entry without importing it — `catalog/` must not import
+# `app.processing.*` (test_layering.py::test_no_catalog_imports_processing),
+# but both sides may import `platform/`.
+#
+# Scope, stated plainly: listeners are in-process. A delete handled by one
+# uvicorn worker cannot evict another worker's map, so multi-worker
+# deployments keep a bounded window equal to the map's 60s TTL. That is the
+# same bounded-staleness tradeoff already documented for visibility changes in
+# processing/tiles/router.py. Closing it for every worker needs a cross-process
+# notification channel, which this codebase does not have.
+_table_invalidation_listeners: list[Callable[[str], None]] = []
+
+
+def register_table_invalidation_listener(listener: Callable[[str], None]) -> None:
+    """Register a callable invoked with a table name when that table changes."""
+    _table_invalidation_listeners.append(listener)
+
+
+def notify_table_invalidated(table_name: str) -> None:
+    """Tell every listener a table's identity or contents changed.
+
+    Best-effort and never raises: callers run this beside a cache purge, and a
+    listener failure must not fail the operation that triggered it.
+    """
+    for listener in _table_invalidation_listeners:
+        try:
+            listener(table_name)
+        except Exception:  # broad: listener internals are not this call's to know
+            logger.warning(
+                "table_invalidation_listener_failed",
+                table_name=table_name,
+                exc_info=True,
+            )
