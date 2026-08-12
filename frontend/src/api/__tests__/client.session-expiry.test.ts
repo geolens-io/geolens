@@ -1,6 +1,6 @@
 import { apiFetch, ApiError, onSessionExpired } from '@/api/client';
 import { useAuthStore } from '@/stores/auth-store';
-import { refreshAccessToken } from '@/api/auth';
+import { refreshAccessToken, logoutSession } from '@/api/auth';
 
 // fix(#628): the fetch core must treat "401 + the follow-up refresh is also
 // dead" as a single session-death event: clear the persisted auth state and
@@ -10,6 +10,7 @@ import { refreshAccessToken } from '@/api/auth';
 
 vi.mock('@/api/auth', () => ({
   refreshAccessToken: vi.fn(),
+  logoutSession: vi.fn(() => Promise.resolve()),
 }));
 
 const mockFetch = vi.fn();
@@ -63,6 +64,22 @@ describe('session-expiry notification (fix #628)', () => {
   afterEach(() => {
     unregister();
     useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
+  });
+
+  // fix(#1446): the refresh may have failed transiently (429, 5xx, dropped
+  // connection), leaving a perfectly valid httpOnly refresh cookie behind a UI
+  // that says "signed out". Clearing the store cannot reach that credential,
+  // so revocation is dispatched on the way out.
+  it('revokes server-side when the refresh failed transiently rather than definitively', async () => {
+    signIn();
+    mockFetch.mockResolvedValue(errorResponse(401));
+    vi.mocked(refreshAccessToken).mockRejectedValue(new ApiError('rate limited', 429));
+
+    await expect(apiFetch('/a/')).rejects.toMatchObject({ status: 401 });
+
+    expect(logoutSession).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(useAuthStore.getState().token).toBeNull();
   });
 
   it('401 + dead refresh: clears the store and invokes the handler exactly once across N concurrent requests', async () => {

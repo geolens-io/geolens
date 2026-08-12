@@ -2,7 +2,7 @@ import { API_BASE } from '@/lib/constants';
 import { cookieAuthAvailable } from '@/lib/auth-transport';
 import { translateApiErrorDetail } from '@/lib/error-map';
 import { useAuthStore } from '@/stores/auth-store';
-import { refreshAccessToken } from './auth';
+import { logoutSession, refreshAccessToken } from './auth';
 import i18n from '@/i18n/i18n';
 
 // fix(#438): DATA-04 — a request whose socket hangs used to spin forever and
@@ -56,6 +56,14 @@ export function onSessionExpired(handler: () => void): () => void {
 export function notifySessionExpired(deadSessionKey: string): void {
   if (deadSessionKey === lastNotifiedSessionKey) return;
   lastNotifiedSessionKey = deadSessionKey;
+  // fix(#1446): the refresh that got us here may have failed transiently — a
+  // 429, a 5xx, a dropped connection — in which case the refresh cookie and
+  // its server-side row are still perfectly valid behind a UI that now says
+  // "signed out". Since fix(#1302) that credential is httpOnly, so clearing
+  // the store cannot touch it. Dispatch a best-effort revocation on the way
+  // out. logoutSession issues a plain fetch, so this cannot recurse back
+  // through the 401 interceptor that called us.
+  void logoutSession().catch(() => {});
   useAuthStore.getState().logout();
   sessionExpiredHandler?.();
 }

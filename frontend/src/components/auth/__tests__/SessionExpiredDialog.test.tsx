@@ -16,6 +16,10 @@ import type { AuthConfigResponse } from '@/types/api';
 vi.mock('@/api/auth', () => ({
   getAuthConfig: vi.fn().mockRejectedValue(new Error('not stubbed')),
   refreshAccessToken: vi.fn(),
+  // fix(#1446): notifySessionExpired dispatches a best-effort server
+  // revocation — a transiently-failed refresh leaves a live httpOnly cookie
+  // that clearing the store cannot reach.
+  logoutSession: vi.fn(() => Promise.resolve()),
 }));
 
 function LoginProbe() {

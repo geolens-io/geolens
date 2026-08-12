@@ -4,6 +4,10 @@ import type { TokenResponse } from '@/types/api';
 
 vi.mock('@/api/auth', () => ({
   refreshAccessToken: vi.fn(),
+  // fix(#1446): the 401 path now dispatches a best-effort server revocation,
+  // because a transiently-failed refresh leaves a live httpOnly cookie that
+  // clearing the store cannot reach.
+  logoutSession: vi.fn(() => Promise.resolve()),
 }));
 
 const mockFetch = vi.fn();
