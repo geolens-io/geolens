@@ -21,6 +21,20 @@ log = structlog.get_logger()
 # a rolling restart at the job layer also keeps its on-disk staging artifact.
 EXPORTS_SWEEP_AGE_SECONDS = 3600  # 1 hour
 
+# fix(#1435 codex round 1): the API's periodic sweeper (inside
+# _stale_jobs_sweeper) calls this sweep on a short, continuous cadence (every
+# few minutes) rather than only at a restart/deploy, unlike the two boot-time
+# callers above. A directory's mtime is set once when the export is created
+# and never advances again while ogr2ogr keeps writing the file inside it or a
+# client keeps streaming it out — only an entry ADD/removal in the directory
+# bumps it, not writes to an existing file's contents. Reusing
+# EXPORTS_SWEEP_AGE_SECONDS there would turn "an in-flight export survives A
+# restart" into "any export whose ogr2ogr run plus zip plus client-download
+# time exceeds 1 hour gets deleted out from under it on the very next cycle" —
+# guaranteed, not just an unlucky restart coincidence. A wider margin keeps
+# the periodic pass catching only residue from a process that is truly gone.
+EXPORTS_PERIODIC_SWEEP_AGE_SECONDS = 4 * EXPORTS_SWEEP_AGE_SECONDS  # 4 hours
+
 
 def sweep_orphaned_exports(
     exports_dir: Path,

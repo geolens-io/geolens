@@ -193,6 +193,74 @@ def test_stale_jobs_sweeper_also_sweeps_orphaned_exports() -> None:
     )
 
     helper_source = inspect.getsource(main._sweep_orphaned_exports_and_log)
-    assert "sweep_orphaned_exports(exports_dir)" in helper_source, (
+    assert "sweep_orphaned_exports(" in helper_source, (
         "_sweep_orphaned_exports_and_log must actually call sweep_orphaned_exports"
+    )
+    assert "EXPORTS_PERIODIC_SWEEP_AGE_SECONDS" in helper_source, (
+        "the periodic sweep must use the wider periodic threshold, not the "
+        "boot-time default — see test_periodic_sweep_survives_a_slow_export "
+        "below for why"
+    )
+
+
+def test_periodic_sweep_survives_a_slow_export(tmp_path: Path) -> None:
+    """fix(#1435 codex round 1): the periodic sweeper runs continuously
+    (every CREDENTIAL_RENEWAL_INTERVAL_SECONDS), unlike the boot-time
+    callers, which only fire on a restart. A directory's mtime is set once
+    at export creation and does not advance while ogr2ogr keeps writing the
+    file inside it or a client keeps streaming it out, so reusing the
+    1-hour boot threshold there would delete any export whose total
+    lifetime (ogr2ogr + zip + download) exceeds 1 hour on the very next
+    5-minute cycle — guaranteed, not just an unlucky restart coincidence.
+
+    A 2-hour-old export (older than the 1-hour boot threshold, younger than
+    the 4-hour periodic threshold) must survive the periodic helper, even
+    though the boot-time default alone would have deleted it.
+    """
+    from app.api.main import _sweep_orphaned_exports_and_log
+    from app.core.runtime.staging import sweep_orphaned_exports
+
+    exports_dir = tmp_path / "exports"
+    exports_dir.mkdir()
+
+    slow_export = exports_dir / "still-downloading"
+    slow_export.mkdir()
+    (slow_export / "export.gpkg").write_bytes(b"x")
+    now = time.time()
+    os.utime(slow_export, (now - 2 * 3600, now - 2 * 3600))  # 2 hours old
+
+    log = structlog.get_logger("test")
+    _sweep_orphaned_exports_and_log(exports_dir, log)
+    assert slow_export.exists(), (
+        "a 2-hour-old export must survive the periodic sweep — it is well "
+        "within the periodic threshold even though it is past the boot one"
+    )
+
+    # Confirms the boot-time default alone WOULD have deleted it — this is
+    # the exact regression the periodic helper's wider threshold guards
+    # against, not just a threshold that happens to be wide enough anyway.
+    deleted, _ = sweep_orphaned_exports(exports_dir)
+    assert deleted == 1
+    assert not slow_export.exists()
+
+
+def test_periodic_sweep_still_catches_long_abandoned_residue(tmp_path: Path) -> None:
+    """The wider periodic threshold still has a ceiling: residue from a
+    process that died hours ago must not survive forever."""
+    from app.api.main import _sweep_orphaned_exports_and_log
+
+    exports_dir = tmp_path / "exports"
+    exports_dir.mkdir()
+
+    abandoned = exports_dir / "long-dead"
+    abandoned.mkdir()
+    (abandoned / "export.gpkg").write_bytes(b"x")
+    now = time.time()
+    os.utime(abandoned, (now - 5 * 3600, now - 5 * 3600))  # 5 hours old
+
+    log = structlog.get_logger("test")
+    _sweep_orphaned_exports_and_log(exports_dir, log)
+    assert not abandoned.exists(), (
+        "a 5-hour-old entry is well past any legitimate export lifetime and "
+        "must still be swept"
     )

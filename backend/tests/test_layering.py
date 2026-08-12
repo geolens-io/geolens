@@ -2029,7 +2029,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # helper (with the Path import it needs) rather than inline in the loop,
     # so the extra branch does not push lifespan's McCabe complexity past its
     # gate. Cap 1330 -> 1350, exact.
-    "backend/app/api/main.py": 1350,
+    # fix(#1435 codex round 1): +12 — the periodic sweep runs continuously
+    # rather than only at a restart, so it needs a wider age threshold than
+    # the boot-time callers (a directory's mtime does not advance while
+    # ogr2ogr keeps writing the file inside it or a client keeps streaming it
+    # out) — otherwise any export whose total lifetime exceeds 1 hour gets
+    # deleted out from under it on the next 5-minute cycle, guaranteed.
+    # Cap 1350 -> 1362, exact.
+    "backend/app/api/main.py": 1362,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative

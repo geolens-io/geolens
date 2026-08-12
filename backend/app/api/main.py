@@ -38,7 +38,11 @@ from app.observability.metrics import (
 from app.core.db.tenant_session import tenant_job_context
 from app.core.logging_config import setup_logging
 from app.core.tenancy import is_multi_tenant
-from app.core.runtime.staging import ensure_staging_ready, sweep_orphaned_exports
+from app.core.runtime.staging import (
+    EXPORTS_PERIODIC_SWEEP_AGE_SECONDS,
+    ensure_staging_ready,
+    sweep_orphaned_exports,
+)
 from app.platform.extensions.bootstrap import (
     assert_enterprise_ports_resolved,
     bootstrap,
@@ -272,8 +276,16 @@ def _sweep_orphaned_exports_and_log(exports_dir: Path, log) -> None:
 
     Split out of that loop body so this one extra branch does not push
     ``lifespan``'s McCabe complexity over its gate.
+
+    fix(#1435 codex round 1): uses ``EXPORTS_PERIODIC_SWEEP_AGE_SECONDS``, not
+    the boot-time callers' default — this runs continuously on a short
+    cadence rather than only at a restart, so it needs a wider safety margin
+    (see that constant's docstring in ``staging.py``) before treating an
+    export directory as abandoned rather than merely slow.
     """
-    deleted, _ = sweep_orphaned_exports(exports_dir)
+    deleted, _ = sweep_orphaned_exports(
+        exports_dir, age_threshold_seconds=EXPORTS_PERIODIC_SWEEP_AGE_SECONDS
+    )
     if deleted:
         log.info("Swept orphaned exports", deleted=deleted)
 
