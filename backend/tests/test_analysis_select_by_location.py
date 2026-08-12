@@ -26,7 +26,7 @@ from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.catalog.datasets.domain.service_analysis import PREVIEW_FEATURE_CAP
+from app.modules.catalog.datasets.domain.service import PREVIEW_FEATURE_CAP
 from app.platform.analysis_sql import MAX_SOURCE_FEATURES
 from app.processing.analysis.tasks import _materialize
 

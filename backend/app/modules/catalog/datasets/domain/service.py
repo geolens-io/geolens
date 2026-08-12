@@ -32,6 +32,7 @@ from app.modules.catalog.datasets.domain._sql_safety import (
     _safe_table_ref,  # noqa: F401 -- re-exported for tests/test_sql_safety.py
 )
 from app.modules.catalog.datasets.domain.service_analysis import (
+    PREVIEW_FEATURE_CAP,
     build_preview_sql,
     resolve_source_feature_count,
     run_analysis_preview,
@@ -75,6 +76,7 @@ from app.modules.catalog.datasets.domain.service_relationships import (
 __all__ = [
     "DatasetTitleMismatchError",
     "DependentVrtError",
+    "PREVIEW_FEATURE_CAP",
     "auto_detect_relationships",
     "build_preview_sql",
     "compute_schema_diff",
