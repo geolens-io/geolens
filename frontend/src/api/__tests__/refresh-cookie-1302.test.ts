@@ -86,6 +86,8 @@ describe('browser refresh transport', () => {
     expect(init.method).toBe('POST');
     expect(init.headers).toMatchObject({ Authorization: 'Bearer live-access' });
     expect(init.credentials).toBe('same-origin');
+    // fix(#1446): survives an immediate close/navigate after clicking Logout.
+    expect(init.keepalive).toBe(true);
     // Exactly one request: no proactive-refresh detour.
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });

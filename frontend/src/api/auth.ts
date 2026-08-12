@@ -82,6 +82,12 @@ export async function logoutSession(): Promise<void> {
     headers,
     credentials: 'same-origin',
     signal: AbortSignal.timeout(LOGOUT_TIMEOUT_MS),
+    // fix(#1446): callers dispatch this without awaiting, so a user who clicks
+    // Logout and immediately closes or navigates the tab would otherwise have
+    // the request cancelled at unload — local state already cleared, refresh
+    // row and cookie still alive. keepalive is built for exactly this, and the
+    // request is far inside its 64KB budget.
+    keepalive: true,
     ...(body ? { body } : {}),
   });
 }
