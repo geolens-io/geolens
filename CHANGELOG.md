@@ -31,6 +31,11 @@ and releases use semantic versioning.
 - **Source validation failures read as sentences.** The machine codes the
   source validator emits are mapped to user-facing strings in all four
   locales instead of leaking code identifiers into the UI (#1397).
+- **The showcase seed gains a Hurricane Exposure map, and three global
+  showcase maps render on the globe.** `seed-showcase.py` adds a seventh
+  map joining hurricane tracks against coastal exposure, and the
+  world-spanning showcase maps switch from mercator to globe projection
+  (#1404).
 
 ### Changed
 
@@ -2064,7 +2069,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.11.1...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.12.0...HEAD
+[1.12.0]: https://github.com/geolens-io/geolens/compare/v1.11.1...v1.12.0
 [1.11.1]: https://github.com/geolens-io/geolens/compare/v1.11.0...v1.11.1
 [1.11.0]: https://github.com/geolens-io/geolens/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/geolens-io/geolens/compare/v1.9.0...v1.10.0
