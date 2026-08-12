@@ -305,7 +305,7 @@
     "compressionLabel": "Compresión",
     "compressionHelp": "Compresión de salida COG. DEFLATE es el valor predeterminado. ZSTD para velocidad, JPEG/WEBP para imágenes.",
     "resamplingLabel": "Remuestreo",
-    "resamplingHelp": "Método para generación de vistas generales y reproyección. Auto selecciona según el tipo de datos.",
+    "resamplingHelp": "Método para generación de vistas generales. Auto selecciona según el tipo de datos.",
     "nodataLabel": "Valor NoData",
     "nodataHelp": "Sobrescribir o asignar un valor NoData para este ráster.",
     "geometryColumns": "Columnas de geometria",

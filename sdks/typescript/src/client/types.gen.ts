@@ -2189,7 +2189,7 @@ export type CommitRequest = {
     /**
      * Srid Override
      *
-     * EPSG code to use when source CRS is missing or incorrect. Forces reprojection during ingestion.
+     * EPSG code to use when the source CRS is missing or incorrect. Assigns (relabels) the CRS the source is read under rather than reprojecting from it: raster pixel values are unchanged, and vector geometries are reprojected to EPSG:4326 from the assigned CRS as usual.
      */
     srid_override?: number | null;
     /**

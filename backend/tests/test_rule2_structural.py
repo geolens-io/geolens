@@ -4814,12 +4814,14 @@ def test_guard_env_that_goes_nowhere_does_not_credit():
 
 def test_guard_real_tree_credit_shapes_are_all_allowlisted():
     """The practicality check, pinned as a test rather than left to the
-    measurement in #1077's PR body: the exact shapes the four credited argv
-    sites in ``app/`` use. ``prepare_with_overviews`` assigns the env inside a
-    ``try``; ``convert_to_cog`` passes it inline from inside an ``if``;
-    ``_build_vrt`` builds the argv in the straight-line body and passes the
-    env inline from inside a ``try``. Narrowing the allowlist until any of
-    these reports means breaking the tree, and this is where that shows up."""
+    measurement in #1077's PR body: the exact shapes the credited argv sites in
+    ``app/`` use. ``prepare_with_overviews`` assigns the env inside a ``try``;
+    ``convert_to_cog`` builds its argv across conditional ``extend`` calls and
+    passes an env variable (fix(#1291) removed its second, gdalwarp site, whose
+    shape was an env passed inline from inside an ``if``); ``_build_vrt``
+    builds the argv in the straight-line body and passes the env inline from
+    inside a ``try``. Narrowing the allowlist until any of these reports means
+    breaking the tree, and this is where that shows up."""
     violations, total = _collect_gdal_cli_violations(
         _mod(
             "from app.processing.raster.vrt import gdal_safe_env, run_gdal\n"
@@ -4830,13 +4832,18 @@ def test_guard_real_tree_credit_shapes_are_all_allowlisted():
             "        return run_gdal(cmd, env=env, tool='gdaladdo')\n"
             "    except Exception:\n"
             "        raise\n"
-            "def convert(path, out, assign_crs):\n"
-            "    if assign_crs is not None:\n"
-            "        warp_cmd = ['gdalwarp', '-t_srs', f'EPSG:{assign_crs}', path, out]\n"
-            "        try:\n"
-            "            run_gdal(warp_cmd, env=gdal_safe_env(), tool='gdalwarp')\n"
-            "        except Exception:\n"
-            "            raise\n"
+            "def convert(path, out, assign_crs, nodata):\n"
+            "    try:\n"
+            "        env = gdal_safe_env(extras={'GDAL_CACHEMAX': '200'})\n"
+            "        cmd = ['gdal_translate', '-of', 'GTiff']\n"
+            "        if nodata is not None:\n"
+            "            cmd.extend(['-a_nodata', str(nodata)])\n"
+            "        if assign_crs is not None:\n"
+            "            cmd.extend(['-a_srs', f'EPSG:{assign_crs}'])\n"
+            "        cmd.extend([path, out])\n"
+            "        return run_gdal(cmd, env=env, tool='gdal_translate')\n"
+            "    finally:\n"
+            "        pass\n"
             "def build_vrt(sources, out):\n"
             "    cmd = ['gdalbuildvrt', out, *sources]\n"
             "    try:\n"

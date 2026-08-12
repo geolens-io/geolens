@@ -332,17 +332,29 @@ async def ingest_raster(
         # above can reach this line without converting at all, and a verified
         # COG loses nothing whatever codec it carries. Read in the terminal
         # `finally` to decide whether the uploaded file is still needed.
-        source_preserved_in_cog = cog_preserves_source(
-            cog_status, user_compression, reprojected=assign_crs is not None
-        )
+        # fix(#1291): no `reprojected=`. `assign_crs` now applies through
+        # `gdal_translate -a_srs`, which relabels and resamples nothing, so an
+        # override no longer makes the COG a lossy copy of the upload and no
+        # longer forces a second permanent original. The codec is the only
+        # sample-altering axis this pipeline still has; `cog_preserves_source`
+        # keeps the parameter for a future reprojecting field to set.
+        source_preserved_in_cog = cog_preserves_source(cog_status, user_compression)
 
         # fix(#1290 review): read the artifact that will actually serve. The
-        # round-1 CRS fix made first ingest warp declared-CRS sources, so
-        # persisting the pre-conversion read described a file this dataset does
-        # not have — the same defect the replace tail fixed one round earlier,
-        # left behind because that dispatch was scoped to replace only. The
-        # source read keeps exactly two jobs: the CRS decision above, and
-        # `original_srid` below.
+        # pre-conversion read describes a different file: the codec differs on
+        # every conversion, and under an override the CRS differs too — with it
+        # the footprint, because the same corner coordinates land somewhere
+        # else on earth once they are read in the assigned CRS. Same defect the
+        # replace tail fixed one round earlier, left behind because that
+        # dispatch was scoped to replace only. The source read keeps exactly
+        # two jobs: the CRS decision above, and `original_srid` below.
+        #
+        # fix(#1291): with assignment the pixel grid and the corner NUMBERS
+        # survive the conversion unchanged — only the label on them changes —
+        # so `extract_raster_metadata` reading the COG interprets those numbers
+        # in the assigned CRS, which is exactly the reading the caller asked
+        # for. Reading the source would interpret them in the CRS the caller
+        # just called wrong.
         cog_meta = await asyncio.to_thread(extract_raster_metadata, local_cog_path)
 
         # 7. Hash COG

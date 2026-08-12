@@ -76,13 +76,18 @@ def cog_preserves_source(
       does not, at the zero error bound this pipeline leaves in place; the
       condition that keeps that true is spelled out on
       ``LOSSLESS_COG_COMPRESSIONS``.
-    - **assign_crs** — runs ``gdalwarp -t_srs``, which resamples the raster
-      onto a new grid. Every output pixel is interpolated from neighbours, so
-      the source's samples are gone even under DEFLATE. Sample-altering, and
-      the case round 2 missed by looking only at the codec.
-    - **resampling** — feeds ``gdaladdo`` (overviews are additional data, the
-      base band is untouched) and ``gdalwarp -r``. It only alters samples
-      through the warp, which ``reprojected`` already covers.
+    - **assign_crs** — fix(#1291): ``gdal_translate -a_srs``, which writes a
+      CRS tag and nothing else. Exactly like ``-a_nodata`` below: the bands
+      pass through the translate untouched, so under a lossless codec the
+      output carries the uploaded samples bit for bit. Measured on the
+      deployed GDAL: a 32x32 source relabelled 4326 -> 3857 comes back 32x32,
+      same bounds numbers, array-equal to the input. NOT sample-altering.
+      Until #1291 this ran ``gdalwarp -t_srs``, which resampled onto a new
+      grid (the same 32x32 source came back 42x42 with different values) —
+      hence ``reprojected``, and hence this bullet's earlier reading.
+    - **resampling** — feeds ``gdaladdo`` only now (overviews are additional
+      data, the base band is untouched). It used to also feed ``gdalwarp -r``;
+      with the warp gone, no ``resampling`` value can reach the base samples.
     - **nodata** — ``gdal_translate -a_nodata`` writes a metadata tag. Pixel
       values are byte-identical, so this is not sample-altering; it changes how
       the samples are interpreted, not what they are.
@@ -92,12 +97,27 @@ def cog_preserves_source(
     So the predicate is "no lossy codec AND no warp". Anything not proven
     sample-preserving must return False: the cost of a wrong True is the
     permanent loss of the only faithful copy, and the cost of a wrong False is
-    some retained bytes.
+    some retained bytes. That asymmetry is why #1291 argues the assign_crs move
+    rather than just making it: a relabel is the one conversion step that is
+    REVERSIBLE from the stored artifact. If the caller assigns the wrong EPSG,
+    every sample is still there and another ``-a_srs`` corrects it; the
+    catalog also keeps what the upload declared, in ``Dataset.original_srid``.
+    A warp is not reversible, which is what made the retained upload the only
+    faithful copy while one ran.
+
+    ``reprojected`` stays as the switch for that second axis even though no
+    pipeline path sets it today: a deliberate reproject-at-ingest field
+    (``target_srid``, if demand ever appears — #1291) has to pass it, and a
+    parameter that is already here and already tested is one fewer thing for
+    that change to forget. ``convert_to_cog`` running no ``gdalwarp`` is what
+    licenses the callers passing nothing, and that is pinned by
+    ``test_cog_subprocess_env.py``.
 
     ``cog_status == "verified"`` short-circuits because nothing ran at all —
     the bytes written to storage ARE the uploaded bytes, whatever codec they
-    already carried. A warp cannot coexist with it: ``check_and_prepare_cog``
-    treats any ``assign_crs`` as a custom option and always converts.
+    already carried. A conversion cannot coexist with it:
+    ``check_and_prepare_cog`` treats any ``assign_crs`` as a custom option and
+    always converts.
     """
     if cog_status == "verified":
         return True
@@ -110,6 +130,12 @@ def resolve_crs_assignment(
     *, crs_wkt: str | None, srid_override: int | None
 ) -> int | None:
     """The EPSG code the conversion must apply, or None to keep the source's.
+
+    Which code, only. What "apply" DOES belongs to ``convert_to_cog``, and
+    since fix(#1291) it is assignment: the returned code is written onto the
+    output as a label (``-a_srs``) and no sample is touched. This function did
+    not change with that — it never knew whether the code would be warped to
+    or stamped on — but its callers' comments did.
 
     fix(#1290 review): an override applies whenever the caller supplies one,
     not only when the source declares nothing. ``RasterCommitRequest``
@@ -522,45 +548,21 @@ def convert_to_cog(
     """Convert input file to GeoLens COG profile using gdal_translate.
 
     Adds overviews first via gdaladdo, then translates with COPY_SRC_OVERVIEWS.
-    Optionally reprojects via gdalwarp if assign_crs is provided.
+
+    ``assign_crs`` ASSIGNS an EPSG code to the output (``-a_srs``) — it
+    relabels the raster where it already sits and reprojects nothing
+    (fix(#1291); see the decision on that issue). ``resampling`` therefore
+    reaches ``gdaladdo`` and nothing else: it decides how overviews are
+    built, never what the base band contains.
+
     Raises RuntimeError on failure.
     """
-    actual_input = input_path
-
-    # If CRS assignment requested, prepend a gdalwarp step
-    warp_tmp: str | None = None
-    if assign_crs is not None:
-        warp_tmp_file = tempfile.NamedTemporaryFile(
-            suffix=".tif", delete=False, dir=_scratch_dir()
-        )
-        warp_tmp_file.close()
-        warp_tmp = warp_tmp_file.name
-        warp_cmd = [
-            "gdalwarp",
-            "-t_srs",
-            f"EPSG:{assign_crs}",
-        ]
-        if resampling:
-            warp_cmd.extend(["-r", resampling])
-        warp_cmd.extend([input_path, warp_tmp])
-        # KNOWN-03 (Phase 1071): apply the raster-pipeline GDAL safety clamps
-        # (was env=None before — inherited unclamped os.environ).
-        # fix(#430 codex r15): run_gdal raises on timeout (BA-29) — same
-        # sibling leak as prepare_with_overviews; clean warp_tmp on ANY
-        # failure, not just non-zero exit.
-        try:
-            warp_result = run_gdal(
-                warp_cmd, env=gdal_safe_env(), tool="gdalwarp"
-            )  # fix(#430 BA-29)
-            if warp_result.returncode != 0:
-                raise RuntimeError(f"gdalwarp failed: {warp_result.stderr}")
-        except Exception:  # broad: cleanup-and-reraise — warp temp must not survive ANY failure (run_gdal timeout included)
-            Path(warp_tmp).unlink(missing_ok=True)
-            raise
-        actual_input = warp_tmp
-
+    # fix(#1291): overviews are built from the SOURCE grid, which is also the
+    # output grid — a `-a_srs` relabel moves no pixel, so `COPY_SRC_OVERVIEWS`
+    # below carries them across intact. When a gdalwarp step ran first, this
+    # had to consume the warped intermediate instead.
     tmp_path = prepare_with_overviews(
-        actual_input, dtype, resampling=resampling, compression=compression
+        input_path, dtype, resampling=resampling, compression=compression
     )
     try:
         predictor = _predictor_for_dtype(dtype, compression)
@@ -590,14 +592,21 @@ def convert_to_cog(
         )
         if nodata is not None:
             cmd.extend(["-a_nodata", str(nodata)])
+        if assign_crs is not None:
+            # fix(#1291): -a_srs, not a gdalwarp -t_srs prepend. Both cases the
+            # field documents want the samples relabelled where they are: a
+            # source with no CRS has nothing to reproject FROM, and a source
+            # whose declared CRS is wrong reprojects from a lie — the output
+            # coordinates are wrong by construction, so nobody was served by
+            # that. It sits beside -a_nodata deliberately; the two are the same
+            # kind of flag, writing a tag while every band passes through.
+            cmd.extend(["-a_srs", f"EPSG:{assign_crs}"])
         cmd.extend([tmp_path, output_path])
         result = run_gdal(cmd, env=env, tool="gdal_translate")  # fix(#430 BA-29)
         if result.returncode != 0:
             raise RuntimeError(f"gdal_translate failed: {result.stderr}")
     finally:
         Path(tmp_path).unlink(missing_ok=True)
-        if warp_tmp:
-            Path(warp_tmp).unlink(missing_ok=True)
 
 
 def check_and_prepare_cog(
@@ -613,7 +622,13 @@ def check_and_prepare_cog(
 
     Returns (path_to_use, cog_status) where cog_status is 'verified' or 'converted'.
     """
-    # If user specified non-default options, always convert
+    # If user specified non-default options, always convert.
+    # fix(#1291): `assign_crs` stays on this list. Assignment is metadata-only
+    # in what it does to the SAMPLES, but the tag still has to be written, and
+    # `-a_srs` is an argument to the translate run — there is no path that
+    # relabels an already-compliant COG in place. A `verified` return here
+    # would publish the source untouched, still carrying the CRS the caller
+    # asked us to replace, which is the #1186 failure with a different cause.
     has_custom_opts = (
         compression != "DEFLATE"
         or resampling is not None

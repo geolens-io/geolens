@@ -350,7 +350,7 @@
     "compressionLabel": "Compression",
     "compressionHelp": "COG output compression. DEFLATE is default. ZSTD for speed, JPEG/WEBP for imagery.",
     "resamplingLabel": "Resampling",
-    "resamplingHelp": "Method for overview generation and reprojection. Auto selects based on data type.",
+    "resamplingHelp": "Method for overview generation. Auto selects based on data type.",
     "nodataLabel": "NoData Value",
     "nodataHelp": "Override or assign a nodata value for this raster.",
     "geometryColumns": "Geometry Columns",
