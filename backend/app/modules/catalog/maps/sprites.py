@@ -257,10 +257,26 @@ def _asset_response(asset: MapIconAsset) -> MapIconResponse:
     )
 
 
-async def list_icons(session: AsyncSession) -> list[MapIconResponse]:
+async def _load_icon_catalog(
+    session: AsyncSession,
+) -> tuple[list[MapIconResponse], list[MapIconAsset]]:
+    """The icon catalog, as sprite responses plus the uploaded rows behind them.
+
+    fix(#1428 codex r2): the sheet render needs those rows to reach storage, and
+    this is the query that already loads all of them. Re-reading them by id cost
+    a second query that grew a bind parameter per icon — past 32k uploads that
+    is more parameters than the driver accepts, on a route that takes no auth.
+    """
     result = await session.execute(select(MapIconAsset).order_by(MapIconAsset.name))
-    uploaded = [_asset_response(asset) for asset in result.scalars().all()]
-    return [_builtin_response(icon) for icon in DEFAULT_ICONS] + uploaded
+    uploaded = list(result.scalars().all())
+    icons = [_builtin_response(icon) for icon in DEFAULT_ICONS]
+    icons += [_asset_response(asset) for asset in uploaded]
+    return icons, uploaded
+
+
+async def list_icons(session: AsyncSession) -> list[MapIconResponse]:
+    icons, _uploaded = await _load_icon_catalog(session)
+    return icons
 
 
 async def create_icon_asset(
@@ -636,7 +652,7 @@ def _build_sprite_index(icons: list[MapIconResponse]) -> SpriteIndex:
 async def build_sprite_png(session: AsyncSession) -> bytes:
     global _sprite_index_cache, _sprite_png_cache
 
-    icons = await list_icons(session)
+    icons, uploaded = await _load_icon_catalog(session)
     signature = _sprite_signature(icons)
     if _sprite_png_cache is not None and _sprite_png_cache.signature == signature:
         return _sprite_png_cache.png
@@ -644,38 +660,13 @@ async def build_sprite_png(session: AsyncSession) -> bytes:
     async with _sprite_cache_lock:
         if _sprite_png_cache is not None and _sprite_png_cache.signature == signature:
             return _sprite_png_cache.png
-        png = await _render_sprite_png(session, icons)
+        png = await _render_sprite_png(icons, uploaded)
         _sprite_index_cache = SpriteIndexCache(
             signature=signature,
             index=_build_sprite_index(icons),
         )
         _sprite_png_cache = SpritePngCache(signature=signature, png=png)
         return png
-
-
-async def _uploaded_icon_assets(
-    session: AsyncSession, icons: list[MapIconResponse]
-) -> dict[str, MapIconAsset]:
-    """The rows behind the uploaded icons, keyed by response id, in one query.
-
-    fix(#1428): every DB read the render needs happens here, before any of it
-    reaches a worker thread — an ``AsyncSession`` cannot be used from one. It
-    also replaces the per-icon ``session.get`` the serial loop issued.
-    """
-    asset_ids: list[uuid.UUID] = []
-    for icon in icons:
-        if icon.builtin:
-            continue
-        try:
-            asset_ids.append(uuid.UUID(icon.id))
-        except ValueError:
-            continue
-    if not asset_ids:
-        return {}
-    result = await session.execute(
-        select(MapIconAsset).where(MapIconAsset.id.in_(asset_ids))
-    )
-    return {str(asset.id): asset for asset in result.scalars().all()}
 
 
 async def _load_icon_payloads(
@@ -732,11 +723,13 @@ def _encode_sprite_png(sheet: Image.Image) -> bytes:
 
 
 async def _render_sprite_png(
-    session: AsyncSession, icons: list[MapIconResponse]
+    icons: list[MapIconResponse], uploaded: list[MapIconAsset]
 ) -> bytes:
+    """Composite the sheet. Takes rows, not a session — fix(#1428): every cell is
+    drawn in a worker thread, and an ``AsyncSession`` cannot be used from one."""
     if not icons:
         return _blank_png(SPRITE_CELL_SIZE)
-    assets = await _uploaded_icon_assets(session, icons)
+    assets = {str(asset.id): asset for asset in uploaded}
     sheet = Image.new(
         "RGBA",
         (len(icons) * SPRITE_CELL_SIZE, SPRITE_CELL_SIZE),

@@ -461,7 +461,7 @@ async def test_sprite_png_renders_when_a_stored_icon_is_oversized(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_sprite_png_loads_uploaded_icons_in_one_query(monkeypatch):
+async def test_sprite_png_loads_the_icon_catalog_in_one_query(monkeypatch):
     storage = FakeStorage()
     rows = []
     for slug in ("bus", "train", "tram"):
@@ -478,9 +478,9 @@ async def test_sprite_png_loads_uploaded_icons_in_one_query(monkeypatch):
 
     await build_sprite_png(session)
 
-    # one listing query plus one batched fetch for the uploaded rows — not a
-    # per-icon session.get()
-    assert session.execute_count == 2
+    # fix(#1428 codex r2): the listing query and nothing else — no per-icon
+    # session.get(), and no second lookup binding one parameter per icon
+    assert session.execute_count == 1
     assert session.get_count == 0
     assert storage.get_count == 3
 
