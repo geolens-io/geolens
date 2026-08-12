@@ -8,6 +8,16 @@ interface AuthState {
   refreshToken: string | null;
   expiresAt: number | null;
   user: UserResponse | null;
+  /**
+   * fix(#1446): bumped on every logout so a refresh that was already in flight
+   * can tell its session ended and decline to write rotated tokens back. Without
+   * it, a slow refresh resolving after teardown re-populates the store (and
+   * localStorage), signing the browser back in on the login page.
+   *
+   * In-memory and per-tab: deliberately absent from `partialize`, since it
+   * orders events within one tab's lifetime and means nothing across reloads.
+   */
+  sessionEpoch: number;
   setAuth: (
     token: string,
     refreshToken: string | null,
@@ -93,6 +103,7 @@ export const useAuthStore = create<AuthState>()(
       refreshToken: null,
       expiresAt: null,
       user: null,
+      sessionEpoch: 0,
       setAuth: (token, refreshToken, expiresIn, user) =>
         set({
           token,
@@ -106,7 +117,14 @@ export const useAuthStore = create<AuthState>()(
           refreshToken,
           expiresAt: Date.now() + expiresIn * 1000,
         }),
-      logout: () => set({ token: null, refreshToken: null, expiresAt: null, user: null }),
+      logout: () =>
+        set((state) => ({
+          token: null,
+          refreshToken: null,
+          expiresAt: null,
+          user: null,
+          sessionEpoch: state.sessionEpoch + 1,
+        })),
       isAdmin: () => get().user?.roles.includes('admin') ?? false,
       isEditor: () => {
         const roles = get().user?.roles ?? [];

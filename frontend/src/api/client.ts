@@ -78,9 +78,17 @@ export async function tryRefresh(): Promise<boolean> {
   // not in the outer try/finally — so a third caller that arrives between
   // resolution and the outer finally can't observe `inflightRefresh === null`
   // and kick off a second refresh cycle. WR-02 (1045-REVIEW.md).
+  // fix(#1446): a logout can land while this request is in flight — most
+  // easily when logout itself triggers the proactive refresh and then stops
+  // waiting on it. Writing the rotated tokens afterwards would re-populate the
+  // store and localStorage, signing the browser back in while it sits on
+  // /login. Capture the epoch now and refuse the write if it moved.
+  const epochAtStart = useAuthStore.getState().sessionEpoch;
+
   const promise = (async () => {
     try {
       const tokens = await refreshAccessToken(refreshToken);
+      if (useAuthStore.getState().sessionEpoch !== epochAtStart) return;
       // fix(#1302): null in cookie mode, which also clears the legacy
       // localStorage token once the migrating refresh has spent it.
       useAuthStore.getState().setTokens(

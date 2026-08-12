@@ -73,6 +73,62 @@ describe('browser refresh transport', () => {
   });
 });
 
+// fix(#1446): logout races its wait against a short timer, so a slow refresh
+// can still be running when the store is torn down. If that refresh then wrote
+// its rotated tokens back, the browser would be fully signed in again while
+// sitting on /login.
+describe('late refresh after logout', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.resetModules();
+    window.localStorage.clear();
+  });
+
+  it('discards rotated tokens when a logout landed mid-flight', async () => {
+    let resolveRefresh: (value: unknown) => void = () => {};
+    vi.doMock('@/api/auth', () => ({
+      refreshAccessToken: vi.fn(
+        () => new Promise((resolve) => { resolveRefresh = resolve; }),
+      ),
+    }));
+
+    const { tryRefresh } = await import('@/api/client');
+    const { useAuthStore: store } = await import('@/stores/auth-store');
+
+    store.setState({ token: 'live-access', refreshToken: null, expiresAt: Date.now() + 60_000 });
+    const pending = tryRefresh();
+
+    // The user logs out while the refresh is still in flight.
+    store.getState().logout();
+
+    resolveRefresh({ access_token: 'rotated', refresh_token: null, expires_in: 900 });
+    expect(await pending).toBe(false);
+
+    expect(store.getState().token).toBeNull();
+    expect(window.localStorage.getItem('geolens-auth') ?? '').not.toContain('rotated');
+  });
+
+  it('still applies rotated tokens when no logout intervened', async () => {
+    let resolveRefresh: (value: unknown) => void = () => {};
+    vi.doMock('@/api/auth', () => ({
+      refreshAccessToken: vi.fn(
+        () => new Promise((resolve) => { resolveRefresh = resolve; }),
+      ),
+    }));
+
+    const { tryRefresh } = await import('@/api/client');
+    const { useAuthStore: store } = await import('@/stores/auth-store');
+
+    store.setState({ token: 'live-access', refreshToken: null, expiresAt: Date.now() + 60_000 });
+    const pending = tryRefresh();
+
+    resolveRefresh({ access_token: 'rotated', refresh_token: null, expires_in: 900 });
+    expect(await pending).toBe(true);
+
+    expect(store.getState().token).toBe('rotated');
+  });
+});
+
 describe('persisted auth state', () => {
   beforeEach(() => {
     window.localStorage.clear();
