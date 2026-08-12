@@ -34,6 +34,7 @@ from PIL import Image, ImageColor, ImageDraw, UnidentifiedImageError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.async_io import run_in_thread_draining
 from app.modules.catalog.maps.models import MapIconAsset
 from app.modules.catalog.maps.schemas import MapIconResponse
 from app.platform.storage import get_storage
@@ -47,6 +48,11 @@ from app.platform.storage import get_storage
 _stdlib_ET.register_namespace("", "http://www.w3.org/2000/svg")
 
 MAX_ICON_BYTES = 512 * 1024
+# fix(#1428): compressed size says nothing about decoded size. A 9000x9000 RGBA
+# PNG is ~330 KiB on the wire — inside MAX_ICON_BYTES — and ~320 MB once decoded
+# into a 24px sprite cell. Bound the dimensions too. 1024 is far more than a
+# sprite cell (24px, 48 at @2x) can show and holds one decode to ~4 MiB.
+MAX_ICON_DIMENSION = 1024
 SUPPORTED_MEDIA_TYPES = {"image/svg+xml": ".svg", "image/png": ".png"}
 
 _SLUG_RE = re.compile(r"[^a-z0-9_-]+")
@@ -67,6 +73,9 @@ class BuiltinIcon:
 
 SpriteIndex = dict[str, dict[str, int | float | bool]]
 SpriteSignature = tuple[tuple[str, str, str, int | None], ...]
+# One (content, media_type) per catalog icon, positionally aligned; None where
+# the icon no longer resolves and the sheet draws a placeholder instead.
+IconPayloads = list[tuple[bytes, str] | None]
 
 
 @dataclass(frozen=True)
@@ -164,10 +173,21 @@ def validate_icon_upload(
         raise ValueError("Icon file is too large")
     media_type = _media_type_from_upload(filename, content_type)
     if media_type == "image/png":
+        # fix(#1428): verify() consumes the image object, so read .size first.
+        # Image.open is lazy — that costs an IHDR parse and no pixel decode.
         try:
-            Image.open(BytesIO(content)).verify()
-        except (UnidentifiedImageError, OSError, SyntaxError):
-            raise ValueError("PNG icon content is invalid")
+            image = Image.open(BytesIO(content))
+            width, height = image.size
+            image.verify()
+        except Image.DecompressionBombError as exc:
+            # PIL raises this from open() on absurd IHDR dimensions. That is an
+            # oversized icon, not a corrupt one, and it used to escape as a 500.
+            raise ValueError("PNG icon dimensions are too large") from exc
+        except (UnidentifiedImageError, OSError, IndexError, SyntaxError) as exc:
+            # IndexError: verify() indexes the chunk list on a PNG with no IDAT.
+            raise ValueError("PNG icon content is invalid") from exc
+        if max(width, height) > MAX_ICON_DIMENSION:
+            raise ValueError("PNG icon dimensions are too large")
     if media_type == "image/svg+xml":
         prefix = content[:512].lower()
         if b"<svg" not in prefix:
@@ -548,6 +568,10 @@ def _render_icon(content: bytes, media_type: str, seed: str) -> Image.Image:
         ValueError,
         IndexError,
         SyntaxError,
+        # fix(#1428): an icon stored before MAX_ICON_DIMENSION existed can still
+        # trip PIL's own bomb guard. Degrade that cell to the placeholder rather
+        # than 500 the whole sprite sheet.
+        Image.DecompressionBombError,
     ):
         return _placeholder_icon(seed)
 
@@ -623,23 +647,84 @@ async def build_sprite_png(session: AsyncSession) -> bytes:
         return png
 
 
-async def _render_sprite_png(
+async def _load_icon_payloads(
     session: AsyncSession, icons: list[MapIconResponse]
-) -> bytes:
-    if not icons:
-        return _blank_png(SPRITE_CELL_SIZE)
+) -> IconPayloads:
+    """Resolve every icon's bytes and media type, ordered to match ``icons``.
+
+    fix(#1428): all of the render's I/O happens here, because the composite that
+    consumes the result runs in a worker thread and an ``AsyncSession`` cannot be
+    used from one. Uploaded rows come back in a single query and their stored
+    objects are fetched concurrently, replacing a per-icon round trip.
+    """
+    builtin_icons = {icon.slug: icon for icon in DEFAULT_ICONS}
+    asset_ids: list[uuid.UUID] = []
+    for icon in icons:
+        if icon.builtin:
+            continue
+        try:
+            asset_ids.append(uuid.UUID(icon.id))
+        except ValueError:
+            continue
+
+    assets: dict[str, MapIconAsset] = {}
+    if asset_ids:
+        result = await session.execute(
+            select(MapIconAsset).where(MapIconAsset.id.in_(asset_ids))
+        )
+        assets = {str(asset.id): asset for asset in result.scalars().all()}
+
+    payloads: IconPayloads = [None] * len(icons)
+    stored: list[tuple[int, MapIconAsset]] = []
+    for position, icon in enumerate(icons):
+        if icon.builtin:
+            builtin = builtin_icons.get(icon.sprite_id)
+            if builtin is not None:
+                payloads[position] = (builtin.content, builtin.media_type)
+            continue
+        asset = assets.get(icon.id)
+        if asset is not None:
+            stored.append((position, asset))
+
+    if stored:
+        storage = get_storage()
+        # return_exceptions so a failing read cannot leave its siblings running
+        # unretrieved; the first failure is re-raised, as the serial loop did.
+        blobs = await asyncio.gather(
+            *(storage.get(asset.storage_key) for _, asset in stored),
+            return_exceptions=True,
+        )
+        for (position, asset), blob in zip(stored, blobs):
+            if isinstance(blob, BaseException):
+                raise blob
+            payloads[position] = (blob, asset.media_type)
+    return payloads
+
+
+def _compose_sprite_png(icons: list[MapIconResponse], payloads: IconPayloads) -> bytes:
     sheet = Image.new(
         "RGBA",
         (len(icons) * SPRITE_CELL_SIZE, SPRITE_CELL_SIZE),
         (0, 0, 0, 0),
     )
-    for index, icon in enumerate(icons):
-        content = await get_icon_content(session, icon.id)
-        if content is None:
+    for index, (icon, payload) in enumerate(zip(icons, payloads)):
+        if payload is None:
             image = _placeholder_icon(icon.sprite_id)
         else:
-            image = _render_icon(content[0], content[1], icon.sprite_id)
+            image = _render_icon(payload[0], payload[1], icon.sprite_id)
         sheet.alpha_composite(image, (index * SPRITE_CELL_SIZE, 0))
     out = BytesIO()
     sheet.save(out, format="PNG")
     return out.getvalue()
+
+
+async def _render_sprite_png(
+    session: AsyncSession, icons: list[MapIconResponse]
+) -> bytes:
+    if not icons:
+        return _blank_png(SPRITE_CELL_SIZE)
+    payloads = await _load_icon_payloads(session, icons)
+    # fix(#1428): decode, resample and re-encode are CPU-bound and scale with the
+    # stored icons' pixel count, on a route that takes no auth. Off the loop, so
+    # one large icon stalls a thread instead of every other request in flight.
+    return await run_in_thread_draining(_compose_sprite_png, icons, payloads)

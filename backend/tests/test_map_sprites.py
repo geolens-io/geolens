@@ -1,15 +1,23 @@
 """Tests for map sprite and icon helper behavior."""
 
 from io import BytesIO
+import struct
+import threading
 import uuid
+import zlib
 
 from PIL import Image
+from httpx import AsyncClient
 import pytest
 from httpx import AsyncClient
 
+from app.modules.catalog.maps import sprites
 from app.modules.catalog.maps.models import MapIconAsset
 from app.modules.catalog.maps.sprites import (
+    MAX_ICON_BYTES,
+    SPRITE_CELL_SIZE,
     _path_points,
+    _placeholder_icon,
     _render_icon,
     build_sprite_index,
     build_sprite_png,
@@ -41,8 +49,11 @@ class FakeSession:
     def __init__(self, rows=None):
         self.rows = rows or []
         self.added = []
+        self.execute_count = 0
+        self.get_count = 0
 
     async def execute(self, _stmt):
+        self.execute_count += 1
         return _ExecuteResult(self.rows)
 
     def add(self, obj):
@@ -53,6 +64,7 @@ class FakeSession:
         return None
 
     async def get(self, _model, ident):
+        self.get_count += 1
         for row in self.rows:
             if row.id == ident:
                 return row
@@ -88,6 +100,38 @@ def _asset(**overrides):
 def _png_bytes() -> bytes:
     out = BytesIO()
     Image.new("RGBA", (1, 1), (255, 0, 0, 255)).save(out, format="PNG")
+    return out.getvalue()
+
+
+def _png_chunk(kind: bytes, data: bytes) -> bytes:
+    return (
+        struct.pack(">I", len(data))
+        + kind
+        + data
+        + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+    )
+
+
+def _png_header_only(width: int, height: int) -> bytes:
+    """A PNG header with no pixel data — PIL reads ``size`` from IHDR alone.
+
+    Lets a test stage absurd dimensions (and the decompression-bomb refusal PIL
+    raises from ``Image.open`` for them) without materializing the pixels.
+    """
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + _png_chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0))
+        + _png_chunk(b"IEND", b"")
+    )
+
+
+def _large_png_bytes(size: int = 4096) -> bytes:
+    """A real, decodable PNG whose dimensions are over the cap but whose bytes
+    are well under it — the shape the byte cap alone cannot catch. Sizes are
+    written out rather than derived from MAX_ICON_DIMENSION so that moving the
+    cap has to face these tests."""
+    out = BytesIO()
+    Image.new("L", (size, size), 0).save(out, format="PNG")
     return out.getvalue()
 
 
@@ -339,3 +383,156 @@ async def test_create_icon_asset_clears_sprite_cache(monkeypatch):
     await build_sprite_png(session)
 
     assert storage.get_count == 3
+
+
+# The sprite sheet is rendered by PIL behind an unauthenticated route, so the
+# tests below pin the three bounds that keep one uploaded icon from costing the
+# whole API: an upload-time dimension cap, a render that degrades instead of
+# raising, and I/O that is batched and off the event loop.
+
+
+def test_validate_icon_upload_rejects_oversized_png_dimensions():
+    content = _large_png_bytes()
+
+    # the byte cap passes this file; only a dimension cap stops it
+    assert len(content) < MAX_ICON_BYTES
+    with pytest.raises(ValueError, match="dimensions"):
+        validate_icon_upload("huge.png", "image/png", content)
+
+
+def test_validate_icon_upload_accepts_png_at_the_dimension_cap():
+    content = _large_png_bytes(1024)  # MAX_ICON_DIMENSION
+
+    _slug, media_type, sanitized = validate_icon_upload("ok.png", "image/png", content)
+
+    assert media_type == "image/png"
+    assert sanitized == content
+
+
+def test_validate_icon_upload_rejects_decompression_bomb_png():
+    # PIL refuses these from Image.open itself, before any pixel decode; the
+    # upload must still land as a 400-shaped ValueError, not an unhandled raise.
+    with pytest.raises(ValueError, match="dimensions"):
+        validate_icon_upload("bomb.png", "image/png", _png_header_only(14000, 14000))
+
+
+def test_validate_icon_upload_rejects_png_without_pixel_data():
+    # verify() raises IndexError (not OSError) on a PNG with no IDAT chunk.
+    with pytest.raises(ValueError, match="invalid"):
+        validate_icon_upload("empty.png", "image/png", _png_header_only(64, 64))
+
+
+def test_render_icon_degrades_decompression_bomb_to_placeholder():
+    rendered = _render_icon(_png_header_only(14000, 14000), "image/png", "bus")
+
+    assert rendered.size == (SPRITE_CELL_SIZE, SPRITE_CELL_SIZE)
+    assert rendered.tobytes() == _placeholder_icon("bus").tobytes()
+
+
+@pytest.mark.anyio
+async def test_sprite_png_renders_when_a_stored_icon_is_oversized(monkeypatch):
+    """An icon stored before the dimension cap existed cannot 500 the sheet."""
+    storage = FakeStorage()
+    storage.objects["maps/icons/bomb.png"] = _png_header_only(14000, 14000)
+    monkeypatch.setattr("app.modules.catalog.maps.sprites.get_storage", lambda: storage)
+    session = FakeSession(
+        rows=[
+            _asset(
+                slug="bomb",
+                media_type="image/png",
+                storage_key="maps/icons/bomb.png",
+            )
+        ]
+    )
+
+    png = await build_sprite_png(session)
+
+    assert png.startswith(b"\x89PNG\r\n\x1a\n")
+    assert Image.open(BytesIO(png)).size == (4 * SPRITE_CELL_SIZE, SPRITE_CELL_SIZE)
+
+
+@pytest.mark.anyio
+async def test_sprite_png_loads_uploaded_icons_in_one_query(monkeypatch):
+    storage = FakeStorage()
+    rows = []
+    for slug in ("bus", "train", "tram"):
+        storage.objects[f"maps/icons/{slug}.png"] = _png_bytes()
+        rows.append(
+            _asset(
+                slug=slug,
+                media_type="image/png",
+                storage_key=f"maps/icons/{slug}.png",
+            )
+        )
+    monkeypatch.setattr("app.modules.catalog.maps.sprites.get_storage", lambda: storage)
+    session = FakeSession(rows=rows)
+
+    await build_sprite_png(session)
+
+    # one listing query plus one batched fetch for the uploaded rows — not a
+    # per-icon session.get()
+    assert session.execute_count == 2
+    assert session.get_count == 0
+    assert storage.get_count == 3
+
+
+@pytest.mark.anyio
+async def test_sprite_png_composites_off_the_event_loop(monkeypatch):
+    """PIL decode/resample/encode must not run on the event loop thread."""
+    storage = FakeStorage()
+    storage.objects["maps/icons/bus.png"] = _png_bytes()
+    monkeypatch.setattr("app.modules.catalog.maps.sprites.get_storage", lambda: storage)
+    session = FakeSession(
+        rows=[
+            _asset(slug="bus", media_type="image/png", storage_key="maps/icons/bus.png")
+        ]
+    )
+    composite_threads = []
+    original = sprites._compose_sprite_png
+
+    def _record(*args):
+        composite_threads.append(threading.current_thread())
+        return original(*args)
+
+    monkeypatch.setattr(sprites, "_compose_sprite_png", _record)
+
+    await build_sprite_png(session)
+
+    assert composite_threads and threading.main_thread() not in composite_threads
+
+
+@pytest.mark.anyio
+async def test_sprite_png_route_serves_the_sheet(client: AsyncClient):
+    resp = await client.get("/maps/sprites/geolens.png")
+
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "image/png"
+    assert resp.headers["cache-control"] == "public, max-age=3600"
+    sheet = Image.open(BytesIO(resp.content))
+    assert sheet.height == SPRITE_CELL_SIZE
+    # one cell per catalog icon, the three built-ins at minimum
+    assert sheet.width >= 3 * SPRITE_CELL_SIZE
+    assert sheet.width % SPRITE_CELL_SIZE == 0
+
+
+@pytest.mark.anyio
+async def test_sprite_png_2x_route_serves_the_sheet(client: AsyncClient):
+    resp = await client.get("/maps/sprites/geolens@2x.png")
+
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "image/png"
+    assert Image.open(BytesIO(resp.content)).height == SPRITE_CELL_SIZE
+
+
+@pytest.mark.anyio
+async def test_icon_upload_route_rejects_oversized_dimensions(
+    client: AsyncClient, admin_auth_header: dict[str, str]
+):
+    resp = await client.post(
+        "/maps/icons",
+        headers=admin_auth_header,
+        files={"file": ("huge.png", _large_png_bytes(), "image/png")},
+    )
+
+    assert resp.status_code == 400
+    assert "dimensions" in resp.json()["detail"]
