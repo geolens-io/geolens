@@ -21,7 +21,7 @@ from app.modules.catalog.maps.sprites import (
     get_icon_content,
     list_icons,
 )
-from app.standards.ogc.errors import FORBIDDEN_RESPONSE
+from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC, FORBIDDEN_RESPONSE
 
 router = APIRouter()
 
@@ -88,7 +88,21 @@ async def get_map_icon_asset_endpoint(
     return Response(content=content, media_type=media_type, headers=headers)
 
 
-@router.get("/sprites/geolens.json", responses={403: FORBIDDEN_RESPONSE})
+# Sprites are anonymous, unauthenticated reads (MapLibre fetches them before any
+# auth context exists). FastAPI's `responses=` merge is additive along the whole
+# include chain — a route only ever gains keys from an ancestor router, never
+# loses one — so nesting this router under `router` (in turn nested under the
+# maps router's `responses=ERROR_RESPONSES_WRITE`) would still leak a 401/403/409
+# these routes can never emit. `sprites_router` is therefore mounted directly on
+# `api_router` in api/router.py, as a sibling of the maps router rather than a
+# descendant, carrying its own `/maps` prefix so the published paths are
+# unchanged.
+sprites_router = APIRouter(
+    prefix="/maps", tags=["Maps"], responses=ERROR_RESPONSES_PUBLIC
+)
+
+
+@sprites_router.get("/sprites/geolens.json")
 async def get_geolens_sprite_index_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> SpriteIndex:
@@ -96,11 +110,7 @@ async def get_geolens_sprite_index_endpoint(
     return await build_sprite_index(db)
 
 
-@router.get(
-    "/sprites/geolens@2x.json",
-    include_in_schema=False,
-    responses={403: FORBIDDEN_RESPONSE},
-)
+@sprites_router.get("/sprites/geolens@2x.json", include_in_schema=False)
 async def get_geolens_sprite_index_2x_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> SpriteIndex:
@@ -108,7 +118,7 @@ async def get_geolens_sprite_index_2x_endpoint(
     return await build_sprite_index(db)
 
 
-@router.get("/sprites/geolens.png")
+@sprites_router.get("/sprites/geolens.png")
 async def get_geolens_sprite_png_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
@@ -120,7 +130,7 @@ async def get_geolens_sprite_png_endpoint(
     )
 
 
-@router.get("/sprites/geolens@2x.png", include_in_schema=False)
+@sprites_router.get("/sprites/geolens@2x.png", include_in_schema=False)
 async def get_geolens_sprite_png_2x_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> Response:

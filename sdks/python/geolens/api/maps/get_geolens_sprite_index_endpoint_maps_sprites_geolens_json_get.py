@@ -42,25 +42,10 @@ def _parse_response(
 
         return response_400
 
-    if response.status_code == 401:
-        response_401 = ProblemDetail.from_dict(response.json())
-
-        return response_401
-
-    if response.status_code == 403:
-        response_403 = ProblemDetail.from_dict(response.json())
-
-        return response_403
-
     if response.status_code == 404:
         response_404 = ProblemDetail.from_dict(response.json())
 
         return response_404
-
-    if response.status_code == 409:
-        response_409 = ProblemDetail.from_dict(response.json())
-
-        return response_409
 
     if response.status_code == 422:
         response_422 = ProblemDetail.from_dict(response.json())

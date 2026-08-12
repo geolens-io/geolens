@@ -1917,7 +1917,17 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # are read-gated (icon asset) or unauthenticated (sprite index), so the
     # router's inherited write-flavored 403 misdescribed their actual cause.
     # Cap 126 -> 132, exact.
-    "backend/app/modules/catalog/maps/router_assets.py": 132,
+    # fix: +10 — the sprite-index override above only reworded the 403; the
+    # sprite JSON and PNG routes take no auth at all, so no 401/403/409 can
+    # occur regardless of description. FastAPI's router `responses=` merge is
+    # additive along the whole include chain (an ancestor's key always shows
+    # through unless a route sets that same key itself), so a same-file
+    # sibling router nested under the maps router's ERROR_RESPONSES_WRITE
+    # would still leak those keys. All four sprite routes moved to
+    # `sprites_router`, mounted with ERROR_RESPONSES_PUBLIC directly on
+    # api_router (api/router.py) as a sibling of the maps router rather than
+    # a descendant. Cap 132 -> 142, exact.
+    "backend/app/modules/catalog/maps/router_assets.py": 142,
     # fix(#526 B-048): the card-route SPA-redirect fallback shell.
     # fix(#819): visibility-check owner-or-admin gate + rationale docstring.
     "backend/app/modules/catalog/maps/router_sharing.py": 387,

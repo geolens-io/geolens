@@ -21833,25 +21833,13 @@ export type GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetData = {
 
 export type GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetErrors = {
     /**
-     * Bad request — invalid payload
+     * Bad request — invalid query parameters or payload
      */
     400: ProblemDetail;
-    /**
-     * Unauthorized — missing or invalid credentials
-     */
-    401: ProblemDetail;
-    /**
-     * Forbidden — caller lacks access to this resource
-     */
-    403: ProblemDetail;
     /**
      * Not found
      */
     404: ProblemDetail;
-    /**
-     * Conflict — resource state prevents the operation
-     */
-    409: ProblemDetail;
     /**
      * Validation error
      */
@@ -21896,25 +21884,13 @@ export type GetGeolensSpritePngEndpointMapsSpritesGeolensPngGetData = {
 
 export type GetGeolensSpritePngEndpointMapsSpritesGeolensPngGetErrors = {
     /**
-     * Bad request — invalid payload
+     * Bad request — invalid query parameters or payload
      */
     400: ProblemDetail;
-    /**
-     * Unauthorized — missing or invalid credentials
-     */
-    401: ProblemDetail;
-    /**
-     * Forbidden — caller lacks write access
-     */
-    403: ProblemDetail;
     /**
      * Not found
      */
     404: ProblemDetail;
-    /**
-     * Conflict — resource state prevents the operation
-     */
-    409: ProblemDetail;
     /**
      * Validation error
      */
