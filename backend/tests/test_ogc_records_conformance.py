@@ -19,16 +19,13 @@ from urllib.parse import urlparse
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
 
-from app.modules.auth.models import User
 from app.modules.catalog.collections.models import Collection
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
-    Record,
-    RecordContact,
-    RecordKeyword,
 )
+
+from tests.factories import create_dataset, get_user_id
 
 
 # ---------------------------------------------------------------------------
@@ -37,8 +34,7 @@ from app.modules.catalog.datasets.domain.models import (
 
 
 async def _get_admin_id(session) -> uuid.UUID:
-    result = await session.execute(select(User).where(User.username == "admin"))
-    return result.scalar_one().id
+    return await get_user_id(session, "admin")
 
 
 async def _create_dataset(
@@ -55,50 +51,19 @@ async def _create_dataset(
 ) -> Dataset:
     """Create a Record + Dataset pair with optional keywords and contacts."""
     _name = name or f"ogc-conf-{uuid.uuid4().hex[:8]}"
-    table_name = f"ds_{uuid.uuid4().hex[:12]}"
-    record = Record(
-        title=_name,
-        summary=f"Test: {_name}",
-        theme_category=["test"],
-        visibility="public",
-        record_status="published",
-        record_type=record_type,
+    return await create_dataset(
+        session,
         created_by=admin_id,
-    )
-    session.add(record)
-    await session.flush()
-
-    if keywords:
-        for kw_text, vocab_uri in keywords:
-            session.add(
-                RecordKeyword(
-                    record_id=record.id,
-                    keyword=kw_text,
-                    keyword_type="theme",
-                    vocabulary_uri=vocab_uri,
-                )
-            )
-        await session.flush()
-
-    if contacts:
-        for c in contacts:
-            session.add(RecordContact(record_id=record.id, **c))
-        await session.flush()
-
-    dataset = Dataset(
-        record_id=record.id,
-        table_name=table_name,
-        srid=4326,
-        geometry_type="MultiPolygon",
+        name=_name,
+        description=f"Test: {_name}",
+        record_type=record_type,
         feature_count=10,
         source_format=source_format,
         source_filename=source_filename,
         source_url=source_url,
+        keywords=keywords,
+        contacts=contacts,
     )
-    session.add(dataset)
-    await session.commit()
-    await session.refresh(dataset)
-    return dataset
 
 
 def _find_link(links: list[dict], rel: str) -> dict | None:

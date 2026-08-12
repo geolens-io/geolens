@@ -25,12 +25,12 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from httpx import AsyncClient
-from sqlalchemy import select, text
+from sqlalchemy import text
 
-from app.core.config import settings
-from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.processing.raster.models import RasterAsset
+
+from tests.factories import create_raster_dataset, get_user_id
 
 
 # ---------------------------------------------------------------------------
@@ -39,10 +39,7 @@ from app.processing.raster.models import RasterAsset
 
 
 async def _get_admin_id(session) -> uuid.UUID:
-    result = await session.execute(
-        select(User).where(User.username == settings.geolens_admin_username)
-    )
-    return result.scalar_one().id
+    return await get_user_id(session, "admin")
 
 
 async def _make_editor(
@@ -85,46 +82,31 @@ async def _create_raster_dataset(
     identical dtype, single band, matching resolution) so ``validate_sources``
     returns [] for a pair of these — letting the GUARD tests reach 202.
     """
-    record = Record(
-        title=f"VRT Authz Raster {uuid.uuid4().hex[:6]}",
-        summary="raster source for VRT authz tests",
+    dataset = await create_raster_dataset(
+        session,
+        created_by=created_by,
+        name=f"VRT Authz Raster {uuid.uuid4().hex[:6]}",
+        description="raster source for VRT authz tests",
         theme_category=["test"],
         visibility=visibility,
         record_status=record_status,
-        record_type="raster_dataset",
-        created_by=created_by,
-    )
-    session.add(record)
-    await session.flush()
-
-    dataset = Dataset(
-        record_id=record.id,
         table_name=f"vrt_authz_src_{uuid.uuid4().hex[:8]}",
-        source_format="geotiff",
         source_filename="test.tif",
+        create_raster_asset=True,
+        raster_asset_kwargs=dict(
+            status="ready",
+            epsg=4326,
+            crs_wkt=None,
+            dtype="uint8",
+            nodata=None,
+            band_count=1,
+            res_x=0.001,
+            res_y=0.001,
+            width=100,
+            height=100,
+            is_rotated=False,
+        ),
     )
-    session.add(dataset)
-    await session.flush()
-
-    asset = RasterAsset(
-        dataset_id=dataset.id,
-        asset_uri=f"rasters/{dataset.id}/abc123/source.cog.tif",
-        storage_backend="local",
-        status="ready",
-        epsg=4326,
-        crs_wkt=None,
-        dtype="uint8",
-        nodata=None,
-        band_count=1,
-        res_x=0.001,
-        res_y=0.001,
-        width=100,
-        height=100,
-        is_rotated=False,
-    )
-    session.add(asset)
-    await session.flush()
-    await session.commit()
     return dataset.id
 
 

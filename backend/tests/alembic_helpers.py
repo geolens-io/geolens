@@ -32,12 +32,36 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from importlib.metadata import entry_points
 from pathlib import Path
 
 import sqlalchemy
 
 _BACKEND_DIR = Path(__file__).parent.parent.resolve()
 _ALEMBIC_INI = _BACKEND_DIR / "alembic.ini"
+
+
+def enterprise_migrations_present() -> bool:
+    """True when an enterprise/overlay migrations entry-point is installed.
+
+    conftest then migrates the per-worker test DB to the enterprise head (e.g.
+    e002_add_saml_columns), making the alembic environment MULTI-HEAD. The
+    core-only ``alembic`` subprocess these OSS-drift-gate roundtrip/check tests
+    shell out to can neither locate the enterprise revision nor disambiguate
+    ``head`` / ``-1`` across branches — so they are skipped under the overlay.
+    They still run (and gate drift) in the no-overlay Pytest Parallel Isolation
+    job. Core registers no ``geolens.migrations`` entry-point, so this is False
+    for community/OSS runs.
+    """
+    for ep in entry_points(group="geolens.migrations"):
+        try:
+            fn = ep.load()
+            if callable(fn) and any(Path(p).is_dir() for p in fn()):
+                return True
+        except Exception:
+            pass
+    return False
+
 
 # The remediation SQL that 0030's own error message prescribes. Collapsing a
 # two-ring seam extent to its envelope LOSES the antimeridian-crossing shape
@@ -187,3 +211,27 @@ def run_alembic(
         env=env,
         cwd=str(_BACKEND_DIR),
     )
+
+
+async def fresh_query(query: str, params: dict | None = None):
+    """Run a query on a fresh AUTOCOMMIT connection, bypassing the test transaction.
+
+    The ``test_db_session`` fixture holds an open transaction around each
+    test. DDL/DML committed by subprocess alembic (which commits outside that
+    transaction) is invisible to the session due to transaction snapshot
+    isolation. A separate connection with AUTOCOMMIT isolation is needed to
+    observe committed changes.
+    """
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from app.core.config import settings
+
+    engine = create_async_engine(
+        settings.test_database_url, isolation_level="AUTOCOMMIT"
+    )
+    try:
+        async with engine.connect() as conn:
+            result = await conn.execute(sqlalchemy.text(query), params or {})
+            return result.fetchall() if result.returns_rows else None
+    finally:
+        await engine.dispose()

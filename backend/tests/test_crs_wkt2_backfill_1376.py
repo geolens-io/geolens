@@ -25,31 +25,18 @@ import uuid
 import pytest
 import sqlalchemy as sa
 
-from tests.alembic_helpers import run_alembic as _run_alembic
+from tests.alembic_helpers import (
+    enterprise_migrations_present,
+    fresh_query as _fresh_query,
+    run_alembic as _run_alembic,
+)
 from tests.factories import create_dataset, get_user_id
 
 pytestmark = pytest.mark.anyio
 
 
-def _enterprise_migrations_present() -> bool:
-    """Mirror the sibling migration files' overlay skip: a multi-head alembic
-    cannot disambiguate ``head`` / ``-1``, so the round trip runs in the
-    no-overlay job."""
-    import pathlib
-    from importlib.metadata import entry_points
-
-    for ep in entry_points(group="geolens.migrations"):
-        try:
-            fn = ep.load()
-            if callable(fn) and any(pathlib.Path(p).is_dir() for p in fn()):
-                return True
-        except Exception:
-            pass
-    return False
-
-
 _SKIP_UNDER_OVERLAY = pytest.mark.skipif(
-    _enterprise_migrations_present(),
+    enterprise_migrations_present(),
     reason=(
         "OSS migration round trip; multi-head under the enterprise overlay — "
         "runs in the no-overlay Pytest Parallel Isolation job instead."
@@ -76,28 +63,6 @@ _WKT1_UTM_21N = (
 # so only a structurally broken string reaches the skip branch. Same shape
 # ``test_wkt_is_geographic.py`` uses for its unparseable case.
 _WKT1_SHAPED_GARBAGE = 'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84"'
-
-
-async def _fresh_query(query: str, params: dict | None = None):
-    """Read committed state on an autocommit connection.
-
-    The alembic subprocess commits outside the test session's transaction, so
-    the session's snapshot cannot see what the migration wrote (same reason
-    ``test_email_verification_migration.py`` carries this helper).
-    """
-    from sqlalchemy.ext.asyncio import create_async_engine
-
-    from app.core.config import settings
-
-    engine = create_async_engine(
-        settings.test_database_url, isolation_level="AUTOCOMMIT"
-    )
-    try:
-        async with engine.connect() as conn:
-            result = await conn.execute(sa.text(query), params or {})
-            return result.fetchall() if result.returns_rows else []
-    finally:
-        await engine.dispose()
 
 
 async def _seed_raster_asset(session, admin_id: uuid.UUID, crs_wkt: str) -> uuid.UUID:

@@ -16,9 +16,7 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
 
-from app.modules.auth.models import User
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.processing.raster.models import RasterAsset
@@ -27,6 +25,8 @@ from app.processing.tiles.router import (
     _raster_maxzoom_from_metadata,
 )
 
+from tests.factories import create_raster_dataset, get_user_id
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -34,10 +34,7 @@ from app.processing.tiles.router import (
 
 
 async def _get_admin_id(session) -> uuid.UUID:
-    result = await session.execute(
-        select(User).where(User.username == settings.geolens_admin_username)
-    )
-    return result.scalar_one().id
+    return await get_user_id(session, "admin")
 
 
 async def _create_raster_dataset(
@@ -52,26 +49,19 @@ async def _create_raster_dataset(
     nodata: str | None = None,
 ) -> tuple[Record, Dataset, RasterAsset | None]:
     """Create a Record + Dataset (+ optional RasterAsset) for raster tests."""
-    record = Record(
-        title=f"Raster Tile Test {uuid.uuid4().hex[:6]}",
-        summary="Dataset for raster tile tests",
+    dataset = await create_raster_dataset(
+        session,
+        created_by=created_by,
+        name=f"Raster Tile Test {uuid.uuid4().hex[:6]}",
+        description="Dataset for raster tile tests",
         theme_category=["test"],
         visibility=visibility,
         record_status=record_status,
         record_type=record_type,
-        created_by=created_by,
-    )
-    session.add(record)
-    await session.flush()
-
-    dataset = Dataset(
-        record_id=record.id,
         table_name=f"raster_tile_test_{uuid.uuid4().hex[:8]}",
-        source_format="geotiff",
         source_filename="test.tif",
     )
-    session.add(dataset)
-    await session.flush()
+    record = await session.get(Record, dataset.record_id)
 
     raster_asset = None
     if with_asset:
@@ -83,12 +73,9 @@ async def _create_raster_dataset(
             nodata=nodata,
         )
         session.add(raster_asset)
-        await session.flush()
-
-    await session.commit()
-    await session.refresh(dataset)
-    if raster_asset:
+        await session.commit()
         await session.refresh(raster_asset)
+
     return record, dataset, raster_asset
 
 

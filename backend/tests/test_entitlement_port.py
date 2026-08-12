@@ -16,22 +16,7 @@ from unittest.mock import patch
 
 import pytest
 
-
-def _reset_registry():
-    import app.platform.extensions as ext_mod
-
-    ext_mod._extensions.clear()
-    ext_mod._loaded = False
-    ext_mod._slot_owners.clear()
-
-
-@pytest.fixture(autouse=True)
-def _clean_registry():
-    """Reset registry AND isolate from environment-discovered entry points."""
-    _reset_registry()
-    with patch("app.platform.extensions.entry_points", return_value=[]):
-        yield
-    _reset_registry()
+pytestmark = pytest.mark.usefixtures("_clean_registry")
 
 
 def _make_ep(name: str, loader_fn):

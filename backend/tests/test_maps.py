@@ -25,7 +25,7 @@ from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.schemas import MapLayerDiffRequest, MapLayerInput
 from app.processing.raster.models import RasterAsset
 
-from tests.factories import create_dataset, get_user_id
+from tests.factories import create_dataset, create_raster_dataset, get_user_id
 
 
 BASEMAP_CONFIG_PAYLOAD = {
@@ -4190,30 +4190,15 @@ async def _create_raster_dataset(
     visibility: str = "public",
 ) -> Dataset:
     """Insert a Record + Dataset pair with record_type='raster_dataset'."""
-    table_name = f"rds_{uuid.uuid4().hex[:12]}"
-    record = Record(
-        title=name,
-        summary=f"Raster dataset for map tests: {name}",
-        visibility=visibility,
-        record_status="published",
+    return await create_raster_dataset(
+        session,
         created_by=created_by,
-        record_type="raster_dataset",
-    )
-    session.add(record)
-    await session.flush()
-
-    dataset = Dataset(
-        record_id=record.id,
-        table_name=table_name,
-        srid=4326,
-        geometry_type=None,
-        source_format="geotiff",
+        name=name,
+        description=f"Raster dataset for map tests: {name}",
+        visibility=visibility,
+        table_name=f"rds_{uuid.uuid4().hex[:12]}",
         source_filename="test.tif",
     )
-    session.add(dataset)
-    await session.commit()
-    await session.refresh(dataset)
-    return dataset
 
 
 class TestLayerTypeRoundTrip:

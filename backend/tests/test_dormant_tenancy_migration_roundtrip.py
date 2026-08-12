@@ -32,7 +32,11 @@ from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
-from tests.alembic_helpers import run_alembic as _run_alembic
+from tests.alembic_helpers import (
+    enterprise_migrations_present,
+    fresh_query as _fresh_query,
+    run_alembic as _run_alembic,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -58,33 +62,8 @@ _SIX_SHARED_TABLES = [
 ]
 
 
-def _enterprise_migrations_present() -> bool:
-    """True when an enterprise/overlay migrations entry-point is installed.
-
-    conftest then migrates the per-worker test DB to the enterprise head (e.g.
-    e002_add_saml_columns), making the alembic environment MULTI-HEAD. The
-    core-only ``alembic`` subprocess these OSS-drift-gate roundtrip/check tests
-    shell out to can neither locate the enterprise revision nor disambiguate
-    ``head`` / ``-1`` across branches — so they are skipped under the overlay.
-    They still run (and gate drift) in the no-overlay Pytest Parallel Isolation
-    job. Core registers no ``geolens.migrations`` entry-point, so this is False
-    for community/OSS runs.
-    """
-    import pathlib
-    from importlib.metadata import entry_points
-
-    for ep in entry_points(group="geolens.migrations"):
-        try:
-            fn = ep.load()
-            if callable(fn) and any(pathlib.Path(p).is_dir() for p in fn()):
-                return True
-        except Exception:
-            pass
-    return False
-
-
 _SKIP_UNDER_OVERLAY = pytest.mark.skipif(
-    _enterprise_migrations_present(),
+    enterprise_migrations_present(),
     reason="OSS migration drift gate; multi-head under enterprise overlay — "
     "runs in the no-overlay Pytest Parallel Isolation job instead.",
 )
@@ -139,34 +118,6 @@ class TestMigrationRoundTripExitCodes:
 # ---------------------------------------------------------------------------
 # Tests B + C: DB state after downgrade and re-upgrade
 # ---------------------------------------------------------------------------
-
-
-async def _fresh_query(query: str, params: dict | None = None):
-    """Run a query on a fresh autocommit connection, bypassing test transaction.
-
-    The ``test_db_session`` fixture holds an open transaction around each test.
-    Schema changes made by subprocess alembic (which commit outside that
-    transaction) are invisible to the session due to transaction snapshot
-    isolation.  We need a separate connection with ``AUTOCOMMIT`` isolation
-    to observe committed DDL changes.
-    """
-    from sqlalchemy.ext.asyncio import create_async_engine
-
-    from app.core.config import settings
-
-    engine = create_async_engine(
-        settings.test_database_url,
-        isolation_level="AUTOCOMMIT",
-    )
-    try:
-        async with engine.connect() as conn:
-            if params:
-                result = await conn.execute(sa.text(query), params)
-            else:
-                result = await conn.execute(sa.text(query))
-            return result.fetchall()
-    finally:
-        await engine.dispose()
 
 
 async def _fresh_execute(query: str, params: dict | None = None) -> None:

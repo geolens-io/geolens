@@ -1,17 +1,12 @@
 import uuid
 
-from sqlalchemy import select
-
-from app.modules.auth.models import User
-from app.core.config import settings
 from app.processing.ingest.tasks import create_vrt_dataset
+
+from tests.factories import get_user_id
 
 
 async def _get_admin_id(session) -> uuid.UUID:
-    result = await session.execute(
-        select(User).where(User.username == settings.geolens_admin_username)
-    )
-    return result.scalar_one().id
+    return await get_user_id(session, "admin")
 
 
 class TestCreateVrtDataset:

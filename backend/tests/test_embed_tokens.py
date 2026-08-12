@@ -21,7 +21,6 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
-import asyncpg
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select, text, update
@@ -41,36 +40,12 @@ from app.modules.embed_tokens.service import (
 from app.platform.cache import init_cache, tenant_cache_key
 from app.platform.cache.provider import get_cache
 
-from tests.conftest import _run_with_too_many_clients_retry
 from tests.factories import create_dataset, get_user_id
 
-
-@pytest.fixture(autouse=True)
-async def _init_tile_pool_for_tests(request):
-    """Initialize asyncpg pool for tile tests."""
-    db_fixtures = {
-        "admin_auth_header",
-        "clean_tables",
-        "cleanup_data_tables",
-        "client",
-        "editor_auth_header",
-        "test_db_session",
-        "viewer_auth_header",
-    }
-    if not db_fixtures.intersection(request.fixturenames):
-        yield
-        return
-
-    import app.processing.tiles.pool as pool_module
-
-    dsn = settings.test_database_url.replace("postgresql+asyncpg://", "postgresql://")
-    pool = await _run_with_too_many_clients_retry(
-        lambda: asyncpg.create_pool(dsn=dsn, min_size=1, max_size=3, command_timeout=10)
-    )
-    pool_module._tile_pool = pool
-    yield
-    await pool.close()
-    pool_module._tile_pool = None
+# The shared conftest fixture is non-autouse; this module-level mark applies
+# it to every test in the file, mirroring the file-scoped autouse=True this
+# module used before the fixture moved to tests/conftest.py.
+pytestmark = pytest.mark.usefixtures("_init_tile_pool_for_tests")
 
 
 # ---------------------------------------------------------------------------

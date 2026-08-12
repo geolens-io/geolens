@@ -19,14 +19,14 @@ import uuid
 import numpy as np
 import pytest
 import rasterio
-from sqlalchemy import select
 from rasterio.transform import from_origin
 
-from app.modules.auth.models import User
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.processing.raster.models import RasterAsset
 from app.processing.raster.vrt import build_vrt
+
+from tests.factories import get_user_id
 
 
 # ---------------------------------------------------------------------------
@@ -74,10 +74,7 @@ _REAL_STAGING_DIR = "/app/staging"
 
 
 async def _get_admin_id(session) -> uuid.UUID:
-    result = await session.execute(
-        select(User).where(User.username == settings.geolens_admin_username)
-    )
-    return result.scalar_one().id
+    return await get_user_id(session, "admin")
 
 
 def _create_test_cog(cog_path: str) -> None:

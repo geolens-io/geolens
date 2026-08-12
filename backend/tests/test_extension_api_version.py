@@ -16,21 +16,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
-def _reset_registry():
-    import app.platform.extensions as ext_mod
-
-    ext_mod._extensions.clear()
-    ext_mod._loaded = False
-
-
-@pytest.fixture(autouse=True)
-def _clean_registry():
-    """Reset registry AND isolate from environment-discovered entry points."""
-    _reset_registry()
-    with patch("app.platform.extensions.entry_points", return_value=[]):
-        yield
-    _reset_registry()
+pytestmark = pytest.mark.usefixtures("_clean_registry")
 
 
 class TestExtensionApiVersionConstant:

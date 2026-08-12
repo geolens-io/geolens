@@ -4,12 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-
-def _reset_registry():
-    import app.platform.extensions as ext_mod
-
-    ext_mod._extensions.clear()
-    ext_mod._loaded = False
+from tests.conftest import _reset_registry
 
 
 @pytest.fixture(autouse=True)

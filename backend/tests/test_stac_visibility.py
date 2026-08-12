@@ -17,12 +17,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
-    Record,
     RecordTranslation,
 )
 
 from .conftest import _create_test_user
-from tests.factories import get_user_id
+from tests.factories import create_raster_dataset, get_user_id
 
 
 # ---------------------------------------------------------------------------
@@ -39,28 +38,15 @@ async def _create_raster_dataset(
     record_status: str = "published",
 ) -> Dataset:
     """Create a raster Record + Dataset pair directly (STAC requires raster_dataset type)."""
-    table_name = f"ds_{uuid.uuid4().hex[:12]}"
-    record = Record(
-        title=name,
-        summary=f"Test raster dataset for STAC visibility: {name}",
+    return await create_raster_dataset(
+        session,
+        created_by=created_by,
+        name=name,
+        description=f"Test raster dataset for STAC visibility: {name}",
         visibility=visibility,
         record_status=record_status,
-        record_type="raster_dataset",
-        created_by=created_by,
-    )
-    session.add(record)
-    await session.flush()
-    dataset = Dataset(
-        record_id=record.id,
-        table_name=table_name,
-        srid=4326,
-        source_format="geotiff",
         source_filename="test.tif",
     )
-    session.add(dataset)
-    await session.commit()
-    await session.refresh(dataset)
-    return dataset
 
 
 # ---------------------------------------------------------------------------

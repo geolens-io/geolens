@@ -19,9 +19,9 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
-from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.modules.catalog.datasets.domain.models import Dataset
 
-from tests.factories import get_user_id
+from tests.factories import create_dataset, get_user_id
 
 
 # ---------------------------------------------------------------------------
@@ -41,32 +41,17 @@ async def _create_dataset(
     visibility: str = "public",
 ) -> Dataset:
     """Insert a Record + Dataset pair with optional column_info and sample_values."""
-    table_name = f"ds_{uuid.uuid4().hex[:12]}"
-    record = Record(
-        title=name,
-        summary=description or f"Description for {name}",
+    return await create_dataset(
+        session,
+        created_by=created_by,
+        name=name,
+        description=description or f"Description for {name}",
         theme_category=theme_category if theme_category is not None else [],
         visibility=visibility,
-        record_status="published",
-        created_by=created_by,
-    )
-    session.add(record)
-    await session.flush()
-    dataset = Dataset(
-        record_id=record.id,
-        table_name=table_name,
-        srid=4326,
-        geometry_type="MultiPolygon",
         feature_count=10,
-        source_format="geojson",
-        source_filename="test.geojson",
         column_info=column_info if column_info is not None else [],
         sample_values=sample_values if sample_values is not None else {},
     )
-    session.add(dataset)
-    await session.commit()
-    await session.refresh(dataset)
-    return dataset
 
 
 # ---------------------------------------------------------------------------

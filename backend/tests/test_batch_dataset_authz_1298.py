@@ -42,7 +42,7 @@ from app.modules.catalog.datasets.domain.service import get_dataset
 from app.processing.ingest.schemas import VrtCreateRequest
 from app.processing.ingest.service import create_vrt_job
 from app.processing.raster.models import RasterAsset
-from tests.factories import create_dataset
+from tests.factories import create_dataset, create_raster_dataset, get_user_id
 
 
 # ---------------------------------------------------------------------------
@@ -58,7 +58,7 @@ async def _admin(session) -> User:
 
 
 async def _get_admin_id(session) -> uuid.UUID:
-    return (await _admin(session)).id
+    return await get_user_id(session, "admin")
 
 
 async def _make_editor(
@@ -95,30 +95,17 @@ async def _create_raster_dataset(
     Same fields as test_vrt_source_authz_1172.py's helper so validate_sources
     accepts any combination of these as VRT sources.
     """
-    record = Record(
-        title=f"Batch authz raster {uuid.uuid4().hex[:6]}",
-        summary="raster source",
+    dataset = await create_raster_dataset(
+        session,
+        created_by=created_by,
+        name=f"Batch authz raster {uuid.uuid4().hex[:6]}",
+        description="raster source",
         theme_category=["test"],
         visibility=visibility,
-        record_status="published",
-        record_type="raster_dataset",
-        created_by=created_by,
-    )
-    session.add(record)
-    await session.flush()
-    dataset = Dataset(
-        record_id=record.id,
         table_name=f"batch_authz_src_{uuid.uuid4().hex[:8]}",
-        source_format="geotiff",
         source_filename="s.tif",
-    )
-    session.add(dataset)
-    await session.flush()
-    session.add(
-        RasterAsset(
-            dataset_id=dataset.id,
-            asset_uri=f"rasters/{dataset.id}/s.cog.tif",
-            storage_backend="local",
+        create_raster_asset=True,
+        raster_asset_kwargs=dict(
             status="ready",
             epsg=4326,
             crs_wkt=None,
@@ -130,10 +117,8 @@ async def _create_raster_dataset(
             width=100,
             height=100,
             is_rotated=False,
-        )
+        ),
     )
-    await session.flush()
-    await session.commit()
     return dataset.id
 
 

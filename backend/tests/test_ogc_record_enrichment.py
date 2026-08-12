@@ -14,11 +14,10 @@ Verifies:
 import uuid
 
 import pytest
-from geoalchemy2 import WKTElement
 from httpx import AsyncClient
-from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.modules.catalog.datasets.domain.models import Dataset
 
-from tests.factories import get_user_id
+from tests.factories import create_dataset, get_user_id
 
 
 # ---------------------------------------------------------------------------
@@ -39,35 +38,23 @@ async def _create_dataset(
     access_constraints: str | None = None,
 ) -> Dataset:
     """Insert a Record + Dataset pair for enrichment tests."""
-    table_name = f"ds_{uuid.uuid4().hex[:12]}"
-    record = Record(
-        title=name,
-        summary=f"Test dataset: {name}",
-        visibility=visibility,
-        record_status="published",
+    return await create_dataset(
+        session,
         created_by=created_by,
+        name=name,
+        description=f"Test dataset: {name}",
+        # Explicit [] rather than the factory's own ["test"] default: this
+        # file asserts an empty API "keywords" response, which is derived
+        # from theme_category.
+        theme_category=[],
+        visibility=visibility,
+        feature_count=10,
         lineage_summary=lineage_summary,
         update_frequency=update_frequency,
         usage_constraints=usage_constraints,
         access_constraints=access_constraints,
+        spatial_extent_wkt=wkt_extent,
     )
-    if wkt_extent is not None:
-        record.spatial_extent = WKTElement(wkt_extent, srid=4326)
-    session.add(record)
-    await session.flush()
-    dataset = Dataset(
-        record_id=record.id,
-        table_name=table_name,
-        srid=4326,
-        geometry_type="MultiPolygon",
-        feature_count=10,
-        source_format="geojson",
-        source_filename="test.geojson",
-    )
-    session.add(dataset)
-    await session.commit()
-    await session.refresh(dataset)
-    return dataset
 
 
 # NYC area extent for spatial tests

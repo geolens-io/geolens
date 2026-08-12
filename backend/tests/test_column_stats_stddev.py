@@ -15,8 +15,8 @@ from httpx import AsyncClient
 from sqlalchemy import text
 
 from app.modules.catalog.datasets.domain.column_stats import get_column_stats
-from app.modules.catalog.datasets.domain.models import Dataset, Record
-from tests.factories import create_dataset, get_user_id
+from app.modules.catalog.datasets.domain.models import Dataset
+from tests.factories import create_dataset, create_raster_dataset, get_user_id
 
 TEST_TABLE_NAME = f"test_stddev_{uuid.uuid4().hex[:8]}"
 
@@ -228,29 +228,15 @@ async def _create_raster_dataset(
     is ever created -- exactly the G2/E1 bug-trigger condition.
     """
     table_name = f"raster_{uuid.uuid4().hex}"
-    record = Record(
-        title=f"Column Values Raster {table_name}",
-        summary="Test raster dataset for column-values hardening",
-        theme_category=["test"],
-        visibility="public",
-        record_status="published",
-        record_type=record_type,
+    return await create_raster_dataset(
+        session,
         created_by=created_by,
-    )
-    session.add(record)
-    await session.flush()
-    dataset = Dataset(
-        record_id=record.id,
+        name=f"Column Values Raster {table_name}",
+        description="Test raster dataset for column-values hardening",
+        theme_category=["test"],
+        record_type=record_type,
         table_name=table_name,
-        srid=4326,
-        geometry_type=None,
-        feature_count=None,
-        source_format="geotiff",
     )
-    session.add(dataset)
-    await session.commit()
-    await session.refresh(dataset)
-    return dataset
 
 
 @pytest.fixture

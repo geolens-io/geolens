@@ -15,12 +15,11 @@ import pytest
 from datetime import date
 
 from httpx import AsyncClient
-from sqlalchemy import func, update
 
-from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.modules.catalog.datasets.domain.models import Dataset
 
 from tests.conftest import _create_test_user
-from tests.factories import get_user_id
+from tests.factories import create_dataset, get_user_id
 
 
 # ---------------------------------------------------------------------------
@@ -39,40 +38,17 @@ async def _create_dataset(
     data_vintage_end: date | None = None,
 ) -> Dataset:
     """Insert a Record + Dataset pair directly into the DB."""
-    table_name = f"ds_{uuid.uuid4().hex[:12]}"
-    record = Record(
-        title=name,
-        summary=f"Test dataset: {name}",
-        theme_category=["test"],
-        visibility=visibility,
-        record_status="published",
+    return await create_dataset(
+        session,
         created_by=created_by,
+        name=name,
+        description=f"Test dataset: {name}",
+        visibility=visibility,
+        feature_count=100,
         temporal_start=data_vintage_start,
         temporal_end=data_vintage_end,
+        spatial_extent_wkt=extent_wkt,
     )
-    session.add(record)
-    await session.flush()
-
-    if extent_wkt:
-        await session.execute(
-            update(Record)
-            .where(Record.id == record.id)
-            .values(spatial_extent=func.ST_GeomFromText(extent_wkt, 4326))
-        )
-
-    dataset = Dataset(
-        record_id=record.id,
-        table_name=table_name,
-        srid=4326,
-        geometry_type="MultiPolygon",
-        feature_count=100,
-        source_format="geojson",
-        source_filename="test.geojson",
-    )
-    session.add(dataset)
-    await session.commit()
-    await session.refresh(dataset)
-    return dataset
 
 
 # ---------------------------------------------------------------------------

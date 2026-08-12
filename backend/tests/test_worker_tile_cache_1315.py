@@ -39,6 +39,8 @@ from urllib.parse import urlparse
 import pytest
 import structlog
 
+from tests.conftest import _reset_registry
+
 LIVE_REDIS_URL = os.environ.get("GEOLENS_TEST_REDIS_URL", "redis://localhost:16379/0")
 
 
@@ -81,15 +83,6 @@ def restore_tile_cache():
 # ---------------------------------------------------------------------------
 # bootstrap() wiring -- the bug itself
 # ---------------------------------------------------------------------------
-
-
-def _reset_registry():
-    import app.platform.extensions as ext_mod
-
-    ext_mod._extensions.clear()
-    ext_mod._routers.clear()
-    ext_mod._loaded = False
-    ext_mod._slot_owners.clear()
 
 
 def _reset_edition():

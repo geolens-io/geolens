@@ -14,7 +14,6 @@ import time
 import uuid
 from unittest.mock import AsyncMock, patch
 
-import asyncpg
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
@@ -22,7 +21,6 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 
-from tests.conftest import _run_with_too_many_clients_retry
 from tests.factories import get_user_id
 
 
@@ -177,25 +175,6 @@ async def _create_cluster_semantics_table(
             {"name": name, "x": x, "y": y},
         )
     await session.commit()
-
-
-@pytest.fixture
-async def _init_tile_pool_for_tests():
-    """Initialize a real asyncpg pool pointing at the test database for tile tests.
-
-    The test client uses ASGITransport which does not run the app lifespan,
-    so we need to create the tile pool manually.
-    """
-    import app.processing.tiles.pool as pool_module
-
-    dsn = settings.test_database_url.replace("postgresql+asyncpg://", "postgresql://")
-    pool = await _run_with_too_many_clients_retry(
-        lambda: asyncpg.create_pool(dsn=dsn, min_size=1, max_size=3, command_timeout=10)
-    )
-    pool_module._tile_pool = pool
-    yield
-    await pool.close()
-    pool_module._tile_pool = None
 
 
 # ---------------------------------------------------------------------------

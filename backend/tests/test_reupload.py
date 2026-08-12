@@ -20,13 +20,13 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from app.modules.auth.models import User
-from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.datasets.domain.service import compute_schema_diff
 from app.modules.catalog.datasets.api import router_reupload
 from app.platform.jobs.models import IngestJob
 from app.platform.security import SSRFError
 
-from tests.factories import get_user_id
+from tests.factories import create_dataset, get_user_id
 
 
 @pytest.mark.anyio
@@ -91,34 +91,21 @@ async def _create_dataset(
     record_type: str = "vector_dataset",
 ) -> Dataset:
     """Insert a Record + Dataset pair directly into the DB."""
-    table_name = f"ds_{uuid.uuid4().hex[:12]}"
-    record = Record(
-        title=name,
-        summary=f"Test dataset: {name}",
-        visibility=visibility,
-        record_status="published",
-        record_type=record_type,
+    return await create_dataset(
+        session,
         created_by=created_by,
-    )
-    session.add(record)
-    await session.flush()
-    dataset = Dataset(
-        record_id=record.id,
-        table_name=table_name,
-        srid=4326,
-        geometry_type="MultiPolygon",
+        name=name,
+        description=f"Test dataset: {name}",
+        theme_category=[],
+        visibility=visibility,
+        record_type=record_type,
         feature_count=100,
-        source_format="geojson",
         source_filename="original.geojson",
         column_info=[
             {"name": "name", "type": "String"},
             {"name": "value", "type": "Integer"},
         ],
     )
-    session.add(dataset)
-    await session.commit()
-    await session.refresh(dataset)
-    return dataset
 
 
 # ---------------------------------------------------------------------------

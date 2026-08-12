@@ -13,12 +13,7 @@ from fastapi import FastAPI, HTTPException
 from httpx import ASGITransport, AsyncClient
 from starlette.requests import Request
 
-
-def _reset_registry() -> None:
-    import app.platform.extensions as ext_mod
-
-    ext_mod._extensions.clear()
-    ext_mod._loaded = False
+from tests.conftest import _reset_registry
 
 
 @pytest.fixture(autouse=True)

@@ -6,6 +6,7 @@ import uuid
 import tempfile
 import warnings
 from contextlib import asynccontextmanager, contextmanager
+from unittest.mock import patch
 
 import asyncpg.exceptions
 import pytest
@@ -21,6 +22,8 @@ from app.modules.auth.models import Role, User, UserRole
 from app.modules.auth.providers.local import hash_password
 from app.platform.cache import init_cache
 from app.core.config import settings
+
+from tests.factories import create_user
 
 # Register the multi_tenant_rls fixture so Plan 04 and Phase 1209 can request it
 # from any test file without an explicit import. The fixture lives in
@@ -963,6 +966,49 @@ async def _run_with_too_many_clients_retry(
         raise last_exc
 
 
+@pytest.fixture
+async def _init_tile_pool_for_tests(request):
+    """Initialize a real asyncpg pool pointing at the test database for tile tests.
+
+    The test client uses ASGITransport which does not run the app lifespan, so
+    tile-serving tests that reach the tile pool directly must create it
+    manually. Non-autouse — consumers opt in via
+    ``@pytest.mark.usefixtures("_init_tile_pool_for_tests")`` (applied at class
+    or module scope; a module-level ``pytestmark`` gives every test in a file
+    the fixture, mirroring what ``autouse=True`` would do for that one module).
+
+    The ``request``-based guard below exists for the module-scoped consumer
+    (test_embed_tokens.py): it skips pool creation for tests that request none
+    of the DB-facing fixtures, so unit tests in that file never pay for a live
+    asyncpg connection they don't need. For every other consumer the guard is
+    a no-op in practice — each test reached via ``usefixtures`` already
+    requests ``client`` and/or ``test_db_session``.
+    """
+    db_fixtures = {
+        "admin_auth_header",
+        "clean_tables",
+        "cleanup_data_tables",
+        "client",
+        "editor_auth_header",
+        "test_db_session",
+        "viewer_auth_header",
+    }
+    if not db_fixtures.intersection(request.fixturenames):
+        yield
+        return
+
+    import app.processing.tiles.pool as pool_module
+
+    dsn = settings.test_database_url.replace("postgresql+asyncpg://", "postgresql://")
+    pool = await _run_with_too_many_clients_retry(
+        lambda: asyncpg.create_pool(dsn=dsn, min_size=1, max_size=3, command_timeout=10)
+    )
+    pool_module._tile_pool = pool
+    yield
+    await pool.close()
+    pool_module._tile_pool = None
+
+
 # Retry budget for transient "too many clients already" contention during
 # in-test session-factory acquisition (per-request `override_get_db` ->
 # `test_session_factory()`). Distinct from `_SETUP_PHASE_RETRY_BACKOFFS`:
@@ -1583,6 +1629,21 @@ def _test_db_lifecycle():
     `_skip_if_db_unavailable` then skips the DB-backed tests individually and
     everything else runs normally.
     """
+    # geolens_admin_username has no default (app/core/config.py) and this
+    # fixture seeds the ONE fixture admin user under whatever it resolves to
+    # (see _ensure_roles_and_admin below). Roughly 1,160 call sites across the
+    # suite assume that username is literally "admin" — ~1,082 through
+    # tests/factories.get_user_id(session, "admin") and ~79 that query the
+    # "admin" literal directly. If the env ever resolves it to something else,
+    # every one of those call sites fails individually with NoResultFound,
+    # scattered across the whole suite with no shared root cause. Assert it
+    # once, loudly, here instead.
+    assert settings.geolens_admin_username == "admin", (
+        "settings.geolens_admin_username must be 'admin' -- tests/factories."
+        "get_user_id and ~1,160 other call sites hardcode that username for "
+        "the fixture-seeded admin user. Check GEOLENS_ADMIN_USERNAME in the "
+        "test environment."
+    )
     global _db_unavailable_reason
     original_test_db_name = settings.postgres_db_test
     db_name = _worker_test_database_name(original_test_db_name)
@@ -2018,24 +2079,10 @@ async def get_auth_header(
     return {"Authorization": f"Bearer {token}"}
 
 
-async def _create_test_user(
-    client: AsyncClient,
-    admin_headers: dict,
-    role: str,
-) -> tuple[dict[str, str], str]:
-    """Create a test user with the given role and return (auth_header, user_id)."""
-    unique = uuid.uuid4().hex[:8]
-    username = f"{role}_{unique}"
-    password = "TestPass1234!"  # SEC-S16: meets 12-char + 3-class policy
-    resp = await client.post(
-        "/admin/users/",
-        json={"username": username, "password": password, "role": role},
-        headers=admin_headers,
-    )
-    assert resp.status_code == 201, f"Create {role} failed: {resp.text}"
-    user_id = resp.json()["id"]
-    headers = await get_auth_header(client, username, password)
-    return headers, user_id
+# Re-exported so the ~25 `from tests.conftest import _create_test_user` sites
+# across the suite keep working unchanged; the implementation lives in
+# tests/factories.py as create_user.
+_create_test_user = create_user
 
 
 @pytest.fixture
@@ -2296,3 +2343,52 @@ def reset_limiter_storage() -> None:
             "reset_limiter_storage: could not reset limiter storage"
         )
     yield
+
+
+# ---------------------------------------------------------------------------
+# Extension registry reset (app.platform.extensions)
+# ---------------------------------------------------------------------------
+
+
+def _reset_registry() -> None:
+    """Clear all four extension-registry globals between tests.
+
+    ``app.platform.extensions`` tracks loaded overlay state in four module
+    globals: ``_extensions``, ``_routers``, ``_loaded``, ``_slot_owners``.
+    Per-file copies of this reset used to clear only the subset that file's
+    own tests happened to populate (``_extensions``/``_loaded`` alone in
+    most files; some also cleared ``_slot_owners``; the worker-bootstrap
+    files cleared all four). Clearing all four unconditionally is a
+    superset — globals a given file's tests never touch are a no-op to
+    clear — and it closes the latent cross-test pollution a partial reset
+    invites the moment a file starts exercising a slot its own copy-pasted
+    subset didn't anticipate.
+    """
+    import app.platform.extensions as ext_mod
+
+    ext_mod._extensions.clear()
+    ext_mod._routers.clear()
+    ext_mod._loaded = False
+    ext_mod._slot_owners.clear()
+
+
+@pytest.fixture
+def _clean_registry():
+    """Reset the extension registry AND isolate from discovered entry points.
+
+    Non-autouse — consumers opt in via
+    ``@pytest.mark.usefixtures("_clean_registry")`` (module-level
+    ``pytestmark`` in files that want it for every test, mirroring what
+    ``autouse=True`` would do for that one module).
+
+    The enterprise overlay is editable-installable in the backend test venv;
+    that install adds ``geolens.extensions`` entry points which would
+    otherwise pollute the registry whenever a test calls
+    ``load_extensions()``. Patching ``entry_points`` to default-empty gives
+    each test a known-empty discovery surface; a test can still opt in to
+    its own mock entry points via ``with patch(...)``.
+    """
+    _reset_registry()
+    with patch("app.platform.extensions.entry_points", return_value=[]):
+        yield
+    _reset_registry()

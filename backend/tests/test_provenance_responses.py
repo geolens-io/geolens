@@ -6,9 +6,9 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from httpx import AsyncClient
 from app.modules.auth.models import User
-from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.modules.catalog.datasets.domain.models import Dataset
 
-from tests.factories import get_user_id
+from tests.factories import create_dataset, get_user_id
 
 
 async def _create_actor_user(
@@ -36,32 +36,19 @@ async def _create_dataset(
     created_at: datetime,
     updated_at: datetime,
 ) -> Dataset:
-    record = Record(
-        title=title,
-        summary=f"Dataset for {title}",
-        visibility="public",
-        record_status="published",
+    return await create_dataset(
+        session,
         created_by=created_by,
+        name=title,
+        description=f"Dataset for {title}",
+        theme_category=[],
+        geometry_type="Point",
+        feature_count=1,
+        source_filename="provenance.geojson",
         updated_by=updated_by,
         created_at=created_at,
         updated_at=updated_at,
     )
-    session.add(record)
-    await session.flush()
-
-    dataset = Dataset(
-        record_id=record.id,
-        table_name=f"ds_{uuid.uuid4().hex[:12]}",
-        srid=4326,
-        geometry_type="Point",
-        feature_count=1,
-        source_format="geojson",
-        source_filename="provenance.geojson",
-    )
-    session.add(dataset)
-    await session.commit()
-    await session.refresh(dataset)
-    return dataset
 
 
 async def _search_feature(

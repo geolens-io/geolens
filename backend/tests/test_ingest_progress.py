@@ -27,10 +27,10 @@ from sqlalchemy import select, text
 
 from app.platform.jobs.models import IngestJob
 
+from tests.factories import get_user_id
+
 
 async def _get_admin_id(session):
-    from tests.factories import get_user_id
-
     return await get_user_id(session, "admin")
 
 

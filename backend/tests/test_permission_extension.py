@@ -10,22 +10,7 @@ from fastapi import HTTPException
 import pytest
 from sqlalchemy import select
 
-
-def _reset_registry():
-    """Reset extension registry state between tests."""
-    import app.platform.extensions as ext_mod
-
-    ext_mod._extensions.clear()
-    ext_mod._loaded = False
-
-
-@pytest.fixture(autouse=True)
-def _clean_registry():
-    """Isolate tests from environment-discovered extension entry points."""
-    _reset_registry()
-    with patch("app.platform.extensions.entry_points", return_value=[]):
-        yield
-    _reset_registry()
+pytestmark = pytest.mark.usefixtures("_clean_registry")
 
 
 def test_default_permission_extension_registered():
