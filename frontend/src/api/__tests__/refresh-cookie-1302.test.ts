@@ -84,10 +84,33 @@ describe('browser refresh transport', () => {
     const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('/api/auth/logout/');
     expect(init.method).toBe('POST');
-    expect(init.headers).toEqual({ Authorization: 'Bearer live-access' });
+    expect(init.headers).toMatchObject({ Authorization: 'Bearer live-access' });
     expect(init.credentials).toBe('same-origin');
     // Exactly one request: no proactive-refresh detour.
     expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  // fix(#1446): when the access token has already expired there is no bearer
+  // token to send, and the refresh cookie authenticates the call server-side.
+  // That path is CSRF-protected, so the double-submit token must ride along.
+  it('logout carries the CSRF token so the cookie can authenticate it', async () => {
+    document.cookie = 'geolens_csrf=csrf-abc; path=/';
+    useAuthStore.setState({ token: null });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 204,
+      statusText: 'No Content',
+      json: () => Promise.reject(new Error('no body')),
+      headers: new Headers(),
+    } as Response);
+
+    await logoutSession();
+
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(init.headers).toEqual({
+      'X-GeoLens-Auth-Mode': 'cookie',
+      'X-CSRF-Token': 'csrf-abc',
+    });
   });
 
   it('opts login into the cookie flow', async () => {

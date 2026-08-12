@@ -63,9 +63,15 @@ const LOGOUT_TIMEOUT_MS = 3_000;
  */
 export async function logoutSession(): Promise<void> {
   const token = useAuthStore.getState().token;
+  // fix(#1446): carry the cookie-mode headers too. When the access token has
+  // aged out, the refresh cookie authenticates this call server-side, and that
+  // path requires the double-submit CSRF token.
+  const headers: Record<string, string> = { ...cookieAuthHeaders() };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
   await safeFetch(`${API_BASE}/auth/logout/`, {
     method: 'POST',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers,
     credentials: 'same-origin',
     signal: AbortSignal.timeout(LOGOUT_TIMEOUT_MS),
   });

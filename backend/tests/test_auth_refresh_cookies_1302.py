@@ -19,7 +19,7 @@ from app.core.config import settings
 from app.modules.auth.cookies import (
     CSRF_COOKIE_NAME,
     REFRESH_COOKIE_NAME,
-    is_same_origin_as_request,
+    is_same_origin,
 )
 
 ADMIN_USER = settings.geolens_admin_username
@@ -283,6 +283,53 @@ class TestLogoutClearsCookies:
             assert cleared["path"] == path
             assert cleared["value"] in ("", '""')
 
+    # fix(#1446): a user returning after their 15-minute access token expired
+    # would otherwise get a 401 here while their multi-day refresh cookie
+    # stayed valid — the UI reports a clean logout and the session survives it.
+    async def test_the_cookie_alone_can_authenticate_logout(self, client: AsyncClient):
+        login = await _login(client, cookie_mode=True)
+        refresh_value = _cookie_attrs(login, REFRESH_COOKIE_NAME)["value"]
+        csrf_value = _cookie_attrs(login, CSRF_COOKIE_NAME)["value"]
+        _arm_cookies(client, refresh_value, csrf_value)
+
+        # No Authorization header at all — as if the access token had expired.
+        resp = await client.post(
+            "/auth/logout/", headers={**COOKIE_MODE, "X-CSRF-Token": csrf_value}
+        )
+        assert resp.status_code == 204, resp.text
+
+        _arm_cookies(client, refresh_value, csrf_value)
+        after = await client.post(
+            "/auth/refresh/",
+            headers={**COOKIE_MODE, "X-CSRF-Token": csrf_value},
+        )
+        assert after.status_code == 401
+
+    async def test_cookie_authenticated_logout_still_requires_csrf(
+        self, client: AsyncClient
+    ):
+        """Otherwise a cross-site page could force-logout any signed-in user."""
+        login = await _login(client, cookie_mode=True)
+        refresh_value = _cookie_attrs(login, REFRESH_COOKIE_NAME)["value"]
+        csrf_value = _cookie_attrs(login, CSRF_COOKIE_NAME)["value"]
+        _arm_cookies(client, refresh_value, csrf_value)
+
+        resp = await client.post("/auth/logout/", headers=COOKIE_MODE)
+        assert resp.status_code == 403
+
+        # The session must survive the rejected attempt.
+        _arm_cookies(client, refresh_value, csrf_value)
+        still_alive = await client.post(
+            "/auth/refresh/",
+            headers={**COOKIE_MODE, "X-CSRF-Token": csrf_value},
+        )
+        assert still_alive.status_code == 200
+
+    async def test_logout_without_any_credential_is_401(self, client: AsyncClient):
+        client.cookies.clear()
+        resp = await client.post("/auth/logout/")
+        assert resp.status_code == 401
+
     async def test_logout_revokes_the_cookie_token_server_side(
         self, client: AsyncClient
     ):
@@ -306,41 +353,30 @@ class TestLogoutClearsCookies:
 
 class TestOriginComparison:
     """fix(#1446): the OAuth callback decides cookie-vs-fragment delivery from
-    this. Spelling out a default port is the same origin to a browser, and
-    comparing raw netlocs silently dropped such deployments back to putting the
-    refresh token in the URL fragment."""
+    this, comparing the deployment's two CONFIGURED public URLs. Deriving one
+    side from the live request was wrong under any Host-rewriting proxy (the
+    shipped Vite dev proxy sets changeOrigin: true), and spelling out a default
+    port must not read as a different origin."""
 
-    @staticmethod
-    def _request(url: str):
-        from starlette.datastructures import URL
-
-        class _FakeRequest:
-            def __init__(self, value: str) -> None:
-                self.url = URL(value)
-
-        return _FakeRequest(url)
+    def test_the_shipped_topology_is_same_origin(self):
+        # SPA at the root, API under /api on the same host.
+        assert is_same_origin("https://geo.example.com", "https://geo.example.com/api")
 
     def test_explicit_default_port_matches_an_omitted_one(self):
-        req = self._request("https://example.com/auth/callback")
-        assert is_same_origin_as_request(req, "https://example.com:443")
-        assert is_same_origin_as_request(
-            self._request("http://example.com/auth/callback"), "http://example.com:80"
-        )
+        assert is_same_origin("https://example.com:443", "https://example.com")
+        assert is_same_origin("http://example.com:80", "http://example.com")
 
-    def test_plain_match_and_case_insensitive_host(self):
-        req = self._request("https://Example.COM/auth/callback")
-        assert is_same_origin_as_request(req, "https://example.com")
+    def test_host_comparison_is_case_insensitive(self):
+        assert is_same_origin("https://Example.COM", "https://example.com/api")
 
     def test_genuinely_different_origins_do_not_match(self):
-        req = self._request("https://example.com/auth/callback")
-        assert not is_same_origin_as_request(req, "https://elsewhere.example")
-        assert not is_same_origin_as_request(req, "http://example.com")
-        assert not is_same_origin_as_request(req, "https://example.com:8443")
+        assert not is_same_origin("https://example.com", "https://elsewhere.example")
+        assert not is_same_origin("https://example.com", "http://example.com")
+        assert not is_same_origin("https://example.com", "https://example.com:8443")
 
     def test_unusable_values_are_not_same_origin(self):
-        req = self._request("https://example.com/auth/callback")
-        assert not is_same_origin_as_request(req, "/relative/path")
-        assert not is_same_origin_as_request(req, "")
+        assert not is_same_origin("https://example.com", "/relative/path")
+        assert not is_same_origin("https://example.com", "")
 
 
 class TestSecureFlagFollowsProductionPosture:

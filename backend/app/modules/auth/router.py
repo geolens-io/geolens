@@ -691,7 +691,7 @@ async def resend_verification(
 @router.post("/logout/", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(
     request: Request,
-    current_user: User = Depends(get_current_active_user),
+    identity: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Revoke all refresh tokens and bump token_version for the current user.
@@ -704,6 +704,13 @@ async def logout(
     fix(#821): logout deliberately does NOT bump key_epoch — API keys exist to
     outlive browser sessions (CI, MCP servers, tile URLs), so session hygiene
     must not revoke them. Security events (password change, role change) do.
+
+    fix(#1446): the refresh COOKIE can authenticate this call when the access
+    token has aged out. Requiring a live bearer token meant a user returning
+    after their 15-minute access token expired got a 401 here while their
+    multi-day refresh cookie stayed valid — the UI reported a clean logout and
+    the session survived it. CSRF is enforced on that path exactly as it is for
+    /auth/refresh, since the cookie is then the credential.
     """
     from app.modules.audit.service import (
         AuditEvent,
@@ -711,14 +718,28 @@ async def logout(
     )  # LAZY — preserved per D-17
 
     service = AuthService(db)
+    user_id: uuid.UUID | None = identity.id if identity is not None else None
+    if user_id is None:
+        cookie_token = read_refresh_cookie(request)
+        if cookie_token is not None:
+            enforce_csrf(request)
+            cookie_user = await service.get_user_from_refresh_token(cookie_token)
+            if cookie_user is not None:
+                user_id = cookie_user.id
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     # commit=False: fold the token revocation and the audit row into one
     # transaction, mirroring change_password below (fix(#1230): logout was
     # the third gap in the "wrong password, right password, logout" trail).
-    await service.revoke_all_tokens(current_user.id, commit=False)
+    await service.revoke_all_tokens(user_id, commit=False)
     await audit_emit(
         db,
         AuditEvent(
-            user_id=current_user.id,
+            user_id=user_id,
             action="user.logout",
             resource_type="user",
             ip_address=get_client_ip(request),

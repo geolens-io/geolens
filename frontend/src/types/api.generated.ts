@@ -898,6 +898,13 @@ export interface paths {
          *     fix(#821): logout deliberately does NOT bump key_epoch — API keys exist to
          *     outlive browser sessions (CI, MCP servers, tile URLs), so session hygiene
          *     must not revoke them. Security events (password change, role change) do.
+         *
+         *     fix(#1446): the refresh COOKIE can authenticate this call when the access
+         *     token has aged out. Requiring a live bearer token meant a user returning
+         *     after their 15-minute access token expired got a 401 here while their
+         *     multi-day refresh cookie stayed valid — the UI reported a clean logout and
+         *     the session survived it. CSRF is enforced on that path exactly as it is for
+         *     /auth/refresh, since the cookie is then the credential.
          */
         post: operations["logout_auth_logout__post"];
         delete?: never;
@@ -11052,7 +11059,7 @@ export interface components {
         /** RefreshRequest */
         RefreshRequest: {
             /** Refresh Token */
-            refresh_token?: string | null;
+            refresh_token: string;
         };
         /** RegisterRequest */
         RegisterRequest: {

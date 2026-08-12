@@ -101,6 +101,13 @@ def sync_detailed(
     outlive browser sessions (CI, MCP servers, tile URLs), so session hygiene
     must not revoke them. Security events (password change, role change) do.
 
+    fix(#1446): the refresh COOKIE can authenticate this call when the access
+    token has aged out. Requiring a live bearer token meant a user returning
+    after their 15-minute access token expired got a 401 here while their
+    multi-day refresh cookie stayed valid — the UI reported a clean logout and
+    the session survived it. CSRF is enforced on that path exactly as it is for
+    /auth/refresh, since the cookie is then the credential.
+
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
@@ -135,6 +142,13 @@ def sync(
     outlive browser sessions (CI, MCP servers, tile URLs), so session hygiene
     must not revoke them. Security events (password change, role change) do.
 
+    fix(#1446): the refresh COOKIE can authenticate this call when the access
+    token has aged out. Requiring a live bearer token meant a user returning
+    after their 15-minute access token expired got a 401 here while their
+    multi-day refresh cookie stayed valid — the UI reported a clean logout and
+    the session survived it. CSRF is enforced on that path exactly as it is for
+    /auth/refresh, since the cookie is then the credential.
+
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
@@ -164,6 +178,13 @@ async def asyncio_detailed(
     fix(#821): logout deliberately does NOT bump key_epoch — API keys exist to
     outlive browser sessions (CI, MCP servers, tile URLs), so session hygiene
     must not revoke them. Security events (password change, role change) do.
+
+    fix(#1446): the refresh COOKIE can authenticate this call when the access
+    token has aged out. Requiring a live bearer token meant a user returning
+    after their 15-minute access token expired got a 401 here while their
+    multi-day refresh cookie stayed valid — the UI reported a clean logout and
+    the session survived it. CSRF is enforced on that path exactly as it is for
+    /auth/refresh, since the cookie is then the credential.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -196,6 +217,13 @@ async def asyncio(
     fix(#821): logout deliberately does NOT bump key_epoch — API keys exist to
     outlive browser sessions (CI, MCP servers, tile URLs), so session hygiene
     must not revoke them. Security events (password change, role change) do.
+
+    fix(#1446): the refresh COOKIE can authenticate this call when the access
+    token has aged out. Requiring a live bearer token meant a user returning
+    after their 15-minute access token expired got a 401 here while their
+    multi-day refresh cookie stayed valid — the UI reported a clean logout and
+    the session survived it. CSRF is enforced on that path exactly as it is for
+    /auth/refresh, since the cookie is then the credential.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

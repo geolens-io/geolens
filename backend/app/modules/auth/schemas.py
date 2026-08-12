@@ -209,11 +209,12 @@ class UserResponse(BaseModel):
 
 
 class RefreshRequest(BaseModel):
-    # GH-1302: optional so a browser on the cookie flow can POST an empty body
-    # (its token rides in the httpOnly cookie). Programmatic callers keep
-    # sending it, and the handler still rejects a request that supplies
-    # neither.
-    refresh_token: str | None = Field(default=None, max_length=512)
+    # fix(#1446): stays REQUIRED. Only the body as a whole is optional (the
+    # route signature is `RefreshRequest | None = None`) so a browser on the
+    # cookie flow can POST nothing at all. Defaulting the field would instead
+    # declare `{}` a valid body, which the server can do nothing with — it
+    # would only reach the handler and 401.
+    refresh_token: str = Field(max_length=512)
 
 
 class PermissionsResponse(BaseModel):

@@ -130,42 +130,47 @@ def read_refresh_cookie(request: Request) -> str | None:
     return request.cookies.get(REFRESH_COOKIE_NAME)
 
 
-def is_same_origin_as_request(request: Request, url: str) -> bool:
-    """Whether *url* shares scheme+host+port with this request's own origin.
-
-    Used by the OAuth callback: a cookie it sets is scoped to the host the
-    browser used to reach the API, so it is only usable afterwards when the SPA
-    lives on that same origin. A false answer falls back to the pre-GH-1302
-    fragment delivery rather than handing the browser a cookie it will never
-    send back — mismatch degrades, it never locks anyone out.
-    """
+def _origin_parts(url: str) -> tuple[str, str, int | None] | None:
+    """(scheme, host, effective port), or None when *url* has no usable origin."""
     try:
-        target = urlsplit(url)
-        target_host, target_port = target.hostname, target.port
+        parts = urlsplit(url)
+        host, port = parts.hostname, parts.port
     except ValueError:
-        return False
-    if not target.scheme or not target_host:
-        return False
+        return None
+    if not parts.scheme or not host:
+        return None
+    scheme = parts.scheme.lower()
+    # fix(#1446): EFFECTIVE port. A URL that spells out its default port
+    # ("https://example.com:443") is the same origin as one that omits it, but
+    # a raw string comparison called that a mismatch.
+    effective = port if port is not None else {"https": 443, "http": 80}.get(scheme)
+    return scheme, host.lower(), effective
 
-    target_scheme = target.scheme.lower()
-    request_scheme = (request.url.scheme or "").lower()
-    if target_scheme != request_scheme:
-        return False
-    if target_host.lower() != (request.url.hostname or "").lower():
-        return False
 
-    # fix(#1446): compare EFFECTIVE ports. A PUBLIC_APP_URL that spells out its
-    # default port ("https://example.com:443") against a Host header that omits
-    # it is the same origin to a browser, but comparing raw netlocs called it a
-    # mismatch and silently dropped that deployment back to fragment delivery.
-    def _effective_port(scheme: str, port: int | None) -> int | None:
-        if port is not None:
-            return port
-        return {"https": 443, "http": 80}.get(scheme)
+def is_same_origin(url_a: str, url_b: str) -> bool:
+    """Whether two absolute URLs share scheme, host, and effective port.
 
-    return _effective_port(target_scheme, target_port) == _effective_port(
-        request_scheme, request.url.port
-    )
+    Used by the OAuth callback to decide cookie-vs-fragment delivery: a cookie
+    it sets is scoped to the host the browser used to reach the API, so it is
+    only usable afterwards when the SPA lives on that same origin.
+
+    fix(#1446): both sides are now the deployment's CONFIGURED public URLs
+    rather than the live request's host. Deriving one side from the request was
+    wrong under any proxy that rewrites Host — the shipped Vite dev proxy sets
+    ``changeOrigin: true``, which replaces Host with the API target and keeps
+    the browser-facing host only in ``X-Forwarded-Host``, so the check reported
+    a mismatch and silently reverted dev to fragment delivery. Comparing two
+    configured values needs no trust decision about forwarded headers at all.
+
+    A false answer degrades to the pre-GH-1302 fragment path rather than
+    handing the browser a cookie it will never send back — it never locks
+    anyone out.
+    """
+    origin_a = _origin_parts(url_a)
+    origin_b = _origin_parts(url_b)
+    if origin_a is None or origin_b is None:
+        return False
+    return origin_a == origin_b
 
 
 def enforce_csrf(request: Request) -> None:

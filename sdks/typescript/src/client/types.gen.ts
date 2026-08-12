@@ -7952,7 +7952,7 @@ export type RefreshRequest = {
     /**
      * Refresh Token
      */
-    refresh_token?: string | null;
+    refresh_token: string;
 };
 
 /**
