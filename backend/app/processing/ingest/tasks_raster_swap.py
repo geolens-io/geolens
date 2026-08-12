@@ -580,14 +580,18 @@ async def _run_post_swap_followups(
 
     "No reader left" is true of the DATABASE. An API process that served a tile
     in the last minute may still hold this dataset in the tile router's
-    ``_resolve_raster_meta`` cache, whose entries carry the OLD asset_uri for up
-    to ``_RASTER_META_CACHE_TTL`` (60s) — so raster tiles can fail for that
-    window before the entry expires and the new pointer is read. Deliberately
-    not worked around: ``regenerate_vrt`` reaps its superseded generation the
-    same way against the same cache, the window is bounded and self-healing, and
-    closing it needs cross-process invalidation neither path has. The bumped
-    ``tile_cache_version`` already changes the tile URL, so browser and CDN
-    caches roll over immediately.
+    ``_resolve_raster_meta`` cache, whose entries carry the OLD asset_uri.
+    fix(#1329): that cache is now keyed on the request's ``v``, so the
+    ``tile_cache_version`` bump this swap already made in the write transaction
+    IS the invalidation — the first tile request carrying the new version misses
+    in every API process and reads the new pointer, with no separate
+    coordination channel (``regenerate_vrt`` and the STAC moved-asset refresh
+    bump the same counter and get the same effect). What is left is requests
+    still carrying the OLD ``v`` — a tab that has not refetched its tile URL:
+    those keep the pre-swap asset_uri until the entry expires
+    (``_RASTER_META_CACHE_TTL``, 60s), so their tiles can fail for that bounded,
+    self-healing window. The bumped ``tile_cache_version`` also changes the tile
+    URL, so browser and CDN caches roll over immediately.
     """
     from app.core.db import async_session
     from sqlalchemy.orm import joinedload
