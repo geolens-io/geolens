@@ -998,6 +998,8 @@ export interface DatasetRefreshRunResponse {
   dataset_id: string;
   dataset_version_id: string | null;
   ingest_job_id: string | null;
+  /** fix(#1325): the run's execution door (e.g. 'raster' for a raster
+   *  replace), not the dataset's origin — compare DatasetResponse.origin. */
   origin_kind: string;
   trigger: string;
   /** "pending" | "running" | "succeeded" | "failed" | "cancelled", kept as a

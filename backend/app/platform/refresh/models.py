@@ -56,6 +56,20 @@ class DatasetRefreshRun(Base):
             "trigger IN ('manual', 'api', 'cli')",
             name="chk_refresh_runs_trigger",
         ),
+        # fix(#1325): origin_kind here is the run's execution DOOR, not the
+        # dataset's origin — see ORIGIN_KINDS in platform/dataset_origin.py, a
+        # separate vocabulary derived once from source_format and never
+        # revisited per run. 'upload'/'postgis'/'service'/'stac' share both
+        # spelling and meaning with their ORIGIN_KINDS counterparts because
+        # every door built so far executes the same way its origin formed.
+        # 'raster' does not: it is RESERVED for the raster-replace door
+        # (#1290), which has no ORIGIN_KINDS counterpart (a raster dataset's
+        # origin is 'upload', the file it arrived as). Reserved, not live —
+        # reupload_commit (router_reupload.py) still stamps raster-replace
+        # runs 'upload' today, matching the dataset's origin rather than a
+        # distinct door, so no row has ever actually carried 'raster'.
+        # Decision (a) on #1325 is to document this split, not close it by
+        # renaming a value or migrating a column.
         CheckConstraint(
             "origin_kind IN ('upload', 'postgis', 'service', 'stac', 'raster')",
             name="chk_refresh_runs_origin_kind",

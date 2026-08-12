@@ -2639,7 +2639,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # claimed it shared ALL of VrtSourceHealth.status's values, which stopped
     # being true when fix(#1221) added VrtSourceHealth's VRT-specific `stale`
     # value without updating this cross-reference. Cap 1454 -> 1458, exact.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1458,
+    # fix(#1325): +7 — DatasetRefreshRunResponse.origin_kind's description now
+    # states the door-vs-origin distinction inline (a raster-replace run's
+    # door has no ORIGIN_KINDS counterpart), matching the CHECK constraint
+    # comment in platform/refresh/models.py and the ORIGIN_KINDS docstring in
+    # platform/dataset_origin.py. Cap 1458 -> 1465, exact.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1465,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch

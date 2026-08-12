@@ -299,7 +299,16 @@ function RefreshRunHistory({ dataset }: { dataset: DatasetResponse }) {
                 <Badge variant="outline" className={refreshRunStatusColors[run.status] ?? ''}>
                   {t(`sourcePanel.refresh.history.status.${run.status}`, { defaultValue: run.status })}
                 </Badge>
-                <Badge variant="secondary">{run.origin_kind}</Badge>
+                {/* fix(#1325): run.origin_kind is the run's execution door
+                    (e.g. a raster replace runs through 'raster'), not the
+                    dataset's origin shown by the OriginBadge above — label
+                    and tooltip say so, so the two never read as disagreeing. */}
+                <Badge
+                  variant="secondary"
+                  title={t('sourcePanel.refresh.history.mechanismTooltip')}
+                >
+                  {t('sourcePanel.refresh.history.mechanismLabel', { mechanism: run.origin_kind })}
+                </Badge>
               </div>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 {formatDateTimeSmart(run.started_at)}

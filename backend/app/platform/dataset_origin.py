@@ -45,6 +45,18 @@ SERVICE_SOURCE_FORMATS: frozenset[str] = frozenset(
 # fetched from anywhere. Both classify as None so the type badge speaks alone.
 _ORIGINLESS_RECORD_TYPES: frozenset[str] = frozenset({"collection", "vrt_dataset"})
 
+# fix(#1325): this is the dataset's ORIGIN — how its data entered the catalog,
+# derived once by classify_origin() from source_format/record_type and never
+# revisited afterward. It is a DIFFERENT vocabulary from
+# DatasetRefreshRun.origin_kind, the CHECK constraint in
+# platform/refresh/models.py: that column is the per-attempt execution DOOR a
+# refresh or reupload ran through, not the dataset's origin, and the two sets
+# diverge on purpose in both directions. 'created' is here but has no ledger
+# counterpart, because a dataset drawn in the app has nothing to refresh from.
+# The ledger's 'raster' has no ORIGIN_KINDS counterpart, because a raster
+# dataset's origin is still 'upload' (the GeoTIFF it arrived as) even when its
+# replace run goes through a distinct door; see the CHECK constraint's comment
+# for what that door does and does not do today.
 ORIGIN_KINDS: frozenset[str] = frozenset(
     {"upload", "postgis", "service", "stac", "created"}
 )

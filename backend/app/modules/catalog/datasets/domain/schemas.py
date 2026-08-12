@@ -1422,7 +1422,14 @@ class DatasetRefreshRunResponse(BaseModel):
             "row is purged by retention; the run itself survives."
         ),
     )
-    origin_kind: str = Field(description="upload, postgis, service, stac, or raster")
+    origin_kind: str = Field(
+        description=(
+            "The run's execution door, not the dataset's origin: upload, "
+            "postgis, service, stac, or raster. 'raster' is the "
+            "raster-replace door and has no origin counterpart; a raster "
+            "dataset's own origin is 'upload'."
+        )
+    )
     trigger: str = Field(description="manual, api, or cli")
     status: str = Field(description="pending, running, succeeded, failed, or cancelled")
     triggered_by: uuid.UUID | None = None

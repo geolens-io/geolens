@@ -7382,7 +7382,7 @@ export interface components {
             ingest_job_id?: string | null;
             /**
              * Origin Kind
-             * @description upload, postgis, service, stac, or raster
+             * @description The run's execution door, not the dataset's origin: upload, postgis, service, stac, or raster. 'raster' is the raster-replace door and has no origin counterpart; a raster dataset's own origin is 'upload'.
              */
             origin_kind: string;
             /**

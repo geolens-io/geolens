@@ -785,6 +785,8 @@
         "empty": "No refresh runs yet.",
         "featureDelta": "{{before}} → {{after}} features",
         "triggeredBy": "Started by {{username}}",
+        "mechanismLabel": "Method: {{mechanism}}",
+        "mechanismTooltip": "How this run executed, not the dataset's origin",
         "status": {
           "pending": "Queued",
           "running": "Running",
