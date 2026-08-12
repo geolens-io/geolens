@@ -503,6 +503,27 @@ async def generate_table_name(
     )
     existing |= {row[0] for row in info_result.all()}
 
+    # fix(GH-1443): and collide against RETIRED names. Both probes above ask
+    # what exists NOW, and a delete clears both, so the name of a deleted
+    # dataset was handed straight back to the next one with that title. The
+    # tile router caches table_name -> dataset metadata and reads
+    # authorization out of that snapshot, so a worker that missed the delete
+    # authorized the caller against the DELETED dataset's visibility and then
+    # queried a table its successor owns. Treating a retired name exactly like
+    # a live collision is what makes that unreachable: the successor of a
+    # deleted `roads` gets `roads_2`, and no cached entry can outlive its
+    # dataset's exclusive claim on the name.
+    #
+    # Unscoped by tenant, matching the catalog probe above rather than the
+    # pg_class probe. The two catalog-side probes have to agree, and this is
+    # not the change that decides tenant scoping for either — over-collision
+    # costs a suffix, under-collision costs the guarantee.
+    RetiredORM = get_processing_port().get_retired_table_name_orm_class()
+    retired_result = await session.execute(
+        select(RetiredORM.table_name).where(RetiredORM.table_name.like(f"{base_slug}%"))
+    )
+    existing |= {row[0] for row in retired_result.all()}
+
     if slug in existing:
         suffix = 2
         while f"{base_slug}_{suffix}" in existing:

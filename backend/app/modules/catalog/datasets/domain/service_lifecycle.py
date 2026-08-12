@@ -14,6 +14,7 @@ from app.modules.catalog.datasets.domain._sql_safety import (
     SAFE_TABLE_NAME_RE,
     _safe_table_ref,
 )
+from app.modules.catalog.datasets.domain.models import RetiredTableName
 from app.core.db.tenant_session import current_tenant_var
 from app.core.db.tenant_schema import tenant_data_schema
 from app.core.tenancy import is_multi_tenant
@@ -182,6 +183,27 @@ async def delete_dataset(
             keys = await storage.list(physical_prefix)
             if keys:
                 await asyncio.gather(*(storage.delete(key) for key in keys))
+
+    # fix(GH-1443): retire the name before releasing it. This is the one site
+    # where a name a LIVE dataset row carried stops being carried by one, and
+    # that is exactly the condition under which the tile router's table_name ->
+    # metadata map could be holding an entry for it — that map is populated
+    # only from catalog.datasets. Recorded for every record type, not just the
+    # vector branch that drops a table: the raster/VRT branch drops nothing,
+    # but its dataset row goes, so the name it occupied in the catalog probe is
+    # freed just the same, and _resolve_dataset_meta does not filter on
+    # record_type before caching what it found.
+    #
+    # session.add, so it lands in the caller's transaction alongside the DROP
+    # and the record delete. A crash between them can therefore roll back the
+    # whole delete, but can never commit a freed name with no tombstone.
+    session.add(
+        RetiredTableName(
+            table_name=table_name,
+            tenant_id=dataset.tenant_id,
+            dataset_id=dataset_id,
+        )
+    )
 
     # Delete the record (CASCADE handles dataset deletion)
     await session.delete(dataset.record)

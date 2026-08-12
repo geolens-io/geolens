@@ -21,6 +21,11 @@ from app.modules.catalog.datasets.domain.service import DependentVrtError
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+#
+# Every mocked session below overrides ``add`` with a plain MagicMock.
+# ``AsyncSession.add`` is synchronous, so an un-overridden AsyncMock turns
+# delete_dataset's retired-name write (GH-1443) into an un-awaited coroutine
+# that records nothing and raises a RuntimeWarning at garbage-collection.
 
 
 def _make_mock_dataset(record_type: str, title: str = "Test Dataset") -> MagicMock:
@@ -72,6 +77,7 @@ class TestDeleteGuard:
         mock_result.all.return_value = [mock_row]
 
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_session.execute = AsyncMock(return_value=mock_result)
 
         with patch(
@@ -99,6 +105,7 @@ class TestDeleteGuard:
         mock_result.all.return_value = []
 
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_session.execute = AsyncMock(return_value=mock_result)
         mock_session.delete = AsyncMock()
 
@@ -141,6 +148,7 @@ class TestDeleteGuard:
         mock_result.all.return_value = mock_rows
 
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_session.execute = AsyncMock(return_value=mock_result)
 
         with patch(
@@ -277,6 +285,7 @@ async def test_delete_dataset_fails_closed_without_multi_tenant_context(monkeypa
     no_dependants = MagicMock()
     no_dependants.all.return_value = []
     mock_session = AsyncMock()
+    mock_session.add = MagicMock()
     mock_session.execute = AsyncMock(return_value=no_dependants)
 
     token = current_tenant_var.set(None)
@@ -325,6 +334,7 @@ class TestVrtDeletion:
         mock_storage.delete = AsyncMock()
 
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_session.delete = AsyncMock()
 
         with patch(
@@ -365,6 +375,7 @@ class TestVrtDeletion:
         mock_storage.list = AsyncMock(return_value=[physical_key])
         mock_storage.delete = AsyncMock()
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_session.delete = AsyncMock()
 
         token = current_tenant_var.set(tenant_id)
@@ -413,6 +424,7 @@ class TestVrtDeletion:
         mock_storage.delete = AsyncMock()
 
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_session.execute = AsyncMock(return_value=mock_vrt_result)
         mock_session.delete = AsyncMock()
 
@@ -461,6 +473,7 @@ class TestVrtDeletion:
         mock_storage.delete = AsyncMock()
 
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_session.delete = AsyncMock()
 
         with patch(
@@ -491,6 +504,7 @@ class TestVrtDeletion:
         mock_storage.delete = AsyncMock()
 
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_session.delete = AsyncMock()
 
         with patch(

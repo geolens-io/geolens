@@ -1846,7 +1846,12 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # fix(#1314): +12 — reconcile_distributions, the seam the refresh and
         # reupload paths cross to bring auto-generated distribution rows in
         # line with a modality that changed under them. Cap 482 -> 494.
-        "backend/app/platform/extensions/defaults_processing_port.py": 494,
+        # fix(GH-1443): +5 — get_retired_table_name_orm_class. The retired-name
+        # probe runs inside generate_table_name, which lives in processing/ and
+        # so cannot import the catalog model it needs; this is the same
+        # ORM-class accessor shape as its five neighbours. Cap 494 -> 499,
+        # exact.
+        "backend/app/platform/extensions/defaults_processing_port.py": 499,
         # fix(#929): +2 over the 350 default — the creator exemption on the
         # restricted branch of filter_visible/can_access_dataset plus its
         # rationale comments. fix(#930): +20 — the internal branch on the same
@@ -2677,7 +2682,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # registration stops landing with column_info and feature_count NULL. The
     # added lines are the comment explaining why the branch is gone.
     # Cap 1073 -> 1077, exact.
-    "backend/app/processing/ingest/service.py": 1077,
+    # fix(GH-1443): +21 — generate_table_name gains a third collision probe,
+    # against the retired-names table. The two it already had ask what exists
+    # NOW, and a delete clears both, so a deleted dataset's table name was
+    # handed straight to its successor while a tile worker could still be
+    # holding the predecessor's authorization snapshot under that name. Most of
+    # the added lines are the comment carrying that reasoning plus why the
+    # probe is unscoped by tenant (it has to agree with the catalog probe
+    # beside it, and over-collision only costs a suffix). Cap 1077 -> 1098,
+    # exact.
+    "backend/app/processing/ingest/service.py": 1098,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.

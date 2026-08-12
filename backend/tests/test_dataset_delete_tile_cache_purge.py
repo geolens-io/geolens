@@ -77,6 +77,10 @@ async def _run_delete(dataset: MagicMock) -> str:
     from app.modules.catalog.datasets.domain.service import delete_dataset
 
     session = AsyncMock()
+    # AsyncSession.add is synchronous — leaving it an AsyncMock makes
+    # delete_dataset's retired-name write (GH-1443) leak an un-awaited
+    # coroutine instead of recording anything.
+    session.add = MagicMock()
     no_dependents = MagicMock()
     no_dependents.all.return_value = []
     session.execute = AsyncMock(return_value=no_dependents)
