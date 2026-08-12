@@ -13,6 +13,8 @@ client's request path, so httpx's own jar would never replay it. Tests read the
 jar by hand via ``_arm_cookies``.
 """
 
+from datetime import UTC, datetime
+
 from httpx import AsyncClient
 
 from app.core.config import settings
@@ -500,6 +502,81 @@ class TestRotationRevocationRace:
                 "/auth/refresh/", json={"refresh_token": rotated_value}
             )
             assert rotated.status_code == 401, "rotated token outlived logout"
+
+
+class TestGraceWindowCannotRatchetOpen:
+    """fix(#1446): queued rotations must not each push the retirement cutoff
+    further out. Each holds an ORM row read BEFORE the lock, still carrying the
+    original multi-day expiry, so comparing against that instead of the
+    post-lock value extends the window on every pass — the opposite of the
+    'never EXTEND' invariant the grace window (fix(#621)) is built on."""
+
+    async def test_concurrent_rotations_do_not_extend_the_retirement_cutoff(
+        self, client: AsyncClient, test_db_session, monkeypatch
+    ):
+        import hashlib
+
+        import anyio
+        from sqlalchemy import select
+
+        from app.modules.auth.models import RefreshToken
+        from app.modules.auth.service import AuthService
+
+        original_create_access_token = AuthService.create_access_token
+
+        # Long enough that a ratcheted cutoff clears the tolerance below. With
+        # a short stall the extension is only a fraction of a second and the
+        # assertion cannot tell it from timing noise.
+        stall_seconds = 2.5
+
+        async def _stalled_create_access_token(self, *args, **kwargs):
+            await anyio.sleep(stall_seconds)
+            return await original_create_access_token(self, *args, **kwargs)
+
+        refresh_token = (await _login(client, cookie_mode=False)).json()[
+            "refresh_token"
+        ]
+        token_hash = hashlib.sha256(refresh_token.encode()).hexdigest()
+
+        grace = settings.refresh_rotation_grace_seconds
+        assert grace > 0, "this test is about the grace window"
+
+        async def _rotate() -> None:
+            await client.post("/auth/refresh/", json={"refresh_token": refresh_token})
+
+        client.cookies.clear()
+        monkeypatch.setattr(
+            AuthService, "create_access_token", _stalled_create_access_token
+        )
+        # Anchor to a fixed instant taken BEFORE either rotation runs. Measuring
+        # against "now" after the fact hides the bug: the queued caller stalls
+        # again after setting its cutoff, so the extension has already elapsed
+        # by the time the assertion runs.
+        started_at = datetime.now(UTC)
+        # Both read the row while it still carries its original expiry, then
+        # queue on the owner lock — the interleaving that exposes the stale
+        # comparison.
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(_rotate)
+            tg.start_soon(_rotate)
+        monkeypatch.undo()
+
+        row = (
+            await test_db_session.execute(
+                select(RefreshToken.expires_at).where(
+                    RefreshToken.token_hash == token_hash
+                )
+            )
+        ).scalar_one()
+        # Retired to about one grace window measured from the START, NOT to the
+        # original multi-day lifetime and not to a cutoff the queued caller
+        # pushed out by its own stall. The tolerance sits well under the stall,
+        # so a ratchet is unambiguous.
+        overshoot = (row - started_at).total_seconds() - grace
+        assert overshoot <= 1, (
+            f"retirement cutoff was extended {overshoot:.2f}s beyond the "
+            f"{grace}s grace window measured from the start of the race"
+        )
 
 
 class TestOriginComparison:

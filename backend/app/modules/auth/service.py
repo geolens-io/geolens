@@ -287,10 +287,18 @@ class AuthService:
         # Explicit revocation (logout / revoke_all_tokens) still sets
         # revoked=True on every active row — in-grace ones included — so a
         # hard logout remains instant. grace=0 restores single-use revocation.
+        #
+        # fix(#1446): compare against the POST-LOCK expiry (`current`), not the
+        # `stored` ORM object read before the lock. When several refreshes read
+        # the same long-lived token and then queue here, every queued caller
+        # still holds the original multi-day expiry on `stored`, so each would
+        # find it later than its own cutoff and push the retirement further
+        # out — ratcheting the window open instead of closing it, which is the
+        # opposite of "never EXTEND".
         grace = settings.refresh_rotation_grace_seconds
         if grace > 0:
             grace_cutoff = datetime.now(UTC) + timedelta(seconds=grace)
-            if stored.expires_at > grace_cutoff:
+            if current.expires_at > grace_cutoff:
                 stored.expires_at = grace_cutoff
         else:
             stored.revoked = True
