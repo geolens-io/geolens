@@ -447,6 +447,10 @@ class _MockDataset:
     def __init__(self, dataset_id: uuid.UUID, title: str, record_type: str):
         self.id = dataset_id
         self.table_name = "test_table"
+        # delete_dataset copies this onto the retired-name row (GH-1443), which
+        # is what scopes the retirement to a tenant. None is the single-tenant
+        # value a real row carries here.
+        self.tenant_id = None
         self.record = _MockRecord(title, record_type)
 
 
@@ -498,6 +502,10 @@ class TestRasterDeleteCascadeRemovesStorage:
         mock_dataset = _MockDataset(dataset_id, "My Raster", "raster_dataset")
 
         session = mock.AsyncMock()
+        # AsyncSession.add is synchronous; an AsyncMock would turn
+        # delete_dataset's retired-name write (GH-1443) into an
+        # un-awaited coroutine that records nothing.
+        session.add = mock.MagicMock()
 
         execute_calls: list[str] = []
         _default_result = mock.MagicMock()
@@ -551,6 +559,10 @@ class TestRasterDeleteCascadeRemovesStorage:
 
         mock_dataset = _MockDataset(dataset_id, "My Raster", "raster_dataset")
         session = mock.AsyncMock()
+        # AsyncSession.add is synchronous; an AsyncMock would turn
+        # delete_dataset's retired-name write (GH-1443) into an
+        # un-awaited coroutine that records nothing.
+        session.add = mock.MagicMock()
         # VRT reference guard: session.execute().all() must return empty list
         _refs_result = mock.MagicMock()
         _refs_result.all.return_value = []
@@ -595,6 +607,10 @@ class TestRasterDeleteCascadeRemovesStorage:
         )
         mock_dataset = _MockDataset(dataset_id, "My Vector", "vector_dataset")
         session = mock.AsyncMock()
+        # AsyncSession.add is synchronous; an AsyncMock would turn
+        # delete_dataset's retired-name write (GH-1443) into an
+        # un-awaited coroutine that records nothing.
+        session.add = mock.MagicMock()
         executed_sqls: list[str] = []
 
         async def _capture_execute(stmt, *args, **kwargs):

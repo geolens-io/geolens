@@ -445,10 +445,10 @@ _MAX_IDENTIFIER_CHARS = 63
 # title, but retired names accumulate forever, so the walk genuinely reaches it
 # now. A truncated `{base}_100` addresses the same physical relation as
 # `{base}_10` while the catalog keeps both untruncated strings, which puts two
-# logical names on one table and hands the disclosure straight back. `_with_
-# collision_suffix` keeps every candidate inside the limit and this bound keeps
-# the tag short enough that `_COLLISION_PROBE_CHARS` below is a prefix of all of
-# them. The two constants have to move together.
+# logical names on one table and hands the disclosure straight back.
+# `_with_collision_suffix` keeps every candidate inside the limit, and this
+# bound keeps the tag short enough that `_COLLISION_PROBE_CHARS` below stays a
+# prefix of all of them. The two constants have to move together.
 _MAX_COLLISION_SUFFIX = 9999
 _COLLISION_PROBE_CHARS = _MAX_IDENTIFIER_CHARS - len(f"_{_MAX_COLLISION_SUFFIX}")
 
