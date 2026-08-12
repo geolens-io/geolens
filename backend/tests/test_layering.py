@@ -4396,35 +4396,122 @@ def test_platform_does_not_import_modules() -> None:
         )
 
 
-@pytest.mark.architecture
-def test_platform_does_not_import_private_module_names() -> None:
-    """No `from app.modules.… import _private` anywhere in platform/, at any scope.
+# fix(#1438 F24): platform/ is not the only layer this rule protects — processing/
+# and standards/ reach into app.modules.* too, and a leading underscore is exactly
+# as fragile from either. `_STANDARDS_DIR` mirrors `_PLATFORM_DIR` / `_PROCESSING_DIR`
+# above; scoped here because this guard is its only reader.
+_STANDARDS_DIR = REPO_ROOT / "backend" / "app" / "standards"
+_PRIVATE_MODULE_IMPORT_ROOTS: tuple[Path, ...] = (
+    _PLATFORM_DIR,
+    _PROCESSING_DIR,
+    _STANDARDS_DIR,
+)
 
-    A leading underscore says the name can move or vanish without notice.
-    `platform/config_ops` imported the settings router's `_ENTERPRISE_ONLY_TABS`, so any
-    refactor of that router became a runtime break here.
+
+def _private_module_import_edges() -> dict[str, set[str]]:
+    """Every import reaching a `_`-prefixed segment under `app.modules.*`, at ANY
+    scope, across platform/, processing/, and standards/.
+
+    Two shapes count, because a leading underscore can sit on either side of the
+    `from X import Y` boundary. `from app.modules.X import _name` marks the NAME
+    private; `from app.modules.X._mod import name` (or `import
+    app.modules.X._mod`) marks the MODULE private, and the imported name can look
+    perfectly public while still being reached through a path that can move or
+    vanish without notice. Resolving each import to its full dotted symbol path
+    and checking every segment after `app.modules` catches both shapes with one
+    rule, rather than two independent checks that could drift apart.
     """
-    import ast
-
-    offenders: list[str] = []
-    for path in sorted(_PLATFORM_DIR.rglob("*.py")):
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if not isinstance(node, ast.ImportFrom) or not node.module:
-                continue
-            if not node.module.startswith("app.modules"):
-                continue
-            for alias in node.names:
-                if alias.name.startswith("_"):
-                    rel = path.relative_to(_PLATFORM_DIR)
-                    offenders.append(
-                        f"  backend/app/platform/{rel}: {node.module}.{alias.name}"
+    offenders: dict[str, set[str]] = {}
+    for root in _PRIVATE_MODULE_IMPORT_ROOTS:
+        for path in sorted(root.rglob("*.py")):
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                targets: list[str] = []
+                if isinstance(node, ast.ImportFrom) and node.module:
+                    if not node.module.startswith("app.modules"):
+                        continue
+                    targets.extend(
+                        f"{node.module}.{alias.name}" for alias in node.names
                     )
+                elif isinstance(node, ast.Import):
+                    targets.extend(
+                        alias.name
+                        for alias in node.names
+                        if alias.name.startswith("app.modules")
+                    )
+                else:
+                    continue
+                for dotted in targets:
+                    # Segments after `app`, `modules` are the product-domain path;
+                    # any one of them starting with `_` is a private reach.
+                    if any(part.startswith("_") for part in dotted.split(".")[2:]):
+                        offenders.setdefault(_repo_style_rel(path), set()).add(dotted)
+    return offenders
+
+
+# fix(#1438 F24): kept separate from _PROCESSING_CATALOG_IMPORT_BURNDOWN even
+# though it lists the same import line (ai/router.py:320) — that dict tracks the
+# catalog-BOUNDARY crossing (fix: route through ProcessingPort); this one tracks
+# the PRIVATE-SYMBOL reach the same import happens to also make (fix: promote the
+# symbols to a public home). Two rules, one import, two reasons. When
+# _PROCESSING_CATALOG_IMPORT_BURNDOWN's "ai/router.py":
+# "app.modules.catalog.maps._router_helpers" entry is retired, this entry must be
+# retired in the same commit — the underlying import is gone either way.
+#
+# The list may SHRINK, never grow.
+_PRIVATE_MODULE_IMPORT_BURNDOWN: dict[str, set[str]] = {
+    "backend/app/processing/ai/router.py": {
+        "app.modules.catalog.maps._router_helpers._can_edit_map",
+        "app.modules.catalog.maps._router_helpers._check_map_read_access",
+    },
+}
+
+
+@pytest.mark.architecture
+def test_no_private_module_imports_from_app_modules() -> None:
+    """No `_`-prefixed name or module reached from app.modules.* outside its own
+    domain, across platform/, processing/, and standards/, at any scope.
+
+    fix(#1438 F24): broadens what was `test_platform_does_not_import_private_
+    module_names` (platform/ only, name-shape only) on two axes. Directory:
+    `platform/config_ops` importing the settings router's private
+    `_ENTERPRISE_ONLY_TABS` was never a platform-only failure mode — the same
+    fragility applies wherever backend/app/ reaches into a product module's
+    internals. Shape: `processing/ai/router.py` imports two functions through
+    `app.modules.catalog.maps._router_helpers` — a private MODULE — and a
+    name-only check cannot see that the path itself, not just the names on it,
+    is marked as liable to move or vanish without notice.
+    """
+    offenders: list[str] = []
+    for file, symbols in sorted(_private_module_import_edges().items()):
+        allowed = _PRIVATE_MODULE_IMPORT_BURNDOWN.get(file, set())
+        for symbol in sorted(symbols - allowed):
+            offenders.append(f"  {file}: {symbol}")
 
     if offenders:
         pytest.fail(
-            "platform/ imports a private name from a product module. Promote it to a "
-            "public home (core registry, port, or DTO) instead.\n"
+            "A private name or module is imported from app.modules.* outside its "
+            "own domain. Promote it to a public home (core registry, port, or "
+            "DTO) instead of adding an entry to _PRIVATE_MODULE_IMPORT_BURNDOWN.\n"
             + "\n".join(offenders)
+        )
+
+
+@pytest.mark.architecture
+def test_private_module_import_allowlist_is_current() -> None:
+    """The burn-down list must shrink as edges are migrated — no stale entries.
+
+    A stale entry is a silent licence to reintroduce the bypass later.
+    """
+    edges = _private_module_import_edges()
+    stale: list[str] = []
+    for file, symbols in sorted(_PRIVATE_MODULE_IMPORT_BURNDOWN.items()):
+        for symbol in sorted(symbols - edges.get(file, set())):
+            stale.append(f"  {file}: {symbol}")
+
+    if stale:
+        pytest.fail(
+            "_PRIVATE_MODULE_IMPORT_BURNDOWN lists edges that no longer exist. "
+            "Delete them — the list only shrinks.\n" + "\n".join(stale)
         )
 
 
