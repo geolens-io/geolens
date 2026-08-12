@@ -36,6 +36,29 @@ EXPORTS_SWEEP_AGE_SECONDS = 3600  # 1 hour
 EXPORTS_PERIODIC_SWEEP_AGE_SECONDS = 4 * EXPORTS_SWEEP_AGE_SECONDS  # 4 hours
 
 
+def _latest_mtime(entry: Path) -> float:
+    """The most recent mtime of ``entry`` itself, or (one level deep) any
+    file directly inside it.
+
+    fix(#1435 codex round 2): a directory's own mtime is bumped only by an
+    entry being added, removed, or renamed inside it — NOT by writes to an
+    already-created file's contents. ogr2ogr opens its output file once and
+    then writes to it for the rest of the run, so the export directory's own
+    mtime freezes at file-creation time while ogr2ogr is still actively
+    writing. Checking the contained file(s) too means a still-growing export
+    keeps reading as fresh for as long as ogr2ogr keeps writing, regardless
+    of the age threshold in force.
+    """
+    latest = entry.stat().st_mtime
+    if entry.is_dir():
+        for child in entry.iterdir():
+            try:
+                latest = max(latest, child.stat().st_mtime)
+            except FileNotFoundError:
+                continue  # raced with a concurrent write/rename; ignore
+    return latest
+
+
 def sweep_orphaned_exports(
     exports_dir: Path,
     *,
@@ -78,7 +101,7 @@ def sweep_orphaned_exports(
     skipped_count = 0
     for item in entries:
         try:
-            item_mtime = item.stat().st_mtime
+            item_mtime = _latest_mtime(item)
         except FileNotFoundError:
             # Raced with another process / external cleanup — treat as already-gone.
             continue

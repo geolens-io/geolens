@@ -63,11 +63,16 @@ def test_sweep_handles_subdirectories(tmp_path: Path) -> None:
 
     old_dir = exports_dir / "old_export_temp"
     old_dir.mkdir()
-    (old_dir / "data.bin").write_bytes(b"x")
+    data_file = old_dir / "data.bin"
+    data_file.write_bytes(b"x")
 
     now = time.time()
-    # Set mtime on the directory itself
+    # fix(#1435 codex round 2): age the contained file too, not just the
+    # directory — sweep_orphaned_exports now takes the most recent of the
+    # two (see _latest_mtime), so a freshly-written file inside an
+    # old-looking directory would otherwise read as still-active.
     os.utime(old_dir, (now - 2 * 3600, now - 2 * 3600))
+    os.utime(data_file, (now - 2 * 3600, now - 2 * 3600))
 
     deleted, skipped = sweep_orphaned_exports(exports_dir)
 
@@ -225,9 +230,14 @@ def test_periodic_sweep_survives_a_slow_export(tmp_path: Path) -> None:
 
     slow_export = exports_dir / "still-downloading"
     slow_export.mkdir()
-    (slow_export / "export.gpkg").write_bytes(b"x")
+    export_file = slow_export / "export.gpkg"
+    export_file.write_bytes(b"x")
     now = time.time()
+    # Age both the directory AND the file inside it — sweep_orphaned_exports
+    # takes the most recent of the two (fix #1435 codex round 2), so a
+    # freshly-written file would otherwise mask the aged directory.
     os.utime(slow_export, (now - 2 * 3600, now - 2 * 3600))  # 2 hours old
+    os.utime(export_file, (now - 2 * 3600, now - 2 * 3600))
 
     log = structlog.get_logger("test")
     _sweep_orphaned_exports_and_log(exports_dir, log)
@@ -244,6 +254,41 @@ def test_periodic_sweep_survives_a_slow_export(tmp_path: Path) -> None:
     assert not slow_export.exists()
 
 
+def test_sweep_skips_a_directory_whose_file_is_still_being_written(
+    tmp_path: Path,
+) -> None:
+    """fix(#1435 codex round 2): a directory's OWN mtime is bumped only by an
+    entry being added/removed/renamed inside it, not by writes to an
+    already-created file's contents — so it freezes at file-creation time
+    while ogr2ogr keeps writing. A directory whose own mtime looks stale
+    must still survive if a file inside it was written recently.
+    """
+    from app.core.runtime.staging import sweep_orphaned_exports
+
+    exports_dir = tmp_path / "exports"
+    exports_dir.mkdir()
+
+    still_writing = exports_dir / "in-progress"
+    still_writing.mkdir()
+    output_file = still_writing / "export.gpkg"
+    output_file.write_bytes(b"partial data")
+
+    now = time.time()
+    # The directory itself looks 2 hours old (created once, never touched
+    # again), but the file inside it was written 30 seconds ago.
+    os.utime(still_writing, (now - 2 * 3600, now - 2 * 3600))
+    os.utime(output_file, (now - 30, now - 30))
+
+    deleted, skipped = sweep_orphaned_exports(exports_dir)
+
+    assert still_writing.exists(), (
+        "a directory containing an actively-written file must survive even "
+        "though the directory's own (frozen) mtime looks stale"
+    )
+    assert deleted == 0
+    assert skipped == 1
+
+
 def test_periodic_sweep_still_catches_long_abandoned_residue(tmp_path: Path) -> None:
     """The wider periodic threshold still has a ceiling: residue from a
     process that died hours ago must not survive forever."""
@@ -254,9 +299,11 @@ def test_periodic_sweep_still_catches_long_abandoned_residue(tmp_path: Path) -> 
 
     abandoned = exports_dir / "long-dead"
     abandoned.mkdir()
-    (abandoned / "export.gpkg").write_bytes(b"x")
+    abandoned_file = abandoned / "export.gpkg"
+    abandoned_file.write_bytes(b"x")
     now = time.time()
     os.utime(abandoned, (now - 5 * 3600, now - 5 * 3600))  # 5 hours old
+    os.utime(abandoned_file, (now - 5 * 3600, now - 5 * 3600))
 
     log = structlog.get_logger("test")
     _sweep_orphaned_exports_and_log(exports_dir, log)
