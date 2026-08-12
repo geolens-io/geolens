@@ -7382,7 +7382,7 @@ export interface components {
             ingest_job_id?: string | null;
             /**
              * Origin Kind
-             * @description The run's execution door, not the dataset's origin: upload, postgis, service, stac, or raster. 'raster' is reserved for a future, distinct raster-replace door label; today's raster-replace runs are still recorded as 'upload', matching the dataset's origin.
+             * @description The run's execution door, not the dataset's origin: upload, postgis, service, stac, or raster. The two can visibly diverge; for example a STAC-imported raster's pending or failed replace run is recorded 'upload' while the dataset's origin stays 'stac' until the replace succeeds. 'raster' itself is reserved for a future, distinct raster-replace door label, with today's raster-replace runs recorded 'upload'.
              */
             origin_kind: string;
             /**

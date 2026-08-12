@@ -2650,7 +2650,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # not live. Reworded to match: 'raster' is reserved for a future door
     # label, today's raster-replace runs are still recorded 'upload'. Cap
     # 1465 -> 1466, exact.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1466,
+    # fix(#1325 review round 3): +2 — codex found a second, live divergence
+    # the first reword still implied away: it said raster-replace 'upload'
+    # runs "match the dataset's origin", true only when the dataset's origin
+    # was already 'upload'. A STAC-imported raster's pending or failed
+    # replace run is recorded 'upload' while the dataset's origin stays
+    # 'stac' until the swap succeeds — reworded to drop the equality claim
+    # entirely and name that case. Cap 1466 -> 1468, exact.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1468,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch

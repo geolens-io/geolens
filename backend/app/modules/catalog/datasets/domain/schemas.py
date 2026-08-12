@@ -1425,10 +1425,12 @@ class DatasetRefreshRunResponse(BaseModel):
     origin_kind: str = Field(
         description=(
             "The run's execution door, not the dataset's origin: upload, "
-            "postgis, service, stac, or raster. 'raster' is reserved for a "
-            "future, distinct raster-replace door label; today's "
-            "raster-replace runs are still recorded as 'upload', matching "
-            "the dataset's origin."
+            "postgis, service, stac, or raster. The two can visibly "
+            "diverge; for example a STAC-imported raster's pending or "
+            "failed replace run is recorded 'upload' while the dataset's "
+            "origin stays 'stac' until the replace succeeds. 'raster' "
+            "itself is reserved for a future, distinct raster-replace door "
+            "label, with today's raster-replace runs recorded 'upload'."
         )
     )
     trigger: str = Field(description="manual, api, or cli")

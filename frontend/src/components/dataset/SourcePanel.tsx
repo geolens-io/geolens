@@ -300,11 +300,12 @@ function RefreshRunHistory({ dataset }: { dataset: DatasetResponse }) {
                   {t(`sourcePanel.refresh.history.status.${run.status}`, { defaultValue: run.status })}
                 </Badge>
                 {/* fix(#1325): run.origin_kind is the run's execution door,
-                    not the dataset's origin shown by the OriginBadge above
-                    (a raster-replace run is still recorded 'upload' today,
-                    matching the dataset's origin, since 'raster' is a
-                    reserved value with no live producer yet) — label and
-                    tooltip say so, so the two never read as disagreeing. */}
+                    not the dataset's origin shown by the OriginBadge above —
+                    the two can visibly disagree while work is in flight (see
+                    the CHECK constraint comment in refresh/models.py for a
+                    concrete case). Label and tooltip say "mechanism", never
+                    "origin", so this row never reads as a second, competing
+                    origin claim. */}
                 <Badge
                   variant="secondary"
                   title={t('sourcePanel.refresh.history.mechanismTooltip')}

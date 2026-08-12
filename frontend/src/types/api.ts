@@ -999,9 +999,11 @@ export interface DatasetRefreshRunResponse {
   dataset_version_id: string | null;
   ingest_job_id: string | null;
   /** fix(#1325): the run's execution door, not the dataset's origin (compare
-   *  DatasetResponse.origin). 'raster' is reserved for a future distinct
-   *  raster-replace door label; today's raster-replace runs are still
-   *  recorded 'upload'. */
+   *  DatasetResponse.origin) — the two can visibly disagree while work is in
+   *  flight; see refresh/models.py's CHECK constraint comment for a
+   *  concrete case. 'raster' is reserved for a future distinct
+   *  raster-replace door label; today's raster-replace runs are recorded
+   *  'upload'. */
   origin_kind: string;
   trigger: string;
   /** "pending" | "running" | "succeeded" | "failed" | "cancelled", kept as a

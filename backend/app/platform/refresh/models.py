@@ -59,17 +59,22 @@ class DatasetRefreshRun(Base):
         # fix(#1325): origin_kind here is the run's execution DOOR, not the
         # dataset's origin — see ORIGIN_KINDS in platform/dataset_origin.py, a
         # separate vocabulary derived once from source_format and never
-        # revisited per run. 'upload'/'postgis'/'service'/'stac' share both
-        # spelling and meaning with their ORIGIN_KINDS counterparts because
-        # every door built so far executes the same way its origin formed.
-        # 'raster' does not: it is RESERVED for the raster-replace door
-        # (#1290), which has no ORIGIN_KINDS counterpart (a raster dataset's
-        # origin is 'upload', the file it arrived as). Reserved, not live —
-        # reupload_commit (router_reupload.py) still stamps raster-replace
-        # runs 'upload' today, matching the dataset's origin rather than a
-        # distinct door, so no row has ever actually carried 'raster'.
-        # Decision (a) on #1325 is to document this split, not close it by
-        # renaming a value or migrating a column.
+        # revisited per run. Never read this column as "the dataset's
+        # origin, restated at the run level," even for a value that happens
+        # to spell the same as an ORIGIN_KINDS member: the two can visibly
+        # disagree while a run is in flight. Concretely, a STAC-imported
+        # raster (dataset.origin == 'stac') stamps its replace run 'upload'
+        # at commit time (router_reupload.py), and the dataset's origin is
+        # only rebound to 'upload' inside a SUCCESSFUL swap's field write
+        # (tasks_raster_swap.py:_write_swapped_fields) — so a pending or
+        # failed replace leaves the run at 'upload' against a dataset still
+        # reporting 'stac'. 'raster' is a second, permanent divergence: it is
+        # RESERVED for the raster-replace door (#1290), which has no
+        # ORIGIN_KINDS counterpart at all. Reserved, not live —
+        # reupload_commit (router_reupload.py) stamps every raster-replace
+        # run 'upload' today, never 'raster', so no row has ever actually
+        # carried it. Decision (a) on #1325 is to document this split, not
+        # close it by renaming a value or migrating a column.
         CheckConstraint(
             "origin_kind IN ('upload', 'postgis', 'service', 'stac', 'raster')",
             name="chk_refresh_runs_origin_kind",

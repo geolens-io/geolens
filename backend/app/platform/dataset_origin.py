@@ -49,15 +49,22 @@ _ORIGINLESS_RECORD_TYPES: frozenset[str] = frozenset({"collection", "vrt_dataset
 # derived once by classify_origin() from source_format/record_type and never
 # revisited afterward. It is a DIFFERENT vocabulary from
 # DatasetRefreshRun.origin_kind, the CHECK constraint in
-# platform/refresh/models.py: that column is the per-attempt execution DOOR a
-# refresh or reupload ran through, not the dataset's origin, and the two sets
-# diverge on purpose in both directions. 'created' is here but has no ledger
-# counterpart, because a dataset drawn in the app has nothing to refresh from.
-# The ledger's 'raster' has no ORIGIN_KINDS counterpart: it is RESERVED for a
-# distinct raster-replace door label, but a raster dataset's origin is still
-# 'upload' (the GeoTIFF it arrived as) and its replace runs are still
-# recorded 'upload' too, today; see the CHECK constraint's comment for what
-# 'raster' does and does not do.
+# platform/refresh/models.py: that column is the run's execution DOOR, and
+# the two never mean the same thing even where they share a spelling. Do NOT
+# read the ledger's origin_kind as "this dataset's origin, restated at the
+# run level" — a run's door and its dataset's origin can visibly disagree
+# while work is in flight. Concretely: a STAC-imported raster
+# (dataset.origin == 'stac') that gets replaced has its run row stamped
+# origin_kind='upload' at commit time (router_reupload.py), while the
+# dataset's origin is only rebound to 'upload' inside a SUCCESSFUL swap's
+# field write (tasks_raster_swap.py:_write_swapped_fields). While that run
+# is pending, and permanently if it fails, the run says 'upload' and the
+# dataset still says 'stac'. 'created' is here but has no ledger counterpart,
+# because a dataset drawn in the app has nothing to refresh from. The
+# ledger's 'raster' has no ORIGIN_KINDS counterpart at all: it is RESERVED
+# for a future, distinct raster-replace door label; today every
+# raster-replace run's door is 'upload', independent of the dataset's own
+# origin.
 ORIGIN_KINDS: frozenset[str] = frozenset(
     {"upload", "postgis", "service", "stac", "created"}
 )
