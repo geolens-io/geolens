@@ -788,7 +788,10 @@ export const BuilderMap = memo(function BuilderMap({
             // fix(#628): once the session is conclusively dead the global
             // signed-out dialog owns the UX — the stale reload-toast is
             // noise on top of it. Keep it only while a session exists.
-            if (useAuthStore.getState().refreshToken) {
+            // fix(#1446): keyed on the ACCESS token. The refresh token is an
+            // httpOnly cookie now, so it reads as null for every cookie-mode
+            // user and this predicate would suppress the toast permanently.
+            if (useAuthStore.getState().token) {
               toast.error(t('builderMap.authError', { defaultValue: 'Session expired — reload the page to restore tile access.' }), {
                 id: 'builder-map-auth-error',
               });

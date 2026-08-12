@@ -223,8 +223,12 @@ describe('BuilderMap raster/DEM tile auth errors (fix #890)', () => {
     reportState.push.mockClear();
     reportState.remint.mockClear();
     vi.mocked(toast.error).mockClear();
-    // A live session: the auth toast is gated on refreshToken (fix #628).
-    useAuthStore.setState({ refreshToken: 'refresh-token' });
+    // A live session: the auth toast is gated on the session existing
+    // (fix #628). fix(#1446): keyed on the ACCESS token — the refresh token is
+    // an httpOnly cookie now and reads as null for every cookie-mode user, so
+    // seeding only refreshToken here would assert against a state real
+    // sessions no longer reach.
+    useAuthStore.setState({ token: 'access-token', refreshToken: null });
     errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     tileTokenState.tokens = [
       {
@@ -237,7 +241,7 @@ describe('BuilderMap raster/DEM tile auth errors (fix #890)', () => {
 
   afterEach(() => {
     errorSpy.mockRestore();
-    useAuthStore.setState({ refreshToken: null });
+    useAuthStore.setState({ token: null, refreshToken: null });
   });
 
   it('logs a raster 403 exactly once and never claims a re-sign/re-mint', async () => {
