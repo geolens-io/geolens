@@ -181,8 +181,12 @@ def test_stale_jobs_sweeper_also_sweeps_orphaned_exports() -> None:
     The actual sweep + conditional log call is factored into the top-level
     `_sweep_orphaned_exports_and_log` helper (kept out of the nested closure
     so the extra branch does not push `lifespan`'s McCabe complexity over its
-    gate), so this pins both halves: the loop calls the helper, and the
-    helper calls `sweep_orphaned_exports`.
+    gate), which threads the blocking work through `_sweep_orphaned_exports_
+    periodic` (fix #1435 codex round 5 — sweep_orphaned_exports does
+    synchronous directory traversal + shutil.rmtree, and this loop now runs
+    it every few minutes on a live server, not just once at boot). This pins
+    the whole chain: the loop calls the async helper, and the helper's
+    threaded target actually calls `sweep_orphaned_exports`.
     """
     import inspect
 
@@ -199,17 +203,27 @@ def test_stale_jobs_sweeper_also_sweeps_orphaned_exports() -> None:
     )
 
     helper_source = inspect.getsource(main._sweep_orphaned_exports_and_log)
-    assert "sweep_orphaned_exports(" in helper_source, (
-        "_sweep_orphaned_exports_and_log must actually call sweep_orphaned_exports"
+    assert "run_in_thread_draining" in helper_source, (
+        "_sweep_orphaned_exports_and_log must run the blocking sweep in a "
+        "worker thread, not inline on the event loop"
     )
-    assert "EXPORTS_PERIODIC_SWEEP_AGE_SECONDS" in helper_source, (
+    assert "_sweep_orphaned_exports_periodic" in helper_source, (
+        "_sweep_orphaned_exports_and_log must thread through the periodic "
+        "wrapper, not call sweep_orphaned_exports directly"
+    )
+
+    periodic_wrapper_source = inspect.getsource(main._sweep_orphaned_exports_periodic)
+    assert "sweep_orphaned_exports(" in periodic_wrapper_source, (
+        "_sweep_orphaned_exports_periodic must actually call sweep_orphaned_exports"
+    )
+    assert "EXPORTS_PERIODIC_SWEEP_AGE_SECONDS" in periodic_wrapper_source, (
         "the periodic sweep must use the wider periodic threshold, not the "
         "boot-time default — see test_periodic_sweep_survives_a_slow_export "
         "below for why"
     )
 
 
-def test_periodic_sweep_survives_a_slow_export(tmp_path: Path) -> None:
+async def test_periodic_sweep_survives_a_slow_export(tmp_path: Path) -> None:
     """fix(#1435 codex round 1): the periodic sweeper runs continuously
     (every CREDENTIAL_RENEWAL_INTERVAL_SECONDS), unlike the boot-time
     callers, which only fire on a restart. A directory's mtime is set once
@@ -241,7 +255,7 @@ def test_periodic_sweep_survives_a_slow_export(tmp_path: Path) -> None:
     os.utime(export_file, (now - 2 * 3600, now - 2 * 3600))
 
     log = structlog.get_logger("test")
-    _sweep_orphaned_exports_and_log(exports_dir, log)
+    await _sweep_orphaned_exports_and_log(exports_dir, log)
     assert slow_export.exists(), (
         "a 2-hour-old export must survive the periodic sweep — it is well "
         "within the periodic threshold even though it is past the boot one"
@@ -317,7 +331,9 @@ def test_latest_mtime_falls_back_when_directory_cannot_be_listed() -> None:
     assert _latest_mtime(unreadable_dir) == 12345.0
 
 
-def test_periodic_sweep_still_catches_long_abandoned_residue(tmp_path: Path) -> None:
+async def test_periodic_sweep_still_catches_long_abandoned_residue(
+    tmp_path: Path,
+) -> None:
     """The wider periodic threshold still has a ceiling: residue from a
     process that died hours ago must not survive forever."""
     from app.api.main import _sweep_orphaned_exports_and_log
@@ -334,7 +350,7 @@ def test_periodic_sweep_still_catches_long_abandoned_residue(tmp_path: Path) -> 
     os.utime(abandoned_file, (now - 5 * 3600, now - 5 * 3600))
 
     log = structlog.get_logger("test")
-    _sweep_orphaned_exports_and_log(exports_dir, log)
+    await _sweep_orphaned_exports_and_log(exports_dir, log)
     assert not abandoned.exists(), (
         "a 5-hour-old entry is well past any legitimate export lifetime and "
         "must still be swept"

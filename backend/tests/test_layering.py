@@ -2036,7 +2036,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # out) — otherwise any export whose total lifetime exceeds 1 hour gets
     # deleted out from under it on the next 5-minute cycle, guaranteed.
     # Cap 1350 -> 1362, exact.
-    "backend/app/api/main.py": 1362,
+    # fix(#1435 codex round 5): +24 — sweep_orphaned_exports does synchronous
+    # directory traversal + shutil.rmtree; unlike the boot-time callers,
+    # which run before the event loop serves traffic, the periodic caller
+    # runs on a live server every few minutes and was calling it inline,
+    # stalling request handling for the duration. Now runs via
+    # run_in_thread_draining through a small positional-only wrapper
+    # (age_threshold_seconds is keyword-only on sweep_orphaned_exports, and
+    # the helper only forwards *args). Cap 1362 -> 1386, exact.
+    "backend/app/api/main.py": 1386,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative

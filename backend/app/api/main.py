@@ -35,6 +35,7 @@ from app.observability.metrics import (
 # uses them. A module-scope `from app.core.db import ...` snapshots the
 # dev-DB objects before the test fixture rebinds app.core.db, so lifespan
 # seed functions in tests would silently hit the dev database.
+from app.core.async_io import run_in_thread_draining
 from app.core.db.tenant_session import tenant_job_context
 from app.core.logging_config import setup_logging
 from app.core.tenancy import is_multi_tenant
@@ -269,10 +270,22 @@ async def sweep_stale_jobs_once(
     return pending_total, running_total
 
 
-def _sweep_orphaned_exports_and_log(exports_dir: Path, log) -> None:
-    """Sweep exports/ and log only when something was actually removed —
-    mirrors the pending_failed/running_failed and renewed-credentials
-    branches in ``_stale_jobs_sweeper``, which stay quiet on a no-op cycle.
+def _sweep_orphaned_exports_periodic(exports_dir: Path) -> tuple[int, int]:
+    """Thin positional-only wrapper around ``sweep_orphaned_exports`` binding
+    the periodic threshold, so it can be handed to ``run_in_thread_draining``
+    (which forwards ``*args`` only — ``age_threshold_seconds`` is keyword-only
+    on the wrapped function).
+    """
+    return sweep_orphaned_exports(
+        exports_dir, age_threshold_seconds=EXPORTS_PERIODIC_SWEEP_AGE_SECONDS
+    )
+
+
+async def _sweep_orphaned_exports_and_log(exports_dir: Path, log) -> None:
+    """Sweep exports/ in a worker thread and log only when something was
+    actually removed — mirrors the pending_failed/running_failed and
+    renewed-credentials branches in ``_stale_jobs_sweeper``, which stay quiet
+    on a no-op cycle.
 
     Split out of that loop body so this one extra branch does not push
     ``lifespan``'s McCabe complexity over its gate.
@@ -282,9 +295,20 @@ def _sweep_orphaned_exports_and_log(exports_dir: Path, log) -> None:
     cadence rather than only at a restart, so it needs a wider safety margin
     (see that constant's docstring in ``staging.py``) before treating an
     export directory as abandoned rather than merely slow.
+
+    fix(#1435 codex round 5): runs via ``run_in_thread_draining`` rather than
+    inline. ``sweep_orphaned_exports`` does synchronous directory traversal
+    and ``shutil.rmtree``; unlike the two boot-time callers, which run before
+    the event loop is serving traffic, this one runs on a live server every
+    few minutes, so calling it inline would stall request handling for the
+    duration — worst case exactly when a crash left large or many-file
+    residue, since that is what gives the sweep real work to do. Draining
+    (rather than a bare ``asyncio.to_thread``) means a cancellation
+    (graceful shutdown) waits for an in-flight ``rmtree`` to finish instead
+    of abandoning a background thread still mutating the filesystem.
     """
-    deleted, _ = sweep_orphaned_exports(
-        exports_dir, age_threshold_seconds=EXPORTS_PERIODIC_SWEEP_AGE_SECONDS
+    deleted, _ = await run_in_thread_draining(
+        _sweep_orphaned_exports_periodic, exports_dir
     )
     if deleted:
         log.info("Swept orphaned exports", deleted=deleted)
@@ -414,7 +438,7 @@ async def lifespan(app: FastAPI):
                 # ran once at boot (above) and once at worker boot (worker.py).
                 # It is idempotent and age-thresholded, so it is safe to run on
                 # every sweeper cycle too.
-                _sweep_orphaned_exports_and_log(exports_dir, sweeper_log)
+                await _sweep_orphaned_exports_and_log(exports_dir, sweeper_log)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # broad: sweeper-loop must survive any DB/transient error to keep running
