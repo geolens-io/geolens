@@ -24,7 +24,7 @@ from app.modules.catalog.datasets.domain.service import DependentVrtError
 #
 # Every mocked session below overrides ``add`` with a plain MagicMock.
 # ``AsyncSession.add`` is synchronous, so an un-overridden AsyncMock turns
-# delete_dataset's retired-name write (GH-1443) into an un-awaited coroutine
+# delete_dataset's retired-name write (#1443) into an un-awaited coroutine
 # that records nothing and raises a RuntimeWarning at garbage-collection.
 
 

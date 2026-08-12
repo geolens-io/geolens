@@ -879,7 +879,7 @@ class DatasetRelationship(Base):
 class RetiredTableName(Base):
     """A physical table name that must never be handed out again.
 
-    fix(GH-1443). ``generate_table_name`` collides against live catalog rows
+    fix(#1443). ``generate_table_name`` collides against live catalog rows
     and live relations, both of which a delete clears — so before this table
     existed, deleting the dataset that owned ``roads`` handed ``roads`` to the
     next dataset with that title. The tile router caches ``table_name ->

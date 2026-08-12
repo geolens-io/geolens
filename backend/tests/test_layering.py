@@ -1846,7 +1846,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # fix(#1314): +12 — reconcile_distributions, the seam the refresh and
         # reupload paths cross to bring auto-generated distribution rows in
         # line with a modality that changed under them. Cap 482 -> 494.
-        # fix(GH-1443): +5 — get_retired_table_name_orm_class. The retired-name
+        # fix(#1443): +5 — get_retired_table_name_orm_class. The retired-name
         # probe runs inside generate_table_name, which lives in processing/ and
         # so cannot import the catalog model it needs; this is the same
         # ORM-class accessor shape as its five neighbours. Cap 494 -> 499,
@@ -2028,6 +2028,13 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 #     empty-tile Cache-Control (#430 V-03). NOTE: `_check_cold_rehydrate` is pinned to
 #     this module by the overlay's 1214-05 static AST proof, so the tile_seams.py split
 #     must update the overlay in lockstep.
+#   tiles/router.py 2329 -> 2341. fix(#1444): +12 of comment, no code. Both
+#     docstrings that GH-1429 left stating "a freed table name is immediately
+#     redrawable" as a live precondition now say GH-1443 removed it, and each
+#     says why its own mechanism stays anyway (the eviction buys freshness; the
+#     generation key is what keeps a name safe independently of how names are
+#     generated). Leaving them was the worse option — a reader who trusts a
+#     stale precondition unwinds the wrong defence.
 _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#998): the DDL ported from migration 0019 so tenant-ownership adoption
     # is reachable forward-only at head. Almost all of it is SQL text, and it is
@@ -2682,7 +2689,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # registration stops landing with column_info and feature_count NULL. The
     # added lines are the comment explaining why the branch is gone.
     # Cap 1073 -> 1077, exact.
-    # fix(GH-1443): +21 — generate_table_name gains a third collision probe,
+    # fix(#1443): +21 — generate_table_name gains a third collision probe,
     # against the retired-names table. The two it already had ask what exists
     # NOW, and a delete clears both, so a deleted dataset's table name was
     # handed straight to its successor while a tile worker could still be
@@ -3040,7 +3047,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # writes and a predictable future `v` can no longer park a pre-swap
     # snapshot on the key the swap is about to make legitimate.
     # Ratchet stays exact.
-    "backend/app/processing/tiles/router.py": 2329,
+    "backend/app/processing/tiles/router.py": 2341,
     # feat(#565): the SQL sandbox validator crossed 1000 lines across the codex
     # rounds on the query endpoint: the lexical CTE-scope fix (P1) and its
     # pg_catalog.pg_user rationale, the declaration-order refinement (P1 r2),

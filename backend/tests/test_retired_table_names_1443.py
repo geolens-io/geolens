@@ -1,6 +1,6 @@
 """A physical table name freed by a delete must never be handed out again.
 
-fix(GH-1443). ``generate_table_name`` collided only against LIVE catalog rows
+fix(#1443). ``generate_table_name`` collided only against LIVE catalog rows
 and LIVE relations, and a delete clears both — so the name of a deleted dataset
 went straight back into circulation. GH-1429 keyed tile BYTES on the dataset id,
 which cannot reach the tile router's ``table_name -> metadata`` map: the vector

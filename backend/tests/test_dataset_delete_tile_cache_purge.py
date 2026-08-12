@@ -1,14 +1,19 @@
 """Deleting a vector dataset must purge that table's MVT tile cache.
 
-The tile cache key is ``tile:{table}:{z}:{x}:{y}`` — no dataset id, no
-content version — and ``generate_table_name`` only collides against LIVE
-rows and relations, so a table name freed by a delete is immediately
-reusable. Without a purge on delete, the next dataset that lands on the
-freed name is authorized on its OWN visibility while being served the
+The tile cache key was ``tile:{table}:{z}:{x}:{y}`` — no dataset id, no
+content version — and ``generate_table_name`` only collided against LIVE
+rows and relations, so a table name freed by a delete was immediately
+reusable. Without a purge on delete, the next dataset that landed on the
+freed name was authorized on its OWN visibility while being served the
 deleted dataset's cached bytes for up to ``tile_cache_ttl`` (default 300s,
 tunable to 86400). Delete a private dataset, re-upload a public one that
-draws the same table name, and the deleted private geometry is served to
+draws the same table name, and the deleted private geometry reached
 anonymous callers.
+
+Two later changes each close that independently: #1429 put the dataset id in
+the cache key, and GH-1443 retires a freed name so it is never redrawn. The
+purge remains the first line — the orphaned entries are dead weight until
+their TTL — and these tests keep it honest.
 
 Every other write path that changes what a table's tiles should show
 already purges: metadata edits (``datasets/api/router.py``), feature edits
@@ -78,7 +83,7 @@ async def _run_delete(dataset: MagicMock) -> str:
 
     session = AsyncMock()
     # AsyncSession.add is synchronous — leaving it an AsyncMock makes
-    # delete_dataset's retired-name write (GH-1443) leak an un-awaited
+    # delete_dataset's retired-name write (#1443) leak an un-awaited
     # coroutine instead of recording anything.
     session.add = MagicMock()
     no_dependents = MagicMock()

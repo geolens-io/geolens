@@ -503,7 +503,7 @@ async def generate_table_name(
     )
     existing |= {row[0] for row in info_result.all()}
 
-    # fix(GH-1443): and collide against RETIRED names. Both probes above ask
+    # fix(#1443): and collide against RETIRED names. Both probes above ask
     # what exists NOW, and a delete clears both, so the name of a deleted
     # dataset was handed straight back to the next one with that title. The
     # tile router caches table_name -> dataset metadata and reads

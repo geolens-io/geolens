@@ -1,6 +1,6 @@
 """Add catalog.retired_table_names — physical table names never handed out twice.
 
-fix(GH-1443). ``generate_table_name`` collided only against LIVE catalog rows
+fix(#1443). ``generate_table_name`` collided only against LIVE catalog rows
 and LIVE relations, so deleting a dataset freed its physical table name for the
 next dataset to draw. GH-1429 closed the tile-*bytes* half of that by keying
 tile caches on the dataset id, but the tile router's ``table_name -> metadata``
