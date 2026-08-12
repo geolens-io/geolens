@@ -63,7 +63,10 @@ class DatasetRefreshRun(Base):
         # and error fields. It is NOT the dataset's origin — see
         # ORIGIN_KINDS in platform/dataset_origin.py, which classify_origin()
         # recomputes fresh from the dataset's CURRENT source_format on every
-        # response build, so it moves whenever source_format does. The
+        # response build. It changes only when a mutation crosses one of
+        # classify_origin()'s category boundaries (e.g. a successful raster
+        # replace reclassifying 'stac' to 'upload'); a same-category
+        # reupload such as GeoJSON to CSV leaves it 'upload' both times. The
         # ledger row is the immutable side of that comparison; the dataset's
         # origin is not. Never read this column as "the dataset's origin,
         # restated at the run level," even for a value that happens to spell

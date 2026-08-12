@@ -48,9 +48,14 @@ _ORIGINLESS_RECORD_TYPES: frozenset[str] = frozenset({"collection", "vrt_dataset
 # fix(#1325): this is the dataset's ORIGIN — how its data entered the
 # catalog. It is DERIVED, not stored: classify_origin() recomputes it from
 # the dataset's CURRENT source_format/record_type every time a response is
-# built (datasets/domain/helpers.py:192), so it moves whenever source_format
-# does. It is a DIFFERENT vocabulary from DatasetRefreshRun.origin_kind, the
-# CHECK constraint in platform/refresh/models.py: that column is the run's
+# built (datasets/domain/helpers.py:192). It changes only when a mutation
+# crosses one of classify_origin()'s category boundaries, e.g. a successful
+# raster replace reclassifying 'stac' to 'upload' by setting
+# source_format='geotiff'; a same-category reupload such as GeoJSON to CSV
+# (both classify to 'upload', per _apply_reupload_swap in tasks_common.py)
+# leaves it unchanged. It is a DIFFERENT vocabulary from
+# DatasetRefreshRun.origin_kind, the CHECK constraint in
+# platform/refresh/models.py: that column is the run's
 # execution DOOR, written once by create_pending_run at commit time and
 # never updated afterward (platform/refresh/service.py has no other writer)
 # — the immutable side of a comparison whose other side, the dataset's
