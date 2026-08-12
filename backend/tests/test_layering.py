@@ -1771,7 +1771,12 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # reupload_service.
         # feat(#1266): +5 — the STAC re-resolution task delegation, the third
         # instance of that same three-line shape. Cap 440 -> 445.
-        "backend/app/platform/extensions/defaults_catalog_port.py": 445,
+        # refactor(stac): +5 — fetch_raster_meta_bulk_without_vrt, the narrower
+        # reading of the raster-meta query the STAC item surface takes. Same
+        # deferred-import shape as its sibling; a separate method rather than a
+        # keyword because widening a port signature is an
+        # EXTENSION_API_VERSION bump. Cap 445 -> 450.
+        "backend/app/platform/extensions/defaults_catalog_port.py": 450,
         # feat(#683): +58 — run_analysis_preview carries a clip mask DATASET
         # now, which costs a widened signature (one param per line once ruff
         # wraps it) plus the mask's shape and size gates. Those live here on
@@ -2863,7 +2868,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1432): -15 — the two inline bbox parsers and
     # _require_finite_bbox collapse onto the shared parse_bbox, which now takes
     # the POST list as well as the GET string. Cap 1870 -> 1855, still exact.
-    "backend/app/standards/stac/router.py": 1855,
+    # refactor(stac): -1 — the raster-asset reads go through CatalogPort, so
+    # the DatasetAsset select and the deferred raster-queries import give way
+    # to port calls. Cap 1855 -> 1854, still exact.
+    "backend/app/standards/stac/router.py": 1854,
     # Central tenant-bound scope resolution replaced duplicated inline logic.
     # fix(#836): +1 — the RASTER_FAMILY_RECORD_TYPES import that replaces four
     # pasted family literals. Same +1 on the stac and search routers.

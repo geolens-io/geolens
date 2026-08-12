@@ -49,7 +49,7 @@ from app.modules.catalog.datasets.domain.models import (
 from app.modules.catalog.features.service import parse_bbox
 from app.core.dependencies import get_db
 from app.core.public_urls import get_public_api_url, get_public_app_url
-from app.processing.raster.models import DatasetAsset, RasterAsset
+from app.platform.extensions import get_catalog_port
 from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC, NOT_FOUND_RESPONSE
 from app.standards.ogc.utils import (
     content_language_for_record_languages,
@@ -218,10 +218,8 @@ async def _fetch_dataset_asset_rows(
     """Bulk-fetch DatasetAsset rows grouped by dataset ID."""
     if not dataset_ids:
         return {}
-    da_stmt = select(DatasetAsset).where(DatasetAsset.dataset_id.in_(dataset_ids))
-    da_result = await db.execute(da_stmt)
     by_dataset: dict[str, list[dict]] = {}
-    for da in da_result.scalars().all():
+    for da in await get_catalog_port().list_dataset_assets(db, dataset_ids):
         ds_key = str(da.dataset_id)
         by_dataset.setdefault(ds_key, []).append(
             {
@@ -242,12 +240,11 @@ async def _fetch_raster_meta(
 ) -> dict[str, dict]:
     """Bulk-fetch raster metadata for a set of dataset IDs.
 
-    Delegates to the shared raster/queries helper (KISS-6). STAC items don't
-    need vrt_type/resolution_strategy at this layer, so include_vrt=False.
+    Reads the shared raster query through CatalogPort (KISS-6). STAC items
+    don't need vrt_type/resolution_strategy at this layer, which is what the
+    port's ``_without_vrt`` reader means.
     """
-    from app.processing.raster.queries import fetch_raster_meta_bulk
-
-    return await fetch_raster_meta_bulk(db, dataset_ids, include_vrt=False)
+    return await get_catalog_port().fetch_raster_meta_bulk_without_vrt(db, dataset_ids)
 
 
 # fix(#1108 review): sentinel distinguishing "the page loop did not precompute
@@ -728,6 +725,7 @@ async def get_collections(
             return result
 
     async def _fetch_projection_codes() -> dict[str, list[str]]:
+        RasterAsset = get_catalog_port().raster_asset_orm_class()
         epsg_stmt = (
             select(
                 CollectionDataset.collection_id,
@@ -935,6 +933,7 @@ async def get_collection(
             return result or None
 
     async def _fetch_projection() -> dict | None:
+        RasterAsset = get_catalog_port().raster_asset_orm_class()
         projection_stmt = (
             select(func.distinct(RasterAsset.epsg))
             .join(Dataset, Dataset.id == RasterAsset.dataset_id)

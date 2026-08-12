@@ -419,6 +419,11 @@ class DefaultCatalogPort:
 
         return await fetch_raster_meta_bulk(session, dataset_ids)
 
+    async def fetch_raster_meta_bulk_without_vrt(self, session, dataset_ids):  # type: ignore[no-untyped-def]
+        from app.processing.raster.queries import fetch_raster_meta_bulk
+
+        return await fetch_raster_meta_bulk(session, dataset_ids, include_vrt=False)
+
     async def get_vrt_generation_source_count(self, session, generation_id):  # type: ignore[no-untyped-def]
         from sqlalchemy import select
 
