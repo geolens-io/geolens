@@ -75,7 +75,7 @@ from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
 router = APIRouter(
     prefix="/datasets",
-    tags=["Datasets - Source health"],
+    tags=["Datasets - Source Health"],
     responses=ERROR_RESPONSES_WRITE,
 )
 

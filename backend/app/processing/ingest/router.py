@@ -112,6 +112,7 @@ from app.platform.storage.titiler_url import resolve_current_storage_key
 from app.standards.ogc.errors import (
     BAD_GATEWAY_RESPONSE,
     ERROR_RESPONSES_WRITE,
+    FORBIDDEN_RESPONSE,
     PAYLOAD_TOO_LARGE_RESPONSE,
 )
 
@@ -181,7 +182,11 @@ async def _get_allowed_extensions_safely(db: AsyncSession) -> list[str]:
         return list(_FALLBACK_ALLOWED_EXTENSIONS)
 
 
-@router.get("/upload/config", response_model=UploadConfigResponse)
+@router.get(
+    "/upload/config",
+    response_model=UploadConfigResponse,
+    responses={403: FORBIDDEN_RESPONSE},
+)
 async def get_upload_config(
     user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),

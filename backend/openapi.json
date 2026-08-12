@@ -26539,7 +26539,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -26959,7 +26959,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -27279,7 +27279,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -29559,7 +29559,7 @@
         ],
         "summary": "Dry Run Configuration",
         "tags": [
-          "config-ops"
+          "Config Ops"
         ]
       }
     },
@@ -29679,7 +29679,7 @@
         ],
         "summary": "Export Configuration",
         "tags": [
-          "config-ops"
+          "Config Ops"
         ]
       }
     },
@@ -29855,7 +29855,7 @@
         ],
         "summary": "Import Configuration",
         "tags": [
-          "config-ops"
+          "Config Ops"
         ]
       }
     },
@@ -29977,7 +29977,7 @@
         ],
         "summary": "Validate Configuration",
         "tags": [
-          "config-ops"
+          "Config Ops"
         ]
       }
     },
@@ -30138,7 +30138,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -32096,7 +32096,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -32251,7 +32251,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -32720,7 +32720,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -32885,7 +32885,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -35504,7 +35504,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -36046,7 +36046,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -36672,7 +36672,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -36844,7 +36844,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -38185,7 +38185,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -38415,7 +38415,7 @@
         ],
         "summary": "Check Source Health",
         "tags": [
-          "Datasets - Source health"
+          "Datasets - Source Health"
         ]
       }
     },
@@ -38962,7 +38962,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -39107,7 +39107,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -39297,7 +39297,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -39585,7 +39585,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -40982,7 +40982,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -43456,7 +43456,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -44010,7 +44010,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -44302,7 +44302,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -44419,6 +44419,9 @@
                         },
                         {
                           "type": "number"
+                        },
+                        {
+                          "type": "boolean"
                         }
                       ]
                     },
@@ -44459,7 +44462,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -44846,7 +44849,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -45143,7 +45146,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -46811,7 +46814,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -47707,7 +47710,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -47845,7 +47848,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -48444,7 +48447,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -49073,7 +49076,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -49740,7 +49743,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -50184,7 +50187,7 @@
                 }
               }
             },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Forbidden \u2014 caller lacks access to this resource"
           },
           "404": {
             "content": {
@@ -57005,7 +57008,7 @@
     },
     {
       "description": "Configuration export, import, dry-run, and connectivity validation.",
-      "name": "config-ops"
+      "name": "Config Ops"
     },
     {
       "description": "Admin management of embed tokens across all maps.",

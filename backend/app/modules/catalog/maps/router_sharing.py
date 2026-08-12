@@ -56,7 +56,7 @@ from app.modules.catalog.maps.service import (
 )
 from app.modules.catalog.maps.style_json import build_maplibre_style
 from app.modules.embed_tokens.service import revoke_embed_tokens_by_map
-from app.standards.ogc.errors import GONE_RESPONSE
+from app.standards.ogc.errors import FORBIDDEN_RESPONSE, GONE_RESPONSE
 
 router = APIRouter()
 
@@ -130,7 +130,7 @@ async def shared_map_card_endpoint(
 @router.get(
     "/shared/{token}",
     response_model=SharedMapResponse,
-    responses={410: GONE_RESPONSE},
+    responses={403: FORBIDDEN_RESPONSE, 410: GONE_RESPONSE},
 )
 async def get_shared_map_endpoint(
     token: str,
@@ -203,7 +203,7 @@ async def visibility_check_endpoint(
     )
 
 
-@router.get("/{map_id}/style.json")
+@router.get("/{map_id}/style.json", responses={403: FORBIDDEN_RESPONSE})
 async def export_map_style_endpoint(
     map_id: uuid.UUID,
     request: Request,
