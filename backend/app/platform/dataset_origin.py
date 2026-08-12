@@ -45,21 +45,26 @@ SERVICE_SOURCE_FORMATS: frozenset[str] = frozenset(
 # fetched from anywhere. Both classify as None so the type badge speaks alone.
 _ORIGINLESS_RECORD_TYPES: frozenset[str] = frozenset({"collection", "vrt_dataset"})
 
-# fix(#1325): this is the dataset's ORIGIN — how its data entered the catalog,
-# derived once by classify_origin() from source_format/record_type and never
-# revisited afterward. It is a DIFFERENT vocabulary from
-# DatasetRefreshRun.origin_kind, the CHECK constraint in
-# platform/refresh/models.py: that column is the run's execution DOOR, and
-# the two never mean the same thing even where they share a spelling. Do NOT
-# read the ledger's origin_kind as "this dataset's origin, restated at the
-# run level" — a run's door and its dataset's origin can visibly disagree
-# while work is in flight. Concretely: a STAC-imported raster
-# (dataset.origin == 'stac') that gets replaced has its run row stamped
-# origin_kind='upload' at commit time (router_reupload.py), while the
-# dataset's origin is only rebound to 'upload' inside a SUCCESSFUL swap's
-# field write (tasks_raster_swap.py:_write_swapped_fields). While that run
-# is pending, and permanently if it fails, the run says 'upload' and the
-# dataset still says 'stac'. 'created' is here but has no ledger counterpart,
+# fix(#1325): this is the dataset's ORIGIN — how its data entered the
+# catalog. It is DERIVED, not stored: classify_origin() recomputes it from
+# the dataset's CURRENT source_format/record_type every time a response is
+# built (datasets/domain/helpers.py:192), so it moves whenever source_format
+# does. It is a DIFFERENT vocabulary from DatasetRefreshRun.origin_kind, the
+# CHECK constraint in platform/refresh/models.py: that column is the run's
+# execution DOOR, written once by create_pending_run at commit time and
+# never updated afterward (platform/refresh/service.py has no other writer)
+# — the immutable side of a comparison whose other side, the dataset's
+# origin, is not. Do NOT read the ledger's origin_kind as "this dataset's
+# origin, restated at the run level": a run's door and its dataset's CURRENT
+# origin can visibly disagree, because the door was fixed once, at commit
+# time, while the origin keeps answering for whatever source_format says
+# right now. Concretely: a STAC-imported raster (dataset.origin == 'stac')
+# that gets replaced has its run row stamped origin_kind='upload' at commit
+# time (router_reupload.py), while the dataset's origin only moves to
+# 'upload' once a SUCCESSFUL swap rebinds source_format to 'geotiff'
+# (tasks_raster_swap.py:_write_swapped_fields). While that run is pending,
+# and permanently if it fails, the run still says 'upload' and the dataset
+# still says 'stac'. 'created' is here but has no ledger counterpart,
 # because a dataset drawn in the app has nothing to refresh from. The
 # ledger's 'raster' has no ORIGIN_KINDS counterpart at all: it is RESERVED
 # for a future, distinct raster-replace door label; today every

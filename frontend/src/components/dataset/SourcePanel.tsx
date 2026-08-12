@@ -303,9 +303,10 @@ function RefreshRunHistory({ dataset }: { dataset: DatasetResponse }) {
                     not the dataset's origin shown by the OriginBadge above —
                     the two can visibly disagree while work is in flight (see
                     the CHECK constraint comment in refresh/models.py for a
-                    concrete case). Label and tooltip say "mechanism", never
-                    "origin", so this row never reads as a second, competing
-                    origin claim. */}
+                    concrete case). The label reads "Method: <value>" and the
+                    tooltip spells out that it is not the dataset's origin,
+                    so this row never reads as a second, competing origin
+                    claim. */}
                 <Badge
                   variant="secondary"
                   title={t('sourcePanel.refresh.history.mechanismTooltip')}

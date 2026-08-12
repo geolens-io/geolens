@@ -56,21 +56,28 @@ class DatasetRefreshRun(Base):
             "trigger IN ('manual', 'api', 'cli')",
             name="chk_refresh_runs_trigger",
         ),
-        # fix(#1325): origin_kind here is the run's execution DOOR, not the
-        # dataset's origin — see ORIGIN_KINDS in platform/dataset_origin.py, a
-        # separate vocabulary derived once from source_format and never
-        # revisited per run. Never read this column as "the dataset's
-        # origin, restated at the run level," even for a value that happens
-        # to spell the same as an ORIGIN_KINDS member: the two can visibly
-        # disagree while a run is in flight. Concretely, a STAC-imported
-        # raster (dataset.origin == 'stac') stamps its replace run 'upload'
-        # at commit time (router_reupload.py), and the dataset's origin is
-        # only rebound to 'upload' inside a SUCCESSFUL swap's field write
+        # fix(#1325): origin_kind here is the run's execution DOOR, written
+        # once by create_pending_run at commit time and never updated
+        # afterward: record_refresh_success/failure and the stale-run sweep
+        # (platform/refresh/service.py) only ever touch status, finished_at,
+        # and error fields. It is NOT the dataset's origin — see
+        # ORIGIN_KINDS in platform/dataset_origin.py, which classify_origin()
+        # recomputes fresh from the dataset's CURRENT source_format on every
+        # response build, so it moves whenever source_format does. The
+        # ledger row is the immutable side of that comparison; the dataset's
+        # origin is not. Never read this column as "the dataset's origin,
+        # restated at the run level," even for a value that happens to spell
+        # the same as an ORIGIN_KINDS member: the two can visibly disagree
+        # while a run is in flight, because the door was fixed once and the
+        # origin keeps answering live. Concretely, a STAC-imported raster
+        # (dataset.origin == 'stac') stamps its replace run 'upload' at
+        # commit time (router_reupload.py), and the dataset's origin only
+        # moves to 'upload' once a SUCCESSFUL swap rebinds source_format
         # (tasks_raster_swap.py:_write_swapped_fields) — so a pending or
         # failed replace leaves the run at 'upload' against a dataset still
-        # reporting 'stac'. 'raster' is a second, permanent divergence: it is
-        # RESERVED for the raster-replace door (#1290), which has no
-        # ORIGIN_KINDS counterpart at all. Reserved, not live —
+        # reporting 'stac'. 'raster' is a different kind of gap: it has no
+        # ORIGIN_KINDS counterpart at all, and it is RESERVED for the
+        # raster-replace door (#1290) rather than actively used.
         # reupload_commit (router_reupload.py) stamps every raster-replace
         # run 'upload' today, never 'raster', so no row has ever actually
         # carried it. Decision (a) on #1325 is to document this split, not
