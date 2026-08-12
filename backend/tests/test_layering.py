@@ -3506,10 +3506,16 @@ _PROCESSING_CATALOG_IMPORT_BURNDOWN: dict[str, set[str]] = {
 _PROCESSING_DIR = REPO_ROOT / "backend" / "app" / "processing"
 
 
-def _catalog_import_edges() -> dict[str, set[str]]:
-    """Every `app.modules.catalog.*` import under processing/, at ANY scope."""
-    import ast
+def _processing_import_edges() -> dict[str, set[str]]:
+    """Every `app.modules.*` import under processing/, at ANY scope.
 
+    fix(#1438 F17): broadened from `app.modules.catalog` so a bypass into ANY
+    product domain (auth, audit, quota, embed_tokens, ...) is visible, not just
+    catalog. `_catalog_import_edges()` and `_other_domains_import_edges()` below
+    are the two ways this gets sliced — kept as separate burndowns rather than
+    one merged list because they lead to different fixes (see
+    `_other_domains_import_edges()`'s docstring).
+    """
     edges: dict[str, set[str]] = {}
     for path in sorted(_PROCESSING_DIR.rglob("*.py")):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
@@ -3520,9 +3526,41 @@ def _catalog_import_edges() -> dict[str, set[str]]:
             else:
                 continue
             for module in modules:
-                if module.startswith("app.modules.catalog"):
+                if module.startswith("app.modules."):
                     key = str(path.relative_to(_PROCESSING_DIR))
                     edges.setdefault(key, set()).add(module)
+    return edges
+
+
+def _catalog_import_edges() -> dict[str, set[str]]:
+    """The `app.modules.catalog.*` subset of `_processing_import_edges()`."""
+    edges: dict[str, set[str]] = {}
+    for file, modules in _processing_import_edges().items():
+        catalog_modules = {m for m in modules if m.startswith("app.modules.catalog")}
+        if catalog_modules:
+            edges[file] = catalog_modules
+    return edges
+
+
+def _other_domains_import_edges() -> dict[str, set[str]]:
+    """The non-catalog subset of `_processing_import_edges()`.
+
+    fix(#1438 F17): catalog edges are governed separately, above, by
+    `test_no_processing_imports_catalog` — whose fix directs the reader at
+    ProcessingPort (`app.core.processing_port`). That is correct for catalog:
+    ProcessingPort's surface is dataset/record/map/grant methods. It has no
+    auth, audit, quota, or embed-token surface, so an edge into one of those
+    domains needs a different fix (a scoped port method, a dependency injected
+    at the router layer, or a deferred import) — folding it into the catalog
+    burndown would point the fixer at a port that cannot serve it. Kept as a
+    parallel burndown instead, so each guard's failure message stays true for
+    every edge it lists.
+    """
+    edges: dict[str, set[str]] = {}
+    for file, modules in _processing_import_edges().items():
+        other_modules = {m for m in modules if not m.startswith("app.modules.catalog")}
+        if other_modules:
+            edges[file] = other_modules
     return edges
 
 
@@ -3569,6 +3607,116 @@ def test_processing_catalog_import_allowlist_is_current() -> None:
         pytest.fail(
             "_PROCESSING_CATALOG_IMPORT_BURNDOWN lists edges that no longer exist. "
             "Delete them — the list only shrinks.\n" + "\n".join(stale)
+        )
+
+
+# fix(#1438 F17): burn-down list of `app.modules.*` imports inside
+# `backend/app/processing/` that reach a product domain OTHER than catalog — the
+# same PROCESS-02/04 bypass the catalog burndown above tracks, widened to every
+# domain now that the guard sees all of `app.modules.` rather than just
+# `app.modules.catalog`. See `_other_domains_import_edges()` for why this stays a
+# separate dict instead of merging into `_PROCESSING_CATALOG_IMPORT_BURNDOWN`.
+#
+# The list may SHRINK, never grow.
+_PROCESSING_OTHER_DOMAINS_IMPORT_BURNDOWN: dict[str, set[str]] = {
+    "ai/query_router.py": {
+        "app.modules.audit.service",
+        "app.modules.auth.dependencies",
+    },
+    "ai/router.py": {
+        "app.modules.auth.dependencies",
+    },
+    "export/router.py": {
+        "app.modules.audit.service",
+        "app.modules.auth.dependencies",
+        "app.modules.auth.permissions",
+    },
+    "ingest/manifest_router.py": {
+        "app.modules.auth.dependencies",
+    },
+    "ingest/manifest_service.py": {
+        "app.modules.quota.service",
+    },
+    "ingest/presigned.py": {
+        "app.modules.quota.service",
+    },
+    "ingest/router.py": {
+        "app.modules.auth.dependencies",
+        "app.modules.quota.service",
+    },
+    "ingest/tasks_common.py": {
+        "app.modules.audit.service",
+    },
+    "ingest/tasks_raster.py": {
+        "app.modules.quota.service",
+    },
+    "ingest/tasks_raster_common.py": {
+        "app.modules.quota.service",
+    },
+    "ingest/tasks_raster_replace.py": {
+        "app.modules.audit.service",
+    },
+    "ingest/tasks_raster_swap.py": {
+        "app.modules.quota.service",
+    },
+    "ingest/tasks_vrt.py": {
+        "app.modules.quota.service",
+    },
+    "tiles/router.py": {
+        "app.modules.auth.dependencies",
+        "app.modules.embed_tokens.service",
+    },
+}
+
+
+@pytest.mark.architecture
+def test_no_processing_imports_other_domains() -> None:
+    """Phase 225 PROCESS-02/04, broadened past catalog: processing/ reaches every
+    product domain through a port, never `app.modules.*` directly.
+
+    fix(#1438 F17): `test_no_processing_imports_catalog` held processing/ to a
+    catalog-only boundary, so an equally direct reach into auth, audit, quota, or
+    embed_tokens passed silently. processing/ has exactly one blessed
+    cross-domain seam (ProcessingPort, for catalog); every other `app.modules.*`
+    reference is the same bypass in a different domain. Walks the same
+    AST-at-any-scope collector as the catalog guard (`_processing_import_edges()`),
+    so a function-local import cannot hide from either.
+    """
+    offenders: list[str] = []
+    for file, modules in sorted(_other_domains_import_edges().items()):
+        allowed = _PROCESSING_OTHER_DOMAINS_IMPORT_BURNDOWN.get(file, set())
+        for module in sorted(modules - allowed):
+            offenders.append(f"  backend/app/processing/{file}: {module}")
+
+    if offenders:
+        pytest.fail(
+            "backend/app/processing/ imports app.modules.* outside the catalog "
+            "domain and outside the burn-down allowlist. Route the behavior "
+            "through a port — app.core.processing_port for catalog-shaped "
+            "access, or a scoped port method / injected dependency for auth, "
+            "audit, quota, or embed-token access — instead of adding an entry "
+            "to _PROCESSING_OTHER_DOMAINS_IMPORT_BURNDOWN.\n" + "\n".join(offenders)
+        )
+
+
+@pytest.mark.architecture
+def test_processing_other_domains_import_allowlist_is_current() -> None:
+    """The cross-domain burn-down list must shrink as edges are migrated.
+
+    Mirrors `test_processing_catalog_import_allowlist_is_current` for the
+    non-catalog axis — a stale entry is a silent licence to reintroduce the
+    bypass later.
+    """
+    edges = _other_domains_import_edges()
+    stale: list[str] = []
+    for file, modules in sorted(_PROCESSING_OTHER_DOMAINS_IMPORT_BURNDOWN.items()):
+        for module in sorted(modules - edges.get(file, set())):
+            stale.append(f"  {file}: {module}")
+
+    if stale:
+        pytest.fail(
+            "_PROCESSING_OTHER_DOMAINS_IMPORT_BURNDOWN lists edges that no longer "
+            "exist. Delete them — the list only shrinks.\n" + "\n".join(stale)
         )
 
 
