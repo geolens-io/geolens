@@ -48,11 +48,27 @@ from app.platform.storage import get_storage
 _stdlib_ET.register_namespace("", "http://www.w3.org/2000/svg")
 
 MAX_ICON_BYTES = 512 * 1024
-# fix(#1428): compressed size says nothing about decoded size. A 9000x9000 RGBA
-# PNG is ~330 KiB on the wire — inside MAX_ICON_BYTES — and ~320 MB once decoded
-# into a 24px sprite cell. Bound the dimensions too. 1024 is far more than a
-# sprite cell (24px, 48 at @2x) can show and holds one decode to ~4 MiB.
+# fix(#1428): compressed size says nothing about decoded size — a 9000x9000 PNG
+# is ~79 KiB on the wire, inside MAX_ICON_BYTES, and ~320 MB once decoded into a
+# 24px cell. Two caps bound that, and they are deliberately different numbers
+# because they answer different questions:
+#
+#   MAX_ICON_DIMENSION is a PRODUCT bound, on what may be uploaded from here on.
+#   1024 is far more than a sprite cell (24px, 48 at @2x) can show, so it costs
+#   a new icon nothing and holds its decode to ~4 MiB.
+#
+#   MAX_RENDER_PIXELS is a MEMORY bound, on what is ALREADY stored — where the
+#   upload cap gets no say, since those rows predate it. Re-using the upload cap
+#   at render would blank icons that draw correctly on maps today, so this one
+#   is set by what a single decode may cost instead: 24M px is ~96 MB of RGBA,
+#   and decodes are sequential within a batch, so it bounds the peak. Anything
+#   plausible (~4900px square, or any shape under that area) still renders its
+#   real art; only DoS-scale artifacts degrade to the placeholder.
+#
+# Area rather than dimensions, because cost tracks area: a 12000x160 strip is
+# 1.9M px and cheaper to decode than a 2048 square.
 MAX_ICON_DIMENSION = 1024
+MAX_RENDER_PIXELS = 24_000_000
 SUPPORTED_MEDIA_TYPES = {"image/svg+xml": ".svg", "image/png": ".png"}
 
 _SLUG_RE = re.compile(r"[^a-z0-9_-]+")
@@ -575,7 +591,14 @@ def _placeholder_icon(seed: str) -> Image.Image:
 def _render_icon(content: bytes, media_type: str, seed: str) -> Image.Image:
     try:
         if media_type == "image/png":
-            source = Image.open(BytesIO(content)).convert("RGBA")
+            source = Image.open(BytesIO(content))
+            # fix(#1428 codex r4): .size comes off the header — convert() is what
+            # allocates. Refuse in between, so a stored artifact never reaches
+            # the decode. This is the gate for everything between the bound and
+            # Pillow's own bomb threshold, which sits ~7x higher.
+            if source.width * source.height > MAX_RENDER_PIXELS:
+                return _placeholder_icon(seed)
+            source = source.convert("RGBA")
         else:
             root = ElementTree.fromstring(content)
             source = Image.new(
@@ -590,9 +613,9 @@ def _render_icon(content: bytes, media_type: str, seed: str) -> Image.Image:
         ValueError,
         IndexError,
         SyntaxError,
-        # fix(#1428): an icon stored before MAX_ICON_DIMENSION existed can still
-        # trip PIL's own bomb guard. Degrade that cell to the placeholder rather
-        # than 500 the whole sprite sheet.
+        # fix(#1428): past ~179M px Pillow refuses from open() itself, before
+        # the MAX_RENDER_PIXELS check above can measure anything. Degrade that
+        # cell too, rather than 500 the whole sprite sheet.
         Image.DecompressionBombError,
     ):
         return _placeholder_icon(seed)

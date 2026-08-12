@@ -133,14 +133,24 @@ def _png_header_only(width: int, height: int) -> bytes:
     )
 
 
+def _real_png_bytes(width: int, height: int) -> bytes:
+    """A real, decodable PNG at the given dimensions.
+
+    Grayscale and single-colored, so staging tens of millions of pixels costs a
+    few KB on the wire and no measurable time to build — which is the whole
+    problem: nothing about the byte count reflects what decoding will cost.
+    """
+    out = BytesIO()
+    Image.new("L", (width, height), 0).save(out, format="PNG")
+    return out.getvalue()
+
+
 def _large_png_bytes(size: int = 4096) -> bytes:
     """A real, decodable PNG whose dimensions are over the cap but whose bytes
     are well under it — the shape the byte cap alone cannot catch. Sizes are
     written out rather than derived from MAX_ICON_DIMENSION so that moving the
     cap has to face these tests."""
-    out = BytesIO()
-    Image.new("L", (size, size), 0).save(out, format="PNG")
-    return out.getvalue()
+    return _real_png_bytes(size, size)
 
 
 @pytest.fixture(autouse=True)
@@ -435,6 +445,47 @@ def test_render_icon_degrades_decompression_bomb_to_placeholder():
 
     assert rendered.size == (SPRITE_CELL_SIZE, SPRITE_CELL_SIZE)
     assert rendered.tobytes() == _placeholder_icon("bus").tobytes()
+
+
+# The upload cap only governs icons uploaded from here on. The three tests below
+# pin the separate render-side bound that governs what is ALREADY stored: it is
+# a memory bound, set high enough that every plausible existing icon still draws
+# its real art, and low enough that a DoS-scale artifact never reaches a decode.
+
+
+def test_render_icon_degrades_a_stored_dos_scale_png_to_placeholder():
+    # 9000x9000 is 81M px: under Pillow's own bomb threshold, so nothing stopped
+    # it, ~79 KB on the wire, so the byte cap let it in before MAX_ICON_DIMENSION
+    # existed — and ~320 MB to decode on an unauthenticated cold render.
+    content = _real_png_bytes(9000, 9000)
+    assert len(content) < MAX_ICON_BYTES
+
+    rendered = _render_icon(content, "image/png", "bus")
+
+    assert rendered.tobytes() == _placeholder_icon("bus").tobytes()
+
+
+def test_render_icon_still_draws_a_large_but_plausible_stored_png():
+    """An icon stored before the upload cap existed keeps rendering its real art.
+
+    This is the property that makes the render bound a memory bound rather than
+    the upload cap applied late: 2048px is over MAX_ICON_DIMENSION, so re-using
+    the upload cap here would silently blank it on maps that display it today.
+    """
+    rendered = _render_icon(_real_png_bytes(2048, 2048), "image/png", "bus")
+
+    assert rendered.tobytes() != _placeholder_icon("bus").tobytes()
+    assert rendered.getpixel((12, 12)) == (0, 0, 0, 255)
+
+
+def test_render_bound_counts_pixels_not_dimensions():
+    # 12000x160 is 1.9M px — wider than any dimension cap would allow, and
+    # cheaper to decode than the 2048 square above. Cost tracks area, so the
+    # bound does too.
+    rendered = _render_icon(_real_png_bytes(12000, 160), "image/png", "bus")
+
+    assert rendered.tobytes() != _placeholder_icon("bus").tobytes()
+    assert any(rendered.tobytes()[3::4])
 
 
 @pytest.mark.anyio
