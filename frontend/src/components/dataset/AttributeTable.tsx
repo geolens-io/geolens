@@ -1,13 +1,15 @@
 import { useState, useMemo, useRef, useEffect, useCallback, useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  useReactTable,
-  getCoreRowModel,
-  getSortedRowModel,
-  flexRender,
+  useTable,
+  tableFeatures,
+  rowSortingFeature,
+  columnVisibilityFeature,
+  createSortedRowModel,
+  sortFns,
   type ColumnDef,
   type SortingState,
-  type VisibilityState,
+  type ColumnVisibilityState,
 } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { toast } from 'sonner';
@@ -30,6 +32,19 @@ import { formatNumber } from '@/lib/format';
 import { formatMutationError } from '@/lib/error-map';
 import { coerceAttributeValue } from '@/lib/attribute-values';
 import { Loader2, ArrowUpDown, Settings2, Pencil } from 'lucide-react';
+
+// react-table v9 requires row models and sort functions to be registered
+// explicitly (v8 wired getSortedRowModel() as a table option and auto-detected
+// sortingFns). Columns here are built dynamically from the dataset's Postgres
+// column list with no per-column sortFn set, so all six built-ins must be
+// registered — the auto-detected sortFn (alphanumeric/text/datetime/basic)
+// still resolves by data type, but only if it's present in this map.
+const features = tableFeatures({
+  rowSortingFeature,
+  columnVisibilityFeature,
+  sortedRowModel: createSortedRowModel(),
+  sortFns,
+});
 
 /** Columns that are not user-editable */
 const NON_EDITABLE_COLUMNS = new Set(['gid', 'geom']);
@@ -144,7 +159,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   const [pageSize, setPageSize] = useState(DEFAULT_ROWS_PAGE_SIZE);
   const [sorting, setSorting] = useState<SortingState>([]);
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
+  const [columnVisibility, setColumnVisibility] = useState<ColumnVisibilityState>({});
   const updateFeature = useUpdateFeature();
 
   // Debounce filters to avoid hammering the API on every keystroke
@@ -232,12 +247,11 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
     });
   }, []);
 
-  const columns = useMemo<ColumnDef<Record<string, unknown>>[]>(() => {
+  const columns = useMemo<ColumnDef<typeof features, Record<string, unknown>>[]>(() => {
     if (!data?.columns) return [];
     return data.columns.map((col) => ({
       accessorKey: col.name,
       header: `${col.name} (${col.type})`,
-      enableColumnFilter: !NON_FILTERABLE_COLUMNS.has(col.name),
       cell: (info) => {
         const rowData = info.row.original;
         const gid = rowData.gid as number;
@@ -300,16 +314,17 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
     }));
   }, [data?.columns, canEdit, compact, handleCellSave, updateFeature.isPending, editError, t]);
 
-  // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Table returns imperative helpers; this component keeps table state local.
-  const table = useReactTable({
-    data: data?.rows ?? [],
-    columns,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    state: { sorting, columnVisibility },
-    onSortingChange: setSorting,
-    onColumnVisibilityChange: setColumnVisibility,
-  });
+  const table = useTable(
+    {
+      features,
+      data: data?.rows ?? [],
+      columns,
+      state: { sorting, columnVisibility },
+      onSortingChange: setSorting,
+      onColumnVisibilityChange: setColumnVisibility,
+    },
+    (state) => state,
+  );
 
   // PERF-07: virtualize the body so that 100-row pages render only the visible
   // window (~10-20 rows + overscan), keeping DOM-node count flat regardless of
@@ -329,6 +344,11 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
   // not — the border is absorbed into the specified height). Keep rowHeight
   // and the cell height classes in lockstep.
   const rowHeight = compact ? 28 : 44;
+  // fix(#1407): react-hooks/incompatible-library only reports the first
+  // flagged hook it finds per component. The removed useReactTable() call
+  // used to occupy that slot (suppressed below it), which silently masked
+  // this same warning on useVirtualizer() below.
+  // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Virtual returns imperative helpers; this component keeps virtualizer state local.
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => parentRef.current,
@@ -459,7 +479,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
                           className="flex items-center gap-1 hover:text-foreground"
                           onClick={header.column.getToggleSortingHandler()}
                         >
-                          {flexRender(header.column.columnDef.header, header.getContext())}
+                          <table.FlexRender header={header} />
                           {header.column.getIsSorted() === 'asc' ? (
                             <span> ↑</span>
                           ) : header.column.getIsSorted() === 'desc' ? (
@@ -515,7 +535,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
                     >
                       {row.getVisibleCells().map((cell) => (
                         <TableCell key={cell.id} className={`max-w-xs truncate ${cellClass}`}>
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          <table.FlexRender cell={cell} />
                         </TableCell>
                       ))}
                     </TableRow>
