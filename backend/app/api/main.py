@@ -44,7 +44,7 @@ from app.platform.extensions.bootstrap import (
 )
 from app.modules.auth.models import Role, User, UserRole
 from app.modules.auth.providers.local import hash_password
-from app.modules.auth.router import limiter
+from app.platform.ratelimit import limiter
 from app.processing.ingest.tasks import task_app
 from app.api.middleware.body_limit import RequestBodyLimitMiddleware
 from app.api.middleware.cors import DynamicCORSMiddleware

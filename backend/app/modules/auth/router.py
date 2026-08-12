@@ -5,8 +5,6 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,20 +46,13 @@ from app.core.persistent_config import (
     PASSWORD_LOGIN_ENABLED,
     REFRESH_TOKEN_EXPIRE_DAYS,
     REGISTRATION_ENABLED,
-    get_cached_global_rate_limit,
     get_cached_login_rate_limit,
 )
 from app.modules.auth.domain_policy import enforce_email_domain_gate
+from app.platform.ratelimit import limiter
 from app.standards.ogc.errors import BAD_GATEWAY_RESPONSE, ERROR_RESPONSES_AUTH
 
 router = APIRouter(prefix="/auth", tags=["Auth"], responses=ERROR_RESPONSES_AUTH)
-
-
-def _global_rate_limit(_request: Request | None = None) -> str:
-    return f"{get_cached_global_rate_limit()}/second"
-
-
-limiter = Limiter(key_func=get_remote_address, default_limits=[_global_rate_limit])
 
 
 def _login_rate_limit(_request: Request | None = None) -> str:

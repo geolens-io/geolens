@@ -87,7 +87,7 @@ async def test_body_size_limit_allows_normal(client: AsyncClient):
 @pytest.mark.anyio
 async def test_rate_limiting(client: AsyncClient):
     """When rate limiter is enabled and client exceeds limit, response is 429."""
-    from app.modules.auth.router import limiter
+    from app.platform.ratelimit import limiter
 
     original_enabled = limiter.enabled
     original_limits = limiter._default_limits
@@ -146,7 +146,7 @@ async def test_rate_limit_health_excluded(client: AsyncClient):
     default in slowapi, so a tight 2/second default never trips the Docker
     healthcheck / LB polling — exactly the property this test guards.
     """
-    from app.modules.auth.router import limiter
+    from app.platform.ratelimit import limiter
 
     original_enabled = limiter.enabled
     original_limits = limiter._default_limits
@@ -173,7 +173,7 @@ async def test_rate_limit_health_excluded(client: AsyncClient):
 @pytest.mark.anyio
 async def test_ai_endpoint_rate_limit(client: AsyncClient, admin_auth_header: dict):
     """AI endpoints respect their per-route rate limit (10/minute for generate)."""
-    from app.modules.auth.router import limiter
+    from app.platform.ratelimit import limiter
 
     original_enabled = limiter.enabled
     try:
@@ -206,7 +206,7 @@ async def test_rate_limit_429_includes_retry_after(client: AsyncClient):
     with bad credentials so slowapi fires before the handler body, then asserts
     the final 429 advertises the back-off window.
     """
-    from app.modules.auth.router import limiter
+    from app.platform.ratelimit import limiter
 
     original_enabled = limiter.enabled
     try:
@@ -267,7 +267,7 @@ async def test_http_exception_handler_preserves_response_headers(detail):
 @pytest.mark.anyio
 async def test_global_rate_limit_configurable(client: AsyncClient):
     """Global rate limit is configurable and defaults to 60/second."""
-    from app.modules.auth.router import _global_rate_limit
+    from app.platform.ratelimit import _global_rate_limit
     from app.core.persistent_config import get_cached_global_rate_limit
 
     assert get_cached_global_rate_limit() == 60

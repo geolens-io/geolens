@@ -16,7 +16,7 @@ from app.core.persistent_config import (
     REQUIRE_METADATA_FOR_PUBLISH,
     get_cached_basemap_proxy_rate_limit,
 )
-from app.modules.auth.router import limiter
+from app.platform.ratelimit import limiter
 from app.modules.settings.schemas import (
     BasemapPublicResponse,
     BrandingResponse,

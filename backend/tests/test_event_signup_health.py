@@ -243,7 +243,7 @@ class TestHealthAlert:
         disabled only by the `client` fixture, so without this these tests
         depend on another test having run first — a leaked-global ordering
         dependency that breaks under xdist (Pytest Parallel Isolation)."""
-        from app.modules.auth.router import limiter
+        from app.platform.ratelimit import limiter
 
         prev = limiter.enabled
         limiter.enabled = False

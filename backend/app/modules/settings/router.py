@@ -25,7 +25,7 @@ from app.core.persistent_config import (
     PASSWORD_LOGIN_ENABLED,
     _registry,
 )
-from app.modules.auth.router import limiter
+from app.platform.ratelimit import limiter
 from app.core.public_urls import _is_env_only, get_public_api_url, get_public_app_url
 from app.core.db.models import AppSetting
 from app.core.db.tenant_schema import tenant_data_schema
