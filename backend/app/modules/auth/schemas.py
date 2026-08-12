@@ -14,8 +14,12 @@ UserStatus = Literal["active", "pending", "suspended", "deactivated"]
 
 class TokenResponse(BaseModel):
     access_token: str = Field(description="JWT access token for Authorization header")
+    # fix(#1446): required-but-nullable, NOT optional. Every login/refresh
+    # response serializes this key (as a string, or null in cookie mode), so
+    # omitting `default=` keeps it in OpenAPI's `required` list and stops the
+    # generated SDKs from exposing an `Unset`/absent shape the server never
+    # emits.
     refresh_token: str | None = Field(
-        default=None,
         description=(
             "Opaque token used to obtain a new access token. Always present for "
             "programmatic callers (CLI, SDKs, CI). Null when the caller opted "

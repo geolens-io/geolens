@@ -50,9 +50,16 @@ export async function getMe(): Promise<UserResponse> {
  *
  * Routed through apiFetch deliberately: if the access token has aged out, the
  * 401 path refreshes from the cookie and retries, so logout still lands.
+ *
+ * fix(#1446): bounded well below apiFetch's 30s default. The caller blocks on
+ * this before tearing down local state, so a blackholed connection would
+ * otherwise leave someone looking signed-in for half a minute after clicking
+ * Logout.
  */
+const LOGOUT_TIMEOUT_MS = 3_000;
+
 export async function logoutSession(): Promise<void> {
-  await apiFetch<void>('/auth/logout/', { method: 'POST' });
+  await apiFetch<void>('/auth/logout/', { method: 'POST', timeoutMs: LOGOUT_TIMEOUT_MS });
 }
 
 export async function registerUser(data: {

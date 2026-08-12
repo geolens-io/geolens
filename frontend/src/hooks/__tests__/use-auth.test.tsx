@@ -97,6 +97,33 @@ describe('useAuth', () => {
     ).rejects.toThrow('Invalid credentials');
   });
 
+  // fix(#1446): login installs the refresh cookie before getMe() runs, so a
+  // failure there must revoke server-side — a store reset cannot reach the
+  // httpOnly cookie, and the UI would claim the sign-in failed while the
+  // credential stayed live.
+  it('revokes the session when getMe fails after a successful login', async () => {
+    mockLogin.mockResolvedValueOnce({
+      access_token: 'abc',
+      refresh_token: null,
+      token_type: 'bearer',
+      expires_in: 900,
+    });
+    // Not `...Once`: the hook's own meQuery also calls getMe once the token is
+    // set, and would otherwise eat the single rejection.
+    mockGetMe.mockRejectedValue(new Error('me failed'));
+
+    const { result } = renderHook(() => useAuth());
+
+    await expect(
+      act(async () => {
+        await result.current.login('user', 'pass');
+      }),
+    ).rejects.toThrow('me failed');
+
+    expect(mockLogoutSession).toHaveBeenCalledTimes(1);
+    expect(useAuthStore.getState().token).toBeNull();
+  });
+
   it('logout clears store and navigates to /login', async () => {
     useAuthStore.setState({ token: 'abc', refreshToken: 'ref', expiresAt: 999, user: mockUser() });
 

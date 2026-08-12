@@ -10269,7 +10269,7 @@ export type TokenResponse = {
      *
      * Opaque token used to obtain a new access token. Always present for programmatic callers (CLI, SDKs, CI). Null when the caller opted into the browser cookie flow with 'X-GeoLens-Auth-Mode: cookie', in which case the token is delivered as an httpOnly cookie instead (GH-1302).
      */
-    refresh_token?: string | null;
+    refresh_token: string | null;
     /**
      * Token Type
      */

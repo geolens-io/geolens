@@ -19,29 +19,26 @@ class TokenResponse:
     """
     Attributes:
         access_token (str): JWT access token for Authorization header
+        refresh_token (None | str): Opaque token used to obtain a new access token. Always present for programmatic
+            callers (CLI, SDKs, CI). Null when the caller opted into the browser cookie flow with 'X-GeoLens-Auth-Mode:
+            cookie', in which case the token is delivered as an httpOnly cookie instead (GH-1302).
         expires_in (int): Seconds until the access token expires
-        refresh_token (None | str | Unset): Opaque token used to obtain a new access token. Always present for
-            programmatic callers (CLI, SDKs, CI). Null when the caller opted into the browser cookie flow with 'X-GeoLens-
-            Auth-Mode: cookie', in which case the token is delivered as an httpOnly cookie instead (GH-1302).
         token_type (str | Unset):  Default: 'bearer'.
     """
 
     access_token: str
+    refresh_token: None | str
     expires_in: int
-    refresh_token: None | str | Unset = UNSET
     token_type: str | Unset = "bearer"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         access_token = self.access_token
 
-        expires_in = self.expires_in
+        refresh_token: None | str
+        refresh_token = self.refresh_token
 
-        refresh_token: None | str | Unset
-        if isinstance(self.refresh_token, Unset):
-            refresh_token = UNSET
-        else:
-            refresh_token = self.refresh_token
+        expires_in = self.expires_in
 
         token_type = self.token_type
 
@@ -50,11 +47,10 @@ class TokenResponse:
         field_dict.update(
             {
                 "access_token": access_token,
+                "refresh_token": refresh_token,
                 "expires_in": expires_in,
             }
         )
-        if refresh_token is not UNSET:
-            field_dict["refresh_token"] = refresh_token
         if token_type is not UNSET:
             field_dict["token_type"] = token_type
 
@@ -65,23 +61,21 @@ class TokenResponse:
         d = dict(src_dict)
         access_token = d.pop("access_token")
 
-        expires_in = d.pop("expires_in")
-
-        def _parse_refresh_token(data: object) -> None | str | Unset:
+        def _parse_refresh_token(data: object) -> None | str:
             if data is None:
                 return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
+            return cast(None | str, data)
 
-        refresh_token = _parse_refresh_token(d.pop("refresh_token", UNSET))
+        refresh_token = _parse_refresh_token(d.pop("refresh_token"))
+
+        expires_in = d.pop("expires_in")
 
         token_type = d.pop("token_type", UNSET)
 
         token_response = cls(
             access_token=access_token,
-            expires_in=expires_in,
             refresh_token=refresh_token,
+            expires_in=expires_in,
             token_type=token_type,
         )
 

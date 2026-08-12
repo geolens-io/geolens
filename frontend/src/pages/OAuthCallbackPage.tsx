@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '@/stores/auth-store';
 import { useDocumentTitle } from '@/hooks/use-document-title';
-import { getMe } from '@/api/auth';
+import { getMe, logoutSession } from '@/api/auth';
 import { Loader2 } from 'lucide-react';
 
 export function OAuthCallbackPage() {
@@ -56,7 +56,12 @@ export function OAuthCallbackPage() {
         const target = redirect && redirect.startsWith('/') ? redirect : '/';
         navigate(target, { replace: true });
       })
-      .catch(() => {
+      .catch(async () => {
+        // fix(#1446): the backend already installed the refresh cookie before
+        // redirecting here, so clearing the store alone would strand a
+        // replayable credential the UI claims is gone. Best-effort server
+        // revocation first, while the temporary bearer token is still set.
+        await logoutSession().catch(() => {});
         useAuthStore.getState().logout();
         navigate('/login', { replace: true });
       });

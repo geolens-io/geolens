@@ -69,7 +69,17 @@ export function useAuth() {
       // stale capabilities. Remove (not invalidate) so capability gates fail
       // closed until the new user's permissions are fetched.
       queryClient.removeQueries({ queryKey: queryKeys.auth.permissions });
-      const userResponse = await getMe();
+      let userResponse;
+      try {
+        userResponse = await getMe();
+      } catch (err) {
+        // fix(#1446): login already installed the refresh cookie. Bailing out
+        // with only a store reset would leave that credential live while the
+        // UI reports a failed sign-in, so revoke it before surfacing the error.
+        await logoutSession().catch(() => {});
+        useAuthStore.getState().logout();
+        throw err;
+      }
       setAuth(
         tokenResponse.access_token,
         // fix(#1302): null in cookie mode — the refresh token arrived as an

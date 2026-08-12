@@ -17323,6 +17323,7 @@
         },
         "required": [
           "access_token",
+          "refresh_token",
           "expires_in"
         ],
         "title": "TokenResponse",
