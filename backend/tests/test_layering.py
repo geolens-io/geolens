@@ -4766,6 +4766,24 @@ def _is_router_module(module: str) -> bool:
     return leaf == "router" or leaf.startswith("router_") or leaf.endswith("_router")
 
 
+def _resolves_to_real_module(dotted: str) -> bool:
+    """True when a dotted `app.…` path names a real file or package under backend/.
+
+    fix(#1438 F6 codex review): distinguishes `from app.platform.jobs import
+    router` (imports the `router.py` SUBMODULE — `router` here names a real
+    file) from `from app.core.schemas import router_id_param` (imports an
+    ordinary NAME that happens to start with `router_` — no such file exists).
+    Both are the same AST shape (`ImportFrom(module=X, names=[alias(name=Y)])`);
+    only the filesystem tells them apart. Needed because `_is_router_module()`
+    is a filename heuristic — applying it to every imported NAME without this
+    check would flag the second case as a router import.
+    """
+    candidate = BACKEND_ROOT / Path(*dotted.split("."))
+    return (
+        candidate.with_suffix(".py").is_file() or (candidate / "__init__.py").is_file()
+    )
+
+
 # The aggregate composition root: app/api/router.py imports every domain's
 # router to compose api_router, and app/api/main.py imports _titiler_client
 # from app.processing.tiles.router at module scope. Both are the ONE place
@@ -4788,11 +4806,23 @@ def _cross_package_router_import_edges() -> dict[str, set[str]]:
     package reaching across a boundary for a name that belongs in a service or
     schema module has the same problem.
 
-    Module scope only (``col_offset == 0``): a function-local import stays the
-    sanctioned D-17 deferred-import escape hatch used throughout this file
-    (see the platform->modules and platform->processing guards above) — it
-    does not run the router's side effects at the importer's import time, so
-    it does not reproduce the bug this guard exists to catch.
+    Two import shapes reach a router submodule, and both are checked (fix
+    #1438 F6 codex review): `from app.platform.jobs.router import name` names
+    it as `node.module` directly; `from app.platform.jobs import router` names
+    it as an imported NAME, resolved against the filesystem via
+    `_resolves_to_real_module()` so an ordinary name that merely starts with
+    `router_` is not mistaken for a submodule.
+
+    Module scope only, determined by AST ancestry rather than `col_offset`
+    (fix #1438 F6 codex review): `col_offset != 0` was the established idiom
+    elsewhere in this file, but it also skips an import nested in a top-level
+    `try`/`if` block — indented, so nonzero column, but still executed at
+    module-import time. Walking function bodies to build an exclusion set
+    (mirroring `_redirect_escaping_imports()` above) excludes only imports
+    truly inside a function, which is where the D-17 deferred-import escape
+    hatch used throughout this file actually defers to — it does not run the
+    router's side effects at the importer's import time, so it does not
+    reproduce the bug this guard exists to catch.
 
     Same-package nesting is not an edge: a domain's ``router.py`` composing
     its own ``router_*.py`` siblings (e.g. ``catalog/maps/router.py`` including
@@ -4806,16 +4836,30 @@ def _cross_package_router_import_edges() -> dict[str, set[str]]:
         if rel in _ROUTER_COMPOSITION_ROOT:
             continue
         importer_package = _dotted_package(path)
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+
+        inside_functions: set[ast.AST] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for child in ast.walk(node):
+                    if child is not node:
+                        inside_functions.add(child)
+
+        for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom) and node.module:
-                modules = [node.module]
+                candidates = [node.module]
+                candidates.extend(
+                    f"{node.module}.{alias.name}"
+                    for alias in node.names
+                    if _resolves_to_real_module(f"{node.module}.{alias.name}")
+                )
             elif isinstance(node, ast.Import):
-                modules = [alias.name for alias in node.names]
+                candidates = [alias.name for alias in node.names]
             else:
                 continue
-            if node.col_offset != 0:
+            if node in inside_functions:
                 continue
-            for module in modules:
+            for module in candidates:
                 if not module.startswith("app.") or not _is_router_module(module):
                     continue
                 if _module_package(module) == importer_package:
