@@ -211,47 +211,52 @@ async def get_dataset_detail(
         [dataset.record.created_by, dataset.record.updated_by],
     )
 
-    # Fetch RasterAsset, vrt_source_links count, and DatasetAsset rows in
-    # parallel through CatalogPort so catalog does not import processing-owned
-    # raster ORM classes directly.
+    # Fetch RasterAsset, vrt_source_links count, and DatasetAsset rows
+    # concurrently through CatalogPort so catalog does not import
+    # processing-owned raster ORM classes directly. Each branch opens its own
+    # short-lived session — AsyncSession is NOT safe for concurrent use (the
+    # same rule search/router.py's _bulk_fetch_dataset_metadata documents), so
+    # gathering these against the shared `db` previously just serialized
+    # under asyncpg's per-connection execute lock while the comment here
+    # claimed they ran in parallel.
+    from app.core.db import async_session
+
     record_type = getattr(dataset.record, "record_type", None)
     needs_raster = record_type in RASTER_FAMILY_RECORD_TYPES
     needs_vrt_count = record_type == "vrt_dataset"
+
+    async def _fetch_raster_asset() -> Any:
+        async with async_session() as session:
+            return await get_catalog_port().get_raster_asset(session, dataset.id)
+
+    async def _fetch_vrt_source_count() -> int | None:
+        async with async_session() as session:
+            result = await session.execute(
+                text(
+                    "SELECT COUNT(*) FROM catalog.vrt_source_links WHERE vrt_dataset_id = :id"
+                ),
+                {"id": str(dataset.id)},
+            )
+            return result.scalar()
+
+    async def _fetch_dataset_assets() -> list:
+        async with async_session() as session:
+            return await get_catalog_port().get_dataset_assets(session, dataset.id)
 
     # Build a labeled-coro list and gather only the ones we need; collapsing
     # the three explicit branch shapes that previously existed here.
     coros: list[tuple[str, Any]] = []
     if needs_raster:
-        coros.append(
-            (
-                "ra",
-                get_catalog_port().get_raster_asset(db, dataset.id),
-            )
-        )
+        coros.append(("ra", _fetch_raster_asset()))
     if needs_vrt_count:
-        coros.append(
-            (
-                "sc",
-                db.execute(
-                    text(
-                        "SELECT COUNT(*) FROM catalog.vrt_source_links WHERE vrt_dataset_id = :id"
-                    ),
-                    {"id": str(dataset.id)},
-                ),
-            )
-        )
-    coros.append(
-        (
-            "da",
-            get_catalog_port().get_dataset_assets(db, dataset.id),
-        )
-    )
+        coros.append(("sc", _fetch_vrt_source_count()))
+    coros.append(("da", _fetch_dataset_assets()))
 
     results = dict(
         zip([k for k, _ in coros], await asyncio.gather(*(c for _, c in coros)))
     )
     raster_asset = results["ra"] if "ra" in results else None
-    source_count = results["sc"].scalar() if "sc" in results else None
+    source_count = results["sc"] if "sc" in results else None
 
     dataset_asset_rows = results["da"]
     stac_assets_dict = {}

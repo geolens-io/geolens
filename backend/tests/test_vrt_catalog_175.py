@@ -874,6 +874,122 @@ class TestSearchEnrichmentVrt:
         assert properties["source_count"] == 2
 
 
+# ---------------------------------------------------------------------------
+# TestDatasetDetailSessionIsolation
+# ---------------------------------------------------------------------------
+
+
+class TestDatasetDetailSessionIsolation:
+    """F12: get_dataset_detail's gathered branches must not share the caller's session.
+
+    Regression guard: the raster asset, VRT source-count, and dataset-asset
+    fetches were previously gathered via ``asyncio.gather`` against the
+    caller's ``db`` while a comment claimed they ran "in parallel". SQLAlchemy's
+    AsyncSession is not safe for concurrent use — asyncpg's per-connection
+    execute lock silently serializes it instead of running the branches
+    concurrently — and every other gather site in this codebase
+    (search/router.py, stac/router.py) gives each branch its own short-lived
+    session. This pins that same contract for the dataset-detail gather.
+    """
+
+    @pytest.mark.anyio
+    async def test_gathered_branches_use_distinct_sessions_not_caller_db(
+        self, monkeypatch
+    ):
+        from app.modules.catalog.datasets.domain import service_query
+
+        # vrt_dataset is in RASTER_FAMILY_RECORD_TYPES, so this scenario
+        # exercises all three gathered branches: raster asset, VRT source
+        # count, and dataset assets.
+        dataset = _make_mock_dataset("vrt_dataset", "My VRT")
+        dataset.record.created_by = None
+        dataset.record.updated_by = None
+        dataset.source_format = "cog"
+
+        class CallerSession:
+            async def execute(self, *args, **kwargs):
+                raise AssertionError(
+                    "get_dataset_detail used the caller's db for a gathered "
+                    "branch instead of a fresh session"
+                )
+
+        caller_db = CallerSession()
+
+        opened_sessions: list[object] = []
+
+        class FakeInnerSession:
+            def __init__(self):
+                opened_sessions.append(self)
+
+            async def execute(self, *args, **kwargs):
+                result = MagicMock()
+                result.scalar.return_value = 2
+                return result
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        def _fake_async_session(*args, **kwargs):
+            return FakeInnerSession()
+
+        import app.core.db as _db_module
+
+        monkeypatch.setattr(_db_module, "async_session", _fake_async_session)
+
+        raster_asset_sessions: list[object] = []
+        dataset_asset_sessions: list[object] = []
+        fake_raster_asset = MagicMock()
+
+        async def _fake_get_raster_asset(session, _dataset_id):
+            raster_asset_sessions.append(session)
+            return fake_raster_asset
+
+        async def _fake_get_dataset_assets(session, _dataset_id):
+            dataset_asset_sessions.append(session)
+            return []
+
+        port = MagicMock()
+        port.get_raster_asset = _fake_get_raster_asset
+        port.get_dataset_assets = _fake_get_dataset_assets
+        monkeypatch.setattr(service_query, "get_catalog_port", lambda: port)
+
+        # Downstream response building is irrelevant to session isolation —
+        # stub it so the test stays focused on the gather itself.
+        monkeypatch.setattr(
+            "app.modules.catalog.datasets.domain.helpers.dataset_to_response",
+            lambda *args, **kwargs: MagicMock(),
+        )
+        monkeypatch.setattr(
+            "app.modules.catalog.authorization.visible_derived_from",
+            AsyncMock(return_value=None),
+        )
+        monkeypatch.setattr(
+            "app.modules.catalog.authorization.visible_lineage_summary",
+            AsyncMock(return_value=None),
+        )
+
+        result = await service_query.get_dataset_detail(
+            caller_db,
+            dataset.id,
+            user=None,
+            dataset=dataset,
+            user_roles=set(),
+        )
+
+        assert result is not None
+        # Three gathered branches (raster asset, VRT source count, dataset
+        # assets) each open their own session; the caller's db is untouched.
+        assert len(opened_sessions) == 3
+        assert caller_db not in opened_sessions
+        assert caller_db not in raster_asset_sessions
+        assert caller_db not in dataset_asset_sessions
+        # Each branch gets its OWN session — not one shared fresh session.
+        assert len({id(s) for s in opened_sessions}) == 3
+
+
 def test_search_enrichment_vrt_no_longer_uses_source_introspection():
     source = Path(__file__).read_text()
 
