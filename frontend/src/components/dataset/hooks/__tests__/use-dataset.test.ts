@@ -1,8 +1,8 @@
 import { renderHook, waitFor } from '@/test/test-utils';
-import { act } from '@testing-library/react';
+import { act, renderHook as renderHookRTL } from '@testing-library/react';
 import { vi } from 'vitest';
-import { useRef } from 'react';
-import { useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { createElement, useRef, type ReactNode } from 'react';
+import { useQueryClient, QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query';
 
 vi.mock('@/api/datasets', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/api/datasets')>();
@@ -315,6 +315,59 @@ describe('useDatasetRefreshRuns', () => {
     renderHook(() => useDatasetRefreshRuns(''));
 
     expect(mockGetDatasetRefreshRuns).not.toHaveBeenCalled();
+  });
+
+  /**
+   * fix(#1328): main.tsx sets refetchOnWindowFocus: false as the GLOBAL
+   * default because a refresh dispatched from the CLI or another editor's
+   * session never touches this client's cache — without a per-query
+   * override, this query's cached "idle" state is never re-validated by
+   * returning focus to the tab. The shared test client (test-utils.tsx)
+   * doesn't set that global default, so asserting against it would pass
+   * even without the fix (react-query's own default is already `true`).
+   * Build a client that mirrors main.tsx's global `false` instead, so a
+   * refetch here can only be explained by this query's own override.
+   */
+  it('refetches on window focus once stale, even under a client that disables it globally', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mockGetDatasetRefreshRuns.mockResolvedValue({
+        runs: [makeRun({ id: 'run-1', status: 'succeeded' })],
+        total: 1,
+      });
+
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false, gcTime: 0, refetchOnWindowFocus: false } },
+      });
+      function Wrapper({ children }: { children: ReactNode }) {
+        return createElement(QueryClientProvider, { client: queryClient }, children);
+      }
+
+      const { result } = renderHookRTL(() => useDatasetRefreshRuns('ds-1'), { wrapper: Wrapper });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(result.current.isSuccess).toBe(true);
+      expect(mockGetDatasetRefreshRuns).toHaveBeenCalledTimes(1);
+
+      // Past this query's own 15s staleTime — refetchOnWindowFocus: true
+      // only refetches stale data, per TanStack Query's own contract.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_001);
+      });
+      expect(mockGetDatasetRefreshRuns).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        focusManager.setFocused(true);
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(mockGetDatasetRefreshRuns).toHaveBeenCalledTimes(2);
+    } finally {
+      focusManager.setFocused(undefined);
+      vi.useRealTimers();
+    }
   });
 });
 

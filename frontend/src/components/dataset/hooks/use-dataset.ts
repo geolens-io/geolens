@@ -228,6 +228,17 @@ export function useDatasetRefreshRuns(
     enabled: !!datasetId,
     placeholderData: keepPreviousData,
     staleTime: 15_000,
+    // fix(#1328): observe externally-started refresh runs on tab refocus.
+    // The app disables refetchOnWindowFocus globally (main.tsx) because a
+    // refresh dispatched from the CLI or another editor's session never
+    // touches this client's cache — under the global default, this query's
+    // cached "idle" state (no active run) is otherwise never re-validated
+    // until something else remounts or invalidates it. Overriding the
+    // default here means returning focus to the tab re-fetches runs (once
+    // staleTime has lapsed), so useDatasetRefreshWatch's active->terminal
+    // transition guard gets a chance to observe a run it never dispatched
+    // and never saw start.
+    refetchOnWindowFocus: true,
     // fix(#1285 codex round 2): keepPreviousData shows the LAST successful
     // result as a placeholder for ANY new query invocation, not just a
     // paged re-fetch of the same dataset — so navigating straight from one
