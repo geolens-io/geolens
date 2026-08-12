@@ -10,6 +10,23 @@ from __future__ import annotations
 from app.platform.ai_tool_payloads import model_safe_tool_result
 
 
+def _require_tool_executor(tool_executor):  # type: ignore[no-untyped-def]
+    """Guard the ``None`` default right before a tool call.
+
+    Kept as a standalone function rather than an inline check in
+    ``complete()`` so the guard's branch doesn't count against that
+    method's McCabe budget. Raises a clear error instead of letting a
+    ``None`` executor fail as ``TypeError: 'NoneType' object is not
+    callable``.
+    """
+    if tool_executor is None:
+        raise ValueError(
+            "Model requested a tool call but no tool_executor was provided; "
+            "pass tool_executor when tools is non-empty."
+        )
+    return tool_executor
+
+
 class DefaultAnthropicProvider:
     """Community-edition default: Anthropic native tool-calling loop (Phase 226 D-17).
 
@@ -39,7 +56,7 @@ class DefaultAnthropicProvider:
         system_prompt,
         user_message,
         tools,
-        tool_executor,
+        tool_executor=None,
         action_collector=None,
         history=None,
         max_rounds=None,
@@ -162,7 +179,9 @@ class DefaultAnthropicProvider:
                     if block.type == "tool_use":
                         log.info("Tool call", tool=block.name, input=block.input)
 
-                        result = await tool_executor(block.name, block.input)
+                        result = await _require_tool_executor(tool_executor)(
+                            block.name, block.input
+                        )
 
                         if action_collector:
                             action = action_collector(block.name, block.input, result)

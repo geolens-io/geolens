@@ -1750,7 +1750,12 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # split time. Caps exact (zero headroom): each class moved verbatim
         # from the 1815-LOC defaults.py, and regrowth toward another god
         # module should get its own review.
-        "backend/app/platform/extensions/defaults_ai_openai.py": 444,
+        # +12 — dead-code sweep: tool_executor now defaults to None so the
+        # no-tools callers (sql_generator, probe, service retry/repair) no
+        # longer construct a throwaway executor; the two tool-call sites each
+        # gained a guard that turns a None executor into a clear ValueError
+        # instead of a raw TypeError. Cap 444 -> 456, exact.
+        "backend/app/platform/extensions/defaults_ai_openai.py": 456,
         # fix(#1207): +15 — three delegations for the shared presigned-completion
         # helpers (lock/assemble-check/finalize) the reupload door reaches through
         # the port. Three lines each, matching the existing entries.

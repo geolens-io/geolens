@@ -37,7 +37,7 @@ class DefaultOpenAICompatibleProvider:
         system_prompt,
         user_message,
         tools,
-        tool_executor,
+        tool_executor=None,
         action_collector=None,
         history=None,
         max_rounds=None,
@@ -159,6 +159,12 @@ class DefaultOpenAICompatibleProvider:
                     # Execute parsed XML tool calls
                     for fn_name, fn_args in parsed_calls:
                         log.info("Parsed XML tool call", tool=fn_name, input=fn_args)
+                        if tool_executor is None:
+                            raise ValueError(
+                                "Model requested a tool call but no tool_executor "
+                                "was provided; pass tool_executor when tools is "
+                                "non-empty."
+                            )
                         result = await tool_executor(fn_name, fn_args)
                         if action_collector:
                             action = action_collector(fn_name, fn_args, result)
@@ -200,6 +206,12 @@ class DefaultOpenAICompatibleProvider:
                             continue
                     log.info("Tool call", tool=fn_name, input=fn_args)
 
+                    if tool_executor is None:
+                        raise ValueError(
+                            "Model requested a tool call but no tool_executor "
+                            "was provided; pass tool_executor when tools is "
+                            "non-empty."
+                        )
                     result = await tool_executor(fn_name, fn_args)
 
                     if action_collector:

@@ -468,16 +468,13 @@ async def generate_sql(
     runtime_config = await provider_ext.resolve_runtime_config(db)
     base_url = runtime_config.get("base_url")
 
-    async def _noop_executor(name: str, args: dict) -> dict:
-        # max_rounds=1 exits before any tool call; executor never runs.
-        return {}
-
     result = await provider_ext.complete(
         model=model,
         system_prompt=SQL_SYSTEM_PROMPT,
         user_message=user_message,
         tools=[],
-        tool_executor=_noop_executor,
+        # max_rounds=1 exits before any tool call; executor never runs.
+        tool_executor=None,
         max_rounds=1,
         max_tokens=2048,
         temperature=0.0,
