@@ -36,8 +36,8 @@ class DatasetRefreshRunResponse:
             id (UUID):
             dataset_id (UUID):
             origin_kind (str): The run's execution door, not the dataset's origin: upload, postgis, service, stac, or
-                raster. 'raster' is the raster-replace door and has no origin counterpart; a raster dataset's own origin is
-                'upload'.
+                raster. 'raster' is reserved for a future, distinct raster-replace door label; today's raster-replace runs are
+                still recorded as 'upload', matching the dataset's origin.
             trigger (str): manual, api, or cli
             status (str): pending, running, succeeded, failed, or cancelled
             started_at (datetime.datetime): Dispatch time, not claim time — queue wait is visible

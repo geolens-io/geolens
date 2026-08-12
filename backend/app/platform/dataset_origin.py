@@ -53,10 +53,11 @@ _ORIGINLESS_RECORD_TYPES: frozenset[str] = frozenset({"collection", "vrt_dataset
 # refresh or reupload ran through, not the dataset's origin, and the two sets
 # diverge on purpose in both directions. 'created' is here but has no ledger
 # counterpart, because a dataset drawn in the app has nothing to refresh from.
-# The ledger's 'raster' has no ORIGIN_KINDS counterpart, because a raster
-# dataset's origin is still 'upload' (the GeoTIFF it arrived as) even when its
-# replace run goes through a distinct door; see the CHECK constraint's comment
-# for what that door does and does not do today.
+# The ledger's 'raster' has no ORIGIN_KINDS counterpart: it is RESERVED for a
+# distinct raster-replace door label, but a raster dataset's origin is still
+# 'upload' (the GeoTIFF it arrived as) and its replace runs are still
+# recorded 'upload' too, today; see the CHECK constraint's comment for what
+# 'raster' does and does not do.
 ORIGIN_KINDS: frozenset[str] = frozenset(
     {"upload", "postgis", "service", "stac", "created"}
 )

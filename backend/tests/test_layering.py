@@ -2644,7 +2644,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # door has no ORIGIN_KINDS counterpart), matching the CHECK constraint
     # comment in platform/refresh/models.py and the ORIGIN_KINDS docstring in
     # platform/dataset_origin.py. Cap 1458 -> 1465, exact.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1465,
+    # fix(#1325 review): +1 — codex caught the description overclaiming
+    # 'raster' as live behavior ("is the raster-replace door") when
+    # refresh/models.py's own comment on the same constraint says reserved,
+    # not live. Reworded to match: 'raster' is reserved for a future door
+    # label, today's raster-replace runs are still recorded 'upload'. Cap
+    # 1465 -> 1466, exact.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1466,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch

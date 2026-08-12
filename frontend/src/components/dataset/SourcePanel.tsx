@@ -299,10 +299,12 @@ function RefreshRunHistory({ dataset }: { dataset: DatasetResponse }) {
                 <Badge variant="outline" className={refreshRunStatusColors[run.status] ?? ''}>
                   {t(`sourcePanel.refresh.history.status.${run.status}`, { defaultValue: run.status })}
                 </Badge>
-                {/* fix(#1325): run.origin_kind is the run's execution door
-                    (e.g. a raster replace runs through 'raster'), not the
-                    dataset's origin shown by the OriginBadge above — label
-                    and tooltip say so, so the two never read as disagreeing. */}
+                {/* fix(#1325): run.origin_kind is the run's execution door,
+                    not the dataset's origin shown by the OriginBadge above
+                    (a raster-replace run is still recorded 'upload' today,
+                    matching the dataset's origin, since 'raster' is a
+                    reserved value with no live producer yet) — label and
+                    tooltip say so, so the two never read as disagreeing. */}
                 <Badge
                   variant="secondary"
                   title={t('sourcePanel.refresh.history.mechanismTooltip')}
