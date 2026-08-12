@@ -423,7 +423,10 @@ async def regenerate_vrt_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> VrtMutationResponse:
     """Trigger manual VRT regeneration with advisory lock to prevent concurrent rebuilds."""
-    from app.platform.jobs.defer_guard import defer_with_orphan_guard
+    from app.platform.jobs.defer_guard import (
+        defer_with_orphan_guard,
+        make_vrt_regeneration_failed_rollback,
+    )
 
     RasterAsset = get_catalog_port().raster_asset_orm_class()
     VrtGeneration = get_catalog_port().vrt_generation_orm_class()
@@ -519,22 +522,17 @@ async def regenerate_vrt_endpoint(
             triggered_by=str(user.id),
         )
 
-    async def _rollback(defer_exc: BaseException) -> None:
-        # Mark the VrtGeneration record failed so listings reflect
-        # reality (the row was already committed via db.flush +
-        # db.commit above).
-        generation.status = "failed"
-        generation.completed_at = datetime.now(timezone.utc)
-        generation.error_message = f"Failed to queue VRT regeneration: {defer_exc}"
-        # Revert VRT asset state to pre-mutation values.
-        vrt_asset.status = previous_status
-        vrt_asset.current_generation_id = previous_generation_id
-        # Mark the IngestJob failed.
-        job.status = "failed"
-        job.error_message = f"Failed to queue VRT regeneration: {defer_exc}"
-        job.completed_at = datetime.now(timezone.utc)
-
-    await defer_with_orphan_guard(_defer, rollback=_rollback, db=db)
+    # The VrtGeneration row was already committed via db.flush + db.commit
+    # above; rollback marks it failed and reverts vrt_asset to its
+    # pre-mutation values (captured before that commit).
+    rollback = make_vrt_regeneration_failed_rollback(
+        vrt_asset,
+        generation,
+        job,
+        previous_status=previous_status,
+        previous_generation_id=previous_generation_id,
+    )
+    await defer_with_orphan_guard(_defer, rollback=rollback, db=db)
 
     return VrtMutationResponse(
         job_id=job.id,

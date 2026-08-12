@@ -2164,7 +2164,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `responses={403: FORBIDDEN_RESPONSE}` override; it only requires
     # authentication, not the router's write-flavored default. Cap 1545 ->
     # 1550, exact.
-    "backend/app/processing/ingest/router.py": 1550,
+    # Collapsed the add/remove VRT-source defer-rollback closures onto the
+    # shared make_vrt_regeneration_failed_rollback factory in defer_guard.py
+    # instead of hand-rolling the same eight-field revert twice with only
+    # comment/statement-order differences between them (-7 net). Landed
+    # concurrently with the responses={403:...} addition above; recounted
+    # after merge rather than picking either side's number. Cap 1550 ->
+    # 1543, exact.
+    "backend/app/processing/ingest/router.py": 1543,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
