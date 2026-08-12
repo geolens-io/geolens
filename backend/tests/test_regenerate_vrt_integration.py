@@ -302,6 +302,15 @@ async def test_regenerate_vrt_happy_path_end_to_end(
 
     session = test_db_session
 
+    # fix(#1329 follow-up): capture the pre-swap version so [17] asserts the
+    # bump itself, not a hardcoded absolute.
+    pre_version_result = await session.execute(
+        select(Dataset.tile_cache_version).where(
+            Dataset.id == uuid.UUID(vrt_db_state["vrt_dataset_id"])
+        )
+    )
+    pre_tile_cache_version = pre_version_result.scalar_one()
+
     # --- INVOKE ------------------------------------------------------------
     # Call the underlying coroutine via Task.func, bypassing the queue.
     await regenerate_vrt.func(
@@ -432,6 +441,12 @@ async def test_regenerate_vrt_happy_path_end_to_end(
     # completed_at instant — not a separate now() call.
     assert vrt_dataset.last_refreshed_at is not None
     assert vrt_dataset.last_refreshed_at == generation.completed_at
+
+    # [17] fix(#1329 follow-up): the swap rolls tile_cache_version in the
+    # same transaction as the pointer swap, like every other refresh door.
+    # The URL `v=` buster and the raster meta cache key both read it, so an
+    # unbumped swap leaves pre-swap tiles valid until cache TTLs expire.
+    assert vrt_dataset.tile_cache_version == pre_tile_cache_version + 1
 
     # --- BONUS: Rasterio re-open + bounds sanity check ---------------------
     # (per CONTEXT.md Claude's Discretion + RESEARCH.md recommendation)

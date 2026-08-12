@@ -2504,7 +2504,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # KWARG could not do this (the old signature ends in `**kwargs`, so an
     # unknown keyword is swallowed) and where the refused delivery lands.
     # Cap 1300 -> 1344, exact.
-    "backend/app/processing/ingest/tasks_vrt.py": 1344,
+    # fix(#1329 follow-up): +10 — bump tile_cache_version in the VRT swap
+    # transaction; the third pointer-swap door finally rolls the version.
+    "backend/app/processing/ingest/tasks_vrt.py": 1354,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
     # reaper never touched the key the client's PUT URL can still recreate.
