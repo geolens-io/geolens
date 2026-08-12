@@ -2826,7 +2826,20 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1372 codex r4): +12 — the check mirrors nginx's $arg_v semantics
     # (first occurrence, case-insensitive name), closing the duplicate-param
     # and name-case parser-disagreement variants of the same pre-warm attack.
-    "backend/app/processing/tiles/router.py": 2191,
+    # fix(#1329): +64 — the raster meta cache key carries the request's `v`, so
+    # the three in-place pointer swaps (reupload, VRT regeneration, STAC
+    # moved-asset refresh) invalidate every api process's snapshot with the
+    # version bump they already do, instead of each process serving the
+    # pre-swap href for a TTL. Most of it is the note recording WHY it is the
+    # request's `v` and not the row's: the row's version arrives through the
+    # same cached snapshot, so it is exactly as stale as the href it would be
+    # guarding.
+    # fix(#1329 codex P1): +13 — the lookup key is the request's `v` but the
+    # STORE key is the resolved row's, so no caller can name the entry it
+    # writes and a predictable future `v` can no longer park a pre-swap
+    # snapshot on the key the swap is about to make legitimate.
+    # Ratchet stays exact.
+    "backend/app/processing/tiles/router.py": 2268,
     # feat(#565): the SQL sandbox validator crossed 1000 lines across the codex
     # rounds on the query endpoint: the lexical CTE-scope fix (P1) and its
     # pg_catalog.pg_user rationale, the declaration-order refinement (P1 r2),

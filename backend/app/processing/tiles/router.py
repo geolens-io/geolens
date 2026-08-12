@@ -655,9 +655,26 @@ def _require_tile_tenant_context() -> str | None:
     return tenant_id
 
 
+def _meta_cache_version_segment(raw: str | None) -> str | None:
+    """Normalize a request's ``v`` into a raster meta cache-key segment (#1329).
+
+    ``tile_cache_version`` is a small monotonic integer, so only a short ASCII
+    digit run is accepted as a key segment. Anything else — absent, empty,
+    non-numeric, absurdly long — returns None, which puts the caller back on the
+    unversioned key and therefore on the pre-#1329 behavior (60s-bounded
+    staleness), never on an error.
+    """
+    if raw is None or not (0 < len(raw) <= 10):
+        return None
+    if not (raw.isascii() and raw.isdigit()):
+        return None
+    return raw
+
+
 async def _resolve_raster_meta(
     db: AsyncSession,
     dataset_id: uuid.UUID,
+    requested_version: str | None = None,
 ) -> _RasterMeta:
     """Look up raster dataset/asset metadata with a short in-memory cache.
 
@@ -672,12 +689,36 @@ async def _resolve_raster_meta(
     filters ``catalog.datasets.tenant_id`` explicitly. An unresolved tenant
     fails before cache lookup or SQL. Single-tenant keys and SQL stay unchanged.
 
+    ``requested_version`` is the request's ``v`` (see the #1329 note at the key
+    derivation); callers that have no request context omit it and keep the
+    pre-#1329 key.
+
     Raises HTTPException(404) when the dataset is missing, is not a raster, or
     has no raster asset.
     """
     tenant_id = _require_tile_tenant_context()
+    base_key = f"{tenant_id}:{dataset_id}" if tenant_id is not None else str(dataset_id)
+    # fix(#1329): LOOK UP under the REQUEST's `v`, not the row's
+    # `tile_cache_version`. Three paths swap a raster's pointer in place
+    # (reupload #1290, VRT regeneration, STAC moved-asset refresh #1326) and all
+    # three bump the version in the same transaction — but the row's version
+    # reaches this function only through the snapshot below, so it is exactly as
+    # stale as the `asset_uri` it would be guarding and looking up by it would
+    # buy nothing. The request's `v` is independent: it comes from the
+    # dataset/map metadata the client fetched, so the first tile request after a
+    # swap carries the new value, misses in EVERY api process, and re-reads the
+    # href and band shape once. Requests still carrying the old `v` read their
+    # own entry — stale but well-formed, bounded by the TTL and self-healing,
+    # which is the tradeoff #1329 accepts.
+    #
+    # The lookup is under the request's value, but the STORE is under the row's
+    # (see the write site below) — the request never names the entry it writes.
+    # Memory stays bounded by the LRU, and a caller varying `v` to evict entries
+    # costs at most one extra indexed read per request — the same order as the
+    # uncached miss an unknown dataset id already produces.
+    version_segment = _meta_cache_version_segment(requested_version)
     cache_key = (
-        f"{tenant_id}:{dataset_id}" if tenant_id is not None else str(dataset_id)
+        f"{base_key}:v{version_segment}" if version_segment is not None else base_key
     )
     now = time.monotonic()
     with _raster_meta_cache_lock:
@@ -748,8 +789,27 @@ async def _resolve_raster_meta(
         nodata=row["nodata"],
         tile_cache_version=row["tile_cache_version"] or 1,
     )
+    # fix(#1329 codex P1): entries must be stamped with the version they
+    # correspond to, or a predictable future `v` pre-warms stale metadata past
+    # the swap. Storing under the REQUESTED value let any caller name an entry:
+    # asking for `v=N+1` while the row still reads N stored the CURRENT snapshot
+    # under the next version's key, and the swap that bumps the row to N+1 then
+    # found that key already occupied, so genuine `v=N+1` requests kept the
+    # pre-swap href for a full TTL. Refusing to mark such a response cacheable
+    # (#1372) does not help — that defends nginx, and the poisoned entry is
+    # process-local. Deriving the write key from the snapshot's OWN version
+    # makes it structurally impossible: key and content always agree, a
+    # mismatched request resolves fresh and writes only its dataset's real
+    # version, and the first post-swap request at the new version finds nothing
+    # and reads the new pointer. The cost is that mismatched-`v` requests are
+    # permanent misses, one indexed read each.
+    store_key = (
+        f"{base_key}:v{meta.tile_cache_version}"
+        if version_segment is not None
+        else base_key
+    )
     with _raster_meta_cache_lock:
-        _raster_meta_cache[cache_key] = (now, meta)
+        _raster_meta_cache[store_key] = (now, meta)
     return meta
 
 
@@ -795,6 +855,7 @@ async def _resolve_raster_access(
     dataset_id: uuid.UUID,
     request: Request,
     user: Identity | None,
+    requested_version: str | None = None,
 ) -> tuple[_RasterMeta, str]:
     """Validate RBAC access to a raster dataset and return row metadata + storage backend.
 
@@ -802,10 +863,13 @@ async def _resolve_raster_access(
     validation, embed-token / user / RBAC checks (3 auth priority branches), and
     returns the _RasterMeta together with the resolved storage_backend string.
 
+    ``requested_version`` is the request's ``v`` and only reaches the metadata
+    cache key (#1329); it is never an input to any auth decision.
+
     Raises HTTPException on any auth or lookup failure.
     """
     # PERF-002: metadata resolved from cache; auth checks always run per-request.
-    meta = await _resolve_raster_meta(db, dataset_id)
+    meta = await _resolve_raster_meta(db, dataset_id, requested_version)
 
     visibility = meta.visibility
     record_status = meta.record_status
@@ -910,7 +974,25 @@ async def raster_auth_check(
         403 if embed token is invalid
         404 if dataset not found, not a raster, or has no raster asset
     """
-    meta, storage_backend = await _resolve_raster_access(db, dataset_id, request, user)
+    # fix(#1372 codex r4): nginx keys on the FIRST occurrence of `v` and matches
+    # the param NAME case-insensitively; `QueryParams.get()` returns the LAST
+    # occurrence of an exact-case name — so `?v=<future>&v=<current>` (or
+    # `?V=<future>`) would pass a naive check while nginx keys on the future
+    # value. Read once here because the same values decide two things: which
+    # metadata cache entry serves this request (#1329) and whether the response
+    # may be stored by the shared cache (below).
+    v_values = [
+        value
+        for name, value in request.query_params.multi_items()
+        if name.lower() == "v"
+    ]
+    meta, storage_backend = await _resolve_raster_access(
+        db,
+        dataset_id,
+        request,
+        user,
+        requested_version=v_values[0] if v_values else None,
+    )
 
     # Resolve COG open-path for Titiler via the single storage seam (STOR-02 / Phase 1210).
     # resolve_open_path handles local/s3/azure dispatch and http(s) pass-through.
@@ -930,23 +1012,18 @@ async def raster_auth_check(
     # public URLs and increments predictably, so an unvalidated `v` would let a
     # caller pre-warm the NEXT version's cache key with pre-replace bytes and
     # defeat the invalidation for a full TTL. A mismatched `v` still serves —
-    # a stale tab keeps rendering current bytes — but as `private, no-store`,
-    # so the wrong key is never populated. Compared against the same cached
-    # meta snapshot the bytes come from (`_RASTER_META_CACHE_TTL` note above),
-    # so version and content can never disagree within one response.
+    # a stale tab keeps rendering (its own version's entry for up to the meta
+    # TTL after a swap, then the current bytes, #1329) — but as
+    # `private, no-store`, so the wrong key is never populated. Compared
+    # against the same cached meta snapshot the bytes come from
+    # (`_RASTER_META_CACHE_TTL` note above), so version and content can never
+    # disagree within one response.
     #
     # fix(#1372 codex r4): the match must mirror nginx's `$arg_v` semantics,
-    # not Starlette's. nginx keys on the FIRST occurrence and matches the
-    # param NAME case-insensitively; `QueryParams.get()` returns the LAST
-    # occurrence of an exact-case name — so `?v=<future>&v=<current>` (or
-    # `?V=<future>`) would pass a naive check while nginx keys on the future
-    # value. Cacheable requires exactly one case-insensitive `v`, equal to
-    # the current version; anything else is served no-store.
-    v_values = [
-        value
-        for name, value in request.query_params.multi_items()
-        if name.lower() == "v"
-    ]
+    # not Starlette's (read at the top of this handler, with the parser
+    # disagreement documented there). Cacheable requires exactly one
+    # case-insensitive `v`, equal to the current version; anything else is
+    # served no-store.
     if (
         cache_status == "public"
         and v_values
