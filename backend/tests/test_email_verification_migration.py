@@ -22,8 +22,6 @@ Notes
             uv run pytest tests/test_email_verification_migration.py -x -q
 """
 
-from pathlib import Path
-
 import pytest
 from tests.alembic_helpers import (
     enterprise_migrations_present,
@@ -34,10 +32,6 @@ from tests.alembic_helpers import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-_BACKEND_DIR = Path(__file__).parent.parent.resolve()
-_ALEMBIC_INI = _BACKEND_DIR / "alembic.ini"
-
 
 _SKIP_UNDER_OVERLAY = pytest.mark.skipif(
     enterprise_migrations_present(),

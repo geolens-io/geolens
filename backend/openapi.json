@@ -44442,27 +44442,7 @@
                 }
               }
             },
-            "description": "Bad request \u2014 invalid payload"
-          },
-          "401": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              }
-            },
-            "description": "Unauthorized \u2014 missing or invalid credentials"
-          },
-          "403": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              }
-            },
-            "description": "Forbidden \u2014 caller lacks access to this resource"
+            "description": "Bad request \u2014 invalid query parameters or payload"
           },
           "404": {
             "content": {
@@ -44473,16 +44453,6 @@
               }
             },
             "description": "Not found"
-          },
-          "409": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              }
-            },
-            "description": "Conflict \u2014 resource state prevents the operation"
           },
           "422": {
             "content": {
@@ -44561,27 +44531,7 @@
                 }
               }
             },
-            "description": "Bad request \u2014 invalid payload"
-          },
-          "401": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              }
-            },
-            "description": "Unauthorized \u2014 missing or invalid credentials"
-          },
-          "403": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              }
-            },
-            "description": "Forbidden \u2014 caller lacks write access"
+            "description": "Bad request \u2014 invalid query parameters or payload"
           },
           "404": {
             "content": {
@@ -44592,16 +44542,6 @@
               }
             },
             "description": "Not found"
-          },
-          "409": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              }
-            },
-            "description": "Conflict \u2014 resource state prevents the operation"
           },
           "422": {
             "content": {

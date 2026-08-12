@@ -28,8 +28,6 @@ Notes
   project memory note on concurrent DB probes.
 """
 
-from pathlib import Path
-
 import pytest
 import sqlalchemy as sa
 from tests.alembic_helpers import (
@@ -41,9 +39,6 @@ from tests.alembic_helpers import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-_BACKEND_DIR = Path(__file__).parent.parent.resolve()
-_ALEMBIC_INI = _BACKEND_DIR / "alembic.ini"
 
 _FOUR_PARTIAL_INDEXES = {
     "uq_users_username_global",

@@ -32,7 +32,6 @@ Notes
 """
 
 import subprocess
-from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
@@ -45,9 +44,6 @@ from tests.alembic_helpers import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-_BACKEND_DIR = Path(__file__).parent.parent.resolve()
-_ALEMBIC_INI = _BACKEND_DIR / "alembic.ini"
 
 _PRE_TYPED_REVISION = "0011_allow_generic_geometry_type"
 

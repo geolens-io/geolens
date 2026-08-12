@@ -30755,26 +30755,8 @@ export interface operations {
                     };
                 };
             };
-            /** @description Bad request — invalid payload */
+            /** @description Bad request — invalid query parameters or payload */
             400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ProblemDetail"];
-                };
-            };
-            /** @description Unauthorized — missing or invalid credentials */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ProblemDetail"];
-                };
-            };
-            /** @description Forbidden — caller lacks access to this resource */
-            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -30784,15 +30766,6 @@ export interface operations {
             };
             /** @description Not found */
             404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ProblemDetail"];
-                };
-            };
-            /** @description Conflict — resource state prevents the operation */
-            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -30858,26 +30831,8 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
-            /** @description Bad request — invalid payload */
+            /** @description Bad request — invalid query parameters or payload */
             400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ProblemDetail"];
-                };
-            };
-            /** @description Unauthorized — missing or invalid credentials */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ProblemDetail"];
-                };
-            };
-            /** @description Forbidden — caller lacks write access */
-            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -30887,15 +30842,6 @@ export interface operations {
             };
             /** @description Not found */
             404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ProblemDetail"];
-                };
-            };
-            /** @description Conflict — resource state prevents the operation */
-            409: {
                 headers: {
                     [name: string]: unknown;
                 };
