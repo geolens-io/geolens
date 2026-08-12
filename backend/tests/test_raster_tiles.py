@@ -25,6 +25,7 @@ from app.processing.tiles.router import (
     _raster_maxzoom_from_metadata,
 )
 
+from tests.conftest import get_auth_header
 from tests.factories import create_raster_dataset, get_user_id
 
 
@@ -271,14 +272,6 @@ class TestRasterTokenZoomMetadata:
         assert _raster_maxzoom_from_metadata(asset, None) == 17
 
 
-async def _get_auth_header(client: AsyncClient, username: str, password: str) -> dict:
-    resp = await client.post(
-        "/auth/login", data={"username": username, "password": password}
-    )
-    assert resp.status_code == 200, f"Login failed: {resp.text}"
-    return {"Authorization": f"Bearer {resp.json()['access_token']}"}
-
-
 # ---------------------------------------------------------------------------
 # Auth-check endpoint tests
 # ---------------------------------------------------------------------------
@@ -374,7 +367,7 @@ class TestRasterAuthCheck:
             test_db_session, created_by=admin_id, visibility="private"
         )
 
-        auth_header = await _get_auth_header(
+        auth_header = await get_auth_header(
             client,
             settings.geolens_admin_username,
             settings.geolens_admin_password.get_secret_value(),
@@ -559,7 +552,7 @@ class TestRasterAuthCheck:
             headers=admin_auth_header,
         )
         assert resp.status_code == 201
-        viewer_header = await _get_auth_header(client, username, password)
+        viewer_header = await get_auth_header(client, username, password)
 
         resp = await client.get(
             "/tiles/raster-auth-check/",
@@ -687,7 +680,7 @@ class TestRasterAuthRbacParity:
             test_db_session, created_by=admin_id, visibility="private"
         )
 
-        admin_auth_header = await _get_auth_header(
+        admin_auth_header = await get_auth_header(
             client,
             settings.geolens_admin_username,
             settings.geolens_admin_password.get_secret_value(),
@@ -700,7 +693,7 @@ class TestRasterAuthRbacParity:
             headers=admin_auth_header,
         )
         assert resp.status_code == 201
-        viewer_header = await _get_auth_header(client, username, password)
+        viewer_header = await get_auth_header(client, username, password)
 
         # Path A: inline RBAC in raster-auth-check
         auth_check_resp = await client.get(

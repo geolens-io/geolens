@@ -128,14 +128,6 @@ async def _cleanup_data_table(session, table_name: str) -> None:
     await session.commit()
 
 
-async def _get_auth_header(client: AsyncClient, username: str, password: str) -> dict:
-    resp = await client.post(
-        "/auth/login", data={"username": username, "password": password}
-    )
-    assert resp.status_code == 200, f"Login failed: {resp.text}"
-    return {"Authorization": f"Bearer {resp.json()['access_token']}"}
-
-
 # ---------------------------------------------------------------------------
 # SEC-01 regression tests
 # ---------------------------------------------------------------------------
