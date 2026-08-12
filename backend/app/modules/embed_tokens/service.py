@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import secrets
 import uuid
@@ -616,21 +617,44 @@ async def validate_embed_token_access(
         # carrying before it decided to commit, and every caller today is a
         # read path (features/router.py, tiles/router.py), but that would stop
         # being true the moment a write endpoint gates on an embed token.
-        from app.core.db import async_session
-
+        #
+        # Best-effort and bounded: authorization is already decided by this
+        # point, so the bump is pure telemetry — it must never turn an
+        # already-valid access into a timeout or 500. A side session needs its
+        # own pool checkout while the caller's connection is still held for
+        # the rest of this request; a burst of simultaneous cache-miss bumps
+        # (e.g. right after a cache flush) could contend for the pool the
+        # same way (codex review). The short timeout fails the bump fast
+        # instead of holding this call for the full pool checkout timeout,
+        # and a failure here — pool contention or anything else — is logged
+        # and swallowed rather than propagated.
         token_id = token.id
-        async with async_session() as side_session:
-            await side_session.execute(
-                sa_update(EmbedToken)
-                .where(EmbedToken.id == token_id)
-                .values(
-                    use_count=EmbedToken.use_count + 1,
-                    last_used_at=datetime.now(timezone.utc),
-                )
-            )
-            await side_session.commit()
+        try:
+            await asyncio.wait_for(_bump_embed_token_usage(token_id), timeout=3.0)
+        except Exception:  # broad: telemetry bump must never fail authorization
+            logger.warning("embed_token_usage_bump_failed", token_id=str(token_id))
 
     return True
+
+
+async def _bump_embed_token_usage(token_id: uuid.UUID) -> None:
+    """Increment use_count/last_used_at on a dedicated side session.
+
+    Split out so the timeout in ``validate_embed_token_access`` bounds the
+    whole checkout-execute-commit sequence, not just one step of it.
+    """
+    from app.core.db import async_session
+
+    async with async_session() as side_session:
+        await side_session.execute(
+            sa_update(EmbedToken)
+            .where(EmbedToken.id == token_id)
+            .values(
+                use_count=EmbedToken.use_count + 1,
+                last_used_at=datetime.now(timezone.utc),
+            )
+        )
+        await side_session.commit()
 
 
 async def list_admin_embed_tokens(
