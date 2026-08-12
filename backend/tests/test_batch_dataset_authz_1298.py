@@ -42,7 +42,7 @@ from app.modules.catalog.datasets.domain.service import get_dataset
 from app.processing.ingest.schemas import VrtCreateRequest
 from app.processing.ingest.service import create_vrt_job
 from app.processing.raster.models import RasterAsset
-from tests.factories import create_dataset
+from tests.factories import create_dataset, get_user_id
 
 
 # ---------------------------------------------------------------------------
@@ -58,7 +58,7 @@ async def _admin(session) -> User:
 
 
 async def _get_admin_id(session) -> uuid.UUID:
-    return (await _admin(session)).id
+    return await get_user_id(session, "admin")
 
 
 async def _make_editor(

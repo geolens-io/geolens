@@ -10,13 +10,13 @@ import hashlib
 import secrets
 import uuid
 
-from app.modules.auth.models import User
 from app.modules.catalog.maps.models import Map, MapShareToken
 from app.modules.catalog.maps.service_public import (
     _validate_share_token,
     create_share_token,
 )
-from sqlalchemy import select
+
+from tests.factories import get_user_id
 
 
 def _decoded_byte_length(urlsafe_b64: str) -> int:
@@ -31,13 +31,7 @@ def _decoded_byte_length(urlsafe_b64: str) -> int:
 
 
 async def _get_admin_id(session) -> uuid.UUID:
-    from app.core.config import settings
-
-    result = await session.execute(
-        select(User).where(User.username == settings.geolens_admin_username)
-    )
-    user = result.scalar_one()
-    return user.id
+    return await get_user_id(session, "admin")
 
 
 async def _create_map(session, *, created_by: uuid.UUID) -> Map:

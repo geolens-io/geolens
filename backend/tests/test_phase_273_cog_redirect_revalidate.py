@@ -10,13 +10,12 @@ import uuid
 from unittest.mock import AsyncMock, patch
 
 from httpx import AsyncClient
-from sqlalchemy import select
 
-from app.modules.auth.models import User
-from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.platform.security import SSRFError
 from app.processing.raster.models import RasterAsset
+
+from tests.factories import get_user_id
 
 
 # ---------------------------------------------------------------------------
@@ -25,10 +24,7 @@ from app.processing.raster.models import RasterAsset
 
 
 async def _get_admin_id(session) -> uuid.UUID:
-    result = await session.execute(
-        select(User).where(User.username == settings.geolens_admin_username)
-    )
-    return result.scalar_one().id
+    return await get_user_id(session, "admin")
 
 
 async def _create_remote_raster_dataset(

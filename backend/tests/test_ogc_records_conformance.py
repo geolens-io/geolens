@@ -19,9 +19,7 @@ from urllib.parse import urlparse
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
 
-from app.modules.auth.models import User
 from app.modules.catalog.collections.models import Collection
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
@@ -30,6 +28,8 @@ from app.modules.catalog.datasets.domain.models import (
     RecordKeyword,
 )
 
+from tests.factories import get_user_id
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -37,8 +37,7 @@ from app.modules.catalog.datasets.domain.models import (
 
 
 async def _get_admin_id(session) -> uuid.UUID:
-    result = await session.execute(select(User).where(User.username == "admin"))
-    return result.scalar_one().id
+    return await get_user_id(session, "admin")
 
 
 async def _create_dataset(

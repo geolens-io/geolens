@@ -1612,6 +1612,21 @@ def _test_db_lifecycle():
     `_skip_if_db_unavailable` then skips the DB-backed tests individually and
     everything else runs normally.
     """
+    # geolens_admin_username has no default (app/core/config.py) and this
+    # fixture seeds the ONE fixture admin user under whatever it resolves to
+    # (see _ensure_roles_and_admin below). Roughly 1,160 call sites across the
+    # suite assume that username is literally "admin" — ~1,082 through
+    # tests/factories.get_user_id(session, "admin") and ~79 that query the
+    # "admin" literal directly. If the env ever resolves it to something else,
+    # every one of those call sites fails individually with NoResultFound,
+    # scattered across the whole suite with no shared root cause. Assert it
+    # once, loudly, here instead.
+    assert settings.geolens_admin_username == "admin", (
+        "settings.geolens_admin_username must be 'admin' -- tests/factories."
+        "get_user_id and ~1,160 other call sites hardcode that username for "
+        "the fixture-seeded admin user. Check GEOLENS_ADMIN_USERNAME in the "
+        "test environment."
+    )
     global _db_unavailable_reason
     original_test_db_name = settings.postgres_db_test
     db_name = _worker_test_database_name(original_test_db_name)
