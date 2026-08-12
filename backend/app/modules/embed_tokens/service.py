@@ -609,16 +609,26 @@ async def validate_embed_token_access(
         return False
 
     if token is not None:
-        async with db.begin_nested():
-            await db.execute(
+        # Use a separate session so we don't commit the caller's request-scoped
+        # `db` from inside this authorization helper — mirrors _resolve_api_key's
+        # last_used_at bump in auth/dependencies.py. An early commit on `db`
+        # would persist whatever uncommitted state the caller's transaction was
+        # carrying before it decided to commit, and every caller today is a
+        # read path (features/router.py, tiles/router.py), but that would stop
+        # being true the moment a write endpoint gates on an embed token.
+        from app.core.db import async_session
+
+        token_id = token.id
+        async with async_session() as side_session:
+            await side_session.execute(
                 sa_update(EmbedToken)
-                .where(EmbedToken.id == token.id)
+                .where(EmbedToken.id == token_id)
                 .values(
                     use_count=EmbedToken.use_count + 1,
                     last_used_at=datetime.now(timezone.utc),
                 )
             )
-        await db.commit()
+            await side_session.commit()
 
     return True
 
