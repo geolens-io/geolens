@@ -2044,7 +2044,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # run_in_thread_draining through a small positional-only wrapper
     # (age_threshold_seconds is keyword-only on sweep_orphaned_exports, and
     # the helper only forwards *args). Cap 1362 -> 1386, exact.
-    "backend/app/api/main.py": 1386,
+    # +3 — one-line comment at the periodic call site stating why the two
+    # boot-time callers deliberately stay synchronous, so a future review
+    # round reads the asymmetry as intentional rather than a missed sibling.
+    # Cap 1386 -> 1389, exact.
+    "backend/app/api/main.py": 1389,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative

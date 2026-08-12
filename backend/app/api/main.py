@@ -437,7 +437,10 @@ async def lifespan(app: FastAPI):
                 # to sit until the next restart — sweep_orphaned_exports only
                 # ran once at boot (above) and once at worker boot (worker.py).
                 # It is idempotent and age-thresholded, so it is safe to run on
-                # every sweeper cycle too.
+                # every sweeper cycle too. The two boot-time callers deliberately
+                # stay synchronous — boot wants the sweep done before the app
+                # serves traffic, and nothing else contends for the loop yet;
+                # this caller threads it because it runs while the loop is live.
                 await _sweep_orphaned_exports_and_log(exports_dir, sweeper_log)
             except asyncio.CancelledError:
                 raise
